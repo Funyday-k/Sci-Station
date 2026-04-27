@@ -58,6 +58,12 @@ struct LibraryListView: View {
                     }
                     .width(70)
 
+                    TableColumn("Wiki") { paper in
+                        Text(appModel.paperWikiStatusText(for: paper, in: workspace))
+                            .foregroundStyle(appModel.paperHasWikiPage(paper, in: workspace) ? .primary : .secondary)
+                    }
+                    .width(90)
+
                     TableColumn("Tags") { paper in
                         Text(paper.tagsDisplay)
                             .lineLimit(2)
@@ -164,6 +170,7 @@ struct PaperInspectorView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             WorkspacePathRow(label: "Paper Folder", value: paper.directoryRelativePath)
                             WorkspacePathRow(label: "PDF", value: paper.pdfRelativePath ?? "-")
+                            WorkspacePathRow(label: "Raw Markdown", value: "paper.md")
                             WorkspacePathRow(label: "Summary Target", value: paper.notesSummaryRelativePath ?? "-")
                             WorkspacePathRow(label: "Workspace Root", value: workspace.rootURL.path)
                         }
@@ -174,12 +181,17 @@ struct PaperInspectorView: View {
                         Button("Discard", action: appModel.discardSelectedPaperChanges)
                         Button("Open PDF", action: appModel.openSelectedPaperPDF)
                             .disabled(!appModel.canOpenSelectedPaperPDF)
+                        Button(appModel.selectedPaperWikiButtonTitle, action: appModel.openOrGenerateSelectedPaperWikiPage)
                         Button("Save Metadata", action: appModel.saveSelectedPaperChanges)
                             .buttonStyle(.borderedProminent)
                     }
 
                     if appModel.isSavingSelectedPaper {
                         ProgressView("Saving meta.yaml…")
+                    }
+
+                    if appModel.isGeneratingWikiPage {
+                        ProgressView("Preparing wiki page…")
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
@@ -309,7 +321,7 @@ private struct LibraryEmptyStateView: View {
             Text(hasAnyPaper ? "No papers match the current search." : "No papers imported yet.")
                 .font(.title3)
                 .fontWeight(.semibold)
-            Text(hasAnyPaper ? "Change the search query or clear filters to see more results." : "Use Import PDF or drag a PDF into this view to create raw/papers/{paper-id}, meta.yaml, annotations.md, and a BibTeX stub.")
+            Text(hasAnyPaper ? "Change the search query or clear filters to see more results." : "Use Import PDF or drag a PDF into this view to create raw/papers/{paper-id}, paper.pdf, paper.md, meta.yaml, annotations.md, figures/, and a BibTeX stub.")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)

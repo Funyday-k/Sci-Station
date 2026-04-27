@@ -17,12 +17,11 @@ let package = Package(
                 "App",
                 "Assets.xcassets",
                 "ContentView.swift",
-                "Importer",
                 "PDF",
                 "Sci_StationApp.swift",
                 "UI"
             ],
-            sources: ["Workspace", "Library"],
+            sources: ["Workspace", "Library", "Importer", "Markdown", "Wiki"],
             swiftSettings: [
                 .unsafeFlags(["-default-isolation", "MainActor"])
             ]

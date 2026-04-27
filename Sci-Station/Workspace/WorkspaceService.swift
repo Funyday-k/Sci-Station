@@ -18,7 +18,31 @@ public actor WorkspaceService {
         }
 
         let workspace = ResearchWorkspace(rootURL: rootURL)
-        try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try ensureWorkspaceStructure(for: workspace)
+
+        try await persistBookmark(for: rootURL)
+        return try await openWorkspace(at: rootURL)
+    }
+
+    public func openWorkspace(at rootURL: URL) async throws -> ResearchWorkspace {
+        guard rootURL.isFileURL else {
+            throw WorkspaceError.invalidRootURL
+        }
+
+        let workspace = ResearchWorkspace(rootURL: rootURL)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw WorkspaceError.missingRequiredItems([rootURL.lastPathComponent])
+        }
+
+        try ensureWorkspaceStructure(for: workspace)
+
+        try await persistBookmark(for: rootURL)
+        return workspace
+    }
+
+    private func ensureWorkspaceStructure(for workspace: ResearchWorkspace) throws {
+        try fileManager.createDirectory(at: workspace.rootURL, withIntermediateDirectories: true)
 
         for relativePath in ResearchWorkspace.requiredDirectoryPaths {
             let directoryURL = workspace.directoryURL(for: relativePath)
@@ -31,27 +55,10 @@ public actor WorkspaceService {
                 continue
             }
 
+            let parentDirectoryURL = fileURL.deletingLastPathComponent()
+            try fileManager.createDirectory(at: parentDirectoryURL, withIntermediateDirectories: true)
             try Data(file.contents.utf8).write(to: fileURL, options: .atomic)
         }
-
-        try await persistBookmark(for: rootURL)
-        return try await openWorkspace(at: rootURL)
-    }
-
-    public func openWorkspace(at rootURL: URL) async throws -> ResearchWorkspace {
-        guard rootURL.isFileURL else {
-            throw WorkspaceError.invalidRootURL
-        }
-
-        let workspace = ResearchWorkspace(rootURL: rootURL)
-        let missingItems = workspace.missingRequiredItems(using: fileManager)
-
-        guard missingItems.isEmpty else {
-            throw WorkspaceError.missingRequiredItems(missingItems)
-        }
-
-        try await persistBookmark(for: rootURL)
-        return workspace
     }
 
     public func restoreLastWorkspace() async throws -> ResearchWorkspace? {

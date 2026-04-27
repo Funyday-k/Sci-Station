@@ -16,23 +16,35 @@ final class AppViewModel: ObservableObject {
     @Published var librarySearchText = ""
     @Published private(set) var isImportingPDF = false
     @Published private(set) var isSavingSelectedPaper = false
+    @Published private(set) var isGeneratingWikiPage = false
+    @Published private(set) var markdownDocuments: [MarkdownDocument] = []
+    @Published private(set) var selectedMarkdownID: String?
+    @Published private(set) var selectedMarkdownDraft: MarkdownDocument?
+    @Published private(set) var isSavingSelectedMarkdown = false
 
     private let workspaceService: WorkspaceService
     private let paperRepository: PaperRepository
     private let pdfImportService: PDFImportService
+    private let markdownRepository: MarkdownRepository
+    private let wikiPageGenerator: WikiPageGenerator
     private let pdfOpeningService: any PDFOpeningService
+    private var backlinkIndex = BacklinkIndex(documents: [])
 
     init(
         workspaceService: WorkspaceService? = nil,
         paperRepository: PaperRepository? = nil,
+        markdownRepository: MarkdownRepository? = nil,
         pdfOpeningService: (any PDFOpeningService)? = nil
     ) {
         let resolvedWorkspaceService = workspaceService ?? WorkspaceService()
         let resolvedPaperRepository = paperRepository ?? PaperRepository()
+        let resolvedMarkdownRepository = markdownRepository ?? MarkdownRepository()
 
         self.workspaceService = resolvedWorkspaceService
         self.paperRepository = resolvedPaperRepository
         self.pdfImportService = PDFImportService(repository: resolvedPaperRepository)
+        self.markdownRepository = resolvedMarkdownRepository
+        self.wikiPageGenerator = WikiPageGenerator(paperRepository: resolvedPaperRepository)
         self.pdfOpeningService = pdfOpeningService ?? SystemPDFOpeningService()
     }
 
@@ -59,6 +71,30 @@ final class AppViewModel: ObservableObject {
         return FileManager.default.fileExists(atPath: pdfURL.path)
     }
 
+    var selectedPaperHasWikiPage: Bool {
+        guard let currentWorkspace, let selectedPaperDraft else {
+            return false
+        }
+
+        return paperHasWikiPage(selectedPaperDraft, in: currentWorkspace)
+    }
+
+    var selectedPaperWikiButtonTitle: String {
+        selectedPaperHasWikiPage ? "Open Wiki Page" : "Generate Wiki Page"
+    }
+
+    var canSaveSelectedMarkdown: Bool {
+        currentWorkspace != nil && selectedMarkdownDraft != nil
+    }
+
+    var selectedMarkdownBacklinks: [MarkdownDocumentReference] {
+        guard let selectedMarkdownDraft else {
+            return []
+        }
+
+        return backlinkIndex.backlinks(for: selectedMarkdownDraft)
+    }
+
     func restoreLastWorkspaceIfNeeded() async {
         guard currentWorkspace == nil else {
             return
@@ -69,7 +105,7 @@ final class AppViewModel: ObservableObject {
             currentWorkspace = restoredWorkspace
 
             if let restoredWorkspace {
-                try await loadLibrary(in: restoredWorkspace, selecting: nil)
+                try await loadWorkspaceData(in: restoredWorkspace, selectingPaper: nil, selectingMarkdown: nil)
             }
         } catch {
             present(error)
@@ -111,7 +147,25 @@ final class AppViewModel: ObservableObject {
 
         Task {
             do {
-                try await loadLibrary(in: currentWorkspace, selecting: selectedPaperID)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: selectedPaperID,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func reloadWiki() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: selectedMarkdownID)
             } catch {
                 present(error)
             }
@@ -181,7 +235,11 @@ final class AppViewModel: ObservableObject {
 
             do {
                 let savedPaper = try await paperRepository.save(selectedPaperDraft, in: currentWorkspace)
-                try await loadLibrary(in: currentWorkspace, selecting: savedPaper.id)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: savedPaper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
             } catch {
                 present(error)
             }
@@ -202,6 +260,73 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func openOrGenerateSelectedPaperWikiPage() {
+        if selectedPaperHasWikiPage {
+            openSelectedPaperWikiPage()
+        } else {
+            generateSelectedPaperWikiPage()
+        }
+    }
+
+    func selectMarkdownDocument(id: String?) {
+        selectedMarkdownID = id
+        selectedMarkdownDraft = markdownDocuments.first(where: { $0.id == id })
+    }
+
+    func openMarkdownDocument(relativePath: String) {
+        selectedSection = .wiki
+
+        if markdownDocuments.contains(where: { $0.relativePath == relativePath }) {
+            selectMarkdownDocument(id: relativePath)
+            return
+        }
+
+        guard let currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: relativePath)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updateSelectedMarkdownContents(_ newValue: String) {
+        guard var draft = selectedMarkdownDraft else {
+            return
+        }
+
+        draft.rawContents = newValue
+        selectedMarkdownDraft = draft
+    }
+
+    func saveSelectedMarkdownChanges() {
+        guard let currentWorkspace, let selectedMarkdownDraft else {
+            return
+        }
+
+        isSavingSelectedMarkdown = true
+        Task {
+            defer {
+                isSavingSelectedMarkdown = false
+            }
+
+            do {
+                _ = try await markdownRepository.saveContents(
+                    selectedMarkdownDraft.rawContents,
+                    relativePath: selectedMarkdownDraft.relativePath,
+                    in: currentWorkspace
+                )
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: selectedMarkdownDraft.relativePath)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
     private func runWorkspaceTask(
         operation: @escaping @Sendable () async throws -> ResearchWorkspace
     ) {
@@ -215,7 +340,7 @@ final class AppViewModel: ObservableObject {
             do {
                 let workspace = try await operation()
                 currentWorkspace = workspace
-                try await loadLibrary(in: workspace, selecting: nil)
+                try await loadWorkspaceData(in: workspace, selectingPaper: nil, selectingMarkdown: nil)
                 if selectedSection == nil {
                     selectedSection = .library
                 }
@@ -245,12 +370,61 @@ final class AppViewModel: ObservableObject {
                     into: workspace,
                     existingPapers: existingPapers
                 )
-                try await loadLibrary(in: workspace, selecting: importedPaper.id)
+                try await loadWorkspaceData(
+                    in: workspace,
+                    selectingPaper: importedPaper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
                 selectedSection = .library
             } catch {
                 present(error)
             }
         }
+    }
+
+    private func generateSelectedPaperWikiPage() {
+        guard let currentWorkspace, let selectedPaperDraft else {
+            return
+        }
+
+        isGeneratingWikiPage = true
+        Task {
+            defer {
+                isGeneratingWikiPage = false
+            }
+
+            do {
+                let result = try await wikiPageGenerator.generatePaperWikiPage(
+                    for: selectedPaperDraft,
+                    in: currentWorkspace
+                )
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: result.paper.id,
+                    selectingMarkdown: currentWorkspace.relativePath(to: result.fileURL)
+                )
+                selectedSection = .wiki
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    private func openSelectedPaperWikiPage() {
+        guard let currentWorkspace, let selectedPaperDraft else {
+            return
+        }
+
+        openMarkdownDocument(relativePath: currentWorkspace.relativePath(to: wikiPageURL(for: selectedPaperDraft, in: currentWorkspace)))
+    }
+
+    private func loadWorkspaceData(
+        in workspace: ResearchWorkspace,
+        selectingPaper paperID: Paper.ID?,
+        selectingMarkdown markdownID: String?
+    ) async throws {
+        try await loadLibrary(in: workspace, selecting: paperID)
+        try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
     }
 
     private func loadLibrary(in workspace: ResearchWorkspace, selecting paperID: Paper.ID?) async throws {
@@ -260,6 +434,32 @@ final class AppViewModel: ObservableObject {
         let nextSelectionID = paperID ?? selectedPaperID ?? loadedPapers.first?.id
         selectedPaperID = nextSelectionID
         selectedPaperDraft = loadedPapers.first(where: { $0.id == nextSelectionID })
+    }
+
+    private func loadMarkdownDocuments(in workspace: ResearchWorkspace, selecting markdownID: String?) async throws {
+        let loadedDocuments = try await markdownRepository.loadDocuments(in: workspace)
+        markdownDocuments = loadedDocuments
+        backlinkIndex = BacklinkIndex(documents: loadedDocuments)
+
+        let nextSelectionID = markdownID ?? selectedMarkdownID ?? loadedDocuments.first?.id
+        selectedMarkdownID = nextSelectionID
+        selectedMarkdownDraft = loadedDocuments.first(where: { $0.id == nextSelectionID })
+    }
+
+    func paperHasWikiPage(_ paper: Paper, in workspace: ResearchWorkspace) -> Bool {
+        FileManager.default.fileExists(atPath: wikiPageURL(for: paper, in: workspace).path)
+    }
+
+    func paperWikiStatusText(for paper: Paper, in workspace: ResearchWorkspace) -> String {
+        paperHasWikiPage(paper, in: workspace) ? "Ready" : "Missing"
+    }
+
+    private func wikiPageURL(for paper: Paper, in workspace: ResearchWorkspace) -> URL {
+        if let summaryURL = paper.summaryURL(in: workspace) {
+            return summaryURL
+        }
+
+        return workspace.fileURL(for: "wiki/papers/\(paper.citekey).md")
     }
 
     private static func selectCreateWorkspaceURL() -> URL? {

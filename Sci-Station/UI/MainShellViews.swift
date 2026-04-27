@@ -30,6 +30,8 @@ struct WorkspaceContentView: View {
             if let workspace {
                 if selectedSection == .library {
                     LibraryListView(workspace: workspace)
+                } else if selectedSection == .wiki {
+                    WikiWorkspaceView(workspace: workspace)
                 } else {
                     WorkspaceSectionOverview(
                         workspace: workspace,
@@ -94,8 +96,8 @@ struct WorkspaceSectionOverview: View {
 
                 GroupBox("MVP Status") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Step 1 is now focused on workspace creation, validation, and recent workspace restore.")
-                        Text("The next slice will add paper models, meta.yaml read/write, and PDF import into raw/papers.")
+                        Text("当前优先级已经切到 Markdown 知识闭环：导入论文后补齐 paper.md、生成 wiki/papers 模板，并在应用内编辑知识页。")
+                        Text("Wiki Inspector 已支持 frontmatter、outgoing links 和 backlinks。Graph、LLM Provider 和更深的 PDF 联动仍在后续阶段。")
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,6 +120,8 @@ struct WorkspaceInspectorView: View {
             if let workspace {
                 if selectedSection == .library {
                     PaperInspectorView(workspace: workspace)
+                } else if selectedSection == .wiki {
+                    WikiInspectorView(workspace: workspace)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {

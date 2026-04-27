@@ -1,10 +1,10 @@
 import Foundation
 import PDFKit
 
-enum PDFImportError: LocalizedError {
+public enum PDFImportError: LocalizedError {
     case unsupportedFileType
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .unsupportedFileType:
             return "Only PDF files can be imported."
@@ -12,11 +12,11 @@ enum PDFImportError: LocalizedError {
     }
 }
 
-actor PDFImportService {
+public actor PDFImportService {
     private let fileManager: FileManager
     private let repository: PaperRepository
 
-    init(
+    public init(
         fileManager: FileManager = .default,
         repository: PaperRepository
     ) {
@@ -24,7 +24,7 @@ actor PDFImportService {
         self.repository = repository
     }
 
-    func importPDF(
+    public func importPDF(
         from sourceURL: URL,
         into workspace: ResearchWorkspace,
         existingPapers: [Paper]
@@ -64,6 +64,14 @@ actor PDFImportService {
         let normalizedPDFURL = paperDirectoryURL.appendingPathComponent("paper.pdf", isDirectory: false)
         try fileManager.moveItem(at: stagedPDFURL, to: normalizedPDFURL)
 
+        let figuresURL = paperDirectoryURL.appendingPathComponent("figures", isDirectory: true)
+        try fileManager.createDirectory(at: figuresURL, withIntermediateDirectories: true)
+
+        let paperMarkdownURL = paperDirectoryURL.appendingPathComponent("paper.md", isDirectory: false)
+        if !fileManager.fileExists(atPath: paperMarkdownURL.path) {
+            try rawPaperTemplate(citekey: citekey).write(to: paperMarkdownURL, atomically: true, encoding: .utf8)
+        }
+
         let annotationsURL = paperDirectoryURL.appendingPathComponent("annotations.md", isDirectory: false)
         if !fileManager.fileExists(atPath: annotationsURL.path) {
             try "# Annotations\n\n".write(to: annotationsURL, atomically: true, encoding: .utf8)
@@ -96,6 +104,26 @@ actor PDFImportService {
         let savedPaper = try await repository.save(paper, in: workspace)
         try await repository.appendBibliographyStub(for: savedPaper, in: workspace)
         return savedPaper
+    }
+
+    private func rawPaperTemplate(citekey: String) -> String {
+        """
+        ---
+        type: raw-paper
+        citekey: \(citekey)
+        source_pdf: paper.pdf
+        status: not_extracted
+        ---
+
+        # Raw Text
+
+        PDF text has not been extracted yet.
+
+        ## Extraction Notes
+
+        - Source: paper.pdf
+        - Method: pending
+        """
     }
 
     private func uniqueFileURL(in directoryURL: URL, preferredFileName: String) -> URL {

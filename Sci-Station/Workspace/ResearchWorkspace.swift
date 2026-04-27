@@ -19,6 +19,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         "wiki/gaps",
         "wiki/projects",
         "refs",
+        "refs/csl",
         "prompts",
         "scripts",
         "code",
@@ -33,6 +34,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         SeededFile(
             relativePath: "refs/library.bib",
             contents: "% Sci-Station bibliography\n"
+        ),
+        SeededFile(
+            relativePath: "researchflow.sqlite",
+            contents: ""
         )
     ]
 
@@ -82,6 +87,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
 
     public nonisolated var libraryBibURL: URL {
         fileURL(for: "refs/library.bib")
+    }
+
+    public nonisolated var researchFlowDatabaseURL: URL {
+        fileURL(for: "researchflow.sqlite")
     }
 
     public nonisolated func directoryURL(for relativePath: String) -> URL {

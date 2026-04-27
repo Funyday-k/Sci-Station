@@ -4,326 +4,353 @@
 
 ## 1. 文档目的
 
-这份任务书基于当前代码实现和原始提案整理，目标是回答四件事：
+这份任务书基于当前代码状态、原始 Proposal 和本轮审阅意见整理，目标是明确三件事：
 
-1. 上一步已经完成了什么。
-2. 现有实现与预期相比还有哪些差距。
-3. 下一步应该优先补哪些能力。
-4. 如果继续推进，完整的阶段框架应该怎么排。
+1. 这一轮实际上已经完成了什么。
+2. 当前还缺什么，阻碍下一阶段价值闭环。
+3. 接下来最合理的开发顺序是什么。
 
-## 2. 上一步已完成内容
+## 2. 当前阶段结论
 
-当前代码已经完成了 MVP 的基础底座和论文导入主链路，具体包括以下部分。
+本轮已经把任务重点从“纯 PDF + YAML 管理”推进到了“最小 Markdown 知识闭环”。
 
-### 2.1 工作区基础能力
+现在系统已经具备以下主链路：
 
-- 已完成 ResearchWorkspace 值模型设计。
-- 已完成工作区目录结构初始化和缺失项校验。
-- 已完成 create/open/restore recent workspace 流程。
-- 已完成最近工作区 bookmark 持久化。
-- 已完成 Finder 快速定位当前工作区。
+1. 创建或打开工作区。
+2. 自动补齐工作区缺失结构。
+3. 导入 PDF 并生成论文目录。
+4. 为论文生成 paper.md 原始 Markdown 占位页。
+5. 为论文生成 wiki/papers/{citekey}.md 知识页模板。
+6. 在应用内浏览、编辑、保存 wiki Markdown。
+7. 解析 frontmatter、wikilink 和 backlinks。
 
-### 2.2 应用主界面骨架
+因此，Sci-Station 当前已经不再只是本地 PDF 管理器，而是完成了知识页落地的第一版底座。下一步不应再回头补同一层，而应进入 LLM 总结闭环和导入质量补强。
 
-- 已完成 SwiftUI 三栏主界面。
-- 已完成 Sidebar、Content、Inspector 的分层组织。
-- 已完成空工作区状态和加载状态展示。
-- 已完成工具栏动作接线。
+## 3. 本轮已完成内容
 
-### 2.3 论文与本地文件模型
+### 3.1 工作区结构补齐
 
-- 已完成 Paper 数据模型。
-- 已完成 ReadingStatus 和 Priority 枚举。
-- 已完成 citekey 和 paper id 生成逻辑。
-- 已完成 meta.yaml 的轻量编解码。
-- 已完成 PaperRepository 的保存与加载逻辑。
-- 已完成 refs/library.bib 的基础 BibTeX stub 追加逻辑。
+- 已补齐 refs/csl 目录。
+- 已补齐 researchflow.sqlite 占位文件。
+- 已将 createWorkspace 和 openWorkspace 统一到 ensureWorkspaceStructure 逻辑。
+- 已支持打开旧工作区时自动补齐缺失目录和种子文件，而不是直接报错。
 
-### 2.4 PDF 导入链路
+### 3.2 论文导入输出结构补齐
 
-- 已完成 PDF 选择导入。
-- 已完成拖拽 PDF 导入。
-- 已完成 PDF 标题、作者、年份的基础识别。
-- 已完成导入后创建 raw/papers/{paper-id} 目录。
-- 已完成 paper.pdf、meta.yaml、annotations.md 的生成。
-- 已完成导入后刷新论文库并选中当前论文。
+- 已保留原有 paper.pdf、meta.yaml、annotations.md 生成能力。
+- 已新增 paper.md 模板生成。
+- 已新增 figures/ 空目录生成。
+- 已保留导入后写入 summary_file 目标路径的逻辑。
 
-### 2.5 界面侧的论文管理
+导入后每篇论文目录现在为：
 
-- 已完成 Library Table 展示。
-- 已完成按标题、作者、标签、citekey 搜索。
-- 已完成 Paper Inspector 元数据编辑。
-- 已完成保存元数据和用系统默认方式打开 PDF。
+```text
+raw/papers/{paper-id}/
+├── paper.pdf
+├── paper.md
+├── meta.yaml
+├── annotations.md
+└── figures/
+```
 
-### 2.6 基础验证
+### 3.3 Wiki 页面生成器
 
-- 已完成 SwiftPM Core Test Runner。
-- 已验证工作区创建正确。
-- 已验证 citekey 生成正确。
-- 已验证 meta.yaml 编解码往返正确。
-- 已验证 Repository 保存和读取往返正确。
-- 已确认 Xcode App target 可正常构建。
+- 已新增 WikiPageGenerator。
+- 已支持为选中文章生成 wiki/papers/{citekey}.md。
+- 已在生成后把 notes.summary_file 回写到 meta.yaml。
+- 已在文件已存在时返回 alreadyExists，而不是静默覆盖。
 
-## 3. 当前实现审阅
+### 3.4 Markdown 模块最小闭环
 
-下面是基于当前代码和 Proposal 的审阅意见，分为“做得对的地方”和“需要修正的地方”。
+- 已新增 MarkdownDocument。
+- 已新增 FrontmatterParser。
+- 已新增 WikiLinkParser。
+- 已新增 BacklinkIndex。
+- 已新增 MarkdownRepository。
+- 已支持扫描 wiki/ 下全部 Markdown 页面。
+- 已支持打开、编辑、保存 Markdown 文件。
+- 已支持解析 YAML frontmatter。
+- 已支持解析 [[wikilink]]。
+- 已支持统计当前页面的 backlinks。
 
-### 3.1 做得对的地方
+### 3.5 UI 与状态文案更新
 
-- 路线正确：已经坚持文件系统优先，没有把关键数据锁进私有数据库。
-- 架构合理：Workspace、Library、Importer、PDF、UI 的职责边界比较清楚。
-- 并发处理稳妥：在 Swift 6 严格并发设置下已经完成了 isolation 收敛。
-- MVP 价值清晰：用户已经可以创建工作区、导入论文、管理 meta.yaml。
-- 验证意识较好：即使没有 XCTest 环境，也补了独立运行的验证器。
+- Wiki section 已不再是占位页。
+- 已新增 WikiWorkspaceView。
+- 已新增 MarkdownPageListView。
+- 已新增 MarkdownEditorView。
+- 已新增 WikiInspectorView。
+- Library 已新增 Wiki 状态列。
+- Paper Inspector 已新增 Generate Wiki Page / Open Wiki Page 按钮。
+- WorkspaceSectionOverview 的过期文案已更新为当前真实能力。
 
-### 3.2 需要修正或补齐的地方
+### 3.6 验证补强
 
-#### A. 与原提案相比仍有结构缺口
+- SwiftPM Core Test Runner 已新增工作区补齐检查。
+- 已新增 PDFImportService 输出结构检查。
+- 已新增 WikiPageGenerator 路径、模板和防覆盖检查。
+- 已新增 FrontmatterParser 检查。
+- 已新增 WikiLinkParser 检查。
+- 已新增 BacklinkIndex 检查。
+- 已新增 MarkdownRepository 读写检查。
+- Xcode App target 构建已通过。
 
-- 当前工作区还没有创建 refs/csl。
-- 当前工作区还没有 researchflow.sqlite 占位或索引层设计。
-- 每篇论文目录目前没有生成 paper.md。
-- 每篇论文目录目前没有生成 figures/。
+## 4. 当前还缺什么
 
-#### B. 导入链路还不完整
+虽然 Markdown 知识闭环已经落地，但产品价值闭环还没有完成，主要缺口集中在下面几项。
 
-- 目前只提取 title、author、year，缺少 doi、venue、arXiv、url 等信息补全机制。
-- 导入后虽然写入了 summary 路径，但还没有实际创建 wiki/papers 页面。
-- inbox 当前更像临时中转站，是否要保留原文件痕迹，需要在产品层面明确。
+### 4.1 LLM 闭环仍未开始
 
-#### C. UI 还有状态未同步
+当前已经有了 paper.md 和 wiki 页面，但还没有：
 
-- 部分界面文案还停留在“下一步要做论文模型和导入”的旧描述，需要更新为当前真实状态。
-- 当前侧边栏已有很多 section，但除了 Library 外，大多数还只是占位视图。
+- LLMProvider 协议。
+- OllamaProvider。
+- OpenAI-compatible Provider。
+- Prompt 构造。
+- 论文总结动作入口。
+- 结果预览、确认写回和状态更新。
 
-#### D. PDF 能力仍是最小实现
+这意味着系统已经具备“知识页容器”，但还没有“AI 总结引擎”。
 
-- Sioyek / Skim 只是协议预留，尚未落地命令调用或 URL scheme。
-- 还没有内置 PDF 预览页。
-- 还没有页码跳转、注释定位、文献阅读上下文联动。
+### 4.2 导入质量仍然偏浅
 
-#### E. 测试覆盖仍然偏窄
+当前导入仍主要依赖 PDFKit 和文件名，只能稳定得到：
 
-- 当前验证只覆盖 Workspace / Library 核心路径。
-- PDFImportService 缺少独立验证。
-- UI 层和 AppViewModel 层缺少行为验证。
-- 还没有围绕真实样本 PDF 的集成测试。
+- title
+- authors
+- year
 
-## 4. 修改意见
+仍缺：
 
-以下修改意见建议尽快处理，因为它们直接影响下一步能力扩展。
+- doi
+- venue
+- arXiv
+- url
+- abstract
+- keywords
+- semantic scholar / crossref 补全接口
 
-1. 先把 README 和状态文案同步到当前实现，避免文档和界面误导。
-2. 在导入论文时补建 paper.md 和 figures/，让文件结构先与 Proposal 靠拢。
-3. 增加 wiki/papers 页面生成器，至少先生成基础 Markdown 模板。
-4. 把 PaperRepository 和 PDFImportService 的测试再补一层更真实的样本验证。
-5. 明确 inbox 的职责，是临时缓冲区还是长期待处理区。
-6. 为外部 PDF 阅读器集成预留配置项，而不是只保留空实现。
-7. 更新 WorkspaceSectionOverview 中的 MVP 文案，避免出现过期描述。
+这会直接影响后续 BibTeX 质量、搜索质量和 LLM Prompt 质量。
+
+### 4.3 Markdown 仍是最小编辑器
+
+当前版本已经足够用于验证链路，但还缺少：
+
+- 预览模式或双栏模式。
+- 未保存状态提示。
+- 基于链接目标的直接跳转建议。
+- 对不存在链接页面的创建入口。
+- 更细的编辑体验优化。
+
+这些不是当前最高优先级，但属于下一阶段的自然补强项。
+
+### 4.4 PDF 联动仍然停留在最小实现
+
+目前仍只有系统默认方式打开 PDF。
+
+还没有：
+
+- Sioyek / Skim 的真实调用。
+- 跳页。
+- 注释回链。
+- 内置 PDF 预览。
+
+### 4.5 搜索与索引仍未开始
+
+researchflow.sqlite 目前只是占位文件，尚未承担真实索引职责。
+
+因此当前仍缺：
+
+- 面向 meta.yaml 的统一索引。
+- 面向 wiki/*.md 的全文索引。
+- 跨论文与知识页的统一搜索。
 
 ## 5. 下一步建议优先级
 
-如果只做一条主线，我建议优先级如下。
+当前优先级应从“Markdown 知识库优先”正式切换到下面这组顺序：
 
-1. Markdown 知识库闭环。
-2. LLM 总结闭环。
-3. 导入质量和测试补强。
-4. 搜索与索引。
-5. PDF 阅读器深度联动。
-6. VSCode / VSCodium 联动。
+1. LLM 总结闭环。
+2. 导入质量和测试补强。
+3. 搜索与索引。
+4. PDF 阅读器真实联动。
+5. VSCode / VSCodium 联动。
+6. 图谱可视化。
 
-原因很直接：只有先把“论文 -> 知识页 -> 再利用”跑通，Sci-Station 才会真正区别于单纯的 PDF 管理工具。
+原因很直接：Markdown 承载层已经到位，下一步最有价值的不是继续堆 Markdown 基础设施，而是让 LLM 真正把论文内容写回知识页。
 
-## 6. 下一阶段完整框架
-
-下面给出建议的阶段式框架，便于你判断下一步想先完善哪个方向。
-
-### 阶段 A：Markdown 知识库与 wiki 页面
-
-目标：让论文导入后不只停留在 meta.yaml，而是能真正形成知识页面。
-
-本阶段建议交付：
-
-- 新增 Markdown 模块。
-- 扫描 wiki/ 目录并建立页面列表。
-- 支持 Markdown 基础浏览。
-- 支持简单编辑或双栏编辑预览。
-- 支持 YAML frontmatter 读取。
-- 支持 paper summary 模板生成。
-- 支持基本 wikilink 解析。
-- 支持 backlink 基础统计。
-
-验收标准：
-
-- 导入一篇论文后，可以一键生成 wiki/papers/{citekey}.md。
-- 用户能在应用内打开和编辑该页面。
-- 至少能显示 frontmatter、正文、wikilink 跳转入口。
+## 6. 下一轮建议开发范围
 
 ### 阶段 B：LLM 能力接入
 
-目标：形成“导入 PDF -> 摘要生成 -> 写入 wiki”的核心闭环。
+目标：形成“导入 PDF -> 读取 paper.md / wiki page -> 生成总结 -> 写回 wiki”的核心闭环。
 
 本阶段建议交付：
 
 - 定义 LLMProvider 协议。
-- 接入 OllamaProvider。
-- 接入 OpenAICompatibleProvider。
-- 定义消息模型、任务模型、流式响应模型。
-- 定义 Prompt 模板管理方式。
-- 实现论文总结任务。
-- 将结果写入 wiki/papers 页面。
+- 先接 OllamaProvider。
+- 再接 OpenAICompatibleProvider。
+- 定义聊天请求、响应和错误模型。
+- 定义论文总结 Prompt Builder。
+- 支持从 Library 触发 Summarize with LLM。
+- 在写回 wiki 前提供预览与确认。
+- 生成完成后更新 paper status 或 summary 状态。
 
 验收标准：
 
-- 用户能从界面触发一次 Summarize with LLM。
-- 能看到请求中的模型、提示词、上下文来源。
-- 能将生成结果稳定写回 Markdown 页面。
+- 用户能从选中的论文触发一次总结。
+- 系统会读取 meta.yaml、paper.md 和已有 wiki 页面。
+- 用户能看到生成结果预览。
+- 用户确认后结果写回 wiki/papers/{citekey}.md。
 
-### 阶段 C：搜索与索引
+### 阶段 C：导入质量与元数据补全
 
-目标：让 Sci-Station 具备从“文件堆”进入“可检索知识库”的能力。
+目标：让导入信息不再只停留在 title / author / year。
 
 本阶段建议交付：
 
-- 建立 researchflow.sqlite 或等价索引层。
-- 对 meta.yaml 和 wiki/*.md 建立索引。
-- 先做标题、作者、标签、摘要检索。
-- 再做全文检索和简单排序。
-- 为后续 graph/backlink 展示打基础。
+- 增加 DOI、venue、arXiv、url 字段补全入口。
+- 优先考虑 Crossref、arXiv 或 Semantic Scholar 补全策略。
+- 增加 paper.md 内容为空时的合理降级处理。
+- 针对重复导入、弱元数据 PDF、损坏 PDF 补错误路径验证。
 
 验收标准：
 
-- 用户输入关键词后，可同时命中文献信息与知识页正文。
-- 索引可以从文件系统重建。
+- 至少一种补全路径可稳定写回 meta.yaml。
+- 失败场景有清晰错误提示。
+- LLM Prompt 能使用更完整的 metadata。
 
-### 阶段 D：PDF 阅读体验增强
+### 阶段 D：搜索与索引
 
-目标：把 PDF 阅读体验从“能打开”提升到“能联动研究流程”。
+目标：把已有论文库和 wiki 页面变成真正可检索的知识库。
 
 本阶段建议交付：
 
-- 接入 Sioyek 或 Skim 的真实打开逻辑。
-- 支持跳页。
-- 支持从论文记录跳转 PDF。
-- 支持从 future note / annotation 反向定位回 PDF。
-- 视情况补一个内置 PDFKit 预览器。
+- 为 meta.yaml 和 wiki/*.md 建立统一索引。
+- 先支持标题、作者、标签、摘要检索。
+- 再支持全文搜索。
+- 明确 researchflow.sqlite 的真实职责。
 
-验收标准：
+### 阶段 E：PDF 阅读器联动
 
-- 用户可选择 PDF 打开方式。
-- 至少一种外部阅读器可稳定调用。
-
-### 阶段 E：VSCode / VSCodium 联动
-
-目标：打通 Markdown、Prompt、Code、论文写作之间的外部编辑链路。
+目标：把阅读动作接回研究流程，而不是只做系统打开。
 
 本阶段建议交付：
 
-- 打开当前工作区到 VSCode / VSCodium。
-- 从应用内一键打开某个 wiki 页面或 prompts 文件。
-- 预留命令面板或设置项用于指定编辑器路径。
-- 处理不存在安装路径时的错误提示。
+- 接入 Sioyek 或 Skim 的真实打开命令。
+- 增加阅读器配置入口。
+- 支持最小跳页能力。
+- 对打开失败给出可理解提示。
 
-验收标准：
+## 7. 我建议下一轮直接做什么
 
-- 用户能从 Sci-Station 中把当前页面送到 VSCode 打开。
-- code / prompts / wiki 三类目录可快速跳转。
+如果只选一个任务包，我建议下一轮直接做下面这组：
 
-### 阶段 F：工程化与质量补强
-
-目标：避免功能越写越多后难以维护。
-
-本阶段建议交付：
-
-- 扩大测试覆盖。
-- 为导入、搜索、LLM、Markdown 分别补行为验证。
-- 整理设置模块。
-- 明确错误类型和用户提示。
-- 对长任务增加更稳定的状态管理。
-- 统一日志与诊断信息输出。
-
-验收标准：
-
-- 核心链路至少都有自动化验证。
-- 常见失败场景都有可理解的错误提示。
-
-## 7. 推荐的具体下一步任务
-
-如果希望下一轮开发直接进入高价值区间，建议采用下面这组任务包。
-
-### 方案 1：知识库优先
-
-适合目标：尽快看到“科研工作站”的核心差异化。
+### 方案 1：LLM 闭环优先
 
 建议任务：
 
-- 新增 Markdown 模块。
-- 导入后自动生成 paper.md 和 wiki/papers 页面模板。
-- 做 wikilink 和 backlink 最小闭环。
+- 定义 LLMProvider 协议。
+- 实现 OllamaProvider。
+- 实现 OpenAICompatibleProvider。
+- 新增 Summarize with LLM 动作。
+- 新增 Prompt Builder。
+- 新增生成结果预览与确认写回。
 
-### 方案 2：LLM 闭环优先
+这是当前最应该做的一步，因为 Markdown 落点已经存在，再不接 LLM，知识页就仍然主要是人工模板。
 
-适合目标：尽快验证 AI 辅助科研的核心体验。
-
-建议任务：
-
-- 做 OllamaProvider。
-- 做论文总结 Prompt。
-- 做总结结果写回 wiki/papers。
-
-### 方案 3：导入与文献管理优先
-
-适合目标：先把 PDF 和文献管理打磨扎实。
+### 方案 2：导入质量优先
 
 建议任务：
 
-- 完善 PDF 元数据提取。
-- 增加 DOI / arXiv / URL / venue 补全入口。
-- 接入 Sioyek / Skim。
-- 完善 annotations 与 paper.md 的生成。
+- 补 doi / venue / arXiv / url。
+- 优化 paper.md 原文提取策略。
+- 增加更真实的导入失败测试。
 
-### 方案 4：搜索与图谱优先
+适合在 LLM 之前做，前提是你更关注输入质量而不是先看到 AI 闭环。
 
-适合目标：让已有论文和知识页更容易被重新利用。
-
-建议任务：
-
-- 建索引数据库。
-- 做统一搜索。
-- 做 backlink 和 graph 数据准备。
-
-### 方案 5：工程质量优先
-
-适合目标：在继续扩功能前先把底层稳住。
+### 方案 3：搜索优先
 
 建议任务：
 
-- 扩充测试。
-- 清理占位文案。
-- 统一错误处理。
-- 统一设置和依赖注入。
+- 建索引。
+- 做统一搜索入口。
+- 支持从搜索结果跳回论文或 wiki 页面。
 
-## 8. 我建议你优先考虑的方向
+适合在 LLM 接入之后做，因为届时知识页内容会更丰富，搜索收益更高。
 
-如果你希望产品尽快具备“像一个真正科研工作站”的感觉，我建议优先顺序是：
+## 8. 推荐的实际开发顺序
 
-1. 方案 1：知识库优先。
-2. 方案 2：LLM 闭环优先。
-3. 方案 3：导入与文献管理优先。
+推荐顺序如下：
 
-如果你希望先打稳底层，再继续扩展，则建议先做：
+1. 先做 LLMProvider 和 Summarize with LLM。
+2. 再做 metadata 补全和导入质量提升。
+3. 然后做搜索与索引。
+4. 再补 PDF 阅读器真实联动。
+5. 最后再做 VSCode / VSCodium 联动和图谱可视化。
 
-1. 方案 5：工程质量优先。
-2. 方案 3：导入与文献管理优先。
-3. 方案 1：知识库优先。
+## 9. 可直接给 AI 编程助手的下一步指令
 
-## 9. 你可以如何给出下一步指令
+下面这段可以直接用于下一轮开发：
 
-你可以直接按下面任一种方式继续：
+```markdown
+请继续开发 Sci-Station 的下一阶段功能。本阶段目标是完成 LLM 总结闭环，并建立可确认写回的总结流程。
 
-- 选择一个方案编号，例如“先做方案 1”。
-- 指定一个阶段，例如“先做阶段 A，再做阶段 B”。
-- 指定一个功能包，例如“先补 paper.md、wiki/papers 页面和 wikilink”。
-- 指定一个工程方向，例如“先补测试和错误处理”。
+当前项目已经完成：
+1. 工作区创建、打开和最近工作区恢复。
+2. 工作区缺失目录自动补齐，包括 refs/csl 和 researchflow.sqlite 占位。
+3. Paper 模型、citekey / paper id 生成、meta.yaml 编解码、PaperRepository 保存与加载。
+4. PDF 导入，并生成 raw/papers/{paper-id}/paper.pdf、paper.md、meta.yaml、annotations.md、figures/。
+5. WikiPageGenerator，可生成 wiki/papers/{citekey}.md，并更新 meta.yaml 中 notes.summary_file。
+6. Markdown 模块，包括 MarkdownDocument、MarkdownRepository、FrontmatterParser、WikiLinkParser、BacklinkIndex。
+7. 应用内 Wiki 页面列表、Markdown 编辑器、frontmatter / outgoing links / backlinks Inspector。
+8. Library 中的 Generate Wiki Page / Open Wiki Page 按钮。
+9. Core Test Runner 对工作区补齐、PDFImportService、WikiPageGenerator、FrontmatterParser、WikiLinkParser、BacklinkIndex、MarkdownRepository 的验证。
 
-如果要我给出更具体的执行计划，下一轮我可以直接把你选中的方向拆成可开发的任务列表、模块边界、验收标准和建议实现顺序。
+下一阶段请按以下顺序实现。
+
+第一步：定义 LLMProvider 抽象
+- 新增 LLMProvider 协议。
+- 新增请求、响应、错误和模型配置结构。
+- 第一阶段只支持非流式 complete 接口即可。
+
+第二步：接入两个 Provider
+- 实现 OllamaProvider。
+- 实现 OpenAICompatibleProvider。
+- 支持 Base URL、Model、API Key 配置。
+
+第三步：实现论文总结任务
+- 从选中的 Paper 读取 meta.yaml。
+- 读取 raw/papers/{paper-id}/paper.md。
+- 读取已有 wiki/papers/{citekey}.md。
+- 构造论文总结 Prompt。
+- 返回结构化 Markdown 结果。
+
+第四步：实现写回前预览
+- 用户点击 Summarize with LLM 后，不要直接覆盖 wiki 页面。
+- 先显示生成结果预览。
+- 用户确认后才写回 wiki/papers/{citekey}.md。
+- 写回后更新 paper 的相关状态。
+
+第五步：更新 UI
+- Library Inspector 中增加 Summarize with LLM 按钮。
+- Settings 或 LLM Lab 中增加 Provider 配置入口。
+- 显示当前 Provider、Model 和错误信息。
+
+第六步：补测试
+- LLM Prompt Builder 是否包含 metadata、paper.md 和已有 wiki 内容。
+- 空 paper.md 或缺失 wiki 页面时是否走合理降级逻辑。
+- 生成结果写回前是否必须显式确认。
+
+代码质量要求：
+1. 保持文件系统为真实数据源。
+2. UI 不阻塞主线程。
+3. 长任务全部使用 async/await。
+4. 不允许无提示静默覆盖用户已有 wiki 内容。
+5. Provider、Prompt、写回流程要职责清晰。
+```
+
+## 10. 最终建议
+
+当前阶段已经完成了文档审阅中要求的第一优先级，也就是 Markdown 知识库闭环。接下来不建议再围绕 Markdown 基础设施继续横向扩展，而应直接进入“Summarize with LLM -> 预览确认 -> 写回 wiki”这条主线。
+
+只有这条链路打通，Sci-Station 才会从“可整理论文”变成“可编译知识”的科研工作站。

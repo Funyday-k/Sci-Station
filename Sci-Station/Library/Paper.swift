@@ -40,37 +40,51 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         self.annotationsRelativePath = annotationsRelativePath
     }
 
-    public var displayTitle: String {
+    public nonisolated var displayTitle: String {
         title.isEmpty ? id : title
     }
 
-    public var authorsDisplay: String {
+    public nonisolated var authorsDisplay: String {
         authors.isEmpty ? "Unknown" : authors.joined(separator: ", ")
     }
 
-    public var tagsDisplay: String {
+    public nonisolated var tagsDisplay: String {
         tags.isEmpty ? "-" : tags.joined(separator: ", ")
     }
 
-    public var yearText: String {
+    public nonisolated var yearText: String {
         year.map(String.init) ?? "-"
     }
 
-    public var ratingText: String {
+    public nonisolated var ratingText: String {
         rating.map(String.init) ?? "-"
     }
 
-    public var updatedText: String {
+    public nonisolated var updatedText: String {
         updatedAt.formatted(date: .abbreviated, time: .omitted)
     }
 
-    public func pdfURL(in workspace: ResearchWorkspace) -> URL? {
+    public nonisolated func pdfURL(in workspace: ResearchWorkspace) -> URL? {
         guard let pdfRelativePath else {
             return nil
         }
 
         let directoryURL = workspace.directoryURL(for: directoryRelativePath)
         return workspace.resolve(relativePath: pdfRelativePath, from: directoryURL, isDirectory: false)
+    }
+
+    public nonisolated func rawMarkdownURL(in workspace: ResearchWorkspace) -> URL {
+        let directoryURL = workspace.directoryURL(for: directoryRelativePath)
+        return workspace.resolve(relativePath: "paper.md", from: directoryURL, isDirectory: false)
+    }
+
+    public nonisolated func summaryURL(in workspace: ResearchWorkspace) -> URL? {
+        guard let notesSummaryRelativePath else {
+            return nil
+        }
+
+        let directoryURL = workspace.directoryURL(for: directoryRelativePath)
+        return workspace.resolve(relativePath: notesSummaryRelativePath, from: directoryURL, isDirectory: false)
     }
 }
 
