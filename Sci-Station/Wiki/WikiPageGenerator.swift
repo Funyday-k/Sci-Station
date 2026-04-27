@@ -57,7 +57,10 @@ public actor WikiPageGenerator {
 
     private func paperWithSummaryPath(_ paper: Paper) -> Paper {
         var updatedPaper = paper
-        updatedPaper.notesSummaryRelativePath = "../../../wiki/papers/\(paper.citekey).md"
+        updatedPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: paper.citekey,
+            paperDirectoryRelativePath: paper.paperDirectoryRelativePath
+        )
         return updatedPaper
     }
 
@@ -81,8 +84,8 @@ public actor WikiPageGenerator {
         \(authorLines)
         \(tagLines)
         status: imported
-        source_pdf: \(quoted("../../raw/papers/\(paper.id)/paper.pdf"))
-        source_raw_md: \(quoted("../../raw/papers/\(paper.id)/paper.md"))
+        source_pdf: \(quoted("../../\(paper.paperDirectoryRelativePath)/paper.pdf"))
+        source_raw_md: \(quoted("../../\(paper.paperDirectoryRelativePath)/paper.md"))
         created: \(today)
         updated: \(today)
         ---

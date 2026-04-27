@@ -1,16 +1,60 @@
 import SwiftUI
 
 struct SidebarView: View {
-    @Binding var selectedSection: WorkspaceSection?
+    @EnvironmentObject private var appModel: AppViewModel
     let workspace: ResearchWorkspace?
 
     var body: some View {
-        List(selection: $selectedSection) {
+        List {
             Section(workspace?.displayName ?? "Sci-Station") {
                 ForEach(WorkspaceSection.allCases) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .tag(Optional(section))
-                        .disabled(workspace == nil)
+                    SidebarActionRow(
+                        title: section.title,
+                        systemImage: section.systemImage,
+                        isSelected: appModel.selectedSection == section && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+                    ) {
+                        appModel.selectSection(section)
+                    }
+                    .disabled(workspace == nil)
+                }
+            }
+
+            if workspace != nil {
+                Section("Collections") {
+                    SidebarActionRow(
+                        title: "All Papers",
+                        systemImage: "books.vertical",
+                        isSelected: appModel.selectedSection == .library && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil,
+                        badgeText: "\(appModel.papers.count)"
+                    ) {
+                        appModel.selectLibraryScope()
+                    }
+
+                    ForEach(appModel.collections) { collection in
+                        SidebarActionRow(
+                            title: collection.relativePath,
+                            systemImage: "folder",
+                            isSelected: appModel.selectedCollectionPath == collection.relativePath,
+                            badgeText: "\(collection.paperCount)"
+                        ) {
+                            appModel.selectCollection(collection.relativePath)
+                        }
+                    }
+                }
+
+                Section("Tags") {
+                    ForEach(appModel.availableTagDefinitions) { tag in
+                        Button {
+                            appModel.selectTag(tag.name)
+                        } label: {
+                            HStack(spacing: 8) {
+                                TagChipView(tag: tag)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }
@@ -28,10 +72,16 @@ struct WorkspaceContentView: View {
     var body: some View {
         Group {
             if let workspace {
-                if selectedSection == .library {
+                if selectedSection == .dashboard {
+                    DashboardView(workspace: workspace)
+                } else if selectedSection == .library {
                     LibraryListView(workspace: workspace)
+                } else if selectedSection == .settings {
+                    SettingsView(workspace: workspace)
                 } else if selectedSection == .wiki {
                     WikiWorkspaceView(workspace: workspace)
+                } else if selectedSection == .tasks {
+                    TasksWorkspaceView(workspace: workspace)
                 } else {
                     WorkspaceSectionOverview(
                         workspace: workspace,
@@ -49,6 +99,32 @@ struct WorkspaceContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+    }
+}
+
+private struct SidebarActionRow: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    var badgeText: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Label(title, systemImage: systemImage)
+                Spacer(minLength: 8)
+                if let badgeText {
+                    Text(badgeText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 }
 

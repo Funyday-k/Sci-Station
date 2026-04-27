@@ -21,7 +21,16 @@ private struct CoreVerificationSuite {
         try citekeyGenerationUsesAuthorYearKeyword()
         try metadataCodecRoundTripKeepsEditableFields()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
+        try await paperRepositoryLoadsNestedCollectionPapers()
+        try await tagRepositoryUpsertsAndDeletesDefinitions()
+        try await todoRepositoryCreatesCompletesAndDeletesTodos()
+        try identifierParserRecognizesSupportedKinds()
+        try arxivEntryParserExtractsMetadataDraft()
+        try inspireMetadataMapperExtractsMetadataDraft()
+        try llmRequestBuildsExpectedPayload()
+        try await llmConfigurationStorePersistsWithoutAPIKey()
         try await pdfImportCreatesRawMarkdownAndFigures()
+        try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
         try await wikiPageGenerationRejectsSilentOverwrite()
         try frontmatterParserParsesArraysAndBody()
@@ -49,7 +58,14 @@ private struct CoreVerificationSuite {
         try expect(workspace.missingRequiredItems().isEmpty, "Workspace should not miss any required paths after creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.sharedResearchURL.path), "shared_research.md should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.libraryBibURL.path), "refs/library.bib should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.tagsDefinitionURL.path), "refs/tags.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "refs/csl").path), "refs/csl should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "tasks").path), "tasks should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "imports").path), "imports should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/todos.yaml").path), "tasks/todos.yaml should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/calendar.yaml").path), "tasks/calendar.yaml should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/import_history.yaml").path), "imports/import_history.yaml should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/failed_imports.yaml").path), "imports/failed_imports.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.researchFlowDatabaseURL.path), "researchflow.sqlite should exist after workspace creation.")
     }
 
@@ -77,6 +93,11 @@ private struct CoreVerificationSuite {
         let workspace = try await workspaceService.openWorkspace(at: workspaceURL)
         try expect(workspace.missingRequiredItems().isEmpty, "Opening an older workspace should backfill missing paths.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "refs/csl").path), "Opening should create refs/csl when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.tagsDefinitionURL.path), "Opening should create refs/tags.yaml when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "tasks").path), "Opening should create tasks when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "imports").path), "Opening should create imports when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/todos.yaml").path), "Opening should create tasks/todos.yaml when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/import_history.yaml").path), "Opening should create imports/import_history.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.researchFlowDatabaseURL.path), "Opening should create researchflow.sqlite when missing.")
     }
 
@@ -104,7 +125,12 @@ private struct CoreVerificationSuite {
             venue: "arXiv",
             doi: nil,
             arxiv: "2401.12345",
+            inspireID: "2811054",
             url: "https://arxiv.org/abs/2401.12345",
+            pdfURL: "https://arxiv.org/pdf/2401.12345.pdf",
+            abstract: "A graph-based RAG pipeline.",
+            categories: ["cs.CL"],
+            collectionPath: "Dark-Matter/WIMPs",
             pdfRelativePath: "paper.pdf",
             tags: ["rag", "graph-rag"],
             status: .summarized,
@@ -113,8 +139,10 @@ private struct CoreVerificationSuite {
             useFor: ["related-work", "method-design"],
             createdAt: createdAt,
             updatedAt: updatedAt,
-            directoryRelativePath: "raw/papers/smith2024-graph-rag",
-            notesSummaryRelativePath: "../../../wiki/papers/smith2024graph.md",
+            lastReadAt: Date(timeIntervalSince1970: 1_714_348_800),
+            lastReadPage: 12,
+            paperDirectoryRelativePath: "raw/papers/Dark-Matter/WIMPs/smith2024-graph-rag",
+            notesSummaryRelativePath: "../../../../../wiki/papers/smith2024graph.md",
             annotationsRelativePath: "annotations.md"
         )
 
@@ -132,11 +160,18 @@ private struct CoreVerificationSuite {
         try expect(decoded.title == originalPaper.title, "Decoded title should match the encoded title.")
         try expect(decoded.authors == originalPaper.authors, "Decoded authors should match the encoded authors.")
         try expect(decoded.year == originalPaper.year, "Decoded year should match the encoded year.")
+        try expect(decoded.inspireID == originalPaper.inspireID, "Decoded INSPIRE id should match the encoded INSPIRE id.")
+        try expect(decoded.pdfURL == originalPaper.pdfURL, "Decoded pdf_url should match the encoded pdf_url.")
+        try expect(decoded.abstract == originalPaper.abstract, "Decoded abstract should match the encoded abstract.")
+        try expect(decoded.categories == originalPaper.categories, "Decoded categories should match the encoded categories.")
+        try expect(decoded.collectionPath == originalPaper.collectionPath, "Decoded collection_path should match the encoded collection path.")
         try expect(decoded.tags == originalPaper.tags, "Decoded tags should match the encoded tags.")
         try expect(decoded.status == originalPaper.status, "Decoded status should match the encoded status.")
         try expect(decoded.priority == originalPaper.priority, "Decoded priority should match the encoded priority.")
         try expect(decoded.rating == originalPaper.rating, "Decoded rating should match the encoded rating.")
         try expect(decoded.useFor == originalPaper.useFor, "Decoded use_for should match the encoded use_for values.")
+        try expect(decoded.lastReadAt == originalPaper.lastReadAt, "Decoded last_read_at should match the encoded reading state.")
+        try expect(decoded.lastReadPage == originalPaper.lastReadPage, "Decoded last_page should match the encoded reading progress.")
         try expect(decoded.notesSummaryRelativePath == originalPaper.notesSummaryRelativePath, "Decoded summary path should match the encoded summary path.")
     }
 
@@ -175,8 +210,8 @@ private struct CoreVerificationSuite {
             useFor: ["related-work"],
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            directoryRelativePath: "raw/papers/lee2022knowledge-graph-rag",
-            notesSummaryRelativePath: "../../../wiki/papers/lee2022knowledge.md",
+            paperDirectoryRelativePath: "raw/papers/Uncategorized/lee2022knowledge-graph-rag",
+            notesSummaryRelativePath: "../../../../wiki/papers/lee2022knowledge.md",
             annotationsRelativePath: "annotations.md"
         )
 
@@ -197,7 +232,271 @@ private struct CoreVerificationSuite {
             loadedPaper.notesSummaryRelativePath == paper.notesSummaryRelativePath,
             "Loaded summary path should match the saved summary path."
         )
+        try expect(
+            loadedPaper.collectionPath == "Uncategorized",
+            "Loaded collection path should be derived from the nested paper directory."
+        )
     }
+
+    private func paperRepositoryLoadsNestedCollectionPapers() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = PaperRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("NestedCollectionsWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let nestedPaper = Paper(
+            id: "garani2024dark",
+            citekey: "garani2024dark",
+            title: "Dark Matter Capture Review",
+            authors: ["Jakob Garani"],
+            year: 2024,
+            venue: "arXiv",
+            doi: nil,
+            arxiv: "2401.12345",
+            url: "https://arxiv.org/abs/2401.12345",
+            pdfRelativePath: "paper.pdf",
+            tags: ["dark-matter"],
+            status: .unread,
+            priority: .medium,
+            rating: nil,
+            useFor: [],
+            createdAt: Date(timeIntervalSince1970: 1_714_176_000),
+            updatedAt: Date(timeIntervalSince1970: 1_714_176_000),
+            paperDirectoryRelativePath: "raw/papers/Dark-Matter/Solar-Capture/garani2024dark",
+            notesSummaryRelativePath: "../../../../../wiki/papers/garani2024dark.md",
+            annotationsRelativePath: "annotations.md"
+        )
+
+        let savedPaper = try await repository.save(nestedPaper, in: workspace)
+        let pdfURL = workspace.directoryURL(for: savedPaper.paperDirectoryRelativePath).appendingPathComponent("paper.pdf")
+        try Data("fake pdf".utf8).write(to: pdfURL, options: .atomic)
+
+        let loadedPaper = try require(
+            try await repository.loadPapers(in: workspace).first(where: { $0.id == savedPaper.id }),
+            "Expected repository to find meta.yaml inside nested collection folders."
+        )
+
+        try expect(
+            loadedPaper.paperDirectoryRelativePath == nestedPaper.paperDirectoryRelativePath,
+            "Repository should preserve nested paper directory paths."
+        )
+        try expect(
+            loadedPaper.collectionPath == "Dark-Matter/Solar-Capture",
+            "Repository should derive the full nested collection path from the directory layout."
+        )
+    }
+
+    private func tagRepositoryUpsertsAndDeletesDefinitions() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = TagRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("TagWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+
+        try await repository.upsert(
+            TagDefinition(name: "Theory", colorHex: "#B57EDC", textColorHex: "#4A235A"),
+            in: workspace
+        )
+        try await repository.upsert(
+            TagDefinition(name: "Experiment", colorHex: "#85C1E9", textColorHex: "#154360"),
+            in: workspace
+        )
+        try await repository.upsert(
+            TagDefinition(name: "Theory", colorHex: "#C39BD3", textColorHex: "#45235A"),
+            in: workspace
+        )
+
+        let savedDefinitions = try await repository.loadDefinitions(in: workspace)
+        try expect(savedDefinitions.count == 2, "Upserting a tag twice should replace the existing definition instead of duplicating it.")
+        try expect(savedDefinitions.first(where: { $0.name == "Theory" })?.colorHex == "#C39BD3", "Upsert should update an existing tag color.")
+
+        try await repository.deleteTag(named: "Experiment", in: workspace)
+        let remainingDefinitions = try await repository.loadDefinitions(in: workspace)
+        try expect(remainingDefinitions.map(\.name) == ["Theory"], "Deleting a tag should remove it from refs/tags.yaml.")
+    }
+
+    private func todoRepositoryCreatesCompletesAndDeletesTodos() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = TodoRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("TodoWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let todo = TodoItem(
+            id: "todo-001",
+            title: "Read dark matter capture review",
+            status: .open,
+            dueDate: Date(timeIntervalSince1970: 1_777_680_000),
+            tags: ["Dark-Matter"],
+            relatedPaperIDs: ["garani2024dark"],
+            notes: nil,
+            createdAt: Date(timeIntervalSince1970: 1_777_593_600),
+            updatedAt: Date(timeIntervalSince1970: 1_777_593_600)
+        )
+
+        try await repository.upsert(todo, in: workspace)
+
+        var savedTodos = try await repository.loadTodos(in: workspace)
+        try expect(savedTodos.count == 1, "Saving a todo should persist it to tasks/todos.yaml.")
+        try expect(savedTodos.first?.relatedPaperIDs == ["garani2024dark"], "Todo repository should preserve related paper ids.")
+
+        var completedTodo = try require(savedTodos.first, "Expected the saved todo to be loadable.")
+        completedTodo.status = .done
+        completedTodo.updatedAt = Date(timeIntervalSince1970: 1_777_680_000)
+        try await repository.upsert(completedTodo, in: workspace)
+
+        savedTodos = try await repository.loadTodos(in: workspace)
+        try expect(savedTodos.first?.status == .done, "Updating a todo should replace the stored todo instead of duplicating it.")
+
+        try await repository.delete(todoID: todo.id, in: workspace)
+        let remainingTodos = try await repository.loadTodos(in: workspace)
+        try expect(remainingTodos.isEmpty, "Deleting a todo should remove it from tasks/todos.yaml.")
+    }
+
+        private func identifierParserRecognizesSupportedKinds() throws {
+                let parser = IdentifierParser()
+
+                try expect(parser.parse("2401.12345").kind == .arxiv, "Parser should recognize bare arXiv ids.")
+                try expect(parser.parse("https://arxiv.org/abs/2401.12345").normalizedValue == "2401.12345", "Parser should normalize arXiv URLs to ids.")
+                try expect(parser.parse("10.48550/arXiv.2401.12345").kind == .doi, "Parser should recognize DOI inputs.")
+                try expect(parser.parse("https://inspirehep.net/literature/2811054").kind == .inspire, "Parser should recognize INSPIRE literature URLs.")
+                try expect(parser.parse("https://example.com/paper.pdf").kind == .pdfURL, "Parser should recognize PDF URLs.")
+                try expect(parser.parse("https://example.com/article").kind == .url, "Parser should recognize normal web URLs.")
+        }
+
+        private func arxivEntryParserExtractsMetadataDraft() throws {
+                let parser = ArxivEntryParser()
+                let xml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <feed xmlns="http://www.w3.org/2005/Atom">
+                    <entry>
+                        <id>https://arxiv.org/abs/2401.12345v1</id>
+                        <updated>2024-01-20T00:00:00Z</updated>
+                        <published>2024-01-10T00:00:00Z</published>
+                        <title> Dark Matter Capture Review </title>
+                        <summary> Overview of dark matter capture. </summary>
+                        <author><name>Jane Doe</name></author>
+                        <author><name>John Roe</name></author>
+                        <link href="https://arxiv.org/abs/2401.12345v1" rel="alternate" type="text/html"/>
+                        <link title="pdf" href="https://arxiv.org/pdf/2401.12345v1.pdf" rel="related" type="application/pdf"/>
+                        <category term="hep-ph"/>
+                    </entry>
+                </feed>
+                """
+
+                let draft = try parser.parse(Data(xml.utf8))
+                try expect(draft.title == "Dark Matter Capture Review", "arXiv parser should trim entry titles.")
+                try expect(draft.authors == ["Jane Doe", "John Roe"], "arXiv parser should extract author names.")
+                try expect(draft.pdfURL == "https://arxiv.org/pdf/2401.12345v1.pdf", "arXiv parser should extract pdf links.")
+                try expect(draft.categories == ["hep-ph"], "arXiv parser should extract category terms.")
+        }
+
+        private func inspireMetadataMapperExtractsMetadataDraft() throws {
+                let mapper = InspireMetadataMapper()
+                let json = """
+                {
+                    "metadata": {
+                        "titles": [{"title": "Solar Dark Matter Limits"}],
+                        "abstracts": [{"value": "An INSPIRE abstract."}],
+                        "authors": [{"full_name": "Alice Smith"}],
+                        "arxiv_eprints": [{"value": "2401.12345"}],
+                        "dois": [{"value": "10.1234/example"}],
+                        "documents": [{"url": "https://example.com/paper.pdf"}],
+                        "publication_info": [{"year": 2024}],
+                        "inspire_categories": [{"term": "Phenomenology"}]
+                    }
+                }
+                """
+
+                let draft = try mapper.map(data: Data(json.utf8), recordID: "2811054")
+                try expect(draft.title == "Solar Dark Matter Limits", "INSPIRE mapper should extract titles.")
+                try expect(draft.arxiv == "2401.12345", "INSPIRE mapper should extract linked arXiv ids.")
+                try expect(draft.pdfURL == "https://arxiv.org/pdf/2401.12345.pdf", "INSPIRE mapper should prefer arXiv PDF links when available.")
+                try expect(draft.inspireID == "2811054", "INSPIRE mapper should preserve the record id.")
+        }
+
+            private func llmRequestBuildsExpectedPayload() throws {
+                let provider = OpenAICompatibleProvider()
+                let configuration = LLMConfiguration(
+                    provider: .openAICompatible,
+                    baseURLString: "https://api.example.com/v1",
+                    model: "test-model",
+                    temperature: 0.3,
+                    maxTokens: 256
+                )
+
+                let request = try provider.buildRequest(configuration: configuration, apiKey: "secret-key", prompt: "Summarize this paper")
+                let body = try require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) }, "Expected request body to be encoded.")
+                try expect(request.url?.absoluteString == "https://api.example.com/v1/chat/completions", "Provider should target /chat/completions on the configured base URL.")
+                try expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-key", "Provider should attach the API key as a bearer token.")
+                try expect(body.contains("test-model"), "Provider request body should contain the configured model.")
+                try expect(body.contains("Summarize this paper"), "Provider request body should contain the prompt content.")
+            }
+
+            private func llmConfigurationStorePersistsWithoutAPIKey() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(
+                    fileManager: .default,
+                    bookmarkStore: bookmarkStore
+                )
+                let store = LLMConfigurationStore()
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LLMSettingsWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                try await store.save(
+                    LLMConfiguration(
+                        provider: .openAICompatible,
+                        baseURLString: "https://api.example.com/v1",
+                        model: "gpt-4.1-mini",
+                        temperature: 0.2,
+                        maxTokens: 1200
+                    ),
+                    in: workspace
+                )
+
+                let settingsContents = try String(contentsOf: workspace.fileURL(for: "settings.yaml"), encoding: .utf8)
+                try expect(settingsContents.contains("base_url"), "LLM settings should be written to settings.yaml.")
+                try expect(!settingsContents.lowercased().contains("api_key"), "API keys must not be written into settings.yaml.")
+            }
 
     private func pdfImportCreatesRawMarkdownAndFigures() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
@@ -226,6 +525,7 @@ private struct CoreVerificationSuite {
         let paperMarkdownURL = paperDirectoryURL.appendingPathComponent("paper.md", isDirectory: false)
         let figuresURL = paperDirectoryURL.appendingPathComponent("figures", isDirectory: true)
 
+        try expect(importedPaper.collectionPath == "Uncategorized", "Imported papers should default into the Uncategorized collection.")
         try expect(FileManager.default.fileExists(atPath: paperDirectoryURL.appendingPathComponent("paper.pdf").path), "Imported paper should include paper.pdf.")
         try expect(FileManager.default.fileExists(atPath: paperMarkdownURL.path), "Imported paper should include paper.md.")
         try expect(FileManager.default.fileExists(atPath: figuresURL.path), "Imported paper should include a figures directory.")
@@ -233,6 +533,47 @@ private struct CoreVerificationSuite {
         let rawMarkdown = try String(contentsOf: paperMarkdownURL, encoding: .utf8)
         try expect(rawMarkdown.contains("type: raw-paper"), "paper.md should contain raw-paper frontmatter.")
         try expect(rawMarkdown.contains("status: not_extracted"), "paper.md should record extraction status.")
+    }
+
+    private func movePaperToCollectionUpdatesMetadataAndPath() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = PaperRepository()
+        let moveService = MovePaperToCollectionService(paperRepository: repository)
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("MovePaperWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let originalPaper = try await repository.save(samplePaper(id: "move-test-paper"), in: workspace)
+        let originalDirectoryURL = workspace.directoryURL(for: originalPaper.paperDirectoryRelativePath)
+        try Data("fake pdf".utf8).write(to: originalDirectoryURL.appendingPathComponent("paper.pdf"), options: .atomic)
+
+        let movedPaper = try await moveService.move(originalPaper, to: "Dark-Matter/WIMPs", in: workspace)
+
+        try expect(
+            movedPaper.paperDirectoryRelativePath == "raw/papers/Dark-Matter/WIMPs/move-test-paper",
+            "Moving a paper should update its nested directory path."
+        )
+        try expect(movedPaper.collectionPath == "Dark-Matter/WIMPs", "Moving a paper should update collection_path.")
+        try expect(
+            movedPaper.notesSummaryRelativePath == "../../../../../wiki/papers/smith2024graph.md",
+            "Moving a paper should recompute the summary relative path from the new folder depth."
+        )
+
+        let movedMetadata = try String(
+            contentsOf: workspace.directoryURL(for: movedPaper.paperDirectoryRelativePath).appendingPathComponent("meta.yaml"),
+            encoding: .utf8
+        )
+        try expect(movedMetadata.contains("collection_path: \"Dark-Matter/WIMPs\""), "Moved metadata should persist the new collection_path.")
     }
 
     private func wikiPageGenerationWritesTemplateAndUpdatesMetadata() async throws {
@@ -259,7 +600,7 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: result.fileURL.path), "Wiki page should be written to wiki/papers.")
         let wikiContents = try String(contentsOf: result.fileURL, encoding: .utf8)
         try expect(wikiContents.contains("type: paper"), "Wiki page should contain paper frontmatter.")
-        try expect(wikiContents.contains("source_pdf: \"../../raw/papers/smith2024-graph-rag/paper.pdf\""), "Wiki page should contain source_pdf path.")
+        try expect(wikiContents.contains("source_pdf: \"../../raw/papers/Uncategorized/smith2024-graph-rag/paper.pdf\""), "Wiki page should contain source_pdf path.")
         try expect(wikiContents.contains("## TL;DR"), "Wiki page should contain summary sections.")
 
         let loadedPaper = try require(
@@ -267,7 +608,7 @@ private struct CoreVerificationSuite {
             "Expected saved paper metadata to remain loadable after wiki generation."
         )
         try expect(
-            loadedPaper.notesSummaryRelativePath == "../../../wiki/papers/smith2024graph.md",
+            loadedPaper.notesSummaryRelativePath == "../../../../wiki/papers/smith2024graph.md",
             "Wiki generation should persist notes.summary_file back to meta.yaml."
         )
     }
@@ -427,7 +768,7 @@ private struct CoreVerificationSuite {
             useFor: ["related-work"],
             createdAt: Date(timeIntervalSince1970: 1_714_176_000),
             updatedAt: Date(timeIntervalSince1970: 1_714_176_000),
-            directoryRelativePath: "raw/papers/\(id)",
+            paperDirectoryRelativePath: "raw/papers/Uncategorized/\(id)",
             notesSummaryRelativePath: nil,
             annotationsRelativePath: "annotations.md"
         )

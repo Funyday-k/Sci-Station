@@ -26,7 +26,12 @@ public struct PaperMetadataCodec {
             venue: optionalStringValue(for: "venue", in: parsed),
             doi: optionalStringValue(for: "doi", in: parsed),
             arxiv: optionalStringValue(for: "arxiv", in: parsed),
+            inspireID: optionalStringValue(for: "inspire_id", in: parsed),
             url: optionalStringValue(for: "url", in: parsed),
+            pdfURL: optionalStringValue(for: "pdf_url", in: parsed),
+            abstract: optionalStringValue(for: "abstract", in: parsed),
+            categories: arrayValue(for: "categories", in: parsed),
+            collectionPath: optionalStringValue(for: "collection_path", in: parsed),
             pdfRelativePath: optionalStringValue(for: "pdf", in: parsed),
             tags: arrayValue(for: "tags", in: parsed),
             status: ReadingStatus(rawValue: stringValue(for: "status", in: parsed) ?? "") ?? .unread,
@@ -35,7 +40,9 @@ public struct PaperMetadataCodec {
             useFor: arrayValue(for: "use_for", in: parsed),
             createdAt: effectiveCreatedAt,
             updatedAt: effectiveUpdatedAt,
-            directoryRelativePath: directoryRelativePath,
+            lastReadAt: reading["last_read_at"].flatMap(parseTimestamp(_:)),
+            lastReadPage: reading["last_page"].flatMap(Int.init),
+            paperDirectoryRelativePath: directoryRelativePath,
             notesSummaryRelativePath: emptyToNil(notes["summary_file"]),
             annotationsRelativePath: "annotations.md"
         )
@@ -51,8 +58,13 @@ public struct PaperMetadataCodec {
             encodeScalar(key: "venue", value: paper.venue),
             encodeScalar(key: "doi", value: paper.doi),
             encodeScalar(key: "arxiv", value: paper.arxiv),
+            encodeScalar(key: "inspire_id", value: paper.inspireID),
             encodeScalar(key: "url", value: paper.url),
+            encodeScalar(key: "pdf_url", value: paper.pdfURL),
             encodeScalar(key: "pdf", value: paper.pdfRelativePath),
+            encodeScalar(key: "collection_path", value: paper.collectionPath),
+            encodeArray(key: "categories", values: paper.categories),
+            encodeScalar(key: "abstract", value: paper.abstract),
             "",
             encodeArray(key: "tags", values: paper.tags),
             "status: \(paper.status.rawValue)",
@@ -63,6 +75,8 @@ public struct PaperMetadataCodec {
             "",
             "reading:",
             "  added: \(makeDayFormatter().string(from: paper.createdAt))",
+            encodeNestedScalar(key: "last_page", value: paper.lastReadPage.map(String.init)),
+            encodeNestedScalar(key: "last_read_at", value: paper.lastReadAt.map(timestampString(from:))),
             "  first_read:",
             "  deep_read:",
             "",
@@ -81,6 +95,12 @@ public struct PaperMetadataCodec {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+
+    nonisolated private func makeTimestampFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
         return formatter
     }
 
@@ -141,6 +161,14 @@ public struct PaperMetadataCodec {
         }
 
         return trimmedValue
+    }
+
+    nonisolated private func timestampString(from date: Date) -> String {
+        makeTimestampFormatter().string(from: date)
+    }
+
+    nonisolated private func parseTimestamp(_ value: String) -> Date? {
+        makeTimestampFormatter().date(from: value) ?? makeDayFormatter().date(from: value)
     }
 
     nonisolated private func parse(_ contents: String) -> ParsedDocument {

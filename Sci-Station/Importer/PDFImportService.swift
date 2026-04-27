@@ -27,7 +27,8 @@ public actor PDFImportService {
     public func importPDF(
         from sourceURL: URL,
         into workspace: ResearchWorkspace,
-        existingPapers: [Paper]
+        existingPapers: [Paper],
+        collectionPath: String = "Uncategorized"
     ) async throws -> Paper {
         guard sourceURL.pathExtension.lowercased() == "pdf" else {
             throw PDFImportError.unsupportedFileType
@@ -57,7 +58,10 @@ public actor PDFImportService {
         )
         try fileManager.copyItem(at: sourceURL, to: stagedPDFURL)
 
-        let directoryRelativePath = "raw/papers/\(paperID)"
+        let normalizedCollectionPath = collectionPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directoryRelativePath = normalizedCollectionPath.isEmpty
+            ? "raw/papers/\(paperID)"
+            : "raw/papers/\(normalizedCollectionPath)/\(paperID)"
         let paperDirectoryURL = workspace.directoryURL(for: directoryRelativePath)
         try fileManager.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
 
@@ -96,8 +100,9 @@ public actor PDFImportService {
             useFor: [],
             createdAt: now,
             updatedAt: now,
-            directoryRelativePath: directoryRelativePath,
-            notesSummaryRelativePath: "../../../wiki/papers/\(citekey).md",
+            lastReadPage: nil,
+            paperDirectoryRelativePath: directoryRelativePath,
+            notesSummaryRelativePath: Paper.summaryRelativePath(for: citekey, paperDirectoryRelativePath: directoryRelativePath),
             annotationsRelativePath: "annotations.md"
         )
 

@@ -1,6 +1,7 @@
 import Foundation
 
 enum WorkspaceSection: String, CaseIterable, Identifiable {
+    case dashboard
     case library
     case inbox
     case wiki
@@ -11,6 +12,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
     case projects
     case graph
     case llmLab
+    case tasks
     case settings
 
     var id: String {
@@ -19,6 +21,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .dashboard:
+            return "Dashboard"
         case .library:
             return "Library"
         case .inbox:
@@ -39,6 +43,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "Graph"
         case .llmLab:
             return "LLM Lab"
+        case .tasks:
+            return "Tasks"
         case .settings:
             return "Settings"
         }
@@ -46,6 +52,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .dashboard:
+            return "rectangle.grid.2x2"
         case .library:
             return "books.vertical"
         case .inbox:
@@ -66,6 +74,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "point.3.connected.trianglepath.dotted"
         case .llmLab:
             return "brain"
+        case .tasks:
+            return "checklist"
         case .settings:
             return "gearshape"
         }
@@ -73,6 +83,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
+        case .dashboard:
+            return "Start from today: inspect task load, due dates, and the most recent papers in one place."
         case .library:
             return "Track papers, reading state, tags, and import status."
         case .inbox:
@@ -93,6 +105,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "Visualize or inspect knowledge relationships when graph support lands."
         case .llmLab:
             return "Run structured prompts, summaries, and gap-finding workflows."
+        case .tasks:
+            return "Track due dates, complete reading tasks, and connect todo items back to papers."
         case .settings:
             return "Configure workspace, PDF, LLM, and external tool settings."
         }

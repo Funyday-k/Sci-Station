@@ -20,6 +20,8 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         "wiki/projects",
         "refs",
         "refs/csl",
+        "tasks",
+        "imports",
         "prompts",
         "scripts",
         "code",
@@ -34,6 +36,26 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         SeededFile(
             relativePath: "refs/library.bib",
             contents: "% Sci-Station bibliography\n"
+        ),
+        SeededFile(
+            relativePath: "refs/tags.yaml",
+            contents: "tags: []\n"
+        ),
+        SeededFile(
+            relativePath: "tasks/todos.yaml",
+            contents: "todos: []\n"
+        ),
+        SeededFile(
+            relativePath: "tasks/calendar.yaml",
+            contents: "events: []\n"
+        ),
+        SeededFile(
+            relativePath: "imports/import_history.yaml",
+            contents: "imports: []\n"
+        ),
+        SeededFile(
+            relativePath: "imports/failed_imports.yaml",
+            contents: "failed_imports: []\n"
         ),
         SeededFile(
             relativePath: "researchflow.sqlite",
@@ -69,6 +91,14 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         directoryURL(for: "refs")
     }
 
+    public nonisolated var tasksURL: URL {
+        directoryURL(for: "tasks")
+    }
+
+    public nonisolated var importsURL: URL {
+        directoryURL(for: "imports")
+    }
+
     public nonisolated var promptsURL: URL {
         directoryURL(for: "prompts")
     }
@@ -87,6 +117,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
 
     public nonisolated var libraryBibURL: URL {
         fileURL(for: "refs/library.bib")
+    }
+
+    public nonisolated var tagsDefinitionURL: URL {
+        fileURL(for: "refs/tags.yaml")
     }
 
     public nonisolated var researchFlowDatabaseURL: URL {
@@ -142,6 +176,8 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
             ("Papers", rawPapersURL),
             ("Wiki Papers", wikiPapersURL),
             ("References", refsURL),
+            ("Tasks", tasksURL),
+            ("Imports", importsURL),
             ("Prompts", promptsURL),
             ("Code", codeURL),
             ("Outputs", outputsURL)

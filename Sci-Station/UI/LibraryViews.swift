@@ -6,6 +6,8 @@ struct LibraryListView: View {
 
     let workspace: ResearchWorkspace
     @State private var isTargetedForDrop = false
+    @State private var isShowingCollectionManager = false
+    @State private var isShowingTagManager = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -24,13 +26,39 @@ struct LibraryListView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 320)
 
+                Button("Manage Collections") {
+                    isShowingCollectionManager = true
+                }
+                .buttonStyle(.bordered)
+
+                Button("Manage Tags") {
+                    isShowingTagManager = true
+                }
+                .buttonStyle(.bordered)
+
+                Button("Add by Identifier") {
+                    appModel.beginIdentifierImport()
+                }
+                .buttonStyle(.bordered)
+
                 Button("Import PDF", action: appModel.importPDF)
                     .buttonStyle(.borderedProminent)
             }
 
-            Text("\(appModel.papers.count) papers in \(workspace.displayName)")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text("\(appModel.filteredPapers.count) / \(appModel.papers.count) papers in \(workspace.displayName)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Text(appModel.libraryScopeSummary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                if appModel.selectedCollectionPath != nil || appModel.selectedTagName != nil {
+                    Button("Clear Filters", action: appModel.clearLibraryFilters)
+                        .buttonStyle(.link)
+                }
+            }
 
             if appModel.isImportingPDF {
                 ProgressView("Importing PDF…")
@@ -58,6 +86,13 @@ struct LibraryListView: View {
                     }
                     .width(70)
 
+                    TableColumn("Collection") { paper in
+                        Text(paper.collectionPath ?? "-")
+                            .lineLimit(2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .width(min: 140, ideal: 180)
+
                     TableColumn("Wiki") { paper in
                         Text(appModel.paperWikiStatusText(for: paper, in: workspace))
                             .foregroundStyle(appModel.paperHasWikiPage(paper, in: workspace) ? .primary : .secondary)
@@ -65,8 +100,7 @@ struct LibraryListView: View {
                     .width(90)
 
                     TableColumn("Tags") { paper in
-                        Text(paper.tagsDisplay)
-                            .lineLimit(2)
+                        TagChipGroupView(tags: paper.tags)
                     }
                     .width(min: 150, ideal: 220)
 
@@ -105,6 +139,14 @@ struct LibraryListView: View {
         }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isTargetedForDrop) { providers in
             appModel.handlePDFDrop(providers: providers)
+        }
+        .sheet(isPresented: $isShowingCollectionManager) {
+            CollectionManagerView()
+                .environmentObject(appModel)
+        }
+        .sheet(isPresented: $isShowingTagManager) {
+            TagManagerView()
+                .environmentObject(appModel)
         }
     }
 
@@ -168,8 +210,10 @@ struct PaperInspectorView: View {
 
                     GroupBox("Files") {
                         VStack(alignment: .leading, spacing: 10) {
-                            WorkspacePathRow(label: "Paper Folder", value: paper.directoryRelativePath)
+                            WorkspacePathRow(label: "Collection", value: paper.collectionPath ?? "Uncategorized")
+                            WorkspacePathRow(label: "Paper Folder", value: paper.paperDirectoryRelativePath)
                             WorkspacePathRow(label: "PDF", value: paper.pdfRelativePath ?? "-")
+                            WorkspacePathRow(label: "Last Page", value: paper.lastReadPage.map(String.init) ?? "-")
                             WorkspacePathRow(label: "Raw Markdown", value: "paper.md")
                             WorkspacePathRow(label: "Summary Target", value: paper.notesSummaryRelativePath ?? "-")
                             WorkspacePathRow(label: "Workspace Root", value: workspace.rootURL.path)
@@ -177,10 +221,48 @@ struct PaperInspectorView: View {
                         .padding(.vertical, 4)
                     }
 
+                    GroupBox("Embedded PDF Reader") {
+                        if let pdfURL = appModel.selectedPaperPDFURL,
+                           FileManager.default.fileExists(atPath: pdfURL.path) {
+                            EmbeddedPDFReaderView(
+                                pdfURL: pdfURL,
+                                initialPage: paper.lastReadPage,
+                                onPageChanged: appModel.saveSelectedPaperReadingState(lastPage:)
+                            )
+                            .frame(minHeight: 360)
+                        } else {
+                            Text("No local PDF available for the selected paper.")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GroupBox("Organization") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Move selected paper into a collection folder under raw/papers/.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+
+                            Menu("Move to Collection") {
+                                Button("Uncategorized") {
+                                    appModel.moveSelectedPaper(to: "Uncategorized")
+                                }
+
+                                ForEach(appModel.collections) { collection in
+                                    Button(collection.relativePath) {
+                                        appModel.moveSelectedPaper(to: collection.relativePath)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
                     HStack {
                         Button("Discard", action: appModel.discardSelectedPaperChanges)
-                        Button("Open PDF", action: appModel.openSelectedPaperPDF)
+                        Button("Open in Default Viewer", action: appModel.openSelectedPaperPDF)
                             .disabled(!appModel.canOpenSelectedPaperPDF)
+                        Button("Summarize with LLM", action: appModel.generateSelectedPaperSummary)
+                            .disabled(appModel.llmConfiguration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         Button(appModel.selectedPaperWikiButtonTitle, action: appModel.openOrGenerateSelectedPaperWikiPage)
                         Button("Save Metadata", action: appModel.saveSelectedPaperChanges)
                             .buttonStyle(.borderedProminent)
@@ -192,6 +274,10 @@ struct PaperInspectorView: View {
 
                     if appModel.isGeneratingWikiPage {
                         ProgressView("Preparing wiki page…")
+                    }
+
+                    if appModel.isGeneratingSummary {
+                        ProgressView("Calling LLM…")
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {

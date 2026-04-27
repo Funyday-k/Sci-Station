@@ -12,10 +12,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(
-                selectedSection: $appModel.selectedSection,
-                workspace: appModel.currentWorkspace
-            )
+            SidebarView(workspace: appModel.currentWorkspace)
             .navigationSplitViewColumnWidth(min: 220, ideal: 240)
         } content: {
             WorkspaceContentView(
@@ -38,6 +35,9 @@ struct ContentView: View {
                 Button("Open Workspace", action: appModel.openWorkspace)
 
                 if appModel.currentWorkspace != nil {
+                    Button("Add by Identifier") {
+                        appModel.beginIdentifierImport()
+                    }
                     Button("Import PDF", action: appModel.importPDF)
                     Button("Open PDF", action: appModel.openSelectedPaperPDF)
                         .disabled(!appModel.canOpenSelectedPaperPDF)
@@ -57,6 +57,14 @@ struct ContentView: View {
         )
         .task {
             await appModel.restoreLastWorkspaceIfNeeded()
+        }
+        .sheet(isPresented: $appModel.isShowingIdentifierImport) {
+            IdentifierImportView()
+                .environmentObject(appModel)
+        }
+        .sheet(isPresented: $appModel.isShowingSummaryPreview) {
+            LLMSummaryPreviewView()
+                .environmentObject(appModel)
         }
     }
 }

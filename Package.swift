@@ -21,7 +21,7 @@ let package = Package(
                 "Sci_StationApp.swift",
                 "UI"
             ],
-            sources: ["Workspace", "Library", "Importer", "Markdown", "Wiki"],
+            sources: ["Workspace", "Library", "Importer", "Markdown", "Wiki", "Collections", "Tags", "Tasks", "Calendar", "Import", "MetadataProviders", "LLM"],
             swiftSettings: [
                 .unsafeFlags(["-default-isolation", "MainActor"])
             ]

@@ -17,33 +17,31 @@ public actor PaperRepository {
             return []
         }
 
-        let directoryURLs = try fileManager.contentsOfDirectory(
+        guard let enumerator = fileManager.enumerator(
             at: workspace.rawPapersURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .nameKey],
             options: [.skipsHiddenFiles]
         )
+        else {
+            return []
+        }
 
         var papers: [Paper] = []
 
-        for directoryURL in directoryURLs {
-            let resourceValues = try directoryURL.resourceValues(forKeys: [.isDirectoryKey])
-            guard resourceValues.isDirectory == true else {
+        for case let fileURL as URL in enumerator {
+            guard fileURL.lastPathComponent == "meta.yaml" else {
                 continue
             }
 
-            let metadataURL = directoryURL.appendingPathComponent("meta.yaml", isDirectory: false)
-            guard fileManager.fileExists(atPath: metadataURL.path) else {
-                continue
-            }
-
-            let metadataContents = try String(contentsOf: metadataURL, encoding: .utf8)
-            let attributes = try fileManager.attributesOfItem(atPath: metadataURL.path)
+            let directoryURL = fileURL.deletingLastPathComponent()
+            let metadataContents = try String(contentsOf: fileURL, encoding: .utf8)
+            let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
             let paper = metadataCodec.decode(
                 metadataContents,
                 directoryRelativePath: workspace.relativePath(to: directoryURL),
                 fallbackTitle: directoryURL.lastPathComponent,
-                createdAt: attributes[.creationDate] as? Date,
-                updatedAt: attributes[.modificationDate] as? Date
+                createdAt: attributes[FileAttributeKey.creationDate] as? Date,
+                updatedAt: attributes[FileAttributeKey.modificationDate] as? Date
             )
             papers.append(paper)
         }
@@ -52,11 +50,18 @@ public actor PaperRepository {
     }
 
     public func save(_ paper: Paper, in workspace: ResearchWorkspace) throws -> Paper {
-        let directoryURL = workspace.directoryURL(for: paper.directoryRelativePath)
+        let directoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
         var updatedPaper = paper
         updatedPaper.updatedAt = Date()
+        updatedPaper.collectionPath = Paper.collectionPath(for: updatedPaper.paperDirectoryRelativePath)
+        if updatedPaper.notesSummaryRelativePath == nil {
+            updatedPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+                for: updatedPaper.citekey,
+                paperDirectoryRelativePath: updatedPaper.paperDirectoryRelativePath
+            )
+        }
 
         let metadataURL = directoryURL.appendingPathComponent("meta.yaml", isDirectory: false)
         let metadataContents = metadataCodec.encode(updatedPaper)
