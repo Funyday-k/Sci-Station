@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct Sci_StationApp: App {
+    @StateObject private var appModel = AppViewModel()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(appModel)
         }
+        .defaultSize(width: 1360, height: 860)
     }
 }
