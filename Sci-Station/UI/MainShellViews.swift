@@ -3,6 +3,7 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
     let workspace: ResearchWorkspace?
+    @State private var isAllPapersExpanded = true
 
     var body: some View {
         VStack(spacing: 10) {
@@ -15,55 +16,110 @@ struct SidebarView: View {
                 }
                 .help("Home")
 
-                Text(workspace?.displayName ?? "Sci-Station")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                SidebarIconButton(
+                    systemImage: WorkspaceSection.tasks.systemImage,
+                    isSelected: appModel.selectedSection == .tasks && appModel.isViewingGlobalTodos
+                ) {
+                    appModel.selectGlobalTodos()
+                }
+                .help("All Todos")
 
                 Spacer(minLength: 0)
+
+                if workspace != nil {
+                    SidebarIconButton(systemImage: "plus", isSelected: false) {
+                        appModel.beginCreatingResearchProject()
+                    }
+                    .help("New Project")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SidebarSectionLabel(title: "Navigate")
+                    if workspace == nil {
+                        SidebarSectionLabel(title: "Navigate")
 
-                    VStack(spacing: 2) {
-                        ForEach(WorkspaceSection.sidebarSections) { section in
-                            SidebarActionRow(
-                                title: section.title,
-                                systemImage: section.systemImage,
-                                isSelected: isSelected(section)
-                            ) {
-                                appModel.selectSection(section)
+                        VStack(spacing: 2) {
+                            ForEach(WorkspaceSection.sidebarSections) { section in
+                                SidebarActionRow(
+                                    title: section.title,
+                                    systemImage: section.systemImage,
+                                    isSelected: isSelected(section)
+                                ) {
+                                    appModel.selectSection(section)
+                                }
+                                .disabled(true)
                             }
-                            .disabled(workspace == nil)
                         }
+                    } else {
+                        SidebarSectionLabel(title: "Projects")
+
+                        if appModel.activeResearchProjects.isEmpty {
+                            SidebarActionRow(
+                                title: "New Project",
+                                systemImage: "plus",
+                                isSelected: false
+                            ) {
+                                appModel.beginCreatingResearchProject()
+                            }
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(appModel.activeResearchProjects) { project in
+                                    SidebarProjectGroup(project: project)
+                                }
+                            }
+                        }
+
+                        SidebarActionRow(
+                            title: WorkspaceSection.llmLab.title,
+                            systemImage: WorkspaceSection.llmLab.systemImage,
+                            isSelected: appModel.selectedSection == .llmLab
+                        ) {
+                            appModel.selectSection(.llmLab)
+                        }
+                        .help("Open the global AI Lab")
                     }
 
                     if workspace != nil {
-                        SidebarSectionLabel(title: "Collections")
+                        SidebarSectionLabel(title: "Library")
 
                         VStack(spacing: 2) {
-                            SidebarActionRow(
-                                title: "All Papers",
-                                systemImage: "books.vertical",
-                                isSelected: appModel.selectedSection == .library && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil,
-                                badgeText: "\(appModel.papers.count)"
-                            ) {
-                                appModel.selectLibraryScope()
+                            HStack(spacing: 6) {
+                                Button {
+                                    isAllPapersExpanded.toggle()
+                                } label: {
+                                    Image(systemName: isAllPapersExpanded ? "chevron.down" : "chevron.right")
+                                        .font(.caption)
+                                        .frame(width: 14, height: 20)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.secondary)
+                                .help(isAllPapersExpanded ? "Collapse Library folders" : "Expand Library folders")
+
+                                SidebarActionRow(
+                                    title: "All Papers",
+                                    systemImage: "books.vertical",
+                                    isSelected: appModel.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil,
+                                    badgeText: "\(appModel.papers.count)"
+                                ) {
+                                    appModel.selectLibraryScope()
+                                }
+                                .contextMenu {
+                                    Button("Create Folder") {
+                                        appModel.createSubfolder(in: nil)
+                                    }
+                                }
                             }
 
-                            ForEach(appModel.collections) { collection in
-                                SidebarActionRow(
-                                    title: collection.relativePath,
-                                    systemImage: "folder",
-                                    isSelected: appModel.selectedCollectionPath == collection.relativePath,
-                                    badgeText: "\(collection.paperCount)"
-                                ) {
-                                    appModel.selectCollection(collection.relativePath)
+                            if isAllPapersExpanded {
+                                ForEach(rootCollections) { collection in
+                                    SidebarCollectionTree(
+                                        collection: collection,
+                                        allCollections: appModel.collections,
+                                        level: 0
+                                    )
                                 }
                             }
                         }
@@ -99,6 +155,12 @@ struct SidebarView: View {
                 }
                 .help("Settings")
 
+                Text(workspace?.displayName ?? "Sci-Station")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
@@ -110,10 +172,200 @@ struct SidebarView: View {
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {
         if section == .library {
-            return appModel.selectedSection == .library && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+            return appModel.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
         }
 
         return appModel.selectedSection == section
+    }
+
+    private var rootCollections: [PaperCollection] {
+        appModel.collections.filter { $0.parentPath == nil }
+    }
+}
+
+private struct SidebarCollectionTree: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let collection: PaperCollection
+    let allCollections: [PaperCollection]
+    let level: Int
+
+    private var children: [PaperCollection] {
+        allCollections.filter { $0.parentPath == collection.relativePath }
+    }
+
+    private var isCollapsed: Bool {
+        appModel.collapsedCollectionPaths.contains(collection.relativePath)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                if children.isEmpty {
+                    Color.clear
+                        .frame(width: 14, height: 20)
+                } else {
+                    Button {
+                        appModel.toggleCollectionCollapse(collection.relativePath)
+                    } label: {
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.caption)
+                            .frame(width: 14, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(isCollapsed ? "Expand folder" : "Collapse folder")
+                }
+
+                Button {
+                    appModel.selectCollection(collection.relativePath)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder")
+                            .frame(width: 16)
+                            .foregroundStyle(.secondary)
+                        Text(collection.name)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Text("\(collection.paperCount)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .background(appModel.selectedCollectionPath == collection.relativePath ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button("Create Subfolder") {
+                        appModel.createSubfolder(in: collection.relativePath)
+                    }
+                }
+            }
+            .padding(.leading, CGFloat(level * 14))
+
+            if !isCollapsed {
+                ForEach(children) { child in
+                    SidebarCollectionTree(collection: child, allCollections: allCollections, level: level + 1)
+                }
+            }
+        }
+    }
+}
+
+private struct SidebarProjectGroup: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let project: ResearchProject
+
+    var isCurrentProject: Bool {
+        appModel.currentResearchProject?.id == project.id
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Button {
+                    appModel.toggleResearchProjectCollapse(project.id)
+                } label: {
+                    Image(systemName: project.isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption)
+                        .frame(width: 14, height: 20)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(project.isCollapsed ? "Expand project" : "Collapse project")
+
+                HStack(spacing: 8) {
+                    Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
+                        .frame(width: 16)
+                        .foregroundStyle(isCurrentProject ? Color.accentColor : Color.secondary)
+                    Text(project.name)
+                        .fontWeight(isCurrentProject ? .semibold : .regular)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 6)
+                .background(projectBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isCurrentProject ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    appModel.focusResearchProject(project.id)
+                }
+                .onTapGesture(count: 2) {
+                    appModel.selectResearchProject(project.id, section: .projects)
+                }
+            }
+            .contextMenu {
+                Button("Open Project") {
+                    appModel.selectResearchProject(project.id, section: .projects)
+                }
+                Button(project.isCollapsed ? "Expand" : "Collapse") {
+                    appModel.toggleResearchProjectCollapse(project.id)
+                }
+                Divider()
+                Button("Edit Project Info") {
+                    appModel.beginEditingResearchProject(project.id)
+                }
+            }
+
+            if !project.isCollapsed {
+                VStack(spacing: 1) {
+                    ForEach(WorkspaceSection.projectSidebarSections) { section in
+                        SidebarActionRow(
+                            title: section == .projects ? "Overview" : section.title,
+                            systemImage: section.systemImage,
+                            isSelected: isSelected(section),
+                            badgeText: badgeText(for: section)
+                        ) {
+                            appModel.selectResearchProject(project.id, section: section)
+                        }
+                        .padding(.leading, 20)
+                    }
+                }
+            }
+        }
+    }
+
+    private var projectBackground: Color {
+        if isCurrentProject {
+            return Color(hex: project.colorHex).opacity(0.35)
+        }
+
+        return Color(hex: project.colorHex).opacity(0.14)
+    }
+
+    private func isSelected(_ section: WorkspaceSection) -> Bool {
+        guard isCurrentProject else {
+            return false
+        }
+
+        if section == .library {
+            return appModel.selectedSection == .library && appModel.selectedLibraryProjectID == project.id && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+        }
+
+        return appModel.selectedSection == section
+    }
+
+    private func badgeText(for section: WorkspaceSection) -> String? {
+        switch section {
+        case .library:
+            return "\(appModel.papers(for: project.id).count)"
+        case .tasks:
+            let projectTodos = appModel.todos.filter { todo in
+                todo.projectIDs.contains(project.id) || (todo.projectIDs.isEmpty && (isCurrentProject || appModel.activeResearchProjects.count == 1))
+            }
+            return "\(projectTodos.filter { $0.status != .done && $0.status != .cancelled }.count)"
+        default:
+            return nil
+        }
     }
 }
 
@@ -189,6 +441,8 @@ struct WorkspaceContentView: View {
                     MaterialsView(workspace: workspace)
                 } else if selectedSection == .tasks {
                     TasksWorkspaceView(workspace: workspace)
+                } else if selectedSection == .llmLab {
+                    AILabWorkspaceView(workspace: workspace)
                 } else {
                     WorkspaceSectionOverview(
                         workspace: workspace,

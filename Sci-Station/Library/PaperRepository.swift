@@ -44,6 +44,9 @@ public actor PaperRepository {
                 updatedAt: attributes[FileAttributeKey.modificationDate] as? Date
             )
             paper.collectionPath = Paper.collectionPath(for: paper.paperDirectoryRelativePath)
+            if paper.folderPath == nil {
+                paper.folderPath = paper.collectionPath
+            }
             papers.append(paper)
         }
 
@@ -57,6 +60,9 @@ public actor PaperRepository {
         var updatedPaper = paper
         updatedPaper.updatedAt = Date()
         updatedPaper.collectionPath = Paper.collectionPath(for: updatedPaper.paperDirectoryRelativePath)
+        if updatedPaper.folderPath == nil {
+            updatedPaper.folderPath = updatedPaper.collectionPath
+        }
         if updatedPaper.notesSummaryRelativePath == nil {
             updatedPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
                 for: updatedPaper.citekey,

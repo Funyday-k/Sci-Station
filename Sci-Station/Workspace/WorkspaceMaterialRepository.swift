@@ -7,8 +7,20 @@ public actor WorkspaceMaterialRepository {
         self.fileManager = fileManager
     }
 
-    public func loadMaterials(in workspace: ResearchWorkspace) throws -> [WorkspaceMaterial] {
+    public func loadMaterials(in workspace: ResearchWorkspace, project: ResearchProject? = nil) throws -> [WorkspaceMaterial] {
         var materials: [WorkspaceMaterial] = []
+
+        if let project {
+            for relativePath in ["data", "code", "figures", "outputs"] {
+                let projectRelativePath = project.relativePath + "/" + relativePath
+                let rootURL = workspace.directoryURL(for: projectRelativePath)
+                materials.append(contentsOf: try loadMaterialsUnderDirectory(rootURL, in: workspace))
+            }
+
+            return materials.sorted { lhs, rhs in
+                lhs.relativePath.localizedStandardCompare(rhs.relativePath) == .orderedAscending
+            }
+        }
 
         for relativePath in ResearchWorkspace.userMaterialRootPaths {
             let rootURL = workspace.directoryURL(for: relativePath)
@@ -36,6 +48,10 @@ public actor WorkspaceMaterialRepository {
 
         if components.contains(where: { $0.hasPrefix(".") }) {
             return false
+        }
+
+        if components.count >= 4, firstComponent == "projects" {
+            return ["data", "code", "figures", "outputs", "scripts", "prompts"].contains(components[2])
         }
 
         if ResearchWorkspace.systemRootPaths.contains(firstComponent) {

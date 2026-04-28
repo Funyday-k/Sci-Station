@@ -6,8 +6,13 @@ struct ProjectOverviewView: View {
 
     let workspace: ResearchWorkspace
 
-    private let projectOverviewPath = "wiki/projects/project_overview.md"
-    private let corePapersPath = "wiki/projects/core_papers.md"
+    private var projectOverviewPath: String {
+        projectWikiPath("projects/project_overview.md")
+    }
+
+    private var corePapersPath: String {
+        projectWikiPath("projects/core_papers.md")
+    }
 
     var body: some View {
         ScrollView {
@@ -15,7 +20,7 @@ struct ProjectOverviewView: View {
                 header
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                    ProjectMetricCard(title: "Papers", value: "\(appModel.papers.count)", systemImage: "books.vertical")
+                    ProjectMetricCard(title: "Papers", value: "\(projectPapers.count)", systemImage: "books.vertical")
                     ProjectMetricCard(title: "Core", value: "\(corePapers.count)", systemImage: "star")
                     ProjectMetricCard(title: "Project Docs", value: "\(projectDocuments.count)", systemImage: "doc.text")
                     ProjectMetricCard(title: "Open Tasks", value: "\(openTodosCount)", systemImage: "checklist")
@@ -35,6 +40,9 @@ struct ProjectOverviewView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Project Overview")
                 .font(.largeTitle)
+                .fontWeight(.semibold)
+            Text(appModel.currentResearchProject?.name ?? "No Project Selected")
+                .font(.title2)
                 .fontWeight(.semibold)
             Text("Research all-in-one workspace for proposal, literature, data, code, figures, outputs, and tasks.")
                 .foregroundStyle(.secondary)
@@ -135,7 +143,11 @@ struct ProjectOverviewView: View {
                     appModel.openMarkdownDocument(relativePath: projectOverviewPath)
                 }
                 ProjectWorkflowTile(title: "Core Papers", detail: "raw/papers + refs", systemImage: "books.vertical") {
-                    appModel.selectSection(.library)
+                    if let projectID = appModel.currentProjectID {
+                        appModel.selectResearchProject(projectID, section: .library)
+                    } else {
+                        appModel.selectSection(.library)
+                    }
                 }
                 ProjectWorkflowTile(title: "Data", detail: "data + wiki/datasets", systemImage: "externaldrive") {
                     appModel.selectSection(.materials)
@@ -153,7 +165,7 @@ struct ProjectOverviewView: View {
                     appModel.selectSection(.tasks)
                 }
                 ProjectWorkflowTile(title: "Shared Context", detail: "shared_research.md", systemImage: "square.stack.3d.up") {
-                    NSWorkspace.shared.open(workspace.sharedResearchURL)
+                    NSWorkspace.shared.open(projectSharedResearchURL)
                 }
             }
         }
@@ -187,25 +199,53 @@ struct ProjectOverviewView: View {
 
     private var projectDocuments: [MarkdownDocument] {
         appModel.markdownDocuments
-            .filter { $0.relativePath.hasPrefix("wiki/projects/") }
+            .filter { $0.relativePath.hasPrefix(projectWikiPath("projects/")) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
+    private var projectSharedResearchURL: URL {
+        if let project = appModel.currentResearchProject {
+            return workspace.fileURL(for: project.relativePath + "/shared_research.md")
+        }
+
+        return workspace.sharedResearchURL
+    }
+
+    private func projectWikiPath(_ suffix: String) -> String {
+        if let project = appModel.currentResearchProject {
+            return project.relativePath + "/wiki/" + suffix
+        }
+
+        return "wiki/" + suffix
+    }
+
     private var corePapers: [Paper] {
-        let candidates = appModel.papers.filter(isCorePaper)
-        let source = candidates.isEmpty ? appModel.papers : candidates
-        return Array(source.sorted(by: corePaperSort).prefix(6))
+        let candidates = projectPapers.filter(isCorePaper)
+        return Array(candidates.sorted(by: corePaperSort).prefix(6))
+    }
+
+    private var projectPapers: [Paper] {
+        guard let projectID = appModel.currentProjectID else {
+            return []
+        }
+
+        return appModel.papers(for: projectID)
     }
 
     private var openTodosCount: Int {
-        appModel.todos.filter { $0.status != .done }.count
+        guard let projectID = appModel.currentProjectID else {
+            return 0
+        }
+
+        return appModel.todos.filter { $0.projectIDs.contains(projectID) && $0.status != .done }.count
     }
 
     private func isCorePaper(_ paper: Paper) -> Bool {
-        let markers = (paper.tags + paper.useFor).map { $0.lowercased() }
-        return markers.contains { marker in
-            marker.contains("core") || marker.contains("foundation") || marker.contains("key") || marker.contains("proposal") || marker.contains("核心")
-        } || paper.priority == .urgent || paper.priority == .high || (paper.rating ?? 0) >= 4
+        guard let projectID = appModel.currentProjectID else {
+            return false
+        }
+
+        return paper.coreProjectIDs.contains(projectID)
     }
 
     private func corePaperSort(_ first: Paper, _ second: Paper) -> Bool {
@@ -220,7 +260,6 @@ struct ProjectOverviewView: View {
     private func corePaperScore(_ paper: Paper) -> Int {
         var score = 0
         if isCorePaper(paper) { score += 10 }
-        if paper.tags.contains(where: { $0.localizedCaseInsensitiveContains("core") || $0.contains("核心") }) { score += 5 }
         if paper.priority == .urgent { score += 4 }
         if paper.priority == .high { score += 3 }
         score += paper.rating ?? 0
@@ -262,7 +301,11 @@ private struct ProjectPaperSummaryRow: View {
                 Spacer(minLength: 0)
                 Button("Library") {
                     appModel.selectPaper(id: paper.id)
-                    appModel.selectSection(.library)
+                    if let projectID = appModel.currentProjectID {
+                        appModel.selectResearchProject(projectID, section: .library)
+                    } else {
+                        appModel.selectSection(.library)
+                    }
                 }
                 .buttonStyle(.link)
 

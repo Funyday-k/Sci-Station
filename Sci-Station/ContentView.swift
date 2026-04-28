@@ -62,6 +62,11 @@ struct ContentView: View {
                 }
 
                 if appModel.currentWorkspace != nil, appModel.selectedSection != .pdfReader {
+                    Button {
+                        appModel.selectGlobalTodos()
+                    } label: {
+                        Label("All Todos", systemImage: "checklist")
+                    }
                     Button("Add by Identifier") {
                         appModel.beginIdentifierImport()
                     }
@@ -113,6 +118,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appModel.isShowingBibTeXExport) {
             BibTeXExportView()
+                .environmentObject(appModel)
+        }
+        .sheet(isPresented: $appModel.isShowingResearchProjectEditor) {
+            ResearchProjectEditorView()
                 .environmentObject(appModel)
         }
     }

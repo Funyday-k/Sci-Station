@@ -17,7 +17,7 @@ struct LibraryListView: View {
                 Text("Library")
                     .font(.largeTitle)
                     .fontWeight(.semibold)
-                Text("Import PDFs into raw/papers, edit meta.yaml fields, and keep the local paper library in sync.")
+                Text("All papers live in the global library. Project ownership, core status, folders, and shared tags are stored on each paper.")
                     .foregroundStyle(.secondary)
             }
 
@@ -28,18 +28,21 @@ struct LibraryListView: View {
 
                 Spacer(minLength: 0)
 
-                Button("Manage Collections") {
+                Button("Manage Folders") {
                     isShowingCollectionManager = true
                 }
                 .buttonStyle(.bordered)
+                .help("Create, rename, or delete Library folders")
 
                 Button("Manage Tags") {
                     isShowingTagManager = true
                 }
                 .buttonStyle(.bordered)
+                .help("Manage global paper tags")
 
                 Button("Import PDF", action: appModel.importPDF)
                     .buttonStyle(.bordered)
+                    .help("Import a local PDF")
 
                 Button(isShowingQuickLinkImport ? "Hide Link Import" : "Add by Link") {
                     if isShowingQuickLinkImport {
@@ -51,6 +54,7 @@ struct LibraryListView: View {
                     }
                 }
                     .buttonStyle(.borderedProminent)
+                    .help("Import papers from DOI, arXiv, PDF URL, or web link")
             }
 
             if isShowingQuickLinkImport {
@@ -175,6 +179,10 @@ struct LibraryListView: View {
 
             Divider()
 
+            PaperClassificationMenuItems(paper: paper)
+
+            Divider()
+
             Button(role: .destructive) {
                 appModel.requestDeletePaper(paper)
             } label: {
@@ -188,6 +196,8 @@ private enum LibraryColumn: String, CaseIterable, Identifiable {
     case title
     case authors
     case year
+    case projects
+    case coreProjects
     case collection
     case publication
     case itemType
@@ -210,8 +220,12 @@ private enum LibraryColumn: String, CaseIterable, Identifiable {
             return "Authors"
         case .year:
             return "Year"
+        case .projects:
+            return "Projects"
+        case .coreProjects:
+            return "Core"
         case .collection:
-            return "Collection"
+            return "Folder"
         case .publication:
             return "Publication"
         case .itemType:
@@ -235,7 +249,7 @@ private enum LibraryColumn: String, CaseIterable, Identifiable {
         }
     }
 
-    static let defaultColumns: [LibraryColumn] = [.title, .authors, .year, .tags, .collection]
+    static let defaultColumns: [LibraryColumn] = [.title, .authors, .year, .tags, .projects, .collection]
     static let defaultStorageValue = defaultColumns.map(\.rawValue).joined(separator: ",")
 
     static func columns(from storage: String) -> [LibraryColumn] {
@@ -430,6 +444,10 @@ private struct LibraryPaperRowView: View {
 
             Divider()
 
+            PaperClassificationMenuItems(paper: paper)
+
+            Divider()
+
             Button(role: .destructive) {
                 appModel.requestDeletePaper(paper)
             } label: {
@@ -440,6 +458,60 @@ private struct LibraryPaperRowView: View {
 
     private var rowBackground: Color {
         isSelected ? Color.accentColor.opacity(0.16) : Color.clear
+    }
+}
+
+private struct PaperClassificationMenuItems: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let paper: Paper
+
+    var body: some View {
+        Menu("Add to Project") {
+            ForEach(appModel.activeResearchProjects) { project in
+                Button {
+                    appModel.togglePaperProject(paper, projectID: project.id)
+                } label: {
+                    Label(project.name, systemImage: paper.projectIDs.contains(project.id) ? "checkmark.circle.fill" : "circle")
+                }
+            }
+        }
+
+        Menu("Add to Folder") {
+            Button {
+                appModel.movePaper(paper, to: "Uncategorized")
+            } label: {
+                Label("Uncategorized", systemImage: paper.collectionPath == "Uncategorized" ? "checkmark.circle.fill" : "folder")
+            }
+
+            if !appModel.collections.isEmpty {
+                Divider()
+            }
+
+            ForEach(appModel.collections) { collection in
+                Button {
+                    appModel.movePaper(paper, to: collection.relativePath)
+                } label: {
+                    Label(collection.relativePath, systemImage: paper.collectionPath == collection.relativePath ? "checkmark.circle.fill" : "folder")
+                }
+            }
+        }
+
+        Menu("Add to Core Paper") {
+            let projectOptions = appModel.activeResearchProjects.filter { paper.projectIDs.contains($0.id) }
+            if projectOptions.isEmpty {
+                Text("Add this paper to a project first")
+            } else {
+                ForEach(projectOptions) { project in
+                    Button {
+                        appModel.togglePaperCoreProject(paper, projectID: project.id)
+                    } label: {
+                        Label(project.name, systemImage: paper.coreProjectIDs.contains(project.id) ? "star.fill" : "star")
+                    }
+                }
+            }
+        }
+        .disabled(paper.projectIDs.isEmpty)
     }
 }
 
@@ -496,8 +568,12 @@ private struct LibraryColumnValueView: View {
             case .year:
                 Text(paper.yearText)
                     .lineLimit(1)
+            case .projects:
+                secondaryText(appModel.projectNames(for: paper).isEmpty ? "-" : appModel.projectNames(for: paper).joined(separator: ", "), lineLimit: 2)
+            case .coreProjects:
+                secondaryText(appModel.coreProjectNames(for: paper).isEmpty ? "-" : appModel.coreProjectNames(for: paper).joined(separator: ", "), lineLimit: 2)
             case .collection:
-                secondaryText(paper.collectionPath ?? "-", lineLimit: 2)
+                secondaryText(paper.folderDisplay, lineLimit: 2)
             case .publication:
                 secondaryText(paper.publicationDisplay, lineLimit: 2)
             case .itemType:
@@ -606,7 +682,12 @@ struct PaperInspectorView: View {
                             metadataField("Authors", text: authorsBinding, prompt: Text("Comma-separated authors"))
                             metadataField("Year", text: yearBinding)
                             metadataField("Venue", text: venueBinding)
-                            metadataField("Tags", text: tagsBinding, prompt: Text("Comma-separated tags"))
+                            TagCompletionField(
+                                title: "Tags",
+                                text: tagsBinding,
+                                prompt: Text("Comma-separated tags"),
+                                onSubmit: saveMetadataAndClearFocus
+                            )
                             metadataField("Use For", text: useForBinding, prompt: Text("Comma-separated usage hints"))
                         }
                         .textFieldStyle(.roundedBorder)
@@ -683,7 +764,9 @@ struct PaperInspectorView: View {
 
                     GroupBox("Files") {
                         VStack(alignment: .leading, spacing: 10) {
-                            WorkspacePathRow(label: "Collection", value: paper.collectionPath ?? "Uncategorized")
+                            WorkspacePathRow(label: "Folder", value: paper.folderDisplay)
+                            WorkspacePathRow(label: "Projects", value: appModel.projectNames(for: paper).isEmpty ? "-" : appModel.projectNames(for: paper).joined(separator: ", "))
+                            WorkspacePathRow(label: "Core In", value: appModel.coreProjectNames(for: paper).isEmpty ? "-" : appModel.coreProjectNames(for: paper).joined(separator: ", "))
                             WorkspacePathRow(label: "Paper Folder", value: paper.paperDirectoryRelativePath)
                             WorkspacePathRow(label: "PDF", value: paper.pdfRelativePath ?? "-")
                             WorkspacePathRow(label: "Last Page", value: paper.lastReadPage.map(String.init) ?? "-")
@@ -696,21 +779,11 @@ struct PaperInspectorView: View {
 
                     GroupBox("Organization") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Move selected paper into a collection folder under raw/papers/.")
+                            Text("Assign this paper to projects, mark project-level core status, or move it into a Library folder.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
 
-                            Menu("Move to Collection") {
-                                Button("Uncategorized") {
-                                    appModel.moveSelectedPaper(to: "Uncategorized")
-                                }
-
-                                ForEach(appModel.collections) { collection in
-                                    Button(collection.relativePath) {
-                                        appModel.moveSelectedPaper(to: collection.relativePath)
-                                    }
-                                }
-                            }
+                            PaperClassificationMenuItems(paper: paper)
                         }
                         .padding(.vertical, 4)
                     }
@@ -984,9 +1057,9 @@ private struct QuickLinkImportPanel: View {
             }
 
             HStack(spacing: 12) {
-                TextField("Collection", text: $appModel.identifierImportCollectionPath)
+                TextField("Folder", text: $appModel.identifierImportCollectionPath)
                     .textFieldStyle(.roundedBorder)
-                TextField("Tags", text: $appModel.identifierImportTagsText, prompt: Text("Comma-separated"))
+                TagCompletionField(title: "Tags", text: $appModel.identifierImportTagsText, prompt: Text("Comma-separated"))
                     .textFieldStyle(.roundedBorder)
             }
 

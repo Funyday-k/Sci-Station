@@ -10,7 +10,7 @@ struct CollectionManagerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Manage Collections")
+            Text("Manage Library Folders")
                 .font(.title2)
                 .fontWeight(.semibold)
 
@@ -31,9 +31,9 @@ struct CollectionManagerView: View {
                 .frame(minWidth: 260)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TextField("New collection path", text: $newCollectionPath)
+                    TextField("New folder path", text: $newCollectionPath)
                         .textFieldStyle(.roundedBorder)
-                    Button("Create Collection") {
+                    Button("Create Folder") {
                         appModel.createCollection(relativePath: newCollectionPath)
                         newCollectionPath = ""
                     }
@@ -41,7 +41,7 @@ struct CollectionManagerView: View {
 
                     Divider()
 
-                    TextField("Rename selected collection", text: $renameValue)
+                    TextField("Rename selected folder", text: $renameValue)
                         .textFieldStyle(.roundedBorder)
                         .disabled(selectedCollectionPath == nil)
 

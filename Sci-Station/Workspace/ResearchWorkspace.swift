@@ -29,7 +29,9 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         "scripts",
         "code",
         "figures",
-        "outputs"
+        "outputs",
+        ".sci-station/agent",
+        ".sci-station/agent/copilot-bridge"
     ]
 
     public nonisolated static let userMaterialRootPaths: [String] = [
@@ -69,7 +71,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         ),
         SeededFile(
             relativePath: "settings/workspace_preferences.yaml",
-            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"collection\"\ndefault_collection: \"\"\nrecent_section: \"projects\"\n"
+            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"projects\"\n  - \"collection\"\ndefault_collection: \"\"\nrecent_section: \"projects\"\nsync_todos_to_apple_reminders: true\n"
         ),
         SeededFile(
             relativePath: "settings/markdown_snippets.yaml",

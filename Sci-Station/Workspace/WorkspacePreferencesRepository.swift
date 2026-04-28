@@ -34,6 +34,7 @@ public actor WorkspacePreferencesRepository {
         let recentSection = preferences.recentSection.map(quoted) ?? ""
         lines.append("default_collection: \(defaultCollection)")
         lines.append("recent_section: \(recentSection)")
+        lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -43,6 +44,7 @@ public actor WorkspacePreferencesRepository {
         var libraryVisibleColumns: [String] = []
         var defaultCollectionPath: String?
         var recentSection: String?
+        var syncTodosToAppleReminders = true
         var cursor = 0
 
         while cursor < lines.count {
@@ -58,6 +60,9 @@ public actor WorkspacePreferencesRepository {
                 defaultCollectionPath = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "default_collection:", with: "").trimmingCharacters(in: .whitespaces)))
             } else if trimmed.hasPrefix("recent_section:") {
                 recentSection = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "recent_section:", with: "").trimmingCharacters(in: .whitespaces)))
+            } else if trimmed.hasPrefix("sync_todos_to_apple_reminders:") {
+                let value = trimmed.replacingOccurrences(of: "sync_todos_to_apple_reminders:", with: "").trimmingCharacters(in: .whitespaces)
+                syncTodosToAppleReminders = Bool(value) ?? true
             }
             cursor += 1
         }
@@ -66,7 +71,8 @@ public actor WorkspacePreferencesRepository {
             schemaVersion: schemaVersion,
             libraryVisibleColumns: libraryVisibleColumns,
             defaultCollectionPath: defaultCollectionPath,
-            recentSection: recentSection
+            recentSection: recentSection,
+            syncTodosToAppleReminders: syncTodosToAppleReminders
         )
     }
 

@@ -39,5 +39,10 @@ struct Sci_StationApp: App {
                 .disabled(appModel.selectedPaperDraft == nil)
             }
         }
+
+        Settings {
+            SettingsSceneView()
+                .environmentObject(appModel)
+        }
     }
 }

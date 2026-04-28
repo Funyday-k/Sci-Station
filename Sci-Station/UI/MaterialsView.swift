@@ -3,6 +3,8 @@ import PDFKit
 import SwiftUI
 
 struct MaterialsView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let workspace: ResearchWorkspace
 
     @State private var materials: [WorkspaceMaterial] = []
@@ -34,6 +36,9 @@ struct MaterialsView: View {
         .onChange(of: selectedMaterialID) { _, _ in
             loadPreviewText()
         }
+        .onChange(of: appModel.currentProjectID) { _, _ in
+            Task { await reloadMaterials() }
+        }
     }
 
     private var materialsList: some View {
@@ -43,7 +48,7 @@ struct MaterialsView: View {
                     Text("Materials")
                         .font(.largeTitle)
                         .fontWeight(.semibold)
-                    Text("\(materials.count) files")
+                    Text("\(materials.count) files in \(appModel.currentResearchProject?.name ?? workspace.displayName)")
                         .foregroundStyle(.secondary)
                 }
 
@@ -59,14 +64,14 @@ struct MaterialsView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    openInVSCode(workspace.rootURL)
+                    openInVSCode(materialsRootURL)
                 } label: {
-                    Label("Workspace", systemImage: "chevron.left.forwardslash.chevron.right")
+                    Label("Project", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
                 .buttonStyle(.bordered)
 
                 Button {
-                    NSWorkspace.shared.open(workspace.rootURL)
+                    NSWorkspace.shared.open(materialsRootURL)
                 } label: {
                     Label("Finder", systemImage: "folder")
                 }
@@ -160,7 +165,7 @@ struct MaterialsView: View {
                 Text("Materials")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text("Select a data, code, figure, output, script, prompt, or inbox file.")
+                Text("Select a data, code, figure, or output file for the active project.")
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -212,12 +217,20 @@ struct MaterialsView: View {
             }
     }
 
+    private var materialsRootURL: URL {
+        if let project = appModel.currentResearchProject {
+            return workspace.directoryURL(for: project.relativePath)
+        }
+
+        return workspace.rootURL
+    }
+
     private func reloadMaterials() async {
         isLoading = true
         defer { isLoading = false }
 
         do {
-            let loadedMaterials = try await repository.loadMaterials(in: workspace)
+            let loadedMaterials = try await repository.loadMaterials(in: workspace, project: appModel.currentResearchProject)
             materials = loadedMaterials
             var selectionStillExists = false
             if let selectedID = selectedMaterialID {

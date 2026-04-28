@@ -13,8 +13,8 @@ public struct LLMConfiguration: Codable, Hashable, Sendable {
 
     public nonisolated init(
         provider: LLMProviderKind = .openAICompatible,
-        baseURLString: String = "https://api.openai.com/v1",
-        model: String = "gpt-4o-mini",
+        baseURLString: String = "https://api.deepseek.com",
+        model: String = "deepseek-v4-flash",
         temperature: Double = 0.2,
         maxTokens: Int? = 1500
     ) {

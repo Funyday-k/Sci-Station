@@ -6,6 +6,7 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
     public var status: TodoStatus
     public var dueDate: Date?
     public var priority: Priority
+    public var projectIDs: [String]
     public var tags: [String]
     public var relatedPaperIDs: [String]
     public var notes: String?
@@ -23,6 +24,7 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         status: TodoStatus,
         dueDate: Date?,
         priority: Priority = .medium,
+        projectIDs: [String] = [],
         tags: [String],
         relatedPaperIDs: [String],
         notes: String?,
@@ -39,6 +41,7 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         self.status = status
         self.dueDate = dueDate
         self.priority = priority
+        self.projectIDs = projectIDs
         self.tags = tags
         self.relatedPaperIDs = relatedPaperIDs
         self.notes = notes

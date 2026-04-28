@@ -44,6 +44,9 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
     public var status: ReadingStatus
     public var priority: Priority
     public var rating: Int?
+    public var projectIDs: [String] = []
+    public var coreProjectIDs: [String] = []
+    public var folderPath: String? = nil
     public var useFor: [String]
     public var createdAt: Date
     public var updatedAt: Date
@@ -69,6 +72,7 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         shortTitle: String? = nil, accessedAt: String? = nil,
         bibtex: String? = nil,
         collectionPath: String? = nil,
+        projectIDs: [String] = [], coreProjectIDs: [String] = [], folderPath: String? = nil,
         pdfRelativePath: String?, tags: [String], status: ReadingStatus,
         priority: Priority, rating: Int?, useFor: [String],
         createdAt: Date, updatedAt: Date, lastReadAt: Date? = nil,
@@ -100,6 +104,9 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         self.paperDirectoryRelativePath = paperDirectoryRelativePath
         self.notesSummaryRelativePath = notesSummaryRelativePath
         self.annotationsRelativePath = annotationsRelativePath
+        self.projectIDs = projectIDs
+        self.coreProjectIDs = coreProjectIDs
+        self.folderPath = folderPath ?? self.collectionPath
     }
 
     public nonisolated init(
@@ -140,6 +147,7 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         set {
             paperDirectoryRelativePath = newValue
             collectionPath = Self.collectionPath(for: newValue)
+            folderPath = collectionPath
         }
     }
 
@@ -159,6 +167,10 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         tags.isEmpty ? "-" : tags.joined(separator: ", ")
     }
 
+    public nonisolated var folderDisplay: String {
+        folderPath ?? collectionPath ?? "Unfiled"
+    }
+
     public nonisolated var yearText: String {
         year.map(String.init) ?? "-"
     }
@@ -169,6 +181,14 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
 
     public nonisolated var updatedText: String {
         updatedAt.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    public nonisolated func belongs(to projectID: String) -> Bool {
+        projectIDs.contains(projectID)
+    }
+
+    public nonisolated func isCorePaper(in projectID: String) -> Bool {
+        coreProjectIDs.contains(projectID)
     }
 
     public nonisolated func pdfURL(in workspace: ResearchWorkspace) -> URL? {

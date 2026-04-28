@@ -45,6 +45,7 @@ public actor MovePaperToCollectionService {
         var movedPaper = paper
         movedPaper.paperDirectoryRelativePath = workspace.relativePath(to: targetDirectoryURL)
         movedPaper.collectionPath = Paper.collectionPath(for: movedPaper.paperDirectoryRelativePath)
+        movedPaper.folderPath = movedPaper.collectionPath
         movedPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
             for: movedPaper.citekey,
             paperDirectoryRelativePath: movedPaper.paperDirectoryRelativePath

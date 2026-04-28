@@ -57,6 +57,13 @@ public actor TodoRepository {
                 "    priority: \(todo.priority.rawValue)"
             ]
 
+            if todo.projectIDs.isEmpty {
+                lines.append("    project_ids: []")
+            } else {
+                lines.append("    project_ids:")
+                lines.append(contentsOf: todo.projectIDs.map { "      - \(quoted($0))" })
+            }
+
             if todo.tags.isEmpty {
                 lines.append("    tags: []")
             } else {
@@ -102,6 +109,7 @@ public actor TodoRepository {
             var status = TodoStatus.open
             var dueDate: Date?
             var priority = Priority.medium
+            var projectIDs: [String] = []
             var tags: [String] = []
             var relatedPaperIDs: [String] = []
             var notes: String?
@@ -134,6 +142,10 @@ public actor TodoRepository {
                     dueTime = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "due_time:", with: "").trimmingCharacters(in: .whitespaces)))
                 } else if trimmed.hasPrefix("priority:") {
                     priority = Priority(rawValue: trimmed.replacingOccurrences(of: "priority:", with: "").trimmingCharacters(in: .whitespaces)) ?? .medium
+                } else if trimmed == "project_ids:" {
+                    let result = parseIndentedArray(from: lines, start: cursor + 1)
+                    projectIDs = result.values
+                    cursor = result.nextIndex - 1
                 } else if trimmed == "tags:" {
                     let result = parseIndentedArray(from: lines, start: cursor + 1)
                     tags = result.values
@@ -167,6 +179,7 @@ public actor TodoRepository {
                     status: status,
                     dueDate: dueDate,
                     priority: priority,
+                    projectIDs: projectIDs,
                     tags: tags,
                     relatedPaperIDs: relatedPaperIDs,
                     notes: notes,

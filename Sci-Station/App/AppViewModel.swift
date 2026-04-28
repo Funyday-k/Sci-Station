@@ -3,9 +3,39 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct ResearchProjectEditorDraft {
+    var id: ResearchProject.ID?
+    var name = ""
+    var description = ""
+    var colorHex = "#4F7CAC"
+    var iconName = "folder"
+
+    init() {}
+
+    init(project: ResearchProject) {
+        self.id = project.id
+        self.name = project.name
+        self.description = project.description
+        self.colorHex = project.colorHex
+        self.iconName = project.iconName
+    }
+
+    var isNew: Bool {
+        id == nil
+    }
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
+    @Published private(set) var currentResearchRoot: ResearchRoot?
+    @Published private(set) var researchProjects: [ResearchProject] = []
+    @Published private(set) var currentProjectID: ResearchProject.ID?
+    @Published private(set) var isViewingGlobalTodos = false
+    @Published private(set) var rootCompatibilityMessage: String?
+    @Published var isShowingResearchProjectEditor = false
+    @Published var researchProjectEditorDraft = ResearchProjectEditorDraft()
+    @Published private(set) var isSavingResearchProject = false
     @Published var selectedSection: WorkspaceSection? = .projects
     @Published var isShowingError = false
     @Published private(set) var errorMessage: String?
@@ -18,7 +48,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var systemScheduleItems: [SystemScheduleItem] = []
     @Published private(set) var systemCalendarAccessState: SystemCalendarAccessState = .notDetermined
     @Published private(set) var isLoadingSystemSchedule = false
-    @Published var addTodosToAppleReminders = false
+    @Published var addTodosToAppleReminders = true
     @Published private(set) var workspacePreferences = WorkspacePreferences()
     @Published private(set) var workspaceSettingsStatusMessage: String?
     @Published private(set) var selectedPaperID: Paper.ID?
@@ -32,6 +62,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var bibTeXExportFileName = "reference.bib"
     @Published private(set) var selectedCollectionPath: String?
     @Published private(set) var selectedTagName: String?
+    @Published private(set) var selectedLibraryProjectID: ResearchProject.ID?
+    @Published private(set) var collapsedCollectionPaths: Set<String> = []
     @Published var selectedDashboardDate = Calendar.current.startOfDay(for: Date())
     @Published var librarySearchText = ""
     @Published private(set) var isImportingPDF = false
@@ -59,6 +91,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isSavingSelectedMarkdown = false
 
     private let workspaceService: WorkspaceService
+    private let projectRegistryRepository: ProjectRegistryRepository
     private let paperRepository: PaperRepository
     private let collectionRepository: CollectionRepository
     private let movePaperToCollectionService: MovePaperToCollectionService
@@ -90,6 +123,7 @@ final class AppViewModel: ObservableObject {
 
     init(
         workspaceService: WorkspaceService? = nil,
+        projectRegistryRepository: ProjectRegistryRepository? = nil,
         paperRepository: PaperRepository? = nil,
         collectionRepository: CollectionRepository? = nil,
         tagRepository: TagRepository? = nil,
@@ -110,6 +144,7 @@ final class AppViewModel: ObservableObject {
         pdfOpeningService: (any PDFOpeningService)? = nil
     ) {
         let resolvedWorkspaceService = workspaceService ?? WorkspaceService()
+        let resolvedProjectRegistryRepository = projectRegistryRepository ?? ProjectRegistryRepository()
         let resolvedPaperRepository = paperRepository ?? PaperRepository()
         let resolvedCollectionRepository = collectionRepository ?? CollectionRepository()
         let resolvedTagRepository = tagRepository ?? TagRepository()
@@ -132,6 +167,7 @@ final class AppViewModel: ObservableObject {
         let resolvedMarkdownSnippetRepository = markdownSnippetRepository ?? MarkdownSnippetRepository()
 
         self.workspaceService = resolvedWorkspaceService
+        self.projectRegistryRepository = resolvedProjectRegistryRepository
         self.paperRepository = resolvedPaperRepository
         self.collectionRepository = resolvedCollectionRepository
         self.movePaperToCollectionService = MovePaperToCollectionService(paperRepository: resolvedPaperRepository)
@@ -161,6 +197,9 @@ final class AppViewModel: ObservableObject {
         let query = librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         return papers.filter { paper in
+            let matchesProject = selectedLibraryProjectID.map { projectID in
+                paper.projectIDs.contains(projectID)
+            } ?? true
             let matchesCollection = selectedCollectionPath.map { selectedPath in
                 guard let collectionPath = paper.collectionPath else {
                     return false
@@ -171,7 +210,7 @@ final class AppViewModel: ObservableObject {
             let matchesTag = selectedTagName.map { paper.tags.contains($0) } ?? true
             let matchesQuery = librarySearchService.matches(paper, query: query)
 
-            return matchesCollection && matchesTag && matchesQuery
+            return matchesProject && matchesCollection && matchesTag && matchesQuery
         }
     }
 
@@ -207,6 +246,18 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var currentProjectTodos: [TodoItem] {
+        guard let currentProjectID else {
+            return todos
+        }
+
+        return todos(for: currentProjectID)
+    }
+
+    var currentProjectOpenTodos: [TodoItem] {
+        currentProjectTodos.filter { $0.status != .done && $0.status != .cancelled }
+    }
+
     private func prioritySortValue(_ priority: Priority) -> Int {
         switch priority {
         case .urgent:
@@ -227,6 +278,17 @@ final class AppViewModel: ObservableObject {
             .sorted { $0.date < $1.date }
     }
 
+    var activeResearchProjects: [ResearchProject] {
+        researchProjects.filter { !$0.isArchived }
+    }
+
+    var currentResearchProject: ResearchProject? {
+        guard let currentProjectID else {
+            return activeResearchProjects.first
+        }
+        return activeResearchProjects.first { $0.id == currentProjectID } ?? activeResearchProjects.first
+    }
+
     var selectedDateSystemScheduleItems: [SystemScheduleItem] {
         let calendar = Calendar.current
         return systemScheduleItems
@@ -243,6 +305,36 @@ final class AppViewModel: ObservableObject {
         Array(papers.prefix(5))
     }
 
+    func papers(for projectID: ResearchProject.ID) -> [Paper] {
+        papers.filter { $0.projectIDs.contains(projectID) }
+    }
+
+    func corePapers(for projectID: ResearchProject.ID) -> [Paper] {
+        papers(for: projectID).filter { $0.coreProjectIDs.contains(projectID) }
+    }
+
+    func projectName(for projectID: ResearchProject.ID) -> String {
+        researchProjects.first(where: { $0.id == projectID })?.name ?? projectID
+    }
+
+    func projectNames(for paper: Paper) -> [String] {
+        paper.projectIDs.map(projectName(for:))
+    }
+
+    func todos(for projectID: ResearchProject.ID) -> [TodoItem] {
+        todos.filter { todo in
+            todo.projectIDs.contains(projectID) || (todo.projectIDs.isEmpty && activeResearchProjects.count <= 1)
+        }
+    }
+
+    func openTodos(for projectID: ResearchProject.ID) -> [TodoItem] {
+        todos(for: projectID).filter { $0.status != .done && $0.status != .cancelled }
+    }
+
+    func coreProjectNames(for paper: Paper) -> [String] {
+        paper.coreProjectIDs.map(projectName(for:))
+    }
+
     var recentlyReadPapers: [Paper] {
         Array(
             papers
@@ -253,15 +345,21 @@ final class AppViewModel: ObservableObject {
     }
 
     var libraryScopeSummary: String {
+        var components: [String] = []
+
+        if let selectedLibraryProjectID {
+            components.append("Project: \(projectName(for: selectedLibraryProjectID))")
+        }
+
         if let selectedCollectionPath {
-            return "Collection: \(selectedCollectionPath)"
+            components.append("Folder: \(selectedCollectionPath)")
         }
 
         if let selectedTagName {
-            return "Tag: \(selectedTagName)"
+            components.append("Tag: \(selectedTagName)")
         }
 
-        return "All Papers"
+        return components.isEmpty ? "All Papers" : components.joined(separator: " / ")
     }
 
     var canOpenSelectedPaperPDF: Bool {
@@ -345,10 +443,12 @@ final class AppViewModel: ObservableObject {
 
     func selectSection(_ section: WorkspaceSection) {
         selectedSection = section
+        isViewingGlobalTodos = false
         updateWorkspacePreferences { preferences in
             preferences.recentSection = section.rawValue
         }
         if section == .library {
+            selectedLibraryProjectID = nil
             selectedCollectionPath = nil
             selectedTagName = nil
         }
@@ -356,18 +456,24 @@ final class AppViewModel: ObservableObject {
 
     func selectLibraryScope() {
         selectedSection = .library
+        isViewingGlobalTodos = false
+        selectedLibraryProjectID = nil
         selectedCollectionPath = nil
         selectedTagName = nil
     }
 
     func selectCollection(_ relativePath: String) {
         selectedSection = .library
+        isViewingGlobalTodos = false
+        selectedLibraryProjectID = nil
         selectedCollectionPath = relativePath
         selectedTagName = nil
     }
 
     func selectTag(_ name: String) {
         selectedSection = .library
+        isViewingGlobalTodos = false
+        selectedLibraryProjectID = nil
         selectedTagName = name
         selectedCollectionPath = nil
     }
@@ -375,6 +481,14 @@ final class AppViewModel: ObservableObject {
     func clearLibraryFilters() {
         selectedCollectionPath = nil
         selectedTagName = nil
+    }
+
+    func toggleCollectionCollapse(_ relativePath: String) {
+        if collapsedCollectionPaths.contains(relativePath) {
+            collapsedCollectionPaths.remove(relativePath)
+        } else {
+            collapsedCollectionPaths.insert(relativePath)
+        }
     }
 
     func restoreLastWorkspaceIfNeeded() async {
@@ -400,7 +514,8 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        runWorkspaceTask {
+        let compatibility = ResearchRoot.compatibility(at: destinationURL)
+        runWorkspaceTask(compatibilityHint: compatibility) {
             try await self.workspaceService.createWorkspace(at: destinationURL)
         }
     }
@@ -410,8 +525,157 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        runWorkspaceTask {
+        let compatibility = ResearchRoot.compatibility(at: destinationURL)
+        runWorkspaceTask(compatibilityHint: compatibility) {
             try await self.workspaceService.openWorkspace(at: destinationURL)
+        }
+    }
+
+    func selectResearchProject(_ projectID: ResearchProject.ID, section: WorkspaceSection = .projects) {
+        currentProjectID = projectID
+        isViewingGlobalTodos = false
+        if section == .library {
+            selectedSection = .library
+            selectedLibraryProjectID = projectID
+            selectedCollectionPath = nil
+            selectedTagName = nil
+            updateWorkspacePreferences { preferences in
+                preferences.recentSection = section.rawValue
+            }
+        } else {
+            selectSection(section)
+        }
+
+        persistLastOpenedProject(projectID)
+
+        if section == .wiki, let currentWorkspace {
+            Task {
+                do {
+                    try await loadMarkdownDocuments(in: currentWorkspace, selecting: nil)
+                } catch {
+                    present(error)
+                }
+            }
+        }
+    }
+
+    func focusResearchProject(_ projectID: ResearchProject.ID) {
+        currentProjectID = projectID
+        persistLastOpenedProject(projectID)
+    }
+
+    func selectGlobalTodos() {
+        selectedSection = .tasks
+        isViewingGlobalTodos = true
+        selectedLibraryProjectID = nil
+        selectedCollectionPath = nil
+        selectedTagName = nil
+        updateWorkspacePreferences { preferences in
+            preferences.recentSection = WorkspaceSection.tasks.rawValue
+        }
+    }
+
+    private func persistLastOpenedProject(_ projectID: ResearchProject.ID) {
+        guard let currentResearchRoot else {
+            return
+        }
+
+        Task {
+            do {
+                var registry = try await projectRegistryRepository.load(in: currentResearchRoot)
+                registry.lastOpenedProjectID = projectID
+                try await projectRegistryRepository.save(registry, in: currentResearchRoot)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func beginCreatingResearchProject() {
+        researchProjectEditorDraft = ResearchProjectEditorDraft()
+        isShowingResearchProjectEditor = true
+    }
+
+    func beginEditingResearchProject(_ projectID: ResearchProject.ID) {
+        guard let project = researchProjects.first(where: { $0.id == projectID }) else {
+            present(ProjectRegistryError.projectNotFound(projectID))
+            return
+        }
+
+        researchProjectEditorDraft = ResearchProjectEditorDraft(project: project)
+        isShowingResearchProjectEditor = true
+    }
+
+    func toggleResearchProjectCollapse(_ projectID: ResearchProject.ID) {
+        guard let index = researchProjects.firstIndex(where: { $0.id == projectID }) else {
+            return
+        }
+
+        let isCollapsed = !researchProjects[index].isCollapsed
+        researchProjects[index].isCollapsed = isCollapsed
+
+        guard let currentResearchRoot else {
+            return
+        }
+
+        Task {
+            do {
+                let registry = try await projectRegistryRepository.setProjectCollapsed(projectID, isCollapsed: isCollapsed, in: currentResearchRoot)
+                researchProjects = registry.projects
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func saveResearchProjectDraft() {
+        guard let currentResearchRoot else {
+            return
+        }
+
+        let draft = researchProjectEditorDraft
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            present(ProjectRegistryError.projectNameRequired)
+            return
+        }
+
+        isSavingResearchProject = true
+        Task {
+            defer {
+                isSavingResearchProject = false
+            }
+
+            do {
+                if let projectID = draft.id {
+                    guard var project = researchProjects.first(where: { $0.id == projectID }) else {
+                        throw ProjectRegistryError.projectNotFound(projectID)
+                    }
+
+                    project.name = name
+                    project.description = draft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                    project.colorHex = draft.colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#4F7CAC" : draft.colorHex
+                    project.iconName = draft.iconName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "folder" : draft.iconName
+                    let registry = try await projectRegistryRepository.updateProject(project, in: currentResearchRoot)
+                    researchProjects = registry.projects
+                } else {
+                    let project = try await projectRegistryRepository.createProject(
+                        named: name,
+                        description: draft.description.trimmingCharacters(in: .whitespacesAndNewlines),
+                        colorHex: draft.colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#4F7CAC" : draft.colorHex,
+                        iconName: draft.iconName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "folder" : draft.iconName,
+                        in: currentResearchRoot
+                    )
+                    let registry = try await projectRegistryRepository.load(in: currentResearchRoot)
+                    researchProjects = registry.projects
+                    currentProjectID = project.id
+                    selectedSection = .projects
+                }
+
+                isShowingResearchProjectEditor = false
+            } catch {
+                present(error)
+            }
         }
     }
 
@@ -427,6 +691,60 @@ final class AppViewModel: ObservableObject {
         Task {
             await workspaceService.clearRecentWorkspaceBookmark()
             workspaceSettingsStatusMessage = "Recent workspace bookmark cleared. The current workspace stays open for this session."
+        }
+    }
+
+    func renameCurrentWorkspace(to newName: String) {
+        guard let workspaceToRename = currentWorkspace else {
+            return
+        }
+
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, trimmedName != workspaceToRename.displayName else {
+            return
+        }
+
+        let sourceURL = workspaceToRename.rootURL.standardizedFileURL
+        let targetURL = sourceURL.deletingLastPathComponent().appendingPathComponent(trimmedName, isDirectory: true)
+        guard sourceURL != targetURL else {
+            return
+        }
+
+        isWorking = true
+        Task {
+            defer {
+                isWorking = false
+            }
+
+            do {
+                if FileManager.default.fileExists(atPath: targetURL.path) {
+                    throw CocoaError(.fileWriteFileExists)
+                }
+                try FileManager.default.moveItem(at: sourceURL, to: targetURL)
+                let workspace = try await workspaceService.openWorkspace(at: targetURL)
+                currentWorkspace = workspace
+                try await loadWorkspaceData(
+                    in: workspace,
+                    selectingPaper: selectedPaperID,
+                    selectingMarkdown: selectedMarkdownID
+                )
+                workspaceSettingsStatusMessage = "Workspace renamed to \(trimmedName)."
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updateDefaultCollectionPath(_ value: String) {
+        updateWorkspacePreferences { preferences in
+            preferences.defaultCollectionPath = value.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }
+    }
+
+    func updateAddTodosToAppleReminders(_ isEnabled: Bool) {
+        addTodosToAppleReminders = isEnabled
+        updateWorkspacePreferences { preferences in
+            preferences.syncTodosToAppleReminders = isEnabled
         }
     }
 
@@ -484,7 +802,7 @@ final class AppViewModel: ObservableObject {
 
     func prepareIdentifierImport(initialInput: String? = nil) {
         identifierImportInput = initialInput ?? ""
-        identifierImportCollectionPath = selectedCollectionPath ?? "Uncategorized"
+        identifierImportCollectionPath = selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
         identifierImportTagsText = ""
         identifierImportPreview = nil
         identifierImportStatusMessage = nil
@@ -550,7 +868,7 @@ final class AppViewModel: ObservableObject {
 
                 for input in importInputs {
                     do {
-                        let importedPaper = try await remoteImportService.importItem(
+                        var importedPaper = try await remoteImportService.importItem(
                             from: input,
                             draftPreview: importInputs.count == 1 ? identifierImportPreview : nil,
                             into: currentWorkspace,
@@ -558,6 +876,11 @@ final class AppViewModel: ObservableObject {
                             collectionPath: importCollectionPath,
                             tags: importTags
                         )
+                        if let selectedLibraryProjectID,
+                           !importedPaper.projectIDs.contains(selectedLibraryProjectID) {
+                            importedPaper.projectIDs.append(selectedLibraryProjectID)
+                            importedPaper = try await paperRepository.save(importedPaper, in: currentWorkspace)
+                        }
                         existingPapers.append(importedPaper)
                         importedPaperID = importedPaper.id
                     } catch {
@@ -869,6 +1192,16 @@ final class AppViewModel: ObservableObject {
         mutate(&llmConfiguration)
     }
 
+    func useDeepSeekDefaults(model: String = "deepseek-v4-flash") {
+        updateLLMConfiguration { configuration in
+            configuration.provider = .openAICompatible
+            configuration.baseURLString = "https://api.deepseek.com"
+            configuration.model = model
+            configuration.temperature = 0.2
+            configuration.maxTokens = 1500
+        }
+    }
+
     func testLLMConnection() {
         isTestingLLMConnection = true
         llmConnectionStatusMessage = nil
@@ -981,6 +1314,19 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func createSubfolder(in parentPath: String?) {
+        let trimmedParentPath = parentPath?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let basePath = [trimmedParentPath, "New Folder"].compactMap { $0 }.joined(separator: "/")
+        let existingPaths = Set(collections.map(\.relativePath))
+        var candidate = basePath
+        var suffix = 2
+        while existingPaths.contains(candidate) {
+            candidate = [trimmedParentPath, "New Folder \(suffix)"].compactMap { $0 }.joined(separator: "/")
+            suffix += 1
+        }
+        createCollection(relativePath: candidate)
+    }
+
     func renameSelectedCollection(to newName: String) {
         guard let currentWorkspace, let selectedCollectionPath else {
             return
@@ -1034,14 +1380,27 @@ final class AppViewModel: ObservableObject {
     }
 
     func moveSelectedPaper(to collectionPath: String) {
-        guard let currentWorkspace, let selectedPaperDraft else {
+        guard let selectedPaperDraft else {
+            return
+        }
+
+        movePaper(selectedPaperDraft, to: collectionPath)
+    }
+
+    func movePaper(_ paper: Paper, to collectionPath: String) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let normalizedPath = collectionPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (paper.collectionPath ?? "") == normalizedPath {
             return
         }
 
         Task {
             do {
                 let movedPaper = try await movePaperToCollectionService.move(
-                    selectedPaperDraft,
+                    paper,
                     to: collectionPath,
                     in: currentWorkspace
                 )
@@ -1050,7 +1409,52 @@ final class AppViewModel: ObservableObject {
                     selectingPaper: movedPaper.id,
                     selectingMarkdown: selectedMarkdownID
                 )
-                selectCollection(collectionPath)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func togglePaperProject(_ paper: Paper, projectID: ResearchProject.ID) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        var updatedPaper = paper
+        if updatedPaper.projectIDs.contains(projectID) {
+            updatedPaper.projectIDs.removeAll { $0 == projectID }
+            updatedPaper.coreProjectIDs.removeAll { $0 == projectID }
+        } else {
+            updatedPaper.projectIDs.append(projectID)
+        }
+
+        savePaperClassification(updatedPaper, in: currentWorkspace)
+    }
+
+    func togglePaperCoreProject(_ paper: Paper, projectID: ResearchProject.ID) {
+        guard let currentWorkspace, paper.projectIDs.contains(projectID) else {
+            return
+        }
+
+        var updatedPaper = paper
+        if updatedPaper.coreProjectIDs.contains(projectID) {
+            updatedPaper.coreProjectIDs.removeAll { $0 == projectID }
+        } else {
+            updatedPaper.coreProjectIDs.append(projectID)
+        }
+
+        savePaperClassification(updatedPaper, in: currentWorkspace)
+    }
+
+    private func savePaperClassification(_ paper: Paper, in workspace: ResearchWorkspace) {
+        Task {
+            do {
+                let savedPaper = try await paperRepository.save(paper, in: workspace)
+                try await loadWorkspaceData(
+                    in: workspace,
+                    selectingPaper: savedPaper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
             } catch {
                 present(error)
             }
@@ -1144,7 +1548,13 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func addTodo(title: String, dueDate: Date?, priority: Priority = .medium, notes: String? = nil) {
+    func addTodo(
+        title: String,
+        dueDate: Date?,
+        priority: Priority = .medium,
+        notes: String? = nil,
+        projectIDs: [ResearchProject.ID]? = nil
+    ) {
         guard let currentWorkspace else {
             return
         }
@@ -1161,6 +1571,7 @@ final class AppViewModel: ObservableObject {
             status: .open,
             dueDate: dueDate.map { Calendar.current.startOfDay(for: $0) },
             priority: priority,
+            projectIDs: projectIDs ?? currentProjectID.map { [$0] } ?? [],
             tags: selectedTagName.map { [$0] } ?? [],
             relatedPaperIDs: selectedPaperDraft.map { [$0.id] } ?? [],
             notes: notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
@@ -1181,7 +1592,15 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func updateTodo(_ todo: TodoItem, title: String, status: TodoStatus, dueDate: Date?, priority: Priority, notes: String?) {
+    func updateTodo(
+        _ todo: TodoItem,
+        title: String,
+        status: TodoStatus,
+        dueDate: Date?,
+        priority: Priority,
+        notes: String?,
+        projectIDs: [ResearchProject.ID]? = nil
+    ) {
         guard let currentWorkspace else {
             return
         }
@@ -1196,6 +1615,7 @@ final class AppViewModel: ObservableObject {
         updatedTodo.status = status
         updatedTodo.dueDate = dueDate.map { Calendar.current.startOfDay(for: $0) }
         updatedTodo.priority = priority
+        updatedTodo.projectIDs = projectIDs ?? updatedTodo.projectIDs
         updatedTodo.notes = notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         updatedTodo.completedAt = status == .done ? (todo.completedAt ?? Date()) : nil
         updatedTodo.updatedAt = Date()
@@ -1349,6 +1769,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func runWorkspaceTask(
+        compatibilityHint: ResearchRootCompatibility? = nil,
         operation: @escaping @Sendable () async throws -> ResearchWorkspace
     ) {
         isWorking = true
@@ -1361,7 +1782,12 @@ final class AppViewModel: ObservableObject {
             do {
                 let workspace = try await operation()
                 currentWorkspace = workspace
-                try await loadWorkspaceData(in: workspace, selectingPaper: nil, selectingMarkdown: nil)
+                try await loadWorkspaceData(
+                    in: workspace,
+                    selectingPaper: nil,
+                    selectingMarkdown: nil,
+                    rootCompatibility: compatibilityHint
+                )
                 if selectedSection == nil {
                     selectedSection = .projects
                 }
@@ -1386,12 +1812,17 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
-                let importedPaper = try await pdfImportService.importPDF(
+                var importedPaper = try await pdfImportService.importPDF(
                     from: pdfURL,
                     into: workspace,
                     existingPapers: existingPapers,
-                    collectionPath: selectedCollectionPath ?? "Uncategorized"
+                    collectionPath: selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
                 )
+                if let selectedLibraryProjectID,
+                   !importedPaper.projectIDs.contains(selectedLibraryProjectID) {
+                    importedPaper.projectIDs.append(selectedLibraryProjectID)
+                    importedPaper = try await paperRepository.save(importedPaper, in: workspace)
+                }
                 try await loadWorkspaceData(
                     in: workspace,
                     selectingPaper: importedPaper.id,
@@ -1450,8 +1881,10 @@ final class AppViewModel: ObservableObject {
     private func loadWorkspaceData(
         in workspace: ResearchWorkspace,
         selectingPaper paperID: Paper.ID?,
-        selectingMarkdown markdownID: String?
+        selectingMarkdown markdownID: String?,
+        rootCompatibility: ResearchRootCompatibility? = nil
     ) async throws {
+        try await loadResearchRoot(in: workspace, compatibility: rootCompatibility)
         try await loadWorkspacePreferences(in: workspace)
         try await loadLibrary(in: workspace, selecting: paperID)
         try await loadCollections(in: workspace)
@@ -1467,6 +1900,21 @@ final class AppViewModel: ObservableObject {
         try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
     }
 
+    private func loadResearchRoot(in workspace: ResearchWorkspace, compatibility: ResearchRootCompatibility?) async throws {
+        let root = ResearchRoot(rootURL: workspace.rootURL)
+        currentResearchRoot = root
+
+        let registry = try await projectRegistryRepository.load(in: root)
+        researchProjects = registry.projects
+        currentProjectID = registry.lastOpenedProjectID ?? registry.projects.first?.id
+
+        if compatibility == .legacyWorkspace || registry.projects.contains(where: { $0.defaultTags.contains("legacy-workspace") }) {
+            rootCompatibilityMessage = "Opened an existing single-workspace library as a research root. Sci-Station created a default project shell without moving your files."
+        } else {
+            rootCompatibilityMessage = nil
+        }
+    }
+
     private func loadLibrary(in workspace: ResearchWorkspace, selecting paperID: Paper.ID?) async throws {
         let loadedPapers = try await paperRepository.loadPapers(in: workspace)
         papers = loadedPapers
@@ -1479,6 +1927,7 @@ final class AppViewModel: ObservableObject {
 
     private func loadWorkspacePreferences(in workspace: ResearchWorkspace) async throws {
         workspacePreferences = try await workspacePreferencesRepository.load(in: workspace)
+        addTodosToAppleReminders = workspacePreferences.syncTodosToAppleReminders
     }
 
     private func loadSelectedPaperAnnotations(in workspace: ResearchWorkspace) async throws {
@@ -1650,7 +2099,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadMarkdownDocuments(in workspace: ResearchWorkspace, selecting markdownID: String?) async throws {
-        let loadedDocuments = try await markdownRepository.loadDocuments(in: workspace)
+        let loadedDocuments = try await markdownRepository.loadDocuments(in: workspace, project: currentResearchProject)
         markdownDocuments = loadedDocuments
         backlinkIndex = BacklinkIndex(documents: loadedDocuments)
 

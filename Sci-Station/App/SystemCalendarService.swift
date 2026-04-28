@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(AppKit)
+import AppKit
+#endif
+
 #if canImport(EventKit)
 @preconcurrency import EventKit
 #endif
@@ -61,11 +65,22 @@ struct SystemScheduleItem: Identifiable, Hashable {
     var startDate: Date
     var endDate: Date?
     var calendarTitle: String?
+    var calendarColorHex: String?
     var notes: String?
     var isCompleted: Bool
+    var isHoliday: Bool
 
     var displayDate: Date {
         startDate
+    }
+
+    var categoryName: String {
+        if isHoliday {
+            return "Holiday"
+        }
+
+        let trimmedCalendarTitle = calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmedCalendarTitle?.isEmpty == false ? trimmedCalendarTitle : nil) ?? kind.label
     }
 }
 
@@ -137,8 +152,10 @@ final class SystemCalendarService {
                     startDate: event.startDate,
                     endDate: event.endDate,
                     calendarTitle: event.calendar?.title,
+                    calendarColorHex: Self.colorHex(from: event.calendar?.cgColor),
                     notes: event.notes,
-                    isCompleted: false
+                    isCompleted: false,
+                    isHoliday: Self.isHoliday(title: event.title, calendarTitle: event.calendar?.title)
                 )
             }
         }
@@ -162,8 +179,10 @@ final class SystemCalendarService {
                     startDate: dueDate,
                     endDate: nil,
                     calendarTitle: reminder.calendar?.title,
+                    calendarColorHex: Self.colorHex(from: reminder.calendar?.cgColor),
                     notes: reminder.notes,
-                    isCompleted: reminder.isCompleted
+                    isCompleted: reminder.isCompleted,
+                    isHoliday: false
                 )
             }
         }
@@ -208,9 +227,38 @@ final class SystemCalendarService {
             startDate: dueDate ?? Date(),
             endDate: nil,
             calendarTitle: defaultCalendar.title,
+            calendarColorHex: Self.colorHex(from: defaultCalendar.cgColor),
             notes: reminder.notes,
-            isCompleted: false
+            isCompleted: false,
+            isHoliday: false
         )
+#else
+        return nil
+#endif
+    }
+
+    private nonisolated static func isHoliday(title: String?, calendarTitle: String?) -> Bool {
+        let candidates = [title, calendarTitle]
+            .compactMap { $0?.lowercased() }
+        return candidates.contains { value in
+            value.contains("holiday") || value.contains("holidays") || value.contains("节假日") || value.contains("假日")
+        }
+    }
+
+    private nonisolated static func colorHex(from color: CGColor?) -> String? {
+        guard let color else {
+            return nil
+        }
+
+#if canImport(AppKit)
+        guard let nsColor = NSColor(cgColor: color)?.usingColorSpace(.sRGB) else {
+            return nil
+        }
+
+        let red = Int(round(nsColor.redComponent * 255))
+        let green = Int(round(nsColor.greenComponent * 255))
+        let blue = Int(round(nsColor.blueComponent * 255))
+        return String(format: "#%02X%02X%02X", red, green, blue)
 #else
         return nil
 #endif

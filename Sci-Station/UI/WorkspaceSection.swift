@@ -25,6 +25,10 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
         [.projects, .materials, .library, .inbox, .wiki, .tasks, .llmLab]
     }
 
+    static var projectSidebarSections: [WorkspaceSection] {
+        [.projects, .library, .wiki, .tasks, .materials]
+    }
+
     var title: String {
         switch self {
         case .dashboard:

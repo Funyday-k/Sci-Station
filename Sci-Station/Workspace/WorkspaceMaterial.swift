@@ -40,6 +40,11 @@ public struct WorkspaceMaterial: Identifiable, Hashable, Sendable {
     }
 
     public nonisolated var category: String {
-        relativePath.split(separator: "/").first.map(String.init) ?? "workspace"
+        let components = relativePath.split(separator: "/").map(String.init)
+        if components.count >= 3, components.first == "projects" {
+            return components[2]
+        }
+
+        return components.first ?? "workspace"
     }
 }

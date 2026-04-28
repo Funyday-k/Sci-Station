@@ -2,23 +2,26 @@ import Foundation
 
 public struct WorkspacePreferences: Hashable, Sendable {
     public nonisolated static let currentSchemaVersion = 1
-    public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "collection"]
+    public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
 
     public var schemaVersion: Int
     public var libraryVisibleColumns: [String]
     public var defaultCollectionPath: String?
     public var recentSection: String?
+    public var syncTodosToAppleReminders: Bool
 
     public nonisolated init(
         schemaVersion: Int = Self.currentSchemaVersion,
         libraryVisibleColumns: [String] = Self.defaultLibraryVisibleColumns,
         defaultCollectionPath: String? = nil,
-        recentSection: String? = "library"
+        recentSection: String? = "library",
+        syncTodosToAppleReminders: Bool = true
     ) {
         self.schemaVersion = schemaVersion
         self.libraryVisibleColumns = libraryVisibleColumns.isEmpty ? Self.defaultLibraryVisibleColumns : libraryVisibleColumns
         self.defaultCollectionPath = defaultCollectionPath
         self.recentSection = recentSection
+        self.syncTodosToAppleReminders = syncTodosToAppleReminders
     }
 
     public nonisolated var libraryVisibleColumnsStorageValue: String {

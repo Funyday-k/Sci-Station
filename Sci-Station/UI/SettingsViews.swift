@@ -4,20 +4,194 @@ struct SettingsView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    @State private var workspaceName = ""
+    @State private var defaultFolderPath = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Settings")
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
-                    Text("Configure the OpenAI-compatible provider used for paper summaries.")
+                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                    Text("Manage the research root, project defaults, library organization, task sync, and LLM provider.")
+                        .font(.title3)
                         .foregroundStyle(.secondary)
+                }
+
+                GroupBox("Research Root") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        TextField("Workspace name", text: $workspaceName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(renameWorkspace)
+                            .help("Rename the current research root folder")
+
+                        HStack(spacing: 10) {
+                            Button {
+                                appModel.createWorkspace()
+                            } label: {
+                                Label("Create Root", systemImage: "plus")
+                            }
+                            .help("Create a new research root")
+
+                            Button {
+                                appModel.openWorkspace()
+                            } label: {
+                                Label("Open Root", systemImage: "folder.badge.plus")
+                            }
+                            .help("Open an existing research root")
+
+                            Button {
+                                appModel.revealCurrentWorkspaceInFinder()
+                            } label: {
+                                Label("Reveal in Finder", systemImage: "arrow.up.right.square")
+                            }
+                            .help("Reveal this research root in Finder")
+
+                            Button("Rename", action: renameWorkspace)
+                                .buttonStyle(.borderedProminent)
+                                .help("Apply the workspace name change")
+                        }
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], alignment: .leading, spacing: 12) {
+                            WorkspacePathRow(label: "Root", value: workspace.rootURL.path)
+                            WorkspacePathRow(label: "Projects", value: "\(appModel.activeResearchProjects.count)")
+                            WorkspacePathRow(label: "Papers", value: "\(appModel.papers.count)")
+                            WorkspacePathRow(label: "Folders", value: "\(appModel.collections.count)")
+                            WorkspacePathRow(label: "Tags", value: "\(appModel.availableTagDefinitions.count)")
+                            WorkspacePathRow(label: "Open Todos", value: "\(appModel.todos.filter { $0.status != .done && $0.status != .cancelled }.count)")
+                        }
+
+                        if let message = appModel.rootCompatibilityMessage {
+                            Label(message, systemImage: "arrow.triangle.branch")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Projects") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Edit project names, descriptions, icons, and colors.")
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Button {
+                                appModel.beginCreatingResearchProject()
+                            } label: {
+                                Label("New Project", systemImage: "plus")
+                            }
+                            .help("Create a new project")
+                        }
+
+                        ForEach(appModel.activeResearchProjects) { project in
+                            HStack(spacing: 10) {
+                                Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
+                                    .frame(width: 20)
+                                    .foregroundStyle(Color.accentColor)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(project.name)
+                                        .fontWeight(.medium)
+                                    Text(project.description.isEmpty ? project.relativePath : project.description)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Text("\(appModel.papers(for: project.id).count) papers")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button("Edit") {
+                                    appModel.beginEditingResearchProject(project.id)
+                                }
+                                .buttonStyle(.link)
+                                .help("Edit this project")
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Library") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        TextField("Default folder for new imports", text: $defaultFolderPath, prompt: Text("Uncategorized"))
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(saveLibraryDefaults)
+                            .help("Set the default Library folder for imported papers")
+
+                        HStack(spacing: 12) {
+                            Button("Save Library Defaults", action: saveLibraryDefaults)
+                                .buttonStyle(.borderedProminent)
+                                .help("Save the default folder")
+                            Button("Reset Library Columns", action: appModel.resetLibraryVisibleColumns)
+                                .buttonStyle(.bordered)
+                                .help("Restore default Library table columns")
+                            Button("Clear Recent Workspace", action: appModel.clearRecentWorkspaceBookmark)
+                                .buttonStyle(.bordered)
+                                .help("Clear the auto-open bookmark for this workspace")
+                        }
+
+                        WorkspacePathRow(label: "Visible Columns", value: appModel.workspacePreferences.libraryVisibleColumns.joined(separator: ", "))
+                        WorkspacePathRow(label: "Preferences", value: workspace.workspacePreferencesURL.path)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Tasks And Apple Reminders") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Sync new todos to Apple Reminders", isOn: Binding(
+                            get: { appModel.addTodosToAppleReminders },
+                            set: appModel.updateAddTodosToAppleReminders
+                        ))
+                        .toggleStyle(.checkbox)
+                        .help("Create an Apple Reminder when adding a new todo")
+
+                        HStack(spacing: 12) {
+                            Button {
+                                appModel.requestSystemCalendarAccess()
+                            } label: {
+                                Label(appModel.systemCalendarAccessState.label, systemImage: "calendar.badge.plus")
+                            }
+                            .help("Grant Sci-Station access to Apple Calendar and Reminders")
+                            .disabled(appModel.systemCalendarAccessState == .authorized)
+
+                            Button {
+                                appModel.refreshSystemSchedule(around: appModel.selectedDashboardDate)
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                            .help("Refresh Apple Calendar and Reminders")
+                            .disabled(!appModel.systemCalendarAccessState.canReadSchedule)
+
+                            if appModel.isLoadingSystemSchedule {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+                        .controlSize(.small)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 GroupBox("LLM") {
                     VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Label("DeepSeek is the default OpenAI-compatible provider.", systemImage: "sparkles")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Button("DeepSeek Flash") {
+                                appModel.useDeepSeekDefaults(model: "deepseek-v4-flash")
+                            }
+                            .help("Use https://api.deepseek.com with deepseek-v4-flash")
+                            Button("DeepSeek Pro") {
+                                appModel.useDeepSeekDefaults(model: "deepseek-v4-pro")
+                            }
+                            .help("Use https://api.deepseek.com with deepseek-v4-pro")
+                        }
+
                         TextField(
                             "Base URL",
                             text: llmBinding(
@@ -69,8 +243,10 @@ struct SettingsView: View {
                         HStack(spacing: 12) {
                             Button("Save Settings", action: appModel.saveLLMSettings)
                                 .buttonStyle(.borderedProminent)
+                                .help("Save LLM provider settings")
                             Button("Test Connection", action: appModel.testLLMConnection)
                                 .buttonStyle(.bordered)
+                                .help("Send a small test request to the configured provider")
                         }
 
                         if appModel.isTestingLLMConnection {
@@ -86,32 +262,40 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Workspace") {
+                GroupBox("Settings Files") {
                     VStack(alignment: .leading, spacing: 10) {
-                        WorkspacePathRow(label: "Root", value: workspace.rootURL.path)
                         WorkspacePathRow(label: "LLM Settings", value: workspace.fileURL(for: "settings.yaml").path)
-                        WorkspacePathRow(label: "Preferences", value: workspace.workspacePreferencesURL.path)
                         WorkspacePathRow(label: "Schema", value: "v\(appModel.workspacePreferences.schemaVersion)")
-                        WorkspacePathRow(label: "Library Columns", value: appModel.workspacePreferences.libraryVisibleColumns.joined(separator: ", "))
-
-                        HStack(spacing: 12) {
-                            Button("Reset Library Columns", action: appModel.resetLibraryVisibleColumns)
-                                .buttonStyle(.bordered)
-                            Button("Clear Recent Workspace", action: appModel.clearRecentWorkspaceBookmark)
-                                .buttonStyle(.bordered)
-                        }
-
-                        if let message = appModel.workspaceSettingsStatusMessage {
-                            Text(message)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
+                        WorkspacePathRow(label: "Markdown Snippets", value: workspace.markdownSnippetsURL.path)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let message = appModel.workspaceSettingsStatusMessage {
+                    Text(message)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(24)
         }
+        .onAppear(perform: syncDrafts)
+        .onChange(of: workspace.rootURL) { _, _ in
+            syncDrafts()
+        }
+    }
+
+    private func syncDrafts() {
+        workspaceName = workspace.displayName
+        defaultFolderPath = appModel.workspacePreferences.defaultCollectionPath ?? ""
+    }
+
+    private func renameWorkspace() {
+        appModel.renameCurrentWorkspace(to: workspaceName)
+    }
+
+    private func saveLibraryDefaults() {
+        appModel.updateDefaultCollectionPath(defaultFolderPath)
     }
 
     private func llmBinding<Value>(
@@ -126,6 +310,32 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+}
+
+struct SettingsSceneView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    var body: some View {
+        if let workspace = appModel.currentWorkspace {
+            SettingsView(workspace: workspace)
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Settings")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("Open or create a research root before editing workspace settings.")
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Create Root", action: appModel.createWorkspace)
+                        .buttonStyle(.borderedProminent)
+                    Button("Open Root", action: appModel.openWorkspace)
+                        .buttonStyle(.bordered)
+                }
+            }
+            .padding(24)
+            .frame(width: 520, alignment: .topLeading)
+        }
     }
 }
 

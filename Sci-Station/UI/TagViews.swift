@@ -37,6 +37,132 @@ struct TagChipGroupView: View {
     }
 }
 
+struct TagCompletionField: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let title: String
+    @Binding var text: String
+    var prompt: Text? = nil
+    var onSubmit: () -> Void = {}
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let prompt {
+                TextField(title, text: $text, prompt: prompt)
+                    .onSubmit(onSubmit)
+            } else {
+                TextField(title, text: $text)
+                    .onSubmit(onSubmit)
+            }
+
+            if !suggestions.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            insert(suggestion)
+                        } label: {
+                            Text(suggestion)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Use tag \(suggestion)")
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private var suggestions: [String] {
+        let fragment = currentFragment.lowercased()
+        guard !fragment.isEmpty else {
+            return []
+        }
+        let existingTags = appModel.availableTagDefinitions.map(\.name)
+        let usedTags = Set(text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        return existingTags
+            .filter { tagName in
+                !usedTags.contains(tagName.lowercased()) || tagName.lowercased() == fragment
+            }
+            .map { tagName in
+                (tagName, tagScore(tagName.lowercased(), fragment: fragment))
+            }
+            .filter { $0.1 < Int.max }
+            .sorted { first, second in
+                if first.1 == second.1 {
+                    return first.0.localizedStandardCompare(second.0) == .orderedAscending
+                }
+                return first.1 < second.1
+            }
+            .prefix(5)
+            .map(\.0)
+    }
+
+    private var currentFragment: String {
+        text.split(separator: ",", omittingEmptySubsequences: false)
+            .last
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+    }
+
+    private func tagScore(_ tag: String, fragment: String) -> Int {
+        guard !fragment.isEmpty else {
+            return tag.count + 20
+        }
+        if tag == fragment {
+            return 0
+        }
+        if tag.hasPrefix(fragment) {
+            return 1 + tag.count - fragment.count
+        }
+        if tag.contains(fragment) {
+            return 20 + tag.count - fragment.count
+        }
+        let distance = levenshteinDistance(tag, fragment)
+        return distance <= max(2, fragment.count / 2) ? 40 + distance : Int.max
+    }
+
+    private func insert(_ suggestion: String) {
+        var parts = text.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+        if parts.isEmpty {
+            text = suggestion
+            return
+        }
+
+        parts[parts.count - 1] = " " + suggestion
+        text = parts.joined(separator: ",").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func levenshteinDistance(_ first: String, _ second: String) -> Int {
+        let firstCharacters = Array(first)
+        let secondCharacters = Array(second)
+        if firstCharacters.isEmpty {
+            return secondCharacters.count
+        }
+        if secondCharacters.isEmpty {
+            return firstCharacters.count
+        }
+        var previousRow = Array(0...secondCharacters.count)
+
+        for firstIndex in 1...firstCharacters.count {
+            var currentRow = [firstIndex]
+            for secondIndex in 1...secondCharacters.count {
+                let cost = firstCharacters[firstIndex - 1] == secondCharacters[secondIndex - 1] ? 0 : 1
+                currentRow.append(min(
+                    previousRow[secondIndex] + 1,
+                    currentRow[secondIndex - 1] + 1,
+                    previousRow[secondIndex - 1] + cost
+                ))
+            }
+            previousRow = currentRow
+        }
+
+        return previousRow.last ?? 0
+    }
+}
+
 struct TagManagerView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
@@ -127,28 +253,5 @@ struct TagManagerView: View {
         draftName = ""
         draftColorHex = "#B57EDC"
         draftTextColorHex = "#4A235A"
-    }
-}
-
-private extension Color {
-    init(hex: String) {
-        let sanitized = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var value: UInt64 = 0
-        Scanner(string: sanitized).scanHexInt64(&value)
-
-        let red = Double((value >> 16) & 0xFF) / 255
-        let green = Double((value >> 8) & 0xFF) / 255
-        let blue = Double(value & 0xFF) / 255
-
-        self.init(.sRGB, red: red, green: green, blue: blue, opacity: 1)
-    }
-
-    var isDarkColor: Bool {
-        guard let components = NSColor(self).usingColorSpace(.deviceRGB)?.cgColor.components, components.count >= 3 else {
-            return false
-        }
-
-        let luminance = 0.299 * components[0] + 0.587 * components[1] + 0.114 * components[2]
-        return luminance < 0.6
     }
 }

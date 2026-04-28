@@ -15,8 +15,8 @@ public actor MarkdownRepository {
         self.wikiLinkParser = wikiLinkParser
     }
 
-    public func loadDocuments(in workspace: ResearchWorkspace) throws -> [MarkdownDocument] {
-        let wikiRootURL = workspace.directoryURL(for: "wiki")
+    public func loadDocuments(in workspace: ResearchWorkspace, project: ResearchProject? = nil) throws -> [MarkdownDocument] {
+        let wikiRootURL = project.map { workspace.directoryURL(for: $0.relativePath + "/wiki") } ?? workspace.directoryURL(for: "wiki")
         guard fileManager.fileExists(atPath: wikiRootURL.path) else {
             return []
         }

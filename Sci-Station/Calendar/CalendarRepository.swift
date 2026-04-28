@@ -31,7 +31,15 @@ public actor CalendarRepository {
                 return
             }
 
-            events.append(CalendarEvent(id: id, title: title, date: date, notes: current["notes"]))
+            events.append(CalendarEvent(
+                id: id,
+                title: title,
+                date: date,
+                category: current["category"] ?? "Project",
+                colorHex: current["color"],
+                projectID: current["project_id"],
+                notes: current["notes"]
+            ))
             current = [:]
         }
 
@@ -48,6 +56,12 @@ public actor CalendarRepository {
                 current["title"] = unquoted(trimmed.replacingOccurrences(of: "title:", with: "").trimmingCharacters(in: .whitespaces))
             } else if trimmed.hasPrefix("date:") {
                 current["date"] = trimmed.replacingOccurrences(of: "date:", with: "").trimmingCharacters(in: .whitespaces)
+            } else if trimmed.hasPrefix("category:") {
+                current["category"] = unquoted(trimmed.replacingOccurrences(of: "category:", with: "").trimmingCharacters(in: .whitespaces))
+            } else if trimmed.hasPrefix("color:") {
+                current["color"] = unquoted(trimmed.replacingOccurrences(of: "color:", with: "").trimmingCharacters(in: .whitespaces))
+            } else if trimmed.hasPrefix("project_id:") {
+                current["project_id"] = unquoted(trimmed.replacingOccurrences(of: "project_id:", with: "").trimmingCharacters(in: .whitespaces))
             } else if trimmed.hasPrefix("notes:") {
                 current["notes"] = unquoted(trimmed.replacingOccurrences(of: "notes:", with: "").trimmingCharacters(in: .whitespaces))
             }

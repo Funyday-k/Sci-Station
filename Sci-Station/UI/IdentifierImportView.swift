@@ -36,9 +36,9 @@ struct IdentifierImportView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
-                TextField("Collection", text: $appModel.identifierImportCollectionPath)
+                TextField("Folder", text: $appModel.identifierImportCollectionPath)
                     .textFieldStyle(.roundedBorder)
-                TextField("Tags", text: $appModel.identifierImportTagsText, prompt: Text("Comma-separated"))
+                TagCompletionField(title: "Tags", text: $appModel.identifierImportTagsText, prompt: Text("Comma-separated"))
                     .textFieldStyle(.roundedBorder)
             }
 

@@ -12,11 +12,11 @@ struct WikiWorkspaceView: View {
                     Text("Wiki")
                         .font(.largeTitle)
                         .fontWeight(.semibold)
-                    Text("Browse and edit Markdown knowledge pages under wiki/. Backlinks update whenever you save changes.")
+                    Text("Browse and edit Markdown knowledge pages for \(appModel.currentResearchProject?.name ?? workspace.displayName). Backlinks update whenever you save changes.")
                         .foregroundStyle(.secondary)
                 }
 
-                Text("\(appModel.markdownDocuments.count) pages in \(workspace.displayName)")
+                Text("\(appModel.markdownDocuments.count) pages in \(appModel.currentResearchProject?.name ?? workspace.displayName)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -34,6 +34,9 @@ struct WikiWorkspaceView: View {
             if appModel.markdownDocuments.isEmpty {
                 appModel.reloadWiki()
             }
+        }
+        .onChange(of: appModel.currentProjectID) { _, _ in
+            appModel.reloadWiki()
         }
     }
 }
