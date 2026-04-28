@@ -61,12 +61,17 @@ public actor WorkspaceService {
         }
     }
 
-    public func restoreLastWorkspace() async throws -> ResearchWorkspace? {
-        guard let lastWorkspaceURL = try await bookmarkStore.restoreBookmarkURL() else {
+    public func restoreLastWorkspace() async -> ResearchWorkspace? {
+        do {
+            guard let lastWorkspaceURL = try await bookmarkStore.restoreBookmarkURL() else {
+                return nil
+            }
+
+            return try await openWorkspace(at: lastWorkspaceURL)
+        } catch {
+            await bookmarkStore.clearBookmarkData()
             return nil
         }
-
-        return try await openWorkspace(at: lastWorkspaceURL)
     }
 
     private func persistBookmark(for url: URL) async throws {

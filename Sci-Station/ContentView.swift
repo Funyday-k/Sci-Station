@@ -59,7 +59,7 @@ struct ContentView: View {
             }
         }
         .alert(
-            "Workspace Error",
+            "Sci-Station Error",
             isPresented: $appModel.isShowingError,
             actions: {
                 Button("OK", role: .cancel) {}

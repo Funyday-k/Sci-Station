@@ -35,14 +35,17 @@ struct EmbeddedPDFReaderView: View {
                     .foregroundStyle(.secondary)
 
                 Divider()
+                    .frame(height: 22)
 
                 TextField("Search PDF", text: $viewModel.searchQuery)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(viewModel.submitSearch)
+                    .frame(minWidth: 180)
 
                 Button("Find", action: viewModel.submitSearch)
 
                 Divider()
+                    .frame(height: 22)
 
                 Button(action: viewModel.zoomOut) {
                     Image(systemName: "minus.magnifyingglass")
@@ -58,12 +61,14 @@ struct EmbeddedPDFReaderView: View {
                 viewModel: viewModel,
                 onPageChanged: onPageChanged
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.secondary.opacity(0.12))
             )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .id(pdfURL.path)
     }
 }

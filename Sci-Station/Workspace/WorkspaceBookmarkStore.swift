@@ -15,6 +15,10 @@ public actor WorkspaceBookmarkStore {
         defaults.set(data, forKey: Keys.recentWorkspaceBookmark)
     }
 
+    public func clearBookmarkData() {
+        defaults.removeObject(forKey: Keys.recentWorkspaceBookmark)
+    }
+
     public func restoreBookmarkURL() throws -> URL? {
         guard let bookmarkData = defaults.data(forKey: Keys.recentWorkspaceBookmark) else {
             return nil

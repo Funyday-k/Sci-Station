@@ -272,14 +272,15 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        do {
-            let restoredWorkspace = try await workspaceService.restoreLastWorkspace()
-            currentWorkspace = restoredWorkspace
+        guard let restoredWorkspace = await workspaceService.restoreLastWorkspace() else {
+            return
+        }
 
-            if let restoredWorkspace {
-                try await loadWorkspaceData(in: restoredWorkspace, selectingPaper: nil, selectingMarkdown: nil)
-            }
+        do {
+            currentWorkspace = restoredWorkspace
+            try await loadWorkspaceData(in: restoredWorkspace, selectingPaper: nil, selectingMarkdown: nil)
         } catch {
+            currentWorkspace = nil
             present(error)
         }
     }

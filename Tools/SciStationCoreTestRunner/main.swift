@@ -18,6 +18,7 @@ private struct CoreVerificationSuite {
     func runAll() async throws {
         try await createWorkspaceInitializesExpectedStructure()
         try await openWorkspaceBackfillsMissingStructure()
+        try await restoreLastWorkspaceClearsMissingBookmark()
         try citekeyGenerationUsesAuthorYearKeyword()
         try metadataCodecRoundTripKeepsEditableFields()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
@@ -25,6 +26,7 @@ private struct CoreVerificationSuite {
         try await tagRepositoryUpsertsAndDeletesDefinitions()
         try await todoRepositoryCreatesCompletesAndDeletesTodos()
         try identifierParserRecognizesSupportedKinds()
+        try metadataProviderBuildsStableLookupURLs()
         try arxivEntryParserExtractsMetadataDraft()
         try inspireMetadataMapperExtractsMetadataDraft()
         try llmRequestBuildsExpectedPayload()
@@ -101,6 +103,31 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/todos.yaml").path), "Opening should create tasks/todos.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/import_history.yaml").path), "Opening should create imports/import_history.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.researchFlowDatabaseURL.path), "Opening should create researchflow.sqlite when missing.")
+    }
+
+    private func restoreLastWorkspaceClearsMissingBookmark() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let workspaceURL = temporaryDirectoryURL().appendingPathComponent("DeletedWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceURL.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        _ = try await workspaceService.createWorkspace(at: workspaceURL)
+        try FileManager.default.removeItem(at: workspaceURL)
+
+        let restoredWorkspace = await workspaceService.restoreLastWorkspace()
+        let restoredBookmarkURL = try await bookmarkStore.restoreBookmarkURL()
+
+        try expect(restoredWorkspace == nil, "Restoring a deleted recent workspace should return nil instead of throwing.")
+        try expect(restoredBookmarkURL == nil, "Restoring a deleted recent workspace should clear the stale bookmark.")
     }
 
     private func citekeyGenerationUsesAuthorYearKeyword() throws {
@@ -391,12 +418,31 @@ private struct CoreVerificationSuite {
                 let parser = IdentifierParser()
 
                 try expect(parser.parse("2401.12345").kind == .arxiv, "Parser should recognize bare arXiv ids.")
+                try expect(parser.parse("arXiv:2604.22012").normalizedValue == "2604.22012", "Parser should normalize prefixed arXiv ids.")
                 try expect(parser.parse("https://arxiv.org/abs/2401.12345").normalizedValue == "2401.12345", "Parser should normalize arXiv URLs to ids.")
                 try expect(parser.parse("10.48550/arXiv.2401.12345").kind == .doi, "Parser should recognize DOI inputs.")
+                try expect(parser.parse("https://doi.org/10.48550/arXiv.2604.22012").kind == .doi, "Parser should recognize doi.org arXiv DOI links as DOI inputs.")
+                try expect(parser.extractArxivID(from: "10.48550/arXiv.2604.22012") == "2604.22012", "Parser should detect arXiv ids embedded in arXiv DOI strings.")
                 try expect(parser.parse("https://inspirehep.net/literature/2811054").kind == .inspire, "Parser should recognize INSPIRE literature URLs.")
                 try expect(parser.parse("https://example.com/paper.pdf").kind == .pdfURL, "Parser should recognize PDF URLs.")
                 try expect(parser.parse("https://example.com/article").kind == .url, "Parser should recognize normal web URLs.")
         }
+
+            private func metadataProviderBuildsStableLookupURLs() throws {
+                let arxivURL = try ArxivMetadataProvider.apiURL(for: "2604.22012")
+                let arxivComponents = try require(URLComponents(url: arxivURL, resolvingAgainstBaseURL: false), "Expected arXiv lookup URL components.")
+                let arxivQueryItems = arxivComponents.queryItems ?? []
+
+                try expect(arxivComponents.host == "export.arxiv.org", "arXiv lookup should use the export API host.")
+                try expect(arxivComponents.path == "/api/query", "arXiv lookup should target the API query path.")
+                try expect(arxivQueryItems.first(where: { $0.name == "search_query" })?.value == "id:2604.22012", "arXiv lookup should preserve id: search queries.")
+
+                let doiURL = try DOIMetadataProvider.crossrefWorksURL(for: "10.48550/arXiv.2604.22012")
+                try expect(
+                    doiURL.absoluteString == "https://api.crossref.org/works/10.48550%2FarXiv.2604.22012",
+                    "Crossref lookup should percent-encode DOI path separators."
+                )
+            }
 
         private func arxivEntryParserExtractsMetadataDraft() throws {
                 let parser = ArxivEntryParser()
