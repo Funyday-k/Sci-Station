@@ -185,6 +185,8 @@ struct WorkspaceContentView: View {
                     WikiWorkspaceView(workspace: workspace)
                 } else if selectedSection == .projects {
                     ProjectOverviewView(workspace: workspace)
+                } else if selectedSection == .materials {
+                    MaterialsView(workspace: workspace)
                 } else if selectedSection == .tasks {
                     TasksWorkspaceView(workspace: workspace)
                 } else {

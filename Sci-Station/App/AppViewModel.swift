@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
-    @Published var selectedSection: WorkspaceSection? = .library
+    @Published var selectedSection: WorkspaceSection? = .projects
     @Published var isShowingError = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var isWorking = false
@@ -40,6 +40,7 @@ final class AppViewModel: ObservableObject {
     @Published var identifierImportCollectionPath = "Uncategorized"
     @Published var identifierImportTagsText = ""
     @Published private(set) var identifierImportPreview: PaperMetadataDraft?
+    @Published private(set) var identifierImportStatusMessage: String?
     @Published private(set) var isResolvingIdentifierImport = false
     @Published private(set) var isPerformingIdentifierImport = false
     @Published private(set) var isSavingSelectedPaper = false
@@ -54,6 +55,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var markdownDocuments: [MarkdownDocument] = []
     @Published private(set) var selectedMarkdownID: String?
     @Published private(set) var selectedMarkdownDraft: MarkdownDocument?
+    @Published private(set) var markdownSnippets: [MarkdownSnippet] = MarkdownSnippetRepository.defaultSnippets
     @Published private(set) var isSavingSelectedMarkdown = false
 
     private let workspaceService: WorkspaceService
@@ -75,10 +77,16 @@ final class AppViewModel: ObservableObject {
     private let llmWritebackService: LLMWritebackService
     private let pdfImportService: PDFImportService
     private let markdownRepository: MarkdownRepository
+    private let markdownSnippetRepository: MarkdownSnippetRepository
     private let wikiPageGenerator: WikiPageGenerator
     private let pdfOpeningService: any PDFOpeningService
     private let librarySearchService: LibrarySearchService
+    private let batchImportInputParser = BatchImportInputParser()
     private var backlinkIndex = BacklinkIndex(documents: [])
+
+    var identifierImportInputs: [String] {
+        batchImportInputParser.parse(identifierImportInput)
+    }
 
     init(
         workspaceService: WorkspaceService? = nil,
@@ -98,6 +106,7 @@ final class AppViewModel: ObservableObject {
         paperSummaryService: PaperSummaryService? = nil,
         llmWritebackService: LLMWritebackService? = nil,
         markdownRepository: MarkdownRepository? = nil,
+        markdownSnippetRepository: MarkdownSnippetRepository? = nil,
         pdfOpeningService: (any PDFOpeningService)? = nil
     ) {
         let resolvedWorkspaceService = workspaceService ?? WorkspaceService()
@@ -120,6 +129,7 @@ final class AppViewModel: ObservableObject {
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
         let resolvedMarkdownRepository = markdownRepository ?? MarkdownRepository()
+        let resolvedMarkdownSnippetRepository = markdownSnippetRepository ?? MarkdownSnippetRepository()
 
         self.workspaceService = resolvedWorkspaceService
         self.paperRepository = resolvedPaperRepository
@@ -141,6 +151,7 @@ final class AppViewModel: ObservableObject {
         self.llmWritebackService = resolvedLLMWritebackService
         self.pdfImportService = PDFImportService(repository: resolvedPaperRepository)
         self.markdownRepository = resolvedMarkdownRepository
+        self.markdownSnippetRepository = resolvedMarkdownSnippetRepository
         self.wikiPageGenerator = WikiPageGenerator(paperRepository: resolvedPaperRepository)
         self.pdfOpeningService = pdfOpeningService ?? SystemPDFOpeningService()
         self.librarySearchService = LibrarySearchService()
@@ -476,6 +487,7 @@ final class AppViewModel: ObservableObject {
         identifierImportCollectionPath = selectedCollectionPath ?? "Uncategorized"
         identifierImportTagsText = ""
         identifierImportPreview = nil
+        identifierImportStatusMessage = nil
     }
 
     func beginIdentifierImport(with initialInput: String? = nil) {
@@ -488,11 +500,12 @@ final class AppViewModel: ObservableObject {
     }
 
     func previewIdentifierImport() {
-        let trimmedInput = identifierImportInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty else {
+        guard let input = identifierImportInputs.first else {
             identifierImportPreview = nil
             return
         }
+
+        identifierImportStatusMessage = nil
 
         isResolvingIdentifierImport = true
 
@@ -502,7 +515,7 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
-                identifierImportPreview = try await remoteImportService.preview(for: trimmedInput)
+                identifierImportPreview = try await remoteImportService.preview(for: input)
             } catch {
                 present(error)
             }
@@ -514,10 +527,12 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        let trimmedInput = identifierImportInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty else {
+        let importInputs = identifierImportInputs
+        guard !importInputs.isEmpty else {
             return
         }
+
+        identifierImportStatusMessage = nil
 
         isPerformingIdentifierImport = true
 
@@ -527,25 +542,53 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
-                let importedPaper = try await remoteImportService.importItem(
-                    from: trimmedInput,
-                    draftPreview: identifierImportPreview,
-                    into: currentWorkspace,
-                    existingPapers: papers,
-                    collectionPath: identifierImportCollectionPath.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Uncategorized",
-                    tags: commaSeparatedValues(from: identifierImportTagsText)
-                )
+                let importCollectionPath = identifierImportCollectionPath.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Uncategorized"
+                let importTags = commaSeparatedValues(from: identifierImportTagsText)
+                var existingPapers = papers
+                var importedPaperID: Paper.ID?
+                var failedInputs: [(String, Error)] = []
+
+                for input in importInputs {
+                    do {
+                        let importedPaper = try await remoteImportService.importItem(
+                            from: input,
+                            draftPreview: importInputs.count == 1 ? identifierImportPreview : nil,
+                            into: currentWorkspace,
+                            existingPapers: existingPapers,
+                            collectionPath: importCollectionPath,
+                            tags: importTags
+                        )
+                        existingPapers.append(importedPaper)
+                        importedPaperID = importedPaper.id
+                    } catch {
+                        failedInputs.append((input, error))
+                    }
+                }
+
                 try await loadWorkspaceData(
                     in: currentWorkspace,
-                    selectingPaper: importedPaper.id,
+                    selectingPaper: importedPaperID ?? selectedPaperID,
                     selectingMarkdown: selectedMarkdownID
                 )
                 selectedSection = .library
-                isShowingIdentifierImport = false
-                identifierImportPreview = nil
-                identifierImportInput = ""
-                identifierImportTagsText = ""
-                onSuccess?()
+
+                let importedCount = importInputs.count - failedInputs.count
+                if failedInputs.isEmpty {
+                    identifierImportStatusMessage = importedCount > 1 ? "Imported \(importedCount) papers." : "Imported 1 paper."
+                    isShowingIdentifierImport = false
+                    identifierImportPreview = nil
+                    identifierImportInput = ""
+                    identifierImportTagsText = ""
+                    onSuccess?()
+                } else {
+                    identifierImportInput = failedInputs.map { $0.0 }.joined(separator: "\n")
+                    identifierImportPreview = nil
+                    let failedSummary = failedInputs
+                        .prefix(3)
+                        .map { failedInput in "\(failedInput.0): \(failedInput.1.localizedDescription)" }
+                        .joined(separator: " | ")
+                    identifierImportStatusMessage = "Imported \(importedCount) of \(importInputs.count). Failed: \(failedSummary)"
+                }
             } catch {
                 present(error)
             }
@@ -1256,8 +1299,29 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        draft.rawContents = newValue
+        draft.rawContents = expandedMarkdownContentsIfNeeded(newValue)
         selectedMarkdownDraft = draft
+    }
+
+    func insertMarkdownSnippet(_ snippet: MarkdownSnippet) {
+        guard var draft = selectedMarkdownDraft else {
+            return
+        }
+
+        let snippetBody = preparedSnippetBody(snippet.body)
+        let currentContents = draft.rawContents.trimmingCharacters(in: .newlines)
+        draft.rawContents = currentContents.isEmpty
+            ? snippetBody
+            : currentContents + "\n\n" + snippetBody
+        selectedMarkdownDraft = draft
+    }
+
+    func openMarkdownSnippetsFile() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        NSWorkspace.shared.open(currentWorkspace.markdownSnippetsURL)
     }
 
     func saveSelectedMarkdownChanges() {
@@ -1299,7 +1363,7 @@ final class AppViewModel: ObservableObject {
                 currentWorkspace = workspace
                 try await loadWorkspaceData(in: workspace, selectingPaper: nil, selectingMarkdown: nil)
                 if selectedSection == nil {
-                    selectedSection = .library
+                    selectedSection = .projects
                 }
             } catch {
                 present(error)
@@ -1399,6 +1463,7 @@ final class AppViewModel: ObservableObject {
             try await loadSystemSchedule(around: selectedDashboardDate)
         }
         try await loadLLMSettings(in: workspace)
+        try await loadMarkdownSnippets(in: workspace)
         try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
     }
 
@@ -1558,6 +1623,30 @@ final class AppViewModel: ObservableObject {
     private func loadLLMSettings(in workspace: ResearchWorkspace) async throws {
         llmConfiguration = try await llmConfigurationStore.load(in: workspace)
         llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+    }
+
+    private func loadMarkdownSnippets(in workspace: ResearchWorkspace) async throws {
+        markdownSnippets = try await markdownSnippetRepository.load(in: workspace)
+            .sorted { lhs, rhs in
+                lhs.trigger.localizedStandardCompare(rhs.trigger) == .orderedAscending
+            }
+    }
+
+    private func expandedMarkdownContentsIfNeeded(_ contents: String) -> String {
+        for snippet in markdownSnippets.sorted(by: { $0.trigger.count > $1.trigger.count }) {
+            guard contents.hasSuffix(snippet.trigger) else {
+                continue
+            }
+
+            let prefix = contents.dropLast(snippet.trigger.count)
+            return String(prefix) + preparedSnippetBody(snippet.body)
+        }
+
+        return contents
+    }
+
+    private func preparedSnippetBody(_ body: String) -> String {
+        body.replacingOccurrences(of: "${cursor}", with: "")
     }
 
     private func loadMarkdownDocuments(in workspace: ResearchWorkspace, selecting markdownID: String?) async throws {

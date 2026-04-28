@@ -22,11 +22,8 @@ struct ProjectOverviewView: View {
                 }
 
                 projectBriefSection
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 16)], alignment: .leading, spacing: 16) {
-                    corePapersSection
-                    projectDocumentsSection
-                }
+                projectContentGrid
+                aiKnowledgeSection
 
                 workflowSection
             }
@@ -48,9 +45,8 @@ struct ProjectOverviewView: View {
         GroupBox("Project Brief") {
             VStack(alignment: .leading, spacing: 12) {
                 if let document = projectOverviewDocument {
-                    Text(excerpt(from: document.body, fallback: document.title, limit: 720))
-                        .font(.callout)
-                        .textSelection(.enabled)
+                    MarkdownPreviewView(markdown: document.rawContents, baseURL: document.fileURL.deletingLastPathComponent())
+                        .frame(minHeight: 220, maxHeight: 340)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text("No project overview document has been loaded yet.")
@@ -74,6 +70,20 @@ struct ProjectOverviewView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var projectContentGrid: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(minimum: 420), spacing: 16, alignment: .top),
+                GridItem(.flexible(minimum: 300), spacing: 16, alignment: .top)
+            ],
+            alignment: .leading,
+            spacing: 16
+        ) {
+            corePapersSection
+            projectDocumentsSection
         }
     }
 
@@ -128,22 +138,44 @@ struct ProjectOverviewView: View {
                     appModel.selectSection(.library)
                 }
                 ProjectWorkflowTile(title: "Data", detail: "data + wiki/datasets", systemImage: "externaldrive") {
-                    openFolder(workspace.dataURL)
+                    appModel.selectSection(.materials)
                 }
                 ProjectWorkflowTile(title: "Code Reading", detail: "code", systemImage: "chevron.left.forwardslash.chevron.right") {
-                    openFolder(workspace.codeURL)
+                    appModel.selectSection(.materials)
                 }
                 ProjectWorkflowTile(title: "Figures", detail: "figures", systemImage: "photo.on.rectangle") {
-                    openFolder(workspace.figuresURL)
+                    appModel.selectSection(.materials)
                 }
                 ProjectWorkflowTile(title: "Outputs", detail: "outputs", systemImage: "doc.richtext") {
-                    openFolder(workspace.outputsURL)
+                    appModel.selectSection(.materials)
                 }
                 ProjectWorkflowTile(title: "Tasks", detail: "tasks/todos.yaml", systemImage: "checklist") {
                     appModel.selectSection(.tasks)
                 }
                 ProjectWorkflowTile(title: "Shared Context", detail: "shared_research.md", systemImage: "square.stack.3d.up") {
                     NSWorkspace.shared.open(workspace.sharedResearchURL)
+                }
+            }
+        }
+    }
+
+    private var aiKnowledgeSection: some View {
+        GroupBox("AI Knowledge Workspace") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 12) {
+                ProjectWorkflowTile(title: "Paper Notes", detail: "wiki/papers", systemImage: "doc.richtext") {
+                    appModel.selectSection(.wiki)
+                }
+                ProjectWorkflowTile(title: "Concepts", detail: "wiki/concepts", systemImage: "lightbulb") {
+                    appModel.selectSection(.wiki)
+                }
+                ProjectWorkflowTile(title: "Methods", detail: "wiki/methods", systemImage: "square.stack.3d.up") {
+                    appModel.selectSection(.wiki)
+                }
+                ProjectWorkflowTile(title: "Research Gaps", detail: "wiki/gaps", systemImage: "scope") {
+                    appModel.selectSection(.wiki)
+                }
+                ProjectWorkflowTile(title: "AI Lab", detail: "prompts + summaries", systemImage: "brain") {
+                    appModel.selectSection(.llmLab)
                 }
             }
         }
@@ -193,22 +225,6 @@ struct ProjectOverviewView: View {
         if paper.priority == .high { score += 3 }
         score += paper.rating ?? 0
         return score
-    }
-
-    private func excerpt(from body: String, fallback: String, limit: Int) -> String {
-        let cleaned = body
-            .components(separatedBy: .newlines)
-            .filter { line in
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                return !trimmed.isEmpty && !trimmed.hasPrefix("#")
-            }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = cleaned.isEmpty ? fallback : cleaned
-        guard text.count > limit else {
-            return text
-        }
-        return String(text.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
     }
 
     private func openFolder(_ url: URL) {

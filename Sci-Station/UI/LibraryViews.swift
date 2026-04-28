@@ -235,7 +235,7 @@ private enum LibraryColumn: String, CaseIterable, Identifiable {
         }
     }
 
-    static let defaultColumns: [LibraryColumn] = [.title, .authors, .year, .collection]
+    static let defaultColumns: [LibraryColumn] = [.title, .authors, .year, .tags, .collection]
     static let defaultStorageValue = defaultColumns.map(\.rawValue).joined(separator: ",")
 
     static func columns(from storage: String) -> [LibraryColumn] {
@@ -931,7 +931,7 @@ private struct QuickLinkImportPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Quick Link Import")
                         .font(.headline)
-                    Text("Paste a DOI, arXiv ID, PDF URL, or normal paper link, then preview or import it directly.")
+                    Text("Paste one or many DOI, arXiv, PDF URLs, or normal paper links, then preview the first item or import all parsed entries.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -947,18 +947,40 @@ private struct QuickLinkImportPanel: View {
                     .buttonStyle(.bordered)
             }
 
-            HStack(spacing: 8) {
-                TextField("Link, DOI, arXiv ID, or PDF URL", text: $appModel.identifierImportInput)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(appModel.previewIdentifierImport)
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $appModel.identifierImportInput)
+                        .font(.callout.monospaced())
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 76, maxHeight: 108)
+                        .padding(6)
+                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
 
+                    if appModel.identifierImportInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Paste one or many links, DOIs, or arXiv IDs")
+                            .font(.callout)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 14)
+                    }
+                }
+
+                Text(batchSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
                 Button {
                     openIdentifierInputURL()
                 } label: {
-                    Image(systemName: "arrow.up.right.square")
+                    Label("Open Link", systemImage: "arrow.up.right.square")
                 }
-                .help("Open link in browser")
+                .buttonStyle(.bordered)
+                .help("Open first link in browser")
                 .disabled(identifierInputURL == nil)
+
+                Spacer()
             }
 
             HStack(spacing: 12) {
@@ -969,19 +991,27 @@ private struct QuickLinkImportPanel: View {
             }
 
             HStack(spacing: 12) {
-                Button("Preview", action: appModel.previewIdentifierImport)
+                Button(appModel.identifierImportInputs.count > 1 ? "Preview First" : "Preview", action: appModel.previewIdentifierImport)
                     .buttonStyle(.bordered)
+                    .disabled(appModel.identifierImportInputs.isEmpty)
 
-                Button("Import") {
+                Button(importButtonTitle) {
                     appModel.performIdentifierImport {
                         onClose()
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(appModel.identifierImportInputs.isEmpty)
             }
 
             if appModel.isResolvingIdentifierImport || appModel.isPerformingIdentifierImport {
                 ProgressView(appModel.isPerformingIdentifierImport ? "Importing…" : "Resolving metadata…")
+            }
+
+            if let statusMessage = appModel.identifierImportStatusMessage {
+                Text(statusMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             if let preview = appModel.identifierImportPreview {
@@ -1002,7 +1032,9 @@ private struct QuickLinkImportPanel: View {
     }
 
     private var identifierInputURL: URL? {
-        let trimmedInput = appModel.identifierImportInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedInput = appModel.identifierImportInputs.first else {
+            return nil
+        }
         if let url = URL(string: trimmedInput),
            let scheme = url.scheme?.lowercased(),
            ["http", "https"].contains(scheme) {
@@ -1015,6 +1047,23 @@ private struct QuickLinkImportPanel: View {
         }
 
         return nil
+    }
+
+    private var batchSummary: String {
+        let count = appModel.identifierImportInputs.count
+        switch count {
+        case 0:
+            return "No import targets parsed yet."
+        case 1:
+            return "1 import target parsed."
+        default:
+            return "\(count) import targets parsed."
+        }
+    }
+
+    private var importButtonTitle: String {
+        let count = appModel.identifierImportInputs.count
+        return count > 1 ? "Import All (\(count))" : "Import"
     }
 
     private func openIdentifierInputURL() {

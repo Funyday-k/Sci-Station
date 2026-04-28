@@ -2,7 +2,7 @@ import Foundation
 
 public struct WorkspacePreferences: Hashable, Sendable {
     public nonisolated static let currentSchemaVersion = 1
-    public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "collection"]
+    public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "collection"]
 
     public var schemaVersion: Int
     public var libraryVisibleColumns: [String]

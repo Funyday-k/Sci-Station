@@ -20,6 +20,10 @@ private struct CoreVerificationSuite {
         try await openWorkspaceBackfillsMissingStructure()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
+        try await workspaceMaterialRepositoryLoadsOnlyUserMaterials()
+        try batchImportInputParserSplitsMultipleIdentifiers()
+        try await vscodeBridgePreparesPythonRunTask()
         try citekeyGenerationUsesAuthorYearKeyword()
         try metadataCodecRoundTripKeepsEditableFields()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
@@ -67,9 +71,11 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: workspace.sharedResearchURL.path), "shared_research.md should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.libraryBibURL.path), "refs/library.bib should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.tagsDefinitionURL.path), "refs/tags.yaml should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: ".sci-station").path), ".sci-station should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "refs/csl").path), "refs/csl should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "settings").path), "settings should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.workspacePreferencesURL.path), "workspace_preferences.yaml should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.markdownSnippetsURL.path), "markdown_snippets.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "tasks").path), "tasks should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "imports").path), "imports should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.dataURL.path), "data should exist after workspace creation.")
@@ -106,9 +112,11 @@ private struct CoreVerificationSuite {
 
         let workspace = try await workspaceService.openWorkspace(at: workspaceURL)
         try expect(workspace.missingRequiredItems().isEmpty, "Opening an older workspace should backfill missing paths.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: ".sci-station").path), "Opening should create .sci-station when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "refs/csl").path), "Opening should create refs/csl when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.tagsDefinitionURL.path), "Opening should create refs/tags.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.workspacePreferencesURL.path), "Opening should create workspace_preferences.yaml when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.markdownSnippetsURL.path), "Opening should create markdown_snippets.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "tasks").path), "Opening should create tasks when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "imports").path), "Opening should create imports when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.dataURL.path), "Opening should create data when missing.")
@@ -175,6 +183,128 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.libraryVisibleColumns == ["title", "authors", "bibtex"], "Workspace preferences should preserve column order.")
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
+    }
+
+    private func markdownSnippetRepositoryLoadsWorkspaceSnippets() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = MarkdownSnippetRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("SnippetsWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let defaultSnippets = try await repository.load(in: workspace)
+        try expect(defaultSnippets.contains(where: { $0.trigger == ";eq" }), "Default snippets should include an equation trigger.")
+
+        let customSnippets = """
+        snippets:
+          - trigger: ";thm"
+            title: "Theorem"
+            body: |
+              **Theorem.** ${cursor}
+        """
+        try customSnippets.write(to: workspace.markdownSnippetsURL, atomically: true, encoding: .utf8)
+
+        let loadedSnippets = try await repository.load(in: workspace)
+        try expect(loadedSnippets == [MarkdownSnippet(trigger: ";thm", title: "Theorem", body: "**Theorem.** ${cursor}")], "Markdown snippet repository should load custom workspace snippets.")
+    }
+
+    private func workspaceMaterialRepositoryLoadsOnlyUserMaterials() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = WorkspaceMaterialRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("MaterialsWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        try "print('hello')\n".write(to: workspace.fileURL(for: "code/analysis.py"), atomically: true, encoding: .utf8)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: workspace.fileURL(for: "figures/result.png"), options: .atomic)
+        try "private\n".write(to: workspace.fileURL(for: "settings/private.txt"), atomically: true, encoding: .utf8)
+        try "hidden\n".write(to: workspace.fileURL(for: "code/.scratch.txt"), atomically: true, encoding: .utf8)
+
+        let materials = try await repository.loadMaterials(in: workspace)
+        let materialPaths = Set(materials.map(\.relativePath))
+        let codeMaterial = try require(materials.first(where: { $0.relativePath == "code/analysis.py" }), "Expected code/analysis.py to be loaded as a material.")
+
+        try expect(materialPaths.contains("code/analysis.py"), "Materials should include user code files.")
+        try expect(codeMaterial.kind == .python, "Python files should be classified as Python materials.")
+        try expect(materialPaths.contains("figures/result.png"), "Materials should include user figure files.")
+        try expect(materialPaths.contains("shared_research.md"), "Materials should include shared research context.")
+        try expect(!materialPaths.contains("settings/private.txt"), "Materials should hide settings files.")
+        try expect(!materialPaths.contains("code/.scratch.txt"), "Materials should hide dot-prefixed files.")
+        try expect(WorkspaceMaterialRepository.isVisibleMaterialPath("code/analysis.py"), "User material paths should be visible.")
+        try expect(!WorkspaceMaterialRepository.isVisibleMaterialPath(".sci-station/cache.json"), "Dot-prefixed system paths should be hidden.")
+    }
+
+    private func batchImportInputParserSplitsMultipleIdentifiers() throws {
+        let parser = BatchImportInputParser()
+        let parsedInputs = parser.parse("""
+        https://arxiv.org/abs/2401.12345, https://doi.org/10.1234/example
+        inspire:2811054; https://example.org/paper.pdf https://arxiv.org/abs/2401.12345
+        """)
+
+        try expect(
+            parsedInputs == [
+                "https://arxiv.org/abs/2401.12345",
+                "https://doi.org/10.1234/example",
+                "inspire:2811054",
+                "https://example.org/paper.pdf"
+            ],
+            "Batch parser should split common pasted separators and remove duplicates."
+        )
+    }
+
+    private func vscodeBridgePreparesPythonRunTask() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = WorkspaceMaterialRepository()
+        let bridgeService = VSCodeBridgeService()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("VSCodeBridgeWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let pythonURL = workspace.fileURL(for: "code/analysis.py")
+        try "print('hello')\n".write(to: pythonURL, atomically: true, encoding: .utf8)
+
+        let materials = try await repository.loadMaterials(in: workspace)
+        let material = try require(materials.first(where: { $0.relativePath == "code/analysis.py" }), "Expected Python material for VS Code bridge test.")
+
+        try await bridgeService.preparePythonRunTask(for: material, in: workspace, runtimeMode: .workspaceVenv)
+
+        let tasksText = try String(contentsOf: workspace.fileURL(for: ".vscode/tasks.json"), encoding: .utf8)
+        let bridgeText = try String(contentsOf: workspace.fileURL(for: ".sci-station/vscode/last_python_run.json"), encoding: .utf8)
+
+        try expect(tasksText.contains("Sci-Station: Run Python Material"), "VS Code bridge should write a runnable task label.")
+        try expect(tasksText.contains("code/analysis.py"), "VS Code bridge should point to the selected Python material.")
+        try expect(tasksText.contains(".venv/bin/python"), "VS Code bridge should use the selected workspace venv command.")
+        try expect(bridgeText.contains("workspaceVenv"), "VS Code bridge should record the selected runtime mode.")
     }
 
     private func citekeyGenerationUsesAuthorYearKeyword() throws {

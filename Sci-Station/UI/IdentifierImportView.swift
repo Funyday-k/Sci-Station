@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct IdentifierImportView: View {
@@ -10,11 +11,29 @@ struct IdentifierImportView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Paste a DOI, arXiv ID, INSPIRE URL, PDF URL or normal page URL. Preview resolves metadata before import.")
+            Text("Paste one or many DOI, arXiv IDs, INSPIRE URLs, PDF URLs or normal page URLs. Preview resolves the first item; import processes all parsed entries.")
                 .foregroundStyle(.secondary)
 
-            TextField("Identifier or Link", text: $appModel.identifierImportInput)
-                .textFieldStyle(.roundedBorder)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $appModel.identifierImportInput)
+                    .font(.callout.monospaced())
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 100, maxHeight: 140)
+                    .padding(6)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+
+                if appModel.identifierImportInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Paste one or many links, DOIs, or arXiv IDs")
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 14)
+                }
+            }
+
+            Text(batchSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 TextField("Collection", text: $appModel.identifierImportCollectionPath)
@@ -24,13 +43,15 @@ struct IdentifierImportView: View {
             }
 
             HStack(spacing: 12) {
-                Button("Preview Metadata", action: appModel.previewIdentifierImport)
+                Button(appModel.identifierImportInputs.count > 1 ? "Preview First" : "Preview Metadata", action: appModel.previewIdentifierImport)
                     .buttonStyle(.bordered)
+                    .disabled(appModel.identifierImportInputs.isEmpty)
 
-                Button("Import") {
+                Button(importButtonTitle) {
                     appModel.performIdentifierImport()
                 }
                     .buttonStyle(.borderedProminent)
+                    .disabled(appModel.identifierImportInputs.isEmpty)
 
                 Button("Close") {
                     dismiss()
@@ -39,6 +60,12 @@ struct IdentifierImportView: View {
 
             if appModel.isResolvingIdentifierImport || appModel.isPerformingIdentifierImport {
                 ProgressView(appModel.isPerformingIdentifierImport ? "Importing…" : "Resolving metadata…")
+            }
+
+            if let statusMessage = appModel.identifierImportStatusMessage {
+                Text(statusMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             GroupBox("Preview") {
@@ -69,5 +96,22 @@ struct IdentifierImportView: View {
         }
         .padding(20)
         .frame(minWidth: 760, minHeight: 460)
+    }
+
+    private var batchSummary: String {
+        let count = appModel.identifierImportInputs.count
+        switch count {
+        case 0:
+            return "No import targets parsed yet."
+        case 1:
+            return "1 import target parsed."
+        default:
+            return "\(count) import targets parsed."
+        }
+    }
+
+    private var importButtonTitle: String {
+        let count = appModel.identifierImportInputs.count
+        return count > 1 ? "Import All (\(count))" : "Import"
     }
 }

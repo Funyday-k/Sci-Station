@@ -18,6 +18,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         "wiki/authors",
         "wiki/gaps",
         "wiki/projects",
+        ".sci-station",
         "refs",
         "refs/csl",
         "settings",
@@ -29,6 +30,28 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         "code",
         "figures",
         "outputs"
+    ]
+
+    public nonisolated static let userMaterialRootPaths: [String] = [
+        "inbox",
+        "data",
+        "code",
+        "figures",
+        "outputs",
+        "scripts",
+        "prompts"
+    ]
+
+    public nonisolated static let userMaterialFilePaths: [String] = [
+        "shared_research.md"
+    ]
+
+    public nonisolated static let systemRootPaths: Set<String> = [
+        ".sci-station",
+        "settings",
+        "refs",
+        "tasks",
+        "imports"
     ]
 
     public nonisolated static let seededFiles: [SeededFile] = [
@@ -46,7 +69,11 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         ),
         SeededFile(
             relativePath: "settings/workspace_preferences.yaml",
-            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"collection\"\ndefault_collection: \"\"\nrecent_section: \"library\"\n"
+            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"collection\"\ndefault_collection: \"\"\nrecent_section: \"projects\"\n"
+        ),
+        SeededFile(
+            relativePath: "settings/markdown_snippets.yaml",
+            contents: "snippets:\n  - trigger: \";h2\"\n    title: \"Heading 2\"\n    body: |\n      ## ${cursor}\n  - trigger: \";eq\"\n    title: \"Display Equation\"\n    body: |\n      $$\n      ${cursor}\n      $$\n  - trigger: \";fig\"\n    title: \"Figure Reference\"\n    body: |\n      ![${cursor}](../figures/)\n  - trigger: \";todo\"\n    title: \"Todo Item\"\n    body: |\n      - [ ] ${cursor}\n  - trigger: \";paper\"\n    title: \"Paper Note\"\n    body: |\n      ## Why It Matters\n      \n      ${cursor}\n      \n      ## Method\n      \n      \n      ## Limits\n"
         ),
         SeededFile(
             relativePath: "tasks/todos.yaml",
@@ -148,6 +175,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
 
     public nonisolated var workspacePreferencesURL: URL {
         fileURL(for: "settings/workspace_preferences.yaml")
+    }
+
+    public nonisolated var markdownSnippetsURL: URL {
+        fileURL(for: "settings/markdown_snippets.yaml")
     }
 
     public nonisolated var researchFlowDatabaseURL: URL {

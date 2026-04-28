@@ -16,6 +16,7 @@ Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原�
 
 ```text
 ResearchWorkspace/
+├── .sci-station/
 ├── inbox/
 ├── raw/
 │   ├── papers/
@@ -34,6 +35,7 @@ ResearchWorkspace/
 │   ├── library.bib
 │   └── tags.yaml
 ├── settings/
+│   ├── markdown_snippets.yaml
 │   └── workspace_preferences.yaml
 ├── tasks/
 │   ├── calendar.yaml
@@ -66,11 +68,13 @@ ResearchWorkspace/
 ### 2. 科研项目总览
 
 - Projects 入口显示 project-level overview，不再只是占位页
+- Projects 是一级导航第一入口，Papers/Concepts/Methods/Gaps 等 AI 产物入口收束到 Project/Wiki 工作流中
 - 自动创建 `wiki/projects/project_overview.md` 作为项目介绍和 living proposal
 - 自动创建 `wiki/projects/core_papers.md` 作为核心论文清单
 - Project Overview 汇总论文数、核心论文数、项目文档数和未完成任务数
 - 核心论文列表按 core/foundation/key/proposal 标签、优先级和评分推导，并显示简要内容
 - Research Workflow 入口覆盖 proposal、core papers、data、code、figures、outputs、tasks 和 shared context
+- AI Knowledge Workspace 集中进入 paper notes、concepts、methods、research gaps 和 AI Lab
 
 ### 3. Workspace 偏好
 
@@ -79,7 +83,20 @@ ResearchWorkspace/
 - Library visible columns 和 column order 从 workspace preferences 恢复
 - 仍保留 App 内默认列作为偏好文件缺失时的兜底
 
-### 4. 论文库与元数据
+### 4. Materials 与 VS Code 联动
+
+- 左侧栏新增 Materials，用于阅读 workspace 内用户材料文件
+- Materials 默认扫描 `inbox/`、`data/`、`code/`、`figures/`、`outputs/`、`scripts/`、`prompts/` 和 `shared_research.md`
+- Materials 不显示 `settings/`、`refs/`、`tasks/`、`imports/`、`.sci-station/` 等系统目录
+- 点号开头的目录或文件视为内部/隐藏内容，不进入 Materials 列表
+- 支持 Markdown、Python、文本、图片和 PDF 预览，其他数据文件可用默认 App 或 VS Code 打开
+- Materials 可直接打开整个 workspace 或选中文件到 VS Code / VSCodium
+- Python 文件提供运行面板，可选择 System Python、workspace `.venv` 或手选 venv
+- 可从 Materials 发起创建 workspace `.venv`，配置写入 `.sci-station/python_environment.txt`
+- Run in VS Code 会写入 `.vscode/tasks.json` 与 `.sci-station/vscode/last_python_run.json`，再打开 workspace 和代码文件
+- Terminal 运行会生成 `.sci-station/runs/*.command` 并交给 macOS Terminal 执行
+
+### 5. 论文库与元数据
 
 - Paper 模型包含标题、作者、年份、标签、阅读状态、优先级、评分、用途、出版信息、标识符、abstract、BibTeX 等字段
 - 使用 `meta.yaml` 作为论文目录内的元数据文件
@@ -89,7 +106,7 @@ ResearchWorkspace/
 - Collection 重命名后按真实目录推导 collection，避免 stale `collection_path` 导致论文消失
 - Library 搜索覆盖标题、作者、标签、citekey、DOI、arXiv、INSPIRE、abstract、BibTeX 与出版信息
 
-### 5. PDF 与链接导入
+### 6. PDF 与链接导入
 
 - 支持按钮选择 PDF 导入
 - 支持把 PDF 拖入 Library 完成导入
@@ -97,33 +114,38 @@ ResearchWorkspace/
 - 导入时创建 `raw/papers/{collection}/{paper-id}/`
 - 生成标准化文件：`paper.pdf`、`paper.md`、`meta.yaml`、`annotations.md`、`figures/`
 - Quick Link 支持 DOI、arXiv、PDF URL 和普通网页链接，导入前可直接打开 URL 确认
+- Add by Link 支持批量粘贴多个链接/标识符，按换行、逗号、分号和空白分割，顺序导入并保留失败项
 
-### 6. Markdown 知识页闭环
+### 7. Markdown 知识页闭环
 
 - 支持为论文生成 `wiki/papers/{citekey}.md` 模板页
 - 支持扫描 `wiki/` 下的 Markdown 页面
 - 支持在应用内打开、编辑、保存 Markdown 文件
+- Wiki 编辑器支持 Source、Preview、Split 三种模式，右键可切换 split source/preview
+- Preview 使用轻量 WebKit Markdown 渲染，支持 GFM、表格、代码块、图片和 KaTeX 公式
+- 支持 workspace 自定义 Markdown snippets，默认提供 `;eq`、`;fig`、`;todo`、`;paper` 等触发词
 - 支持解析 YAML frontmatter 和 `[[wikilink]]`
 - 支持在 Inspector 中查看 outgoing links 和 backlinks
 
-### 7. Todo、Calendar 与 Apple Reminders
+### 8. Todo、Calendar 与 Apple Reminders
 
 - Dashboard 月历显示本地 todo、workspace calendar event 和 Apple Calendar/Reminders 标题
 - Todo 支持 due date、priority、notes、编辑和删除
 - Todo YAML 记录 Apple Reminders 映射字段：`external_source`、`external_identifier`、`external_updated_at`、`completed_at`、`due_time`
 - 可将新增或已有 todo 发布到 Apple Reminders，并在本地保存 reminder 标识
 
-### 8. 应用界面
+### 9. 应用界面
 
 - 三栏主界面：侧边栏、内容区、检查器
 - 顶部工具栏支持 Create Workspace、Open Workspace、Import PDF、Add by Identifier、Reveal in Finder
-- Library 页面支持紧凑操作区、可配置列、列拖拽排序、tag chip 显示和右键菜单
+- Materials 页面提供 workspace 用户材料浏览、预览、Finder 定位和 VS Code 打开
+- Library 页面支持紧凑操作区、默认 Tags 列、可配置列、列拖拽排序、tag chip 显示和右键菜单
 - Paper Inspector 支持回车保存，点击空白区域结束元数据输入状态
 - BibTeX 可从论文右键或 Reader Citations 面板复制、预览并导出 `.bib`
 - Wiki 页面提供 Markdown 列表、编辑器和 Inspector
 - Projects 页面提供项目介绍、核心论文、项目文档和科研 workflow 入口
 
-### 9. PDF Reader
+### 10. PDF Reader
 
 - 内置 PDF Reader 支持页码、搜索、缩放、PDFKit 历史前进/后退
 - Reader 右侧栏支持 Metadata、Notes、Tasks、Citations、Links、Abstract、Files
@@ -132,7 +154,7 @@ ResearchWorkspace/
 - Citations 面板展示 BibTeX，支持复制和导出
 - Links 面板展示 DOI、arXiv、INSPIRE、URL、PDF URL 并可直接打开
 
-### 10. 核心验证
+### 11. 核心验证
 
 仓库中包含独立的 SwiftPM 可执行验证器，用于验证核心文件系统与元数据逻辑。
 
@@ -141,6 +163,10 @@ ResearchWorkspace/
 - 工作区创建后结构完整
 - 旧工作区打开时自动补齐缺失目录和占位文件
 - Project Overview 所需 `data/`、`figures/` 和 `wiki/projects/` 种子文档会自动创建或补齐
+- Markdown snippets 配置文件会自动创建或补齐，并支持自定义触发词加载
+- Materials 扫描只包含用户材料路径，会隐藏 settings 和点号开头的内部文件，并识别 Python 文件
+- 批量链接输入解析会分割常见粘贴格式并去重
+- VS Code bridge 会为 Python material 写入可运行 task 与 bridge 状态文件
 - 最近 workspace bookmark 失效时自动清理
 - WorkspacePreferencesRepository 保存和读取可往返
 - citekey 生成规则正确
@@ -164,6 +190,13 @@ ResearchWorkspace/
 - 关闭并重新打开 App，确认最近 workspace 自动恢复。
 - 打开 Create/Open Workspace 或 Import PDF，确认系统面板默认定位到 Documents。
 - 打开 Projects，确认 Project Overview 显示项目介绍、核心论文、项目文档和 data/code/figures/outputs 入口。
+- 打开 Materials，确认 code/figures/data/outputs 可浏览，settings 和点号开头文件不会显示。
+- 在 Materials 里选择代码或图片文件，确认可预览、Reveal in Finder，并可用 VS Code 打开。
+- 在 Materials 里选择 Python 文件，确认可切换运行来源、创建 `.venv`、准备 VS Code task，并可用 Terminal 运行。
+- 在 Library 的 Add by Link 中粘贴多条 DOI/arXiv/URL，确认显示解析数量，Import All 后成功项进入 Library，失败项留在输入框。
+- 在 Projects 中确认项目介绍以 Markdown preview 显示，AI Knowledge Workspace 收束 paper notes/concepts/methods/gaps。
+- 在 Wiki 中切换 Source、Preview、Split，确认公式如 `$$E=mc^2$$` 可渲染，右键菜单可切换 Split。
+- 在 Wiki 源码模式输入 `;eq`，确认会展开为公式块；打开 `settings/markdown_snippets.yaml` 可自定义 snippets。
 - 在 Library 中拖动列标题并重启，确认列顺序从 `workspace_preferences.yaml` 恢复。
 - 重命名 collection 后确认该 collection 下论文仍可显示。
 - 在 Reader 的 Notes 面板保存文字，确认对应论文目录的 `annotations.md` 更新。
@@ -173,12 +206,13 @@ ResearchWorkspace/
 ## 尚未完成的部分
 
 - Project Overview 的项目配置模型、阶段状态和自定义核心论文 pinning
+- Markdown renderer 的离线资源打包、snippet 图形化管理和更完整编辑器快捷键
 - SQLite/FTS 统一搜索索引和增量更新
 - Apple Reminders 双向同步、完成状态回写和冲突选择 UI
 - DOI、arXiv、INSPIRE provider 的固定 fixture 回归套件
 - Reader Tasks 面板的完整编辑、完成和筛选能力
 - Workspace 最近列表和 workspace 级共享视图配置 UI
-- VSCode / VSCodium 联动
+- VS Code / VSCodium 的深度联动：自动触发 task、kernel、diagnostics、terminal 输出和文件状态同步
 - 外部 PDF 阅读器深度集成
 - 图谱可视化
 - 更完整的行为测试和 UI 测试
@@ -211,7 +245,10 @@ DOC/
 ├── Proposal5.md
 ├── Proposal6.md
 ├── Proposal7.md
-└── Proposal8.md
+├── Proposal8.md
+├── Proposal9.md
+├── Proposal10.md
+└── Proposal11.md
 ```
 
 ## 运行方式
@@ -267,3 +304,7 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 - 任务书 5：[DOC/Proposal5.md](DOC/Proposal5.md)
 - 任务书 6：[DOC/Proposal6.md](DOC/Proposal6.md)
 - 任务书 7：[DOC/Proposal7.md](DOC/Proposal7.md)
+- 任务书 8：[DOC/Proposal8.md](DOC/Proposal8.md)
+- 任务书 9：[DOC/Proposal9.md](DOC/Proposal9.md)
+- 任务书 10：[DOC/Proposal10.md](DOC/Proposal10.md)
+- 任务书 11：[DOC/Proposal11.md](DOC/Proposal11.md)
