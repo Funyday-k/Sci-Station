@@ -70,7 +70,7 @@ public struct IdentifierParser {
         let normalizedInput = text
             .replacingOccurrences(of: ".pdf", with: "", options: .caseInsensitive)
         return firstMatch(
-            pattern: "(?:arxiv\\s*:\\s*|https?://arxiv\\.org/(?:abs|pdf)/)?(\\d{4}\\.\\d{4,5}(?:v\\d+)?)",
+            pattern: "(?:arxiv\\s*:?\\s*|https?://arxiv\\.org/(?:abs|pdf)/)?(\\d{4}\\.\\d{4,5}(?:v\\d+)?)",
             in: normalizedInput,
             captureGroup: 1,
             options: [.caseInsensitive]
@@ -97,6 +97,7 @@ public struct IdentifierParser {
     nonisolated private func parseArxivID(from input: String) -> String? {
         let normalizedInput = input
             .replacingOccurrences(of: "arXiv:", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "arXiv ", with: "", options: .caseInsensitive)
             .replacingOccurrences(of: "https://arxiv.org/abs/", with: "")
             .replacingOccurrences(of: "http://arxiv.org/abs/", with: "")
             .replacingOccurrences(of: "https://arxiv.org/pdf/", with: "")

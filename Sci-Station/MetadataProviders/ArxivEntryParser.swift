@@ -13,13 +13,13 @@ public struct ArxivEntryParser {
         let title = matchFirst("<title>([\\s\\S]*?)</title>", in: entry)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "arXiv Import"
         let summary = matchFirst("<summary>([\\s\\S]*?)</summary>", in: entry)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let published = matchFirst("<published>([\\s\\S]*?)</published>", in: entry)
-        let authors = matchAll("<author>\\s*<name>([\\s\\S]*?)</name>\\s*</author>", in: entry)
+        let authors = matchAll("<author>[\\s\\S]*?<name>([\\s\\S]*?)</name>[\\s\\S]*?</author>", in: entry)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let categories = matchAllAttributeValues("<category[^>]*term=\"([^\"]+)\"", in: entry)
-        let pdfURL = matchFirstAttribute("<link[^>]*title=\"pdf\"[^>]*href=\"([^\"]+)\"", in: entry)
         let absURL = matchFirst("<id>([\\s\\S]*?)</id>", in: entry)
         let doi = matchFirst("<doi>([\\s\\S]*?)</doi>", in: entry)
         let arxivID = absURL?.split(separator: "/").last.map(String.init)
+        let pdfURL = pdfLink(in: entry) ?? arxivID.map { "https://arxiv.org/pdf/\($0).pdf" }
 
         return PaperMetadataDraft(
             title: title,
@@ -33,7 +33,12 @@ public struct ArxivEntryParser {
             pdfURL: pdfURL,
             abstract: summary,
             categories: categories,
-            sourceProvider: "arxiv"
+            sourceProvider: "arxiv",
+            itemType: "preprint",
+            publicationTitle: "arXiv",
+            publishedDate: published.map { String($0.prefix(10)) },
+            archive: "arXiv",
+            archiveLocation: arxivID
         )
     }
 
@@ -68,5 +73,22 @@ public struct ArxivEntryParser {
 
     nonisolated private func matchAllAttributeValues(_ pattern: String, in input: String) -> [String] {
         matchAll(pattern, in: input)
+    }
+
+    nonisolated private func pdfLink(in entry: String) -> String? {
+        let linkTags = matchAll("(<link[^>]*>)", in: entry)
+
+        for linkTag in linkTags {
+            let lowercasedTag = linkTag.lowercased()
+            guard lowercasedTag.contains("title=\"pdf\"") || lowercasedTag.contains("type=\"application/pdf\"") else {
+                continue
+            }
+
+            if let href = matchFirst("href=\"([^\"]+)\"", in: linkTag) {
+                return href
+            }
+        }
+
+        return nil
     }
 }

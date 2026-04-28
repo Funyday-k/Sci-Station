@@ -31,6 +31,30 @@ public struct PaperMetadataCodec {
             pdfURL: optionalStringValue(for: "pdf_url", in: parsed),
             abstract: optionalStringValue(for: "abstract", in: parsed),
             categories: arrayValue(for: "categories", in: parsed),
+            titleTranslation: optionalStringValue(for: "title_translation", in: parsed),
+            itemType: optionalStringValue(for: "item_type", in: parsed),
+            publicationTitle: optionalStringValue(for: "publication_title", in: parsed),
+            publisher: optionalStringValue(for: "publisher", in: parsed),
+            publicationPlace: optionalStringValue(for: "publication_place", in: parsed),
+            publishedDate: optionalStringValue(for: "published_date", in: parsed),
+            volume: optionalStringValue(for: "volume", in: parsed),
+            issue: optionalStringValue(for: "issue", in: parsed),
+            pages: optionalStringValue(for: "pages", in: parsed),
+            series: optionalStringValue(for: "series", in: parsed),
+            seriesTitle: optionalStringValue(for: "series_title", in: parsed),
+            journalAbbreviation: optionalStringValue(for: "journal_abbreviation", in: parsed),
+            issn: optionalStringValue(for: "issn", in: parsed),
+            isbn: optionalStringValue(for: "isbn", in: parsed),
+            pmid: optionalStringValue(for: "pmid", in: parsed),
+            pmcid: optionalStringValue(for: "pmcid", in: parsed),
+            language: optionalStringValue(for: "language", in: parsed),
+            archive: optionalStringValue(for: "archive", in: parsed),
+            archiveLocation: optionalStringValue(for: "archive_location", in: parsed),
+            libraryCatalog: optionalStringValue(for: "library_catalog", in: parsed),
+            callNumber: optionalStringValue(for: "call_number", in: parsed),
+            shortTitle: optionalStringValue(for: "short_title", in: parsed),
+            accessedAt: optionalStringValue(for: "accessed_at", in: parsed),
+            bibtex: optionalStringValue(for: "bibtex", in: parsed),
             collectionPath: optionalStringValue(for: "collection_path", in: parsed),
             pdfRelativePath: optionalStringValue(for: "pdf", in: parsed),
             tags: arrayValue(for: "tags", in: parsed),
@@ -65,6 +89,30 @@ public struct PaperMetadataCodec {
             encodeScalar(key: "collection_path", value: paper.collectionPath),
             encodeArray(key: "categories", values: paper.categories),
             encodeScalar(key: "abstract", value: paper.abstract),
+            encodeScalar(key: "title_translation", value: paper.titleTranslation),
+            encodeScalar(key: "item_type", value: paper.itemType),
+            encodeScalar(key: "publication_title", value: paper.publicationTitle),
+            encodeScalar(key: "publisher", value: paper.publisher),
+            encodeScalar(key: "publication_place", value: paper.publicationPlace),
+            encodeScalar(key: "published_date", value: paper.publishedDate),
+            encodeScalar(key: "volume", value: paper.volume),
+            encodeScalar(key: "issue", value: paper.issue),
+            encodeScalar(key: "pages", value: paper.pages),
+            encodeScalar(key: "series", value: paper.series),
+            encodeScalar(key: "series_title", value: paper.seriesTitle),
+            encodeScalar(key: "journal_abbreviation", value: paper.journalAbbreviation),
+            encodeScalar(key: "issn", value: paper.issn),
+            encodeScalar(key: "isbn", value: paper.isbn),
+            encodeScalar(key: "pmid", value: paper.pmid),
+            encodeScalar(key: "pmcid", value: paper.pmcid),
+            encodeScalar(key: "language", value: paper.language),
+            encodeScalar(key: "archive", value: paper.archive),
+            encodeScalar(key: "archive_location", value: paper.archiveLocation),
+            encodeScalar(key: "library_catalog", value: paper.libraryCatalog),
+            encodeScalar(key: "call_number", value: paper.callNumber),
+            encodeScalar(key: "short_title", value: paper.shortTitle),
+            encodeScalar(key: "accessed_at", value: paper.accessedAt),
+            encodeScalar(key: "bibtex", value: paper.bibtex),
             "",
             encodeArray(key: "tags", values: paper.tags),
             "status: \(paper.status.rawValue)",
@@ -151,6 +199,8 @@ public struct PaperMetadataCodec {
 
     nonisolated private func quoted(_ value: String) -> String {
         let escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
     }
@@ -297,6 +347,8 @@ public struct PaperMetadataCodec {
         let endIndex = value.index(before: value.endIndex)
         return value[startIndex..<endIndex]
             .replacingOccurrences(of: "\\\"", with: "\"")
+            .replacingOccurrences(of: "\\r", with: "\r")
+            .replacingOccurrences(of: "\\n", with: "\n")
             .replacingOccurrences(of: "\\\\", with: "\\")
     }
 }

@@ -15,8 +15,17 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var tagDefinitions: [TagDefinition] = []
     @Published private(set) var todos: [TodoItem] = []
     @Published private(set) var calendarEvents: [CalendarEvent] = []
+    @Published private(set) var systemScheduleItems: [SystemScheduleItem] = []
+    @Published private(set) var systemCalendarAccessState: SystemCalendarAccessState = .notDetermined
+    @Published private(set) var isLoadingSystemSchedule = false
+    @Published var addTodosToAppleReminders = false
     @Published private(set) var selectedPaperID: Paper.ID?
     @Published private(set) var selectedPaperDraft: Paper?
+    @Published var isShowingPaperDeleteConfirmation = false
+    @Published private(set) var paperPendingDeletion: Paper?
+    @Published var isShowingBibTeXExport = false
+    @Published private(set) var bibTeXExportText = ""
+    @Published private(set) var bibTeXExportFileName = "reference.bib"
     @Published private(set) var selectedCollectionPath: String?
     @Published private(set) var selectedTagName: String?
     @Published var selectedDashboardDate = Calendar.current.startOfDay(for: Date())
@@ -50,6 +59,7 @@ final class AppViewModel: ObservableObject {
     private let tagRepository: TagRepository
     private let todoRepository: TodoRepository
     private let calendarRepository: CalendarRepository
+    private let systemCalendarService: SystemCalendarService
     private let pdfReadingStateService: PDFReadingStateService
     private let remoteImportService: RemoteImportService
     private let llmConfigurationStore: LLMConfigurationStore
@@ -70,6 +80,7 @@ final class AppViewModel: ObservableObject {
         tagRepository: TagRepository? = nil,
         todoRepository: TodoRepository? = nil,
         calendarRepository: CalendarRepository? = nil,
+        systemCalendarService: SystemCalendarService? = nil,
         pdfReadingStateService: PDFReadingStateService? = nil,
         remoteImportService: RemoteImportService? = nil,
         llmConfigurationStore: LLMConfigurationStore? = nil,
@@ -86,6 +97,7 @@ final class AppViewModel: ObservableObject {
         let resolvedTagRepository = tagRepository ?? TagRepository()
         let resolvedTodoRepository = todoRepository ?? TodoRepository()
         let resolvedCalendarRepository = calendarRepository ?? CalendarRepository()
+        let resolvedSystemCalendarService = systemCalendarService ?? SystemCalendarService()
         let resolvedPDFReadingStateService = pdfReadingStateService ?? PDFReadingStateService(paperRepository: resolvedPaperRepository)
         let resolvedRemoteImportService = remoteImportService ?? RemoteImportService(
             pdfImportService: PDFImportService(repository: resolvedPaperRepository),
@@ -105,6 +117,8 @@ final class AppViewModel: ObservableObject {
         self.tagRepository = resolvedTagRepository
         self.todoRepository = resolvedTodoRepository
         self.calendarRepository = resolvedCalendarRepository
+        self.systemCalendarService = resolvedSystemCalendarService
+        self.systemCalendarAccessState = resolvedSystemCalendarService.accessState
         self.pdfReadingStateService = resolvedPDFReadingStateService
         self.remoteImportService = resolvedRemoteImportService
         self.llmConfigurationStore = resolvedLLMConfigurationStore
@@ -160,7 +174,44 @@ final class AppViewModel: ObservableObject {
 
             return calendar.isDate(dueDate, inSameDayAs: selectedDashboardDate)
         }
-        .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+        .sorted { first, second in
+            if first.dueDate == second.dueDate {
+                return prioritySortValue(first.priority) < prioritySortValue(second.priority)
+            }
+            return (first.dueDate ?? .distantFuture) < (second.dueDate ?? .distantFuture)
+        }
+    }
+
+    private func prioritySortValue(_ priority: Priority) -> Int {
+        switch priority {
+        case .urgent:
+            return 0
+        case .high:
+            return 1
+        case .medium:
+            return 2
+        case .low:
+            return 3
+        }
+    }
+
+    var selectedDateWorkspaceEvents: [CalendarEvent] {
+        let calendar = Calendar.current
+        return calendarEvents
+            .filter { calendar.isDate($0.date, inSameDayAs: selectedDashboardDate) }
+            .sorted { $0.date < $1.date }
+    }
+
+    var selectedDateSystemScheduleItems: [SystemScheduleItem] {
+        let calendar = Calendar.current
+        return systemScheduleItems
+            .filter { calendar.isDate($0.displayDate, inSameDayAs: selectedDashboardDate) }
+            .sorted { first, second in
+                if first.displayDate == second.displayDate {
+                    return first.title.localizedStandardCompare(second.title) == .orderedAscending
+                }
+                return first.displayDate < second.displayDate
+            }
     }
 
     var recentPapers: [Paper] {
@@ -206,6 +257,19 @@ final class AppViewModel: ObservableObject {
         }
 
         return selectedPaperDraft.pdfURL(in: currentWorkspace)
+    }
+
+    var selectedPaperHasUnsavedChanges: Bool {
+        guard let selectedPaperDraft,
+              let originalPaper = papers.first(where: { $0.id == selectedPaperDraft.id }) else {
+            return false
+        }
+
+        return selectedPaperDraft != originalPaper
+    }
+
+    var deletePendingPaperTitle: String {
+        paperPendingDeletion?.displayTitle ?? "the selected paper"
     }
 
     var selectedPaperHasWikiPage: Bool {
@@ -484,6 +548,23 @@ final class AppViewModel: ObservableObject {
         selectPaper(id: selectedPaperID)
     }
 
+    func canOpenPDF(for paper: Paper) -> Bool {
+        guard let currentWorkspace, let pdfURL = paper.pdfURL(in: currentWorkspace) else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: pdfURL.path)
+    }
+
+    func openPaperReader(_ paper: Paper) {
+        selectPaper(id: paper.id)
+        guard canOpenPDF(for: paper) else {
+            return
+        }
+
+        selectedSection = .pdfReader
+    }
+
     func saveSelectedPaperChanges() {
         guard let currentWorkspace, let selectedPaperDraft else {
             return
@@ -509,13 +590,105 @@ final class AppViewModel: ObservableObject {
     }
 
     func openSelectedPaperPDF() {
-        guard let currentWorkspace, let selectedPaperDraft, let pdfURL = selectedPaperDraft.pdfURL(in: currentWorkspace) else {
+        guard let selectedPaperDraft else {
+            return
+        }
+
+        openPaperPDF(selectedPaperDraft)
+    }
+
+    func openPaperPDF(_ paper: Paper) {
+        guard let currentWorkspace, let pdfURL = paper.pdfURL(in: currentWorkspace) else {
             return
         }
 
         Task {
             do {
                 try await pdfOpeningService.openPDF(at: pdfURL, page: nil)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func requestDeleteSelectedPaper() {
+        guard let selectedPaperDraft else {
+            return
+        }
+
+        requestDeletePaper(selectedPaperDraft)
+    }
+
+    func requestDeletePaper(_ paper: Paper) {
+        paperPendingDeletion = paper
+        isShowingPaperDeleteConfirmation = true
+    }
+
+    func exportBibTeX(for paper: Paper) {
+        let bibtex = BibTeXFormatter.bibTeX(for: paper)
+        bibTeXExportText = bibtex
+        bibTeXExportFileName = "\(paper.citekey).bib"
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bibtex, forType: .string)
+        isShowingBibTeXExport = true
+    }
+
+    func exportSelectedPaperBibTeX() {
+        guard let selectedPaperDraft else {
+            return
+        }
+
+        exportBibTeX(for: selectedPaperDraft)
+    }
+
+    func dismissBibTeXExport() {
+        isShowingBibTeXExport = false
+    }
+
+    func saveExportedBibTeXToFile() {
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = bibTeXExportFileName
+        savePanel.canCreateDirectories = true
+        savePanel.allowedContentTypes = [UTType(filenameExtension: "bib") ?? .plainText]
+
+        guard savePanel.runModal() == .OK,
+              let destinationURL = savePanel.url else {
+            return
+        }
+
+        do {
+            try bibTeXExportText.write(to: destinationURL, atomically: true, encoding: .utf8)
+        } catch {
+            present(error)
+        }
+    }
+
+    func cancelPaperDeletion() {
+        isShowingPaperDeleteConfirmation = false
+        paperPendingDeletion = nil
+    }
+
+    func confirmDeletePendingPaper() {
+        guard let currentWorkspace, let paper = paperPendingDeletion else {
+            cancelPaperDeletion()
+            return
+        }
+
+        isShowingPaperDeleteConfirmation = false
+        paperPendingDeletion = nil
+        selectedPaperID = nil
+        selectedPaperDraft = nil
+
+        Task {
+            do {
+                try await paperRepository.delete(paper, in: currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: nil,
+                    selectingMarkdown: selectedMarkdownID
+                )
+                selectedSection = .library
             } catch {
                 present(error)
             }
@@ -783,9 +956,53 @@ final class AppViewModel: ObservableObject {
 
     func selectDashboardDate(_ date: Date) {
         selectedDashboardDate = Calendar.current.startOfDay(for: date)
+        if systemCalendarAccessState.canReadSchedule {
+            refreshSystemSchedule(around: selectedDashboardDate)
+        }
     }
 
-    func addTodo(title: String, dueDate: Date?) {
+    func requestSystemCalendarAccess() {
+        isLoadingSystemSchedule = true
+
+        Task {
+            defer {
+                isLoadingSystemSchedule = false
+            }
+
+            do {
+                systemCalendarAccessState = try await systemCalendarService.requestAccess()
+                if systemCalendarAccessState.canReadSchedule {
+                    try await loadSystemSchedule(around: selectedDashboardDate)
+                }
+            } catch {
+                systemCalendarAccessState = systemCalendarService.accessState
+                present(error)
+            }
+        }
+    }
+
+    func refreshSystemSchedule(around referenceDate: Date? = nil) {
+        systemCalendarAccessState = systemCalendarService.accessState
+        guard systemCalendarAccessState.canReadSchedule else {
+            return
+        }
+
+        isLoadingSystemSchedule = true
+
+        Task {
+            defer {
+                isLoadingSystemSchedule = false
+            }
+
+            do {
+                try await loadSystemSchedule(around: referenceDate ?? selectedDashboardDate)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func addTodo(title: String, dueDate: Date?, priority: Priority = .medium, notes: String? = nil) {
         guard let currentWorkspace else {
             return
         }
@@ -801,9 +1018,10 @@ final class AppViewModel: ObservableObject {
             title: trimmedTitle,
             status: .open,
             dueDate: dueDate.map { Calendar.current.startOfDay(for: $0) },
+            priority: priority,
             tags: selectedTagName.map { [$0] } ?? [],
             relatedPaperIDs: selectedPaperDraft.map { [$0.id] } ?? [],
-            notes: nil,
+            notes: notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             createdAt: now,
             updatedAt: now
         )
@@ -811,6 +1029,37 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await todoRepository.upsert(todo, in: currentWorkspace)
+                if addTodosToAppleReminders {
+                    try await createAppleReminderIfNeeded(for: todo)
+                }
+                try await loadTodos(in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updateTodo(_ todo: TodoItem, title: String, status: TodoStatus, dueDate: Date?, priority: Priority, notes: String?) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return
+        }
+
+        var updatedTodo = todo
+        updatedTodo.title = trimmedTitle
+        updatedTodo.status = status
+        updatedTodo.dueDate = dueDate.map { Calendar.current.startOfDay(for: $0) }
+        updatedTodo.priority = priority
+        updatedTodo.notes = notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        updatedTodo.updatedAt = Date()
+
+        Task {
+            do {
+                try await todoRepository.upsert(updatedTodo, in: currentWorkspace)
                 try await loadTodos(in: currentWorkspace)
             } catch {
                 present(error)
@@ -1028,6 +1277,10 @@ final class AppViewModel: ObservableObject {
         try await loadTags(in: workspace)
         try await loadTodos(in: workspace)
         try await loadCalendarEvents(in: workspace)
+        systemCalendarAccessState = systemCalendarService.accessState
+        if systemCalendarAccessState.canReadSchedule {
+            try await loadSystemSchedule(around: selectedDashboardDate)
+        }
         try await loadLLMSettings(in: workspace)
         try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
     }
@@ -1065,6 +1318,45 @@ final class AppViewModel: ObservableObject {
 
     private func loadCalendarEvents(in workspace: ResearchWorkspace) async throws {
         calendarEvents = try await calendarRepository.loadEvents(in: workspace)
+    }
+
+    private func loadSystemSchedule(around referenceDate: Date) async throws {
+        let range = systemScheduleRange(around: referenceDate)
+        systemScheduleItems = try await systemCalendarService.loadItems(from: range.start, to: range.end)
+    }
+
+    private func createAppleReminderIfNeeded(for todo: TodoItem) async throws {
+        if !systemCalendarService.canCreateReminders {
+            systemCalendarAccessState = try await systemCalendarService.requestAccess()
+        }
+
+        guard systemCalendarService.canCreateReminders else {
+            throw SystemCalendarServiceError.accessDenied
+        }
+
+        if let reminder = try await systemCalendarService.createReminder(
+            title: todo.title,
+            dueDate: todo.dueDate,
+            notes: todo.notes
+        ) {
+            systemScheduleItems.append(reminder)
+            systemScheduleItems.sort { $0.displayDate < $1.displayDate }
+        }
+
+        systemCalendarAccessState = systemCalendarService.accessState
+    }
+
+    private func systemScheduleRange(around referenceDate: Date) -> (start: Date, end: Date) {
+        let calendar = Calendar.current
+        guard let monthInterval = calendar.dateInterval(of: .month, for: referenceDate) else {
+            let start = calendar.date(byAdding: .day, value: -45, to: referenceDate) ?? referenceDate
+            let end = calendar.date(byAdding: .day, value: 45, to: referenceDate) ?? referenceDate
+            return (start, end)
+        }
+
+        let start = calendar.date(byAdding: .day, value: -7, to: monthInterval.start) ?? monthInterval.start
+        let end = calendar.date(byAdding: .day, value: 7, to: monthInterval.end) ?? monthInterval.end
+        return (start, end)
     }
 
     private func loadLLMSettings(in workspace: ResearchWorkspace) async throws {

@@ -14,6 +14,30 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
     public var pdfURL: String?
     public var abstract: String?
     public var categories: [String]
+    public var titleTranslation: String?
+    public var itemType: String?
+    public var publicationTitle: String?
+    public var publisher: String?
+    public var publicationPlace: String?
+    public var publishedDate: String?
+    public var volume: String?
+    public var issue: String?
+    public var pages: String?
+    public var series: String?
+    public var seriesTitle: String?
+    public var journalAbbreviation: String?
+    public var issn: String?
+    public var isbn: String?
+    public var pmid: String?
+    public var pmcid: String?
+    public var language: String?
+    public var archive: String?
+    public var archiveLocation: String?
+    public var libraryCatalog: String?
+    public var callNumber: String?
+    public var shortTitle: String?
+    public var accessedAt: String?
+    public var bibtex: String?
     public var collectionPath: String?
     public var pdfRelativePath: String?
     public var tags: [String]
@@ -33,6 +57,17 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         id: String, citekey: String, title: String, authors: [String], year: Int?,
         venue: String?, doi: String?, arxiv: String?, inspireID: String? = nil,
         url: String?, pdfURL: String? = nil, abstract: String? = nil, categories: [String] = [],
+        titleTranslation: String? = nil, itemType: String? = nil,
+        publicationTitle: String? = nil, publisher: String? = nil,
+        publicationPlace: String? = nil, publishedDate: String? = nil,
+        volume: String? = nil, issue: String? = nil, pages: String? = nil,
+        series: String? = nil, seriesTitle: String? = nil,
+        journalAbbreviation: String? = nil, issn: String? = nil, isbn: String? = nil,
+        pmid: String? = nil, pmcid: String? = nil, language: String? = nil,
+        archive: String? = nil, archiveLocation: String? = nil,
+        libraryCatalog: String? = nil, callNumber: String? = nil,
+        shortTitle: String? = nil, accessedAt: String? = nil,
+        bibtex: String? = nil,
         collectionPath: String? = nil,
         pdfRelativePath: String?, tags: [String], status: ReadingStatus,
         priority: Priority, rating: Int?, useFor: [String],
@@ -45,6 +80,17 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         self.year = year; self.venue = venue; self.doi = doi; self.arxiv = arxiv
         self.inspireID = inspireID; self.url = url; self.pdfURL = pdfURL
         self.abstract = abstract; self.categories = categories
+        self.titleTranslation = titleTranslation; self.itemType = itemType
+        self.publicationTitle = publicationTitle; self.publisher = publisher
+        self.publicationPlace = publicationPlace; self.publishedDate = publishedDate
+        self.volume = volume; self.issue = issue; self.pages = pages
+        self.series = series; self.seriesTitle = seriesTitle
+        self.journalAbbreviation = journalAbbreviation; self.issn = issn; self.isbn = isbn
+        self.pmid = pmid; self.pmcid = pmcid; self.language = language
+        self.archive = archive; self.archiveLocation = archiveLocation
+        self.libraryCatalog = libraryCatalog; self.callNumber = callNumber
+        self.shortTitle = shortTitle; self.accessedAt = accessedAt
+        self.bibtex = bibtex
         self.collectionPath = collectionPath ?? Self.collectionPath(for: paperDirectoryRelativePath)
         self.pdfRelativePath = pdfRelativePath; self.tags = tags
         self.status = status; self.priority = priority; self.rating = rating
@@ -103,6 +149,10 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
 
     public nonisolated var authorsDisplay: String {
         authors.isEmpty ? "Unknown" : authors.joined(separator: ", ")
+    }
+
+    public nonisolated var publicationDisplay: String {
+        publicationTitle ?? venue ?? "-"
     }
 
     public nonisolated var tagsDisplay: String {

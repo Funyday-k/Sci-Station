@@ -22,6 +22,7 @@ private struct CoreVerificationSuite {
         try citekeyGenerationUsesAuthorYearKeyword()
         try metadataCodecRoundTripKeepsEditableFields()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
+        try await paperRepositoryDeletesPaperDirectory()
         try await paperRepositoryLoadsNestedCollectionPapers()
         try await tagRepositoryUpsertsAndDeletesDefinitions()
         try await todoRepositoryCreatesCompletesAndDeletesTodos()
@@ -159,6 +160,13 @@ private struct CoreVerificationSuite {
             pdfURL: "https://arxiv.org/pdf/2401.12345.pdf",
             abstract: "A graph-based RAG pipeline.",
             categories: ["cs.CL"],
+            bibtex: """
+            @article{smith2024graph,
+                title = {Graph-based Retrieval Augmented Generation},
+                author = {John Smith and Alice Wang},
+                year = {2024}
+            }
+            """,
             collectionPath: "Dark-Matter/WIMPs",
             pdfRelativePath: "paper.pdf",
             tags: ["rag", "graph-rag"],
@@ -193,6 +201,7 @@ private struct CoreVerificationSuite {
         try expect(decoded.pdfURL == originalPaper.pdfURL, "Decoded pdf_url should match the encoded pdf_url.")
         try expect(decoded.abstract == originalPaper.abstract, "Decoded abstract should match the encoded abstract.")
         try expect(decoded.categories == originalPaper.categories, "Decoded categories should match the encoded categories.")
+        try expect(decoded.bibtex == originalPaper.bibtex, "Decoded BibTeX should match the encoded BibTeX.")
         try expect(decoded.collectionPath == originalPaper.collectionPath, "Decoded collection_path should match the encoded collection path.")
         try expect(decoded.tags == originalPaper.tags, "Decoded tags should match the encoded tags.")
         try expect(decoded.status == originalPaper.status, "Decoded status should match the encoded status.")
@@ -265,6 +274,35 @@ private struct CoreVerificationSuite {
             loadedPaper.collectionPath == "Uncategorized",
             "Loaded collection path should be derived from the nested paper directory."
         )
+    }
+
+    private func paperRepositoryDeletesPaperDirectory() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = PaperRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("DeletePaperWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await repository.save(samplePaper(id: "delete-test-paper"), in: workspace)
+        let paperDirectoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
+
+        try expect(FileManager.default.fileExists(atPath: paperDirectoryURL.path), "Saved paper directory should exist before deletion.")
+
+        try await repository.delete(paper, in: workspace)
+        let loadedPapers = try await repository.loadPapers(in: workspace)
+
+        try expect(!FileManager.default.fileExists(atPath: paperDirectoryURL.path), "Deleting a paper should remove its paper directory.")
+        try expect(loadedPapers.isEmpty, "Deleted papers should no longer appear in repository loads.")
     }
 
     private func paperRepositoryLoadsNestedCollectionPapers() async throws {
@@ -388,9 +426,10 @@ private struct CoreVerificationSuite {
             title: "Read dark matter capture review",
             status: .open,
             dueDate: Date(timeIntervalSince1970: 1_777_680_000),
+            priority: .urgent,
             tags: ["Dark-Matter"],
             relatedPaperIDs: ["garani2024dark"],
-            notes: nil,
+            notes: "Check bibliography and equations.",
             createdAt: Date(timeIntervalSince1970: 1_777_593_600),
             updatedAt: Date(timeIntervalSince1970: 1_777_593_600)
         )
@@ -399,6 +438,8 @@ private struct CoreVerificationSuite {
 
         var savedTodos = try await repository.loadTodos(in: workspace)
         try expect(savedTodos.count == 1, "Saving a todo should persist it to tasks/todos.yaml.")
+        try expect(savedTodos.first?.priority == .urgent, "Todo repository should preserve priority.")
+        try expect(savedTodos.first?.notes == "Check bibliography and equations.", "Todo repository should preserve notes.")
         try expect(savedTodos.first?.relatedPaperIDs == ["garani2024dark"], "Todo repository should preserve related paper ids.")
 
         var completedTodo = try require(savedTodos.first, "Expected the saved todo to be loadable.")
@@ -419,6 +460,7 @@ private struct CoreVerificationSuite {
 
                 try expect(parser.parse("2401.12345").kind == .arxiv, "Parser should recognize bare arXiv ids.")
                 try expect(parser.parse("arXiv:2604.22012").normalizedValue == "2604.22012", "Parser should normalize prefixed arXiv ids.")
+                try expect(parser.parse("arXiv 2604.22012").normalizedValue == "2604.22012", "Parser should normalize arXiv ids with a space prefix.")
                 try expect(parser.parse("https://arxiv.org/abs/2401.12345").normalizedValue == "2401.12345", "Parser should normalize arXiv URLs to ids.")
                 try expect(parser.parse("10.48550/arXiv.2401.12345").kind == .doi, "Parser should recognize DOI inputs.")
                 try expect(parser.parse("https://doi.org/10.48550/arXiv.2604.22012").kind == .doi, "Parser should recognize doi.org arXiv DOI links as DOI inputs.")
@@ -455,10 +497,10 @@ private struct CoreVerificationSuite {
                         <published>2024-01-10T00:00:00Z</published>
                         <title> Dark Matter Capture Review </title>
                         <summary> Overview of dark matter capture. </summary>
-                        <author><name>Jane Doe</name></author>
+                        <author><name>Jane Doe</name><arxiv:affiliation>Example Institute</arxiv:affiliation></author>
                         <author><name>John Roe</name></author>
                         <link href="https://arxiv.org/abs/2401.12345v1" rel="alternate" type="text/html"/>
-                        <link title="pdf" href="https://arxiv.org/pdf/2401.12345v1.pdf" rel="related" type="application/pdf"/>
+                        <link href="https://arxiv.org/pdf/2401.12345v1.pdf" rel="related" type="application/pdf" title="pdf"/>
                         <category term="hep-ph"/>
                     </entry>
                 </feed>

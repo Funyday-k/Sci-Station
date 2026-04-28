@@ -17,5 +17,27 @@ struct Sci_StationApp: App {
                 .environmentObject(appModel)
         }
         .defaultSize(width: 1360, height: 860)
+        .commands {
+            CommandMenu("Workspace") {
+                Button("Create Workspace", action: appModel.createWorkspace)
+                Button("Open Workspace", action: appModel.openWorkspace)
+
+                if appModel.currentWorkspace != nil {
+                    Divider()
+                    Button("Reveal Workspace in Finder", action: appModel.revealCurrentWorkspaceInFinder)
+                    Button("Workspace Settings") {
+                        appModel.selectSection(.settings)
+                    }
+                }
+            }
+
+            CommandMenu("Paper") {
+                Button("Delete Selected Paper") {
+                    appModel.requestDeleteSelectedPaper()
+                }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .disabled(appModel.selectedPaperDraft == nil)
+            }
+        }
     }
 }

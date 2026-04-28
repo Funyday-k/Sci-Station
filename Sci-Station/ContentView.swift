@@ -9,20 +9,22 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @State private var mainColumnVisibility: NavigationSplitViewVisibility = .all
+    @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
         Group {
             if appModel.selectedSection == .pdfReader, appModel.currentWorkspace != nil {
-                NavigationSplitView {
+                NavigationSplitView(columnVisibility: $readerColumnVisibility) {
                     SidebarView(workspace: appModel.currentWorkspace)
-                        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+                        .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
                 } detail: {
                     PDFReaderWorkspaceView(workspace: appModel.currentWorkspace)
                 }
             } else {
-                NavigationSplitView {
+                NavigationSplitView(columnVisibility: $mainColumnVisibility) {
                     SidebarView(workspace: appModel.currentWorkspace)
-                        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+                        .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
                 } content: {
                     WorkspaceContentView(
                         workspace: appModel.currentWorkspace,
@@ -31,30 +33,55 @@ struct ContentView: View {
                         createWorkspace: appModel.createWorkspace,
                         openWorkspace: appModel.openWorkspace
                     )
+                    .navigationSplitViewColumnWidth(min: 560, ideal: 760)
                 } detail: {
                     WorkspaceInspectorView(
                         workspace: appModel.currentWorkspace,
                         selectedSection: appModel.selectedSection,
                         revealInFinder: appModel.revealCurrentWorkspaceInFinder
                     )
+                    .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
                 }
             }
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button("Create Workspace", action: appModel.createWorkspace)
-                Button("Open Workspace", action: appModel.openWorkspace)
+                Menu {
+                    Button("Create Workspace", action: appModel.createWorkspace)
+                    Button("Open Workspace", action: appModel.openWorkspace)
 
-                if appModel.currentWorkspace != nil {
+                    if appModel.currentWorkspace != nil {
+                        Divider()
+                        Button("Reveal in Finder", action: appModel.revealCurrentWorkspaceInFinder)
+                        Button("Settings") {
+                            appModel.selectSection(.settings)
+                        }
+                    }
+                } label: {
+                    Label("Workspace", systemImage: "folder")
+                }
+
+                if appModel.currentWorkspace != nil, appModel.selectedSection != .pdfReader {
                     Button("Add by Identifier") {
                         appModel.beginIdentifierImport()
                     }
                     Button("Import PDF", action: appModel.importPDF)
-                    Button("Read PDF", action: appModel.openSelectedPaperReader)
-                        .disabled(!appModel.canEnterSelectedPaperReader)
-                    Button("Open PDF", action: appModel.openSelectedPaperPDF)
-                        .disabled(!appModel.canOpenSelectedPaperPDF)
-                    Button("Reveal in Finder", action: appModel.revealCurrentWorkspaceInFinder)
+                }
+            }
+
+            if appModel.selectedSection == .pdfReader, let paper = appModel.selectedPaperDraft {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text(paper.displayTitle)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(paper.authorsDisplay)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: 620)
                 }
             }
         }
@@ -70,6 +97,11 @@ struct ContentView: View {
         )
         .task {
             await appModel.restoreLastWorkspaceIfNeeded()
+        }
+        .onChange(of: appModel.selectedSection) { _, selectedSection in
+            if selectedSection == .pdfReader {
+                readerColumnVisibility = .detailOnly
+            }
         }
         .sheet(isPresented: $appModel.isShowingIdentifierImport) {
             IdentifierImportView()

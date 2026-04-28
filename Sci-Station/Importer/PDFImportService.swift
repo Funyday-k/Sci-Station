@@ -46,7 +46,7 @@ public actor PDFImportService {
         let detectedIdentifiers = detectIdentifiers(from: sourceURL)
         let metadataDraft = await fetchedMetadata(for: detectedIdentifiers)
         let title = resolvedTitle(from: metadataDraft, sourceURL: sourceURL)
-        let authors = resolvedAuthors(from: metadataDraft)
+        let authors = resolvedAuthors(from: metadataDraft, sourceURL: sourceURL)
         let year = metadataDraft?.year ?? detectedYear(from: sourceURL)
         let paperID = PaperIdentityGenerator.paperID(
             title: title,
@@ -106,6 +106,30 @@ public actor PDFImportService {
             pdfURL: trimmedOrNil(metadataDraft?.pdfURL),
             abstract: trimmedOrNil(metadataDraft?.abstract),
             categories: metadataDraft?.categories ?? [],
+            titleTranslation: trimmedOrNil(metadataDraft?.titleTranslation),
+            itemType: trimmedOrNil(metadataDraft?.itemType),
+            publicationTitle: trimmedOrNil(metadataDraft?.publicationTitle),
+            publisher: trimmedOrNil(metadataDraft?.publisher),
+            publicationPlace: trimmedOrNil(metadataDraft?.publicationPlace),
+            publishedDate: trimmedOrNil(metadataDraft?.publishedDate),
+            volume: trimmedOrNil(metadataDraft?.volume),
+            issue: trimmedOrNil(metadataDraft?.issue),
+            pages: trimmedOrNil(metadataDraft?.pages),
+            series: trimmedOrNil(metadataDraft?.series),
+            seriesTitle: trimmedOrNil(metadataDraft?.seriesTitle),
+            journalAbbreviation: trimmedOrNil(metadataDraft?.journalAbbreviation),
+            issn: trimmedOrNil(metadataDraft?.issn),
+            isbn: trimmedOrNil(metadataDraft?.isbn),
+            pmid: trimmedOrNil(metadataDraft?.pmid),
+            pmcid: trimmedOrNil(metadataDraft?.pmcid),
+            language: trimmedOrNil(metadataDraft?.language),
+            archive: trimmedOrNil(metadataDraft?.archive),
+            archiveLocation: trimmedOrNil(metadataDraft?.archiveLocation),
+            libraryCatalog: trimmedOrNil(metadataDraft?.libraryCatalog),
+            callNumber: trimmedOrNil(metadataDraft?.callNumber),
+            shortTitle: trimmedOrNil(metadataDraft?.shortTitle),
+            accessedAt: trimmedOrNil(metadataDraft?.accessedAt),
+            bibtex: trimmedOrNil(metadataDraft?.bibtex),
             pdfRelativePath: "paper.pdf",
             tags: [],
             status: .unread,
@@ -168,13 +192,39 @@ public actor PDFImportService {
             return title
         }
 
+        if let documentTitle = documentAttribute(.titleAttribute, from: sourceURL) {
+            return documentTitle
+        }
+
         return sourceURL.deletingPathExtension().lastPathComponent
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
     }
 
-    private func resolvedAuthors(from metadataDraft: PaperMetadataDraft?) -> [String] {
-        metadataDraft?.authors.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
+    private func resolvedAuthors(from metadataDraft: PaperMetadataDraft?, sourceURL: URL) -> [String] {
+        let metadataAuthors = metadataDraft?.authors.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
+        return metadataAuthors.isEmpty ? documentAuthors(from: sourceURL) : metadataAuthors
+    }
+
+    private func documentAuthors(from sourceURL: URL) -> [String] {
+        guard let authorText = documentAttribute(.authorAttribute, from: sourceURL) else {
+            return []
+        }
+
+        return authorText
+            .replacingOccurrences(of: " and ", with: ";")
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func documentAttribute(_ attribute: PDFDocumentAttribute, from sourceURL: URL) -> String? {
+        guard let document = PDFDocument(url: sourceURL),
+              let value = document.documentAttributes?[attribute] as? String else {
+            return nil
+        }
+
+        return trimmedOrNil(value)
     }
 
     private func detectedYear(from sourceURL: URL) -> Int? {

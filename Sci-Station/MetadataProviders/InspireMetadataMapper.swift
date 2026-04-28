@@ -12,12 +12,15 @@ public struct InspireMetadataMapper {
         let arxivID = firstString(in: metadata["arxiv_eprints"], key: "value")
         let pdfURL = arxivID.map { "https://arxiv.org/pdf/\($0).pdf" }
             ?? firstString(in: metadata["documents"], key: "url")
+        let publicationInfo = firstDictionary(in: metadata["publication_info"])
+        let journalTitle = trimmedOrNil(publicationInfo?["journal_title"] as? String)
+        let year = firstInt(in: metadata["publication_info"], key: "year")
 
         return PaperMetadataDraft(
             title: firstString(in: metadata["titles"], key: "title") ?? "INSPIRE Import",
             authors: allStrings(in: metadata["authors"], key: "full_name"),
-            year: firstInt(in: metadata["publication_info"], key: "year"),
-            venue: "INSPIRE",
+            year: year,
+            venue: journalTitle ?? "INSPIRE",
             doi: firstString(in: metadata["dois"], key: "value"),
             arxiv: arxivID,
             inspireID: recordID,
@@ -25,7 +28,14 @@ public struct InspireMetadataMapper {
             pdfURL: pdfURL,
             abstract: firstString(in: metadata["abstracts"], key: "value"),
             categories: allStrings(in: metadata["inspire_categories"], key: "term"),
-            sourceProvider: "inspire"
+            sourceProvider: "inspire",
+            itemType: journalTitle == nil ? "preprint" : "journal-article",
+            publicationTitle: journalTitle,
+            publishedDate: year.map(String.init),
+            volume: stringValue(publicationInfo?["journal_volume"]),
+            pages: publicationPages(in: publicationInfo),
+            archive: "INSPIRE",
+            archiveLocation: recordID
         )
     }
 
@@ -53,5 +63,48 @@ public struct InspireMetadataMapper {
         }
 
         return first
+    }
+
+    nonisolated private func firstDictionary(in value: Any?) -> [String: Any]? {
+        guard let array = value as? [[String: Any]] else {
+            return nil
+        }
+
+        return array.first
+    }
+
+    nonisolated private func publicationPages(in value: [String: Any]?) -> String? {
+        if let articleID = trimmedOrNil(value?["artid"] as? String) {
+            return articleID
+        }
+
+        let start = stringValue(value?["page_start"])
+        let end = stringValue(value?["page_end"])
+        return [start, end].compactMap { $0 }.joined(separator: "-").nilIfEmpty
+    }
+
+    nonisolated private func stringValue(_ value: Any?) -> String? {
+        if let value = value as? String {
+            return trimmedOrNil(value)
+        }
+        if let value = value as? NSNumber {
+            return value.stringValue
+        }
+        return nil
+    }
+
+    nonisolated private func trimmedOrNil(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension String {
+    nonisolated var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

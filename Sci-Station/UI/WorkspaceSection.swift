@@ -20,10 +20,14 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
         rawValue
     }
 
+    static var sidebarSections: [WorkspaceSection] {
+        [.library, .inbox, .wiki, .papers, .concepts, .methods, .gaps, .projects, .graph, .llmLab, .tasks]
+    }
+
     var title: String {
         switch self {
         case .dashboard:
-            return "Dashboard"
+            return "Home"
         case .library:
             return "Library"
         case .pdfReader:
@@ -56,7 +60,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .dashboard:
-            return "rectangle.grid.2x2"
+            return "house"
         case .library:
             return "books.vertical"
         case .pdfReader:
@@ -89,7 +93,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .dashboard:
-            return "Start from today: inspect task load, due dates, and the most recent papers in one place."
+            return "Global workspace overview for papers, projects, tasks, and recent activity."
         case .library:
             return "Track papers, reading state, tags, and import status."
         case .pdfReader:

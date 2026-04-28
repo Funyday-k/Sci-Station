@@ -10,11 +10,12 @@ public struct DOIMetadataMapper {
         }
 
         let resolvedDOI = trimmedOrNil(message["DOI"] as? String) ?? doi
+        let publicationTitle = firstString(in: message["container-title"])
         return PaperMetadataDraft(
             title: firstString(in: message["title"]) ?? resolvedDOI,
             authors: authorNames(in: message["author"]),
             year: publicationYear(in: message),
-            venue: firstString(in: message["container-title"]),
+            venue: publicationTitle,
             doi: resolvedDOI,
             arxiv: nil,
             inspireID: nil,
@@ -22,7 +23,18 @@ public struct DOIMetadataMapper {
             pdfURL: nil,
             abstract: cleanedAbstract(from: message["abstract"] as? String),
             categories: stringArray(in: message["subject"]),
-            sourceProvider: "doi"
+            sourceProvider: "doi",
+            itemType: trimmedOrNil(message["type"] as? String),
+            publicationTitle: publicationTitle,
+            publisher: trimmedOrNil(message["publisher"] as? String),
+            publishedDate: publicationDate(in: message),
+            volume: trimmedOrNil(message["volume"] as? String),
+            issue: trimmedOrNil(message["issue"] as? String),
+            pages: trimmedOrNil(message["page"] as? String),
+            journalAbbreviation: firstString(in: message["short-container-title"]),
+            issn: firstString(in: message["ISSN"]),
+            isbn: firstString(in: message["ISBN"]),
+            language: trimmedOrNil(message["language"] as? String)
         )
     }
 
@@ -71,6 +83,30 @@ public struct DOIMetadataMapper {
             }
 
             return firstYear.intValue
+        }
+
+        return nil
+    }
+
+    nonisolated private func publicationDate(in message: [String: Any]) -> String? {
+        for key in ["published-print", "published-online", "issued", "created"] {
+            guard let container = message[key] as? [String: Any],
+                  let dateParts = container["date-parts"] as? [[Any]],
+                  let parts = dateParts.first else {
+                continue
+            }
+
+            let values = parts.compactMap { part -> String? in
+                if let number = part as? NSNumber {
+                    return number.stringValue
+                }
+
+                return trimmedOrNil(part as? String)
+            }
+
+            if !values.isEmpty {
+                return values.joined(separator: "-")
+            }
         }
 
         return nil

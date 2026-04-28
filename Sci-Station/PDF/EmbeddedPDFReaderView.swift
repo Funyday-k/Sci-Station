@@ -3,73 +3,320 @@ import SwiftUI
 
 struct EmbeddedPDFReaderView: View {
     let pdfURL: URL
+    let paper: Paper
     let initialPage: Int?
     let onPageChanged: (Int) -> Void
+    let onBackToLibrary: () -> Void
+    let onOpenExternal: () -> Void
 
     @StateObject private var viewModel: PDFReaderViewModel
+    @State private var isShowingSearch = false
+    @State private var activeSidebarPanel: PDFReaderSidebarPanel? = .metadata
 
-    init(pdfURL: URL, initialPage: Int?, onPageChanged: @escaping (Int) -> Void) {
+    init(
+        pdfURL: URL,
+        paper: Paper,
+        initialPage: Int?,
+        onPageChanged: @escaping (Int) -> Void,
+        onBackToLibrary: @escaping () -> Void,
+        onOpenExternal: @escaping () -> Void
+    ) {
         self.pdfURL = pdfURL
+        self.paper = paper
         self.initialPage = initialPage
         self.onPageChanged = onPageChanged
+        self.onBackToLibrary = onBackToLibrary
+        self.onOpenExternal = onOpenExternal
         _viewModel = StateObject(wrappedValue: PDFReaderViewModel(initialPage: initialPage))
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Button(action: viewModel.goToPreviousPage) {
-                    Image(systemName: "chevron.left")
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                readerToolbar
+
+                if isShowingSearch {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search PDF", text: $viewModel.searchQuery)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(viewModel.submitSearch)
+                        Button("Find", action: viewModel.submitSearch)
+                            .buttonStyle(.bordered)
+                        Button {
+                            isShowingSearch = false
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .help("Close search")
+                    }
+                    .controlSize(.small)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.secondary.opacity(0.06))
                 }
 
-                Button(action: viewModel.goToNextPage) {
-                    Image(systemName: "chevron.right")
-                }
-
-                TextField("Page", text: $viewModel.pageInput)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 70)
-                    .onSubmit(viewModel.submitPageInput)
-
-                Text("/ \(max(viewModel.totalPages, 1))")
-                    .foregroundStyle(.secondary)
-
-                Divider()
-                    .frame(height: 22)
-
-                TextField("Search PDF", text: $viewModel.searchQuery)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(viewModel.submitSearch)
-                    .frame(minWidth: 180)
-
-                Button("Find", action: viewModel.submitSearch)
-
-                Divider()
-                    .frame(height: 22)
-
-                Button(action: viewModel.zoomOut) {
-                    Image(systemName: "minus.magnifyingglass")
-                }
-
-                Button(action: viewModel.zoomIn) {
-                    Image(systemName: "plus.magnifyingglass")
-                }
+                PDFKitViewRepresentable(
+                    pdfURL: pdfURL,
+                    viewModel: viewModel,
+                    onPageChanged: onPageChanged
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            PDFKitViewRepresentable(
-                pdfURL: pdfURL,
-                viewModel: viewModel,
-                onPageChanged: onPageChanged
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.secondary.opacity(0.12))
-            )
+            Divider()
+
+            if let activeSidebarPanel {
+                PDFReaderMetadataPanel(paper: paper, panel: activeSidebarPanel)
+                    .frame(width: 320)
+                Divider()
+            }
+
+            PDFReaderSideRail(activePanel: $activeSidebarPanel)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .id(pdfURL.path)
+    }
+
+    private var readerToolbar: some View {
+        HStack(spacing: 10) {
+            Button(action: onBackToLibrary) {
+                Image(systemName: "chevron.left")
+            }
+            .help("Back to Library")
+
+            Divider()
+                .frame(height: 22)
+
+            Button(action: viewModel.goToPreviousPage) {
+                Image(systemName: "chevron.up")
+            }
+            .help("Previous page")
+
+            Button(action: viewModel.goToNextPage) {
+                Image(systemName: "chevron.down")
+            }
+            .help("Next page")
+
+            TextField("Page", text: $viewModel.pageInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 56)
+                .onSubmit(viewModel.submitPageInput)
+
+            Text("/ \(max(viewModel.totalPages, 1))")
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .frame(height: 22)
+
+            Button(action: viewModel.goBack) {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .help("Back to previous PDF location")
+
+            Button(action: viewModel.goForward) {
+                Image(systemName: "arrow.uturn.forward")
+            }
+            .help("Forward to next PDF location")
+
+            Divider()
+                .frame(height: 22)
+
+            Button {
+                isShowingSearch.toggle()
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .help("Search PDF")
+
+            Button(action: viewModel.zoomOut) {
+                Image(systemName: "minus.magnifyingglass")
+            }
+            .help("Zoom out")
+
+            Button(action: viewModel.zoomIn) {
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .help("Zoom in")
+
+            Button(action: viewModel.fitToWidth) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .help("Fit page")
+
+            Spacer(minLength: 8)
+
+            Button(action: onOpenExternal) {
+                Image(systemName: "arrow.up.right.square")
+            }
+            .help("Open in default viewer")
+
+            Button {
+                activeSidebarPanel = activeSidebarPanel == nil ? .metadata : nil
+            } label: {
+                Image(systemName: activeSidebarPanel == nil ? "sidebar.right" : "sidebar.trailing")
+            }
+            .help("Toggle metadata sidebar")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+}
+
+private enum PDFReaderSidebarPanel: CaseIterable, Identifiable {
+    case metadata
+    case abstract
+    case links
+    case files
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .metadata:
+            return "Metadata"
+        case .abstract:
+            return "Abstract"
+        case .links:
+            return "Links"
+        case .files:
+            return "Files"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .metadata:
+            return "info.circle"
+        case .abstract:
+            return "doc.text"
+        case .links:
+            return "link"
+        case .files:
+            return "folder"
+        }
+    }
+}
+
+private struct PDFReaderSideRail: View {
+    @Binding var activePanel: PDFReaderSidebarPanel?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(PDFReaderSidebarPanel.allCases) { panel in
+                Button {
+                    activePanel = activePanel == panel ? nil : panel
+                } label: {
+                    Image(systemName: panel.systemImage)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(activePanel == panel ? Color.accentColor : Color.secondary)
+                .help(panel.title)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 12)
+        .frame(width: 48)
+        .background(Color.secondary.opacity(0.05))
+    }
+}
+
+private struct PDFReaderMetadataPanel: View {
+    let paper: Paper
+    let panel: PDFReaderSidebarPanel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(panel.title)
+                    .font(.headline)
+
+                switch panel {
+                case .metadata:
+                    metadataRows
+                case .abstract:
+                    Text(paper.abstract ?? "No abstract saved.")
+                        .font(.callout)
+                        .foregroundStyle(paper.abstract == nil ? .secondary : .primary)
+                        .textSelection(.enabled)
+                case .links:
+                    metadataSection(rows: [
+                        ("DOI", paper.doi),
+                        ("arXiv", paper.arxiv),
+                        ("INSPIRE", paper.inspireID),
+                        ("URL", paper.url),
+                        ("PDF URL", paper.pdfURL)
+                    ])
+                case .files:
+                    metadataSection(rows: [
+                        ("Folder", paper.paperDirectoryRelativePath),
+                        ("PDF", paper.pdfRelativePath),
+                        ("Markdown", "paper.md"),
+                        ("Summary", paper.notesSummaryRelativePath),
+                        ("Annotations", paper.annotationsRelativePath),
+                        ("Last Page", paper.lastReadPage.map(String.init))
+                    ])
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(.background)
+    }
+
+    private var metadataRows: some View {
+        metadataSection(rows: [
+            ("Title", paper.displayTitle),
+            ("Title Translation", paper.titleTranslation),
+            ("Short Title", paper.shortTitle),
+            ("Authors", paper.authorsDisplay),
+            ("Item Type", paper.itemType),
+            ("Publication", paper.publicationDisplay),
+            ("Publisher", paper.publisher),
+            ("Place", paper.publicationPlace),
+            ("Date", paper.publishedDate ?? paper.yearText),
+            ("Volume", paper.volume),
+            ("Issue", paper.issue),
+            ("Pages", paper.pages),
+            ("Journal Abbr.", paper.journalAbbreviation),
+            ("ISSN", paper.issn),
+            ("Archive", paper.archive),
+            ("Archive Location", paper.archiveLocation),
+            ("Language", paper.language),
+            ("Catalog", paper.libraryCatalog),
+            ("Call Number", paper.callNumber),
+            ("Citekey", paper.citekey),
+            ("Tags", paper.tagsDisplay),
+            ("Status", paper.status.label),
+            ("Priority", paper.priority.label),
+            ("Rating", paper.ratingText)
+        ])
+    }
+
+    private func metadataSection(rows: [(String, String?)]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(rows.filter { value in
+                guard let text = value.1 else {
+                    return false
+                }
+                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text != "-"
+            }, id: \.0) { label, value in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(value ?? "")
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
     }
 }
 
@@ -139,10 +386,16 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
                 pdfView.goToNextPage(nil)
             case .previous:
                 pdfView.goToPreviousPage(nil)
+            case .back:
+                pdfView.goBack(nil)
+            case .forward:
+                pdfView.goForward(nil)
             case .zoomIn:
                 pdfView.zoomIn(nil)
             case .zoomOut:
                 pdfView.zoomOut(nil)
+            case .fit:
+                pdfView.autoScales = true
             case let .goToPage(page, _):
                 if let targetPage = pdfView.document?.page(at: max(page - 1, 0)) {
                     pdfView.go(to: targetPage)

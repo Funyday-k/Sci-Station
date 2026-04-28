@@ -34,16 +34,41 @@ public actor DOIMetadataProvider {
             throw DOIMetadataProviderError.invalidResponse
         }
 
-        return try mapper.map(data: data, doi: doi)
+        var draft = try mapper.map(data: data, doi: doi)
+        draft.bibtex = try? await fetchBibTeX(for: draft.doi ?? doi)
+        return draft
+    }
+
+    public func fetchBibTeX(for doi: String) async throws -> String {
+        let url = try Self.crossrefBibTeXURL(for: doi)
+        var request = URLRequest(url: url)
+        request.setValue("application/x-bibtex", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode),
+              let bibtex = String(data: data, encoding: .utf8) else {
+            throw DOIMetadataProviderError.invalidResponse
+        }
+
+        return bibtex.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public nonisolated static func crossrefWorksURL(for doi: String) throws -> URL {
+        try crossrefURL(for: doi, suffix: "")
+    }
+
+    public nonisolated static func crossrefBibTeXURL(for doi: String) throws -> URL {
+        try crossrefURL(for: doi, suffix: "/transform/application/x-bibtex")
+    }
+
+    private nonisolated static func crossrefURL(for doi: String, suffix: String) throws -> URL {
         var allowedCharacters = CharacterSet.urlPathAllowed
         allowedCharacters.remove(charactersIn: "/")
 
         let trimmedDOI = doi.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let encodedDOI = trimmedDOI.addingPercentEncoding(withAllowedCharacters: allowedCharacters),
-              let url = URL(string: "https://api.crossref.org/works/\(encodedDOI)") else {
+              let url = URL(string: "https://api.crossref.org/works/\(encodedDOI)\(suffix)") else {
             throw DOIMetadataProviderError.invalidDOI(doi)
         }
 

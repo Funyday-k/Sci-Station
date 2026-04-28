@@ -6,8 +6,11 @@ final class PDFReaderViewModel: ObservableObject {
     enum Command: Equatable {
         case next(UUID)
         case previous(UUID)
+        case back(UUID)
+        case forward(UUID)
         case zoomIn(UUID)
         case zoomOut(UUID)
+        case fit(UUID)
         case goToPage(Int, UUID)
         case search(String, UUID)
     }
@@ -36,12 +39,24 @@ final class PDFReaderViewModel: ObservableObject {
         pendingCommand = .previous(UUID())
     }
 
+    func goBack() {
+        pendingCommand = .back(UUID())
+    }
+
+    func goForward() {
+        pendingCommand = .forward(UUID())
+    }
+
     func zoomIn() {
         pendingCommand = .zoomIn(UUID())
     }
 
     func zoomOut() {
         pendingCommand = .zoomOut(UUID())
+    }
+
+    func fitToWidth() {
+        pendingCommand = .fit(UUID())
     }
 
     func submitPageInput() {

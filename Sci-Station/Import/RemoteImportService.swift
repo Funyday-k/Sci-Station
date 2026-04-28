@@ -157,17 +157,46 @@ public actor RemoteImportService {
 
     private func merged(_ paper: Paper, with draft: PaperMetadataDraft, tags: [String]) -> Paper {
         var updatedPaper = paper
-        updatedPaper.title = trimmedOrNil(draft.title) ?? paper.title
-        updatedPaper.authors = draft.authors
-        updatedPaper.year = draft.year
-        updatedPaper.venue = draft.venue
-        updatedPaper.doi = draft.doi
-        updatedPaper.arxiv = draft.arxiv
-        updatedPaper.inspireID = draft.inspireID
-        updatedPaper.url = draft.url
-        updatedPaper.pdfURL = draft.pdfURL
-        updatedPaper.abstract = draft.abstract
-        updatedPaper.categories = draft.categories
+        let isFallbackDraft = draft.sourceProvider.hasSuffix("-link")
+
+        if !isFallbackDraft {
+            updatedPaper.title = trimmedOrNil(draft.title) ?? paper.title
+        }
+
+        updatedPaper.authors = draft.authors.isEmpty ? paper.authors : draft.authors
+        updatedPaper.year = draft.year ?? paper.year
+        updatedPaper.venue = draft.venue ?? paper.venue
+        updatedPaper.doi = draft.doi ?? paper.doi
+        updatedPaper.arxiv = draft.arxiv ?? paper.arxiv
+        updatedPaper.inspireID = draft.inspireID ?? paper.inspireID
+        updatedPaper.url = draft.url ?? paper.url
+        updatedPaper.pdfURL = draft.pdfURL ?? paper.pdfURL
+        updatedPaper.abstract = draft.abstract ?? paper.abstract
+        updatedPaper.categories = draft.categories.isEmpty ? paper.categories : draft.categories
+        updatedPaper.titleTranslation = draft.titleTranslation ?? paper.titleTranslation
+        updatedPaper.itemType = draft.itemType ?? paper.itemType
+        updatedPaper.publicationTitle = draft.publicationTitle ?? paper.publicationTitle
+        updatedPaper.publisher = draft.publisher ?? paper.publisher
+        updatedPaper.publicationPlace = draft.publicationPlace ?? paper.publicationPlace
+        updatedPaper.publishedDate = draft.publishedDate ?? paper.publishedDate
+        updatedPaper.volume = draft.volume ?? paper.volume
+        updatedPaper.issue = draft.issue ?? paper.issue
+        updatedPaper.pages = draft.pages ?? paper.pages
+        updatedPaper.series = draft.series ?? paper.series
+        updatedPaper.seriesTitle = draft.seriesTitle ?? paper.seriesTitle
+        updatedPaper.journalAbbreviation = draft.journalAbbreviation ?? paper.journalAbbreviation
+        updatedPaper.issn = draft.issn ?? paper.issn
+        updatedPaper.isbn = draft.isbn ?? paper.isbn
+        updatedPaper.pmid = draft.pmid ?? paper.pmid
+        updatedPaper.pmcid = draft.pmcid ?? paper.pmcid
+        updatedPaper.language = draft.language ?? paper.language
+        updatedPaper.archive = draft.archive ?? paper.archive
+        updatedPaper.archiveLocation = draft.archiveLocation ?? paper.archiveLocation
+        updatedPaper.libraryCatalog = draft.libraryCatalog ?? paper.libraryCatalog
+        updatedPaper.callNumber = draft.callNumber ?? paper.callNumber
+        updatedPaper.shortTitle = draft.shortTitle ?? paper.shortTitle
+        updatedPaper.accessedAt = draft.accessedAt ?? paper.accessedAt
+        updatedPaper.bibtex = draft.bibtex ?? paper.bibtex
         updatedPaper.tags = tags
         return updatedPaper
     }

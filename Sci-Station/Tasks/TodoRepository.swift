@@ -51,7 +51,8 @@ public actor TodoRepository {
                 "  - id: \(quoted(todo.id))",
                 "    title: \(quoted(todo.title))",
                 "    status: \(todo.status.rawValue)",
-                "    due: \(todo.dueDate.map { formatter.string(from: $0) } ?? "")"
+                "    due: \(todo.dueDate.map { formatter.string(from: $0) } ?? "")",
+                "    priority: \(todo.priority.rawValue)"
             ]
 
             if todo.tags.isEmpty {
@@ -94,6 +95,7 @@ public actor TodoRepository {
             var title = ""
             var status = TodoStatus.open
             var dueDate: Date?
+            var priority = Priority.medium
             var tags: [String] = []
             var relatedPaperIDs: [String] = []
             var notes: String?
@@ -117,6 +119,8 @@ public actor TodoRepository {
                     status = TodoStatus(rawValue: trimmed.replacingOccurrences(of: "status:", with: "").trimmingCharacters(in: .whitespaces)) ?? .open
                 } else if trimmed.hasPrefix("due:") {
                     dueDate = parseDate(trimmed.replacingOccurrences(of: "due:", with: "").trimmingCharacters(in: .whitespaces))
+                } else if trimmed.hasPrefix("priority:") {
+                    priority = Priority(rawValue: trimmed.replacingOccurrences(of: "priority:", with: "").trimmingCharacters(in: .whitespaces)) ?? .medium
                 } else if trimmed == "tags:" {
                     let result = parseIndentedArray(from: lines, start: cursor + 1)
                     tags = result.values
@@ -141,6 +145,7 @@ public actor TodoRepository {
                     title: title,
                     status: status,
                     dueDate: dueDate,
+                    priority: priority,
                     tags: tags,
                     relatedPaperIDs: relatedPaperIDs,
                     notes: notes,

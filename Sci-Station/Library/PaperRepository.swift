@@ -76,6 +76,23 @@ public actor PaperRepository {
         return updatedPaper
     }
 
+    public func delete(_ paper: Paper, in workspace: ResearchWorkspace) throws {
+        let directoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath).standardizedFileURL
+        let papersRootURL = workspace.rawPapersURL.standardizedFileURL
+        let directoryPath = directoryURL.path
+        let papersRootPath = papersRootURL.path
+
+        guard directoryPath == papersRootPath || directoryPath.hasPrefix(papersRootPath + "/") else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+
+        guard fileManager.fileExists(atPath: directoryPath) else {
+            return
+        }
+
+        try fileManager.removeItem(at: directoryURL)
+    }
+
     public func appendBibliographyStub(for paper: Paper, in workspace: ResearchWorkspace) throws {
         let bibliographyURL = workspace.libraryBibURL
         let existingContents = (try? String(contentsOf: bibliographyURL, encoding: .utf8)) ?? ""
@@ -83,9 +100,7 @@ public actor PaperRepository {
             return
         }
 
-        let authorLine = paper.authors.isEmpty ? "Unknown" : paper.authors.joined(separator: " and ")
-        let yearLine = paper.year.map(String.init) ?? "xxxx"
-        let entry = "\n@misc{\(paper.citekey),\n  title = {\(paper.title)},\n  author = {\(authorLine)},\n  year = {\(yearLine)}\n}\n"
+        let entry = "\n\(BibTeXFormatter.bibTeX(for: paper))"
 
         try (existingContents + entry).write(to: bibliographyURL, atomically: true, encoding: .utf8)
     }

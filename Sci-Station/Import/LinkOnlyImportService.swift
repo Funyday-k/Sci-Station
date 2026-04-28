@@ -63,6 +63,30 @@ public actor LinkOnlyImportService {
             pdfURL: draft.pdfURL,
             abstract: draft.abstract,
             categories: draft.categories,
+            titleTranslation: trimmedOrNil(draft.titleTranslation),
+            itemType: trimmedOrNil(draft.itemType),
+            publicationTitle: trimmedOrNil(draft.publicationTitle),
+            publisher: trimmedOrNil(draft.publisher),
+            publicationPlace: trimmedOrNil(draft.publicationPlace),
+            publishedDate: trimmedOrNil(draft.publishedDate),
+            volume: trimmedOrNil(draft.volume),
+            issue: trimmedOrNil(draft.issue),
+            pages: trimmedOrNil(draft.pages),
+            series: trimmedOrNil(draft.series),
+            seriesTitle: trimmedOrNil(draft.seriesTitle),
+            journalAbbreviation: trimmedOrNil(draft.journalAbbreviation),
+            issn: trimmedOrNil(draft.issn),
+            isbn: trimmedOrNil(draft.isbn),
+            pmid: trimmedOrNil(draft.pmid),
+            pmcid: trimmedOrNil(draft.pmcid),
+            language: trimmedOrNil(draft.language),
+            archive: trimmedOrNil(draft.archive),
+            archiveLocation: trimmedOrNil(draft.archiveLocation),
+            libraryCatalog: trimmedOrNil(draft.libraryCatalog),
+            callNumber: trimmedOrNil(draft.callNumber),
+            shortTitle: trimmedOrNil(draft.shortTitle),
+            accessedAt: trimmedOrNil(draft.accessedAt),
+            bibtex: trimmedOrNil(draft.bibtex),
             collectionPath: trimmedOrNil(normalizedCollectionPath),
             pdfRelativePath: nil,
             tags: tags,
@@ -98,7 +122,11 @@ public actor LinkOnlyImportService {
         """
     }
 
-    nonisolated private func trimmedOrNil(_ value: String) -> String? {
+    nonisolated private func trimmedOrNil(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

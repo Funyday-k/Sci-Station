@@ -5,64 +5,107 @@ struct SidebarView: View {
     let workspace: ResearchWorkspace?
 
     var body: some View {
-        List {
-            Section(workspace?.displayName ?? "Sci-Station") {
-                ForEach(WorkspaceSection.allCases) { section in
-                    SidebarActionRow(
-                        title: section.title,
-                        systemImage: section.systemImage,
-                        isSelected: isSelected(section)
-                    ) {
-                        if section == .pdfReader {
-                            appModel.openSelectedPaperReader()
-                        } else {
-                            appModel.selectSection(section)
-                        }
-                    }
-                    .disabled(workspace == nil || (section == .pdfReader && !appModel.canEnterSelectedPaperReader))
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                SidebarIconButton(
+                    systemImage: WorkspaceSection.dashboard.systemImage,
+                    isSelected: appModel.selectedSection == .dashboard
+                ) {
+                    appModel.selectSection(.dashboard)
                 }
+                .help("Home")
+
+                Text(workspace?.displayName ?? "Sci-Station")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
 
-            if workspace != nil {
-                Section("Collections") {
-                    SidebarActionRow(
-                        title: "All Papers",
-                        systemImage: "books.vertical",
-                        isSelected: appModel.selectedSection == .library && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil,
-                        badgeText: "\(appModel.papers.count)"
-                    ) {
-                        appModel.selectLibraryScope()
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    SidebarSectionLabel(title: "Navigate")
 
-                    ForEach(appModel.collections) { collection in
-                        SidebarActionRow(
-                            title: collection.relativePath,
-                            systemImage: "folder",
-                            isSelected: appModel.selectedCollectionPath == collection.relativePath,
-                            badgeText: "\(collection.paperCount)"
-                        ) {
-                            appModel.selectCollection(collection.relativePath)
-                        }
-                    }
-                }
-
-                Section("Tags") {
-                    ForEach(appModel.availableTagDefinitions) { tag in
-                        Button {
-                            appModel.selectTag(tag.name)
-                        } label: {
-                            HStack(spacing: 8) {
-                                TagChipView(tag: tag)
-                                Spacer(minLength: 0)
+                    VStack(spacing: 2) {
+                        ForEach(WorkspaceSection.sidebarSections) { section in
+                            SidebarActionRow(
+                                title: section.title,
+                                systemImage: section.systemImage,
+                                isSelected: isSelected(section)
+                            ) {
+                                appModel.selectSection(section)
                             }
-                            .padding(.vertical, 2)
+                            .disabled(workspace == nil)
                         }
-                        .buttonStyle(.plain)
+                    }
+
+                    if workspace != nil {
+                        SidebarSectionLabel(title: "Collections")
+
+                        VStack(spacing: 2) {
+                            SidebarActionRow(
+                                title: "All Papers",
+                                systemImage: "books.vertical",
+                                isSelected: appModel.selectedSection == .library && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil,
+                                badgeText: "\(appModel.papers.count)"
+                            ) {
+                                appModel.selectLibraryScope()
+                            }
+
+                            ForEach(appModel.collections) { collection in
+                                SidebarActionRow(
+                                    title: collection.relativePath,
+                                    systemImage: "folder",
+                                    isSelected: appModel.selectedCollectionPath == collection.relativePath,
+                                    badgeText: "\(collection.paperCount)"
+                                ) {
+                                    appModel.selectCollection(collection.relativePath)
+                                }
+                            }
+                        }
+
+                        if !appModel.availableTagDefinitions.isEmpty {
+                            SidebarSectionLabel(title: "Tags")
+
+                            VStack(spacing: 2) {
+                                ForEach(appModel.availableTagDefinitions) { tag in
+                                    SidebarTagRow(
+                                        tag: tag,
+                                        isSelected: appModel.selectedTagName == tag.name
+                                    ) {
+                                        appModel.selectTag(tag.name)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
             }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                SidebarIconButton(
+                    systemImage: WorkspaceSection.settings.systemImage,
+                    isSelected: appModel.selectedSection == .settings
+                ) {
+                    appModel.selectSection(.settings)
+                }
+                .help("Settings")
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
         }
-        .listStyle(.sidebar)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {
@@ -71,6 +114,54 @@ struct SidebarView: View {
         }
 
         return appModel.selectedSection == section
+    }
+}
+
+private struct SidebarSectionLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+    }
+}
+
+private struct SidebarIconButton: View {
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 17, weight: .semibold))
+            .frame(width: 34, height: 30)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .background(isSelected ? Color.accentColor.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+    }
+}
+
+private struct SidebarTagRow: View {
+    let tag: TagDefinition
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TagChipView(tag: tag)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
     }
 }
 
@@ -122,21 +213,26 @@ private struct SidebarActionRow: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Label(title, systemImage: systemImage)
-                Spacer(minLength: 8)
-                if let badgeText {
-                    Text(badgeText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .frame(width: 16)
+                .foregroundStyle(.secondary)
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            if let badgeText {
+                Text(badgeText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
     }
 }
 
@@ -199,6 +295,8 @@ struct WorkspaceSectionOverview: View {
 }
 
 struct WorkspaceInspectorView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let workspace: ResearchWorkspace?
     let selectedSection: WorkspaceSection?
     let revealInFinder: () -> Void
@@ -222,30 +320,24 @@ struct WorkspaceInspectorView: View {
                                     .foregroundStyle(.secondary)
                             }
 
-                            GroupBox("Quick Actions") {
+                            GroupBox("Actions") {
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Button("Reveal Workspace in Finder", action: revealInFinder)
-                                    Text("Recent workspace restore uses a security-scoped bookmark so the app can reopen the same root on next launch.")
-                                        .font(.callout)
-                                        .foregroundStyle(.secondary)
+                                    Button {
+                                        revealInFinder()
+                                    } label: {
+                                        Label("Reveal in Finder", systemImage: "folder")
+                                    }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 4)
                             }
 
-                            GroupBox("Required Structure") {
+                            GroupBox("Workspace Summary") {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(ResearchWorkspace.requiredDirectoryPaths, id: \.self) { path in
-                                        Text(path)
-                                            .font(.system(.body, design: .monospaced))
-                                    }
-
-                                    Divider()
-
-                                    ForEach(ResearchWorkspace.seededFiles.map(\.relativePath), id: \.self) { path in
-                                        Text(path)
-                                            .font(.system(.body, design: .monospaced))
-                                    }
+                                    WorkspacePathRow(label: "Papers", value: "\(appModel.papers.count)")
+                                    WorkspacePathRow(label: "Collections", value: "\(appModel.collections.count)")
+                                    WorkspacePathRow(label: "Tags", value: "\(appModel.availableTagDefinitions.count)")
+                                    WorkspacePathRow(label: "Open Todos", value: "\(appModel.todos.filter { $0.status != .done }.count)")
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 4)
@@ -253,7 +345,6 @@ struct WorkspaceInspectorView: View {
 
                             GroupBox("Workspace") {
                                 WorkspacePathRow(label: "Name", value: workspace.displayName)
-                                WorkspacePathRow(label: "Path", value: workspace.rootURL.path)
                             }
                         }
                         .padding(20)
@@ -334,6 +425,9 @@ struct WorkspacePathRow: View {
             Text(value)
                 .textSelection(.enabled)
                 .font(.system(.body, design: .monospaced))
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
