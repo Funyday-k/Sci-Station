@@ -20,11 +20,14 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         "wiki/projects",
         "refs",
         "refs/csl",
+        "settings",
         "tasks",
         "imports",
+        "data",
         "prompts",
         "scripts",
         "code",
+        "figures",
         "outputs"
     ]
 
@@ -42,6 +45,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
             contents: "tags: []\n"
         ),
         SeededFile(
+            relativePath: "settings/workspace_preferences.yaml",
+            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"collection\"\ndefault_collection: \"\"\nrecent_section: \"library\"\n"
+        ),
+        SeededFile(
             relativePath: "tasks/todos.yaml",
             contents: "todos: []\n"
         ),
@@ -56,6 +63,14 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         SeededFile(
             relativePath: "imports/failed_imports.yaml",
             contents: "failed_imports: []\n"
+        ),
+        SeededFile(
+            relativePath: "wiki/projects/project_overview.md",
+            contents: "# Project Overview\n\nUse this page as the living proposal for the current research project. Record the research question, scope, expected contribution, core papers, datasets, code reading notes, figures, outputs, and next milestones here.\n\n## Research Question\n\n\n## Project Thesis\n\n\n## Core Papers\n\n- Add foundational papers and short notes here.\n\n## Data\n\n- Store datasets or dataset notes under `data/` and `wiki/datasets/`.\n\n## Code Reading\n\n- Store scripts, code snippets, and reading notes under `code/`.\n\n## Figures And Outputs\n\n- Store figures under `figures/` and generated outputs under `outputs/`.\n"
+        ),
+        SeededFile(
+            relativePath: "wiki/projects/core_papers.md",
+            contents: "# Core Papers\n\nMaintain the project-level reading canon here. For each core paper, record why it matters, what method or result it contributes, and how it affects the project proposal.\n\n## Papers\n\n- `citekey`: short contribution note.\n"
         ),
         SeededFile(
             relativePath: "researchflow.sqlite",
@@ -99,12 +114,20 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         directoryURL(for: "imports")
     }
 
+    public nonisolated var dataURL: URL {
+        directoryURL(for: "data")
+    }
+
     public nonisolated var promptsURL: URL {
         directoryURL(for: "prompts")
     }
 
     public nonisolated var codeURL: URL {
         directoryURL(for: "code")
+    }
+
+    public nonisolated var figuresURL: URL {
+        directoryURL(for: "figures")
     }
 
     public nonisolated var outputsURL: URL {
@@ -121,6 +144,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
 
     public nonisolated var tagsDefinitionURL: URL {
         fileURL(for: "refs/tags.yaml")
+    }
+
+    public nonisolated var workspacePreferencesURL: URL {
+        fileURL(for: "settings/workspace_preferences.yaml")
     }
 
     public nonisolated var researchFlowDatabaseURL: URL {
@@ -178,8 +205,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
             ("References", refsURL),
             ("Tasks", tasksURL),
             ("Imports", importsURL),
+            ("Data", dataURL),
             ("Prompts", promptsURL),
             ("Code", codeURL),
+            ("Figures", figuresURL),
             ("Outputs", outputsURL)
         ]
     }

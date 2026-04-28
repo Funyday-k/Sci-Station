@@ -87,8 +87,27 @@ struct SettingsView: View {
                 }
 
                 GroupBox("Workspace") {
-                    WorkspacePathRow(label: "Root", value: workspace.rootURL.path)
-                    WorkspacePathRow(label: "Settings File", value: workspace.fileURL(for: "settings.yaml").path)
+                    VStack(alignment: .leading, spacing: 10) {
+                        WorkspacePathRow(label: "Root", value: workspace.rootURL.path)
+                        WorkspacePathRow(label: "LLM Settings", value: workspace.fileURL(for: "settings.yaml").path)
+                        WorkspacePathRow(label: "Preferences", value: workspace.workspacePreferencesURL.path)
+                        WorkspacePathRow(label: "Schema", value: "v\(appModel.workspacePreferences.schemaVersion)")
+                        WorkspacePathRow(label: "Library Columns", value: appModel.workspacePreferences.libraryVisibleColumns.joined(separator: ", "))
+
+                        HStack(spacing: 12) {
+                            Button("Reset Library Columns", action: appModel.resetLibraryVisibleColumns)
+                                .buttonStyle(.bordered)
+                            Button("Clear Recent Workspace", action: appModel.clearRecentWorkspaceBookmark)
+                                .buttonStyle(.bordered)
+                        }
+
+                        if let message = appModel.workspaceSettingsStatusMessage {
+                            Text(message)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(24)

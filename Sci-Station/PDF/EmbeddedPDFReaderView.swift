@@ -3,6 +3,7 @@ import SwiftUI
 
 struct EmbeddedPDFReaderView: View {
     let pdfURL: URL
+    let workspace: ResearchWorkspace
     let paper: Paper
     let initialPage: Int?
     let onPageChanged: (Int) -> Void
@@ -15,6 +16,7 @@ struct EmbeddedPDFReaderView: View {
 
     init(
         pdfURL: URL,
+        workspace: ResearchWorkspace,
         paper: Paper,
         initialPage: Int?,
         onPageChanged: @escaping (Int) -> Void,
@@ -22,6 +24,7 @@ struct EmbeddedPDFReaderView: View {
         onOpenExternal: @escaping () -> Void
     ) {
         self.pdfURL = pdfURL
+        self.workspace = workspace
         self.paper = paper
         self.initialPage = initialPage
         self.onPageChanged = onPageChanged
@@ -68,7 +71,7 @@ struct EmbeddedPDFReaderView: View {
             Divider()
 
             if let activeSidebarPanel {
-                PDFReaderMetadataPanel(paper: paper, panel: activeSidebarPanel)
+                PDFReaderMetadataPanel(workspace: workspace, paper: paper, panel: activeSidebarPanel)
                     .frame(width: 320)
                 Divider()
             }
@@ -168,8 +171,11 @@ struct EmbeddedPDFReaderView: View {
 
 private enum PDFReaderSidebarPanel: CaseIterable, Identifiable {
     case metadata
-    case abstract
+    case notes
+    case tasks
+    case citations
     case links
+    case abstract
     case files
 
     var id: Self { self }
@@ -178,6 +184,12 @@ private enum PDFReaderSidebarPanel: CaseIterable, Identifiable {
         switch self {
         case .metadata:
             return "Metadata"
+        case .notes:
+            return "Notes"
+        case .tasks:
+            return "Tasks"
+        case .citations:
+            return "Citations"
         case .abstract:
             return "Abstract"
         case .links:
@@ -191,6 +203,12 @@ private enum PDFReaderSidebarPanel: CaseIterable, Identifiable {
         switch self {
         case .metadata:
             return "info.circle"
+        case .notes:
+            return "square.and.pencil"
+        case .tasks:
+            return "checklist"
+        case .citations:
+            return "quote.bubble"
         case .abstract:
             return "doc.text"
         case .links:
@@ -227,8 +245,15 @@ private struct PDFReaderSideRail: View {
 }
 
 private struct PDFReaderMetadataPanel: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let workspace: ResearchWorkspace
     let paper: Paper
     let panel: PDFReaderSidebarPanel
+    @State private var newTaskTitle = ""
+    @State private var newTaskHasDueDate = false
+    @State private var newTaskDueDate = Calendar.current.startOfDay(for: Date())
+    @State private var newTaskPriority = Priority.medium
 
     var body: some View {
         ScrollView {
@@ -239,19 +264,19 @@ private struct PDFReaderMetadataPanel: View {
                 switch panel {
                 case .metadata:
                     metadataRows
+                case .notes:
+                    notesPanel
+                case .tasks:
+                    tasksPanel
+                case .citations:
+                    citationsPanel
                 case .abstract:
                     Text(paper.abstract ?? "No abstract saved.")
                         .font(.callout)
                         .foregroundStyle(paper.abstract == nil ? .secondary : .primary)
                         .textSelection(.enabled)
                 case .links:
-                    metadataSection(rows: [
-                        ("DOI", paper.doi),
-                        ("arXiv", paper.arxiv),
-                        ("INSPIRE", paper.inspireID),
-                        ("URL", paper.url),
-                        ("PDF URL", paper.pdfURL)
-                    ])
+                    linksPanel
                 case .files:
                     metadataSection(rows: [
                         ("Folder", paper.paperDirectoryRelativePath),
@@ -298,6 +323,203 @@ private struct PDFReaderMetadataPanel: View {
         ])
     }
 
+    private var notesPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextEditor(text: $appModel.selectedPaperAnnotationsDraft)
+                .font(.body)
+                .frame(minHeight: 260)
+                .padding(4)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 10) {
+                Button("Save Notes", action: appModel.saveSelectedPaperAnnotations)
+                    .buttonStyle(.borderedProminent)
+                if appModel.isSavingSelectedPaperAnnotations {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private var tasksPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Task title", text: $newTaskTitle)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(addReaderTask)
+
+            HStack(spacing: 10) {
+                Toggle("Due", isOn: $newTaskHasDueDate)
+                    .toggleStyle(.checkbox)
+                DatePicker("Due Date", selection: $newTaskDueDate, displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(!newTaskHasDueDate)
+            }
+            .controlSize(.small)
+
+            Picker("Priority", selection: $newTaskPriority) {
+                ForEach(Priority.allCases, id: \.self) { priority in
+                    Text(priority.label).tag(priority)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Button("Add Task", action: addReaderTask)
+                .buttonStyle(.borderedProminent)
+                .disabled(newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Divider()
+
+            if relatedTodos.isEmpty {
+                Text("No tasks linked to this paper.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(relatedTodos) { todo in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(todo.title)
+                            .fontWeight(.medium)
+                        Text([todo.status.label, todo.priority.label, todo.dueDate?.formatted(date: .abbreviated, time: .omitted)]
+                            .compactMap { $0 }
+                            .joined(separator: "  ·  "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var citationsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView {
+                Text(bibTeXText)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .frame(minHeight: 220)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 10) {
+                Button("Copy") {
+                    appModel.copyBibTeX(for: paper)
+                }
+                .buttonStyle(.bordered)
+
+                Button("Export") {
+                    appModel.exportBibTeX(for: paper)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var linksPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if paperLinks.isEmpty {
+                Text("No external links saved.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(paperLinks) { link in
+                    Button {
+                        NSWorkspace.shared.open(link.url)
+                    } label: {
+                        Label(link.label, systemImage: "arrow.up.right.square")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            metadataSection(rows: [
+                ("Wiki", paper.notesSummaryRelativePath),
+                ("Backlinks", emptyToNil(appModel.markdownDocuments.filter { document in
+                    document.outgoingLinks.contains { link in
+                        link.normalizedTarget == WikiLink.normalizePageKey(paper.citekey)
+                    }
+                }.map(\.title).joined(separator: ", ")))
+            ])
+        }
+    }
+
+    private var relatedTodos: [TodoItem] {
+        appModel.todos.filter { $0.relatedPaperIDs.contains(paper.id) }
+    }
+
+    private var bibTeXText: String {
+        BibTeXFormatter.bibTeX(for: paper)
+    }
+
+    private var paperLinks: [PDFReaderExternalLink] {
+        [
+            ("DOI", doiURL),
+            ("arXiv", arxivURL),
+            ("INSPIRE", inspireURL),
+            ("URL", url(from: paper.url)),
+            ("PDF URL", url(from: paper.pdfURL))
+        ]
+        .compactMap { label, url in
+            guard let url else { return nil }
+            return PDFReaderExternalLink(label: label, url: url)
+        }
+    }
+
+    private var doiURL: URL? {
+        guard let doi = paper.doi?.trimmingCharacters(in: .whitespacesAndNewlines), !doi.isEmpty else {
+            return nil
+        }
+        return url(from: doi) ?? URL(string: "https://doi.org/\(doi)")
+    }
+
+    private var arxivURL: URL? {
+        guard let arxiv = paper.arxiv?.trimmingCharacters(in: .whitespacesAndNewlines), !arxiv.isEmpty else {
+            return nil
+        }
+        return URL(string: "https://arxiv.org/abs/\(arxiv)")
+    }
+
+    private var inspireURL: URL? {
+        guard let inspireID = paper.inspireID?.trimmingCharacters(in: .whitespacesAndNewlines), !inspireID.isEmpty else {
+            return nil
+        }
+        return URL(string: "https://inspirehep.net/literature/\(inspireID)")
+    }
+
+    private func url(from value: String?) -> URL? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+            return url
+        }
+        if value.contains("."), let url = URL(string: "https://\(value)") {
+            return url
+        }
+        return nil
+    }
+
+    private func addReaderTask() {
+        let trimmedTitle = newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return
+        }
+
+        appModel.addTodo(
+            title: trimmedTitle,
+            dueDate: newTaskHasDueDate ? newTaskDueDate : nil,
+            priority: newTaskPriority,
+            notes: "Created while reading \(paper.citekey)."
+        )
+        newTaskTitle = ""
+    }
+
+    private func emptyToNil(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func metadataSection(rows: [(String, String?)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(rows.filter { value in
@@ -317,6 +539,15 @@ private struct PDFReaderMetadataPanel: View {
                 }
             }
         }
+    }
+}
+
+private struct PDFReaderExternalLink: Identifiable {
+    let label: String
+    let url: URL
+
+    var id: String {
+        label
     }
 }
 

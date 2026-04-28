@@ -5,15 +5,15 @@ struct TagChipView: View {
 
     var body: some View {
         Text(tag.name)
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .foregroundStyle(Color(hex: tag.textColorHex ?? defaultTextColorHex))
-            .background(Color(hex: tag.colorHex), in: Capsule())
+            .background(Color(hex: tag.colorHex).opacity(0.42), in: Capsule())
     }
 
     private var defaultTextColorHex: String {
-        Color(hex: tag.colorHex).isDarkColor ? "#F9FAFB" : "#1F2937"
+        "#1F2937"
     }
 }
 
@@ -25,7 +25,7 @@ struct TagChipGroupView: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(Array(tags.prefix(3)), id: \.self) { name in
-                TagChipView(tag: appModel.tagDefinition(named: name) ?? TagDefinition(name: name, colorHex: "#E5E7EB", textColorHex: "#374151"))
+                TagChipView(tag: appModel.tagDefinition(named: name) ?? TagDefinition(name: name, colorHex: "#A7D8F0", textColorHex: "#17465F"))
             }
 
             if tags.count > 3 {

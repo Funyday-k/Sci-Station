@@ -111,6 +111,10 @@ struct ContentView: View {
             LLMSummaryPreviewView()
                 .environmentObject(appModel)
         }
+        .sheet(isPresented: $appModel.isShowingBibTeXExport) {
+            BibTeXExportView()
+                .environmentObject(appModel)
+        }
     }
 }
 

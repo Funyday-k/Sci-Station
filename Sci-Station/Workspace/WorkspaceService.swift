@@ -3,6 +3,8 @@ import Foundation
 public actor WorkspaceService {
     private let fileManager: FileManager
     private let bookmarkStore: WorkspaceBookmarkStore
+    private var activeSecurityScopedURL: URL?
+    private var activeSecurityScopeStarted = false
 
     public init(
         fileManager: FileManager = .default,
@@ -17,6 +19,8 @@ public actor WorkspaceService {
             throw WorkspaceError.invalidRootURL
         }
 
+        activateSecurityScope(for: rootURL)
+
         let workspace = ResearchWorkspace(rootURL: rootURL)
         try ensureWorkspaceStructure(for: workspace)
 
@@ -28,6 +32,8 @@ public actor WorkspaceService {
         guard rootURL.isFileURL else {
             throw WorkspaceError.invalidRootURL
         }
+
+        activateSecurityScope(for: rootURL)
 
         let workspace = ResearchWorkspace(rootURL: rootURL)
         var isDirectory: ObjCBool = false
@@ -74,6 +80,15 @@ public actor WorkspaceService {
         }
     }
 
+    public func clearRecentWorkspaceBookmark() async {
+        if activeSecurityScopeStarted {
+            activeSecurityScopedURL?.stopAccessingSecurityScopedResource()
+        }
+        activeSecurityScopedURL = nil
+        activeSecurityScopeStarted = false
+        await bookmarkStore.clearBookmarkData()
+    }
+
     private func persistBookmark(for url: URL) async throws {
         let bookmarkData = try url.bookmarkData(
             options: .withSecurityScope,
@@ -81,5 +96,18 @@ public actor WorkspaceService {
             relativeTo: nil
         )
         await bookmarkStore.saveBookmarkData(bookmarkData)
+    }
+
+    private func activateSecurityScope(for url: URL) {
+        if activeSecurityScopedURL == url {
+            return
+        }
+
+        if activeSecurityScopeStarted {
+            activeSecurityScopedURL?.stopAccessingSecurityScopedResource()
+        }
+
+        activeSecurityScopedURL = url
+        activeSecurityScopeStarted = url.startAccessingSecurityScopedResource()
     }
 }

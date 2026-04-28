@@ -9,6 +9,11 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
     public var tags: [String]
     public var relatedPaperIDs: [String]
     public var notes: String?
+    public var externalSource: String?
+    public var externalIdentifier: String?
+    public var externalUpdatedAt: Date?
+    public var completedAt: Date?
+    public var dueTime: String?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -21,6 +26,11 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         tags: [String],
         relatedPaperIDs: [String],
         notes: String?,
+        externalSource: String? = nil,
+        externalIdentifier: String? = nil,
+        externalUpdatedAt: Date? = nil,
+        completedAt: Date? = nil,
+        dueTime: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -32,6 +42,11 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         self.tags = tags
         self.relatedPaperIDs = relatedPaperIDs
         self.notes = notes
+        self.externalSource = externalSource
+        self.externalIdentifier = externalIdentifier
+        self.externalUpdatedAt = externalUpdatedAt
+        self.completedAt = completedAt
+        self.dueTime = dueTime
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

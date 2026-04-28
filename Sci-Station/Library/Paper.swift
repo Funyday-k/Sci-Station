@@ -185,6 +185,11 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         return workspace.resolve(relativePath: "paper.md", from: directoryURL, isDirectory: false)
     }
 
+    public nonisolated func annotationsURL(in workspace: ResearchWorkspace) -> URL {
+        let directoryURL = workspace.directoryURL(for: paperDirectoryRelativePath)
+        return workspace.resolve(relativePath: annotationsRelativePath ?? "annotations.md", from: directoryURL, isDirectory: false)
+    }
+
     public nonisolated func summaryURL(in workspace: ResearchWorkspace) -> URL? {
         guard let notesSummaryRelativePath else {
             return nil

@@ -394,12 +394,22 @@ private struct TodoRowView: View {
                                 Text(notes)
                                     .lineLimit(1)
                             }
+                            if todo.externalSource == "apple_reminders" {
+                                Label("Reminder", systemImage: "bell")
+                            }
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
 
                     Spacer()
+
+                    if todo.externalIdentifier == nil {
+                        Button("Publish") {
+                            appModel.publishTodoToAppleReminders(todo)
+                        }
+                        .buttonStyle(.link)
+                    }
 
                     Button("Edit") {
                         resetEdits(from: todo)

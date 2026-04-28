@@ -36,13 +36,14 @@ public actor PaperRepository {
             let directoryURL = fileURL.deletingLastPathComponent()
             let metadataContents = try String(contentsOf: fileURL, encoding: .utf8)
             let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
-            let paper = metadataCodec.decode(
+            var paper = metadataCodec.decode(
                 metadataContents,
                 directoryRelativePath: workspace.relativePath(to: directoryURL),
                 fallbackTitle: directoryURL.lastPathComponent,
                 createdAt: attributes[FileAttributeKey.creationDate] as? Date,
                 updatedAt: attributes[FileAttributeKey.modificationDate] as? Date
             )
+            paper.collectionPath = Paper.collectionPath(for: paper.paperDirectoryRelativePath)
             papers.append(paper)
         }
 

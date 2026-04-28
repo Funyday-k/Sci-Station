@@ -19,10 +19,13 @@ private struct CoreVerificationSuite {
         try await createWorkspaceInitializesExpectedStructure()
         try await openWorkspaceBackfillsMissingStructure()
         try await restoreLastWorkspaceClearsMissingBookmark()
+        try await workspacePreferencesRoundTrip()
         try citekeyGenerationUsesAuthorYearKeyword()
         try metadataCodecRoundTripKeepsEditableFields()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
         try await paperRepositoryDeletesPaperDirectory()
+        try librarySearchMatchesExtendedMetadata()
+        try await paperAnnotationsRepositoryRoundTripsAnnotations()
         try await paperRepositoryLoadsNestedCollectionPapers()
         try await tagRepositoryUpsertsAndDeletesDefinitions()
         try await todoRepositoryCreatesCompletesAndDeletesTodos()
@@ -65,12 +68,18 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: workspace.libraryBibURL.path), "refs/library.bib should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.tagsDefinitionURL.path), "refs/tags.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "refs/csl").path), "refs/csl should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "settings").path), "settings should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.workspacePreferencesURL.path), "workspace_preferences.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "tasks").path), "tasks should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "imports").path), "imports should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.dataURL.path), "data should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.figuresURL.path), "figures should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/todos.yaml").path), "tasks/todos.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/calendar.yaml").path), "tasks/calendar.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/import_history.yaml").path), "imports/import_history.yaml should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/failed_imports.yaml").path), "imports/failed_imports.yaml should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "wiki/projects/project_overview.md").path), "project_overview.md should exist after workspace creation.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "wiki/projects/core_papers.md").path), "core_papers.md should exist after workspace creation.")
         try expect(FileManager.default.fileExists(atPath: workspace.researchFlowDatabaseURL.path), "researchflow.sqlite should exist after workspace creation.")
     }
 
@@ -99,10 +108,15 @@ private struct CoreVerificationSuite {
         try expect(workspace.missingRequiredItems().isEmpty, "Opening an older workspace should backfill missing paths.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "refs/csl").path), "Opening should create refs/csl when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.tagsDefinitionURL.path), "Opening should create refs/tags.yaml when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.workspacePreferencesURL.path), "Opening should create workspace_preferences.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "tasks").path), "Opening should create tasks when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.directoryURL(for: "imports").path), "Opening should create imports when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.dataURL.path), "Opening should create data when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.figuresURL.path), "Opening should create figures when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "tasks/todos.yaml").path), "Opening should create tasks/todos.yaml when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "imports/import_history.yaml").path), "Opening should create imports/import_history.yaml when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "wiki/projects/project_overview.md").path), "Opening should create project_overview.md when missing.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "wiki/projects/core_papers.md").path), "Opening should create core_papers.md when missing.")
         try expect(FileManager.default.fileExists(atPath: workspace.researchFlowDatabaseURL.path), "Opening should create researchflow.sqlite when missing.")
     }
 
@@ -129,6 +143,38 @@ private struct CoreVerificationSuite {
 
         try expect(restoredWorkspace == nil, "Restoring a deleted recent workspace should return nil instead of throwing.")
         try expect(restoredBookmarkURL == nil, "Restoring a deleted recent workspace should clear the stale bookmark.")
+    }
+
+    private func workspacePreferencesRoundTrip() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("PreferencesWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var preferences = WorkspacePreferences(
+            libraryVisibleColumns: ["title", "tags", "doi"],
+            defaultCollectionPath: "Dark-Matter",
+            recentSection: "library"
+        )
+        preferences.updateLibraryVisibleColumns(from: "title,authors,bibtex")
+
+        try await repository.save(preferences, in: workspace)
+        let loadedPreferences = try await repository.load(in: workspace)
+
+        try expect(loadedPreferences.libraryVisibleColumns == ["title", "authors", "bibtex"], "Workspace preferences should preserve column order.")
+        try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
+        try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
     }
 
     private func citekeyGenerationUsesAuthorYearKeyword() throws {
@@ -305,6 +351,50 @@ private struct CoreVerificationSuite {
         try expect(loadedPapers.isEmpty, "Deleted papers should no longer appear in repository loads.")
     }
 
+    private func librarySearchMatchesExtendedMetadata() throws {
+        var paper = samplePaper(id: "search-paper")
+        paper.doi = "10.1234/searchable"
+        paper.abstract = "This abstract discusses solar capture."
+        paper.bibtex = """
+        @article{smith2024graph,
+          title = {Graph RAG},
+          keyword = {neutrino telescope}
+        }
+        """
+
+        let service = LibrarySearchService()
+
+        try expect(service.matches(paper, query: "10.1234"), "Library search should match DOI.")
+        try expect(service.matches(paper, query: "solar capture"), "Library search should match abstracts.")
+        try expect(service.matches(paper, query: "neutrino telescope"), "Library search should match BibTeX contents.")
+        try expect(service.matchingIDs(in: [paper], query: "2401.12345") == [paper.id], "Library search should return matching paper ids.")
+    }
+
+    private func paperAnnotationsRepositoryRoundTripsAnnotations() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let paperRepository = PaperRepository()
+        let annotationsRepository = PaperAnnotationsRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AnnotationsWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await paperRepository.save(samplePaper(id: "annotations-paper"), in: workspace)
+        try await annotationsRepository.saveAnnotations("# Notes\n\nImportant reading note.", for: paper, in: workspace)
+        let loadedAnnotations = try await annotationsRepository.loadAnnotations(for: paper, in: workspace)
+
+        try expect(loadedAnnotations.contains("Important reading note."), "Paper annotations repository should round-trip annotations.md contents.")
+    }
+
     private func paperRepositoryLoadsNestedCollectionPapers() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
         let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -346,8 +436,13 @@ private struct CoreVerificationSuite {
         )
 
         let savedPaper = try await repository.save(nestedPaper, in: workspace)
-        let pdfURL = workspace.directoryURL(for: savedPaper.paperDirectoryRelativePath).appendingPathComponent("paper.pdf")
+        let paperDirectoryURL = workspace.directoryURL(for: savedPaper.paperDirectoryRelativePath)
+        let pdfURL = paperDirectoryURL.appendingPathComponent("paper.pdf")
         try Data("fake pdf".utf8).write(to: pdfURL, options: .atomic)
+        let metadataURL = paperDirectoryURL.appendingPathComponent("meta.yaml")
+        let staleMetadata = try String(contentsOf: metadataURL, encoding: .utf8)
+            .replacingOccurrences(of: "collection_path: \"Dark-Matter/Solar-Capture\"", with: "collection_path: \"Old-Folder\"")
+        try staleMetadata.write(to: metadataURL, atomically: true, encoding: .utf8)
 
         let loadedPaper = try require(
             try await repository.loadPapers(in: workspace).first(where: { $0.id == savedPaper.id }),
@@ -430,6 +525,11 @@ private struct CoreVerificationSuite {
             tags: ["Dark-Matter"],
             relatedPaperIDs: ["garani2024dark"],
             notes: "Check bibliography and equations.",
+            externalSource: "apple_reminders",
+            externalIdentifier: "reminder-abc",
+            externalUpdatedAt: Date(timeIntervalSince1970: 1_777_600_000),
+            completedAt: nil,
+            dueTime: "09:30",
             createdAt: Date(timeIntervalSince1970: 1_777_593_600),
             updatedAt: Date(timeIntervalSince1970: 1_777_593_600)
         )
@@ -441,6 +541,9 @@ private struct CoreVerificationSuite {
         try expect(savedTodos.first?.priority == .urgent, "Todo repository should preserve priority.")
         try expect(savedTodos.first?.notes == "Check bibliography and equations.", "Todo repository should preserve notes.")
         try expect(savedTodos.first?.relatedPaperIDs == ["garani2024dark"], "Todo repository should preserve related paper ids.")
+        try expect(savedTodos.first?.externalSource == "apple_reminders", "Todo repository should preserve external source.")
+        try expect(savedTodos.first?.externalIdentifier == "reminder-abc", "Todo repository should preserve external identifier.")
+        try expect(savedTodos.first?.dueTime == "09:30", "Todo repository should preserve due time.")
 
         var completedTodo = try require(savedTodos.first, "Expected the saved todo to be loadable.")
         completedTodo.status = .done

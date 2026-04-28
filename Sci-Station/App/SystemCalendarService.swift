@@ -201,15 +201,11 @@ final class SystemCalendarService {
 
         try eventStore.save(reminder, commit: true)
 
-        guard let dueDate else {
-            return nil
-        }
-
         return SystemScheduleItem(
             id: "reminder-\(reminder.calendarItemIdentifier)",
             title: reminder.title,
             kind: .reminder,
-            startDate: dueDate,
+            startDate: dueDate ?? Date(),
             endDate: nil,
             calendarTitle: defaultCalendar.title,
             notes: reminder.notes,

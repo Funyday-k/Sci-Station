@@ -111,7 +111,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
         case .gaps:
             return "Collect candidate research gaps and evidence trails."
         case .projects:
-            return "Keep project-specific context, plans, and milestones."
+            return "Keep the research proposal, core papers, data, code, figures, outputs, and milestones in one project workspace."
         case .graph:
             return "Visualize or inspect knowledge relationships when graph support lands."
         case .llmLab:

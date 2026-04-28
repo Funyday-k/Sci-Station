@@ -45,13 +45,15 @@ public actor TodoRepository {
             return "todos: []\n"
         }
 
-        let formatter = makeDayFormatter()
+        let dayFormatter = makeDayFormatter()
+        let timestampFormatter = makeTimestampFormatter()
         let body = todos.map { todo in
             var lines = [
                 "  - id: \(quoted(todo.id))",
                 "    title: \(quoted(todo.title))",
                 "    status: \(todo.status.rawValue)",
-                "    due: \(todo.dueDate.map { formatter.string(from: $0) } ?? "")",
+                "    due: \(todo.dueDate.map { dayFormatter.string(from: $0) } ?? "")",
+                "    due_time: \(todo.dueTime.map(quoted) ?? "")",
                 "    priority: \(todo.priority.rawValue)"
             ]
 
@@ -70,8 +72,12 @@ public actor TodoRepository {
             }
 
             lines.append("    notes: \(todo.notes.map(quoted) ?? "")")
-            lines.append("    created: \(formatter.string(from: todo.createdAt))")
-            lines.append("    updated: \(formatter.string(from: todo.updatedAt))")
+            lines.append("    external_source: \(todo.externalSource.map(quoted) ?? "")")
+            lines.append("    external_identifier: \(todo.externalIdentifier.map(quoted) ?? "")")
+            lines.append("    external_updated_at: \(todo.externalUpdatedAt.map { timestampFormatter.string(from: $0) } ?? "")")
+            lines.append("    completed_at: \(todo.completedAt.map { timestampFormatter.string(from: $0) } ?? "")")
+            lines.append("    created: \(dayFormatter.string(from: todo.createdAt))")
+            lines.append("    updated: \(dayFormatter.string(from: todo.updatedAt))")
             return lines.joined(separator: "\n")
         }
         .joined(separator: "\n")
@@ -99,6 +105,11 @@ public actor TodoRepository {
             var tags: [String] = []
             var relatedPaperIDs: [String] = []
             var notes: String?
+            var externalSource: String?
+            var externalIdentifier: String?
+            var externalUpdatedAt: Date?
+            var completedAt: Date?
+            var dueTime: String?
             var createdAt = Date()
             var updatedAt = Date()
             cursor += 1
@@ -119,6 +130,8 @@ public actor TodoRepository {
                     status = TodoStatus(rawValue: trimmed.replacingOccurrences(of: "status:", with: "").trimmingCharacters(in: .whitespaces)) ?? .open
                 } else if trimmed.hasPrefix("due:") {
                     dueDate = parseDate(trimmed.replacingOccurrences(of: "due:", with: "").trimmingCharacters(in: .whitespaces))
+                } else if trimmed.hasPrefix("due_time:") {
+                    dueTime = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "due_time:", with: "").trimmingCharacters(in: .whitespaces)))
                 } else if trimmed.hasPrefix("priority:") {
                     priority = Priority(rawValue: trimmed.replacingOccurrences(of: "priority:", with: "").trimmingCharacters(in: .whitespaces)) ?? .medium
                 } else if trimmed == "tags:" {
@@ -131,6 +144,14 @@ public actor TodoRepository {
                     cursor = result.nextIndex - 1
                 } else if trimmed.hasPrefix("notes:") {
                     notes = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "notes:", with: "").trimmingCharacters(in: .whitespaces)))
+                } else if trimmed.hasPrefix("external_source:") {
+                    externalSource = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "external_source:", with: "").trimmingCharacters(in: .whitespaces)))
+                } else if trimmed.hasPrefix("external_identifier:") {
+                    externalIdentifier = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "external_identifier:", with: "").trimmingCharacters(in: .whitespaces)))
+                } else if trimmed.hasPrefix("external_updated_at:") {
+                    externalUpdatedAt = parseTimestamp(trimmed.replacingOccurrences(of: "external_updated_at:", with: "").trimmingCharacters(in: .whitespaces))
+                } else if trimmed.hasPrefix("completed_at:") {
+                    completedAt = parseTimestamp(trimmed.replacingOccurrences(of: "completed_at:", with: "").trimmingCharacters(in: .whitespaces))
                 } else if trimmed.hasPrefix("created:") {
                     createdAt = parseDate(trimmed.replacingOccurrences(of: "created:", with: "").trimmingCharacters(in: .whitespaces)) ?? createdAt
                 } else if trimmed.hasPrefix("updated:") {
@@ -149,6 +170,11 @@ public actor TodoRepository {
                     tags: tags,
                     relatedPaperIDs: relatedPaperIDs,
                     notes: notes,
+                    externalSource: externalSource,
+                    externalIdentifier: externalIdentifier,
+                    externalUpdatedAt: externalUpdatedAt,
+                    completedAt: completedAt,
+                    dueTime: dueTime,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -189,6 +215,20 @@ public actor TodoRepository {
         }
 
         return makeDayFormatter().date(from: value)
+    }
+
+    private func makeTimestampFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }
+
+    private func parseTimestamp(_ value: String) -> Date? {
+        guard !value.isEmpty else {
+            return nil
+        }
+
+        return makeTimestampFormatter().date(from: value)
     }
 
     private func quoted(_ value: String) -> String {

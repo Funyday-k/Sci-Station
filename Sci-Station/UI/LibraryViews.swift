@@ -10,7 +10,6 @@ struct LibraryListView: View {
     @State private var isShowingCollectionManager = false
     @State private var isShowingTagManager = false
     @State private var isShowingQuickLinkImport = false
-    @AppStorage("library.visibleColumns") private var visibleColumnStorage = LibraryColumn.defaultStorageValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -41,8 +40,6 @@ struct LibraryListView: View {
 
                 Button("Import PDF", action: appModel.importPDF)
                     .buttonStyle(.bordered)
-
-                Spacer(minLength: 0)
 
                 Button(isShowingQuickLinkImport ? "Hide Link Import" : "Add by Link") {
                     if isShowingQuickLinkImport {
@@ -87,7 +84,10 @@ struct LibraryListView: View {
             } else {
                 LibraryPaperTableView(
                     workspace: workspace,
-                    visibleColumnStorage: $visibleColumnStorage
+                    visibleColumnStorage: Binding(
+                        get: { appModel.libraryVisibleColumnStorage },
+                        set: appModel.updateLibraryVisibleColumns(storageValue:)
+                    )
                 )
             }
         }
@@ -120,10 +120,6 @@ struct LibraryListView: View {
         }
         .sheet(isPresented: $isShowingTagManager) {
             TagManagerView()
-                .environmentObject(appModel)
-        }
-        .sheet(isPresented: $appModel.isShowingBibTeXExport) {
-            BibTeXExportView()
                 .environmentObject(appModel)
         }
     }
@@ -256,6 +252,7 @@ private struct LibraryPaperTableView: View {
 
     let workspace: ResearchWorkspace
     @Binding var visibleColumnStorage: String
+    @State private var draggedColumn: LibraryColumn?
 
     private var visibleColumns: [LibraryColumn] {
         LibraryColumn.columns(from: visibleColumnStorage)
@@ -270,7 +267,24 @@ private struct LibraryPaperTableView: View {
                         .fontWeight(.medium)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(draggedColumn == column ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+                        .contentShape(Rectangle())
+                        .onDrag {
+                            draggedColumn = column
+                            return NSItemProvider(object: column.rawValue as NSString)
+                        }
+                        .onDrop(
+                            of: [.plainText],
+                            delegate: LibraryColumnDropDelegate(
+                                targetColumn: column,
+                                draggedColumn: $draggedColumn,
+                                visibleColumnStorage: $visibleColumnStorage
+                            )
+                        )
+                        .help("Drag to reorder columns")
                 }
 
                 Menu {
@@ -330,6 +344,41 @@ private struct LibraryPaperTableView: View {
                 visibleColumnStorage = nextColumns.map(\.rawValue).joined(separator: ",")
             }
         )
+    }
+}
+
+private struct LibraryColumnDropDelegate: DropDelegate {
+    let targetColumn: LibraryColumn
+    @Binding var draggedColumn: LibraryColumn?
+    @Binding var visibleColumnStorage: String
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedColumn, draggedColumn != targetColumn else {
+            return
+        }
+
+        var columns = LibraryColumn.columns(from: visibleColumnStorage)
+        guard let fromIndex = columns.firstIndex(of: draggedColumn),
+              let toIndex = columns.firstIndex(of: targetColumn) else {
+            return
+        }
+
+        columns.move(
+            fromOffsets: IndexSet(integer: fromIndex),
+            toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+        )
+        visibleColumnStorage = columns.map(\.rawValue).joined(separator: ",")
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedColumn = nil
+        return true
+    }
+
+    func dropExited(info: DropInfo) {
+        if info.location == .zero {
+            draggedColumn = nil
+        }
     }
 }
 
@@ -394,7 +443,7 @@ private struct LibraryPaperRowView: View {
     }
 }
 
-private struct BibTeXExportView: View {
+struct BibTeXExportView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
@@ -462,7 +511,7 @@ private struct LibraryColumnValueView: View {
                     .foregroundStyle(appModel.paperHasWikiPage(paper, in: workspace) ? .primary : .secondary)
                     .lineLimit(1)
             case .tags:
-                secondaryText(paper.tagsDisplay, lineLimit: 1)
+                TagChipGroupView(tags: paper.tags)
             case .status:
                 Text(paper.status.label)
                     .lineLimit(1)
@@ -494,12 +543,13 @@ struct PDFReaderWorkspaceView: View {
 
     var body: some View {
         Group {
-            if workspace != nil,
+            if let workspace,
                let paper = appModel.selectedPaperDraft,
                let pdfURL = appModel.selectedPaperPDFURL,
                FileManager.default.fileExists(atPath: pdfURL.path) {
                 EmbeddedPDFReaderView(
                     pdfURL: pdfURL,
+                    workspace: workspace,
                     paper: paper,
                     initialPage: paper.lastReadPage,
                     onPageChanged: appModel.saveSelectedPaperReadingState(lastPage:),
@@ -897,9 +947,19 @@ private struct QuickLinkImportPanel: View {
                     .buttonStyle(.bordered)
             }
 
-            TextField("Link, DOI, arXiv ID, or PDF URL", text: $appModel.identifierImportInput)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(appModel.previewIdentifierImport)
+            HStack(spacing: 8) {
+                TextField("Link, DOI, arXiv ID, or PDF URL", text: $appModel.identifierImportInput)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(appModel.previewIdentifierImport)
+
+                Button {
+                    openIdentifierInputURL()
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .help("Open link in browser")
+                .disabled(identifierInputURL == nil)
+            }
 
             HStack(spacing: 12) {
                 TextField("Collection", text: $appModel.identifierImportCollectionPath)
@@ -939,6 +999,30 @@ private struct QuickLinkImportPanel: View {
         }
         .padding(16)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var identifierInputURL: URL? {
+        let trimmedInput = appModel.identifierImportInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmedInput),
+           let scheme = url.scheme?.lowercased(),
+           ["http", "https"].contains(scheme) {
+            return url
+        }
+
+        if trimmedInput.contains("."),
+           let url = URL(string: "https://\(trimmedInput)") {
+            return url
+        }
+
+        return nil
+    }
+
+    private func openIdentifierInputURL() {
+        guard let identifierInputURL else {
+            return
+        }
+
+        NSWorkspace.shared.open(identifierInputURL)
     }
 }
 

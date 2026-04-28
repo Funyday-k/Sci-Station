@@ -19,8 +19,12 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var systemCalendarAccessState: SystemCalendarAccessState = .notDetermined
     @Published private(set) var isLoadingSystemSchedule = false
     @Published var addTodosToAppleReminders = false
+    @Published private(set) var workspacePreferences = WorkspacePreferences()
+    @Published private(set) var workspaceSettingsStatusMessage: String?
     @Published private(set) var selectedPaperID: Paper.ID?
     @Published private(set) var selectedPaperDraft: Paper?
+    @Published var selectedPaperAnnotationsDraft = ""
+    @Published private(set) var isSavingSelectedPaperAnnotations = false
     @Published var isShowingPaperDeleteConfirmation = false
     @Published private(set) var paperPendingDeletion: Paper?
     @Published var isShowingBibTeXExport = false
@@ -59,6 +63,8 @@ final class AppViewModel: ObservableObject {
     private let tagRepository: TagRepository
     private let todoRepository: TodoRepository
     private let calendarRepository: CalendarRepository
+    private let workspacePreferencesRepository: WorkspacePreferencesRepository
+    private let paperAnnotationsRepository: PaperAnnotationsRepository
     private let systemCalendarService: SystemCalendarService
     private let pdfReadingStateService: PDFReadingStateService
     private let remoteImportService: RemoteImportService
@@ -71,6 +77,7 @@ final class AppViewModel: ObservableObject {
     private let markdownRepository: MarkdownRepository
     private let wikiPageGenerator: WikiPageGenerator
     private let pdfOpeningService: any PDFOpeningService
+    private let librarySearchService: LibrarySearchService
     private var backlinkIndex = BacklinkIndex(documents: [])
 
     init(
@@ -80,6 +87,8 @@ final class AppViewModel: ObservableObject {
         tagRepository: TagRepository? = nil,
         todoRepository: TodoRepository? = nil,
         calendarRepository: CalendarRepository? = nil,
+        workspacePreferencesRepository: WorkspacePreferencesRepository? = nil,
+        paperAnnotationsRepository: PaperAnnotationsRepository? = nil,
         systemCalendarService: SystemCalendarService? = nil,
         pdfReadingStateService: PDFReadingStateService? = nil,
         remoteImportService: RemoteImportService? = nil,
@@ -97,6 +106,8 @@ final class AppViewModel: ObservableObject {
         let resolvedTagRepository = tagRepository ?? TagRepository()
         let resolvedTodoRepository = todoRepository ?? TodoRepository()
         let resolvedCalendarRepository = calendarRepository ?? CalendarRepository()
+        let resolvedWorkspacePreferencesRepository = workspacePreferencesRepository ?? WorkspacePreferencesRepository()
+        let resolvedPaperAnnotationsRepository = paperAnnotationsRepository ?? PaperAnnotationsRepository()
         let resolvedSystemCalendarService = systemCalendarService ?? SystemCalendarService()
         let resolvedPDFReadingStateService = pdfReadingStateService ?? PDFReadingStateService(paperRepository: resolvedPaperRepository)
         let resolvedRemoteImportService = remoteImportService ?? RemoteImportService(
@@ -117,6 +128,8 @@ final class AppViewModel: ObservableObject {
         self.tagRepository = resolvedTagRepository
         self.todoRepository = resolvedTodoRepository
         self.calendarRepository = resolvedCalendarRepository
+        self.workspacePreferencesRepository = resolvedWorkspacePreferencesRepository
+        self.paperAnnotationsRepository = resolvedPaperAnnotationsRepository
         self.systemCalendarService = resolvedSystemCalendarService
         self.systemCalendarAccessState = resolvedSystemCalendarService.accessState
         self.pdfReadingStateService = resolvedPDFReadingStateService
@@ -130,6 +143,7 @@ final class AppViewModel: ObservableObject {
         self.markdownRepository = resolvedMarkdownRepository
         self.wikiPageGenerator = WikiPageGenerator(paperRepository: resolvedPaperRepository)
         self.pdfOpeningService = pdfOpeningService ?? SystemPDFOpeningService()
+        self.librarySearchService = LibrarySearchService()
     }
 
     var filteredPapers: [Paper] {
@@ -144,14 +158,14 @@ final class AppViewModel: ObservableObject {
                 return collectionPath == selectedPath || collectionPath.hasPrefix(selectedPath + "/")
             } ?? true
             let matchesTag = selectedTagName.map { paper.tags.contains($0) } ?? true
-            let matchesQuery = query.isEmpty
-                || paper.title.lowercased().contains(query)
-                || paper.citekey.lowercased().contains(query)
-                || paper.authors.joined(separator: " ").lowercased().contains(query)
-                || paper.tags.joined(separator: " ").lowercased().contains(query)
+            let matchesQuery = librarySearchService.matches(paper, query: query)
 
             return matchesCollection && matchesTag && matchesQuery
         }
+    }
+
+    var libraryVisibleColumnStorage: String {
+        workspacePreferences.libraryVisibleColumnsStorageValue
     }
 
     var availableTagDefinitions: [TagDefinition] {
@@ -159,7 +173,7 @@ final class AppViewModel: ObservableObject {
         let inferredDefinitions = Set(papers.flatMap(\.tags))
             .subtracting(existingNames)
             .sorted()
-            .map { TagDefinition(name: $0, colorHex: "#E5E7EB", textColorHex: "#374151") }
+            .map { Self.inferredTagDefinition(named: $0) }
 
         return (tagDefinitions + inferredDefinitions)
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -300,8 +314,29 @@ final class AppViewModel: ObservableObject {
         availableTagDefinitions.first(where: { $0.name == name })
     }
 
+    private static func inferredTagDefinition(named name: String) -> TagDefinition {
+        let palette = [
+            ("#A7D8F0", "#17465F"),
+            ("#BEE7C8", "#1F5130"),
+            ("#F7C8D0", "#6B2637"),
+            ("#F9D99A", "#62440E"),
+            ("#CDBFF5", "#3D2F73"),
+            ("#BFE7E2", "#1E5550"),
+            ("#F4C7A1", "#6A3A14"),
+            ("#D6E3A3", "#48551A")
+        ]
+        let index = name.unicodeScalars.reduce(0) { partialResult, scalar in
+            (partialResult + Int(scalar.value)) % palette.count
+        }
+        let colors = palette[index]
+        return TagDefinition(name: name, colorHex: colors.0, textColorHex: colors.1)
+    }
+
     func selectSection(_ section: WorkspaceSection) {
         selectedSection = section
+        updateWorkspacePreferences { preferences in
+            preferences.recentSection = section.rawValue
+        }
         if section == .library {
             selectedCollectionPath = nil
             selectedTagName = nil
@@ -375,6 +410,25 @@ final class AppViewModel: ObservableObject {
         }
 
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: currentWorkspace.rootURL.path)
+    }
+
+    func clearRecentWorkspaceBookmark() {
+        Task {
+            await workspaceService.clearRecentWorkspaceBookmark()
+            workspaceSettingsStatusMessage = "Recent workspace bookmark cleared. The current workspace stays open for this session."
+        }
+    }
+
+    func updateLibraryVisibleColumns(storageValue: String) {
+        updateWorkspacePreferences { preferences in
+            preferences.updateLibraryVisibleColumns(from: storageValue)
+        }
+    }
+
+    func resetLibraryVisibleColumns() {
+        updateWorkspacePreferences { preferences in
+            preferences.libraryVisibleColumns = WorkspacePreferences.defaultLibraryVisibleColumns
+        }
     }
 
     func reloadLibrary() {
@@ -533,6 +587,18 @@ final class AppViewModel: ObservableObject {
     func selectPaper(id: Paper.ID?) {
         selectedPaperID = id
         selectedPaperDraft = papers.first(where: { $0.id == id })
+        guard let currentWorkspace else {
+            selectedPaperAnnotationsDraft = ""
+            return
+        }
+
+        Task {
+            do {
+                try await loadSelectedPaperAnnotations(in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
     }
 
     func updateSelectedPaper(_ mutate: (inout Paper) -> Void) {
@@ -629,9 +695,14 @@ final class AppViewModel: ObservableObject {
         bibTeXExportText = bibtex
         bibTeXExportFileName = "\(paper.citekey).bib"
 
+        copyBibTeX(for: paper)
+        isShowingBibTeXExport = true
+    }
+
+    func copyBibTeX(for paper: Paper) {
+        let bibtex = BibTeXFormatter.bibTeX(for: paper)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(bibtex, forType: .string)
-        isShowingBibTeXExport = true
     }
 
     func exportSelectedPaperBibTeX() {
@@ -709,6 +780,26 @@ final class AppViewModel: ObservableObject {
                 )
                 papers = papers.map { $0.id == savedPaper.id ? savedPaper : $0 }
                 self.selectedPaperDraft = savedPaper
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func saveSelectedPaperAnnotations() {
+        guard let currentWorkspace, let selectedPaperDraft else {
+            return
+        }
+
+        isSavingSelectedPaperAnnotations = true
+        let contents = selectedPaperAnnotationsDraft
+        Task {
+            defer {
+                isSavingSelectedPaperAnnotations = false
+            }
+
+            do {
+                try await paperAnnotationsRepository.saveAnnotations(contents, for: selectedPaperDraft, in: currentWorkspace)
             } catch {
                 present(error)
             }
@@ -859,6 +950,14 @@ final class AppViewModel: ObservableObject {
                     to: newName,
                     in: currentWorkspace
                 )
+                let movedPapers = try await paperRepository.loadPapers(in: currentWorkspace)
+                    .filter { paper in
+                        paper.collectionPath == collection.relativePath
+                            || paper.collectionPath?.hasPrefix(collection.relativePath + "/") == true
+                    }
+                for paper in movedPapers {
+                    _ = try await paperRepository.save(paper, in: currentWorkspace)
+                }
                 try await loadWorkspaceData(
                     in: currentWorkspace,
                     selectingPaper: selectedPaperID,
@@ -1013,7 +1112,7 @@ final class AppViewModel: ObservableObject {
         }
 
         let now = Date()
-        let todo = TodoItem(
+        var todo = TodoItem(
             id: "todo-\(UUID().uuidString.lowercased())",
             title: trimmedTitle,
             status: .open,
@@ -1030,7 +1129,7 @@ final class AppViewModel: ObservableObject {
             do {
                 try await todoRepository.upsert(todo, in: currentWorkspace)
                 if addTodosToAppleReminders {
-                    try await createAppleReminderIfNeeded(for: todo)
+                    todo = try await createAppleReminderIfNeeded(for: todo, in: currentWorkspace)
                 }
                 try await loadTodos(in: currentWorkspace)
             } catch {
@@ -1055,6 +1154,7 @@ final class AppViewModel: ObservableObject {
         updatedTodo.dueDate = dueDate.map { Calendar.current.startOfDay(for: $0) }
         updatedTodo.priority = priority
         updatedTodo.notes = notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        updatedTodo.completedAt = status == .done ? (todo.completedAt ?? Date()) : nil
         updatedTodo.updatedAt = Date()
 
         Task {
@@ -1074,11 +1174,27 @@ final class AppViewModel: ObservableObject {
 
         var updatedTodo = todo
         updatedTodo.status = todo.status == .done ? .open : .done
+        updatedTodo.completedAt = updatedTodo.status == .done ? Date() : nil
         updatedTodo.updatedAt = Date()
 
         Task {
             do {
                 try await todoRepository.upsert(updatedTodo, in: currentWorkspace)
+                try await loadTodos(in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func publishTodoToAppleReminders(_ todo: TodoItem) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                _ = try await createAppleReminderIfNeeded(for: todo, in: currentWorkspace)
                 try await loadTodos(in: currentWorkspace)
             } catch {
                 present(error)
@@ -1272,6 +1388,7 @@ final class AppViewModel: ObservableObject {
         selectingPaper paperID: Paper.ID?,
         selectingMarkdown markdownID: String?
     ) async throws {
+        try await loadWorkspacePreferences(in: workspace)
         try await loadLibrary(in: workspace, selecting: paperID)
         try await loadCollections(in: workspace)
         try await loadTags(in: workspace)
@@ -1292,6 +1409,20 @@ final class AppViewModel: ObservableObject {
         let nextSelectionID = paperID ?? selectedPaperID ?? loadedPapers.first?.id
         selectedPaperID = nextSelectionID
         selectedPaperDraft = loadedPapers.first(where: { $0.id == nextSelectionID })
+        try await loadSelectedPaperAnnotations(in: workspace)
+    }
+
+    private func loadWorkspacePreferences(in workspace: ResearchWorkspace) async throws {
+        workspacePreferences = try await workspacePreferencesRepository.load(in: workspace)
+    }
+
+    private func loadSelectedPaperAnnotations(in workspace: ResearchWorkspace) async throws {
+        guard let selectedPaperDraft else {
+            selectedPaperAnnotationsDraft = ""
+            return
+        }
+
+        selectedPaperAnnotationsDraft = try await paperAnnotationsRepository.loadAnnotations(for: selectedPaperDraft, in: workspace)
     }
 
     private func loadCollections(in workspace: ResearchWorkspace) async throws {
@@ -1323,9 +1454,12 @@ final class AppViewModel: ObservableObject {
     private func loadSystemSchedule(around referenceDate: Date) async throws {
         let range = systemScheduleRange(around: referenceDate)
         systemScheduleItems = try await systemCalendarService.loadItems(from: range.start, to: range.end)
+        if let currentWorkspace {
+            try await syncMappedTodos(with: systemScheduleItems, in: currentWorkspace)
+        }
     }
 
-    private func createAppleReminderIfNeeded(for todo: TodoItem) async throws {
+    private func createAppleReminderIfNeeded(for todo: TodoItem, in workspace: ResearchWorkspace) async throws -> TodoItem {
         if !systemCalendarService.canCreateReminders {
             systemCalendarAccessState = try await systemCalendarService.requestAccess()
         }
@@ -1334,16 +1468,78 @@ final class AppViewModel: ObservableObject {
             throw SystemCalendarServiceError.accessDenied
         }
 
+        if todo.externalSource == "apple_reminders", todo.externalIdentifier != nil {
+            return todo
+        }
+
+        var mappedTodo = todo
         if let reminder = try await systemCalendarService.createReminder(
             title: todo.title,
             dueDate: todo.dueDate,
             notes: todo.notes
         ) {
+            mappedTodo.externalSource = "apple_reminders"
+            mappedTodo.externalIdentifier = reminder.id
+            mappedTodo.externalUpdatedAt = Date()
+            mappedTodo.updatedAt = Date()
+            try await todoRepository.upsert(mappedTodo, in: workspace)
             systemScheduleItems.append(reminder)
             systemScheduleItems.sort { $0.displayDate < $1.displayDate }
         }
 
         systemCalendarAccessState = systemCalendarService.accessState
+        return mappedTodo
+    }
+
+    private func syncMappedTodos(with items: [SystemScheduleItem], in workspace: ResearchWorkspace) async throws {
+        var didUpdateTodos = false
+        let calendar = Calendar.current
+
+        for todo in todos where todo.externalSource == "apple_reminders" {
+            guard let externalIdentifier = todo.externalIdentifier,
+                  let item = items.first(where: { $0.id == externalIdentifier || "reminder-\(externalIdentifier)" == $0.id }) else {
+                continue
+            }
+
+            var syncedTodo = todo
+            syncedTodo.title = item.title
+            syncedTodo.dueDate = calendar.startOfDay(for: item.displayDate)
+            syncedTodo.notes = item.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? syncedTodo.notes
+            syncedTodo.status = item.isCompleted ? .done : syncedTodo.status
+            syncedTodo.completedAt = item.isCompleted ? (syncedTodo.completedAt ?? Date()) : syncedTodo.completedAt
+            syncedTodo.externalUpdatedAt = Date()
+            syncedTodo.updatedAt = Date()
+
+            if syncedTodo != todo {
+                try await todoRepository.upsert(syncedTodo, in: workspace)
+                didUpdateTodos = true
+            }
+        }
+
+        if didUpdateTodos {
+            try await loadTodos(in: workspace)
+        }
+    }
+
+    private func updateWorkspacePreferences(_ mutate: (inout WorkspacePreferences) -> Void) {
+        var preferences = workspacePreferences
+        mutate(&preferences)
+        workspacePreferences = preferences
+        persistWorkspacePreferences(preferences)
+    }
+
+    private func persistWorkspacePreferences(_ preferences: WorkspacePreferences) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                try await workspacePreferencesRepository.save(preferences, in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
     }
 
     private func systemScheduleRange(around referenceDate: Date) -> (start: Date, end: Date) {
@@ -1396,7 +1592,7 @@ final class AppViewModel: ObservableObject {
         panel.prompt = "Create"
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = "ResearchWorkspace"
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        panel.directoryURL = defaultPanelDirectoryURL()
 
         guard panel.runModal() == .OK else {
             return nil
@@ -1413,7 +1609,7 @@ final class AppViewModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        panel.directoryURL = defaultPanelDirectoryURL()
 
         guard panel.runModal() == .OK else {
             return nil
@@ -1430,13 +1626,18 @@ final class AppViewModel: ObservableObject {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.pdf]
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        panel.directoryURL = defaultPanelDirectoryURL()
 
         guard panel.runModal() == .OK else {
             return nil
         }
 
         return panel.url
+    }
+
+    private static func defaultPanelDirectoryURL() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
     }
 
     nonisolated private static func fileURL(from item: NSSecureCoding?) -> URL? {
