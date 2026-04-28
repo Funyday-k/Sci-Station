@@ -27,7 +27,9 @@ struct IdentifierImportView: View {
                 Button("Preview Metadata", action: appModel.previewIdentifierImport)
                     .buttonStyle(.bordered)
 
-                Button("Import", action: appModel.performIdentifierImport)
+                Button("Import") {
+                    appModel.performIdentifierImport()
+                }
                     .buttonStyle(.borderedProminent)
 
                 Button("Close") {

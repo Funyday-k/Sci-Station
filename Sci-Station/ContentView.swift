@@ -11,23 +11,34 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(workspace: appModel.currentWorkspace)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240)
-        } content: {
-            WorkspaceContentView(
-                workspace: appModel.currentWorkspace,
-                selectedSection: appModel.selectedSection,
-                isWorking: appModel.isWorking,
-                createWorkspace: appModel.createWorkspace,
-                openWorkspace: appModel.openWorkspace
-            )
-        } detail: {
-            WorkspaceInspectorView(
-                workspace: appModel.currentWorkspace,
-                selectedSection: appModel.selectedSection,
-                revealInFinder: appModel.revealCurrentWorkspaceInFinder
-            )
+        Group {
+            if appModel.selectedSection == .pdfReader, appModel.currentWorkspace != nil {
+                NavigationSplitView {
+                    SidebarView(workspace: appModel.currentWorkspace)
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+                } detail: {
+                    PDFReaderWorkspaceView(workspace: appModel.currentWorkspace)
+                }
+            } else {
+                NavigationSplitView {
+                    SidebarView(workspace: appModel.currentWorkspace)
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+                } content: {
+                    WorkspaceContentView(
+                        workspace: appModel.currentWorkspace,
+                        selectedSection: appModel.selectedSection,
+                        isWorking: appModel.isWorking,
+                        createWorkspace: appModel.createWorkspace,
+                        openWorkspace: appModel.openWorkspace
+                    )
+                } detail: {
+                    WorkspaceInspectorView(
+                        workspace: appModel.currentWorkspace,
+                        selectedSection: appModel.selectedSection,
+                        revealInFinder: appModel.revealCurrentWorkspaceInFinder
+                    )
+                }
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -39,6 +50,8 @@ struct ContentView: View {
                         appModel.beginIdentifierImport()
                     }
                     Button("Import PDF", action: appModel.importPDF)
+                    Button("Read PDF", action: appModel.openSelectedPaperReader)
+                        .disabled(!appModel.canEnterSelectedPaperReader)
                     Button("Open PDF", action: appModel.openSelectedPaperPDF)
                         .disabled(!appModel.canOpenSelectedPaperPDF)
                     Button("Reveal in Finder", action: appModel.revealCurrentWorkspaceInFinder)

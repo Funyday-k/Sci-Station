@@ -13,6 +13,7 @@ public enum RemoteImportError: LocalizedError {
 
 public actor RemoteImportService {
     private let parser: IdentifierParser
+    private let doiProvider: DOIMetadataProvider
     private let arxivProvider: ArxivMetadataProvider
     private let inspireProvider: InspireMetadataProvider
     private let downloadService: DownloadService
@@ -22,6 +23,7 @@ public actor RemoteImportService {
 
     public init(
         parser: IdentifierParser = IdentifierParser(),
+        doiProvider: DOIMetadataProvider = DOIMetadataProvider(),
         arxivProvider: ArxivMetadataProvider = ArxivMetadataProvider(),
         inspireProvider: InspireMetadataProvider = InspireMetadataProvider(),
         downloadService: DownloadService = DownloadService(),
@@ -30,6 +32,7 @@ public actor RemoteImportService {
         paperRepository: PaperRepository = PaperRepository()
     ) {
         self.parser = parser
+        self.doiProvider = doiProvider
         self.arxivProvider = arxivProvider
         self.inspireProvider = inspireProvider
         self.downloadService = downloadService
@@ -47,20 +50,7 @@ public actor RemoteImportService {
         case .inspire:
             return try await inspireProvider.fetchMetadata(for: parsedIdentifier.normalizedValue)
         case .doi:
-            return PaperMetadataDraft(
-                title: parsedIdentifier.normalizedValue,
-                authors: [],
-                year: nil,
-                venue: nil,
-                doi: parsedIdentifier.normalizedValue,
-                arxiv: nil,
-                inspireID: nil,
-                url: "https://doi.org/\(parsedIdentifier.normalizedValue)",
-                pdfURL: nil,
-                abstract: nil,
-                categories: [],
-                sourceProvider: "doi"
-            )
+            return try await doiProvider.fetchMetadata(for: parsedIdentifier.normalizedValue)
         case .pdfURL:
             return PaperMetadataDraft(
                 title: URL(string: parsedIdentifier.normalizedValue)?.deletingPathExtension().lastPathComponent ?? "Imported PDF",

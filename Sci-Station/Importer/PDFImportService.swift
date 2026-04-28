@@ -15,13 +15,22 @@ public enum PDFImportError: LocalizedError {
 public actor PDFImportService {
     private let fileManager: FileManager
     private let repository: PaperRepository
+    private let parser: IdentifierParser
+    private let doiProvider: DOIMetadataProvider
+    private let arxivProvider: ArxivMetadataProvider
 
     public init(
         fileManager: FileManager = .default,
-        repository: PaperRepository
+        repository: PaperRepository,
+        parser: IdentifierParser = IdentifierParser(),
+        doiProvider: DOIMetadataProvider = DOIMetadataProvider(),
+        arxivProvider: ArxivMetadataProvider = ArxivMetadataProvider()
     ) {
         self.fileManager = fileManager
         self.repository = repository
+        self.parser = parser
+        self.doiProvider = doiProvider
+        self.arxivProvider = arxivProvider
     }
 
     public func importPDF(
@@ -34,9 +43,11 @@ public actor PDFImportService {
             throw PDFImportError.unsupportedFileType
         }
 
-        let title = detectedTitle(from: sourceURL)
-        let authors = detectedAuthors(from: sourceURL)
-        let year = detectedYear(from: sourceURL)
+        let detectedIdentifiers = detectIdentifiers(from: sourceURL)
+        let metadataDraft = await fetchedMetadata(for: detectedIdentifiers)
+        let title = resolvedTitle(from: metadataDraft, sourceURL: sourceURL)
+        let authors = resolvedAuthors(from: metadataDraft)
+        let year = metadataDraft?.year ?? detectedYear(from: sourceURL)
         let paperID = PaperIdentityGenerator.paperID(
             title: title,
             authors: authors,
@@ -88,10 +99,13 @@ public actor PDFImportService {
             title: title,
             authors: authors,
             year: year,
-            venue: nil,
-            doi: nil,
-            arxiv: nil,
-            url: nil,
+            venue: trimmedOrNil(metadataDraft?.venue),
+            doi: trimmedOrNil(metadataDraft?.doi) ?? detectedIdentifiers.doi,
+            arxiv: trimmedOrNil(metadataDraft?.arxiv) ?? detectedIdentifiers.arxiv,
+            url: resolvedSourceURL(from: metadataDraft, identifiers: detectedIdentifiers),
+            pdfURL: trimmedOrNil(metadataDraft?.pdfURL),
+            abstract: trimmedOrNil(metadataDraft?.abstract),
+            categories: metadataDraft?.categories ?? [],
             pdfRelativePath: "paper.pdf",
             tags: [],
             status: .unread,
@@ -149,11 +163,9 @@ public actor PDFImportService {
         return candidateURL
     }
 
-    private func detectedTitle(from sourceURL: URL) -> String {
-        if let document = PDFDocument(url: sourceURL),
-           let title = document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String,
-           !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return title.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func resolvedTitle(from metadataDraft: PaperMetadataDraft?, sourceURL: URL) -> String {
+        if let title = trimmedOrNil(metadataDraft?.title) {
+            return title
         }
 
         return sourceURL.deletingPathExtension().lastPathComponent
@@ -161,17 +173,8 @@ public actor PDFImportService {
             .replacingOccurrences(of: "-", with: " ")
     }
 
-    private func detectedAuthors(from sourceURL: URL) -> [String] {
-        guard let document = PDFDocument(url: sourceURL),
-              let authorText = document.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String else {
-            return []
-        }
-
-        return authorText
-            .replacingOccurrences(of: " and ", with: ";")
-            .split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+    private func resolvedAuthors(from metadataDraft: PaperMetadataDraft?) -> [String] {
+        metadataDraft?.authors.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
     }
 
     private func detectedYear(from sourceURL: URL) -> Int? {
@@ -184,5 +187,68 @@ public actor PDFImportService {
         }
 
         return Int(String(filename[matchRange]))
+    }
+
+    private func detectIdentifiers(from sourceURL: URL) -> DetectedPaperIdentifiers {
+        let previewText = extractedPreviewText(from: sourceURL)
+        return parser.detectPaperIdentifiers(in: previewText, fallbackInput: sourceURL.lastPathComponent)
+    }
+
+    private func extractedPreviewText(from sourceURL: URL) -> String {
+        guard let document = PDFDocument(url: sourceURL) else {
+            return sourceURL.lastPathComponent
+        }
+
+        let previewPageCount = min(document.pageCount, 5)
+        let previewText = (0..<previewPageCount)
+            .compactMap { document.page(at: $0)?.string }
+            .joined(separator: "\n")
+
+        return [previewText, sourceURL.lastPathComponent]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    private func fetchedMetadata(for identifiers: DetectedPaperIdentifiers) async -> PaperMetadataDraft? {
+        if let doi = identifiers.doi,
+           let draft = try? await doiProvider.fetchMetadata(for: doi) {
+            var enrichedDraft = draft
+            enrichedDraft.arxiv = trimmedOrNil(enrichedDraft.arxiv) ?? identifiers.arxiv
+            return enrichedDraft
+        }
+
+        if let arxiv = identifiers.arxiv,
+           let draft = try? await arxivProvider.fetchMetadata(for: arxiv) {
+            var enrichedDraft = draft
+            enrichedDraft.doi = trimmedOrNil(enrichedDraft.doi) ?? identifiers.doi
+            return enrichedDraft
+        }
+
+        return nil
+    }
+
+    private func resolvedSourceURL(from metadataDraft: PaperMetadataDraft?, identifiers: DetectedPaperIdentifiers) -> String? {
+        if let resolvedURL = trimmedOrNil(metadataDraft?.url) {
+            return resolvedURL
+        }
+
+        if let doi = identifiers.doi {
+            return "https://doi.org/\(doi)"
+        }
+
+        if let arxiv = identifiers.arxiv {
+            return "https://arxiv.org/abs/\(arxiv)"
+        }
+
+        return nil
+    }
+
+    private func trimmedOrNil(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 }

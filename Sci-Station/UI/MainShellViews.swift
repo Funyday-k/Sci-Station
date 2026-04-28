@@ -11,11 +11,15 @@ struct SidebarView: View {
                     SidebarActionRow(
                         title: section.title,
                         systemImage: section.systemImage,
-                        isSelected: appModel.selectedSection == section && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+                        isSelected: isSelected(section)
                     ) {
-                        appModel.selectSection(section)
+                        if section == .pdfReader {
+                            appModel.openSelectedPaperReader()
+                        } else {
+                            appModel.selectSection(section)
+                        }
                     }
-                    .disabled(workspace == nil)
+                    .disabled(workspace == nil || (section == .pdfReader && !appModel.canEnterSelectedPaperReader))
                 }
             }
 
@@ -59,6 +63,14 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    private func isSelected(_ section: WorkspaceSection) -> Bool {
+        if section == .library {
+            return appModel.selectedSection == .library && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+        }
+
+        return appModel.selectedSection == section
     }
 }
 

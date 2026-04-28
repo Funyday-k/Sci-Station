@@ -8,23 +8,24 @@ struct LibraryListView: View {
     @State private var isTargetedForDrop = false
     @State private var isShowingCollectionManager = false
     @State private var isShowingTagManager = false
+    @State private var isShowingQuickLinkImport = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Library")
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
-                    Text("Import PDFs into raw/papers, edit meta.yaml fields, and keep the local paper library in sync.")
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Library")
+                    .font(.largeTitle)
+                    .fontWeight(.semibold)
+                Text("Import PDFs into raw/papers, edit meta.yaml fields, and keep the local paper library in sync.")
+                    .foregroundStyle(.secondary)
+            }
 
-                Spacer()
-
+            HStack(spacing: 12) {
                 TextField("Search title, author, tag, or citekey", text: $appModel.librarySearchText)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 320)
+                    .frame(minWidth: 240, idealWidth: 360, maxWidth: 420)
+
+                Spacer(minLength: 0)
 
                 Button("Manage Collections") {
                     isShowingCollectionManager = true
@@ -36,13 +37,26 @@ struct LibraryListView: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("Add by Identifier") {
-                    appModel.beginIdentifierImport()
+                Button(isShowingQuickLinkImport ? "Hide Link Import" : "Add by Link") {
+                    if isShowingQuickLinkImport {
+                        appModel.resetIdentifierImportForm()
+                        isShowingQuickLinkImport = false
+                    } else {
+                        appModel.prepareIdentifierImport()
+                        isShowingQuickLinkImport = true
+                    }
                 }
                 .buttonStyle(.bordered)
 
                 Button("Import PDF", action: appModel.importPDF)
                     .buttonStyle(.borderedProminent)
+            }
+
+            if isShowingQuickLinkImport {
+                QuickLinkImportPanel {
+                    appModel.resetIdentifierImportForm()
+                    isShowingQuickLinkImport = false
+                }
             }
 
             HStack(spacing: 10) {
@@ -158,6 +172,70 @@ struct LibraryListView: View {
     }
 }
 
+struct PDFReaderWorkspaceView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let workspace: ResearchWorkspace?
+
+    var body: some View {
+        Group {
+            if workspace != nil,
+               let paper = appModel.selectedPaperDraft,
+               let pdfURL = appModel.selectedPaperPDFURL,
+               FileManager.default.fileExists(atPath: pdfURL.path) {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("PDF Reader")
+                                .font(.largeTitle)
+                                .fontWeight(.semibold)
+                            Text(paper.displayTitle)
+                                .font(.title3)
+                            Text(paper.authorsDisplay)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button("Back to Library") {
+                            appModel.selectSection(.library)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Open in Default Viewer", action: appModel.openSelectedPaperPDF)
+                            .buttonStyle(.bordered)
+                    }
+
+                    EmbeddedPDFReaderView(
+                        pdfURL: pdfURL,
+                        initialPage: paper.lastReadPage,
+                        onPageChanged: appModel.saveSelectedPaperReadingState(lastPage:)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(.background)
+            } else if workspace != nil {
+                PDFReaderEmptyStateView(
+                    title: "No Readable PDF Selected",
+                    message: "Select a paper with a local PDF in Library, then switch back to PDF Reader mode.",
+                    actionTitle: "Back to Library"
+                ) {
+                    appModel.selectSection(.library)
+                }
+            } else {
+                PDFReaderEmptyStateView(
+                    title: "No Workspace Open",
+                    message: "Open or create a workspace before entering PDF Reader mode.",
+                    actionTitle: nil,
+                    action: nil
+                )
+            }
+        }
+    }
+}
+
 struct PaperInspectorView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -221,21 +299,6 @@ struct PaperInspectorView: View {
                         .padding(.vertical, 4)
                     }
 
-                    GroupBox("Embedded PDF Reader") {
-                        if let pdfURL = appModel.selectedPaperPDFURL,
-                           FileManager.default.fileExists(atPath: pdfURL.path) {
-                            EmbeddedPDFReaderView(
-                                pdfURL: pdfURL,
-                                initialPage: paper.lastReadPage,
-                                onPageChanged: appModel.saveSelectedPaperReadingState(lastPage:)
-                            )
-                            .frame(minHeight: 360)
-                        } else {
-                            Text("No local PDF available for the selected paper.")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
                     GroupBox("Organization") {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Move selected paper into a collection folder under raw/papers/.")
@@ -259,6 +322,8 @@ struct PaperInspectorView: View {
 
                     HStack {
                         Button("Discard", action: appModel.discardSelectedPaperChanges)
+                        Button("Read in App", action: appModel.openSelectedPaperReader)
+                            .disabled(!appModel.canEnterSelectedPaperReader)
                         Button("Open in Default Viewer", action: appModel.openSelectedPaperPDF)
                             .disabled(!appModel.canOpenSelectedPaperPDF)
                         Button("Summarize with LLM", action: appModel.generateSelectedPaperSummary)
@@ -399,6 +464,78 @@ struct PaperInspectorView: View {
     }
 }
 
+private struct QuickLinkImportPanel: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Quick Link Import")
+                        .font(.headline)
+                    Text("Paste a DOI, arXiv ID, PDF URL, or normal paper link, then preview or import it directly.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Open Full Import") {
+                    appModel.beginIdentifierImport(with: appModel.identifierImportInput)
+                }
+                .buttonStyle(.bordered)
+
+                Button("Close", action: onClose)
+                    .buttonStyle(.bordered)
+            }
+
+            TextField("Link, DOI, arXiv ID, or PDF URL", text: $appModel.identifierImportInput)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(appModel.previewIdentifierImport)
+
+            HStack(spacing: 12) {
+                TextField("Collection", text: $appModel.identifierImportCollectionPath)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Tags", text: $appModel.identifierImportTagsText, prompt: Text("Comma-separated"))
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 12) {
+                Button("Preview", action: appModel.previewIdentifierImport)
+                    .buttonStyle(.bordered)
+
+                Button("Import") {
+                    appModel.performIdentifierImport {
+                        onClose()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if appModel.isResolvingIdentifierImport || appModel.isPerformingIdentifierImport {
+                ProgressView(appModel.isPerformingIdentifierImport ? "Importing…" : "Resolving metadata…")
+            }
+
+            if let preview = appModel.identifierImportPreview {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(preview.title)
+                        .fontWeight(.semibold)
+                    Text([preview.doi, preview.arxiv, preview.sourceProvider]
+                        .compactMap { $0 }
+                        .joined(separator: "  ·  "))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(16)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
 private struct LibraryEmptyStateView: View {
     let hasAnyPaper: Bool
 
@@ -411,5 +548,28 @@ private struct LibraryEmptyStateView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+}
+
+private struct PDFReaderEmptyStateView: View {
+    let title: String
+    let message: String
+    let actionTitle: String?
+    let action: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text(message)
+                .foregroundStyle(.secondary)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(24)
     }
 }

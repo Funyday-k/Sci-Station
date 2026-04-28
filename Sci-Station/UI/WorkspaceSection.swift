@@ -3,6 +3,7 @@ import Foundation
 enum WorkspaceSection: String, CaseIterable, Identifiable {
     case dashboard
     case library
+    case pdfReader
     case inbox
     case wiki
     case papers
@@ -25,6 +26,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "Dashboard"
         case .library:
             return "Library"
+        case .pdfReader:
+            return "PDF Reader"
         case .inbox:
             return "Inbox"
         case .wiki:
@@ -56,6 +59,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "rectangle.grid.2x2"
         case .library:
             return "books.vertical"
+        case .pdfReader:
+            return "doc.viewfinder"
         case .inbox:
             return "tray"
         case .wiki:
@@ -87,6 +92,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "Start from today: inspect task load, due dates, and the most recent papers in one place."
         case .library:
             return "Track papers, reading state, tags, and import status."
+        case .pdfReader:
+            return "Focus on a selected paper with a dedicated in-app PDF reader."
         case .inbox:
             return "Stage incoming PDFs before they are normalized into raw/papers."
         case .wiki:

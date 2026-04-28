@@ -196,6 +196,10 @@ final class AppViewModel: ObservableObject {
         return FileManager.default.fileExists(atPath: pdfURL.path)
     }
 
+    var canEnterSelectedPaperReader: Bool {
+        canOpenSelectedPaperPDF
+    }
+
     var selectedPaperPDFURL: URL? {
         guard let currentWorkspace, let selectedPaperDraft else {
             return nil
@@ -348,15 +352,20 @@ final class AppViewModel: ObservableObject {
         importPDF(from: pdfURL, into: currentWorkspace)
     }
 
-    func beginIdentifierImport(with initialInput: String? = nil) {
-        if let initialInput {
-            identifierImportInput = initialInput
-        }
-        if identifierImportCollectionPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            identifierImportCollectionPath = selectedCollectionPath ?? "Uncategorized"
-        }
+    func prepareIdentifierImport(initialInput: String? = nil) {
+        identifierImportInput = initialInput ?? ""
+        identifierImportCollectionPath = selectedCollectionPath ?? "Uncategorized"
+        identifierImportTagsText = ""
         identifierImportPreview = nil
+    }
+
+    func beginIdentifierImport(with initialInput: String? = nil) {
+        prepareIdentifierImport(initialInput: initialInput)
         isShowingIdentifierImport = true
+    }
+
+    func resetIdentifierImportForm() {
+        prepareIdentifierImport()
     }
 
     func previewIdentifierImport() {
@@ -381,7 +390,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func performIdentifierImport() {
+    func performIdentifierImport(onSuccess: (() -> Void)? = nil) {
         guard let currentWorkspace else {
             return
         }
@@ -417,10 +426,19 @@ final class AppViewModel: ObservableObject {
                 identifierImportPreview = nil
                 identifierImportInput = ""
                 identifierImportTagsText = ""
+                onSuccess?()
             } catch {
                 present(error)
             }
         }
+    }
+
+    func openSelectedPaperReader() {
+        guard canEnterSelectedPaperReader else {
+            return
+        }
+
+        selectedSection = .pdfReader
     }
 
     func handlePDFDrop(providers: [NSItemProvider]) -> Bool {
@@ -604,7 +622,7 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 let targetURL = wikiPageURL(for: selectedPaperDraft, in: currentWorkspace)
-                try await llmWritebackService.write(
+                let writebackResult = try await llmWritebackService.write(
                     summaryPreviewText,
                     to: targetURL,
                     mode: mode,
@@ -612,14 +630,18 @@ final class AppViewModel: ObservableObject {
                     in: currentWorkspace
                 )
 
-                var updatedPaper = selectedPaperDraft
-                updatedPaper.status = .summarized
-                _ = try await paperRepository.save(updatedPaper, in: currentWorkspace)
+                if writebackResult.didModifyWiki {
+                    var updatedPaper = selectedPaperDraft
+                    updatedPaper.status = .summarized
+                    _ = try await paperRepository.save(updatedPaper, in: currentWorkspace)
+                }
+
                 try await loadWorkspaceData(
                     in: currentWorkspace,
                     selectingPaper: selectedPaperDraft.id,
-                    selectingMarkdown: currentWorkspace.relativePath(to: targetURL)
+                    selectingMarkdown: currentWorkspace.relativePath(to: writebackResult.writtenURL)
                 )
+                self.summaryPreviewText = nil
                 isShowingSummaryPreview = false
             } catch {
                 present(error)

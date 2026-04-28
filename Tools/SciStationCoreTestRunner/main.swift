@@ -28,7 +28,9 @@ private struct CoreVerificationSuite {
         try arxivEntryParserExtractsMetadataDraft()
         try inspireMetadataMapperExtractsMetadataDraft()
         try llmRequestBuildsExpectedPayload()
+        try paperSummaryPromptBuilderIncludesContext()
         try await llmConfigurationStorePersistsWithoutAPIKey()
+        try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
         try await pdfImportCreatesRawMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
@@ -496,6 +498,69 @@ private struct CoreVerificationSuite {
                 let settingsContents = try String(contentsOf: workspace.fileURL(for: "settings.yaml"), encoding: .utf8)
                 try expect(settingsContents.contains("base_url"), "LLM settings should be written to settings.yaml.")
                 try expect(!settingsContents.lowercased().contains("api_key"), "API keys must not be written into settings.yaml.")
+            }
+
+            private func paperSummaryPromptBuilderIncludesContext() throws {
+                var paper = samplePaper(id: "summary-context-paper")
+                paper.doi = "10.1234/example"
+                paper.abstract = "A compact abstract for testing prompt context."
+                paper.tags = ["dark-matter", "review"]
+
+                let prompt = PaperSummaryPromptBuilder().buildPrompt(
+                    for: paper,
+                    rawMarkdown: "# Raw Text\n\nImportant equation and method details.",
+                    annotations: "# Annotations\n\nCheck the simulation setup.",
+                    existingWiki: "# Existing Wiki\n\nPrior manual notes."
+                )
+
+                try expect(prompt.contains("10.1234/example"), "Prompt should include DOI metadata.")
+                try expect(prompt.contains("Important equation and method details."), "Prompt should include raw markdown or extracted text.")
+                try expect(prompt.contains("Check the simulation setup."), "Prompt should include annotations.")
+                try expect(prompt.contains("Prior manual notes."), "Prompt should include existing wiki content.")
+                try expect(prompt.contains("不要编造"), "Prompt should explicitly forbid invented claims.")
+            }
+
+            private func llmWritebackServiceKeepsDraftsSeparateFromWiki() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(
+                    fileManager: .default,
+                    bookmarkStore: bookmarkStore
+                )
+                let service = LLMWritebackService()
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LLMWritebackWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let paper = samplePaper(id: "writeback-paper")
+                let wikiURL = workspace.fileURL(for: "wiki/papers/\(paper.citekey).md")
+                try "# Original Wiki\n\nManual note.".write(to: wikiURL, atomically: true, encoding: .utf8)
+
+                let firstDraft = try await service.write("Draft summary", to: wikiURL, mode: .saveDraft, paper: paper, in: workspace)
+                let secondDraft = try await service.write("Second draft", to: wikiURL, mode: .saveDraft, paper: paper, in: workspace)
+                let wikiAfterDraft = try String(contentsOf: wikiURL, encoding: .utf8)
+
+                try expect(!firstDraft.didModifyWiki, "Saving a draft should report that the canonical wiki page was not modified.")
+                try expect(firstDraft.writtenURL != secondDraft.writtenURL, "Multiple draft saves should not overwrite older drafts.")
+                try expect(wikiAfterDraft == "# Original Wiki\n\nManual note.", "Saving a draft should leave the canonical wiki page unchanged.")
+
+                let appendResult = try await service.write("Appended summary", to: wikiURL, mode: .append, paper: paper, in: workspace)
+                let appendedWiki = try String(contentsOf: wikiURL, encoding: .utf8)
+
+                try expect(appendResult.didModifyWiki, "Appending should report that the canonical wiki page was modified.")
+                try expect(appendedWiki.contains("## AI Summary"), "Append mode should add an AI Summary section.")
+                try expect(appendedWiki.contains("Appended summary"), "Append mode should write generated content.")
+
+                let replaceResult = try await service.write("Replacement summary", to: wikiURL, mode: .replace, paper: paper, in: workspace)
+                let replacedWiki = try String(contentsOf: wikiURL, encoding: .utf8)
+
+                try expect(replaceResult.didModifyWiki, "Replace should report that the canonical wiki page was modified.")
+                try expect(replacedWiki == "Replacement summary", "Replace mode should replace the canonical wiki content.")
             }
 
     private func pdfImportCreatesRawMarkdownAndFigures() async throws {
