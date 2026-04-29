@@ -60,6 +60,7 @@ struct MaterialsView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Reload materials")
+                .accessibilityLabel("Reload materials")
             }
 
             HStack(spacing: 10) {
@@ -80,8 +81,19 @@ struct MaterialsView: View {
 
             List(selection: $selectedMaterialID) {
                 if materials.isEmpty {
-                    Text("No materials yet.")
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No materials yet.")
+                            .foregroundStyle(.secondary)
+                        Button("Reveal Folder") {
+                            NSWorkspace.shared.open(materialsRootURL)
+                        }
+                        Button("Open in VS Code") {
+                            openInVSCode(materialsRootURL)
+                        }
+                        Button("Refresh") {
+                            Task { await reloadMaterials() }
+                        }
+                    }
                 } else {
                     ForEach(groupedMaterials, id: \.category) { group in
                         Section(group.category.capitalized) {
@@ -161,12 +173,26 @@ struct MaterialsView: View {
             }
             .padding(20)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Materials")
                     .font(.title2)
                     .fontWeight(.semibold)
                 Text("Select a data, code, figure, or output file for the active project.")
                     .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Button("Reveal Folder") {
+                        NSWorkspace.shared.open(materialsRootURL)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Open Workspace in VS Code") {
+                        openInVSCode(materialsRootURL)
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Refresh") {
+                        Task { await reloadMaterials() }
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(20)

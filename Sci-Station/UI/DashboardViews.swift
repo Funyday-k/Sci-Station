@@ -72,11 +72,19 @@ private struct ResearchProjectsWidget: View {
             }
 
             if appModel.activeResearchProjects.isEmpty {
-                Text("No projects have been registered yet.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("No projects have been registered yet.")
+                        .foregroundStyle(.secondary)
+                    Button {
+                        appModel.beginCreatingResearchProject()
+                    } label: {
+                        Label("New Project", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], alignment: .leading, spacing: 12) {
                     ForEach(appModel.activeResearchProjects) { project in

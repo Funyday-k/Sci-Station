@@ -25,6 +25,26 @@ struct ResearchProjectEditorDraft {
     }
 }
 
+private enum AgentPanelValidationError: LocalizedError {
+    case missingWorkspace
+    case emptyGoal
+    case missingAPIKey
+    case missingPlan
+
+    var errorDescription: String? {
+        switch self {
+        case .missingWorkspace:
+            return "Open a workspace before running the agent."
+        case .emptyGoal:
+            return "Enter an agent goal first."
+        case .missingAPIKey:
+            return "Add an LLM API key in Settings before generating an agent plan."
+        case .missingPlan:
+            return "Generate a plan before running approved tools."
+        }
+    }
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
@@ -41,8 +61,11 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var isWorking = false
     @Published private(set) var papers: [Paper] = []
+    @Published private(set) var projectPaperLinks: [ProjectPaperLink] = []
     @Published private(set) var legacyPaperMigrationPlan = LegacyPaperMigrationPlan.empty
+    @Published private(set) var legacyPaperMigrationReport: LegacyPaperMigrationReport?
     @Published private(set) var isLoadingLegacyPaperMigrationPlan = false
+    @Published private(set) var isRunningLegacyPaperMigration = false
     @Published private(set) var collections: [PaperCollection] = []
     @Published private(set) var tagDefinitions: [TagDefinition] = []
     @Published private(set) var todos: [TodoItem] = []
@@ -68,6 +91,11 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var collapsedCollectionPaths: Set<String> = []
     @Published var selectedDashboardDate = Calendar.current.startOfDay(for: Date())
     @Published var librarySearchText = ""
+    @Published private(set) var librarySearchFocusRequest = 0
+    @Published private(set) var pdfReaderSearchFocusRequest = 0
+    @Published private(set) var pdfReaderFindNextRequest = 0
+    @Published private(set) var pdfReaderFindPreviousRequest = 0
+    @Published private(set) var inspectorFocusRequest = 0
     @Published private(set) var isImportingPDF = false
     @Published var isShowingIdentifierImport = false
     @Published var identifierImportInput = ""
@@ -85,16 +113,31 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isGeneratingSummary = false
     @Published private(set) var summaryPreviewText: String?
     @Published var isShowingSummaryPreview = false
+    @Published var agentGoal = ""
+    @Published private(set) var agentWorkspaceSnapshot: AgentWorkspaceSnapshot?
+    @Published private(set) var agentToolDefinitions: [AgentToolDefinition] = []
+    @Published private(set) var agentCurrentRun: AgentRun?
+    @Published private(set) var agentToolApprovals: Set<String> = []
+    @Published private(set) var agentRunHistory: [AgentRun] = []
+    @Published private(set) var agentBridgeExport: AgentCopilotBridgeExport?
+    @Published private(set) var agentStatusMessage: String?
+    @Published private(set) var agentErrorMessage: String?
+    @Published private(set) var isRefreshingAgentContext = false
+    @Published private(set) var isPlanningAgentRun = false
+    @Published private(set) var isExecutingAgentTools = false
+    @Published private(set) var isExportingAgentBridge = false
     @Published private(set) var isGeneratingWikiPage = false
     @Published private(set) var markdownDocuments: [MarkdownDocument] = []
     @Published private(set) var selectedMarkdownID: String?
     @Published private(set) var selectedMarkdownDraft: MarkdownDocument?
+    @Published var isShowingUnsavedMarkdownConfirmation = false
     @Published private(set) var markdownSnippets: [MarkdownSnippet] = MarkdownSnippetRepository.defaultSnippets
     @Published private(set) var isSavingSelectedMarkdown = false
 
     private let workspaceService: WorkspaceService
     private let projectRegistryRepository: ProjectRegistryRepository
     private let paperRepository: PaperRepository
+    private let projectPaperLinkRepository: ProjectPaperLinkRepository
     private let legacyPaperMigrationService: LegacyPaperMigrationService
     private let collectionRepository: CollectionRepository
     private let movePaperToCollectionService: MovePaperToCollectionService
@@ -111,6 +154,7 @@ final class AppViewModel: ObservableObject {
     private let openAIProvider: OpenAICompatibleProvider
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
+    private let agentService: SciStationAgentService
     private let pdfImportService: PDFImportService
     private let markdownRepository: MarkdownRepository
     private let markdownSnippetRepository: MarkdownSnippetRepository
@@ -119,6 +163,7 @@ final class AppViewModel: ObservableObject {
     private let librarySearchService: LibrarySearchService
     private let batchImportInputParser = BatchImportInputParser()
     private var backlinkIndex = BacklinkIndex(documents: [])
+    private var pendingMarkdownSelectionID: String?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -127,6 +172,7 @@ final class AppViewModel: ObservableObject {
     init(
         workspaceService: WorkspaceService? = nil,
         projectRegistryRepository: ProjectRegistryRepository? = nil,
+        projectPaperLinkRepository: ProjectPaperLinkRepository? = nil,
         paperRepository: PaperRepository? = nil,
         legacyPaperMigrationService: LegacyPaperMigrationService? = nil,
         collectionRepository: CollectionRepository? = nil,
@@ -143,13 +189,15 @@ final class AppViewModel: ObservableObject {
         openAIProvider: OpenAICompatibleProvider? = nil,
         paperSummaryService: PaperSummaryService? = nil,
         llmWritebackService: LLMWritebackService? = nil,
+        agentService: SciStationAgentService? = nil,
         markdownRepository: MarkdownRepository? = nil,
         markdownSnippetRepository: MarkdownSnippetRepository? = nil,
         pdfOpeningService: (any PDFOpeningService)? = nil
     ) {
         let resolvedWorkspaceService = workspaceService ?? WorkspaceService()
         let resolvedProjectRegistryRepository = projectRegistryRepository ?? ProjectRegistryRepository()
-        let resolvedPaperRepository = paperRepository ?? PaperRepository()
+        let resolvedProjectPaperLinkRepository = projectPaperLinkRepository ?? ProjectPaperLinkRepository()
+        let resolvedPaperRepository = paperRepository ?? PaperRepository(projectPaperLinkRepository: resolvedProjectPaperLinkRepository)
         let resolvedLegacyPaperMigrationService = legacyPaperMigrationService ?? LegacyPaperMigrationService()
         let resolvedCollectionRepository = collectionRepository ?? CollectionRepository()
         let resolvedTagRepository = tagRepository ?? TagRepository()
@@ -168,12 +216,18 @@ final class AppViewModel: ObservableObject {
         let resolvedOpenAIProvider = openAIProvider ?? OpenAICompatibleProvider()
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
+        let resolvedAgentService = agentService ?? SciStationAgentService(
+            provider: resolvedOpenAIProvider,
+            paperRepository: resolvedPaperRepository,
+            todoRepository: resolvedTodoRepository
+        )
         let resolvedMarkdownRepository = markdownRepository ?? MarkdownRepository()
         let resolvedMarkdownSnippetRepository = markdownSnippetRepository ?? MarkdownSnippetRepository()
 
         self.workspaceService = resolvedWorkspaceService
         self.projectRegistryRepository = resolvedProjectRegistryRepository
         self.paperRepository = resolvedPaperRepository
+        self.projectPaperLinkRepository = resolvedProjectPaperLinkRepository
         self.legacyPaperMigrationService = resolvedLegacyPaperMigrationService
         self.collectionRepository = resolvedCollectionRepository
         self.movePaperToCollectionService = MovePaperToCollectionService(paperRepository: resolvedPaperRepository)
@@ -191,6 +245,7 @@ final class AppViewModel: ObservableObject {
         self.openAIProvider = resolvedOpenAIProvider
         self.paperSummaryService = resolvedPaperSummaryService
         self.llmWritebackService = resolvedLLMWritebackService
+        self.agentService = resolvedAgentService
         self.pdfImportService = PDFImportService(repository: resolvedPaperRepository)
         self.markdownRepository = resolvedMarkdownRepository
         self.markdownSnippetRepository = resolvedMarkdownSnippetRepository
@@ -319,6 +374,54 @@ final class AppViewModel: ObservableObject {
         papers(for: projectID).filter { $0.coreProjectIDs.contains(projectID) }
     }
 
+    func projectPaperLink(for paperID: Paper.ID, projectID: ResearchProject.ID) -> ProjectPaperLink? {
+        projectPaperLinks.first { $0.paperID == paperID && $0.projectID == projectID }
+    }
+
+    func projectPaperLink(for paper: Paper, projectID: ResearchProject.ID) -> ProjectPaperLink? {
+        if let link = projectPaperLink(for: paper.id, projectID: projectID) {
+            return link
+        }
+
+        guard paper.projectIDs.contains(projectID) else {
+            return nil
+        }
+
+        return ProjectPaperLink(
+            projectID: projectID,
+            paperID: paper.id,
+            isCore: paper.coreProjectIDs.contains(projectID),
+            folderPath: paper.folderPath,
+            useFor: paper.useFor,
+            createdAt: paper.createdAt,
+            updatedAt: paper.updatedAt
+        )
+    }
+
+    func projectPaperLinkSortPrecedes(_ first: Paper, _ second: Paper, projectID: ResearchProject.ID) -> Bool {
+        let firstLink = projectPaperLink(for: first, projectID: projectID)
+        let secondLink = projectPaperLink(for: second, projectID: projectID)
+
+        if firstLink?.isPinned != secondLink?.isPinned {
+            return firstLink?.isPinned == true
+        }
+
+        if firstLink?.sortOrder != secondLink?.sortOrder {
+            switch (firstLink?.sortOrder, secondLink?.sortOrder) {
+            case let (firstOrder?, secondOrder?):
+                return firstOrder < secondOrder
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                break
+            }
+        }
+
+        return false
+    }
+
     func projectName(for projectID: ResearchProject.ID) -> String {
         researchProjects.first(where: { $0.id == projectID })?.name ?? projectID
     }
@@ -401,6 +504,10 @@ final class AppViewModel: ObservableObject {
         paperPendingDeletion?.displayTitle ?? "the selected paper"
     }
 
+    var deletePendingPaperRelativePath: String {
+        paperPendingDeletion?.paperDirectoryRelativePath ?? "the selected paper directory"
+    }
+
     var selectedPaperHasWikiPage: Bool {
         guard let currentWorkspace, let selectedPaperDraft else {
             return false
@@ -415,6 +522,15 @@ final class AppViewModel: ObservableObject {
 
     var canSaveSelectedMarkdown: Bool {
         currentWorkspace != nil && selectedMarkdownDraft != nil
+    }
+
+    var selectedMarkdownHasUnsavedChanges: Bool {
+        guard let selectedMarkdownDraft,
+              let savedDocument = markdownDocuments.first(where: { $0.id == selectedMarkdownDraft.id }) else {
+            return false
+        }
+
+        return selectedMarkdownDraft.rawContents != savedDocument.rawContents
     }
 
     var selectedMarkdownBacklinks: [MarkdownDocumentReference] {
@@ -487,6 +603,30 @@ final class AppViewModel: ObservableObject {
     func clearLibraryFilters() {
         selectedCollectionPath = nil
         selectedTagName = nil
+        selectedLibraryProjectID = nil
+        librarySearchText = ""
+    }
+
+    func focusSearchForCurrentSection() {
+        if selectedSection == .pdfReader {
+            pdfReaderSearchFocusRequest += 1
+            return
+        }
+
+        selectedSection = .library
+        librarySearchFocusRequest += 1
+    }
+
+    func requestPDFReaderFindNext() {
+        pdfReaderFindNextRequest += 1
+    }
+
+    func requestPDFReaderFindPrevious() {
+        pdfReaderFindPreviousRequest += 1
+    }
+
+    func focusInspector() {
+        inspectorFocusRequest += 1
     }
 
     func toggleCollectionCollapse(_ relativePath: String) {
@@ -553,6 +693,7 @@ final class AppViewModel: ObservableObject {
         }
 
         persistLastOpenedProject(projectID)
+        refreshAgentContext()
 
         if section == .wiki, let currentWorkspace {
             Task {
@@ -568,6 +709,7 @@ final class AppViewModel: ObservableObject {
     func focusResearchProject(_ projectID: ResearchProject.ID) {
         currentProjectID = projectID
         persistLastOpenedProject(projectID)
+        refreshAgentContext()
     }
 
     func selectGlobalTodos() {
@@ -693,6 +835,15 @@ final class AppViewModel: ObservableObject {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: currentWorkspace.rootURL.path)
     }
 
+    func revealSelectedPaperInFinder() {
+        guard let currentWorkspace, let selectedPaperDraft else {
+            return
+        }
+
+        let paperDirectoryURL = currentWorkspace.directoryURL(for: selectedPaperDraft.paperDirectoryRelativePath)
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: paperDirectoryURL.path)
+    }
+
     func clearRecentWorkspaceBookmark() {
         Task {
             await workspaceService.clearRecentWorkspaceBookmark()
@@ -802,6 +953,32 @@ final class AppViewModel: ObservableObject {
                 } else {
                     workspaceSettingsStatusMessage = "No legacy raw/papers items found."
                 }
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func copyReadyLegacyPapers() {
+        guard let currentWorkspace, legacyPaperMigrationPlan.readyCount > 0 else {
+            return
+        }
+
+        isRunningLegacyPaperMigration = true
+        Task {
+            defer {
+                isRunningLegacyPaperMigration = false
+            }
+
+            do {
+                let report = try await legacyPaperMigrationService.copyReadyItems(in: currentWorkspace)
+                legacyPaperMigrationReport = report
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: selectedPaperID,
+                    selectingMarkdown: selectedMarkdownID
+                )
+                workspaceSettingsStatusMessage = "Copied \(report.copiedCount) legacy papers. Skipped \(report.skippedCount), failed \(report.failedCount). Report: \(report.reportRelativePath ?? "not written")."
             } catch {
                 present(error)
             }
@@ -1285,6 +1462,163 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func refreshAgentContext() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        isRefreshingAgentContext = true
+        Task {
+            defer {
+                isRefreshingAgentContext = false
+            }
+            await refreshAgentState(in: currentWorkspace)
+        }
+    }
+
+    func setAgentToolApproval(callID: String, isApproved: Bool) {
+        if isApproved {
+            agentToolApprovals.insert(callID)
+        } else {
+            agentToolApprovals.remove(callID)
+        }
+    }
+
+    func agentToolDefinition(for call: AgentToolCall) -> AgentToolDefinition? {
+        agentToolDefinitions.first { $0.name == call.toolName }
+    }
+
+    func generateAgentPlan() {
+        guard let currentWorkspace else {
+            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+
+        let trimmedGoal = agentGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedGoal.isEmpty else {
+            agentErrorMessage = AgentPanelValidationError.emptyGoal.localizedDescription
+            return
+        }
+
+        isPlanningAgentRun = true
+        agentErrorMessage = nil
+        agentStatusMessage = nil
+
+        Task {
+            defer {
+                isPlanningAgentRun = false
+            }
+
+            do {
+                let apiKey = try await resolvedLLMAPIKey(for: currentWorkspace)
+                guard !apiKey.isEmpty else {
+                    throw AgentPanelValidationError.missingAPIKey
+                }
+
+                let run = try await agentService.run(
+                    goal: trimmedGoal,
+                    in: currentWorkspace,
+                    root: currentResearchRoot,
+                    projects: researchProjects,
+                    currentProjectID: currentResearchProject?.id,
+                    selectedPaperID: selectedPaperID,
+                    configuration: llmConfiguration,
+                    apiKey: apiKey,
+                    options: AgentExecutionOptions(mode: .planOnly)
+                )
+                agentCurrentRun = run
+                agentToolApprovals = []
+                agentBridgeExport = nil
+                agentStatusMessage = "Plan generated. Review and approve workspace-writing tools before running."
+                await refreshAgentState(in: currentWorkspace)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func executeApprovedAgentTools() {
+        guard let currentWorkspace else {
+            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+        guard let currentRun = agentCurrentRun else {
+            agentErrorMessage = AgentPanelValidationError.missingPlan.localizedDescription
+            return
+        }
+
+        let goal = agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? currentRun.goal : agentGoal
+        isExecutingAgentTools = true
+        agentErrorMessage = nil
+        agentStatusMessage = nil
+
+        Task {
+            defer {
+                isExecutingAgentTools = false
+            }
+
+            do {
+                let executedRun = try await agentService.executeApprovedPlan(
+                    goal: goal,
+                    plan: currentRun.plan,
+                    in: currentWorkspace,
+                    root: currentResearchRoot,
+                    currentProjectID: currentResearchProject?.id,
+                    selectedPaperID: selectedPaperID,
+                    approvedToolCallIDs: agentToolApprovals
+                )
+                agentCurrentRun = executedRun
+                agentStatusMessage = "Approved tools finished. Workspace data has been refreshed."
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: selectedPaperID,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func exportAgentCopilotBridge() {
+        guard let currentWorkspace else {
+            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+
+        let trimmedGoal = agentGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedGoal.isEmpty else {
+            agentErrorMessage = AgentPanelValidationError.emptyGoal.localizedDescription
+            return
+        }
+
+        isExportingAgentBridge = true
+        agentErrorMessage = nil
+        agentStatusMessage = nil
+
+        Task {
+            defer {
+                isExportingAgentBridge = false
+            }
+
+            do {
+                let export = try await agentService.exportCopilotBridge(
+                    goal: trimmedGoal,
+                    in: currentWorkspace,
+                    root: currentResearchRoot,
+                    projects: researchProjects,
+                    currentProjectID: currentResearchProject?.id,
+                    selectedPaperID: selectedPaperID
+                )
+                agentBridgeExport = export
+                agentStatusMessage = "Copilot Bridge exported to \(export.promptRelativePath)."
+                await refreshAgentState(in: currentWorkspace)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func applySummaryPreview(mode: LLMWritebackMode) {
         guard let currentWorkspace, let selectedPaperDraft, let summaryPreviewText else {
             return
@@ -1446,34 +1780,129 @@ final class AppViewModel: ObservableObject {
     }
 
     func togglePaperProject(_ paper: Paper, projectID: ResearchProject.ID) {
+        setPaperProjectMembership(paper, projectID: projectID, isMember: projectPaperLink(for: paper, projectID: projectID) == nil)
+    }
+
+    func togglePaperCoreProject(_ paper: Paper, projectID: ResearchProject.ID) {
+        let isCore = projectPaperLink(for: paper, projectID: projectID)?.isCore == true
+        setPaperProjectCore(paper, projectID: projectID, isCore: !isCore)
+    }
+
+    func setPaperProjectMembership(_ paper: Paper, projectID: ResearchProject.ID, isMember: Bool) {
         guard let currentWorkspace else {
             return
         }
 
-        var updatedPaper = paper
-        if updatedPaper.projectIDs.contains(projectID) {
-            updatedPaper.projectIDs.removeAll { $0 == projectID }
-            updatedPaper.coreProjectIDs.removeAll { $0 == projectID }
-        } else {
-            updatedPaper.projectIDs.append(projectID)
-        }
+        let existingLink = projectPaperLink(for: paper, projectID: projectID)
 
-        savePaperClassification(updatedPaper, in: currentWorkspace)
+        Task {
+            do {
+                if isMember {
+                    let link = existingLink ?? ProjectPaperLink(projectID: projectID, paperID: paper.id)
+                    _ = try await projectPaperLinkRepository.upsert(link, in: currentWorkspace)
+                } else {
+                    _ = try await projectPaperLinkRepository.remove(projectID: projectID, paperID: paper.id, in: currentWorkspace)
+                }
+                try await syncPaperProjectMetadataMirror(forPaperID: paper.id, in: currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: paper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                present(error)
+            }
+        }
     }
 
-    func togglePaperCoreProject(_ paper: Paper, projectID: ResearchProject.ID) {
-        guard let currentWorkspace, paper.projectIDs.contains(projectID) else {
+    func setPaperProjectCore(_ paper: Paper, projectID: ResearchProject.ID, isCore: Bool) {
+        guard let currentWorkspace else {
             return
         }
 
-        var updatedPaper = paper
-        if updatedPaper.coreProjectIDs.contains(projectID) {
-            updatedPaper.coreProjectIDs.removeAll { $0 == projectID }
-        } else {
-            updatedPaper.coreProjectIDs.append(projectID)
+        Task {
+            do {
+                _ = try await projectPaperLinkRepository.setCore(isCore, projectID: projectID, paperID: paper.id, in: currentWorkspace)
+                try await syncPaperProjectMetadataMirror(forPaperID: paper.id, in: currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: paper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func setPaperProjectPinned(_ paper: Paper, projectID: ResearchProject.ID, isPinned: Bool) {
+        guard let currentWorkspace else {
+            return
         }
 
-        savePaperClassification(updatedPaper, in: currentWorkspace)
+        Task {
+            do {
+                _ = try await projectPaperLinkRepository.setPinned(isPinned, projectID: projectID, paperID: paper.id, in: currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: paper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updatePaperProjectUseFor(_ paper: Paper, projectID: ResearchProject.ID, text: String) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let useFor = commaSeparatedValues(from: text)
+        Task {
+            do {
+                _ = try await projectPaperLinkRepository.updateUseFor(useFor, projectID: projectID, paperID: paper.id, in: currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: paper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updatePaperProjectFolderPath(_ paper: Paper, projectID: ResearchProject.ID, folderPath: String) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let trimmedFolderPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        Task {
+            do {
+                _ = try await projectPaperLinkRepository.updateFolderPath(trimmedFolderPath, projectID: projectID, paperID: paper.id, in: currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: paper.id,
+                    selectingMarkdown: selectedMarkdownID
+                )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    private func syncPaperProjectMetadataMirror(forPaperID paperID: Paper.ID, in workspace: ResearchWorkspace) async throws {
+        let links = try await projectPaperLinkRepository.links(forPaperID: paperID, in: workspace)
+        guard var paper = selectedPaperDraft?.id == paperID ? selectedPaperDraft : papers.first(where: { $0.id == paperID }) else {
+            return
+        }
+
+        paper.projectIDs = uniqueOrdered(links.map(\.projectID))
+        paper.coreProjectIDs = uniqueOrdered(links.filter(\.isCore).map(\.projectID))
+        _ = try await paperRepository.saveMetadataMirror(paper, in: workspace)
     }
 
     private func savePaperClassification(_ paper: Paper, in workspace: ResearchWorkspace) {
@@ -1719,6 +2148,32 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectMarkdownDocument(id: String?) {
+        guard id != selectedMarkdownID else {
+            return
+        }
+
+        if selectedMarkdownHasUnsavedChanges {
+            pendingMarkdownSelectionID = id
+            isShowingUnsavedMarkdownConfirmation = true
+            return
+        }
+
+        applyMarkdownSelection(id)
+    }
+
+    func confirmDiscardUnsavedMarkdownSelection() {
+        let nextSelectionID = pendingMarkdownSelectionID
+        pendingMarkdownSelectionID = nil
+        isShowingUnsavedMarkdownConfirmation = false
+        applyMarkdownSelection(nextSelectionID)
+    }
+
+    func cancelDiscardUnsavedMarkdownSelection() {
+        pendingMarkdownSelectionID = nil
+        isShowingUnsavedMarkdownConfirmation = false
+    }
+
+    private func applyMarkdownSelection(_ id: String?) {
         selectedMarkdownID = id
         selectedMarkdownDraft = markdownDocuments.first(where: { $0.id == id })
     }
@@ -1742,6 +2197,15 @@ final class AppViewModel: ObservableObject {
                 present(error)
             }
         }
+    }
+
+    func openCurrentProjectOverviewPage() {
+        guard let project = currentResearchProject else {
+            selectedSection = .wiki
+            return
+        }
+
+        openMarkdownDocument(relativePath: project.relativePath + "/wiki/projects/project_overview.md")
     }
 
     func updateSelectedMarkdownContents(_ newValue: String) {
@@ -1772,6 +2236,18 @@ final class AppViewModel: ObservableObject {
         }
 
         NSWorkspace.shared.open(currentWorkspace.markdownSnippetsURL)
+    }
+
+    func openWikiFolder() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        if let project = currentResearchProject {
+            NSWorkspace.shared.open(currentWorkspace.directoryURL(for: project.relativePath + "/wiki"))
+        } else {
+            NSWorkspace.shared.open(currentWorkspace.directoryURL(for: "wiki"))
+        }
     }
 
     func saveSelectedMarkdownChanges() {
@@ -1872,6 +2348,20 @@ final class AppViewModel: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
+    private func uniqueOrdered(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values {
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedValue.isEmpty, !seen.contains(trimmedValue) else {
+                continue
+            }
+            seen.insert(trimmedValue)
+            result.append(trimmedValue)
+        }
+        return result
+    }
+
     private func generateSelectedPaperWikiPage() {
         guard let currentWorkspace, let selectedPaperDraft else {
             return
@@ -1929,6 +2419,7 @@ final class AppViewModel: ObservableObject {
         try await loadLLMSettings(in: workspace)
         try await loadMarkdownSnippets(in: workspace)
         try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
+        await refreshAgentState(in: workspace)
     }
 
     private func loadResearchRoot(in workspace: ResearchWorkspace, compatibility: ResearchRootCompatibility?) async throws {
@@ -1947,6 +2438,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadLibrary(in workspace: ResearchWorkspace, selecting paperID: Paper.ID?) async throws {
+        projectPaperLinks = try await projectPaperLinkRepository.load(in: workspace)
         let loadedPapers = try await paperRepository.loadPapers(in: workspace)
         papers = loadedPapers
 
@@ -2107,6 +2599,31 @@ final class AppViewModel: ObservableObject {
     private func loadLLMSettings(in workspace: ResearchWorkspace) async throws {
         llmConfiguration = try await llmConfigurationStore.load(in: workspace)
         llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+    }
+
+    private func resolvedLLMAPIKey(for workspace: ResearchWorkspace) async throws -> String {
+        if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return llmAPIKey
+        }
+
+        return try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+    }
+
+    private func refreshAgentState(in workspace: ResearchWorkspace) async {
+        do {
+            let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+            agentWorkspaceSnapshot = try await agentService.snapshot(
+                in: workspace,
+                root: root,
+                projects: researchProjects,
+                currentProjectID: currentResearchProject?.id,
+                selectedPaperID: selectedPaperID
+            )
+            agentToolDefinitions = await agentService.toolDefinitions()
+            agentRunHistory = try await agentService.recentRuns(in: root, limit: 5)
+        } catch {
+            agentErrorMessage = error.localizedDescription
+        }
     }
 
     private func loadMarkdownSnippets(in workspace: ResearchWorkspace) async throws {

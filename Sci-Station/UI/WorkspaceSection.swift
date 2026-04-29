@@ -108,7 +108,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
         case .pdfReader:
             return "Focus on a selected paper with a dedicated in-app PDF reader."
         case .inbox:
-            return "Stage incoming PDFs before they are normalized into raw/papers."
+            return "Stage incoming PDFs before they are normalized into library/papers."
         case .wiki:
             return "Browse and edit Markdown knowledge pages across the project workspace."
         case .papers:

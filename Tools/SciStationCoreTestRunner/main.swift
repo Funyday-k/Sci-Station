@@ -32,7 +32,10 @@ private struct CoreVerificationSuite {
         try await paperRepositorySaveAndLoadRoundTripsPaper()
         try await paperRepositoryKeepsLegacyRawPapersLoadable()
         try await legacyPaperMigrationPlanDetectsRawPaperConflicts()
+        try await legacyPaperMigrationCopyWritesReportAndPrefersGlobalPaper()
         try await projectPaperLinkRepositoryRoundTripsAndOverlaysPaperMetadata()
+        try await projectPaperLinkRepositoryEditsSingleLinksAndLoadsLegacyYAML()
+        try await paperRepositoryKeepsLegacyProjectMetadataWithoutLinks()
         try await paperRepositoryDeletesPaperDirectory()
         try librarySearchMatchesExtendedMetadata()
         try await paperAnnotationsRepositoryRoundTripsAnnotations()
@@ -52,6 +55,9 @@ private struct CoreVerificationSuite {
         try await agentPaperClassificationToolUpdatesMetadata()
         try await agentWorkspaceSnapshotIncludesProjectContext()
         try await agentRunLoggerAndCopilotBridgeExporterWriteWorkspaceFiles()
+        try await agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory()
+        try await agentServiceExecutesApprovedPlanAndExportsBridge()
+        try await agentRunLoggerSkipsDamagedHistoryLines()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
@@ -663,6 +669,74 @@ private struct CoreVerificationSuite {
         try expect(conflictItem.conflicts.contains(.duplicatePaperIDInGlobalLibrary), "Migration plan should flag duplicate global paper ids.")
     }
 
+    private func legacyPaperMigrationCopyWritesReportAndPrefersGlobalPaper() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let paperRepository = PaperRepository()
+        let migrationService = LegacyPaperMigrationService()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LegacyMigrationCopyWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+
+        var readyPaper = samplePaper(id: "legacy-copy-ready-paper")
+        readyPaper.paperDirectoryRelativePath = "raw/papers/Legacy/legacy-copy-ready-paper"
+        readyPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: readyPaper.citekey,
+            paperDirectoryRelativePath: readyPaper.paperDirectoryRelativePath
+        )
+        _ = try await paperRepository.save(readyPaper, in: workspace)
+
+        var conflictPaper = samplePaper(id: "legacy-copy-conflict-paper")
+        conflictPaper.paperDirectoryRelativePath = "raw/papers/Legacy/legacy-copy-conflict-paper"
+        conflictPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: conflictPaper.citekey,
+            paperDirectoryRelativePath: conflictPaper.paperDirectoryRelativePath
+        )
+        _ = try await paperRepository.save(conflictPaper, in: workspace)
+
+        var globalConflictPaper = conflictPaper
+        globalConflictPaper.paperDirectoryRelativePath = "library/papers/Legacy/legacy-copy-conflict-paper"
+        globalConflictPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: globalConflictPaper.citekey,
+            paperDirectoryRelativePath: globalConflictPaper.paperDirectoryRelativePath
+        )
+        _ = try await paperRepository.save(globalConflictPaper, in: workspace)
+
+        let report = try await migrationService.copyReadyItems(in: workspace)
+        let reportRelativePath = try require(report.reportRelativePath, "Migration report should include its relative path.")
+        let reportURL = workspace.fileURL(for: reportRelativePath)
+        let copiedDirectoryURL = workspace.directoryURL(for: "library/papers/Legacy/legacy-copy-ready-paper")
+        let legacyDirectoryURL = workspace.directoryURL(for: "raw/papers/Legacy/legacy-copy-ready-paper")
+        let loadedPapers = try await paperRepository.loadPapers(in: workspace)
+        let loadedReadyPapers = loadedPapers.filter { $0.id == readyPaper.id }
+        let loadedReadyPaper = try require(loadedReadyPapers.first, "Expected copied paper to be loadable.")
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedReport = try decoder.decode(LegacyPaperMigrationReport.self, from: Data(contentsOf: reportURL))
+
+        try expect(report.copiedCount == 1, "Copy migration should copy ready legacy papers.")
+        try expect(report.skippedCount == 1, "Copy migration should skip conflicting legacy papers.")
+        try expect(report.failedCount == 0, "Copy migration should not fail ready papers in the happy path.")
+        try expect(FileManager.default.fileExists(atPath: reportURL.path), "Copy migration should write a JSON report.")
+        try expect(decodedReport.items.count == 2, "Written migration report should include every planned legacy item.")
+        try expect(FileManager.default.fileExists(atPath: copiedDirectoryURL.path), "Copy migration should create the global library paper directory.")
+        try expect(FileManager.default.fileExists(atPath: legacyDirectoryURL.path), "Copy migration should keep the legacy raw/papers directory in place.")
+        try expect(loadedReadyPapers.count == 1, "PaperRepository should not return duplicate ids after migration copy.")
+        try expect(loadedReadyPaper.paperDirectoryRelativePath == "library/papers/Legacy/legacy-copy-ready-paper", "PaperRepository should prefer the global library copy after migration.")
+        try expect(loadedReadyPaper.notesSummaryRelativePath == Paper.summaryRelativePath(for: loadedReadyPaper.citekey, paperDirectoryRelativePath: loadedReadyPaper.paperDirectoryRelativePath), "Copied metadata should be normalized to the new library path.")
+    }
+
     private func projectPaperLinkRepositoryRoundTripsAndOverlaysPaperMetadata() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
         let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -688,7 +762,9 @@ private struct CoreVerificationSuite {
                 paperID: paper.id,
                 isCore: true,
                 folderPath: "Project-Folder",
-                useFor: ["method-design"]
+                useFor: ["method-design"],
+                isPinned: true,
+                sortOrder: 3
             )
         ], in: workspace)
 
@@ -703,6 +779,107 @@ private struct CoreVerificationSuite {
         try expect(loadedPaper.coreProjectIDs == ["project-alpha"], "Loaded paper should expose core project ids from the link repository.")
         try expect(loadedPaper.folderPath == "Project-Folder", "Loaded paper should expose the project folder from the link repository.")
         try expect(loadedPaper.useFor.contains("method-design"), "Loaded paper should merge project use cases from the link repository.")
+        try expect(loadedLinks.first?.isPinned == true, "Project-paper link repository should round-trip pinned state.")
+        try expect(loadedLinks.first?.sortOrder == 3, "Project-paper link repository should round-trip sort order.")
+    }
+
+    private func projectPaperLinkRepositoryEditsSingleLinksAndLoadsLegacyYAML() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let linkRepository = ProjectPaperLinkRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("ProjectPaperLinkEditWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        try FileManager.default.createDirectory(at: workspace.projectPaperLinksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        links:
+          - project_id: "project-alpha"
+            paper_id: "paper-alpha"
+            is_core: true
+            folder_path: "Reading Queue"
+            use_for:
+              - "background"
+            created_at: 2026-04-29T00:00:00Z
+            updated_at: 2026-04-29T00:00:00Z
+        """.write(to: workspace.projectPaperLinksURL, atomically: true, encoding: .utf8)
+
+        let legacyLink = try require(
+            try await linkRepository.link(forPaperID: "paper-alpha", projectID: "project-alpha", in: workspace),
+            "Expected legacy project-paper link YAML to load without pin/order fields."
+        )
+        try expect(legacyLink.isPinned == false, "Legacy project-paper links should default to unpinned.")
+        try expect(legacyLink.sortOrder == nil, "Legacy project-paper links should default to no explicit sort order.")
+
+        let pinnedLink = try await linkRepository.setPinned(true, projectID: "project-alpha", paperID: "paper-alpha", in: workspace)
+        let orderedLink = try await linkRepository.updateSortOrder(2, projectID: "project-alpha", paperID: "paper-alpha", in: workspace)
+        let useForLink = try await linkRepository.updateUseFor(["method", "method", "comparison"], projectID: "project-alpha", paperID: "paper-alpha", in: workspace)
+        let folderLink = try await linkRepository.updateFolderPath("  Methods/Core  ", projectID: "project-alpha", paperID: "paper-alpha", in: workspace)
+        _ = try await linkRepository.setCore(false, projectID: "project-alpha", paperID: "paper-alpha", in: workspace)
+
+        let editedLink = try require(
+            try await linkRepository.link(forPaperID: "paper-alpha", projectID: "project-alpha", in: workspace),
+            "Expected single-link edit APIs to keep the edited link loadable."
+        )
+        let encodedYAML = try String(contentsOf: workspace.projectPaperLinksURL, encoding: .utf8)
+
+        try expect(pinnedLink.isPinned, "setPinned should return the updated pinned link.")
+        try expect(orderedLink.sortOrder == 2, "updateSortOrder should return the updated sort order.")
+        try expect(useForLink.useFor == ["method", "comparison"], "updateUseFor should normalize duplicate project usage values.")
+        try expect(folderLink.folderPath == "Methods/Core", "updateFolderPath should trim project folder paths.")
+        try expect(editedLink.isCore == false, "setCore should update the existing link.")
+        try expect(editedLink.isPinned == true, "Edited link should persist pinned state.")
+        try expect(editedLink.sortOrder == 2, "Edited link should persist sort order.")
+        try expect(encodedYAML.contains("is_pinned: true"), "Encoded project-paper links should include pinned state.")
+        try expect(encodedYAML.contains("sort_order: 2"), "Encoded project-paper links should include sort order.")
+
+        let remainingLinks = try await linkRepository.remove(projectID: "project-alpha", paperID: "paper-alpha", in: workspace)
+        let removedLink = try await linkRepository.link(forPaperID: "paper-alpha", projectID: "project-alpha", in: workspace)
+        try expect(remainingLinks.isEmpty, "Removing a project-paper link should return no remaining links for that paper.")
+        try expect(removedLink == nil, "Removed project-paper link should not load again.")
+    }
+
+    private func paperRepositoryKeepsLegacyProjectMetadataWithoutLinks() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let linkRepository = ProjectPaperLinkRepository()
+        let paperRepository = PaperRepository(projectPaperLinkRepository: linkRepository)
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LegacyProjectMetadataWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var paper = samplePaper(id: "legacy-project-paper")
+        paper.projectIDs = ["legacy-project"]
+        paper.coreProjectIDs = ["legacy-project"]
+
+        let savedPaper = try await paperRepository.save(paper, in: workspace)
+        try await linkRepository.save([], in: workspace)
+
+        let loadedPaper = try require(
+            try await paperRepository.loadPapers(in: workspace).first(where: { $0.id == savedPaper.id }),
+            "Expected legacy project metadata paper to remain loadable without relationship links."
+        )
+
+        try expect(loadedPaper.projectIDs == ["legacy-project"], "Legacy project_ids metadata should still bridge when no relationship links exist.")
+        try expect(loadedPaper.coreProjectIDs == ["legacy-project"], "Legacy core_project_ids metadata should still bridge when no relationship links exist.")
     }
 
     private func paperRepositoryDeletesPaperDirectory() async throws {
@@ -1373,6 +1550,191 @@ private struct CoreVerificationSuite {
                 try expect(logContents.contains("agent-run-test"), "Agent run logger should append JSONL entries.")
             }
 
+            private func agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let projectRegistryRepository = ProjectRegistryRepository()
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(
+                    fileManager: .default,
+                    bookmarkStore: bookmarkStore,
+                    projectRegistryRepository: projectRegistryRepository
+                )
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentServicePlanWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let registry = try await projectRegistryRepository.load(in: root)
+                let project = try require(registry.projects.first, "Expected a default project for service agent tests.")
+                let provider = StaticLLMProvider(
+                    response: """
+                    {
+                      "title": "Todo plan",
+                      "summary": "Create a project follow-up todo.",
+                      "risk": "Writes one todo after approval.",
+                      "steps": ["Review current project context", "Create one todo after approval"],
+                      "tool_calls": [
+                        {
+                          "id": "call-1",
+                          "tool_name": "create_todo",
+                          "arguments_json": "{\\\"title\\\":\\\"Review agent plan\\\"}"
+                        }
+                      ],
+                      "final_response_draft": "Ready for approval."
+                    }
+                    """
+                )
+                let service = SciStationAgentService(provider: provider)
+
+                let run = try await service.run(
+                    goal: "Create a project todo",
+                    in: workspace,
+                    root: root,
+                    projects: registry.projects,
+                    currentProjectID: project.id,
+                    configuration: LLMConfiguration(),
+                    apiKey: "test-key",
+                    options: AgentExecutionOptions(mode: .planOnly)
+                )
+                let history = try await service.recentRuns(in: root, limit: 5)
+                let logContents = try String(contentsOf: root.fileURL(for: ".sci-station/agent/runs.jsonl"), encoding: .utf8)
+
+                try expect(run.mode == .planOnly, "Agent service should support plan-only runs.")
+                try expect(run.currentProjectID == project.id, "Plan-only run should record the current project id.")
+                try expect(run.plan.title == "Todo plan", "Agent plan should decode the optional title field.")
+                try expect(run.plan.steps.count == 2, "Agent plan should decode ordered steps.")
+                try expect(history.first?.id == run.id, "Agent service should read recent run history with newest entries first.")
+                try expect(logContents.contains(project.id), "Agent run log should include current_project_id.")
+            }
+
+            private func agentServiceExecutesApprovedPlanAndExportsBridge() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let projectRegistryRepository = ProjectRegistryRepository()
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(
+                    fileManager: .default,
+                    bookmarkStore: bookmarkStore,
+                    projectRegistryRepository: projectRegistryRepository
+                )
+                let todoRepository = TodoRepository()
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentServiceExecuteWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let registry = try await projectRegistryRepository.load(in: root)
+                let project = try require(registry.projects.first, "Expected a default project for approved execution tests.")
+                let service = SciStationAgentService(
+                    provider: StaticLLMProvider(response: "{\"summary\":\"No-op\",\"tool_calls\":[]}"),
+                    todoRepository: todoRepository
+                )
+                let plan = AgentPlan(
+                    title: "Approved todo",
+                    summary: "Create a todo after approval",
+                    risk: "Writes tasks/todos.yaml",
+                    steps: ["Create the approved todo"],
+                    toolCalls: [
+                        AgentToolCall(
+                            id: "call-1",
+                            toolName: "create_todo",
+                            argumentsJSON: "{\"title\":\"Approved agent todo\",\"priority\":\"high\"}"
+                        )
+                    ]
+                )
+
+                let skippedRun = try await service.executeApprovedPlan(
+                    goal: "Create approved todo",
+                    plan: plan,
+                    in: workspace,
+                    root: root,
+                    currentProjectID: project.id,
+                    approvedToolCallIDs: []
+                )
+                try expect(skippedRun.toolResults.first?.requiresConfirmation == true, "Unapproved writing tools should be skipped with a confirmation result.")
+                let todosBeforeApproval = try await todoRepository.loadTodos(in: workspace)
+                try expect(todosBeforeApproval.isEmpty, "Unapproved service execution should not modify todos.")
+
+                let approvedRun = try await service.executeApprovedPlan(
+                    goal: "Create approved todo",
+                    plan: plan,
+                    in: workspace,
+                    root: root,
+                    currentProjectID: project.id,
+                    approvedToolCallIDs: ["call-1"]
+                )
+                let todos = try await todoRepository.loadTodos(in: workspace)
+                try expect(approvedRun.mode == .executeApproved, "Approved execution should be logged as executeApproved.")
+                try expect(approvedRun.toolResults.first?.succeeded == true, "Approved service tool execution should succeed.")
+                try expect(todos.first?.title == "Approved agent todo", "Approved service tool execution should persist the todo.")
+                try expect(todos.first?.projectIDs == [project.id], "Approved service tool execution should use the current project context.")
+
+                let export = try await service.exportCopilotBridge(
+                    goal: "Create approved todo",
+                    in: workspace,
+                    root: root,
+                    projects: registry.projects,
+                    currentProjectID: project.id
+                )
+                try expect(FileManager.default.fileExists(atPath: root.fileURL(for: export.promptRelativePath).path), "Agent service should export a Copilot Bridge prompt.")
+                try expect(FileManager.default.fileExists(atPath: root.fileURL(for: export.manifestRelativePath).path), "Agent service should export a Copilot Bridge manifest.")
+            }
+
+            private func agentRunLoggerSkipsDamagedHistoryLines() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentDamagedHistoryWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let logger = AgentRunLogger()
+                let firstRun = AgentRun(
+                    id: "agent-run-valid-1",
+                    goal: "First valid run",
+                    createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+                    completedAt: Date(timeIntervalSince1970: 1_777_600_001),
+                    mode: .planOnly,
+                    plan: AgentPlan(summary: "No writes", toolCalls: []),
+                    toolResults: [],
+                    currentProjectID: "project-alpha"
+                )
+                let secondRun = AgentRun(
+                    id: "agent-run-valid-2",
+                    goal: "Second valid run",
+                    createdAt: Date(timeIntervalSince1970: 1_777_600_010),
+                    completedAt: Date(timeIntervalSince1970: 1_777_600_011),
+                    mode: .executeApproved,
+                    plan: AgentPlan(summary: "No writes", toolCalls: []),
+                    toolResults: [],
+                    currentProjectID: "project-beta"
+                )
+
+                try await logger.append(firstRun, in: root)
+                let logURL = root.fileURL(for: ".sci-station/agent/runs.jsonl")
+                let existingContents = try String(contentsOf: logURL, encoding: .utf8)
+                try (existingContents + "{not-json}\n").write(to: logURL, atomically: true, encoding: .utf8)
+                try await logger.append(secondRun, in: root)
+
+                let history = try await logger.recentRuns(in: root, limit: 5)
+                try expect(history.map(\.id) == ["agent-run-valid-2", "agent-run-valid-1"], "Damaged JSONL lines should be skipped while valid runs remain readable newest-first.")
+            }
+
     private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
         let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -1678,5 +2040,13 @@ private struct ValidationError: LocalizedError {
 
     var errorDescription: String? {
         message
+    }
+}
+
+private struct StaticLLMProvider: LLMProvider {
+    let response: String
+
+    func complete(prompt: String, configuration: LLMConfiguration, apiKey: String) async throws -> String {
+        response
     }
 }

@@ -6,8 +6,12 @@ struct MarkdownPageListView: View {
     var body: some View {
         List(selection: selectionBinding) {
             if appModel.markdownDocuments.isEmpty {
-                Text("No wiki pages yet.")
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No wiki pages yet.")
+                        .foregroundStyle(.secondary)
+                    Button("Open Project Overview", action: appModel.openCurrentProjectOverviewPage)
+                    Button("Open Wiki Folder", action: appModel.openWikiFolder)
+                }
             } else {
                 ForEach(appModel.markdownDocuments) { document in
                     VStack(alignment: .leading, spacing: 4) {

@@ -2,6 +2,8 @@ import PDFKit
 import SwiftUI
 
 struct EmbeddedPDFReaderView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let pdfURL: URL
     let workspace: ResearchWorkspace
     let paper: Paper
@@ -13,6 +15,7 @@ struct EmbeddedPDFReaderView: View {
     @StateObject private var viewModel: PDFReaderViewModel
     @State private var isShowingSearch = false
     @State private var activeSidebarPanel: PDFReaderSidebarPanel? = .metadata
+    @FocusState private var focusedField: PDFReaderFocusedField?
 
     init(
         pdfURL: URL,
@@ -45,7 +48,12 @@ struct EmbeddedPDFReaderView: View {
                         TextField("Search PDF", text: $viewModel.searchQuery)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(viewModel.submitSearch)
-                        Button("Find", action: viewModel.submitSearch)
+                            .focused($focusedField, equals: .search)
+                        Button("Find", action: viewModel.findNext)
+                            .buttonStyle(.bordered)
+                        Button("Next", action: viewModel.findNext)
+                            .buttonStyle(.bordered)
+                        Button("Previous", action: viewModel.findPrevious)
                             .buttonStyle(.bordered)
                         Button {
                             isShowingSearch = false
@@ -53,11 +61,20 @@ struct EmbeddedPDFReaderView: View {
                             Image(systemName: "xmark")
                         }
                         .help("Close search")
+                        .accessibilityLabel("Close PDF search")
                     }
                     .controlSize(.small)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.secondary.opacity(0.06))
+
+                    if let searchStatusMessage = viewModel.searchStatusMessage {
+                        Text(searchStatusMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 8)
+                    }
                 }
 
                 PDFKitViewRepresentable(
@@ -80,6 +97,17 @@ struct EmbeddedPDFReaderView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .id(pdfURL.path)
+        .onChange(of: appModel.pdfReaderSearchFocusRequest) { _, _ in
+            showAndFocusSearch()
+        }
+        .onChange(of: appModel.pdfReaderFindNextRequest) { _, _ in
+            showAndFocusSearch()
+            viewModel.findNext()
+        }
+        .onChange(of: appModel.pdfReaderFindPreviousRequest) { _, _ in
+            showAndFocusSearch()
+            viewModel.findPrevious()
+        }
     }
 
     private var readerToolbar: some View {
@@ -88,6 +116,7 @@ struct EmbeddedPDFReaderView: View {
                 Image(systemName: "chevron.left")
             }
             .help("Back to Library")
+            .accessibilityLabel("Back to Library")
 
             Divider()
                 .frame(height: 22)
@@ -96,11 +125,13 @@ struct EmbeddedPDFReaderView: View {
                 Image(systemName: "chevron.up")
             }
             .help("Previous page")
+            .accessibilityLabel("Previous PDF page")
 
             Button(action: viewModel.goToNextPage) {
                 Image(systemName: "chevron.down")
             }
             .help("Next page")
+            .accessibilityLabel("Next PDF page")
 
             TextField("Page", text: $viewModel.pageInput)
                 .textFieldStyle(.roundedBorder)
@@ -117,36 +148,47 @@ struct EmbeddedPDFReaderView: View {
                 Image(systemName: "arrow.uturn.backward")
             }
             .help("Back to previous PDF location")
+            .accessibilityLabel("Back to previous PDF location")
 
             Button(action: viewModel.goForward) {
                 Image(systemName: "arrow.uturn.forward")
             }
             .help("Forward to next PDF location")
+            .accessibilityLabel("Forward to next PDF location")
 
             Divider()
                 .frame(height: 22)
 
             Button {
-                isShowingSearch.toggle()
+                if isShowingSearch {
+                    isShowingSearch = false
+                } else {
+                    showAndFocusSearch()
+                }
             } label: {
                 Image(systemName: "magnifyingglass")
             }
             .help("Search PDF")
+            .keyboardShortcut("f", modifiers: [.command])
+            .accessibilityLabel("Search PDF")
 
             Button(action: viewModel.zoomOut) {
                 Image(systemName: "minus.magnifyingglass")
             }
             .help("Zoom out")
+            .accessibilityLabel("Zoom out")
 
             Button(action: viewModel.zoomIn) {
                 Image(systemName: "plus.magnifyingglass")
             }
             .help("Zoom in")
+            .accessibilityLabel("Zoom in")
 
             Button(action: viewModel.fitToWidth) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
             }
             .help("Fit page")
+            .accessibilityLabel("Fit page")
 
             Spacer(minLength: 8)
 
@@ -154,6 +196,7 @@ struct EmbeddedPDFReaderView: View {
                 Image(systemName: "arrow.up.right.square")
             }
             .help("Open in default viewer")
+            .accessibilityLabel("Open PDF in default viewer")
 
             Button {
                 activeSidebarPanel = activeSidebarPanel == nil ? .metadata : nil
@@ -161,12 +204,24 @@ struct EmbeddedPDFReaderView: View {
                 Image(systemName: activeSidebarPanel == nil ? "sidebar.right" : "sidebar.trailing")
             }
             .help("Toggle metadata sidebar")
+            .accessibilityLabel("Toggle reader sidebar")
         }
         .controlSize(.small)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.bar)
     }
+
+    private func showAndFocusSearch() {
+        isShowingSearch = true
+        DispatchQueue.main.async {
+            focusedField = .search
+        }
+    }
+}
+
+private enum PDFReaderFocusedField {
+    case search
 }
 
 private enum PDFReaderSidebarPanel: CaseIterable, Identifiable {
@@ -234,6 +289,7 @@ private struct PDFReaderSideRail: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(activePanel == panel ? Color.accentColor : Color.secondary)
                 .help(panel.title)
+                .accessibilityLabel(panel.title)
             }
 
             Spacer()
@@ -632,10 +688,34 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
                     pdfView.go(to: targetPage)
                 }
             case let .search(query, _):
-                pdfView.document?.beginFindString(query, withOptions: .caseInsensitive)
+                performSearch(query, backwards: false, on: pdfView)
+            case let .findNext(query, _):
+                performSearch(query, backwards: false, on: pdfView)
+            case let .findPrevious(query, _):
+                performSearch(query, backwards: true, on: pdfView)
             }
 
             updatePageState(on: pdfView, notify: true)
+        }
+
+        private func performSearch(_ query: String, backwards: Bool, on pdfView: PDFView) {
+            var options: NSString.CompareOptions = [.caseInsensitive]
+            if backwards {
+                options.insert(.backwards)
+            }
+
+            guard let selection = pdfView.document?.findString(
+                query,
+                fromSelection: pdfView.currentSelection,
+                withOptions: options
+            ) else {
+                viewModel.searchStatusMessage = "No matches for \"\(query)\"."
+                return
+            }
+
+            pdfView.setCurrentSelection(selection, animate: true)
+            pdfView.scrollSelectionToVisible(nil)
+            viewModel.searchStatusMessage = "Match found."
         }
 
         func pdfViewPageChanged(_ sender: Notification) {

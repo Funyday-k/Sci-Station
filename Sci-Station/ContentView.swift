@@ -108,6 +108,9 @@ struct ContentView: View {
                 readerColumnVisibility = .detailOnly
             }
         }
+        .onChange(of: appModel.inspectorFocusRequest) { _, _ in
+            mainColumnVisibility = .all
+        }
         .sheet(isPresented: $appModel.isShowingIdentifierImport) {
             IdentifierImportView()
                 .environmentObject(appModel)

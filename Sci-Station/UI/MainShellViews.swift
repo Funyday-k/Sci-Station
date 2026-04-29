@@ -10,7 +10,8 @@ struct SidebarView: View {
             HStack(spacing: 10) {
                 SidebarIconButton(
                     systemImage: WorkspaceSection.dashboard.systemImage,
-                    isSelected: appModel.selectedSection == .dashboard
+                    isSelected: appModel.selectedSection == .dashboard,
+                    accessibilityLabel: "Home"
                 ) {
                     appModel.selectSection(.dashboard)
                 }
@@ -18,7 +19,8 @@ struct SidebarView: View {
 
                 SidebarIconButton(
                     systemImage: WorkspaceSection.tasks.systemImage,
-                    isSelected: appModel.selectedSection == .tasks && appModel.isViewingGlobalTodos
+                    isSelected: appModel.selectedSection == .tasks && appModel.isViewingGlobalTodos,
+                    accessibilityLabel: "All Todos"
                 ) {
                     appModel.selectGlobalTodos()
                 }
@@ -27,7 +29,7 @@ struct SidebarView: View {
                 Spacer(minLength: 0)
 
                 if workspace != nil {
-                    SidebarIconButton(systemImage: "plus", isSelected: false) {
+                    SidebarIconButton(systemImage: "plus", isSelected: false, accessibilityLabel: "New Project") {
                         appModel.beginCreatingResearchProject()
                     }
                     .help("New Project")
@@ -97,6 +99,7 @@ struct SidebarView: View {
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.secondary)
                                 .help(isAllPapersExpanded ? "Collapse Library folders" : "Expand Library folders")
+                                .accessibilityLabel(isAllPapersExpanded ? "Collapse Library folders" : "Expand Library folders")
 
                                 SidebarActionRow(
                                     title: "All Papers",
@@ -149,7 +152,8 @@ struct SidebarView: View {
             HStack {
                 SidebarIconButton(
                     systemImage: WorkspaceSection.settings.systemImage,
-                    isSelected: appModel.selectedSection == .settings
+                    isSelected: appModel.selectedSection == .settings,
+                    accessibilityLabel: "Settings"
                 ) {
                     appModel.selectSection(.settings)
                 }
@@ -215,6 +219,7 @@ private struct SidebarCollectionTree: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help(isCollapsed ? "Expand folder" : "Collapse folder")
+                    .accessibilityLabel(isCollapsed ? "Expand folder" : "Collapse folder")
                 }
 
                 Button {
@@ -277,6 +282,7 @@ private struct SidebarProjectGroup: View {
                 }
                 .buttonStyle(.plain)
                 .help(project.isCollapsed ? "Expand project" : "Collapse project")
+                .accessibilityLabel(project.isCollapsed ? "Expand project" : "Collapse project")
 
                 HStack(spacing: 8) {
                     Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
@@ -386,6 +392,7 @@ private struct SidebarSectionLabel: View {
 private struct SidebarIconButton: View {
     let systemImage: String
     let isSelected: Bool
+    let accessibilityLabel: String
     let action: () -> Void
 
     var body: some View {
@@ -396,6 +403,7 @@ private struct SidebarIconButton: View {
             .background(isSelected ? Color.accentColor.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
+            .accessibilityLabel(accessibilityLabel)
     }
 }
 

@@ -10,6 +10,7 @@ struct LibraryListView: View {
     @State private var isShowingCollectionManager = false
     @State private var isShowingTagManager = false
     @State private var isShowingQuickLinkImport = false
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -17,14 +18,15 @@ struct LibraryListView: View {
                 Text("Library")
                     .font(.largeTitle)
                     .fontWeight(.semibold)
-                Text("All papers live in the global library. Project ownership, core status, folders, and shared tags are stored on each paper.")
+                Text("All papers live in the global library. Project ownership, core status, project folders, and pins are stored in the relationship layer.")
                     .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 12) {
-                TextField("Search title, author, tag, or citekey", text: $appModel.librarySearchText)
+                TextField("Search title, author, tag, identifier, abstract", text: $appModel.librarySearchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 240, idealWidth: 360, maxWidth: 420)
+                    .focused($isSearchFocused)
 
                 Spacer(minLength: 0)
 
@@ -69,11 +71,9 @@ struct LibraryListView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                Text(appModel.libraryScopeSummary)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                LibraryFilterChips()
 
-                if appModel.selectedCollectionPath != nil || appModel.selectedTagName != nil {
+                if appModel.selectedCollectionPath != nil || appModel.selectedTagName != nil || !appModel.librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button("Clear Filters", action: appModel.clearLibraryFilters)
                         .buttonStyle(.link)
                 }
@@ -104,7 +104,7 @@ struct LibraryListView: View {
             Button("Delete", role: .destructive, action: appModel.confirmDeletePendingPaper)
             Button("Cancel", role: .cancel, action: appModel.cancelPaperDeletion)
         } message: {
-            Text("Delete \(appModel.deletePendingPaperTitle) from raw/papers. This removes the paper folder from the workspace.")
+            Text("Delete \(appModel.deletePendingPaperTitle) from the workspace. This removes the paper directory at \(appModel.deletePendingPaperRelativePath).")
         }
         .overlay(alignment: .bottomTrailing) {
             if isTargetedForDrop {
@@ -117,6 +117,14 @@ struct LibraryListView: View {
         }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isTargetedForDrop) { providers in
             appModel.handlePDFDrop(providers: providers)
+        }
+        .onAppear {
+            if appModel.librarySearchFocusRequest > 0 {
+                isSearchFocused = true
+            }
+        }
+        .onChange(of: appModel.librarySearchFocusRequest) { _, _ in
+            isSearchFocused = true
         }
         .sheet(isPresented: $isShowingCollectionManager) {
             CollectionManagerView()
@@ -189,6 +197,40 @@ struct LibraryListView: View {
                 Label("Delete Paper", systemImage: "trash")
             }
         }
+    }
+}
+
+private struct LibraryFilterChips: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(chips, id: \.self) { chip in
+                Text(chip)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+            }
+        }
+    }
+
+    private var chips: [String] {
+        var values: [String] = []
+        if let selectedLibraryProjectID = appModel.selectedLibraryProjectID {
+            values.append("Project: \(appModel.projectName(for: selectedLibraryProjectID))")
+        }
+        if let selectedCollectionPath = appModel.selectedCollectionPath {
+            values.append("Folder: \(selectedCollectionPath)")
+        }
+        if let selectedTagName = appModel.selectedTagName {
+            values.append("Tag: \(selectedTagName)")
+        }
+        let query = appModel.librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            values.append("Search: \(query)")
+        }
+        return values.isEmpty ? ["All Papers"] : values
     }
 }
 
@@ -467,12 +509,12 @@ private struct PaperClassificationMenuItems: View {
     let paper: Paper
 
     var body: some View {
-        Menu("Add to Project") {
+        Menu("Project") {
             ForEach(appModel.activeResearchProjects) { project in
                 Button {
                     appModel.togglePaperProject(paper, projectID: project.id)
                 } label: {
-                    Label(project.name, systemImage: paper.projectIDs.contains(project.id) ? "checkmark.circle.fill" : "circle")
+                    Label(project.name, systemImage: appModel.projectPaperLink(for: paper, projectID: project.id) == nil ? "circle" : "checkmark.circle.fill")
                 }
             }
         }
@@ -498,7 +540,7 @@ private struct PaperClassificationMenuItems: View {
         }
 
         Menu("Add to Core Paper") {
-            let projectOptions = appModel.activeResearchProjects.filter { paper.projectIDs.contains($0.id) }
+            let projectOptions = appModel.activeResearchProjects.filter { appModel.projectPaperLink(for: paper, projectID: $0.id) != nil }
             if projectOptions.isEmpty {
                 Text("Add this paper to a project first")
             } else {
@@ -506,12 +548,147 @@ private struct PaperClassificationMenuItems: View {
                     Button {
                         appModel.togglePaperCoreProject(paper, projectID: project.id)
                     } label: {
-                        Label(project.name, systemImage: paper.coreProjectIDs.contains(project.id) ? "star.fill" : "star")
+                        Label(project.name, systemImage: appModel.projectPaperLink(for: paper, projectID: project.id)?.isCore == true ? "star.fill" : "star")
                     }
                 }
             }
         }
-        .disabled(paper.projectIDs.isEmpty)
+        .disabled(appModel.activeResearchProjects.allSatisfy { appModel.projectPaperLink(for: paper, projectID: $0.id) == nil })
+
+        Menu("Pin in Project") {
+            let projectOptions = appModel.activeResearchProjects.filter { appModel.projectPaperLink(for: paper, projectID: $0.id) != nil }
+            if projectOptions.isEmpty {
+                Text("Add this paper to a project first")
+            } else {
+                ForEach(projectOptions) { project in
+                    let isPinned = appModel.projectPaperLink(for: paper, projectID: project.id)?.isPinned == true
+                    Button {
+                        appModel.setPaperProjectPinned(paper, projectID: project.id, isPinned: !isPinned)
+                    } label: {
+                        Label(project.name, systemImage: isPinned ? "pin.fill" : "pin")
+                    }
+                }
+            }
+        }
+        .disabled(appModel.activeResearchProjects.allSatisfy { appModel.projectPaperLink(for: paper, projectID: $0.id) == nil })
+    }
+}
+
+private struct PaperProjectRelationshipEditor: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let paper: Paper
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if projects.isEmpty {
+                Text("No projects yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(projects) { project in
+                    PaperProjectRelationshipRow(paper: paper, project: project)
+                    if project.id != projects.last?.id {
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+
+    private var projects: [ResearchProject] {
+        appModel.activeResearchProjects.sorted { first, second in
+            let firstLinked = appModel.projectPaperLink(for: paper, projectID: first.id) != nil
+            let secondLinked = appModel.projectPaperLink(for: paper, projectID: second.id) != nil
+            if firstLinked != secondLinked {
+                return firstLinked
+            }
+            return first.name.localizedStandardCompare(second.name) == .orderedAscending
+        }
+    }
+}
+
+private struct PaperProjectRelationshipRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let paper: Paper
+    let project: ResearchProject
+
+    @State private var useForText = ""
+    @State private var folderPathText = ""
+
+    private var link: ProjectPaperLink? {
+        appModel.projectPaperLink(for: paper, projectID: project.id)
+    }
+
+    private var isLinked: Bool {
+        link != nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Toggle(isOn: membershipBinding) {
+                    Label(project.name, systemImage: project.iconName.isEmpty ? "folder" : project.iconName)
+                        .fontWeight(.semibold)
+                }
+                .toggleStyle(.checkbox)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    appModel.setPaperProjectCore(paper, projectID: project.id, isCore: link?.isCore != true)
+                } label: {
+                    Image(systemName: link?.isCore == true ? "star.fill" : "star")
+                }
+                .buttonStyle(.plain)
+                .help("Core paper")
+                .disabled(!isLinked)
+
+                Button {
+                    appModel.setPaperProjectPinned(paper, projectID: project.id, isPinned: link?.isPinned != true)
+                } label: {
+                    Image(systemName: link?.isPinned == true ? "pin.fill" : "pin")
+                }
+                .buttonStyle(.plain)
+                .help("Pin in project")
+                .disabled(!isLinked)
+            }
+
+            if isLinked {
+                HStack(spacing: 10) {
+                    TextField("Project Use", text: $useForText, prompt: Text("Comma-separated"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            appModel.updatePaperProjectUseFor(paper, projectID: project.id, text: useForText)
+                        }
+
+                    TextField("Project Folder", text: $folderPathText)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            appModel.updatePaperProjectFolderPath(paper, projectID: project.id, folderPath: folderPathText)
+                        }
+                }
+                .controlSize(.small)
+            }
+        }
+        .onAppear(perform: syncDrafts)
+        .onChange(of: link) { _, _ in
+            syncDrafts()
+        }
+    }
+
+    private var membershipBinding: Binding<Bool> {
+        Binding(
+            get: { isLinked },
+            set: { isMember in
+                appModel.setPaperProjectMembership(paper, projectID: project.id, isMember: isMember)
+            }
+        )
+    }
+
+    private func syncDrafts() {
+        useForText = link?.useFor.joined(separator: ", ") ?? ""
+        folderPathText = link?.folderPath ?? ""
     }
 }
 
@@ -779,11 +956,29 @@ struct PaperInspectorView: View {
 
                     GroupBox("Organization") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Assign this paper to projects, mark project-level core status, or move it into a Library folder.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
+                            PaperProjectRelationshipEditor(paper: paper)
 
-                            PaperClassificationMenuItems(paper: paper)
+                            Divider()
+
+                            Menu("Move Library Folder") {
+                                Button {
+                                    appModel.movePaper(paper, to: "Uncategorized")
+                                } label: {
+                                    Label("Uncategorized", systemImage: paper.collectionPath == "Uncategorized" ? "checkmark.circle.fill" : "folder")
+                                }
+
+                                if !appModel.collections.isEmpty {
+                                    Divider()
+                                }
+
+                                ForEach(appModel.collections) { collection in
+                                    Button {
+                                        appModel.movePaper(paper, to: collection.relativePath)
+                                    } label: {
+                                        Label(collection.relativePath, systemImage: paper.collectionPath == collection.relativePath ? "checkmark.circle.fill" : "folder")
+                                    }
+                                }
+                            }
                         }
                         .padding(.vertical, 4)
                     }
@@ -1149,6 +1344,8 @@ private struct QuickLinkImportPanel: View {
 }
 
 private struct LibraryEmptyStateView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let hasAnyPaper: Bool
 
     var body: some View {
@@ -1156,8 +1353,21 @@ private struct LibraryEmptyStateView: View {
             Text(hasAnyPaper ? "No papers match the current search." : "No papers imported yet.")
                 .font(.title3)
                 .fontWeight(.semibold)
-            Text(hasAnyPaper ? "Change the search query or clear filters to see more results." : "Use Import PDF or drag a PDF into this view to create raw/papers/{paper-id}, paper.pdf, paper.md, meta.yaml, annotations.md, figures/, and a BibTeX stub.")
+            Text(hasAnyPaper ? "Change the search query or clear filters to see more results." : "Use Import PDF, Add by Identifier, or drag a PDF here to create a normalized paper directory under library/papers.")
                 .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button("Import PDF", action: appModel.importPDF)
+                    .buttonStyle(.borderedProminent)
+                Button("Add by Identifier") {
+                    appModel.beginIdentifierImport()
+                }
+                .buttonStyle(.bordered)
+                if hasAnyPaper {
+                    Button("Clear Filters", action: appModel.clearLibraryFilters)
+                        .buttonStyle(.bordered)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }

@@ -64,20 +64,46 @@ public nonisolated struct AgentToolCall: Codable, Hashable, Sendable {
 }
 
 public nonisolated struct AgentPlan: Codable, Hashable, Sendable {
+    public var title: String?
     public var summary: String
+    public var risk: String?
+    public var steps: [String]
     public var toolCalls: [AgentToolCall]
     public var finalResponseDraft: String?
 
-    public nonisolated init(summary: String, toolCalls: [AgentToolCall], finalResponseDraft: String? = nil) {
+    public nonisolated init(
+        title: String? = nil,
+        summary: String,
+        risk: String? = nil,
+        steps: [String] = [],
+        toolCalls: [AgentToolCall],
+        finalResponseDraft: String? = nil
+    ) {
+        self.title = title
         self.summary = summary
+        self.risk = risk
+        self.steps = steps
         self.toolCalls = toolCalls
         self.finalResponseDraft = finalResponseDraft
     }
 
     private enum CodingKeys: String, CodingKey {
+        case title
         case summary
+        case risk
+        case steps
         case toolCalls = "tool_calls"
         case finalResponseDraft = "final_response_draft"
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try container.decodeIfPresent(String.self, forKey: .title)
+        self.summary = try container.decode(String.self, forKey: .summary)
+        self.risk = try container.decodeIfPresent(String.self, forKey: .risk)
+        self.steps = try container.decodeIfPresent([String].self, forKey: .steps) ?? []
+        self.toolCalls = try container.decode([AgentToolCall].self, forKey: .toolCalls)
+        self.finalResponseDraft = try container.decodeIfPresent(String.self, forKey: .finalResponseDraft)
     }
 }
 

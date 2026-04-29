@@ -6,6 +6,7 @@ struct SettingsView: View {
     let workspace: ResearchWorkspace
     @State private var workspaceName = ""
     @State private var defaultFolderPath = ""
+    @State private var isShowingLegacyMigrationConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -151,6 +152,20 @@ struct SettingsView: View {
                                 }
                                 .controlSize(.small)
                                 .help("Refresh the legacy paper scan")
+
+                                Button {
+                                    isShowingLegacyMigrationConfirmation = true
+                                } label: {
+                                    Label("Copy Ready", systemImage: "doc.on.doc")
+                                }
+                                .controlSize(.small)
+                                .disabled(appModel.legacyPaperMigrationPlan.readyCount == 0 || appModel.isRunningLegacyPaperMigration)
+                                .help("Copy ready legacy papers to library/papers and write a migration report")
+                            }
+
+                            if appModel.isRunningLegacyPaperMigration {
+                                ProgressView("Copying legacy papers…")
+                                    .controlSize(.small)
                             }
 
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 12) {
@@ -176,6 +191,13 @@ struct SettingsView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                 }
+                            }
+
+                            if let report = appModel.legacyPaperMigrationReport {
+                                Label("Last report: copied \(report.copiedCount), skipped \(report.skippedCount), failed \(report.failedCount). \(report.reportRelativePath ?? "")", systemImage: "doc.text")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
 
@@ -328,6 +350,18 @@ struct SettingsView: View {
         .onAppear(perform: syncDrafts)
         .onChange(of: workspace.rootURL) { _, _ in
             syncDrafts()
+        }
+        .confirmationDialog(
+            "Copy ready legacy papers to library/papers?",
+            isPresented: $isShowingLegacyMigrationConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Copy Ready Papers") {
+                appModel.copyReadyLegacyPapers()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Sci-Station will copy ready raw/papers items into library/papers, skip conflicts, keep the original raw/papers files in place, and write a JSON migration report.")
         }
     }
 

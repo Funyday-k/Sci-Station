@@ -17,7 +17,7 @@
 - Agent snapshot 已包含 root、current project、project papers、project open todos 和全局库路径。
 - Agent tools 已支持 current project 默认写入。
 
-### 2.1 2026-04-29 本轮进展
+### 2.1 2026-04-29 进展
 
 - 新增 `LegacyPaperMigrationService`，可扫描 `raw/papers` 中的 legacy metadata 并生成 dry-run 迁移计划。
 - 迁移计划会给出 source path、target `library/papers` path、paper id、标题、ready/conflict 状态。
@@ -25,7 +25,21 @@
 - Settings 的 Library 区域已展示 legacy `raw/papers` 摘要、ready/conflict 计数和前 5 条 dry-run 条目。
 - App 加载 workspace 时会刷新 dry-run plan，用户也可以在 Settings 中手动刷新扫描。
 - Core Test Runner 已覆盖 ready-to-copy 与 global duplicate conflict 两类迁移计划。
-- 本轮没有执行真实复制/移动，也没有写迁移报告；这些留给下一轮。
+- 迁移执行已完成第一版：用户确认后只复制 ready 条目到 `library/papers`，保留旧 `raw/papers` 原目录，冲突条目跳过。
+- 每次执行都会写入 root `.sci-station/migrations/legacy-paper-migration-*.json` 报告，记录 old path、new path、paper id、状态、冲突和错误。
+- 执行后会刷新 Library；同一 paper id 同时存在于新旧路径时，`PaperRepository` 继续优先显示 `library/papers` 版本。
+- Core Test Runner 已覆盖复制执行、报告落盘、旧目录保留、去重和全局库优先。
+
+### 2.2 2026-04-29 审阅与拆分结论
+
+本轮重新审阅任务书 13 与当前代码后，结论是：目标 A 已具备第一版可用闭环；目标 B、C、D 仍然有效，但不适合继续放在同一个执行轮次中一次性完成。
+
+- 旧论文库迁移已经完成 copy-only dry-run、确认执行、报告落盘和去重优先级验证，可视为任务书 13 的主要交付。
+- 项目-论文关系底层已经存在，但 Library Inspector 仍主要编辑 `Paper.projectIDs` / `coreProjectIDs` 镜像，再由 `PaperRepository.save` 间接同步关系文件；这不满足“关系仓库作为第一写入目标”的长期目标。
+- Agent 底层计划、工具、日志和 Copilot Bridge exporter 已存在，但全局 AI Lab 仍只是指标和路径说明页，尚未提供可输入 goal、生成 plan、审批 tool call 的 Agent Panel。
+- 项目 registry 已有 `is_archived` 字段，Sidebar 也只显示 active projects，但项目编辑器尚未提供归档/取消归档、排序、删除影响预览等生命周期控制。
+
+因此任务书 13 收敛为“旧论文库迁移第一版”并结束；下一轮任务书 14 聚焦项目-论文关系 UI 主数据源切换。Agent Panel V1 与项目生命周期保留为后续任务书，除非用户改变优先级。
 
 ## 3. 目标
 
@@ -64,12 +78,12 @@
 
 ## 4. 执行顺序
 
-1. 先做 legacy `raw/papers` 检测和迁移计划，不立即执行真实迁移。已完成第一版 dry-run。
-2. 加入迁移执行与迁移报告，并用核心验证覆盖路径冲突。下一轮优先。
-3. 将项目-论文关系 UI 的写入路径切到 `ProjectPaperLinkRepository`。
-4. 建立 Agent Panel 的 plan-only UI。
-5. 增加工具调用审批和 run history。
-6. 最后处理项目排序、归档和删除策略。
+1. 先做 legacy `raw/papers` 检测和迁移计划，不立即执行真实迁移。已完成。
+2. 加入迁移执行与迁移报告，并用核心验证覆盖路径冲突。已完成复制策略第一版。
+3. 将项目-论文关系 UI 的写入路径切到 `ProjectPaperLinkRepository`。转入任务书 14。
+4. 建立 Agent Panel 的 plan-only UI。转入后续任务书。
+5. 增加工具调用审批和 run history。转入后续任务书。
+6. 最后处理项目排序、归档和删除策略。转入后续任务书。
 
 ## 5. 验收标准
 
@@ -90,3 +104,19 @@
 - 关系层和旧 metadata 的双写期可能出现冲突，需要定义优先级：关系仓库优先，metadata 作为兼容镜像。
 - Agent Panel 不能默认执行写入工具，必须保留确认门槛。
 - 项目删除策略必须保守，第一版可只做归档，不做物理删除。
+
+## 7. 本轮审阅状态
+
+| 项目 | 状态 |
+| --- | --- |
+| 旧 `raw/papers` 检测与 dry-run | 已完成 |
+| copy-only 迁移执行 | 已完成 |
+| 迁移报告 | 已完成 |
+| Library 去重并优先全局库 | 已完成 |
+| 关系 UI 第一写入目标 | 转入任务书 14 |
+| Agent Panel V1 | 转入后续任务书 |
+| 项目生命周期控制 | 转入后续任务书 |
+
+## 8. 下一轮入口
+
+下一轮任务书见 [DOC/Proposal14.md](Proposal14.md)。

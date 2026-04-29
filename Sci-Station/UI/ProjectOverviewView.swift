@@ -142,7 +142,7 @@ struct ProjectOverviewView: View {
                 ProjectWorkflowTile(title: "Proposal", detail: "wiki/projects", systemImage: "doc.text") {
                     appModel.openMarkdownDocument(relativePath: projectOverviewPath)
                 }
-                ProjectWorkflowTile(title: "Core Papers", detail: "raw/papers + refs", systemImage: "books.vertical") {
+                ProjectWorkflowTile(title: "Core Papers", detail: "library/papers + refs", systemImage: "books.vertical") {
                     if let projectID = appModel.currentProjectID {
                         appModel.selectResearchProject(projectID, section: .library)
                     } else {
@@ -249,6 +249,15 @@ struct ProjectOverviewView: View {
     }
 
     private func corePaperSort(_ first: Paper, _ second: Paper) -> Bool {
+        if let projectID = appModel.currentProjectID,
+           appModel.projectPaperLinkSortPrecedes(first, second, projectID: projectID) {
+            return true
+        }
+        if let projectID = appModel.currentProjectID,
+           appModel.projectPaperLinkSortPrecedes(second, first, projectID: projectID) {
+            return false
+        }
+
         let firstScore = corePaperScore(first)
         let secondScore = corePaperScore(second)
         if firstScore == secondScore {

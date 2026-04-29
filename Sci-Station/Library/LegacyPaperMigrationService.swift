@@ -31,6 +31,23 @@ public nonisolated enum LegacyPaperMigrationItemStatus: String, Codable, Hashabl
     }
 }
 
+public nonisolated enum LegacyPaperMigrationExecutionStatus: String, Codable, Hashable, Sendable {
+    case copied
+    case skippedConflict = "skipped_conflict"
+    case failed
+
+    public nonisolated var label: String {
+        switch self {
+        case .copied:
+            return "Copied"
+        case .skippedConflict:
+            return "Skipped conflict"
+        case .failed:
+            return "Failed"
+        }
+    }
+}
+
 public nonisolated struct LegacyPaperMigrationItem: Identifiable, Codable, Hashable, Sendable {
     public var paperID: String
     public var title: String
@@ -108,6 +125,90 @@ public nonisolated struct LegacyPaperMigrationPlan: Codable, Hashable, Sendable 
     }
 }
 
+public nonisolated struct LegacyPaperMigrationReportItem: Identifiable, Codable, Hashable, Sendable {
+    public var paperID: String
+    public var title: String
+    public var sourceRelativePath: String
+    public var targetRelativePath: String
+    public var status: LegacyPaperMigrationExecutionStatus
+    public var conflicts: [LegacyPaperMigrationConflict]
+    public var errorMessage: String?
+
+    public nonisolated var id: String {
+        sourceRelativePath
+    }
+
+    public nonisolated init(
+        paperID: String,
+        title: String,
+        sourceRelativePath: String,
+        targetRelativePath: String,
+        status: LegacyPaperMigrationExecutionStatus,
+        conflicts: [LegacyPaperMigrationConflict] = [],
+        errorMessage: String? = nil
+    ) {
+        self.paperID = paperID
+        self.title = title
+        self.sourceRelativePath = sourceRelativePath
+        self.targetRelativePath = targetRelativePath
+        self.status = status
+        self.conflicts = conflicts
+        self.errorMessage = errorMessage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case paperID = "paper_id"
+        case title
+        case sourceRelativePath = "source_relative_path"
+        case targetRelativePath = "target_relative_path"
+        case status
+        case conflicts
+        case errorMessage = "error_message"
+    }
+}
+
+public nonisolated struct LegacyPaperMigrationReport: Codable, Hashable, Sendable {
+    public var id: String
+    public var createdAt: Date
+    public var mode: String
+    public var reportRelativePath: String?
+    public var items: [LegacyPaperMigrationReportItem]
+
+    public nonisolated init(
+        id: String,
+        createdAt: Date = Date(),
+        mode: String = "copy",
+        reportRelativePath: String? = nil,
+        items: [LegacyPaperMigrationReportItem] = []
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.mode = mode
+        self.reportRelativePath = reportRelativePath
+        self.items = items
+    }
+
+    public nonisolated var copiedCount: Int {
+        items.filter { $0.status == .copied }.count
+    }
+
+    public nonisolated var skippedCount: Int {
+        items.filter { $0.status == .skippedConflict }.count
+    }
+
+    public nonisolated var failedCount: Int {
+        items.filter { $0.status == .failed }.count
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case mode
+        case reportRelativePath = "report_relative_path"
+        case items
+    }
+}
+
 public actor LegacyPaperMigrationService {
     private let fileManager: FileManager
     private let metadataCodec: PaperMetadataCodec
@@ -141,6 +242,57 @@ public actor LegacyPaperMigrationService {
         return LegacyPaperMigrationPlan(items: items)
     }
 
+    public func copyReadyItems(in workspace: ResearchWorkspace) throws -> LegacyPaperMigrationReport {
+        let plan = try makePlan(in: workspace)
+        let reportID = "legacy-paper-migration-\(timestampSlug(from: Date()))"
+        var report = LegacyPaperMigrationReport(id: reportID)
+
+        for item in plan.items {
+            if item.hasConflicts {
+                report.items.append(
+                    LegacyPaperMigrationReportItem(
+                        paperID: item.paperID,
+                        title: item.title,
+                        sourceRelativePath: item.sourceRelativePath,
+                        targetRelativePath: item.targetRelativePath,
+                        status: .skippedConflict,
+                        conflicts: item.conflicts
+                    )
+                )
+                continue
+            }
+
+            do {
+                try copy(item, in: workspace)
+                report.items.append(
+                    LegacyPaperMigrationReportItem(
+                        paperID: item.paperID,
+                        title: item.title,
+                        sourceRelativePath: item.sourceRelativePath,
+                        targetRelativePath: item.targetRelativePath,
+                        status: .copied
+                    )
+                )
+            } catch {
+                report.items.append(
+                    LegacyPaperMigrationReportItem(
+                        paperID: item.paperID,
+                        title: item.title,
+                        sourceRelativePath: item.sourceRelativePath,
+                        targetRelativePath: item.targetRelativePath,
+                        status: .failed,
+                        errorMessage: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        let reportRelativePath = ".sci-station/migrations/\(reportID).json"
+        report.reportRelativePath = reportRelativePath
+        try write(report, relativePath: reportRelativePath, in: workspace)
+        return report
+    }
+
     private func makePlanItem(
         for paper: Paper,
         workspace: ResearchWorkspace,
@@ -172,6 +324,63 @@ public actor LegacyPaperMigrationService {
             status: conflicts.isEmpty ? .readyToCopy : .conflict,
             conflicts: conflicts
         )
+    }
+
+    private func copy(_ item: LegacyPaperMigrationItem, in workspace: ResearchWorkspace) throws {
+        let sourceURL = workspace.directoryURL(for: item.sourceRelativePath)
+        let targetURL = workspace.directoryURL(for: item.targetRelativePath)
+
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        guard !fileManager.fileExists(atPath: targetURL.path) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        try fileManager.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.copyItem(at: sourceURL, to: targetURL)
+        try normalizeCopiedMetadata(at: targetURL, relativePath: item.targetRelativePath, fallbackTitle: item.title)
+    }
+
+    private func normalizeCopiedMetadata(at targetURL: URL, relativePath: String, fallbackTitle: String) throws {
+        let metadataURL = targetURL.appendingPathComponent("meta.yaml", isDirectory: false)
+        guard fileManager.fileExists(atPath: metadataURL.path) else {
+            return
+        }
+
+        let metadataContents = try String(contentsOf: metadataURL, encoding: .utf8)
+        let attributes = try fileManager.attributesOfItem(atPath: metadataURL.path)
+        var paper = metadataCodec.decode(
+            metadataContents,
+            directoryRelativePath: relativePath,
+            fallbackTitle: fallbackTitle,
+            createdAt: attributes[FileAttributeKey.creationDate] as? Date,
+            updatedAt: attributes[FileAttributeKey.modificationDate] as? Date
+        )
+        paper.collectionPath = Paper.collectionPath(for: relativePath)
+        paper.folderPath = paper.folderPath ?? paper.collectionPath
+        paper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: paper.citekey,
+            paperDirectoryRelativePath: relativePath
+        )
+        paper.annotationsRelativePath = paper.annotationsRelativePath ?? "annotations.md"
+        try metadataCodec.encode(paper).write(to: metadataURL, atomically: true, encoding: .utf8)
+    }
+
+    private func write(_ report: LegacyPaperMigrationReport, relativePath: String, in workspace: ResearchWorkspace) throws {
+        let reportURL = workspace.fileURL(for: relativePath)
+        try fileManager.createDirectory(at: reportURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(report).write(to: reportURL, options: .atomic)
+    }
+
+    private func timestampSlug(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+            .replacingOccurrences(of: ":", with: "-")
     }
 
     private func scanPapers(at papersRootURL: URL, in workspace: ResearchWorkspace) throws -> [Paper] {

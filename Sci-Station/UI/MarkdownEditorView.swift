@@ -12,6 +12,15 @@ struct MarkdownEditorView: View {
                         Text(document.title)
                             .font(.largeTitle)
                             .fontWeight(.semibold)
+                        if appModel.selectedMarkdownHasUnsavedChanges {
+                            Text("Unsaved")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.orange.opacity(0.14), in: Capsule())
+                        }
                         Text(document.relativePath)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -51,6 +60,7 @@ struct MarkdownEditorView: View {
                     Button("Save", action: appModel.saveSelectedMarkdownChanges)
                         .buttonStyle(.borderedProminent)
                         .disabled(!appModel.canSaveSelectedMarkdown)
+                        .keyboardShortcut("s", modifiers: [.command])
                 }
 
                 editorSurface(for: document)
@@ -61,6 +71,14 @@ struct MarkdownEditorView: View {
                         .fontWeight(.semibold)
                     Text("Select a Markdown page to inspect frontmatter, edit content, and save it back to the workspace.")
                         .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button("Open Project Overview", action: appModel.openCurrentProjectOverviewPage)
+                            .buttonStyle(.borderedProminent)
+                        Button("Reload Wiki", action: appModel.reloadWiki)
+                            .buttonStyle(.bordered)
+                        Button("Open Wiki Folder", action: appModel.openWikiFolder)
+                            .buttonStyle(.bordered)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }

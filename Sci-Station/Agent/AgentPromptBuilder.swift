@@ -23,7 +23,13 @@ public nonisolated struct AgentPromptBuilder {
 
         Output JSON schema:
         {
+          "title": "short title for the plan",
           "summary": "short plan summary",
+          "risk": "short risk note, especially for workspace writes",
+          "steps": [
+            "concrete step 1",
+            "concrete step 2"
+          ],
           "tool_calls": [
             {
               "id": "call-1",

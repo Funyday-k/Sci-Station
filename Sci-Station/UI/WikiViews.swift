@@ -38,6 +38,12 @@ struct WikiWorkspaceView: View {
         .onChange(of: appModel.currentProjectID) { _, _ in
             appModel.reloadWiki()
         }
+        .alert("Unsaved Wiki Changes", isPresented: $appModel.isShowingUnsavedMarkdownConfirmation) {
+            Button("Discard Changes", role: .destructive, action: appModel.confirmDiscardUnsavedMarkdownSelection)
+            Button("Keep Editing", role: .cancel, action: appModel.cancelDiscardUnsavedMarkdownSelection)
+        } message: {
+            Text("Save the current Markdown page before switching, or discard the unsaved draft.")
+        }
     }
 }
 

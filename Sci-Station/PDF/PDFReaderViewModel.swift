@@ -13,12 +13,15 @@ final class PDFReaderViewModel: ObservableObject {
         case fit(UUID)
         case goToPage(Int, UUID)
         case search(String, UUID)
+        case findNext(String, UUID)
+        case findPrevious(String, UUID)
     }
 
     @Published var currentPage = 1
     @Published var totalPages = 0
     @Published var pageInput = "1"
     @Published var searchQuery = ""
+    @Published var searchStatusMessage: String?
     @Published private(set) var pendingCommand: Command?
 
     let initialPage: Int?
@@ -75,5 +78,25 @@ final class PDFReaderViewModel: ObservableObject {
         }
 
         pendingCommand = .search(trimmedQuery, UUID())
+    }
+
+    func findNext() {
+        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            searchStatusMessage = "Enter a search term first."
+            return
+        }
+
+        pendingCommand = .findNext(trimmedQuery, UUID())
+    }
+
+    func findPrevious() {
+        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            searchStatusMessage = "Enter a search term first."
+            return
+        }
+
+        pendingCommand = .findPrevious(trimmedQuery, UUID())
     }
 }

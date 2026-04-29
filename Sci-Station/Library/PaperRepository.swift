@@ -66,6 +66,14 @@ public actor PaperRepository {
     }
 
     public func save(_ paper: Paper, in workspace: ResearchWorkspace) async throws -> Paper {
+        try await save(paper, in: workspace, shouldSyncProjectLinks: true)
+    }
+
+    public func saveMetadataMirror(_ paper: Paper, in workspace: ResearchWorkspace) async throws -> Paper {
+        try await save(paper, in: workspace, shouldSyncProjectLinks: false)
+    }
+
+    private func save(_ paper: Paper, in workspace: ResearchWorkspace, shouldSyncProjectLinks: Bool) async throws -> Paper {
         let directoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
@@ -92,7 +100,9 @@ public actor PaperRepository {
             try "# Annotations\n\n".write(to: annotationsURL, atomically: true, encoding: .utf8)
         }
 
-        try await projectPaperLinkRepository.replaceLinks(for: updatedPaper, in: workspace)
+        if shouldSyncProjectLinks {
+            try await projectPaperLinkRepository.replaceLinks(for: updatedPaper, in: workspace)
+        }
 
         return updatedPaper
     }
