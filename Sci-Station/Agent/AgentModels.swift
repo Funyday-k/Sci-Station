@@ -124,6 +124,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
     public var goal: String
     public var createdAt: Date
     public var completedAt: Date?
+    public var currentProjectID: String?
     public var mode: AgentRunMode
     public var plan: AgentPlan
     public var toolResults: [AgentToolResult]
@@ -135,12 +136,14 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         completedAt: Date?,
         mode: AgentRunMode,
         plan: AgentPlan,
-        toolResults: [AgentToolResult]
+        toolResults: [AgentToolResult],
+        currentProjectID: String? = nil
     ) {
         self.id = id
         self.goal = goal
         self.createdAt = createdAt
         self.completedAt = completedAt
+        self.currentProjectID = currentProjectID
         self.mode = mode
         self.plan = plan
         self.toolResults = toolResults
@@ -151,6 +154,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         case goal
         case createdAt = "created_at"
         case completedAt = "completed_at"
+        case currentProjectID = "current_project_id"
         case mode
         case plan
         case toolResults = "tool_results"
@@ -224,6 +228,7 @@ public nonisolated struct AgentTodoSnapshot: Codable, Hashable, Sendable {
     public var status: TodoStatus
     public var dueDate: Date?
     public var priority: Priority
+    public var projectIDs: [String]
     public var tags: [String]
     public var relatedPaperIDs: [String]
 
@@ -233,6 +238,7 @@ public nonisolated struct AgentTodoSnapshot: Codable, Hashable, Sendable {
         self.status = todo.status
         self.dueDate = todo.dueDate
         self.priority = todo.priority
+        self.projectIDs = todo.projectIDs
         self.tags = todo.tags
         self.relatedPaperIDs = todo.relatedPaperIDs
     }
@@ -243,18 +249,69 @@ public nonisolated struct AgentTodoSnapshot: Codable, Hashable, Sendable {
         case status
         case dueDate = "due_date"
         case priority
+        case projectIDs = "project_ids"
         case tags
         case relatedPaperIDs = "related_paper_ids"
     }
 }
 
+public nonisolated struct AgentResearchProjectSnapshot: Codable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var description: String
+    public var colorHex: String
+    public var iconName: String
+    public var isArchived: Bool
+    public var paperCount: Int
+    public var corePaperCount: Int
+    public var openTodoCount: Int
+
+    public nonisolated init(
+        project: ResearchProject,
+        paperCount: Int = 0,
+        corePaperCount: Int = 0,
+        openTodoCount: Int = 0
+    ) {
+        self.id = project.id
+        self.name = project.name
+        self.description = project.description
+        self.colorHex = project.colorHex
+        self.iconName = project.iconName
+        self.isArchived = project.isArchived
+        self.paperCount = paperCount
+        self.corePaperCount = corePaperCount
+        self.openTodoCount = openTodoCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case colorHex = "color_hex"
+        case iconName = "icon_name"
+        case isArchived = "is_archived"
+        case paperCount = "paper_count"
+        case corePaperCount = "core_paper_count"
+        case openTodoCount = "open_todo_count"
+    }
+}
+
 public nonisolated struct AgentWorkspaceSnapshot: Codable, Hashable, Sendable {
     public var workspaceName: String
+    public var rootName: String
+    public var rootCompatibility: ResearchRootCompatibility
+    public var currentProjectID: String?
+    public var currentProject: AgentResearchProjectSnapshot?
+    public var projects: [AgentResearchProjectSnapshot]
     public var selectedPaper: AgentPaperSnapshot?
     public var recentPapers: [AgentPaperSnapshot]
+    public var projectPapers: [AgentPaperSnapshot]
     public var openTodos: [AgentTodoSnapshot]
+    public var projectOpenTodos: [AgentTodoSnapshot]
     public var paperCount: Int
     public var todoCount: Int
+    public var paperLibraryRelativePath: String
+    public var agentRelativePath: String
 
     public nonisolated init(
         workspaceName: String,
@@ -262,23 +319,50 @@ public nonisolated struct AgentWorkspaceSnapshot: Codable, Hashable, Sendable {
         recentPapers: [AgentPaperSnapshot],
         openTodos: [AgentTodoSnapshot],
         paperCount: Int,
-        todoCount: Int
+        todoCount: Int,
+        rootName: String? = nil,
+        rootCompatibility: ResearchRootCompatibility = .researchRoot,
+        currentProjectID: String? = nil,
+        currentProject: AgentResearchProjectSnapshot? = nil,
+        projects: [AgentResearchProjectSnapshot] = [],
+        projectPapers: [AgentPaperSnapshot] = [],
+        projectOpenTodos: [AgentTodoSnapshot] = [],
+        paperLibraryRelativePath: String = Paper.globalLibraryRootRelativePath,
+        agentRelativePath: String = ".sci-station/agent"
     ) {
         self.workspaceName = workspaceName
+        self.rootName = rootName ?? workspaceName
+        self.rootCompatibility = rootCompatibility
+        self.currentProjectID = currentProjectID
+        self.currentProject = currentProject
+        self.projects = projects
         self.selectedPaper = selectedPaper
         self.recentPapers = recentPapers
+        self.projectPapers = projectPapers
         self.openTodos = openTodos
+        self.projectOpenTodos = projectOpenTodos
         self.paperCount = paperCount
         self.todoCount = todoCount
+        self.paperLibraryRelativePath = paperLibraryRelativePath
+        self.agentRelativePath = agentRelativePath
     }
 
     private enum CodingKeys: String, CodingKey {
         case workspaceName = "workspace_name"
+        case rootName = "root_name"
+        case rootCompatibility = "root_compatibility"
+        case currentProjectID = "current_project_id"
+        case currentProject = "current_project"
+        case projects
         case selectedPaper = "selected_paper"
         case recentPapers = "recent_papers"
+        case projectPapers = "project_papers"
         case openTodos = "open_todos"
+        case projectOpenTodos = "project_open_todos"
         case paperCount = "paper_count"
         case todoCount = "todo_count"
+        case paperLibraryRelativePath = "paper_library_relative_path"
+        case agentRelativePath = "agent_relative_path"
     }
 }
 

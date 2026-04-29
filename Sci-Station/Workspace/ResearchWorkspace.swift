@@ -127,6 +127,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         directoryURL(for: "raw/papers")
     }
 
+    public nonisolated var globalPapersURL: URL {
+        directoryURL(for: "library/papers")
+    }
+
     public nonisolated var wikiPapersURL: URL {
         directoryURL(for: "wiki/papers")
     }
@@ -169,6 +173,14 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
 
     public nonisolated var libraryBibURL: URL {
         fileURL(for: "refs/library.bib")
+    }
+
+    public nonisolated var globalLibraryBibURL: URL {
+        fileURL(for: "library/refs/library.bib")
+    }
+
+    public nonisolated var projectPaperLinksURL: URL {
+        fileURL(for: "library/project_paper_links.yaml")
     }
 
     public nonisolated var tagsDefinitionURL: URL {
@@ -233,7 +245,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
     public nonisolated var quickAccessLocations: [(name: String, url: URL)] {
         [
             ("Inbox", inboxURL),
-            ("Papers", rawPapersURL),
+            ("Papers", globalPapersURL),
             ("Wiki Papers", wikiPapersURL),
             ("References", refsURL),
             ("Tasks", tasksURL),

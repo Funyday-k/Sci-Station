@@ -70,9 +70,10 @@ public actor PDFImportService {
         try fileManager.copyItem(at: sourceURL, to: stagedPDFURL)
 
         let normalizedCollectionPath = collectionPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let directoryRelativePath = normalizedCollectionPath.isEmpty
-            ? "raw/papers/\(paperID)"
-            : "raw/papers/\(normalizedCollectionPath)/\(paperID)"
+        let directoryRelativePath = Paper.directoryRelativePath(
+            for: paperID,
+            collectionPath: normalizedCollectionPath
+        )
         let paperDirectoryURL = workspace.directoryURL(for: directoryRelativePath)
         try fileManager.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
 

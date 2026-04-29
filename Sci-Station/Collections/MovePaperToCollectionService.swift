@@ -32,7 +32,11 @@ public actor MovePaperToCollectionService {
             .joined(separator: "/")
 
         let sourceDirectoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
-        let targetCollectionURL = workspace.resolve(relativePath: normalizedCollectionPath, from: workspace.rawPapersURL, isDirectory: true)
+        let targetCollectionURL = workspace.resolve(
+            relativePath: normalizedCollectionPath,
+            from: papersRootURL(for: paper, in: workspace),
+            isDirectory: true
+        )
         try fileManager.createDirectory(at: targetCollectionURL, withIntermediateDirectories: true)
 
         let targetDirectoryURL = targetCollectionURL.appendingPathComponent(paper.id, isDirectory: true)
@@ -52,5 +56,14 @@ public actor MovePaperToCollectionService {
         )
 
         return try await paperRepository.save(movedPaper, in: workspace)
+    }
+
+    private func papersRootURL(for paper: Paper, in workspace: ResearchWorkspace) -> URL {
+        switch Paper.storageRootRelativePath(for: paper.paperDirectoryRelativePath) {
+        case Paper.legacyLibraryRootRelativePath:
+            return workspace.rawPapersURL
+        default:
+            return workspace.globalPapersURL
+        }
     }
 }

@@ -133,6 +133,52 @@ struct SettingsView: View {
                                 .help("Clear the auto-open bookmark for this workspace")
                         }
 
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 10) {
+                                Label("Legacy raw/papers", systemImage: appModel.legacyPaperMigrationPlan.hasLegacyPapers ? "externaldrive.badge.exclamationmark" : "checkmark.circle")
+                                    .fontWeight(.medium)
+                                Spacer(minLength: 0)
+                                if appModel.isLoadingLegacyPaperMigrationPlan {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Button {
+                                    appModel.refreshLegacyPaperMigrationPlan()
+                                } label: {
+                                    Label("Refresh", systemImage: "arrow.clockwise")
+                                }
+                                .controlSize(.small)
+                                .help("Refresh the legacy paper scan")
+                            }
+
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 12) {
+                                WorkspacePathRow(label: "Legacy Papers", value: "\(appModel.legacyPaperMigrationPlan.legacyPaperCount)")
+                                WorkspacePathRow(label: "Ready", value: "\(appModel.legacyPaperMigrationPlan.readyCount)")
+                                WorkspacePathRow(label: "Conflicts", value: "\(appModel.legacyPaperMigrationPlan.conflictCount)")
+                                WorkspacePathRow(label: "Target", value: Paper.globalLibraryRootRelativePath)
+                            }
+
+                            if appModel.legacyPaperMigrationPlan.items.isEmpty {
+                                Label("No legacy raw/papers items detected.", systemImage: "checkmark.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(Array(appModel.legacyPaperMigrationPlan.items.prefix(5))) { item in
+                                        LegacyMigrationPlanRow(item: item)
+                                    }
+
+                                    if appModel.legacyPaperMigrationPlan.items.count > 5 {
+                                        Text("+\(appModel.legacyPaperMigrationPlan.items.count - 5) more")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+
                         WorkspacePathRow(label: "Visible Columns", value: appModel.workspacePreferences.libraryVisibleColumns.joined(separator: ", "))
                         WorkspacePathRow(label: "Preferences", value: workspace.workspacePreferencesURL.path)
                     }
@@ -310,6 +356,39 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+}
+
+private struct LegacyMigrationPlanRow: View {
+    let item: LegacyPaperMigrationItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: item.hasConflicts ? "exclamationmark.triangle.fill" : "doc.on.doc")
+                .foregroundStyle(item.hasConflicts ? Color.orange : Color.accentColor)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(item.title)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    Text(item.status.label)
+                        .font(.caption2)
+                        .foregroundStyle(item.hasConflicts ? Color.orange : Color.secondary)
+                }
+                Text("\(item.sourceRelativePath) -> \(item.targetRelativePath)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                if !item.conflicts.isEmpty {
+                    Text(item.conflicts.map(\.label).joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 }
 

@@ -2,98 +2,83 @@
 
 更新时间：2026-04-29
 
-## 1. 文档目的
+## 1. 当前阶段结论
 
-这份任务书用于记录当前下一阶段的主方向。任务书 12 已经完成多项目 UI、项目化 Todo、项目级 Wiki/Materials 隔离、DeepSeek 默认 LLM 和日历分类过滤的大部分实现；下一阶段应继续收尾任务书 12，而不是立即开启全新任务书。
+任务书 12 已按当前代码重新审阅并更新，并完成关键收尾：新论文默认进入 `library/papers`、旧 `raw/papers` 兼容读取、独立项目-论文关系仓库、Agent root/current project context 和核心验证覆盖。
 
-详细执行方案见 [DOC/Proposal12.md](Proposal12.md)。
+任务书 13 已完成第一步：legacy `raw/papers` 检测与 dry-run 迁移计划。Settings 的 Library 区域现在能显示 legacy paper 数量、ready/conflict 计数和目标路径预览，但尚未执行真实迁移。
 
-## 2. 当前阶段结论
+详细执行方案见 [DOC/Proposal13.md](Proposal13.md)。
 
-Sci-Station 目前已经具备论文导入、Wiki/Markdown、LLM 总结基础、Agent 底座和 Todo 等模块，并已经开始以一个全局研究根目录组织多个项目。
+## 2. 当前代码基线
 
-新的产品判断是：科研工作站应以一个全局研究根目录为基础，在其中管理多个项目、共享同一个论文库、共享 Agent/LLM 设置，并让每个项目拥有自己的 Wiki、任务、材料和输出。
-
-因此，下一阶段的核心不是先继续扩 Agent UI，而是把任务书 12 的数据收尾做扎实：全局论文物理存储、项目-论文关系仓库、Agent root/project context。
+- 全局研究根目录和多项目 registry 已存在。
+- Home 与 Sidebar 已支持多项目。
+- Todo 已支持项目归属和全局视图。
+- 新导入论文默认进入 `library/papers`。
+- 旧 `raw/papers` 继续兼容读取，避免破坏旧 workspace。
+- `library/project_paper_links.yaml` 已保存项目-论文关系。
+- `PaperRepository` 会桥接关系仓库与旧 paper metadata 字段。
+- Agent snapshot 和工具上下文已包含 root/current project。
+- `LegacyPaperMigrationService` 已能生成 `raw/papers` 到 `library/papers` 的 dry-run 计划。
 
 ## 3. 下一阶段主线
 
-下一阶段主线为：
-
 ```text
 Global Research Root
-  -> Global Paper Library
-  -> Global Agent / LLM Settings
-  -> Multiple Projects
-      -> Project Wiki
-      -> Project Tasks
-      -> Project Materials
-      -> Project Outputs
+  -> Safe Legacy Paper Migration
+  -> Project-Paper Link UI
+  -> Agent Panel V1
+  -> Project Lifecycle Controls
 ```
 
 ## 4. 主要目标
 
-### 4.1 全局研究根目录
+### 4.1 旧论文库迁移
 
-- 新增全局 root 概念。
-- 在 root 下创建 `library/`、`projects/`、`tasks/`、`settings/`、`.sci-station/`。
-- 支持旧 workspace 检测和迁移/兼容打开策略。
+- 检测 `raw/papers` legacy paper。
+- 提供 dry-run 迁移计划。
+- 展示冲突、目标路径和迁移报告。
+- 用户确认后迁移到 `library/papers`。
+- 保证迁移后同一 paper id 不重复显示。
 
-### 4.2 多项目 Home 与 Sidebar
+### 4.2 项目-论文关系 UI
 
-- Home 显示所有项目卡片。
-- 合并现有 Workspace Management 和 Workspace Overview。
-- 左侧栏改成可折叠的项目堆叠结构。
-- 支持单击切换项目和右键编辑项目信息。
+- UI 编辑项目归属和核心文章时优先写入 `ProjectPaperLinkRepository`。
+- 保留 `Paper.projectIDs` / `coreProjectIDs` 作为兼容镜像。
+- 增加项目内用途、文件夹、pin/order 等关系层字段。
 
-### 4.3 项目化 Todo
+### 4.3 Agent Panel V1
 
-- Todo 增加项目归属。
-- 当前项目 Tasks 只显示当前项目 Todo。
-- Home 日历下方显示跨项目 Todo 总表。
-- Todo 行显示来源项目。
+- 在全局 AI Lab 下显示 Agent Panel。
+- 展示 root、current project、project papers、project todos 和可用工具。
+- 支持 plan-only、工具审批、执行结果和 run history。
+- 支持 Copilot Bridge 导出。
 
-### 4.4 全局论文库
+### 4.4 项目生命周期
 
-- 论文库从项目内迁移为全局 library。
-- 同一篇论文可关联多个项目。
-- 项目 Wiki、Overview 和 Core Papers 基于项目关联论文构建。
-
-### 4.5 全局 Agent 设置
-
-- Agent/LLM/Copilot Bridge 设置放在 root-level settings。
-- Agent run log 写入 root `.sci-station/agent/`。
-- Agent context 同时包含 root、当前项目和项目关联论文。
+- 项目归档/取消归档。
+- 项目排序和拖拽重排。
+- 保守删除策略：第一版优先归档，不做物理删除。
 
 ## 5. 建议优先级
 
-1. 将论文物理存储从兼容路径推进到 `library/papers`，并提供旧数据迁移/兼容策略。
-2. 拆出 `ProjectPaperLinkRepository`，把项目内用途、核心状态和项目级备注从全局 paper metadata 中分离出来。
-3. 完成 Agent context 的 root/project 适配，让 tool call 明确携带 current project id。
-4. 补齐项目归档、排序、拖拽重排和删除/迁移策略。
-5. 继续增强 Todo/Reminders：重复提醒、提醒时间、列表选择、子任务和完成归档。
+1. 实现迁移执行与迁移报告，默认采用复制策略，并继续保留旧 `raw/papers`。
+2. 执行后刷新 Library，确认同一 paper id 优先显示 `library/papers` 版本。
+3. 将项目-论文关系 UI 写入切换到关系仓库。
+4. 建 Agent Panel plan-only UI。
+5. 加入 tool call 审批与 run history。
+6. 最后完善项目排序、归档和删除策略。
 
 ## 6. 验收标准
 
-1. 用户能创建全局研究根目录。
-2. 用户能在同一根目录下创建至少两个项目。
-3. Home 能同时显示所有项目卡片。
-4. 左侧栏能折叠/展开多个项目并切换当前项目。
-5. 当前项目 Tasks 只显示该项目 Todo。
-6. Home 能显示跨项目 Todo 总览。
-7. 论文导入进入全局论文库，同一论文可关联多个项目。
-8. Agent 设置和运行日志在 root 层共享。
-9. 旧 workspace 不会被破坏，至少可被识别并提示迁移或兼容打开。
-10. SwiftPM Core Test Runner 和 Xcode macOS build 通过。
-
-## 7. 下一轮建议直接做什么
-
-建议继续做任务书 12 的收尾包：
-
-- `GlobalPaperLibraryRepository` 或演进后的 `PaperRepository`，读写 `library/papers`。
-- `ProjectPaperLinkRepository`，保存项目-论文关系、核心文章、项目内用途。
-- 旧 `raw/papers` 到 `library/papers` 的兼容读取和可确认迁移。
-- AgentWorkspaceSnapshot 增加 root/project/currentProjectID/project papers/project todos。
-- Core Test Runner 覆盖迁移、项目论文关系和 agent context。
-
-完成后再开启下一份任务书，进入 Agent Panel 和更完整的科研自动化流程。
+1. 用户能看到当前 root 是否还有 legacy `raw/papers` 论文。
+2. 用户能确认并执行一次迁移到 `library/papers`。
+3. 迁移报告写入 root 可见位置。
+4. Library 不重复显示同一 paper id。
+5. UI 修改项目-论文关系会更新 `library/project_paper_links.yaml`。
+6. Agent Panel 能基于当前项目生成计划。
+7. Agent Panel 能逐项批准写入工具。
+8. Agent run log 含 current project id。
+9. SwiftPM Core Test Runner 通过。
+10. Xcode macOS build 通过。

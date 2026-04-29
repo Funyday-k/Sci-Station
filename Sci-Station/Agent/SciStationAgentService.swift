@@ -35,13 +35,23 @@ public actor SciStationAgentService {
     public func run(
         goal: String,
         in workspace: ResearchWorkspace,
+        root: ResearchRoot? = nil,
+        projects: [ResearchProject] = [],
+        currentProjectID: ResearchProject.ID? = nil,
         selectedPaperID: String? = nil,
         configuration: LLMConfiguration,
         apiKey: String,
         options: AgentExecutionOptions = AgentExecutionOptions()
     ) async throws -> AgentRun {
         let createdAt = Date()
-        let snapshot = try await contextBuilder.snapshot(in: workspace, selectedPaperID: selectedPaperID)
+        let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
+        let snapshot = try await contextBuilder.snapshot(
+            in: workspace,
+            root: resolvedRoot,
+            projects: projects,
+            currentProjectID: currentProjectID,
+            selectedPaperID: selectedPaperID
+        )
         let toolDefinitions = await toolRegistry.definitions()
         let plan = try await planner.plan(
             goal: goal,
@@ -50,7 +60,12 @@ public actor SciStationAgentService {
             configuration: configuration,
             apiKey: apiKey
         )
-        let context = AgentToolContext(workspace: workspace, selectedPaperID: selectedPaperID)
+        let context = AgentToolContext(
+            workspace: workspace,
+            selectedPaperID: selectedPaperID,
+            researchRoot: resolvedRoot,
+            currentProjectID: currentProjectID
+        )
         let toolResults: [AgentToolResult]
 
         switch options.mode {
@@ -71,9 +86,10 @@ public actor SciStationAgentService {
             completedAt: Date(),
             mode: options.mode,
             plan: plan,
-            toolResults: toolResults
+            toolResults: toolResults,
+            currentProjectID: currentProjectID
         )
-        try await runLogger.append(run, in: workspace)
+        try await runLogger.append(run, in: resolvedRoot)
         return run
     }
 }

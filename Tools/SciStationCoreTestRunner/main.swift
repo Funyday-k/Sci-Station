@@ -30,6 +30,9 @@ private struct CoreVerificationSuite {
         try citekeyGenerationUsesAuthorYearKeyword()
         try metadataCodecRoundTripKeepsEditableFields()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
+        try await paperRepositoryKeepsLegacyRawPapersLoadable()
+        try await legacyPaperMigrationPlanDetectsRawPaperConflicts()
+        try await projectPaperLinkRepositoryRoundTripsAndOverlaysPaperMetadata()
         try await paperRepositoryDeletesPaperDirectory()
         try librarySearchMatchesExtendedMetadata()
         try await paperAnnotationsRepositoryRoundTripsAnnotations()
@@ -47,8 +50,9 @@ private struct CoreVerificationSuite {
         try agentPlanParserExtractsJSONFromMarkdownFence()
         try await agentToolExecutorRequiresApprovalForTodoWrites()
         try await agentPaperClassificationToolUpdatesMetadata()
+        try await agentWorkspaceSnapshotIncludesProjectContext()
         try await agentRunLoggerAndCopilotBridgeExporterWriteWorkspaceFiles()
-        try await pdfImportCreatesRawMarkdownAndFigures()
+        try await pdfImportCreatesLibraryMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
         try await wikiPageGenerationRejectsSilentOverwrite()
@@ -534,7 +538,7 @@ private struct CoreVerificationSuite {
             useFor: ["related-work"],
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            paperDirectoryRelativePath: "raw/papers/Uncategorized/lee2022knowledge-graph-rag",
+            paperDirectoryRelativePath: "library/papers/Uncategorized/lee2022knowledge-graph-rag",
             notesSummaryRelativePath: "../../../../wiki/papers/lee2022knowledge.md",
             annotationsRelativePath: "annotations.md"
         )
@@ -560,6 +564,145 @@ private struct CoreVerificationSuite {
             loadedPaper.collectionPath == "Uncategorized",
             "Loaded collection path should be derived from the nested paper directory."
         )
+    }
+
+    private func paperRepositoryKeepsLegacyRawPapersLoadable() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = PaperRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LegacyRawPaperWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var legacyPaper = samplePaper(id: "legacy-raw-paper")
+        legacyPaper.paperDirectoryRelativePath = "raw/papers/Legacy/legacy-raw-paper"
+        legacyPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: legacyPaper.citekey,
+            paperDirectoryRelativePath: legacyPaper.paperDirectoryRelativePath
+        )
+
+        _ = try await repository.save(legacyPaper, in: workspace)
+        let loadedPaper = try require(
+            try await repository.loadPapers(in: workspace).first(where: { $0.id == legacyPaper.id }),
+            "Expected repository to keep legacy raw/papers metadata loadable."
+        )
+
+        try expect(loadedPaper.paperDirectoryRelativePath.hasPrefix("raw/papers/"), "Legacy paper paths should remain in raw/papers.")
+        try expect(loadedPaper.collectionPath == "Legacy", "Legacy raw/papers collections should still be derived correctly.")
+    }
+
+    private func legacyPaperMigrationPlanDetectsRawPaperConflicts() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let paperRepository = PaperRepository()
+        let migrationService = LegacyPaperMigrationService()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LegacyMigrationPlanWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+
+        var readyPaper = samplePaper(id: "legacy-ready-paper")
+        readyPaper.paperDirectoryRelativePath = "raw/papers/Legacy/legacy-ready-paper"
+        readyPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: readyPaper.citekey,
+            paperDirectoryRelativePath: readyPaper.paperDirectoryRelativePath
+        )
+        _ = try await paperRepository.save(readyPaper, in: workspace)
+
+        var conflictPaper = samplePaper(id: "legacy-conflict-paper")
+        conflictPaper.paperDirectoryRelativePath = "raw/papers/Legacy/legacy-conflict-paper"
+        conflictPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: conflictPaper.citekey,
+            paperDirectoryRelativePath: conflictPaper.paperDirectoryRelativePath
+        )
+        _ = try await paperRepository.save(conflictPaper, in: workspace)
+
+        var globalConflictPaper = conflictPaper
+        globalConflictPaper.paperDirectoryRelativePath = "library/papers/Legacy/legacy-conflict-paper"
+        globalConflictPaper.notesSummaryRelativePath = Paper.summaryRelativePath(
+            for: globalConflictPaper.citekey,
+            paperDirectoryRelativePath: globalConflictPaper.paperDirectoryRelativePath
+        )
+        _ = try await paperRepository.save(globalConflictPaper, in: workspace)
+
+        let plan = try await migrationService.makePlan(in: workspace)
+        let readyItem = try require(
+            plan.items.first(where: { $0.paperID == readyPaper.id }),
+            "Expected migration plan to include a ready legacy paper."
+        )
+        let conflictItem = try require(
+            plan.items.first(where: { $0.paperID == conflictPaper.id }),
+            "Expected migration plan to include a conflicting legacy paper."
+        )
+
+        try expect(plan.legacyPaperCount == 2, "Migration plan should count legacy raw/papers metadata files.")
+        try expect(plan.readyCount == 1, "Migration plan should count ready-to-copy legacy papers.")
+        try expect(plan.conflictCount == 1, "Migration plan should count conflicting legacy papers.")
+        try expect(readyItem.status == .readyToCopy, "A legacy paper without a target conflict should be ready to copy.")
+        try expect(readyItem.targetRelativePath == "library/papers/Legacy/legacy-ready-paper", "Migration plan should preserve collection paths under library/papers.")
+        try expect(conflictItem.status == .conflict, "A legacy paper with a global duplicate should be marked as a conflict.")
+        try expect(conflictItem.conflicts.contains(.targetDirectoryExists), "Migration plan should flag existing target directories.")
+        try expect(conflictItem.conflicts.contains(.duplicatePaperIDInGlobalLibrary), "Migration plan should flag duplicate global paper ids.")
+    }
+
+    private func projectPaperLinkRepositoryRoundTripsAndOverlaysPaperMetadata() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let paperRepository = PaperRepository()
+        let linkRepository = ProjectPaperLinkRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("ProjectPaperLinkWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await paperRepository.save(samplePaper(id: "linked-paper"), in: workspace)
+        try await linkRepository.save([
+            ProjectPaperLink(
+                projectID: "project-alpha",
+                paperID: paper.id,
+                isCore: true,
+                folderPath: "Project-Folder",
+                useFor: ["method-design"]
+            )
+        ], in: workspace)
+
+        let loadedLinks = try await linkRepository.links(forPaperID: paper.id, in: workspace)
+        let loadedPaper = try require(
+            try await paperRepository.loadPapers(in: workspace).first(where: { $0.id == paper.id }),
+            "Expected project links to overlay loaded paper metadata."
+        )
+
+        try expect(loadedLinks.count == 1, "Project-paper link repository should load saved links.")
+        try expect(loadedPaper.projectIDs == ["project-alpha"], "Loaded paper should expose project ids from the link repository.")
+        try expect(loadedPaper.coreProjectIDs == ["project-alpha"], "Loaded paper should expose core project ids from the link repository.")
+        try expect(loadedPaper.folderPath == "Project-Folder", "Loaded paper should expose the project folder from the link repository.")
+        try expect(loadedPaper.useFor.contains("method-design"), "Loaded paper should merge project use cases from the link repository.")
     }
 
     private func paperRepositoryDeletesPaperDirectory() async throws {
@@ -670,7 +813,7 @@ private struct CoreVerificationSuite {
             useFor: [],
             createdAt: Date(timeIntervalSince1970: 1_714_176_000),
             updatedAt: Date(timeIntervalSince1970: 1_714_176_000),
-            paperDirectoryRelativePath: "raw/papers/Dark-Matter/Solar-Capture/garani2024dark",
+            paperDirectoryRelativePath: "library/papers/Dark-Matter/Solar-Capture/garani2024dark",
             notesSummaryRelativePath: "../../../../../wiki/papers/garani2024dark.md",
             annotationsRelativePath: "annotations.md"
         )
@@ -1062,7 +1205,7 @@ private struct CoreVerificationSuite {
                         )
                     ]
                 )
-                let context = AgentToolContext(workspace: workspace, selectedPaperID: "paper-001")
+                let context = AgentToolContext(workspace: workspace, selectedPaperID: "paper-001", currentProjectID: "project-alpha")
 
                 let blockedResults = await executor.execute(plan: plan, context: context, approvedToolCallIDs: [])
                 let todosBeforeApproval = try await todoRepository.loadTodos(in: workspace)
@@ -1075,6 +1218,7 @@ private struct CoreVerificationSuite {
                 try expect(approvedResults.first?.callID == "call-1", "Agent tool results should retain the originating call id.")
                 try expect(todosAfterApproval.first?.title == "Check agent framework", "Approved todo tool call should persist a todo.")
                 try expect(todosAfterApproval.first?.relatedPaperIDs == ["paper-001"], "Todo tool should link to the selected paper when no explicit related_paper_ids are provided.")
+                try expect(todosAfterApproval.first?.projectIDs == ["project-alpha"], "Todo tool should default to the current project when project_ids are omitted.")
             }
 
             private func agentPaperClassificationToolUpdatesMetadata() async throws {
@@ -1100,14 +1244,14 @@ private struct CoreVerificationSuite {
                         AgentToolCall(
                             id: "call-1",
                             toolName: "update_paper_classification",
-                            argumentsJSON: "{\"tags\":[\"simulation\",\"dark-matter\"],\"categories\":[\"methods\"],\"priority\":\"urgent\",\"status\":\"skimmed\"}"
+                            argumentsJSON: "{\"tags\":[\"simulation\",\"dark-matter\"],\"categories\":[\"methods\"],\"mark_core_in_current_project\":true,\"priority\":\"urgent\",\"status\":\"skimmed\"}"
                         )
                     ]
                 )
 
                 let results = await executor.execute(
                     plan: plan,
-                    context: AgentToolContext(workspace: workspace, selectedPaperID: paper.id),
+                    context: AgentToolContext(workspace: workspace, selectedPaperID: paper.id, currentProjectID: "project-alpha"),
                     approvedToolCallIDs: ["call-1"]
                 )
                 let updatedPaper = try require(try await paperRepository.loadPapers(in: workspace).first(where: { $0.id == paper.id }), "Expected updated paper to be loadable.")
@@ -1115,8 +1259,72 @@ private struct CoreVerificationSuite {
                 try expect(results.first?.succeeded == true, "Approved classification tool call should succeed.")
                 try expect(updatedPaper.tags.contains("simulation"), "Classification tool should merge new tags.")
                 try expect(updatedPaper.categories.contains("methods"), "Classification tool should merge new categories.")
+                try expect(updatedPaper.projectIDs.contains("project-alpha"), "Classification tool should add the selected paper to the current project when requested.")
+                try expect(updatedPaper.coreProjectIDs.contains("project-alpha"), "Classification tool should mark the selected paper as core in the current project when requested.")
                 try expect(updatedPaper.priority == .urgent, "Classification tool should update priority.")
                 try expect(updatedPaper.status == .skimmed, "Classification tool should update reading status.")
+            }
+
+            private func agentWorkspaceSnapshotIncludesProjectContext() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let projectRegistryRepository = ProjectRegistryRepository()
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(
+                    fileManager: .default,
+                    bookmarkStore: bookmarkStore,
+                    projectRegistryRepository: projectRegistryRepository
+                )
+                let paperRepository = PaperRepository()
+                let todoRepository = TodoRepository()
+                let contextBuilder = AgentWorkspaceContextBuilder(
+                    paperRepository: paperRepository,
+                    todoRepository: todoRepository
+                )
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentProjectContextWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let registry = try await projectRegistryRepository.load(in: root)
+                let project = try require(registry.projects.first, "Expected a default project for agent context.")
+                var paper = samplePaper(id: "agent-project-paper")
+                paper.projectIDs = [project.id]
+                paper.coreProjectIDs = [project.id]
+                let savedPaper = try await paperRepository.save(paper, in: workspace)
+                let todo = TodoItem(
+                    id: "todo-agent-project",
+                    title: "Read project paper",
+                    status: .open,
+                    dueDate: nil,
+                    priority: .high,
+                    projectIDs: [project.id],
+                    tags: ["agent"],
+                    relatedPaperIDs: [savedPaper.id],
+                    notes: nil,
+                    createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+                )
+                try await todoRepository.upsert(todo, in: workspace)
+
+                let snapshot = try await contextBuilder.snapshot(
+                    in: workspace,
+                    root: root,
+                    projects: registry.projects,
+                    currentProjectID: project.id,
+                    selectedPaperID: savedPaper.id
+                )
+
+                try expect(snapshot.rootName == root.displayName, "Agent snapshot should include the research root name.")
+                try expect(snapshot.currentProjectID == project.id, "Agent snapshot should include current project id.")
+                try expect(snapshot.currentProject?.paperCount == 1, "Agent snapshot should include current project paper count.")
+                try expect(snapshot.projectPapers.map(\.id) == [savedPaper.id], "Agent snapshot should include project-associated papers.")
+                try expect(snapshot.projectOpenTodos.map(\.id) == [todo.id], "Agent snapshot should include current project open todos.")
+                try expect(snapshot.paperLibraryRelativePath == Paper.globalLibraryRootRelativePath, "Agent snapshot should advertise the global paper library path.")
             }
 
             private func agentRunLoggerAndCopilotBridgeExporterWriteWorkspaceFiles() async throws {
@@ -1165,7 +1373,7 @@ private struct CoreVerificationSuite {
                 try expect(logContents.contains("agent-run-test"), "Agent run logger should append JSONL entries.")
             }
 
-    private func pdfImportCreatesRawMarkdownAndFigures() async throws {
+    private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
         let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
         let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
@@ -1193,6 +1401,7 @@ private struct CoreVerificationSuite {
         let figuresURL = paperDirectoryURL.appendingPathComponent("figures", isDirectory: true)
 
         try expect(importedPaper.collectionPath == "Uncategorized", "Imported papers should default into the Uncategorized collection.")
+        try expect(importedPaper.paperDirectoryRelativePath.hasPrefix("library/papers/"), "Imported papers should be stored in the global library.")
         try expect(FileManager.default.fileExists(atPath: paperDirectoryURL.appendingPathComponent("paper.pdf").path), "Imported paper should include paper.pdf.")
         try expect(FileManager.default.fileExists(atPath: paperMarkdownURL.path), "Imported paper should include paper.md.")
         try expect(FileManager.default.fileExists(atPath: figuresURL.path), "Imported paper should include a figures directory.")
@@ -1227,7 +1436,7 @@ private struct CoreVerificationSuite {
         let movedPaper = try await moveService.move(originalPaper, to: "Dark-Matter/WIMPs", in: workspace)
 
         try expect(
-            movedPaper.paperDirectoryRelativePath == "raw/papers/Dark-Matter/WIMPs/move-test-paper",
+            movedPaper.paperDirectoryRelativePath == "library/papers/Dark-Matter/WIMPs/move-test-paper",
             "Moving a paper should update its nested directory path."
         )
         try expect(movedPaper.collectionPath == "Dark-Matter/WIMPs", "Moving a paper should update collection_path.")
@@ -1267,7 +1476,7 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: result.fileURL.path), "Wiki page should be written to wiki/papers.")
         let wikiContents = try String(contentsOf: result.fileURL, encoding: .utf8)
         try expect(wikiContents.contains("type: paper"), "Wiki page should contain paper frontmatter.")
-        try expect(wikiContents.contains("source_pdf: \"../../raw/papers/Uncategorized/smith2024-graph-rag/paper.pdf\""), "Wiki page should contain source_pdf path.")
+        try expect(wikiContents.contains("source_pdf: \"../../library/papers/Uncategorized/smith2024-graph-rag/paper.pdf\""), "Wiki page should contain source_pdf path.")
         try expect(wikiContents.contains("## TL;DR"), "Wiki page should contain summary sections.")
 
         let loadedPaper = try require(
@@ -1435,7 +1644,7 @@ private struct CoreVerificationSuite {
             useFor: ["related-work"],
             createdAt: Date(timeIntervalSince1970: 1_714_176_000),
             updatedAt: Date(timeIntervalSince1970: 1_714_176_000),
-            paperDirectoryRelativePath: "raw/papers/Uncategorized/\(id)",
+            paperDirectoryRelativePath: "library/papers/Uncategorized/\(id)",
             notesSummaryRelativePath: nil,
             annotationsRelativePath: "annotations.md"
         )

@@ -3,22 +3,34 @@ import Foundation
 public actor PaperRepository {
     private let fileManager: FileManager
     private let metadataCodec: PaperMetadataCodec
+    private let projectPaperLinkRepository: ProjectPaperLinkRepository
 
     public init(
         fileManager: FileManager = .default,
-        metadataCodec: PaperMetadataCodec? = nil
+        metadataCodec: PaperMetadataCodec? = nil,
+        projectPaperLinkRepository: ProjectPaperLinkRepository? = nil
     ) {
         self.fileManager = fileManager
         self.metadataCodec = metadataCodec ?? PaperMetadataCodec()
+        self.projectPaperLinkRepository = projectPaperLinkRepository ?? ProjectPaperLinkRepository(fileManager: fileManager)
     }
 
-    public func loadPapers(in workspace: ResearchWorkspace) throws -> [Paper] {
-        guard fileManager.fileExists(atPath: workspace.rawPapersURL.path) else {
+    public func loadPapers(in workspace: ResearchWorkspace) async throws -> [Paper] {
+        let scannedPapers = try scanPapers(at: workspace.globalPapersURL, in: workspace)
+            + scanPapers(at: workspace.rawPapersURL, in: workspace)
+        let deduplicatedPapers = deduplicated(scannedPapers)
+        let linkedPapers = try await applyingProjectLinks(to: deduplicatedPapers, in: workspace)
+
+        return linkedPapers.sorted(by: { $0.updatedAt > $1.updatedAt })
+    }
+
+    private func scanPapers(at papersRootURL: URL, in workspace: ResearchWorkspace) throws -> [Paper] {
+        guard fileManager.fileExists(atPath: papersRootURL.path) else {
             return []
         }
 
         guard let enumerator = fileManager.enumerator(
-            at: workspace.rawPapersURL,
+            at: papersRootURL,
             includingPropertiesForKeys: [.isDirectoryKey, .nameKey],
             options: [.skipsHiddenFiles]
         )
@@ -50,10 +62,10 @@ public actor PaperRepository {
             papers.append(paper)
         }
 
-        return papers.sorted(by: { $0.updatedAt > $1.updatedAt })
+        return papers
     }
 
-    public func save(_ paper: Paper, in workspace: ResearchWorkspace) throws -> Paper {
+    public func save(_ paper: Paper, in workspace: ResearchWorkspace) async throws -> Paper {
         let directoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
@@ -80,16 +92,20 @@ public actor PaperRepository {
             try "# Annotations\n\n".write(to: annotationsURL, atomically: true, encoding: .utf8)
         }
 
+        try await projectPaperLinkRepository.replaceLinks(for: updatedPaper, in: workspace)
+
         return updatedPaper
     }
 
-    public func delete(_ paper: Paper, in workspace: ResearchWorkspace) throws {
+    public func delete(_ paper: Paper, in workspace: ResearchWorkspace) async throws {
         let directoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath).standardizedFileURL
-        let papersRootURL = workspace.rawPapersURL.standardizedFileURL
         let directoryPath = directoryURL.path
-        let papersRootPath = papersRootURL.path
+        let allowedRootPaths = [workspace.globalPapersURL, workspace.rawPapersURL]
+            .map { $0.standardizedFileURL.path }
 
-        guard directoryPath == papersRootPath || directoryPath.hasPrefix(papersRootPath + "/") else {
+        guard allowedRootPaths.contains(where: { rootPath in
+            directoryPath == rootPath || directoryPath.hasPrefix(rootPath + "/")
+        }) else {
             throw CocoaError(.fileWriteNoPermission)
         }
 
@@ -98,10 +114,12 @@ public actor PaperRepository {
         }
 
         try fileManager.removeItem(at: directoryURL)
+        try await projectPaperLinkRepository.removeLinks(forPaperID: paper.id, in: workspace)
     }
 
     public func appendBibliographyStub(for paper: Paper, in workspace: ResearchWorkspace) throws {
-        let bibliographyURL = workspace.libraryBibURL
+        let bibliographyURL = workspace.globalLibraryBibURL
+        try fileManager.createDirectory(at: bibliographyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let existingContents = (try? String(contentsOf: bibliographyURL, encoding: .utf8)) ?? ""
         guard !existingContents.contains("{\(paper.citekey),") else {
             return
@@ -110,5 +128,62 @@ public actor PaperRepository {
         let entry = "\n\(BibTeXFormatter.bibTeX(for: paper))"
 
         try (existingContents + entry).write(to: bibliographyURL, atomically: true, encoding: .utf8)
+    }
+
+    private func deduplicated(_ papers: [Paper]) -> [Paper] {
+        var papersByID: [String: Paper] = [:]
+        for paper in papers {
+            guard let existingPaper = papersByID[paper.id] else {
+                papersByID[paper.id] = paper
+                continue
+            }
+
+            if shouldPrefer(paper, over: existingPaper) {
+                papersByID[paper.id] = paper
+            }
+        }
+        return Array(papersByID.values)
+    }
+
+    private func shouldPrefer(_ candidate: Paper, over existing: Paper) -> Bool {
+        if candidate.isStoredInGlobalLibrary != existing.isStoredInGlobalLibrary {
+            return candidate.isStoredInGlobalLibrary
+        }
+        return candidate.updatedAt > existing.updatedAt
+    }
+
+    private func applyingProjectLinks(to papers: [Paper], in workspace: ResearchWorkspace) async throws -> [Paper] {
+        let links = try await projectPaperLinkRepository.load(in: workspace)
+        guard !links.isEmpty else {
+            return papers
+        }
+
+        let linksByPaperID = Dictionary(grouping: links, by: \.paperID)
+        return papers.map { paper in
+            guard let paperLinks = linksByPaperID[paper.id], !paperLinks.isEmpty else {
+                return paper
+            }
+
+            var linkedPaper = paper
+            linkedPaper.projectIDs = uniqueOrdered(paperLinks.map(\.projectID))
+            linkedPaper.coreProjectIDs = uniqueOrdered(paperLinks.filter(\.isCore).map(\.projectID))
+            linkedPaper.folderPath = paperLinks.compactMap(\.folderPath).first ?? linkedPaper.folderPath
+            linkedPaper.useFor = uniqueOrdered(linkedPaper.useFor + paperLinks.flatMap(\.useFor))
+            return linkedPaper
+        }
+    }
+
+    private func uniqueOrdered(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !seen.contains(trimmed) else {
+                continue
+            }
+            seen.insert(trimmed)
+            result.append(trimmed)
+        }
+        return result
     }
 }

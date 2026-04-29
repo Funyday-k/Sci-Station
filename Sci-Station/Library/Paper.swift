@@ -1,6 +1,9 @@
 import Foundation
 
 public struct Paper: Identifiable, Codable, Hashable, Sendable {
+    public nonisolated static let globalLibraryRootRelativePath = "library/papers"
+    public nonisolated static let legacyLibraryRootRelativePath = "raw/papers"
+
     public var id: String
     public var citekey: String
     public var title: String
@@ -228,7 +231,9 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
             return nil
         }
 
-        guard components[0] == "raw", components[1] == "papers" else {
+        let isGlobalLibraryPath = components[0] == "library" && components[1] == "papers"
+        let isLegacyLibraryPath = components[0] == "raw" && components[1] == "papers"
+        guard isGlobalLibraryPath || isLegacyLibraryPath else {
             return nil
         }
 
@@ -238,6 +243,45 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         }
 
         return collectionComponents.joined(separator: "/")
+    }
+
+    public nonisolated static func directoryRelativePath(for paperID: String, collectionPath: String?) -> String {
+        let normalizedCollectionPath = collectionPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+            .joined(separator: "/")
+
+        guard let normalizedCollectionPath, !normalizedCollectionPath.isEmpty else {
+            return "\(globalLibraryRootRelativePath)/\(paperID)"
+        }
+
+        return "\(globalLibraryRootRelativePath)/\(normalizedCollectionPath)/\(paperID)"
+    }
+
+    public nonisolated static func storageRootRelativePath(for paperDirectoryRelativePath: String) -> String? {
+        let components = paperDirectoryRelativePath
+            .split(separator: "/")
+            .map(String.init)
+
+        guard components.count >= 2 else {
+            return nil
+        }
+
+        if components[0] == "library", components[1] == "papers" {
+            return globalLibraryRootRelativePath
+        }
+
+        if components[0] == "raw", components[1] == "papers" {
+            return legacyLibraryRootRelativePath
+        }
+
+        return nil
+    }
+
+    public nonisolated var isStoredInGlobalLibrary: Bool {
+        Self.storageRootRelativePath(for: paperDirectoryRelativePath) == Self.globalLibraryRootRelativePath
     }
 
     public nonisolated static func summaryRelativePath(for citekey: String, paperDirectoryRelativePath: String) -> String {

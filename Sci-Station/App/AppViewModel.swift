@@ -41,6 +41,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var isWorking = false
     @Published private(set) var papers: [Paper] = []
+    @Published private(set) var legacyPaperMigrationPlan = LegacyPaperMigrationPlan.empty
+    @Published private(set) var isLoadingLegacyPaperMigrationPlan = false
     @Published private(set) var collections: [PaperCollection] = []
     @Published private(set) var tagDefinitions: [TagDefinition] = []
     @Published private(set) var todos: [TodoItem] = []
@@ -93,6 +95,7 @@ final class AppViewModel: ObservableObject {
     private let workspaceService: WorkspaceService
     private let projectRegistryRepository: ProjectRegistryRepository
     private let paperRepository: PaperRepository
+    private let legacyPaperMigrationService: LegacyPaperMigrationService
     private let collectionRepository: CollectionRepository
     private let movePaperToCollectionService: MovePaperToCollectionService
     private let tagRepository: TagRepository
@@ -125,6 +128,7 @@ final class AppViewModel: ObservableObject {
         workspaceService: WorkspaceService? = nil,
         projectRegistryRepository: ProjectRegistryRepository? = nil,
         paperRepository: PaperRepository? = nil,
+        legacyPaperMigrationService: LegacyPaperMigrationService? = nil,
         collectionRepository: CollectionRepository? = nil,
         tagRepository: TagRepository? = nil,
         todoRepository: TodoRepository? = nil,
@@ -146,6 +150,7 @@ final class AppViewModel: ObservableObject {
         let resolvedWorkspaceService = workspaceService ?? WorkspaceService()
         let resolvedProjectRegistryRepository = projectRegistryRepository ?? ProjectRegistryRepository()
         let resolvedPaperRepository = paperRepository ?? PaperRepository()
+        let resolvedLegacyPaperMigrationService = legacyPaperMigrationService ?? LegacyPaperMigrationService()
         let resolvedCollectionRepository = collectionRepository ?? CollectionRepository()
         let resolvedTagRepository = tagRepository ?? TagRepository()
         let resolvedTodoRepository = todoRepository ?? TodoRepository()
@@ -169,6 +174,7 @@ final class AppViewModel: ObservableObject {
         self.workspaceService = resolvedWorkspaceService
         self.projectRegistryRepository = resolvedProjectRegistryRepository
         self.paperRepository = resolvedPaperRepository
+        self.legacyPaperMigrationService = resolvedLegacyPaperMigrationService
         self.collectionRepository = resolvedCollectionRepository
         self.movePaperToCollectionService = MovePaperToCollectionService(paperRepository: resolvedPaperRepository)
         self.tagRepository = resolvedTagRepository
@@ -772,6 +778,30 @@ final class AppViewModel: ObservableObject {
                     selectingPaper: selectedPaperID,
                     selectingMarkdown: selectedMarkdownID
                 )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func refreshLegacyPaperMigrationPlan() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        isLoadingLegacyPaperMigrationPlan = true
+        Task {
+            defer {
+                isLoadingLegacyPaperMigrationPlan = false
+            }
+
+            do {
+                try await loadLegacyPaperMigrationPlan(in: currentWorkspace)
+                if legacyPaperMigrationPlan.hasLegacyPapers {
+                    workspaceSettingsStatusMessage = "Legacy scan found \(legacyPaperMigrationPlan.legacyPaperCount) raw/papers items."
+                } else {
+                    workspaceSettingsStatusMessage = "No legacy raw/papers items found."
+                }
             } catch {
                 present(error)
             }
@@ -1887,6 +1917,7 @@ final class AppViewModel: ObservableObject {
         try await loadResearchRoot(in: workspace, compatibility: rootCompatibility)
         try await loadWorkspacePreferences(in: workspace)
         try await loadLibrary(in: workspace, selecting: paperID)
+        try await loadLegacyPaperMigrationPlan(in: workspace)
         try await loadCollections(in: workspace)
         try await loadTags(in: workspace)
         try await loadTodos(in: workspace)
@@ -1923,6 +1954,10 @@ final class AppViewModel: ObservableObject {
         selectedPaperID = nextSelectionID
         selectedPaperDraft = loadedPapers.first(where: { $0.id == nextSelectionID })
         try await loadSelectedPaperAnnotations(in: workspace)
+    }
+
+    private func loadLegacyPaperMigrationPlan(in workspace: ResearchWorkspace) async throws {
+        legacyPaperMigrationPlan = try await legacyPaperMigrationService.makePlan(in: workspace)
     }
 
     private func loadWorkspacePreferences(in workspace: ResearchWorkspace) async throws {

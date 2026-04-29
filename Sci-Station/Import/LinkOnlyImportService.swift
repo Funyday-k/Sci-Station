@@ -31,9 +31,10 @@ public actor LinkOnlyImportService {
             existing: Set(existingPapers.map(\.citekey))
         )
 
-        let directoryRelativePath = normalizedCollectionPath.isEmpty
-            ? "raw/papers/\(paperID)"
-            : "raw/papers/\(normalizedCollectionPath)/\(paperID)"
+        let directoryRelativePath = Paper.directoryRelativePath(
+            for: paperID,
+            collectionPath: normalizedCollectionPath
+        )
         let paperDirectoryURL = workspace.directoryURL(for: directoryRelativePath)
         try fileManager.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: paperDirectoryURL.appendingPathComponent("figures", isDirectory: true), withIntermediateDirectories: true)

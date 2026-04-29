@@ -8,7 +8,7 @@ public enum CollectionRepositoryError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidRelativePath:
-            return "Collection path must be relative to raw/papers."
+            return "Collection path must be relative to the paper library."
         case let .alreadyExists(path):
             return "Collection already exists at \(path)."
         case let .notEmpty(path):
@@ -25,17 +25,34 @@ public actor CollectionRepository {
     }
 
     public func loadCollections(in workspace: ResearchWorkspace) throws -> [PaperCollection] {
-        let result = try scanCollections(at: workspace.rawPapersURL, relativePath: nil, workspace: workspace)
-        return result.collections.sorted { lhs, rhs in
+        var collectionsByPath: [String: PaperCollection] = [:]
+        for papersRootURL in paperRootURLs(in: workspace) where fileManager.fileExists(atPath: papersRootURL.path) {
+            let result = try scanCollections(
+                at: papersRootURL,
+                relativePath: nil,
+                workspace: workspace,
+                papersRootURL: papersRootURL
+            )
+            for collection in result.collections {
+                if var existingCollection = collectionsByPath[collection.relativePath] {
+                    existingCollection.paperCount += collection.paperCount
+                    collectionsByPath[collection.relativePath] = existingCollection
+                } else {
+                    collectionsByPath[collection.relativePath] = collection
+                }
+            }
+        }
+
+        return collectionsByPath.values.sorted { lhs, rhs in
             lhs.relativePath.localizedStandardCompare(rhs.relativePath) == .orderedAscending
         }
     }
 
     public func createCollection(at relativePath: String, in workspace: ResearchWorkspace) throws -> PaperCollection {
         let normalizedPath = try normalize(relativePath)
-        let collectionURL = workspace.resolve(relativePath: normalizedPath, from: workspace.rawPapersURL, isDirectory: true)
+        let collectionURL = workspace.resolve(relativePath: normalizedPath, from: workspace.globalPapersURL, isDirectory: true)
 
-        guard !fileManager.fileExists(atPath: collectionURL.path) else {
+        guard !collectionExists(at: normalizedPath, in: workspace) else {
             throw CollectionRepositoryError.alreadyExists(normalizedPath)
         }
 
@@ -50,14 +67,15 @@ public actor CollectionRepository {
             throw CollectionRepositoryError.invalidRelativePath
         }
 
-        let sourceURL = workspace.resolve(relativePath: normalizedPath, from: workspace.rawPapersURL, isDirectory: true)
+        let papersRootURL = existingCollectionRootURL(for: normalizedPath, in: workspace)
+        let sourceURL = workspace.resolve(relativePath: normalizedPath, from: papersRootURL, isDirectory: true)
         var pathComponents = normalizedPath
             .split(separator: "/")
             .dropLast()
             .map(String.init)
         pathComponents.append(sanitizedName)
         let targetRelativePath = pathComponents.joined(separator: "/")
-        let targetURL = workspace.resolve(relativePath: targetRelativePath, from: workspace.rawPapersURL, isDirectory: true)
+        let targetURL = workspace.resolve(relativePath: targetRelativePath, from: papersRootURL, isDirectory: true)
 
         guard !fileManager.fileExists(atPath: targetURL.path) else {
             throw CollectionRepositoryError.alreadyExists(targetRelativePath)
@@ -72,7 +90,8 @@ public actor CollectionRepository {
 
     public func deleteCollection(at relativePath: String, in workspace: ResearchWorkspace) throws {
         let normalizedPath = try normalize(relativePath)
-        let collectionURL = workspace.resolve(relativePath: normalizedPath, from: workspace.rawPapersURL, isDirectory: true)
+        let papersRootURL = existingCollectionRootURL(for: normalizedPath, in: workspace)
+        let collectionURL = workspace.resolve(relativePath: normalizedPath, from: papersRootURL, isDirectory: true)
         let contents = try fileManager.contentsOfDirectory(at: collectionURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
 
         guard contents.isEmpty else {
@@ -85,7 +104,8 @@ public actor CollectionRepository {
     private func scanCollections(
         at directoryURL: URL,
         relativePath: String?,
-        workspace: ResearchWorkspace
+        workspace: ResearchWorkspace,
+        papersRootURL: URL
     ) throws -> (collections: [PaperCollection], paperCount: Int) {
         let childURLs = try fileManager.contentsOfDirectory(
             at: directoryURL,
@@ -108,12 +128,12 @@ public actor CollectionRepository {
                 continue
             }
 
-            let childRelativePath = workspace.relativePath(to: childURL)
-                .replacingOccurrences(of: "raw/papers/", with: "")
+            let childRelativePath = collectionRelativePath(to: childURL, papersRootURL: papersRootURL)
             let nestedResult = try scanCollections(
                 at: childURL,
                 relativePath: childRelativePath,
-                workspace: workspace
+                workspace: workspace,
+                papersRootURL: papersRootURL
             )
             let collection = makeCollection(relativePath: childRelativePath, paperCount: nestedResult.paperCount)
             collections.append(collection)
@@ -121,6 +141,42 @@ public actor CollectionRepository {
         }
 
         return (collections, directPaperCount + collections.filter { $0.parentPath == relativePath }.map(\.paperCount).reduce(0, +))
+    }
+
+    private func paperRootURLs(in workspace: ResearchWorkspace) -> [URL] {
+        [workspace.globalPapersURL, workspace.rawPapersURL]
+    }
+
+    private func existingCollectionRootURL(for relativePath: String, in workspace: ResearchWorkspace) -> URL {
+        let globalCollectionURL = workspace.resolve(relativePath: relativePath, from: workspace.globalPapersURL, isDirectory: true)
+        if fileManager.fileExists(atPath: globalCollectionURL.path) {
+            return workspace.globalPapersURL
+        }
+
+        let legacyCollectionURL = workspace.resolve(relativePath: relativePath, from: workspace.rawPapersURL, isDirectory: true)
+        if fileManager.fileExists(atPath: legacyCollectionURL.path) {
+            return workspace.rawPapersURL
+        }
+
+        return workspace.globalPapersURL
+    }
+
+    private func collectionExists(at relativePath: String, in workspace: ResearchWorkspace) -> Bool {
+        paperRootURLs(in: workspace).contains { papersRootURL in
+            let collectionURL = workspace.resolve(relativePath: relativePath, from: papersRootURL, isDirectory: true)
+            return fileManager.fileExists(atPath: collectionURL.path)
+        }
+    }
+
+    private func collectionRelativePath(to collectionURL: URL, papersRootURL: URL) -> String {
+        let rootPath = papersRootURL.standardizedFileURL.path
+        let collectionPath = collectionURL.standardizedFileURL.path
+        guard collectionPath.hasPrefix(rootPath) else {
+            return collectionURL.lastPathComponent
+        }
+
+        let relativePath = collectionPath.dropFirst(rootPath.count)
+        return relativePath.hasPrefix("/") ? String(relativePath.dropFirst()) : String(relativePath)
     }
 
     private func makeCollection(relativePath: String, paperCount: Int) -> PaperCollection {

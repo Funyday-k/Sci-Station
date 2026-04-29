@@ -3,10 +3,19 @@ import Foundation
 public nonisolated struct AgentToolContext: Sendable {
     public var workspace: ResearchWorkspace
     public var selectedPaperID: String?
+    public var researchRoot: ResearchRoot?
+    public var currentProjectID: ResearchProject.ID?
 
-    public nonisolated init(workspace: ResearchWorkspace, selectedPaperID: String? = nil) {
+    public nonisolated init(
+        workspace: ResearchWorkspace,
+        selectedPaperID: String? = nil,
+        researchRoot: ResearchRoot? = nil,
+        currentProjectID: ResearchProject.ID? = nil
+    ) {
         self.workspace = workspace
         self.selectedPaperID = selectedPaperID
+        self.researchRoot = researchRoot
+        self.currentProjectID = currentProjectID
     }
 }
 

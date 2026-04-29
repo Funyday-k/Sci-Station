@@ -36,8 +36,37 @@ public actor AgentCopilotBridgeExporter {
         tools: [AgentToolDefinition],
         in workspace: ResearchWorkspace
     ) throws -> AgentCopilotBridgeExport {
+        try export(
+            goal: goal,
+            workspaceSnapshot: workspaceSnapshot,
+            tools: tools,
+            rootDirectoryURL: workspace.rootURL
+        )
+    }
+
+    public func export(
+        goal: String,
+        workspaceSnapshot: AgentWorkspaceSnapshot,
+        tools: [AgentToolDefinition],
+        in root: ResearchRoot
+    ) throws -> AgentCopilotBridgeExport {
+        try export(
+            goal: goal,
+            workspaceSnapshot: workspaceSnapshot,
+            tools: tools,
+            rootDirectoryURL: root.rootURL
+        )
+    }
+
+    private func export(
+        goal: String,
+        workspaceSnapshot: AgentWorkspaceSnapshot,
+        tools: [AgentToolDefinition],
+        rootDirectoryURL: URL
+    ) throws -> AgentCopilotBridgeExport {
         let id = "copilot-bridge-\(UUID().uuidString.lowercased())"
-        let directoryURL = workspace.directoryURL(for: ".sci-station/agent/copilot-bridge")
+        let root = ResearchRoot(rootURL: rootDirectoryURL)
+        let directoryURL = root.directoryURL(for: ".sci-station/agent/copilot-bridge")
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
         let promptRelativePath = ".sci-station/agent/copilot-bridge/\(id).prompt.md"
@@ -50,7 +79,7 @@ public actor AgentCopilotBridgeExporter {
         ---
         \(prompt)
         """
-        try promptFile.write(to: workspace.fileURL(for: promptRelativePath), atomically: true, encoding: .utf8)
+        try promptFile.write(to: root.fileURL(for: promptRelativePath), atomically: true, encoding: .utf8)
 
         let export = AgentCopilotBridgeExport(
             id: id,
@@ -62,7 +91,7 @@ public actor AgentCopilotBridgeExporter {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(export)
-        try data.write(to: workspace.fileURL(for: manifestRelativePath), options: .atomic)
+        try data.write(to: root.fileURL(for: manifestRelativePath), options: .atomic)
         return export
     }
 }

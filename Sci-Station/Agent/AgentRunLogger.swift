@@ -8,7 +8,14 @@ public actor AgentRunLogger {
     }
 
     public func append(_ run: AgentRun, in workspace: ResearchWorkspace) throws {
-        let logURL = workspace.fileURL(for: ".sci-station/agent/runs.jsonl")
+        try append(run, logURL: workspace.fileURL(for: ".sci-station/agent/runs.jsonl"))
+    }
+
+    public func append(_ run: AgentRun, in root: ResearchRoot) throws {
+        try append(run, logURL: root.fileURL(for: ".sci-station/agent/runs.jsonl"))
+    }
+
+    private func append(_ run: AgentRun, logURL: URL) throws {
         try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         let encoder = JSONEncoder()

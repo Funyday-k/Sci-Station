@@ -1,6 +1,6 @@
 # Sci-Station
 
-Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原型。它是把一个科研项目内部的 proposal、核心论文、数据、代码阅读、图片、输出、任务、日历和知识页组织在同一个可见的本地工作区中。
+Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原型。它以一个全局研究根目录组织多个科研项目，共享全局论文库、任务、Agent/LLM 设置，并让每个项目拥有自己的 Wiki、材料、任务和输出。
 
 当前代码已经完成核心骨架：工作区创建与恢复、项目总览、论文导入、元数据读写、Library 管理、Wiki、Todo/Calendar、BibTeX 出口、内置 PDF Reader，以及可独立运行的核心验证工具。
 
@@ -15,11 +15,36 @@ Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原�
 ## 工作区结构
 
 ```text
-ResearchWorkspace/
+ResearchRoot/
 ├── .sci-station/
+│   ├── project_registry.yaml
+│   └── agent/
+├── library/
+│   ├── papers/
+│   │   └── {paper-id}/
+│   │       ├── paper.pdf
+│   │       ├── paper.md
+│   │       ├── meta.yaml
+│   │       ├── annotations.md
+│   │       └── figures/
+│   ├── refs/
+│   │   ├── library.bib
+│   │   └── tags.yaml
+│   ├── paper_index.yaml
+│   └── project_paper_links.yaml
+├── projects/
+│   └── {project-id}/
+│       ├── project.yaml
+│       ├── shared_research.md
+│       ├── wiki/
+│       ├── tasks/
+│       ├── data/
+│       ├── code/
+│       ├── figures/
+│       └── outputs/
 ├── inbox/
 ├── raw/
-│   ├── papers/
+│   ├── papers/        # legacy compatibility; new imports use library/papers
 │   ├── web/
 │   └── books/
 ├── wiki/
@@ -101,7 +126,8 @@ ResearchWorkspace/
 - Paper 模型包含标题、作者、年份、标签、阅读状态、优先级、评分、用途、出版信息、标识符、abstract、BibTeX 等字段
 - 使用 `meta.yaml` 作为论文目录内的元数据文件
 - 自动生成 citekey 和 paper id
-- 支持从文件系统扫描 `raw/papers` 并加载本地论文库
+- 新导入论文写入 `library/papers`，并继续兼容扫描旧 `raw/papers`
+- `library/project_paper_links.yaml` 保存项目-论文关系，`PaperRepository` 会桥接旧 metadata 中的 `project_ids` / `core_project_ids`
 - 支持在 Inspector 中编辑论文元数据并保存回 `meta.yaml`
 - Collection 重命名后按真实目录推导 collection，避免 stale `collection_path` 导致论文消失
 - Library 搜索覆盖标题、作者、标签、citekey、DOI、arXiv、INSPIRE、abstract、BibTeX 与出版信息
@@ -111,7 +137,7 @@ ResearchWorkspace/
 - 支持按钮选择 PDF 导入
 - 支持把 PDF 拖入 Library 完成导入
 - 使用 PDFKit 读取 PDF title / author 元数据，并从文件名中提取年份
-- 导入时创建 `raw/papers/{collection}/{paper-id}/`
+- 导入时创建 `library/papers/{collection}/{paper-id}/`
 - 生成标准化文件：`paper.pdf`、`paper.md`、`meta.yaml`、`annotations.md`、`figures/`
 - Quick Link 支持 DOI、arXiv、PDF URL 和普通网页链接，导入前可直接打开 URL 确认
 - Add by Link 支持批量粘贴多个链接/标识符，按换行、逗号、分号和空白分割，顺序导入并保留失败项
@@ -171,11 +197,12 @@ ResearchWorkspace/
 - WorkspacePreferencesRepository 保存和读取可往返
 - citekey 生成规则正确
 - meta.yaml 编解码可往返
-- PaperRepository 保存、读取、删除和 nested collection 加载可往返
+- PaperRepository 保存、读取、删除和 nested collection 加载可往返，并兼容 `library/papers` / `raw/papers`
+- ProjectPaperLinkRepository 可保存项目-论文关系，并在加载论文时叠加到 Paper metadata
 - PaperAnnotationsRepository 可读写 `annotations.md`
 - TodoRepository 保留 priority、notes、related paper ids 和 Reminders 映射字段
 - LibrarySearchService 覆盖 DOI、abstract、BibTeX 等扩展字段
-- PDF 导入后生成 `paper.md` 和 `figures/`
+- PDF 导入后在 `library/papers` 生成 `paper.md` 和 `figures/`
 - WikiPageGenerator 生成模板页并拒绝静默覆盖
 - FrontmatterParser、WikiLinkParser、BacklinkIndex、MarkdownRepository 基础检查通过
 
@@ -205,7 +232,10 @@ ResearchWorkspace/
 
 ## 尚未完成的部分
 
+- 旧 `raw/papers` 到 `library/papers` 的可确认迁移 UI 与迁移报告
 - Project Overview 的项目配置模型、阶段状态和自定义核心论文 pinning
+- 项目-论文关系 UI 完全切换到 `ProjectPaperLinkRepository` 作为第一数据源
+- Agent Panel V1：plan-only、工具审批、run history 和 Copilot Bridge 导出
 - Markdown renderer 的离线资源打包、snippet 图形化管理和更完整编辑器快捷键
 - SQLite/FTS 统一搜索索引和增量更新
 - Apple Reminders 双向同步、完成状态回写和冲突选择 UI

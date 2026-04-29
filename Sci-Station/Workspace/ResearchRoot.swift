@@ -33,6 +33,7 @@ public nonisolated struct ResearchRoot: Identifiable, Equatable, Sendable {
         SeededFile(relativePath: "library/refs/library.bib", contents: "% Sci-Station global bibliography\n"),
         SeededFile(relativePath: "library/refs/tags.yaml", contents: "tags: []\n"),
         SeededFile(relativePath: "library/paper_index.yaml", contents: "papers: []\n"),
+        SeededFile(relativePath: "library/project_paper_links.yaml", contents: "links: []\n"),
         SeededFile(relativePath: "tasks/todos.yaml", contents: "todos: []\n"),
         SeededFile(relativePath: "settings/root_preferences.yaml", contents: "schema_version: 1\nactive_project_id: \"\"\n"),
         SeededFile(relativePath: "settings/llm.yaml", contents: "schema_version: 1\n"),
