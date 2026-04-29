@@ -56,6 +56,10 @@ struct Sci_StationApp: App {
                 Button("Open External PDF", action: appModel.openSelectedPaperPDF)
                     .disabled(!appModel.canOpenSelectedPaperPDF)
 
+                Button("Preview PDF", action: appModel.previewLibrarySelection)
+                    .keyboardShortcut(.space, modifiers: [])
+                    .disabled(appModel.selectedSection != .library || !appModel.canPreviewLibrarySelection)
+
                 Button("Reveal Paper in Finder", action: appModel.revealSelectedPaperInFinder)
                     .disabled(appModel.selectedPaperDraft == nil)
 

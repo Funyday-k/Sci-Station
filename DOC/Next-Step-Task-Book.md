@@ -22,7 +22,11 @@
 
 任务书 20 已完成 AI Lab Thread 管理与计划复用 V1：thread 重命名、归档/隐藏、空 pending draft 丢弃、历史 orphan run 手动归并、thread-level prompt draft 持久化到 `.sci-station/agent/drafts.json`、历史 prompt 复制到 New Chat，以及未来 Auto Run Loop 权限/停止条件说明均已落地。
 
-迁移收束见 [DOC/Proposal13.md](Proposal13.md)，关系 UI 收束见 [DOC/Proposal14.md](Proposal14.md)，Agent Panel 收束见 [DOC/Proposal15.md](Proposal15.md)，Mac 基础体验收束见 [DOC/Proposal16.md](Proposal16.md)，Library 原生表格收束见 [DOC/Proposal17.md](Proposal17.md)，AI Lab 会话体验见 [DOC/Proposal18.md](Proposal18.md)，Thread 化准备见 [DOC/Proposal19.md](Proposal19.md)，下一轮执行方案见 [DOC/Proposal20.md](Proposal20.md)。
+任务书 21 已定稿为 Library Table V2 与 GitHub Copilot SDK 接口适配：下一轮优先补齐列布局、选择集批量编辑和 Quick Look，同时按 `DOC/Github Copilot` 接入手册为 AI Lab 增加 OAuth/GitHub App user token、每用户 Copilot client、token 安全边界和组织校验的 adapter 方案。
+
+任务书 21 已完成第一版：Library 表格列顺序管理、多选批量编辑、Space/Preview PDF fallback、GitHub Copilot SDK experimental 配置与 token 分类、安全 adapter 边界和核心验证均已落地；Copilot SDK 仍保持 experimental，不替换现有 DeepSeek/OpenAI-compatible provider。
+
+迁移收束见 [DOC/Proposal13.md](Proposal13.md)，关系 UI 收束见 [DOC/Proposal14.md](Proposal14.md)，Agent Panel 收束见 [DOC/Proposal15.md](Proposal15.md)，Mac 基础体验收束见 [DOC/Proposal16.md](Proposal16.md)，Library 原生表格收束见 [DOC/Proposal17.md](Proposal17.md)，AI Lab 会话体验见 [DOC/Proposal18.md](Proposal18.md)，Thread 化准备见 [DOC/Proposal19.md](Proposal19.md)，Thread 管理见 [DOC/Proposal20.md](Proposal20.md)，下一轮执行方案见 [DOC/Proposal21.md](Proposal21.md)。
 
 ## 2. 当前代码基线
 
@@ -40,7 +44,7 @@
 - Mac 基础体验第一阶段已完成：菜单命令、`Cmd+N` New Project、`Cmd+F` 搜索、`Cmd+S` Wiki 保存、Reader Find Next/Previous、删除文案、accessibility label 和空状态操作。
 - `LegacyPaperMigrationService` 已能生成 `raw/papers` 到 `library/papers` 的 dry-run 计划，并执行 copy-only 迁移报告。
 - Library 原生表格体验 V1 已完成：SwiftUI `Table`、排序模型、selection 同步、右键菜单、Copy Citation/Copy BibTeX 和批量 BibTeX 导出准备。
-- AI Lab Thread 管理与计划复用 V1 已完成；下一轮建议优先转向 Library Table V2，项目生命周期控制作为后续候选保留。
+- AI Lab Thread 管理与计划复用 V1 已完成；Library Table V2 与 GitHub Copilot SDK OAuth 接口适配第一版已完成。
 
 ## 3. 下一阶段主线
 
@@ -53,7 +57,8 @@ Global Research Root
   -> Native Library Table
   -> Codex-style AI Lab + Threads
   -> AI Lab Thread Management V1
-  -> Library Table V2 / Project Lifecycle Controls
+  -> Library Table V2 + GitHub Copilot SDK Adapter
+  -> Project Lifecycle Controls
 ```
 
 ## 4. 主要目标
@@ -112,11 +117,30 @@ Global Research Root
 - 项目排序和拖拽重排。
 - 保守删除策略：第一版优先归档，不做物理删除。
 
+### 4.8 Library Table V2
+
+- 列显示、顺序和宽度状态继续使用 workspace preferences，并兼容旧配置。
+- 若 SwiftUI `Table` 无法稳定支持完整列顺序/列宽持久化，应记录阻塞并采用可维护的替代入口。
+- 多选论文支持批量 status、priority、rating、folder 和 tag 编辑。
+- 项目关系批量编辑优先写入 `ProjectPaperLinkRepository`，作为本轮可选项。
+- Space / Quick Look 为有 PDF 的论文提供快速预览，无 PDF 时给出非阻塞说明。
+- 第一版使用现有外部 PDF opening 作为 Space / Preview fallback，后续可再接 `QLPreviewPanel`。
+
+### 4.9 GitHub Copilot SDK 接口适配
+
+- 继续保留现有 Copilot Bridge prompt/manifest 文件导出。
+- 新增面向 GitHub Copilot SDK 的 provider/adapter 抽象，支持 OAuth 或 GitHub App user token、每用户 client、model、required org 和未连接状态。
+- GitHub OAuth client secret 不得进入桌面端、workspace 配置或仓库文件。
+- 用户 access token / refresh token 只能进入 Keychain 或后续安全后端，不写入 settings、preferences、agent log、thread log、drafts 或 Copilot Bridge manifest。
+- 明确支持 `gho_`、`ghu_`、`github_pat_` token 类型，`ghp_` classic PAT 不作为推荐路径。
+- Copilot SDK provider 不绕过 plan-only 和逐项 tool approval 安全边界。
+- 第一版只实现 experimental adapter 边界与设置入口，不真正替换现有 agent provider。
+
 ## 5. 建议优先级
 
-1. 下一轮优先转向 Library Table V2：列顺序/列宽、选择集批量编辑和 Quick Look。
-2. 若用户更需要项目治理，则转向项目生命周期控制：归档/取消归档、项目排序和更保守的删除策略。
-3. AI Lab 后续可继续增加更多工具、计划导入和可选多轮 Agent loop，但 continuous loop 仍需单独审批模型。
+1. 下一轮可转向项目生命周期控制：归档/取消归档、项目排序和更保守的删除策略。
+2. Library 后续可继续评估 `QLPreviewPanel`、真正列宽持久化或 `NSTableView` wrapper。
+3. GitHub Copilot 后续需确定 OAuth relay / GitHub App / PKCE 方案后，才接入真实 SDK session。
 4. Auto Run Loop 继续保持 disabled，不进入自动连续执行实现。
 
 ## 6. 验收标准
@@ -135,12 +159,18 @@ Global Research Root
 12. Auto Run Loop 仍保持 disabled，并说明未来权限矩阵与停止条件。
 13. 菜单命令、`Cmd+F`、`Cmd+S`、删除文案和空状态符合 [DOC/Proposal16.md](Proposal16.md) 的第一阶段要求。
 14. Library 原生表格、排序和 selection 行为符合 [DOC/Proposal17.md](Proposal17.md) 的 V1 要求。
-15. SwiftPM Core Test Runner 通过。
-16. Xcode macOS build 通过。
+15. Library Table V2 能管理列布局；如无法完整支持列顺序/列宽持久化，完成记录说明 SwiftUI `Table` 阻塞和替代方案。
+16. 多选论文可批量编辑 status、priority、rating、folder 和 tags。
+17. Space / Quick Look 或 fallback 预览入口对有 PDF 的论文可用。
+18. GitHub Copilot SDK adapter 不保存 client secret 或用户 token 到明文 workspace 文件。
+19. AI Lab 保留 Copilot Bridge export，并能表达 GitHub Copilot provider 的未连接/连接状态。
+20. SwiftPM Core Test Runner 通过。
+21. Xcode macOS build 通过。
 
 ## 7. Question
 
-1. 任务书 21 是否转向 Library Table V2？建议优先处理列顺序/列宽、选择集批量编辑和 Quick Look。
-2. 如果不做 Library Table V2，是否转向项目生命周期控制？建议先做归档/取消归档和项目排序，不做物理删除。
-3. AI Lab 下一轮是否需要更多工具或计划导入？建议等 Library Table V2 收口后再继续。
-4. Auto Run Loop 是否继续保持 disabled，只保留说明？建议保持 disabled。
+1. Library Table V2 是否优先保持 SwiftUI `Table`，只有明确阻塞时再局部引入 `NSTableView` wrapper？建议是。
+2. 批量项目关系编辑是否纳入任务书 21，还是先只做 paper metadata 批量编辑？建议纳入可选项。
+3. Quick Look 是否必须使用 `QLPreviewPanel`，还是允许先用现有内置 Reader / PDF opening 作为 Space fallback？建议允许 fallback。
+4. GitHub Copilot SDK 接口本轮是否只做安全 adapter 边界和设置草案，不真正替换现有 provider？建议是。
+5. GitHub OAuth token exchange 是否必须通过后端 relay，而不是桌面端保存 client secret？建议必须通过后端 relay 或后续明确的 GitHub App/PKCE 方案。

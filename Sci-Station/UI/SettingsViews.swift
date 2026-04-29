@@ -330,11 +330,83 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                GroupBox("GitHub Copilot SDK Experimental") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Enable GitHub Copilot SDK provider", isOn: githubCopilotBinding(
+                            get: { $0.isEnabled },
+                            set: { configuration, newValue in
+                                configuration.isEnabled = newValue
+                            }
+                        ))
+                        .toggleStyle(.checkbox)
+
+                        Text("Uses GitHub OAuth or GitHub App user tokens. Client secrets and user tokens must not be written to workspace files; tokens are stored through Keychain.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+
+                        TextField("GitHub Client ID", text: githubCopilotBinding(
+                            get: { $0.clientID },
+                            set: { configuration, newValue in
+                                configuration.clientID = newValue
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField("OAuth Callback URL", text: githubCopilotBinding(
+                            get: { $0.callbackURLString },
+                            set: { configuration, newValue in
+                                configuration.callbackURLString = newValue
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField("Required GitHub Organization", text: githubCopilotBinding(
+                            get: { $0.requiredOrganization ?? "" },
+                            set: { configuration, newValue in
+                                configuration.requiredOrganization = trimmedOrNil(newValue)
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField("Copilot Model", text: githubCopilotBinding(
+                            get: { $0.model },
+                            set: { configuration, newValue in
+                                configuration.model = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "gpt-4.1" : newValue
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        SecureField("GitHub User Token (gho_, ghu_, or github_pat_)", text: $appModel.githubCopilotToken)
+                            .textFieldStyle(.roundedBorder)
+
+                        HStack(spacing: 12) {
+                            Button("Save Copilot Settings", action: appModel.saveGitHubCopilotSettings)
+                                .buttonStyle(.borderedProminent)
+                            Button("Check Adapter", action: appModel.testGitHubCopilotAdapter)
+                                .buttonStyle(.bordered)
+                            Button("Disconnect", action: appModel.disconnectGitHubCopilot)
+                                .buttonStyle(.bordered)
+                        }
+
+                        WorkspacePathRow(label: "Token Type", value: appModel.githubCopilotTokenKind.label)
+                        WorkspacePathRow(label: "Recommended", value: appModel.githubCopilotTokenKind.isRecommended ? "Yes" : "No")
+                        WorkspacePathRow(label: "Config File", value: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath).path)
+
+                        if let message = appModel.githubCopilotConnectionStatusMessage {
+                            Text(message)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox("Settings Files") {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Workspace paths and generated agent files are centralized here instead of taking space in working views.")
                             .foregroundStyle(.secondary)
                         WorkspacePathRow(label: "LLM Settings", value: workspace.fileURL(for: "settings.yaml").path)
+                        WorkspacePathRow(label: "GitHub Copilot Settings", value: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath).path)
                         WorkspacePathRow(label: "Workspace Preferences", value: workspace.workspacePreferencesURL.path)
                         WorkspacePathRow(label: "Schema", value: "v\(appModel.workspacePreferences.schemaVersion)")
                         WorkspacePathRow(label: "Markdown Snippets", value: workspace.markdownSnippetsURL.path)
@@ -404,6 +476,25 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    private func githubCopilotBinding<Value>(
+        get: @escaping (GitHubCopilotConfiguration) -> Value,
+        set: @escaping (inout GitHubCopilotConfiguration, Value) -> Void
+    ) -> Binding<Value> {
+        Binding(
+            get: { get(appModel.githubCopilotConfiguration) },
+            set: { newValue in
+                appModel.updateGitHubCopilotConfiguration { configuration in
+                    set(&configuration, newValue)
+                }
+            }
+        )
+    }
+
+    private func trimmedOrNil(_ value: String) -> String? {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 }
 

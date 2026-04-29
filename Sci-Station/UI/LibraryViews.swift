@@ -314,7 +314,7 @@ private struct LibraryPaperTableView: View {
     }
 
     private var displayColumns: [LibraryColumn] {
-        LibraryColumn.allCases.filter { visibleColumns.contains($0) }
+        visibleColumns
     }
 
     private var rows: [LibraryPaperTableRow] {
@@ -359,56 +359,9 @@ private struct LibraryPaperTableView: View {
                 of: LibraryPaperTableRow.self,
                 selection: selectionBinding
             ) {
-                Group {
-                    if visibleColumns.contains(.title) {
-                        TableColumn(LibraryColumn.title.label) { (row: LibraryPaperTableRow) in valueView(column: .title, row: row) }
-                    }
-                    if visibleColumns.contains(.authors) {
-                        TableColumn(LibraryColumn.authors.label) { (row: LibraryPaperTableRow) in valueView(column: .authors, row: row) }
-                    }
-                    if visibleColumns.contains(.year) {
-                        TableColumn(LibraryColumn.year.label) { (row: LibraryPaperTableRow) in valueView(column: .year, row: row) }
-                    }
-                    if visibleColumns.contains(.projects) {
-                        TableColumn(LibraryColumn.projects.label) { (row: LibraryPaperTableRow) in valueView(column: .projects, row: row) }
-                    }
-                    if visibleColumns.contains(.coreProjects) {
-                        TableColumn(LibraryColumn.coreProjects.label) { (row: LibraryPaperTableRow) in valueView(column: .coreProjects, row: row) }
-                    }
-                    if visibleColumns.contains(.collection) {
-                        TableColumn(LibraryColumn.collection.label) { (row: LibraryPaperTableRow) in valueView(column: .collection, row: row) }
-                    }
-                    if visibleColumns.contains(.publication) {
-                        TableColumn(LibraryColumn.publication.label) { (row: LibraryPaperTableRow) in valueView(column: .publication, row: row) }
-                    }
-                    if visibleColumns.contains(.itemType) {
-                        TableColumn(LibraryColumn.itemType.label) { (row: LibraryPaperTableRow) in valueView(column: .itemType, row: row) }
-                    }
-                }
-                Group {
-                    if visibleColumns.contains(.doi) {
-                        TableColumn(LibraryColumn.doi.label) { (row: LibraryPaperTableRow) in valueView(column: .doi, row: row) }
-                    }
-                    if visibleColumns.contains(.arxiv) {
-                        TableColumn(LibraryColumn.arxiv.label) { (row: LibraryPaperTableRow) in valueView(column: .arxiv, row: row) }
-                    }
-                    if visibleColumns.contains(.wiki) {
-                        TableColumn(LibraryColumn.wiki.label) { (row: LibraryPaperTableRow) in valueView(column: .wiki, row: row) }
-                    }
-                    if visibleColumns.contains(.tags) {
-                        TableColumn(LibraryColumn.tags.label) { (row: LibraryPaperTableRow) in valueView(column: .tags, row: row) }
-                    }
-                    if visibleColumns.contains(.status) {
-                        TableColumn(LibraryColumn.status.label) { (row: LibraryPaperTableRow) in valueView(column: .status, row: row) }
-                    }
-                    if visibleColumns.contains(.priority) {
-                        TableColumn(LibraryColumn.priority.label) { (row: LibraryPaperTableRow) in valueView(column: .priority, row: row) }
-                    }
-                    if visibleColumns.contains(.rating) {
-                        TableColumn(LibraryColumn.rating.label) { (row: LibraryPaperTableRow) in valueView(column: .rating, row: row) }
-                    }
-                    if visibleColumns.contains(.updated) {
-                        TableColumn(LibraryColumn.updated.label) { (row: LibraryPaperTableRow) in valueView(column: .updated, row: row) }
+                TableColumnForEach(visibleColumns) { column in
+                    TableColumn(column.label) { (row: LibraryPaperTableRow) in
+                        valueView(column: column, row: row)
                     }
                 }
             } rows: {
@@ -422,6 +375,10 @@ private struct LibraryPaperTableView: View {
             .alternatingRowBackgrounds()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onKeyPress(.space) {
+            appModel.previewLibrarySelection()
+            return .handled
+        }
     }
 
     private var selectionBinding: Binding<Set<Paper.ID>> {
@@ -458,6 +415,24 @@ private struct LibraryPaperTableView: View {
                 ForEach(LibraryColumn.allCases) { column in
                     Toggle(isOn: binding(for: column)) {
                         Text(column.label)
+                    }
+                }
+            }
+
+            Divider()
+
+            Section("Column Order") {
+                ForEach(visibleColumns) { column in
+                    Menu(column.label) {
+                        Button("Move Earlier") {
+                            moveColumn(column, offset: -1)
+                        }
+                        .disabled(isFirstVisibleColumn(column))
+
+                        Button("Move Later") {
+                            moveColumn(column, offset: 1)
+                        }
+                        .disabled(isLastVisibleColumn(column))
                     }
                 }
             }
@@ -559,10 +534,46 @@ private struct LibraryPaperTableView: View {
         )
     }
 
+    private func moveColumn(_ column: LibraryColumn, offset: Int) {
+        var nextColumns = visibleColumns
+        guard let currentIndex = nextColumns.firstIndex(of: column) else {
+            return
+        }
+
+        let nextIndex = currentIndex + offset
+        guard nextColumns.indices.contains(nextIndex) else {
+            return
+        }
+
+        nextColumns.swapAt(currentIndex, nextIndex)
+        visibleColumnStorage = nextColumns.map(\.rawValue).joined(separator: ",")
+    }
+
+    private func isFirstVisibleColumn(_ column: LibraryColumn) -> Bool {
+        visibleColumns.first == column
+    }
+
+    private func isLastVisibleColumn(_ column: LibraryColumn) -> Bool {
+        visibleColumns.last == column
+    }
+
     @ViewBuilder
     private func paperContextMenu(for row: LibraryPaperTableRow) -> some View {
         let selectedIDs = appModel.selectedLibraryPaperIDs
         if selectedIDs.contains(row.id), selectedIDs.count > 1 {
+            Button {
+                appModel.previewLibrarySelection()
+            } label: {
+                Label("Preview PDF", systemImage: "eye")
+            }
+            .disabled(!appModel.canPreviewLibrarySelection)
+
+            Divider()
+
+            batchEditMenu
+
+            Divider()
+
             Button {
                 appModel.exportBibTeXForLibrarySelection()
             } label: {
@@ -591,8 +602,67 @@ private struct LibraryPaperTableView: View {
         }
     }
 
+    private var batchEditMenu: some View {
+        Group {
+            Menu("Set Status") {
+                ForEach(ReadingStatus.allCases, id: \.self) { status in
+                    Button(status.label) {
+                        appModel.setStatusForLibrarySelection(status)
+                    }
+                }
+            }
+
+            Menu("Set Priority") {
+                ForEach(Priority.allCases, id: \.self) { priority in
+                    Button(priority.label) {
+                        appModel.setPriorityForLibrarySelection(priority)
+                    }
+                }
+            }
+
+            Menu("Set Rating") {
+                Button("Clear Rating") {
+                    appModel.setRatingForLibrarySelection(nil)
+                }
+                Divider()
+                ForEach(1...5, id: \.self) { rating in
+                    Button("\(rating)") {
+                        appModel.setRatingForLibrarySelection(rating)
+                    }
+                }
+            }
+
+            Menu("Move to Folder") {
+                Button {
+                    appModel.moveLibrarySelection(to: "Uncategorized")
+                } label: {
+                    Label("Uncategorized", systemImage: "folder")
+                }
+
+                if !appModel.collections.isEmpty {
+                    Divider()
+                }
+
+                ForEach(appModel.collections) { collection in
+                    Button {
+                        appModel.moveLibrarySelection(to: collection.relativePath)
+                    } label: {
+                        Label(collection.relativePath, systemImage: "folder")
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func singlePaperContextMenu(for paper: Paper) -> some View {
+        Button {
+            appModel.previewPaper(paper)
+        } label: {
+            Label("Preview PDF", systemImage: "eye")
+        }
+        .disabled(!appModel.canOpenPDF(for: paper))
+
         Button {
             appModel.openPaperReader(paper)
         } label: {
@@ -1106,6 +1176,77 @@ struct PaperInspectorView: View {
 
                         GroupBox("Batch Actions") {
                             VStack(alignment: .leading, spacing: 10) {
+                                Text("Batch edits apply to \(appModel.selectedLibraryPaperCount) selected papers and keep the selection active.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Menu("Set Status") {
+                                    ForEach(ReadingStatus.allCases, id: \.self) { status in
+                                        Button(status.label) {
+                                            appModel.setStatusForLibrarySelection(status)
+                                        }
+                                    }
+                                }
+
+                                Menu("Set Priority") {
+                                    ForEach(Priority.allCases, id: \.self) { priority in
+                                        Button(priority.label) {
+                                            appModel.setPriorityForLibrarySelection(priority)
+                                        }
+                                    }
+                                }
+
+                                Menu("Set Rating") {
+                                    Button("Clear Rating") {
+                                        appModel.setRatingForLibrarySelection(nil)
+                                    }
+                                    Divider()
+                                    ForEach(1...5, id: \.self) { rating in
+                                        Button("\(rating)") {
+                                            appModel.setRatingForLibrarySelection(rating)
+                                        }
+                                    }
+                                }
+
+                                Menu("Move Folder") {
+                                    Button {
+                                        appModel.moveLibrarySelection(to: "Uncategorized")
+                                    } label: {
+                                        Label("Uncategorized", systemImage: "folder")
+                                    }
+
+                                    if !appModel.collections.isEmpty {
+                                        Divider()
+                                    }
+
+                                    ForEach(appModel.collections) { collection in
+                                        Button {
+                                            appModel.moveLibrarySelection(to: collection.relativePath)
+                                        } label: {
+                                            Label(collection.relativePath, systemImage: "folder")
+                                        }
+                                    }
+                                }
+
+                                HStack(spacing: 8) {
+                                    TextField("Tags to add/remove", text: $appModel.libraryBatchTagText)
+                                        .textFieldStyle(.roundedBorder)
+                                    Button("Add Tags") {
+                                        appModel.addTagsToLibrarySelection()
+                                    }
+                                    Button("Remove Tags") {
+                                        appModel.removeTagsFromLibrarySelection()
+                                    }
+                                }
+
+                                if let message = appModel.libraryBatchStatusMessage {
+                                    Text(message)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Button("Preview First PDF", action: appModel.previewLibrarySelection)
+                                    .disabled(!appModel.canPreviewLibrarySelection)
                                 Button("Copy Citation for Selection", action: appModel.copySelectedPaperCitation)
                                 Button("Copy BibTeX for Selection", action: appModel.copyBibTeXForLibrarySelection)
                                 Button("Export BibTeX for Selection", action: appModel.exportBibTeXForLibrarySelection)

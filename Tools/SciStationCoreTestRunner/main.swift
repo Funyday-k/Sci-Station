@@ -24,6 +24,9 @@ private struct CoreVerificationSuite {
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
         try librarySortStateSortsPapers()
+        try await libraryBulkEditServiceUpdatesSelectedPapers()
+        try await githubCopilotConfigurationStaysNonSensitive()
+        try githubCopilotTokenClassifierRecognizesSupportedPrefixes()
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
         try await workspaceMaterialRepositoryLoadsOnlyUserMaterials()
         try batchImportInputParserSplitsMultipleIdentifiers()
@@ -310,6 +313,87 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.librarySortState == LibrarySortState(field: .year, isAscending: false), "Workspace preferences should preserve Library sort state.")
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
+    }
+
+    private func libraryBulkEditServiceUpdatesSelectedPapers() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = PaperRepository()
+        let service = LibraryBulkEditService(paperRepository: repository)
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LibraryBulkEditWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let firstPaper = try await repository.save(samplePaper(id: "bulk-first"), in: workspace)
+        let secondPaper = try await repository.save(samplePaper(id: "bulk-second"), in: workspace)
+        let targetIDs: Set<Paper.ID> = [firstPaper.id, secondPaper.id]
+
+        _ = try await service.setStatus(.deepRead, for: targetIDs, in: workspace)
+        _ = try await service.setPriority(.urgent, for: targetIDs, in: workspace)
+        _ = try await service.setRating(5, for: targetIDs, in: workspace)
+        _ = try await service.addTags(["dm", "dm", "capture"], for: targetIDs, in: workspace)
+        _ = try await service.removeTags(["graph"], for: targetIDs, in: workspace)
+
+        let loadedPapers = try await repository.loadPapers(in: workspace).filter { targetIDs.contains($0.id) }
+        try expect(loadedPapers.count == 2, "Bulk edit should keep both target papers loadable.")
+        try expect(loadedPapers.allSatisfy { $0.status == .deepRead }, "Bulk edit should update status for all selected papers.")
+        try expect(loadedPapers.allSatisfy { $0.priority == .urgent }, "Bulk edit should update priority for all selected papers.")
+        try expect(loadedPapers.allSatisfy { $0.rating == 5 }, "Bulk edit should update rating for all selected papers.")
+        try expect(loadedPapers.allSatisfy { $0.tags.contains("dm") && $0.tags.contains("capture") }, "Bulk edit should add tags to all selected papers.")
+        try expect(loadedPapers.allSatisfy { Set($0.tags).count == $0.tags.count }, "Bulk edit should not create duplicate tags.")
+        try expect(loadedPapers.allSatisfy { !$0.tags.contains("graph") }, "Bulk edit should remove requested tags.")
+    }
+
+    private func githubCopilotConfigurationStaysNonSensitive() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let store = GitHubCopilotConfigurationStore()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("GitHubCopilotSettingsWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let configuration = GitHubCopilotConfiguration(
+            isEnabled: true,
+            clientID: "client-id",
+            callbackURLString: "sci-station://github-copilot/callback",
+            requiredOrganization: "example-org",
+            model: "gpt-4.1"
+        )
+        try await store.save(configuration, in: workspace)
+        let loadedConfiguration = try await store.load(in: workspace)
+        let settingsContents = try String(contentsOf: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath), encoding: .utf8)
+
+        try expect(loadedConfiguration == configuration, "GitHub Copilot configuration should round trip non-sensitive fields.")
+        try expect(!settingsContents.lowercased().contains("secret"), "GitHub Copilot config must not contain OAuth client secrets.")
+        try expect(!settingsContents.contains("gho_"), "GitHub Copilot config must not contain user tokens.")
+    }
+
+    private func githubCopilotTokenClassifierRecognizesSupportedPrefixes() throws {
+        let classifier = GitHubCopilotTokenClassifier()
+        try expect(classifier.classify("gho_abc") == .oauthUser, "gho_ should be classified as OAuth user token.")
+        try expect(classifier.classify("ghu_abc") == .githubAppUser, "ghu_ should be classified as GitHub App user token.")
+        try expect(classifier.classify("github_pat_abc") == .fineGrainedPAT, "github_pat_ should be classified as fine-grained PAT.")
+        try expect(classifier.classify("ghp_abc") == .classicPAT, "ghp_ should be classified as classic PAT.")
+        try expect(!classifier.classify("ghp_abc").isRecommended, "Classic PAT should not be recommended.")
+        try expect(classifier.classify("unknown") == .unsupported, "Unknown token prefixes should be unsupported.")
     }
 
     private func librarySortStateSortsPapers() throws {

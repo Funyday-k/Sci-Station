@@ -41,6 +41,11 @@ private struct AILabCompactHeaderView: View {
                 Label(appModel.llmConfiguration.model, systemImage: "cpu")
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Divider()
+                    .frame(height: 18)
+                Label(appModel.agentProviderSummary, systemImage: "sparkles")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Button {
                     appModel.selectSection(.settings)
                 } label: {

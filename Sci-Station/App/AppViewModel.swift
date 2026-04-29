@@ -81,6 +81,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var selectedPaperDraft: Paper?
     @Published var selectedPaperAnnotationsDraft = ""
     @Published private(set) var isSavingSelectedPaperAnnotations = false
+    @Published var libraryBatchTagText = ""
+    @Published private(set) var libraryBatchStatusMessage: String?
     @Published var isShowingPaperDeleteConfirmation = false
     @Published private(set) var paperPendingDeletion: Paper?
     @Published var isShowingBibTeXExport = false
@@ -109,6 +111,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isSavingSelectedPaper = false
     @Published private(set) var llmConfiguration = LLMConfiguration()
     @Published var llmAPIKey = ""
+    @Published var githubCopilotConfiguration = GitHubCopilotConfiguration()
+    @Published var githubCopilotToken = ""
+    @Published private(set) var githubCopilotConnectionStatusMessage: String?
     @Published private(set) var isTestingLLMConnection = false
     @Published private(set) var llmConnectionStatusMessage: String?
     @Published private(set) var isGeneratingSummary = false
@@ -158,11 +163,15 @@ final class AppViewModel: ObservableObject {
     private let calendarRepository: CalendarRepository
     private let workspacePreferencesRepository: WorkspacePreferencesRepository
     private let paperAnnotationsRepository: PaperAnnotationsRepository
+    private let libraryBulkEditService: LibraryBulkEditService
     private let systemCalendarService: SystemCalendarService
     private let pdfReadingStateService: PDFReadingStateService
     private let remoteImportService: RemoteImportService
     private let llmConfigurationStore: LLMConfigurationStore
+    private let githubCopilotConfigurationStore: GitHubCopilotConfigurationStore
     private let apiKeyStore: KeychainAPIKeyStore
+    private let githubCopilotTokenClassifier: GitHubCopilotTokenClassifier
+    private let githubCopilotSDKAdapter: GitHubCopilotSDKAdapter
     private let openAIProvider: OpenAICompatibleProvider
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
@@ -197,11 +206,14 @@ final class AppViewModel: ObservableObject {
         calendarRepository: CalendarRepository? = nil,
         workspacePreferencesRepository: WorkspacePreferencesRepository? = nil,
         paperAnnotationsRepository: PaperAnnotationsRepository? = nil,
+        libraryBulkEditService: LibraryBulkEditService? = nil,
         systemCalendarService: SystemCalendarService? = nil,
         pdfReadingStateService: PDFReadingStateService? = nil,
         remoteImportService: RemoteImportService? = nil,
         llmConfigurationStore: LLMConfigurationStore? = nil,
+        githubCopilotConfigurationStore: GitHubCopilotConfigurationStore? = nil,
         apiKeyStore: KeychainAPIKeyStore? = nil,
+        githubCopilotSDKAdapter: GitHubCopilotSDKAdapter? = nil,
         openAIProvider: OpenAICompatibleProvider? = nil,
         paperSummaryService: PaperSummaryService? = nil,
         llmWritebackService: LLMWritebackService? = nil,
@@ -223,12 +235,20 @@ final class AppViewModel: ObservableObject {
         let resolvedPaperAnnotationsRepository = paperAnnotationsRepository ?? PaperAnnotationsRepository()
         let resolvedSystemCalendarService = systemCalendarService ?? SystemCalendarService()
         let resolvedPDFReadingStateService = pdfReadingStateService ?? PDFReadingStateService(paperRepository: resolvedPaperRepository)
+        let resolvedMovePaperToCollectionService = MovePaperToCollectionService(paperRepository: resolvedPaperRepository)
+        let resolvedLibraryBulkEditService = libraryBulkEditService ?? LibraryBulkEditService(
+            paperRepository: resolvedPaperRepository,
+            movePaperToCollectionService: resolvedMovePaperToCollectionService
+        )
         let resolvedRemoteImportService = remoteImportService ?? RemoteImportService(
             pdfImportService: PDFImportService(repository: resolvedPaperRepository),
             linkOnlyImportService: LinkOnlyImportService(repository: resolvedPaperRepository)
         )
         let resolvedLLMConfigurationStore = llmConfigurationStore ?? LLMConfigurationStore()
+        let resolvedGitHubCopilotConfigurationStore = githubCopilotConfigurationStore ?? GitHubCopilotConfigurationStore()
         let resolvedAPIKeyStore = apiKeyStore ?? KeychainAPIKeyStore()
+        let resolvedGitHubCopilotTokenClassifier = GitHubCopilotTokenClassifier()
+        let resolvedGitHubCopilotSDKAdapter = githubCopilotSDKAdapter ?? GitHubCopilotSDKAdapter(tokenClassifier: resolvedGitHubCopilotTokenClassifier)
         let resolvedOpenAIProvider = openAIProvider ?? OpenAICompatibleProvider()
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
@@ -246,18 +266,22 @@ final class AppViewModel: ObservableObject {
         self.projectPaperLinkRepository = resolvedProjectPaperLinkRepository
         self.legacyPaperMigrationService = resolvedLegacyPaperMigrationService
         self.collectionRepository = resolvedCollectionRepository
-        self.movePaperToCollectionService = MovePaperToCollectionService(paperRepository: resolvedPaperRepository)
+        self.movePaperToCollectionService = resolvedMovePaperToCollectionService
         self.tagRepository = resolvedTagRepository
         self.todoRepository = resolvedTodoRepository
         self.calendarRepository = resolvedCalendarRepository
         self.workspacePreferencesRepository = resolvedWorkspacePreferencesRepository
         self.paperAnnotationsRepository = resolvedPaperAnnotationsRepository
+        self.libraryBulkEditService = resolvedLibraryBulkEditService
         self.systemCalendarService = resolvedSystemCalendarService
         self.systemCalendarAccessState = resolvedSystemCalendarService.accessState
         self.pdfReadingStateService = resolvedPDFReadingStateService
         self.remoteImportService = resolvedRemoteImportService
         self.llmConfigurationStore = resolvedLLMConfigurationStore
+        self.githubCopilotConfigurationStore = resolvedGitHubCopilotConfigurationStore
         self.apiKeyStore = resolvedAPIKeyStore
+        self.githubCopilotTokenClassifier = resolvedGitHubCopilotTokenClassifier
+        self.githubCopilotSDKAdapter = resolvedGitHubCopilotSDKAdapter
         self.openAIProvider = resolvedOpenAIProvider
         self.paperSummaryService = resolvedPaperSummaryService
         self.llmWritebackService = resolvedLLMWritebackService
@@ -553,6 +577,23 @@ final class AppViewModel: ObservableObject {
 
     var canEnterSelectedPaperReader: Bool {
         canOpenSelectedPaperPDF
+    }
+
+    var canPreviewLibrarySelection: Bool {
+        previewPaperForLibrarySelection() != nil
+    }
+
+    var githubCopilotTokenKind: GitHubCopilotTokenKind {
+        githubCopilotTokenClassifier.classify(githubCopilotToken)
+    }
+
+    var agentProviderSummary: String {
+        if githubCopilotConfiguration.isEnabled {
+            let status = githubCopilotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "not connected" : githubCopilotTokenKind.label
+            return "GitHub Copilot SDK experimental (\(status))"
+        }
+
+        return "OpenAI-compatible / \(llmConfiguration.model)"
     }
 
     var selectedPaperPDFURL: URL? {
@@ -1267,6 +1308,24 @@ final class AppViewModel: ObservableObject {
         updateLibrarySelection([])
     }
 
+    func previewLibrarySelection() {
+        guard let paper = previewPaperForLibrarySelection() else {
+            libraryBatchStatusMessage = "No selected paper has a PDF to preview."
+            return
+        }
+
+        openPaperPDF(paper)
+    }
+
+    func previewPaper(_ paper: Paper) {
+        guard canOpenPDF(for: paper) else {
+            libraryBatchStatusMessage = "No PDF is available for \(paper.displayTitle)."
+            return
+        }
+
+        openPaperPDF(paper)
+    }
+
     private func applySelectedPaper(id: Paper.ID?) {
         selectedPaperID = id
         selectedPaperDraft = papers.first(where: { $0.id == id })
@@ -1358,6 +1417,14 @@ final class AppViewModel: ObservableObject {
                 present(error)
             }
         }
+    }
+
+    private func previewPaperForLibrarySelection() -> Paper? {
+        if let selectedPaperDraft, canOpenPDF(for: selectedPaperDraft) {
+            return selectedPaperDraft
+        }
+
+        return selectedLibraryPapers.first { canOpenPDF(for: $0) }
     }
 
     func requestDeleteSelectedPaper() {
@@ -1454,6 +1521,93 @@ final class AppViewModel: ObservableObject {
 
     func dismissBibTeXExport() {
         isShowingBibTeXExport = false
+    }
+
+    func setStatusForLibrarySelection(_ status: ReadingStatus) {
+        runLibrarySelectionBatchEdit(summary: "Set status to \(status.label)") { ids, workspace in
+            try await self.libraryBulkEditService.setStatus(status, for: ids, in: workspace)
+        }
+    }
+
+    func setPriorityForLibrarySelection(_ priority: Priority) {
+        runLibrarySelectionBatchEdit(summary: "Set priority to \(priority.label)") { ids, workspace in
+            try await self.libraryBulkEditService.setPriority(priority, for: ids, in: workspace)
+        }
+    }
+
+    func setRatingForLibrarySelection(_ rating: Int?) {
+        let summary = rating.map { "Set rating to \($0)" } ?? "Clear rating"
+        runLibrarySelectionBatchEdit(summary: summary) { ids, workspace in
+            try await self.libraryBulkEditService.setRating(rating, for: ids, in: workspace)
+        }
+    }
+
+    func moveLibrarySelection(to collectionPath: String) {
+        runLibrarySelectionBatchEdit(summary: "Move to \(collectionPath)") { ids, workspace in
+            try await self.libraryBulkEditService.moveToCollection(collectionPath, for: ids, in: workspace)
+        }
+    }
+
+    func addTagsToLibrarySelection(_ tagsText: String? = nil) {
+        let tags = commaSeparatedValues(from: tagsText ?? libraryBatchTagText)
+        guard !tags.isEmpty else {
+            libraryBatchStatusMessage = "Enter at least one tag to add."
+            return
+        }
+
+        runLibrarySelectionBatchEdit(summary: "Add tags \(tags.joined(separator: ", "))") { ids, workspace in
+            try await self.libraryBulkEditService.addTags(tags, for: ids, in: workspace)
+        }
+    }
+
+    func removeTagsFromLibrarySelection(_ tagsText: String? = nil) {
+        let tags = commaSeparatedValues(from: tagsText ?? libraryBatchTagText)
+        guard !tags.isEmpty else {
+            libraryBatchStatusMessage = "Enter at least one tag to remove."
+            return
+        }
+
+        runLibrarySelectionBatchEdit(summary: "Remove tags \(tags.joined(separator: ", "))") { ids, workspace in
+            try await self.libraryBulkEditService.removeTags(tags, for: ids, in: workspace)
+        }
+    }
+
+    private func runLibrarySelectionBatchEdit(
+        summary: String,
+        operation: @escaping @Sendable (Set<Paper.ID>, ResearchWorkspace) async throws -> [Paper]
+    ) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let selectedIDs = selectedLibraryPaperIDs
+        guard !selectedIDs.isEmpty else {
+            libraryBatchStatusMessage = "Select papers before running a batch action."
+            return
+        }
+
+        libraryBatchStatusMessage = "\(summary) for \(selectedIDs.count) selected papers..."
+        Task {
+            do {
+                let updatedPapers = try await operation(selectedIDs, currentWorkspace)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: selectedPaperID,
+                    selectingMarkdown: selectedMarkdownID
+                )
+                selectedLibraryPaperIDs = selectedIDs.intersection(Set(papers.map(\.id)))
+                if selectedLibraryPaperIDs.count == 1 {
+                    applySelectedPaper(id: selectedLibraryPaperIDs.first)
+                } else {
+                    selectedPaperID = nil
+                    selectedPaperDraft = nil
+                    selectedPaperAnnotationsDraft = ""
+                }
+                libraryBatchStatusMessage = "\(summary) completed for \(updatedPapers.count) papers."
+            } catch {
+                present(error)
+            }
+        }
     }
 
     func saveExportedBibTeXToFile() {
@@ -1558,6 +1712,46 @@ final class AppViewModel: ObservableObject {
                 llmConnectionStatusMessage = "LLM settings saved."
             } catch {
                 present(error)
+            }
+        }
+    }
+
+    func saveGitHubCopilotSettings() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                try await githubCopilotConfigurationStore.save(githubCopilotConfiguration, in: currentWorkspace)
+                try await apiKeyStore.save(apiKey: githubCopilotToken, for: githubCopilotTokenAccount(for: currentWorkspace))
+                githubCopilotConnectionStatusMessage = githubCopilotStatusText()
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updateGitHubCopilotConfiguration(_ mutate: (inout GitHubCopilotConfiguration) -> Void) {
+        mutate(&githubCopilotConfiguration)
+    }
+
+    func disconnectGitHubCopilot() {
+        githubCopilotToken = ""
+        githubCopilotConnectionStatusMessage = "GitHub Copilot token cleared from this session. Save settings to clear the Keychain value."
+    }
+
+    func testGitHubCopilotAdapter() {
+        Task {
+            do {
+                _ = try await githubCopilotSDKAdapter.complete(
+                    prompt: "Reply with OK.",
+                    configuration: githubCopilotConfiguration,
+                    userToken: githubCopilotToken
+                )
+                githubCopilotConnectionStatusMessage = "GitHub Copilot SDK adapter is connected."
+            } catch {
+                githubCopilotConnectionStatusMessage = error.localizedDescription
             }
         }
     }
@@ -2998,14 +3192,43 @@ final class AppViewModel: ObservableObject {
     private func loadLLMSettings(in workspace: ResearchWorkspace) async throws {
         llmConfiguration = try await llmConfigurationStore.load(in: workspace)
         llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+        githubCopilotConfiguration = try await githubCopilotConfigurationStore.load(in: workspace)
+        githubCopilotToken = try await apiKeyStore.loadAPIKey(for: githubCopilotTokenAccount(for: workspace)) ?? ""
+        githubCopilotConnectionStatusMessage = githubCopilotStatusText()
     }
 
     private func resolvedLLMAPIKey(for workspace: ResearchWorkspace) async throws -> String {
+        if llmConfiguration.provider == .githubCopilot {
+            throw GitHubCopilotProviderError.sdkUnavailable
+        }
+
         if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return llmAPIKey
         }
 
         return try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+    }
+
+    private func githubCopilotTokenAccount(for workspace: ResearchWorkspace) -> String {
+        "\(workspace.rootURL.path)#github-copilot"
+    }
+
+    private func githubCopilotStatusText() -> String {
+        guard githubCopilotConfiguration.isEnabled else {
+            return "GitHub Copilot SDK provider is disabled."
+        }
+
+        let trimmedToken = githubCopilotToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedToken.isEmpty else {
+            return "GitHub Copilot is configured but not connected."
+        }
+
+        let kind = githubCopilotTokenKind
+        if kind.isRecommended {
+            return "GitHub Copilot token detected: \(kind.label)."
+        }
+
+        return "GitHub Copilot token detected: \(kind.label). This token type is not recommended."
     }
 
     private func refreshAgentState(in workspace: ResearchWorkspace) async {

@@ -74,6 +74,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
             contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"projects\"\n  - \"collection\"\nlibrary_sort_field: \"\"\nlibrary_sort_ascending: true\ndefault_collection: \"\"\nrecent_section: \"projects\"\nsync_todos_to_apple_reminders: true\n"
         ),
         SeededFile(
+            relativePath: GitHubCopilotConfigurationStore.relativePath,
+            contents: "github_copilot:\n  enabled: false\n  client_id: \"\"\n  callback_url: \"\"\n  required_org: \"\"\n  model: \"gpt-4.1\"\n"
+        ),
+        SeededFile(
             relativePath: "settings/markdown_snippets.yaml",
             contents: "snippets:\n  - trigger: \";h2\"\n    title: \"Heading 2\"\n    body: |\n      ## ${cursor}\n  - trigger: \";eq\"\n    title: \"Display Equation\"\n    body: |\n      $$\n      ${cursor}\n      $$\n  - trigger: \";fig\"\n    title: \"Figure Reference\"\n    body: |\n      ![${cursor}](../figures/)\n  - trigger: \";todo\"\n    title: \"Todo Item\"\n    body: |\n      - [ ] ${cursor}\n  - trigger: \";paper\"\n    title: \"Paper Note\"\n    body: |\n      ## Why It Matters\n      \n      ${cursor}\n      \n      ## Method\n      \n      \n      ## Limits\n"
         ),

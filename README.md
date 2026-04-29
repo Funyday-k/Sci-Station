@@ -131,6 +131,8 @@ ResearchRoot/
 - 支持在 Inspector 中编辑论文元数据并保存回 `meta.yaml`
 - Collection 重命名后按真实目录推导 collection，避免 stale `collection_path` 导致论文消失
 - Library 搜索覆盖标题、作者、标签、citekey、DOI、arXiv、INSPIRE、abstract、BibTeX 与出版信息
+- Library Table V2 支持按 workspace 偏好顺序渲染列，并可在 Columns 菜单中 Move Earlier / Move Later
+- 多选论文可批量设置阅读状态、优先级、评分、移动 folder，并批量 add/remove tags；批量操作会保留 selection set
 
 ### 6. PDF 与链接导入
 
@@ -167,7 +169,7 @@ ResearchRoot/
 - 顶部工具栏支持 Create Workspace、Open Workspace、Import PDF、Add by Identifier、Reveal in Finder
 - 菜单栏提供第一批 Workspace、Paper、View、Wiki 命令；`Cmd+N` 新建项目，`Cmd+O` 打开 workspace，`Cmd+F` 聚焦当前搜索，`Cmd+S` 保存 Wiki 页面
 - Materials 页面提供 workspace 用户材料浏览、预览、Finder 定位和 VS Code 打开
-- Library 页面使用 SwiftUI `Table` 呈现论文列表，支持系统多选、键盘 selection、可配置可见列、标题/作者/年份/更新时间/评分/优先级/状态排序、过滤 chip 摘要、tag chip 显示和右键菜单
+- Library 页面使用 SwiftUI `Table` 呈现论文列表，支持系统多选、键盘 selection、可配置可见列、列顺序菜单、标题/作者/年份/更新时间/评分/优先级/状态排序、过滤 chip 摘要、tag chip 显示、Space/Preview PDF fallback 和右键菜单
 - Paper Inspector 支持回车保存，点击空白区域结束元数据输入状态
 - 删除论文确认会显示实际论文目录相对路径
 - BibTeX 可从论文右键或 Reader Citations 面板复制、预览并导出 `.bib`
@@ -201,6 +203,7 @@ ResearchRoot/
 - Prompt draft 按 project/thread 持久化到 `.sci-station/agent/drafts.json`，切换项目或 thread 后可恢复
 - 历史 run 可将 prompt 复制到 New Chat 复用，但不会自动执行工具
 - 支持导出 Copilot Bridge prompt/manifest 到 `.sci-station/agent/copilot-bridge/`
+- Settings 预留 GitHub Copilot SDK experimental provider：保存非敏感 OAuth/GitHub App 配置，按 `gho_`、`ghu_`、`github_pat_`、`ghp_` 分类 token，并要求 user token 走 Keychain 而不是 workspace 明文文件
 - Agent thread log、run log、Copilot Bridge、workspace preferences、LLM settings 等路径信息集中在 Settings
 
 ### 12. 核心验证
