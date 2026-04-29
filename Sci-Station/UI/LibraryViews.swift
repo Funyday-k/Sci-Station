@@ -308,80 +308,237 @@ private struct LibraryPaperTableView: View {
 
     let workspace: ResearchWorkspace
     @Binding var visibleColumnStorage: String
-    @State private var draggedColumn: LibraryColumn?
 
     private var visibleColumns: [LibraryColumn] {
         LibraryColumn.columns(from: visibleColumnStorage)
     }
 
+    private var displayColumns: [LibraryColumn] {
+        LibraryColumn.allCases.filter { visibleColumns.contains($0) }
+    }
+
+    private var rows: [LibraryPaperTableRow] {
+        appModel.filteredPapers.map { paper in
+            LibraryPaperTableRow(
+                paper: paper,
+                projectNames: appModel.projectNames(for: paper).joined(separator: ", "),
+                coreProjectNames: appModel.coreProjectNames(for: paper).joined(separator: ", "),
+                wikiStatus: appModel.paperWikiStatusText(for: paper, in: workspace),
+                hasWiki: appModel.paperHasWikiPage(paper, in: workspace)
+            )
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                ForEach(visibleColumns) { column in
-                    Text(column.label)
-                        .font(.callout)
-                        .fontWeight(.medium)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(sortSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if appModel.selectedLibraryPaperCount > 1 {
+                    Text("\(appModel.selectedLibraryPaperCount) selected")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(draggedColumn == column ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
-                        .contentShape(Rectangle())
-                        .onDrag {
-                            draggedColumn = column
-                            return NSItemProvider(object: column.rawValue as NSString)
-                        }
-                        .onDrop(
-                            of: [.plainText],
-                            delegate: LibraryColumnDropDelegate(
-                                targetColumn: column,
-                                draggedColumn: $draggedColumn,
-                                visibleColumnStorage: $visibleColumnStorage
-                            )
-                        )
-                        .help("Drag to reorder columns")
                 }
 
-                Menu {
-                    ForEach(LibraryColumn.allCases) { column in
-                        Toggle(isOn: binding(for: column)) {
-                            Text(column.label)
-                        }
-                    }
+                Spacer(minLength: 0)
 
-                    Divider()
-
-                    Button("Reset Columns") {
-                        visibleColumnStorage = LibraryColumn.defaultStorageValue
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                if appModel.librarySortState.field != nil {
+                    Button("Clear Sort", action: appModel.clearLibrarySort)
+                        .buttonStyle(.link)
                 }
-                .menuStyle(.button)
-                .help("Choose visible columns")
+
+                columnMenu
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 2)
+
+            sortableColumnHeader
+
+            Table(
+                of: LibraryPaperTableRow.self,
+                selection: selectionBinding
+            ) {
+                Group {
+                    if visibleColumns.contains(.title) {
+                        TableColumn(LibraryColumn.title.label) { (row: LibraryPaperTableRow) in valueView(column: .title, row: row) }
+                    }
+                    if visibleColumns.contains(.authors) {
+                        TableColumn(LibraryColumn.authors.label) { (row: LibraryPaperTableRow) in valueView(column: .authors, row: row) }
+                    }
+                    if visibleColumns.contains(.year) {
+                        TableColumn(LibraryColumn.year.label) { (row: LibraryPaperTableRow) in valueView(column: .year, row: row) }
+                    }
+                    if visibleColumns.contains(.projects) {
+                        TableColumn(LibraryColumn.projects.label) { (row: LibraryPaperTableRow) in valueView(column: .projects, row: row) }
+                    }
+                    if visibleColumns.contains(.coreProjects) {
+                        TableColumn(LibraryColumn.coreProjects.label) { (row: LibraryPaperTableRow) in valueView(column: .coreProjects, row: row) }
+                    }
+                    if visibleColumns.contains(.collection) {
+                        TableColumn(LibraryColumn.collection.label) { (row: LibraryPaperTableRow) in valueView(column: .collection, row: row) }
+                    }
+                    if visibleColumns.contains(.publication) {
+                        TableColumn(LibraryColumn.publication.label) { (row: LibraryPaperTableRow) in valueView(column: .publication, row: row) }
+                    }
+                    if visibleColumns.contains(.itemType) {
+                        TableColumn(LibraryColumn.itemType.label) { (row: LibraryPaperTableRow) in valueView(column: .itemType, row: row) }
+                    }
+                }
+                Group {
+                    if visibleColumns.contains(.doi) {
+                        TableColumn(LibraryColumn.doi.label) { (row: LibraryPaperTableRow) in valueView(column: .doi, row: row) }
+                    }
+                    if visibleColumns.contains(.arxiv) {
+                        TableColumn(LibraryColumn.arxiv.label) { (row: LibraryPaperTableRow) in valueView(column: .arxiv, row: row) }
+                    }
+                    if visibleColumns.contains(.wiki) {
+                        TableColumn(LibraryColumn.wiki.label) { (row: LibraryPaperTableRow) in valueView(column: .wiki, row: row) }
+                    }
+                    if visibleColumns.contains(.tags) {
+                        TableColumn(LibraryColumn.tags.label) { (row: LibraryPaperTableRow) in valueView(column: .tags, row: row) }
+                    }
+                    if visibleColumns.contains(.status) {
+                        TableColumn(LibraryColumn.status.label) { (row: LibraryPaperTableRow) in valueView(column: .status, row: row) }
+                    }
+                    if visibleColumns.contains(.priority) {
+                        TableColumn(LibraryColumn.priority.label) { (row: LibraryPaperTableRow) in valueView(column: .priority, row: row) }
+                    }
+                    if visibleColumns.contains(.rating) {
+                        TableColumn(LibraryColumn.rating.label) { (row: LibraryPaperTableRow) in valueView(column: .rating, row: row) }
+                    }
+                    if visibleColumns.contains(.updated) {
+                        TableColumn(LibraryColumn.updated.label) { (row: LibraryPaperTableRow) in valueView(column: .updated, row: row) }
+                    }
+                }
+            } rows: {
+                ForEach(rows) { row in
+                    TableRow(row)
+                        .contextMenu {
+                            paperContextMenu(for: row)
+                        }
+                }
+            }
+            .alternatingRowBackgrounds()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var selectionBinding: Binding<Set<Paper.ID>> {
+        Binding(
+            get: { appModel.selectedLibraryPaperIDs },
+            set: appModel.updateLibrarySelection
+        )
+    }
+
+    private var sortSummary: String {
+        guard let field = appModel.librarySortState.field else {
+            return "Original order"
+        }
+
+        return "Sorted by \(field.label) \(appModel.librarySortState.isAscending ? "ascending" : "descending")"
+    }
+
+    private var columnMenu: some View {
+        Menu {
+            Section("Sort") {
+                ForEach(LibrarySortField.allCases, id: \.self) { field in
+                    Button(sortMenuTitle(for: field)) {
+                        toggleSort(field)
+                    }
+                }
+
+                Button("Original Order", action: appModel.clearLibrarySort)
+                    .disabled(appModel.librarySortState.field == nil)
+            }
 
             Divider()
 
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(appModel.filteredPapers) { paper in
-                        LibraryPaperRowView(
-                            paper: paper,
-                            workspace: workspace,
-                            columns: visibleColumns,
-                            isSelected: appModel.selectedPaperID == paper.id
-                        )
+            Section("Columns") {
+                ForEach(LibraryColumn.allCases) { column in
+                    Toggle(isOn: binding(for: column)) {
+                        Text(column.label)
                     }
                 }
-                .padding(.vertical, 6)
+            }
+
+            Divider()
+
+            Button("Reset Columns") {
+                visibleColumnStorage = LibraryColumn.defaultStorageValue
+            }
+        } label: {
+            Label("Columns", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .menuStyle(.button)
+        .help("Choose visible columns and sorting")
+    }
+
+    private var sortableColumnHeader: some View {
+        HStack(spacing: 12) {
+            ForEach(displayColumns) { column in
+                columnHeader(column)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.secondary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func columnHeader(_ column: LibraryColumn) -> some View {
+        Group {
+            if let field = sortField(for: column) {
+                Button {
+                    toggleSort(field)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(column.label)
+                            .lineLimit(1)
+                        if appModel.librarySortState.field == field {
+                            Image(systemName: appModel.librarySortState.isAscending ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .help("Sort by \(field.label)")
+            } else {
+                Text(column.label)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func sortMenuTitle(for field: LibrarySortField) -> String {
+        guard appModel.librarySortState.field == field else {
+            return field.label
+        }
+
+        return "\(field.label) \(appModel.librarySortState.isAscending ? "Ascending" : "Descending")"
+    }
+
+    private func sortField(for column: LibraryColumn) -> LibrarySortField? {
+        LibrarySortField(rawValue: column.rawValue)
+    }
+
+    private func toggleSort(_ field: LibrarySortField) {
+        if appModel.librarySortState.field == field {
+            appModel.updateLibrarySort(field: field, isAscending: !appModel.librarySortState.isAscending)
+        } else {
+            appModel.updateLibrarySort(field: field, isAscending: true)
+        }
+    }
+
+    private func valueView(column: LibraryColumn, row: LibraryPaperTableRow) -> some View {
+        LibraryColumnValueView(column: column, row: row)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                appModel.openPaperReader(row.paper)
+            }
     }
 
     private func binding(for column: LibraryColumn) -> Binding<Bool> {
@@ -401,105 +558,202 @@ private struct LibraryPaperTableView: View {
             }
         )
     }
-}
 
-private struct LibraryColumnDropDelegate: DropDelegate {
-    let targetColumn: LibraryColumn
-    @Binding var draggedColumn: LibraryColumn?
-    @Binding var visibleColumnStorage: String
-
-    func dropEntered(info: DropInfo) {
-        guard let draggedColumn, draggedColumn != targetColumn else {
-            return
-        }
-
-        var columns = LibraryColumn.columns(from: visibleColumnStorage)
-        guard let fromIndex = columns.firstIndex(of: draggedColumn),
-              let toIndex = columns.firstIndex(of: targetColumn) else {
-            return
-        }
-
-        columns.move(
-            fromOffsets: IndexSet(integer: fromIndex),
-            toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
-        )
-        visibleColumnStorage = columns.map(\.rawValue).joined(separator: ",")
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggedColumn = nil
-        return true
-    }
-
-    func dropExited(info: DropInfo) {
-        if info.location == .zero {
-            draggedColumn = nil
-        }
-    }
-}
-
-private struct LibraryPaperRowView: View {
-    @EnvironmentObject private var appModel: AppViewModel
-
-    let paper: Paper
-    let workspace: ResearchWorkspace
-    let columns: [LibraryColumn]
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach(columns) { column in
-                LibraryColumnValueView(column: column, paper: paper, workspace: workspace)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private func paperContextMenu(for row: LibraryPaperTableRow) -> some View {
+        let selectedIDs = appModel.selectedLibraryPaperIDs
+        if selectedIDs.contains(row.id), selectedIDs.count > 1 {
+            Button {
+                appModel.exportBibTeXForLibrarySelection()
+            } label: {
+                Label("Export BibTeX for Selection", systemImage: "doc.on.doc")
             }
+
+            Button {
+                appModel.copyBibTeXForLibrarySelection()
+            } label: {
+                Label("Copy BibTeX for Selection", systemImage: "doc.on.clipboard")
+            }
+
+            Button {
+                appModel.copySelectedPaperCitation()
+            } label: {
+                Label("Copy Citation for Selection", systemImage: "quote.bubble")
+            }
+
+            Button {
+                appModel.clearLibrarySelection()
+            } label: {
+                Label("Clear Selection", systemImage: "xmark.circle")
+            }
+        } else {
+            singlePaperContextMenu(for: row.paper)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            appModel.selectPaper(id: paper.id)
-        }
-        .onTapGesture(count: 2) {
+    }
+
+    @ViewBuilder
+    private func singlePaperContextMenu(for paper: Paper) -> some View {
+        Button {
             appModel.openPaperReader(paper)
+        } label: {
+            Label("Read in App", systemImage: "doc.viewfinder")
         }
-        .contextMenu {
-            Button {
-                appModel.openPaperReader(paper)
-            } label: {
-                Label("Read in App", systemImage: "doc.viewfinder")
-            }
-            .disabled(!appModel.canOpenPDF(for: paper))
+        .disabled(!appModel.canOpenPDF(for: paper))
 
-            Button {
-                appModel.openPaperPDF(paper)
-            } label: {
-                Label("Open PDF", systemImage: "arrow.up.right.square")
-            }
-            .disabled(!appModel.canOpenPDF(for: paper))
+        Button {
+            appModel.openPaperPDF(paper)
+        } label: {
+            Label("Open PDF", systemImage: "arrow.up.right.square")
+        }
+        .disabled(!appModel.canOpenPDF(for: paper))
 
-            Button {
-                appModel.exportBibTeX(for: paper)
-            } label: {
-                Label("Export BibTeX", systemImage: "doc.on.doc")
-            }
+        Button {
+            appModel.copyCitation(for: paper)
+        } label: {
+            Label("Copy Citation", systemImage: "quote.bubble")
+        }
 
-            Divider()
+        Button {
+            appModel.copyBibTeX(for: paper)
+        } label: {
+            Label("Copy BibTeX", systemImage: "doc.on.clipboard")
+        }
 
-            PaperClassificationMenuItems(paper: paper)
+        Button {
+            appModel.exportBibTeX(for: paper)
+        } label: {
+            Label("Export BibTeX", systemImage: "doc.on.doc")
+        }
 
-            Divider()
+        Divider()
 
-            Button(role: .destructive) {
-                appModel.requestDeletePaper(paper)
-            } label: {
-                Label("Delete Paper", systemImage: "trash")
-            }
+        PaperClassificationMenuItems(paper: paper)
+
+        Divider()
+
+        Button(role: .destructive) {
+            appModel.requestDeletePaper(paper)
+        } label: {
+            Label("Delete Paper", systemImage: "trash")
+        }
+    }
+}
+
+private struct LibraryPaperTableRow: Identifiable, Hashable {
+    let paper: Paper
+    let projectNames: String
+    let coreProjectNames: String
+    let wikiStatus: String
+    let hasWiki: Bool
+
+    var id: Paper.ID { paper.id }
+    var titleSortKey: String { paper.displayTitle }
+    var authorsSortKey: String { paper.authorsDisplay }
+    var yearSortKey: Int { paper.year ?? Int.max }
+    var updatedSortKey: Date { paper.updatedAt }
+    var ratingSortKey: Int { paper.rating ?? Int.max }
+    var prioritySortKey: Int { Self.prioritySortValue(paper.priority) }
+    var statusSortKey: Int { Self.statusSortValue(paper.status) }
+
+    static func comparators(for state: LibrarySortState) -> [KeyPathComparator<LibraryPaperTableRow>] {
+        guard let field = state.field else {
+            return []
+        }
+
+        let order: SortOrder = state.isAscending ? .forward : .reverse
+        switch field {
+        case .title:
+            return [KeyPathComparator(\.titleSortKey, order: order)]
+        case .authors:
+            return [KeyPathComparator(\.authorsSortKey, order: order)]
+        case .year:
+            return [KeyPathComparator(\.yearSortKey, order: order)]
+        case .updated:
+            return [KeyPathComparator(\.updatedSortKey, order: order)]
+        case .rating:
+            return [KeyPathComparator(\.ratingSortKey, order: order)]
+        case .priority:
+            return [KeyPathComparator(\.prioritySortKey, order: order)]
+        case .status:
+            return [KeyPathComparator(\.statusSortKey, order: order)]
         }
     }
 
-    private var rowBackground: Color {
-        isSelected ? Color.accentColor.opacity(0.16) : Color.clear
+    static func sortField(for comparator: KeyPathComparator<LibraryPaperTableRow>) -> LibrarySortField? {
+        for (field, first, second) in sortProbes where comparator.compare(first, second) != .orderedSame {
+            return field
+        }
+
+        return nil
+    }
+
+    private static var sortProbes: [(LibrarySortField, LibraryPaperTableRow, LibraryPaperTableRow)] {
+        [
+            (.title, probe(id: "title-a", title: "A"), probe(id: "title-b", title: "B")),
+            (.authors, probe(id: "authors-a", authors: ["A"]), probe(id: "authors-b", authors: ["B"])),
+            (.year, probe(id: "year-a", year: 2001), probe(id: "year-b", year: 2002)),
+            (.updated, probe(id: "updated-a", updatedAt: Date(timeIntervalSince1970: 1)), probe(id: "updated-b", updatedAt: Date(timeIntervalSince1970: 2))),
+            (.rating, probe(id: "rating-a", rating: 1), probe(id: "rating-b", rating: 2)),
+            (.priority, probe(id: "priority-a", priority: .urgent), probe(id: "priority-b", priority: .low)),
+            (.status, probe(id: "status-a", status: .unread), probe(id: "status-b", status: .used))
+        ]
+    }
+
+    private static func probe(
+        id: String,
+        title: String = "Probe",
+        authors: [String] = ["Probe Author"],
+        year: Int? = 2024,
+        updatedAt: Date = Date(timeIntervalSince1970: 1),
+        rating: Int? = 3,
+        priority: Priority = .medium,
+        status: ReadingStatus = .unread
+    ) -> LibraryPaperTableRow {
+        LibraryPaperTableRow(
+            paper: Paper(
+                id: id,
+                citekey: id,
+                title: title,
+                authors: authors,
+                year: year,
+                venue: nil,
+                doi: nil,
+                arxiv: nil,
+                url: nil,
+                pdfRelativePath: nil,
+                tags: [],
+                status: status,
+                priority: priority,
+                rating: rating,
+                useFor: [],
+                createdAt: updatedAt,
+                updatedAt: updatedAt,
+                paperDirectoryRelativePath: "library/papers/\(id)",
+                notesSummaryRelativePath: nil,
+                annotationsRelativePath: nil
+            ),
+            projectNames: "",
+            coreProjectNames: "",
+            wikiStatus: "Missing",
+            hasWiki: false
+        )
+    }
+
+    private static func prioritySortValue(_ priority: Priority) -> Int {
+        switch priority {
+        case .urgent:
+            return 0
+        case .high:
+            return 1
+        case .medium:
+            return 2
+        case .low:
+            return 3
+        }
+    }
+
+    private static func statusSortValue(_ status: ReadingStatus) -> Int {
+        ReadingStatus.allCases.firstIndex(of: status) ?? ReadingStatus.allCases.count
     }
 }
 
@@ -727,11 +981,12 @@ struct BibTeXExportView: View {
 }
 
 private struct LibraryColumnValueView: View {
-    @EnvironmentObject private var appModel: AppViewModel
-
     let column: LibraryColumn
-    let paper: Paper
-    let workspace: ResearchWorkspace
+    let row: LibraryPaperTableRow
+
+    private var paper: Paper {
+        row.paper
+    }
 
     var body: some View {
         Group {
@@ -746,9 +1001,9 @@ private struct LibraryColumnValueView: View {
                 Text(paper.yearText)
                     .lineLimit(1)
             case .projects:
-                secondaryText(appModel.projectNames(for: paper).isEmpty ? "-" : appModel.projectNames(for: paper).joined(separator: ", "), lineLimit: 2)
+                secondaryText(row.projectNames.isEmpty ? "-" : row.projectNames, lineLimit: 2)
             case .coreProjects:
-                secondaryText(appModel.coreProjectNames(for: paper).isEmpty ? "-" : appModel.coreProjectNames(for: paper).joined(separator: ", "), lineLimit: 2)
+                secondaryText(row.coreProjectNames.isEmpty ? "-" : row.coreProjectNames, lineLimit: 2)
             case .collection:
                 secondaryText(paper.folderDisplay, lineLimit: 2)
             case .publication:
@@ -760,8 +1015,8 @@ private struct LibraryColumnValueView: View {
             case .arxiv:
                 secondaryText(paper.arxiv ?? "-", lineLimit: 1)
             case .wiki:
-                Text(appModel.paperWikiStatusText(for: paper, in: workspace))
-                    .foregroundStyle(appModel.paperHasWikiPage(paper, in: workspace) ? .primary : .secondary)
+                Text(row.wikiStatus)
+                    .foregroundStyle(row.hasWiki ? .primary : .secondary)
                     .lineLimit(1)
             case .tags:
                 TagChipGroupView(tags: paper.tags)
@@ -841,7 +1096,43 @@ struct PaperInspectorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if let paper = appModel.selectedPaperDraft {
+                if appModel.hasMultipleLibraryPaperSelection {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Multiple Papers Selected")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        Text("\(appModel.selectedLibraryPaperCount) papers are selected. Single-paper metadata editing is paused until the selection is narrowed.")
+                            .foregroundStyle(.secondary)
+
+                        GroupBox("Batch Actions") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Button("Copy Citation for Selection", action: appModel.copySelectedPaperCitation)
+                                Button("Copy BibTeX for Selection", action: appModel.copyBibTeXForLibrarySelection)
+                                Button("Export BibTeX for Selection", action: appModel.exportBibTeXForLibrarySelection)
+                                    .buttonStyle(.borderedProminent)
+                                Button("Clear Selection", action: appModel.clearLibrarySelection)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                        }
+
+                        GroupBox("Selected Papers") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(appModel.selectedLibraryPapers.prefix(8)) { paper in
+                                    Text(paper.displayTitle)
+                                        .lineLimit(2)
+                                }
+
+                                if appModel.selectedLibraryPaperCount > 8 {
+                                    Text("+ \(appModel.selectedLibraryPaperCount - 8) more")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                        }
+                    }
+                } else if let paper = appModel.selectedPaperDraft {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Metadata")
                             .font(.title2)

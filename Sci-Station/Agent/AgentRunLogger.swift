@@ -23,6 +23,13 @@ public actor AgentRunLogger {
         try recentRuns(logURL: root.fileURL(for: ".sci-station/agent/runs.jsonl"), limit: limit)
     }
 
+    public func recentRuns(in root: ResearchRoot, projectID: String?, limit: Int = 20) throws -> [AgentRun] {
+        try recentRuns(in: root, limit: max(limit * 4, limit))
+            .filter { $0.currentProjectID == projectID }
+            .prefix(limit)
+            .map { $0 }
+    }
+
     private func append(_ run: AgentRun, logURL: URL) throws {
         try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 

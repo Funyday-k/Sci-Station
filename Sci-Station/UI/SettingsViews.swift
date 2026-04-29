@@ -202,7 +202,7 @@ struct SettingsView: View {
                         }
 
                         WorkspacePathRow(label: "Visible Columns", value: appModel.workspacePreferences.libraryVisibleColumns.joined(separator: ", "))
-                        WorkspacePathRow(label: "Preferences", value: workspace.workspacePreferencesURL.path)
+                        WorkspacePathRow(label: "Library Sort", value: librarySortDescription)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -332,9 +332,15 @@ struct SettingsView: View {
 
                 GroupBox("Settings Files") {
                     VStack(alignment: .leading, spacing: 10) {
+                        Text("Workspace paths and generated agent files are centralized here instead of taking space in working views.")
+                            .foregroundStyle(.secondary)
                         WorkspacePathRow(label: "LLM Settings", value: workspace.fileURL(for: "settings.yaml").path)
+                        WorkspacePathRow(label: "Workspace Preferences", value: workspace.workspacePreferencesURL.path)
                         WorkspacePathRow(label: "Schema", value: "v\(appModel.workspacePreferences.schemaVersion)")
                         WorkspacePathRow(label: "Markdown Snippets", value: workspace.markdownSnippetsURL.path)
+                        WorkspacePathRow(label: "Agent Run Log", value: workspace.fileURL(for: ".sci-station/agent/runs.jsonl").path)
+                        WorkspacePathRow(label: "Agent Threads", value: workspace.fileURL(for: ".sci-station/agent/threads.jsonl").path)
+                        WorkspacePathRow(label: "Copilot Bridge", value: workspace.directoryURL(for: ".sci-station/agent/copilot-bridge").path)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -376,6 +382,14 @@ struct SettingsView: View {
 
     private func saveLibraryDefaults() {
         appModel.updateDefaultCollectionPath(defaultFolderPath)
+    }
+
+    private var librarySortDescription: String {
+        guard let field = appModel.workspacePreferences.librarySortState.field else {
+            return "Original order"
+        }
+
+        return "\(field.label) \(appModel.workspacePreferences.librarySortState.isAscending ? "ascending" : "descending")"
     }
 
     private func llmBinding<Value>(

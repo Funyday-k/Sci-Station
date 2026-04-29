@@ -23,6 +23,7 @@ private struct CoreVerificationSuite {
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try librarySortStateSortsPapers()
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
         try await workspaceMaterialRepositoryLoadsOnlyUserMaterials()
         try batchImportInputParserSplitsMultipleIdentifiers()
@@ -58,6 +59,10 @@ private struct CoreVerificationSuite {
         try await agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory()
         try await agentServiceExecutesApprovedPlanAndExportsBridge()
         try await agentRunLoggerSkipsDamagedHistoryLines()
+        try await agentRunLoggerFiltersProjectConversations()
+        try await agentThreadRepositoryUpsertsProjectThreads()
+        try await agentThreadRepositoryArchivesAndReadsLegacyThreads()
+        try await agentPromptDraftRepositoryPersistsDrafts()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
@@ -292,6 +297,7 @@ private struct CoreVerificationSuite {
         let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
         var preferences = WorkspacePreferences(
             libraryVisibleColumns: ["title", "tags", "doi"],
+            librarySortState: LibrarySortState(field: .year, isAscending: false),
             defaultCollectionPath: "Dark-Matter",
             recentSection: "library"
         )
@@ -301,8 +307,38 @@ private struct CoreVerificationSuite {
         let loadedPreferences = try await repository.load(in: workspace)
 
         try expect(loadedPreferences.libraryVisibleColumns == ["title", "authors", "bibtex"], "Workspace preferences should preserve column order.")
+        try expect(loadedPreferences.librarySortState == LibrarySortState(field: .year, isAscending: false), "Workspace preferences should preserve Library sort state.")
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
+    }
+
+    private func librarySortStateSortsPapers() throws {
+        var older = samplePaper(id: "older")
+        older.title = "Beta Paper"
+        older.authors = ["Zed Author"]
+        older.year = 2020
+        older.updatedAt = Date(timeIntervalSince1970: 10)
+        older.rating = 2
+        older.priority = .low
+        older.status = .used
+
+        var newer = samplePaper(id: "newer")
+        newer.title = "Alpha Paper"
+        newer.authors = ["Amy Author"]
+        newer.year = 2024
+        newer.updatedAt = Date(timeIntervalSince1970: 20)
+        newer.rating = 5
+        newer.priority = .urgent
+        newer.status = .unread
+
+        let originalOrder = [older, newer]
+        try expect(LibrarySortState().sorted(originalOrder).map(\.id) == ["older", "newer"], "Empty Library sort state should preserve original order.")
+        try expect(LibrarySortState(field: .title, isAscending: true).sorted(originalOrder).map(\.id) == ["newer", "older"], "Title sort should order papers alphabetically.")
+        try expect(LibrarySortState(field: .year, isAscending: false).sorted(originalOrder).map(\.id) == ["newer", "older"], "Year descending sort should put newer papers first.")
+        try expect(LibrarySortState(field: .updated, isAscending: false).sorted(originalOrder).map(\.id) == ["newer", "older"], "Updated descending sort should put recently updated papers first.")
+        try expect(LibrarySortState(field: .rating, isAscending: false).sorted(originalOrder).map(\.id) == ["newer", "older"], "Rating descending sort should put higher rated papers first.")
+        try expect(LibrarySortState(field: .priority, isAscending: true).sorted(originalOrder).map(\.id) == ["newer", "older"], "Priority sort should use reading priority order.")
+        try expect(LibrarySortState(field: .status, isAscending: true).sorted(originalOrder).map(\.id) == ["newer", "older"], "Status sort should use reading status order.")
     }
 
     private func markdownSnippetRepositoryLoadsWorkspaceSnippets() async throws {
@@ -1733,6 +1769,181 @@ private struct CoreVerificationSuite {
 
                 let history = try await logger.recentRuns(in: root, limit: 5)
                 try expect(history.map(\.id) == ["agent-run-valid-2", "agent-run-valid-1"], "Damaged JSONL lines should be skipped while valid runs remain readable newest-first.")
+            }
+
+            private func agentRunLoggerFiltersProjectConversations() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentProjectConversationWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let logger = AgentRunLogger()
+                let runs = [
+                    AgentRun(
+                        id: "global-run",
+                        goal: "Global conversation",
+                        createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+                        completedAt: Date(timeIntervalSince1970: 1_777_600_001),
+                        mode: .planOnly,
+                        plan: AgentPlan(summary: "Global", toolCalls: []),
+                        toolResults: []
+                    ),
+                    AgentRun(
+                        id: "alpha-run",
+                        goal: "Alpha conversation",
+                        createdAt: Date(timeIntervalSince1970: 1_777_600_010),
+                        completedAt: Date(timeIntervalSince1970: 1_777_600_011),
+                        mode: .planOnly,
+                        plan: AgentPlan(summary: "Alpha", toolCalls: []),
+                        toolResults: [],
+                        currentProjectID: "project-alpha"
+                    ),
+                    AgentRun(
+                        id: "beta-run",
+                        goal: "Beta conversation",
+                        createdAt: Date(timeIntervalSince1970: 1_777_600_020),
+                        completedAt: Date(timeIntervalSince1970: 1_777_600_021),
+                        mode: .planOnly,
+                        plan: AgentPlan(summary: "Beta", toolCalls: []),
+                        toolResults: [],
+                        currentProjectID: "project-beta"
+                    )
+                ]
+
+                for run in runs {
+                    try await logger.append(run, in: root)
+                }
+
+                let alphaRuns = try await logger.recentRuns(in: root, projectID: "project-alpha", limit: 5)
+                let globalRuns = try await logger.recentRuns(in: root, projectID: nil, limit: 5)
+
+                try expect(alphaRuns.map(\.id) == ["alpha-run"], "Project conversation history should only include runs for that project.")
+                try expect(globalRuns.map(\.id) == ["global-run"], "Global conversation history should only include runs without a project id.")
+            }
+
+            private func agentThreadRepositoryUpsertsProjectThreads() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentThreadWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let repository = AgentThreadRepository()
+                let firstDate = Date(timeIntervalSince1970: 1_777_600_000)
+                var thread = AgentThread(
+                    id: "agent-thread-alpha",
+                    projectID: "project-alpha",
+                    title: "Alpha analysis",
+                    runIDs: ["run-1"],
+                    createdAt: firstDate,
+                    updatedAt: firstDate
+                )
+
+                try await repository.upsert(thread, in: root)
+                thread.appendRunID("run-2", updatedAt: firstDate.addingTimeInterval(10))
+                try await repository.upsert(thread, in: root)
+                try await repository.upsert(
+                    AgentThread(
+                        id: "agent-thread-global",
+                        title: "Global thread",
+                        runIDs: ["global-run"],
+                        createdAt: firstDate,
+                        updatedAt: firstDate
+                    ),
+                    in: root
+                )
+
+                let projectThreads = try await repository.threads(in: root, projectID: "project-alpha")
+                let globalThreads = try await repository.threads(in: root, projectID: nil)
+                let threadsURL = root.fileURL(for: ".sci-station/agent/threads.jsonl")
+                let lines = try String(contentsOf: threadsURL, encoding: .utf8).split(whereSeparator: \.isNewline)
+
+                try expect(projectThreads.map(\.id) == ["agent-thread-alpha"], "Project thread history should be filtered by project id.")
+                try expect(projectThreads.first?.runIDs == ["run-1", "run-2"], "Upserting a thread should preserve ordered run ids.")
+                try expect(globalThreads.map(\.id) == ["agent-thread-global"], "Global thread history should include only global threads.")
+                try expect(lines.count == 2, "Thread upsert should replace the existing thread record instead of duplicating it.")
+            }
+
+            private func agentThreadRepositoryArchivesAndReadsLegacyThreads() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentArchivedThreadWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let threadsURL = root.fileURL(for: ".sci-station/agent/threads.jsonl")
+                let legacyLine = """
+                {"created_at":"2026-04-29T00:00:00Z","id":"legacy-thread","project_id":"project-alpha","run_ids":["run-1"],"title":"Legacy thread","updated_at":"2026-04-29T00:00:01Z"}
+                """
+                try legacyLine.write(to: threadsURL, atomically: true, encoding: .utf8)
+
+                let repository = AgentThreadRepository()
+                let legacyThreads = try await repository.threads(in: root, projectID: "project-alpha")
+                var archivedThread = try require(legacyThreads.first, "Legacy thread without archived_at should still decode.")
+                archivedThread.archive(at: Date(timeIntervalSince1970: 1_777_600_100))
+                try await repository.upsert(archivedThread, in: root)
+
+                let activeThreads = try await repository.threads(in: root, projectID: "project-alpha")
+                let allThreads = try await repository.allThreads(in: root)
+
+                try expect(activeThreads.isEmpty, "Archived threads should be hidden from the default active thread list.")
+                try expect(allThreads.map(\.id).contains("legacy-thread"), "Archived threads should remain readable from all thread history.")
+            }
+
+            private func agentPromptDraftRepositoryPersistsDrafts() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentDraftWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let repository = AgentPromptDraftRepository()
+
+                try await repository.saveDraft("Review open papers", projectID: "project-alpha", threadID: "thread-alpha", in: root)
+                try await repository.saveDraft("Updated prompt", projectID: "project-alpha", threadID: "thread-alpha", in: root)
+                try await repository.saveDraft("Global prompt", projectID: nil, threadID: nil, in: root)
+
+                let projectDraft = try await repository.draft(projectID: "project-alpha", threadID: "thread-alpha", in: root)
+                let globalDraft = try await repository.draft(projectID: nil, threadID: nil, in: root)
+                let draftsURL = root.fileURL(for: ".sci-station/agent/drafts.json")
+
+                try expect(projectDraft == "Updated prompt", "Prompt drafts should upsert by project/thread key.")
+                try expect(globalDraft == "Global prompt", "Global prompt drafts should round-trip.")
+                try expect(FileManager.default.fileExists(atPath: draftsURL.path), "Prompt drafts should persist to the agent drafts file.")
+
+                try await repository.removeDraft(projectID: "project-alpha", threadID: "thread-alpha", in: root)
+                let removedDraft = try await repository.draft(projectID: "project-alpha", threadID: "thread-alpha", in: root)
+
+                try expect(removedDraft == nil, "Prompt drafts should be removable when discarding an empty pending thread.")
             }
 
     private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {

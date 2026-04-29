@@ -2,7 +2,7 @@
 
 Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原型。它以一个全局研究根目录组织多个科研项目，共享全局论文库、任务、Agent/LLM 设置，并让每个项目拥有自己的 Wiki、材料、任务和输出。
 
-当前代码已经完成核心骨架：工作区创建与恢复、项目总览、论文导入、元数据读写、Library 管理、Wiki、Todo/Calendar、BibTeX 出口、内置 PDF Reader、Agent Panel V1，以及可独立运行的核心验证工具。
+当前代码已经完成核心骨架：工作区创建与恢复、项目总览、论文导入、元数据读写、Library 管理、Wiki、Todo/Calendar、BibTeX 出口、内置 PDF Reader、Codex-style AI Lab V1 + thread 化准备，以及可独立运行的核心验证工具。
 
 ## 当前状态
 
@@ -167,7 +167,7 @@ ResearchRoot/
 - 顶部工具栏支持 Create Workspace、Open Workspace、Import PDF、Add by Identifier、Reveal in Finder
 - 菜单栏提供第一批 Workspace、Paper、View、Wiki 命令；`Cmd+N` 新建项目，`Cmd+O` 打开 workspace，`Cmd+F` 聚焦当前搜索，`Cmd+S` 保存 Wiki 页面
 - Materials 页面提供 workspace 用户材料浏览、预览、Finder 定位和 VS Code 打开
-- Library 页面支持紧凑操作区、系统搜索聚焦、过滤 chip 摘要、默认 Tags 列、可配置列、列拖拽排序、tag chip 显示和右键菜单
+- Library 页面使用 SwiftUI `Table` 呈现论文列表，支持系统多选、键盘 selection、可配置可见列、标题/作者/年份/更新时间/评分/优先级/状态排序、过滤 chip 摘要、tag chip 显示和右键菜单
 - Paper Inspector 支持回车保存，点击空白区域结束元数据输入状态
 - 删除论文确认会显示实际论文目录相对路径
 - BibTeX 可从论文右键或 Reader Citations 面板复制、预览并导出 `.bib`
@@ -184,16 +184,24 @@ ResearchRoot/
 - Citations 面板展示 BibTeX，支持复制和导出
 - Links 面板展示 DOI、arXiv、INSPIRE、URL、PDF URL 并可直接打开
 
-### 11. Agent Panel V1
+### 11. Codex-style AI Lab V1
 
-- AI Lab 提供 Agent Panel，可输入自然语言 goal 并生成 plan-only 计划
-- 展示当前 root、current project、project papers、project open todos 和可用工具摘要
-- Plan UI 展示 title、summary、risk、steps、tool calls 和 final response draft
+- AI Lab 提供对话优先的 Agent Panel，conversation scope 跟随 Sidebar 当前项目
+- 每个项目 conversation 使用对应 project context 生成 plan、执行 approved tools 和导出 Copilot Bridge
+- 首屏以 thread strip、prompt composer 和 timeline 为主，Context、Current Plan、Tool Calls / Approvals、Conversation History 等管理内容收进折叠区
+- New Chat 先创建 session-only pending thread，第一次成功 plan 后写入 `.sci-station/agent/threads.jsonl`
+- prompt draft 先按 project/thread 保存在 App session 内，避免切换项目或 thread 后立即丢失
+- 预留 disabled Auto Run Loop 入口，提示未来连续 agent loop 只自动执行 read-only tools，workspace 写入仍逐项审批；停止条件包括最大轮数、最大工具调用数、连续失败、等待写入审批和用户手动 stop
+- Plan UI 展示 title、summary、risk、steps、tool calls 和 final response draft，可从历史 run 重新打开查看
 - 写入工具默认不执行，必须逐项勾选批准后才能运行
 - 执行结果显示 success/error、message 和 modified paths
 - 每次 plan-only 或 approved execution 写入 `.sci-station/agent/runs.jsonl`，并记录 current project id
-- AI Lab 显示最近 5 条有效 run history；损坏 JSONL 行不会阻止历史读取
+- AI Lab 读取更长 run history，并按 Sidebar project conversation / current thread 过滤显示；损坏 JSONL 行不会阻止历史读取
+- Thread 支持重命名、归档隐藏、空 draft 丢弃；历史 unthreaded project runs 可手动整理为新 thread 或加入当前 thread
+- Prompt draft 按 project/thread 持久化到 `.sci-station/agent/drafts.json`，切换项目或 thread 后可恢复
+- 历史 run 可将 prompt 复制到 New Chat 复用，但不会自动执行工具
 - 支持导出 Copilot Bridge prompt/manifest 到 `.sci-station/agent/copilot-bridge/`
+- Agent thread log、run log、Copilot Bridge、workspace preferences、LLM settings 等路径信息集中在 Settings
 
 ### 12. 核心验证
 
@@ -216,7 +224,7 @@ ResearchRoot/
 - ProjectPaperLinkRepository 可保存项目-论文关系，并在加载论文时叠加到 Paper metadata
 - PaperAnnotationsRepository 可读写 `annotations.md`
 - TodoRepository 保留 priority、notes、related paper ids 和 Reminders 映射字段
-- Agent plan parser、tool approval、Agent Panel service run log/history、approved execution 和 Copilot Bridge 导出
+- Agent plan parser、tool approval、Agent run log/history、project conversation filtering、thread archiving、prompt draft persistence、approved execution 和 Copilot Bridge 导出
 - LibrarySearchService 覆盖 DOI、abstract、BibTeX 等扩展字段
 - PDF 导入后在 `library/papers` 生成 `paper.md` 和 `figures/`
 - WikiPageGenerator 生成模板页并拒绝静默覆盖
@@ -242,7 +250,7 @@ ResearchRoot/
 - 在 Wiki 中修改页面后确认出现 Unsaved，按 `Cmd+S` 可保存，切换页面前会提示未保存 draft。
 - 在 Wiki 源码模式输入 `;eq`，确认会展开为公式块；打开 `settings/markdown_snippets.yaml` 可自定义 snippets。
 - 在 Library 按 `Cmd+F`，确认搜索框聚焦并显示过滤 chip；删除论文确认显示实际相对路径。
-- 在 Library 中拖动列标题并重启，确认列顺序从 `workspace_preferences.yaml` 恢复。
+- 在 Library 中使用 Columns 菜单调整可见列，点击排序列标题按钮或 Columns 菜单中的 Sort 项，确认排序写入 `workspace_preferences.yaml`。
 - 在 Reader 按 `Cmd+F`、`Cmd+G`、`Shift+Cmd+G`，确认搜索栏和下一处/上一处查找可用。
 - 重命名 collection 后确认该 collection 下论文仍可显示。
 - 在 Reader 的 Notes 面板保存文字，确认对应论文目录的 `annotations.md` 更新。
@@ -254,8 +262,8 @@ ResearchRoot/
 - 旧 `raw/papers` 迁移已支持 copy-only dry-run、确认执行和 JSON 报告；仍需更完整的冲突解决与历史报告浏览 UI
 - Project Overview 的项目配置模型、阶段状态和核心论文拖拽排序
 - 项目-论文关系 UI 已切到 `ProjectPaperLinkRepository` 第一写入路径；仍需更完整的关系历史和批量编辑
-- Library 原生表格体验：SwiftUI `Table`、排序模型、selection 同步、多选和低风险批量导出准备
-- Agent Panel 后续增强：更多工具、完整历史浏览、计划导入和多轮 Agent loop
+- Library 原生表格体验 V1 已完成：SwiftUI `Table`、排序模型、selection 同步、多选、Copy Citation、Copy BibTeX 和低风险批量 BibTeX 导出；列拖拽/任意列顺序在 SwiftUI `Table` 版本中暂停，后续可评估 `NSTableView` wrapper
+- AI Lab 后续增强：更多工具、计划导入和可选多轮 Agent loop
 - Markdown renderer 的离线资源打包、snippet 图形化管理和更完整编辑器快捷键
 - SQLite/FTS 统一搜索索引和增量更新
 - Apple Reminders 双向同步、完成状态回写和冲突选择 UI
@@ -358,3 +366,6 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 - 任务书 9：[DOC/Proposal9.md](DOC/Proposal9.md)
 - 任务书 10：[DOC/Proposal10.md](DOC/Proposal10.md)
 - 任务书 11：[DOC/Proposal11.md](DOC/Proposal11.md)
+- 任务书 17：[DOC/Proposal17.md](DOC/Proposal17.md)
+- 任务书 18：[DOC/Proposal18.md](DOC/Proposal18.md)
+- 任务书 19：[DOC/Proposal19.md](DOC/Proposal19.md)

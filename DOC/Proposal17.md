@@ -118,3 +118,23 @@
 2. 多选批量操作本轮是否只做 selection 和 BibTeX export，批量编辑留后续？建议本轮只做低风险批量导出。
 3. 排序偏好是否写入 workspace preferences？建议写入，保持 workspace 级行为一致。
 4. 如果 Table 迁移影响现有列拖拽排序，是否允许本轮暂停列拖拽、保留 Settings 中的列配置？建议允许，优先系统表格行为。
+
+## 10. 完成记录
+
+完成时间：2026-04-29
+
+本轮按用户确认后的方向完成 Library 原生表格体验 V1：
+
+- Library 论文列表切换为 SwiftUI `Table`，保留 `appModel.filteredPapers` 作为数据源。
+- 增加 workspace 级 Library sort state，支持 title、authors、year、updated、rating、priority、status，并写入 `settings/workspace_preferences.yaml`。
+- 表格 selection 切换为 selection set；单选继续同步 `selectedPaperID` 和 Inspector，多选时 Inspector 显示 Multiple Papers Selected 摘要与批量动作。
+- 右键菜单保留单篇 Read in App、Open PDF、Export BibTeX、项目关系菜单和 Delete Paper，并新增 Copy Citation / Copy BibTeX。
+- 多选右键和 Inspector 支持 Export BibTeX for Selection、Copy BibTeX for Selection、Copy Citation for Selection、Clear Selection。
+- 删除仍走现有确认流程并显示实际论文目录相对路径。
+- SwiftUI `TableColumnBuilder` 当前不适合按任意 workspace 列顺序动态生成完整列集合，因此本轮暂停列拖拽和任意列顺序恢复；可见列设置继续生效，后续 V2 可评估 `NSTableView` wrapper 或更细的 Table column 方案。
+
+验证：
+
+- `swift build` 通过。
+- `swift run SciStationCoreTestRunner` 通过。
+- `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' -derivedDataPath .derivedData build` 通过。

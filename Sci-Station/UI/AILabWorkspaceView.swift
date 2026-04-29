@@ -7,71 +7,10 @@ struct AILabWorkspaceView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("AI Lab")
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
-                    Text("Global AI workspace for LLM settings, paper summaries, plan-only agent runs, approvals, and Copilot Bridge exports.")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], alignment: .leading, spacing: 12) {
-                    AILabMetricCard(title: "Provider", value: appModel.llmConfiguration.provider.rawValue, systemImage: "network")
-                    AILabMetricCard(title: "Model", value: appModel.llmConfiguration.model, systemImage: "cpu")
-                    AILabMetricCard(title: "Projects", value: "\(appModel.activeResearchProjects.count)", systemImage: "folder")
-                    AILabMetricCard(title: "Papers", value: "\(appModel.papers.count)", systemImage: "books.vertical")
-                }
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("DeepSeek")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        Text("Sci-Station uses the OpenAI-compatible endpoint by default. Configure the API key in Settings, then use paper Inspector actions such as Summarize with LLM.")
-                            .foregroundStyle(.secondary)
-
-                        HStack(spacing: 12) {
-                            Button("Use DeepSeek Flash") {
-                                appModel.useDeepSeekDefaults(model: "deepseek-v4-flash")
-                                appModel.selectSection(.settings)
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Button("Use DeepSeek Pro") {
-                                appModel.useDeepSeekDefaults(model: "deepseek-v4-pro")
-                                appModel.selectSection(.settings)
-                            }
-                            .buttonStyle(.bordered)
-
-                            Button("Open Settings") {
-                                appModel.selectSection(.settings)
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                AILabCompactHeaderView()
 
                 AgentPanelView(workspace: workspace)
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Agent Workspace")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        Text("Agent runs and Copilot Bridge files are stored globally under .sci-station/agent so they can work across projects without mixing project data.")
-                            .foregroundStyle(.secondary)
-
-                        WorkspacePathRow(label: "Run Log", value: workspace.fileURL(for: ".sci-station/agent/runs.jsonl").path)
-                        WorkspacePathRow(label: "Copilot Bridge", value: workspace.directoryURL(for: ".sci-station/agent/copilot-bridge").path)
-                        WorkspacePathRow(label: "Current Project", value: appModel.currentResearchProject?.name ?? "None")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -79,29 +18,40 @@ struct AILabWorkspaceView: View {
     }
 }
 
-private struct AILabMetricCard: View {
-    let title: String
-    let value: String
-    let systemImage: String
+private struct AILabCompactHeaderView: View {
+    @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
-        GroupBox {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(value)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(title)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("AI Lab")
+                    .font(.largeTitle)
+                    .fontWeight(.semibold)
+                Text("Conversation follows the project selected in the Sidebar.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                Label(appModel.agentConversationTitle, systemImage: "folder")
+                Divider()
+                    .frame(height: 18)
+                Label(appModel.llmConfiguration.model, systemImage: "cpu")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button {
+                    appModel.selectSection(.settings)
+                } label: {
+                    Label("AI Settings", systemImage: "gearshape")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.08), in: Capsule())
         }
     }
 }
@@ -110,48 +60,175 @@ private struct AgentPanelView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    @State private var isContextExpanded = false
+    @State private var isAgentDetailsExpanded = false
+    @State private var isPlanExpanded = false
+    @State private var isToolsExpanded = false
+    @State private var isHistoryExpanded = false
+    @State private var isBridgeExpanded = false
 
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                AgentContextSummaryView(snapshot: appModel.agentWorkspaceSnapshot, tools: appModel.agentToolDefinitions)
+                statusMessages
+                threadStrip
                 goalEditor
                 actionButtons
-                statusMessages
+                AgentConversationTimelineView(
+                    thread: appModel.activeAgentThread,
+                    runs: appModel.agentConversationRuns,
+                    currentRun: appModel.agentCurrentRun
+                )
 
-                if let run = appModel.agentCurrentRun {
-                    AgentPlanSummaryView(run: run)
-                    AgentToolApprovalListView(run: run)
-                } else {
+                DisclosureGroup("Agent Panel Details", isExpanded: $isAgentDetailsExpanded) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        DisclosureGroup("Context", isExpanded: $isContextExpanded) {
+                            AgentContextSummaryView(snapshot: appModel.agentWorkspaceSnapshot, tools: appModel.agentToolDefinitions)
+                        }
+
+                        if let run = appModel.agentCurrentRun {
+                            DisclosureGroup("Current Plan", isExpanded: $isPlanExpanded) {
+                                AgentPlanSummaryView(run: run)
+                            }
+
+                            DisclosureGroup("Tool Calls / Approvals", isExpanded: $isToolsExpanded) {
+                                AgentToolApprovalListView(run: run)
+                            }
+                        }
+
+                        if appModel.agentBridgeExport != nil {
+                            DisclosureGroup("Copilot Bridge Export", isExpanded: $isBridgeExpanded) {
+                                bridgeExportDetails
+                            }
+                        }
+
+                        DisclosureGroup("Conversation History", isExpanded: $isHistoryExpanded) {
+                            AgentRunHistoryView(
+                                currentRuns: appModel.agentConversationRuns,
+                                orphanRuns: appModel.agentOrphanRuns
+                            )
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+
+                if appModel.agentConversationRuns.isEmpty, appModel.agentCurrentRun == nil {
                     ContentUnavailableView(
-                        "No Agent Plan",
-                        systemImage: "wand.and.stars",
-                        description: Text("Enter a goal and generate a plan-only run before approving any workspace-writing tools.")
+                        "No Messages Yet",
+                        systemImage: "bubble.left.and.text.bubble.right",
+                        description: Text("Enter a prompt above. The conversation uses the project selected in the Sidebar.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 120)
                 }
-
-                AgentRunHistoryView(runs: appModel.agentRunHistory)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
+        }
+        .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
+            AgentThreadRenameSheet()
+                .environmentObject(appModel)
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Agent Panel")
-                .font(.title2)
+                .font(.headline)
                 .fontWeight(.semibold)
-            Text("Generate a plan first, approve individual tool calls, then run only the approved workspace-writing actions.")
+            Text("Project: \(appModel.agentConversationTitle). Use the Sidebar to switch project conversations.")
                 .foregroundStyle(.secondary)
         }
     }
 
+    @ViewBuilder
+    private var threadStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Threads")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer(minLength: 0)
+                Text("New Chat is saved after the first successful plan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if let pendingThread = appModel.pendingAgentThread {
+                        threadButton(title: pendingThread.title, subtitle: "Draft", isActive: appModel.activeAgentThreadID == pendingThread.id) {
+                            // The pending thread is already the active session-only draft.
+                        }
+                        .contextMenu {
+                            Button("Discard Draft", role: .destructive) {
+                                appModel.discardPendingAgentThread()
+                            }
+                        }
+                    }
+
+                    ForEach(appModel.agentThreads) { thread in
+                        threadButton(
+                            title: thread.title,
+                            subtitle: "\(thread.runIDs.count) runs",
+                            isActive: appModel.activeAgentThreadID == thread.id
+                        ) {
+                            appModel.selectAgentThread(thread)
+                        }
+                        .contextMenu {
+                            Button("Rename Thread") {
+                                appModel.beginRenameAgentThread(thread)
+                            }
+                            Button("Archive Thread", role: .destructive) {
+                                appModel.archiveAgentThread(thread)
+                            }
+                        }
+                    }
+
+                    if appModel.agentThreads.isEmpty, appModel.pendingAgentThread == nil {
+                        Text("No saved threads yet.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 6)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func threadButton(title: String, subtitle: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        if isActive {
+            Button(action: action) {
+                threadButtonLabel(title: title, subtitle: subtitle)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        } else {
+            Button(action: action) {
+                threadButtonLabel(title: title, subtitle: subtitle)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private func threadButtonLabel(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.medium)
+                .lineLimit(1)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 110, alignment: .leading)
+    }
+
     private var goalEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Goal")
+            Text("Prompt")
                 .font(.headline)
             TextEditor(text: $appModel.agentGoal)
                 .font(.body)
@@ -162,7 +239,7 @@ private struct AgentPanelView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.secondary.opacity(0.18))
                 }
-            Text("Example: Create follow-up todos for this project based on open papers.")
+            Text("Example: Review this project's open papers and propose the next three safe actions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -173,10 +250,19 @@ private struct AgentPanelView: View {
             Button {
                 appModel.generateAgentPlan()
             } label: {
-                Label(appModel.isPlanningAgentRun ? "Generating Plan..." : "Generate Plan Only", systemImage: "sparkles")
+                Label(appModel.isPlanningAgentRun ? "Thinking..." : "Send / Generate Plan", systemImage: "paperplane")
             }
             .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(appModel.isPlanningAgentRun || appModel.isExecutingAgentTools)
+
+            Button {
+            } label: {
+                Label("Auto Run Loop", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(.bordered)
+            .disabled(true)
+            .help("Reserved for a future Codex-style loop. It will only auto-run read-only tools; workspace writes still require approval. Stops will include max rounds, max tool calls, repeated failures, approval waits, and manual stop.")
 
             Button {
                 appModel.executeApprovedAgentTools()
@@ -195,12 +281,30 @@ private struct AgentPanelView: View {
             .disabled(appModel.isExportingAgentBridge)
 
             Button {
+                appModel.startNewAgentConversation()
+            } label: {
+                Label("New Chat", systemImage: "plus.bubble")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
                 appModel.refreshAgentContext()
             } label: {
                 Label("Refresh Context", systemImage: "arrow.clockwise")
             }
             .buttonStyle(.bordered)
             .disabled(appModel.isRefreshingAgentContext)
+        }
+    }
+
+    @ViewBuilder
+    private var bridgeExportDetails: some View {
+        if let export = appModel.agentBridgeExport {
+            VStack(alignment: .leading, spacing: 4) {
+                WorkspacePathRow(label: "Bridge Prompt", value: export.promptRelativePath)
+                WorkspacePathRow(label: "Bridge Manifest", value: export.manifestRelativePath)
+            }
+            .padding(.top, 8)
         }
     }
 
@@ -214,12 +318,120 @@ private struct AgentPanelView: View {
             Label(message, systemImage: "checkmark.circle")
                 .foregroundStyle(.secondary)
         }
-        if let export = appModel.agentBridgeExport {
-            VStack(alignment: .leading, spacing: 4) {
-                WorkspacePathRow(label: "Bridge Prompt", value: export.promptRelativePath)
-                WorkspacePathRow(label: "Bridge Manifest", value: export.manifestRelativePath)
+    }
+}
+
+private struct AgentThreadRenameSheet: View {
+    @EnvironmentObject private var appModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Thread")
+                .font(.headline)
+
+            TextField("Thread title", text: $appModel.agentThreadRenameDraft)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 320)
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    appModel.isShowingAgentThreadRename = false
+                    dismiss()
+                }
+                Button("Rename") {
+                    appModel.renamePendingAgentThreadFromDraft()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
+        .padding(20)
+    }
+}
+
+private struct AgentConversationTimelineView: View {
+    let thread: AgentThread?
+    let runs: [AgentRun]
+    let currentRun: AgentRun?
+
+    private var visibleRuns: [AgentRun] {
+        if let currentRun, !runs.contains(where: { $0.id == currentRun.id }) {
+            return [currentRun] + Array(runs.prefix(4))
+        }
+
+        return Array(runs.prefix(5))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Thread Timeline")
+                    .font(.headline)
+                if let thread {
+                    Text(thread.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+
+            if visibleRuns.isEmpty {
+                Text("No messages in this thread yet. Try: Review this project's open papers and propose the next three safe actions.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            } else {
+                ForEach(visibleRuns, id: \.id) { run in
+                    AgentConversationRunCard(run: run, isCurrent: currentRun?.id == run.id)
+                }
+            }
+        }
+    }
+}
+
+private struct AgentConversationRunCard: View {
+    let run: AgentRun
+    let isCurrent: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Label("You", systemImage: "person.crop.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(run.goal)
+                    .font(.callout)
+                    .lineLimit(3)
+                Spacer(minLength: 0)
+                if isCurrent {
+                    Text("Current")
+                        .font(.caption)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                Label("Agent", systemImage: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(run.plan.title?.nilIfEmpty ?? "Plan")
+                        .fontWeight(.semibold)
+                    Text(run.plan.summary)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                    Text("\(run.mode.rawValue) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(isCurrent ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -373,36 +585,76 @@ private struct AgentToolCallRow: View {
 }
 
 private struct AgentRunHistoryView: View {
-    let runs: [AgentRun]
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let currentRuns: [AgentRun]
+    let orphanRuns: [AgentRun]
 
     var body: some View {
-        GroupBox("Recent Runs") {
-            VStack(alignment: .leading, spacing: 8) {
-                if runs.isEmpty {
-                    Text("No agent run history yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(runs, id: \.id) { run in
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(run.goal)
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                Text("\(run.mode.rawValue) · \(status(for: run)) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(run.currentProjectID ?? "No project")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Divider()
+        VStack(alignment: .leading, spacing: 12) {
+            historySection(title: "Current Thread Runs", runs: currentRuns, isOrphan: false)
+
+            Divider()
+
+            historySection(title: "Unthreaded Project Runs", runs: orphanRuns, isOrphan: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func historySection(title: String, runs: [AgentRun], isOrphan: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            if runs.isEmpty {
+                Text(isOrphan ? "No unthreaded runs for this project." : "No runs in this thread yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(runs, id: \.id) { run in
+                    historyRow(run, isOrphan: isOrphan)
+                    Divider()
+                }
+            }
+        }
+    }
+
+    private func historyRow(_ run: AgentRun, isOrphan: Bool) -> some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(run.goal)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Text("\(run.mode.rawValue) · \(status(for: run)) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Open") {
+                appModel.openAgentRun(run)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Menu("More") {
+                Button("Duplicate Prompt to New Chat") {
+                    appModel.duplicateAgentRunPromptToNewChat(run)
+                }
+
+                if isOrphan {
+                    Button("Create Thread from Run") {
+                        appModel.createAgentThread(from: run)
+                    }
+                    Button("Add to Current Thread") {
+                        appModel.addAgentRunToCurrentThread(run)
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
+            .menuStyle(.button)
+            .controlSize(.small)
         }
     }
 

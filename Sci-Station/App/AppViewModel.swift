@@ -77,6 +77,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var workspacePreferences = WorkspacePreferences()
     @Published private(set) var workspaceSettingsStatusMessage: String?
     @Published private(set) var selectedPaperID: Paper.ID?
+    @Published private(set) var selectedLibraryPaperIDs: Set<Paper.ID> = []
     @Published private(set) var selectedPaperDraft: Paper?
     @Published var selectedPaperAnnotationsDraft = ""
     @Published private(set) var isSavingSelectedPaperAnnotations = false
@@ -113,12 +114,23 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isGeneratingSummary = false
     @Published private(set) var summaryPreviewText: String?
     @Published var isShowingSummaryPreview = false
-    @Published var agentGoal = ""
+    @Published var agentGoal = "" {
+        didSet {
+            saveAgentDraftForCurrentConversation()
+            scheduleAgentDraftPersistence()
+        }
+    }
     @Published private(set) var agentWorkspaceSnapshot: AgentWorkspaceSnapshot?
     @Published private(set) var agentToolDefinitions: [AgentToolDefinition] = []
     @Published private(set) var agentCurrentRun: AgentRun?
     @Published private(set) var agentToolApprovals: Set<String> = []
     @Published private(set) var agentRunHistory: [AgentRun] = []
+    @Published private(set) var agentThreads: [AgentThread] = []
+    @Published private(set) var allAgentThreads: [AgentThread] = []
+    @Published private(set) var activeAgentThreadID: AgentThread.ID?
+    @Published private(set) var pendingAgentThread: AgentThread?
+    @Published var isShowingAgentThreadRename = false
+    @Published var agentThreadRenameDraft = ""
     @Published private(set) var agentBridgeExport: AgentCopilotBridgeExport?
     @Published private(set) var agentStatusMessage: String?
     @Published private(set) var agentErrorMessage: String?
@@ -164,6 +176,10 @@ final class AppViewModel: ObservableObject {
     private let batchImportInputParser = BatchImportInputParser()
     private var backlinkIndex = BacklinkIndex(documents: [])
     private var pendingMarkdownSelectionID: String?
+    private var agentGoalDrafts: [String: String] = [:]
+    private var pendingAgentThreadsByProject: [String: AgentThread] = [:]
+    private var agentThreadPendingRename: AgentThread?
+    private var agentDraftSaveTask: Task<Void, Never>?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -257,7 +273,7 @@ final class AppViewModel: ObservableObject {
     var filteredPapers: [Paper] {
         let query = librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        return papers.filter { paper in
+        let matchingPapers = papers.filter { paper in
             let matchesProject = selectedLibraryProjectID.map { projectID in
                 paper.projectIDs.contains(projectID)
             } ?? true
@@ -273,10 +289,29 @@ final class AppViewModel: ObservableObject {
 
             return matchesProject && matchesCollection && matchesTag && matchesQuery
         }
+
+        return workspacePreferences.librarySortState.sorted(matchingPapers)
     }
 
     var libraryVisibleColumnStorage: String {
         workspacePreferences.libraryVisibleColumnsStorageValue
+    }
+
+    var librarySortState: LibrarySortState {
+        workspacePreferences.librarySortState
+    }
+
+    var selectedLibraryPapers: [Paper] {
+        let selectedIDs = selectedLibraryPaperIDs
+        return filteredPapers.filter { selectedIDs.contains($0.id) }
+    }
+
+    var selectedLibraryPaperCount: Int {
+        selectedLibraryPaperIDs.count
+    }
+
+    var hasMultipleLibraryPaperSelection: Bool {
+        selectedLibraryPaperIDs.count > 1
     }
 
     var availableTagDefinitions: [TagDefinition] {
@@ -341,6 +376,43 @@ final class AppViewModel: ObservableObject {
 
     var activeResearchProjects: [ResearchProject] {
         researchProjects.filter { !$0.isArchived }
+    }
+
+    var agentConversationRuns: [AgentRun] {
+        guard let thread = activeAgentThread else {
+            return agentRunHistory.filter { $0.currentProjectID == agentConversationProjectID }
+        }
+
+        let runsByID = Dictionary(uniqueKeysWithValues: agentRunHistory.map { ($0.id, $0) })
+        return thread.runIDs.compactMap { runsByID[$0] }
+    }
+
+    var agentOrphanRuns: [AgentRun] {
+        let threadedRunIDs = Set(allAgentThreads.flatMap(\.runIDs))
+        return agentRunHistory.filter { run in
+            run.currentProjectID == agentConversationProjectID && !threadedRunIDs.contains(run.id)
+        }
+    }
+
+    var activeAgentThread: AgentThread? {
+        guard let activeAgentThreadID else {
+            return agentThreads.first
+        }
+
+        return agentThreads.first { $0.id == activeAgentThreadID }
+            ?? (pendingAgentThread?.id == activeAgentThreadID ? pendingAgentThread : nil)
+    }
+
+    var agentConversationTitle: String {
+        guard let agentConversationProjectID else {
+            return "Global"
+        }
+
+        return projectName(for: agentConversationProjectID)
+    }
+
+    var agentConversationProjectID: ResearchProject.ID? {
+        currentProjectID
     }
 
     var currentResearchProject: ResearchProject? {
@@ -678,7 +750,10 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectResearchProject(_ projectID: ResearchProject.ID, section: WorkspaceSection = .projects) {
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
         currentProjectID = projectID
+        resetAgentDraftIfConversationChanged(to: projectID)
         isViewingGlobalTodos = false
         if section == .library {
             selectedSection = .library
@@ -707,7 +782,10 @@ final class AppViewModel: ObservableObject {
     }
 
     func focusResearchProject(_ projectID: ResearchProject.ID) {
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
         currentProjectID = projectID
+        resetAgentDraftIfConversationChanged(to: projectID)
         persistLastOpenedProject(projectID)
         refreshAgentContext()
     }
@@ -908,6 +986,18 @@ final class AppViewModel: ObservableObject {
     func updateLibraryVisibleColumns(storageValue: String) {
         updateWorkspacePreferences { preferences in
             preferences.updateLibraryVisibleColumns(from: storageValue)
+        }
+    }
+
+    func updateLibrarySort(field: LibrarySortField, isAscending: Bool) {
+        updateWorkspacePreferences { preferences in
+            preferences.librarySortState = LibrarySortState(field: field, isAscending: isAscending)
+        }
+    }
+
+    func clearLibrarySort() {
+        updateWorkspacePreferences { preferences in
+            preferences.librarySortState = LibrarySortState()
         }
     }
 
@@ -1158,6 +1248,26 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectPaper(id: Paper.ID?) {
+        selectedLibraryPaperIDs = id.map { [$0] } ?? []
+        applySelectedPaper(id: id)
+    }
+
+    func updateLibrarySelection(_ selection: Set<Paper.ID>) {
+        selectedLibraryPaperIDs = selection
+        if selection.count == 1 {
+            applySelectedPaper(id: selection.first)
+        } else {
+            selectedPaperID = nil
+            selectedPaperDraft = nil
+            selectedPaperAnnotationsDraft = ""
+        }
+    }
+
+    func clearLibrarySelection() {
+        updateLibrarySelection([])
+    }
+
+    private func applySelectedPaper(id: Paper.ID?) {
         selectedPaperID = id
         selectedPaperDraft = papers.first(where: { $0.id == id })
         guard let currentWorkspace else {
@@ -1278,12 +1388,68 @@ final class AppViewModel: ObservableObject {
         NSPasteboard.general.setString(bibtex, forType: .string)
     }
 
+    func copyCitation(for paper: Paper) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.citationText(for: paper), forType: .string)
+    }
+
     func exportSelectedPaperBibTeX() {
+        if selectedLibraryPapers.count > 1 {
+            exportBibTeXForLibrarySelection()
+            return
+        }
+
         guard let selectedPaperDraft else {
             return
         }
 
         exportBibTeX(for: selectedPaperDraft)
+    }
+
+    func copySelectedPaperBibTeX() {
+        if selectedLibraryPapers.count > 1 {
+            copyBibTeXForLibrarySelection()
+            return
+        }
+
+        guard let selectedPaperDraft else {
+            return
+        }
+
+        copyBibTeX(for: selectedPaperDraft)
+    }
+
+    func copySelectedPaperCitation() {
+        let papersToCopy = selectedLibraryPapers.count > 1 ? selectedLibraryPapers : selectedPaperDraft.map { [$0] } ?? []
+        guard !papersToCopy.isEmpty else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(papersToCopy.map(Self.citationText(for:)).joined(separator: "\n"), forType: .string)
+    }
+
+    func copyBibTeXForLibrarySelection() {
+        let papersToCopy = selectedLibraryPapers
+        guard !papersToCopy.isEmpty else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.joinedBibTeX(for: papersToCopy), forType: .string)
+    }
+
+    func exportBibTeXForLibrarySelection() {
+        let papersToExport = selectedLibraryPapers
+        guard !papersToExport.isEmpty else {
+            return
+        }
+
+        bibTeXExportText = Self.joinedBibTeX(for: papersToExport)
+        bibTeXExportFileName = papersToExport.count == 1 ? "\(papersToExport[0].citekey).bib" : "selected-\(papersToExport.count)-references.bib"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bibTeXExportText, forType: .string)
+        isShowingBibTeXExport = true
     }
 
     func dismissBibTeXExport() {
@@ -1322,6 +1488,7 @@ final class AppViewModel: ObservableObject {
         isShowingPaperDeleteConfirmation = false
         paperPendingDeletion = nil
         selectedPaperID = nil
+        selectedLibraryPaperIDs = []
         selectedPaperDraft = nil
 
         Task {
@@ -1488,6 +1655,234 @@ final class AppViewModel: ObservableObject {
         agentToolDefinitions.first { $0.name == call.toolName }
     }
 
+    func startNewAgentConversation() {
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+        let now = Date()
+        let thread = AgentThread(
+            id: "agent-thread-\(UUID().uuidString.lowercased())",
+            projectID: agentConversationProjectID,
+            title: "New Chat",
+            createdAt: now,
+            updatedAt: now
+        )
+        pendingAgentThread = thread
+        pendingAgentThreadsByProject[agentProjectDraftKey(agentConversationProjectID)] = thread
+        activeAgentThreadID = thread.id
+        agentGoal = ""
+        agentCurrentRun = nil
+        agentToolApprovals = []
+        agentBridgeExport = nil
+        agentStatusMessage = "New \(agentConversationTitle) chat started."
+        agentErrorMessage = nil
+    }
+
+    func discardPendingAgentThread() {
+        guard let pendingAgentThread else {
+            return
+        }
+
+        let projectID = pendingAgentThread.projectID
+        pendingAgentThreadsByProject[agentProjectDraftKey(projectID)] = nil
+        agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: pendingAgentThread.id)] = nil
+        self.pendingAgentThread = nil
+        activeAgentThreadID = agentThreads.first { $0.projectID == projectID }?.id
+        agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
+        agentCurrentRun = nil
+        agentToolApprovals = []
+        agentBridgeExport = nil
+        agentStatusMessage = "Discarded the empty draft chat."
+        agentErrorMessage = nil
+
+        if let currentWorkspace {
+            let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+            Task {
+                try? await agentService.removeDraft(projectID: projectID, threadID: pendingAgentThread.id, in: root)
+            }
+        }
+    }
+
+    func selectAgentThread(_ thread: AgentThread) {
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+        activeAgentThreadID = thread.id
+        pendingAgentThread = nil
+        let runsByID = Dictionary(uniqueKeysWithValues: agentRunHistory.map { ($0.id, $0) })
+        agentCurrentRun = thread.runIDs.reversed().compactMap { runsByID[$0] }.first
+        agentGoal = agentGoalDrafts[agentDraftKey(projectID: thread.projectID, threadID: thread.id)] ?? ""
+        restorePersistedAgentDraft(projectID: thread.projectID, threadID: thread.id)
+        agentToolApprovals = []
+        agentBridgeExport = nil
+        agentStatusMessage = "Opened \(thread.title) in \(agentConversationTitle)."
+        agentErrorMessage = nil
+    }
+
+    func openAgentRun(_ run: AgentRun) {
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+        if let projectID = run.currentProjectID {
+            focusResearchProject(projectID)
+        }
+        activeAgentThreadID = agentThreads.first { $0.runIDs.contains(run.id) }?.id
+        pendingAgentThread = nil
+        agentCurrentRun = run
+        agentGoal = run.goal
+        agentToolApprovals = []
+        agentBridgeExport = nil
+        agentStatusMessage = "Opened a previous \(agentConversationTitle) run."
+        agentErrorMessage = nil
+        refreshAgentContext()
+    }
+
+    func beginRenameAgentThread(_ thread: AgentThread) {
+        agentThreadPendingRename = thread
+        agentThreadRenameDraft = thread.title
+        isShowingAgentThreadRename = true
+    }
+
+    func renamePendingAgentThreadFromDraft() {
+        guard let agentThreadPendingRename, let currentWorkspace else {
+            isShowingAgentThreadRename = false
+            return
+        }
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        var thread = agentThreadPendingRename
+        thread.rename(to: agentThreadRenameDraft, updatedAt: Date())
+        isShowingAgentThreadRename = false
+        self.agentThreadPendingRename = nil
+
+        Task {
+            do {
+                try await agentService.upsertThread(thread, in: root)
+                agentStatusMessage = "Renamed thread to \(thread.title)."
+                await refreshAgentState(in: currentWorkspace)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func archiveAgentThread(_ thread: AgentThread) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        var archivedThread = thread
+        archivedThread.archive(at: Date())
+
+        Task {
+            do {
+                try await agentService.upsertThread(archivedThread, in: root)
+                if activeAgentThreadID == thread.id {
+                    activeAgentThreadID = nil
+                    pendingAgentThread = nil
+                    agentCurrentRun = nil
+                    agentGoal = ""
+                }
+                agentStatusMessage = "Archived \(thread.title)."
+                await refreshAgentState(in: currentWorkspace)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func createAgentThread(from run: AgentRun) {
+        guard let currentWorkspace else {
+            return
+        }
+        guard run.currentProjectID == agentConversationProjectID else {
+            agentErrorMessage = "Only runs from the current project conversation can be organized into a thread."
+            return
+        }
+
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        let now = Date()
+        let thread = AgentThread(
+            id: "agent-thread-\(UUID().uuidString.lowercased())",
+            projectID: run.currentProjectID,
+            title: Self.agentThreadTitle(for: run),
+            runIDs: [run.id],
+            createdAt: now,
+            updatedAt: now
+        )
+
+        Task {
+            do {
+                try await agentService.upsertThread(thread, in: root)
+                activeAgentThreadID = thread.id
+                pendingAgentThread = nil
+                agentCurrentRun = run
+                agentGoal = agentGoalDrafts[agentDraftKey(projectID: thread.projectID, threadID: thread.id)] ?? ""
+                agentStatusMessage = "Created \(thread.title) from history."
+                await refreshAgentState(in: currentWorkspace)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func addAgentRunToCurrentThread(_ run: AgentRun) {
+        guard let currentWorkspace, var thread = activeAgentThread else {
+            agentErrorMessage = "Open a thread before adding a history run."
+            return
+        }
+        guard run.currentProjectID == agentConversationProjectID, thread.projectID == run.currentProjectID else {
+            agentErrorMessage = "Only runs from the current project conversation can be added to this thread."
+            return
+        }
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        thread.appendRunID(run.id, updatedAt: Date())
+
+        Task {
+            do {
+                try await agentService.upsertThread(thread, in: root)
+                agentStatusMessage = "Added history run to \(thread.title)."
+                await refreshAgentState(in: currentWorkspace)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func duplicateAgentRunPromptToNewChat(_ run: AgentRun) {
+        startNewAgentConversation()
+        agentGoal = run.goal
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+        agentStatusMessage = "Copied the previous prompt into a new chat."
+    }
+
+    private func resetAgentDraftIfConversationChanged(to projectID: ResearchProject.ID?) {
+        guard agentCurrentRun?.currentProjectID != projectID else {
+            return
+        }
+
+        if let pendingThread = pendingAgentThreadsByProject[agentProjectDraftKey(projectID)] {
+            pendingAgentThread = pendingThread
+            activeAgentThreadID = pendingThread.id
+        } else {
+            pendingAgentThread = nil
+            activeAgentThreadID = agentThreads.first { $0.projectID == projectID }?.id
+        }
+        agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
+        restorePersistedAgentDraft(projectID: projectID, threadID: activeAgentThreadID)
+        agentCurrentRun = nil
+        agentToolApprovals = []
+        agentBridgeExport = nil
+        agentStatusMessage = nil
+        agentErrorMessage = nil
+    }
+
     func generateAgentPlan() {
         guard let currentWorkspace else {
             agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
@@ -1520,13 +1915,14 @@ final class AppViewModel: ObservableObject {
                     in: currentWorkspace,
                     root: currentResearchRoot,
                     projects: researchProjects,
-                    currentProjectID: currentResearchProject?.id,
+                    currentProjectID: agentConversationProjectID,
                     selectedPaperID: selectedPaperID,
                     configuration: llmConfiguration,
                     apiKey: apiKey,
                     options: AgentExecutionOptions(mode: .planOnly)
                 )
                 agentCurrentRun = run
+                try await attachRunToActiveThread(run, in: currentWorkspace)
                 agentToolApprovals = []
                 agentBridgeExport = nil
                 agentStatusMessage = "Plan generated. Review and approve workspace-writing tools before running."
@@ -1563,11 +1959,12 @@ final class AppViewModel: ObservableObject {
                     plan: currentRun.plan,
                     in: currentWorkspace,
                     root: currentResearchRoot,
-                    currentProjectID: currentResearchProject?.id,
+                    currentProjectID: agentConversationProjectID,
                     selectedPaperID: selectedPaperID,
                     approvedToolCallIDs: agentToolApprovals
                 )
                 agentCurrentRun = executedRun
+                try await attachRunToActiveThread(executedRun, in: currentWorkspace)
                 agentStatusMessage = "Approved tools finished. Workspace data has been refreshed."
                 try await loadWorkspaceData(
                     in: currentWorkspace,
@@ -1607,7 +2004,7 @@ final class AppViewModel: ObservableObject {
                     in: currentWorkspace,
                     root: currentResearchRoot,
                     projects: researchProjects,
-                    currentProjectID: currentResearchProject?.id,
+                    currentProjectID: agentConversationProjectID,
                     selectedPaperID: selectedPaperID
                 )
                 agentBridgeExport = export
@@ -2443,8 +2840,10 @@ final class AppViewModel: ObservableObject {
         papers = loadedPapers
 
         let nextSelectionID = paperID ?? selectedPaperID ?? loadedPapers.first?.id
-        selectedPaperID = nextSelectionID
-        selectedPaperDraft = loadedPapers.first(where: { $0.id == nextSelectionID })
+        let nextSelectedPaper = loadedPapers.first(where: { $0.id == nextSelectionID })
+        selectedPaperID = nextSelectedPaper?.id
+        selectedLibraryPaperIDs = nextSelectedPaper.map { [$0.id] } ?? []
+        selectedPaperDraft = nextSelectedPaper
         try await loadSelectedPaperAnnotations(in: workspace)
     }
 
@@ -2616,14 +3015,135 @@ final class AppViewModel: ObservableObject {
                 in: workspace,
                 root: root,
                 projects: researchProjects,
-                currentProjectID: currentResearchProject?.id,
+                currentProjectID: agentConversationProjectID,
                 selectedPaperID: selectedPaperID
             )
             agentToolDefinitions = await agentService.toolDefinitions()
-            agentRunHistory = try await agentService.recentRuns(in: root, limit: 5)
+            agentRunHistory = try await agentService.recentRuns(in: root, limit: 200)
+            allAgentThreads = try await agentService.allThreads(in: root)
+            agentThreads = try await agentService.threads(in: root, projectID: agentConversationProjectID)
+            if let activeAgentThreadID,
+               !agentThreads.contains(where: { $0.id == activeAgentThreadID }),
+               pendingAgentThread?.id != activeAgentThreadID {
+                self.activeAgentThreadID = agentThreads.first?.id
+            } else if activeAgentThreadID == nil {
+                activeAgentThreadID = agentThreads.first?.id
+            }
+            restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
         } catch {
             agentErrorMessage = error.localizedDescription
         }
+    }
+
+    private func attachRunToActiveThread(_ run: AgentRun, in workspace: ResearchWorkspace) async throws {
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+        let now = Date()
+        var thread = activeAgentThread ?? AgentThread(
+            id: "agent-thread-\(UUID().uuidString.lowercased())",
+            projectID: run.currentProjectID,
+            title: Self.agentThreadTitle(for: run),
+            createdAt: now,
+            updatedAt: now
+        )
+
+        if thread.title == "New Chat" || thread.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            thread.title = Self.agentThreadTitle(for: run)
+        }
+        thread.appendRunID(run.id, updatedAt: now)
+
+        try await agentService.upsertThread(thread, in: root)
+        pendingAgentThreadsByProject[agentProjectDraftKey(run.currentProjectID)] = nil
+        pendingAgentThread = nil
+        activeAgentThreadID = thread.id
+        allAgentThreads = try await agentService.allThreads(in: root)
+        agentThreads = try await agentService.threads(in: root, projectID: agentConversationProjectID)
+        persistAgentDraftForCurrentConversation()
+    }
+
+    private func saveAgentDraftForCurrentConversation() {
+        agentGoalDrafts[agentDraftKey(projectID: agentConversationProjectID, threadID: activeAgentThreadID)] = agentGoal
+    }
+
+    private func agentDraftKey(projectID: ResearchProject.ID?, threadID: AgentThread.ID?) -> String {
+        AgentPromptDraft.key(projectID: projectID, threadID: threadID)
+    }
+
+    private func persistAgentDraftForCurrentConversation() {
+        persistAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID, text: agentGoal)
+    }
+
+    private func persistAgentDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?, text: String) {
+        agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: threadID)] = text
+        guard let currentWorkspace else {
+            return
+        }
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            try? await agentService.saveDraft(text, projectID: projectID, threadID: threadID, in: root)
+        }
+    }
+
+    private func scheduleAgentDraftPersistence() {
+        let projectID = agentConversationProjectID
+        let threadID = activeAgentThreadID
+        let text = agentGoal
+
+        agentDraftSaveTask?.cancel()
+        agentDraftSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                self?.persistAgentDraft(projectID: projectID, threadID: threadID, text: text)
+            }
+        }
+    }
+
+    private func restorePersistedAgentDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?) {
+        let key = agentDraftKey(projectID: projectID, threadID: threadID)
+        if let draft = agentGoalDrafts[key] {
+            agentGoal = draft
+            return
+        }
+        guard let currentWorkspace else {
+            return
+        }
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                guard let draft = try await agentService.draft(projectID: projectID, threadID: threadID, in: root) else {
+                    return
+                }
+                guard agentConversationProjectID == projectID, activeAgentThreadID == threadID else {
+                    return
+                }
+                agentGoalDrafts[key] = draft
+                agentGoal = draft
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func agentProjectDraftKey(_ projectID: ResearchProject.ID?) -> String {
+        projectID ?? "global"
+    }
+
+    private nonisolated static func agentThreadTitle(for run: AgentRun) -> String {
+        let planTitle = run.plan.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let planTitle, !planTitle.isEmpty {
+            return planTitle
+        }
+
+        let trimmedGoal = run.goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedGoal.count > 48 else {
+            return trimmedGoal.isEmpty ? "New Chat" : trimmedGoal
+        }
+
+        return String(trimmedGoal.prefix(45)) + "..."
     }
 
     private func loadMarkdownSnippets(in workspace: ResearchWorkspace) async throws {
@@ -2674,6 +3194,22 @@ final class AppViewModel: ObservableObject {
         }
 
         return workspace.fileURL(for: "wiki/papers/\(paper.citekey).md")
+    }
+
+    private nonisolated static func joinedBibTeX(for papers: [Paper]) -> String {
+        papers
+            .map(BibTeXFormatter.bibTeX(for:))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "\n\n") + "\n"
+    }
+
+    private nonisolated static func citationText(for paper: Paper) -> String {
+        let authors = paper.authorsDisplay
+        let year = paper.year.map { "(\($0))" } ?? "(n.d.)"
+        let venue = (paper.publicationTitle ?? paper.venue)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = venue.map { " \($0)." } ?? ""
+        return "\(authors) \(year). \(paper.displayTitle).\(suffix)"
     }
 
     private static func selectCreateWorkspaceURL() -> URL? {

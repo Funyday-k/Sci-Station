@@ -187,13 +187,127 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable {
+    public var id: String
+    public var projectID: String?
+    public var title: String
+    public var runIDs: [String]
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var archivedAt: Date?
+
+    public nonisolated init(
+        id: String,
+        projectID: String? = nil,
+        title: String,
+        runIDs: [String] = [],
+        createdAt: Date,
+        updatedAt: Date,
+        archivedAt: Date? = nil
+    ) {
+        self.id = id
+        self.projectID = projectID
+        self.title = title
+        self.runIDs = runIDs
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.archivedAt = archivedAt
+    }
+
+    public nonisolated var isArchived: Bool {
+        archivedAt != nil
+    }
+
+    public nonisolated mutating func appendRunID(_ runID: String, updatedAt: Date) {
+        if !runIDs.contains(runID) {
+            runIDs.append(runID)
+        }
+        self.updatedAt = updatedAt
+    }
+
+    public nonisolated mutating func rename(to title: String, updatedAt: Date) {
+        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "New Chat" : title
+        self.updatedAt = updatedAt
+    }
+
+    public nonisolated mutating func archive(at date: Date) {
+        archivedAt = date
+        updatedAt = date
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectID = "project_id"
+        case title
+        case runIDs = "run_ids"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case archivedAt = "archived_at"
+    }
+}
+
+public nonisolated struct AgentPromptDraft: Codable, Hashable, Sendable {
+    public var projectID: String?
+    public var threadID: String?
+    public var text: String
+    public var updatedAt: Date
+
+    public nonisolated init(projectID: String? = nil, threadID: String? = nil, text: String, updatedAt: Date) {
+        self.projectID = projectID
+        self.threadID = threadID
+        self.text = text
+        self.updatedAt = updatedAt
+    }
+
+    public nonisolated var key: String {
+        Self.key(projectID: projectID, threadID: threadID)
+    }
+
+    public nonisolated static func key(projectID: String?, threadID: String?) -> String {
+        "\(projectID ?? "global")::\(threadID ?? "default")"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectID = "project_id"
+        case threadID = "thread_id"
+        case text
+        case updatedAt = "updated_at"
+    }
+}
+
+public nonisolated struct AgentPromptDraftStore: Codable, Hashable, Sendable {
+    public var schemaVersion: Int
+    public var drafts: [AgentPromptDraft]
+
+    public nonisolated init(schemaVersion: Int = 1, drafts: [AgentPromptDraft] = []) {
+        self.schemaVersion = schemaVersion
+        self.drafts = drafts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case drafts
+    }
+}
+
+public nonisolated enum AgentLoopPolicy: String, Sendable {
+    case manualApprovalOnly
+    case readOnlyAutoApproveWritesRequireApproval
+}
+
 public nonisolated struct AgentExecutionOptions: Sendable {
     public var mode: AgentRunMode
     public var approvedToolCallIDs: Set<String>
+    public var loopPolicy: AgentLoopPolicy
 
-    public nonisolated init(mode: AgentRunMode = .planOnly, approvedToolCallIDs: Set<String> = []) {
+    public nonisolated init(
+        mode: AgentRunMode = .planOnly,
+        approvedToolCallIDs: Set<String> = [],
+        loopPolicy: AgentLoopPolicy = .manualApprovalOnly
+    ) {
         self.mode = mode
         self.approvedToolCallIDs = approvedToolCallIDs
+        self.loopPolicy = loopPolicy
     }
 }
 

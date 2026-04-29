@@ -6,6 +6,8 @@ public actor SciStationAgentService {
     private let toolRegistry: AgentToolRegistry
     private let toolExecutor: AgentToolExecutor
     private let runLogger: AgentRunLogger
+    private let threadRepository: AgentThreadRepository
+    private let draftRepository: AgentPromptDraftRepository
     private let bridgeExporter: AgentCopilotBridgeExporter
 
     public init(
@@ -16,6 +18,8 @@ public actor SciStationAgentService {
         toolRegistry: AgentToolRegistry? = nil,
         toolExecutor: AgentToolExecutor? = nil,
         runLogger: AgentRunLogger = AgentRunLogger(),
+        threadRepository: AgentThreadRepository = AgentThreadRepository(),
+        draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
         bridgeExporter: AgentCopilotBridgeExporter = AgentCopilotBridgeExporter()
     ) {
         let resolvedContextBuilder = contextBuilder ?? AgentWorkspaceContextBuilder(
@@ -32,6 +36,8 @@ public actor SciStationAgentService {
         self.toolRegistry = resolvedToolRegistry
         self.toolExecutor = toolExecutor ?? AgentToolExecutor(registry: resolvedToolRegistry)
         self.runLogger = runLogger
+        self.threadRepository = threadRepository
+        self.draftRepository = draftRepository
         self.bridgeExporter = bridgeExporter
     }
 
@@ -153,6 +159,38 @@ public actor SciStationAgentService {
 
     public func recentRuns(in root: ResearchRoot, limit: Int = 5) async throws -> [AgentRun] {
         try await runLogger.recentRuns(in: root, limit: limit)
+    }
+
+    public func recentRuns(in root: ResearchRoot, projectID: String?, limit: Int = 20) async throws -> [AgentRun] {
+        try await runLogger.recentRuns(in: root, projectID: projectID, limit: limit)
+    }
+
+    public func threads(in root: ResearchRoot, projectID: ResearchProject.ID?) async throws -> [AgentThread] {
+        try await threadRepository.threads(in: root, projectID: projectID)
+    }
+
+    public func allThreads(in root: ResearchRoot) async throws -> [AgentThread] {
+        try await threadRepository.allThreads(in: root)
+    }
+
+    public func thread(id: AgentThread.ID, in root: ResearchRoot) async throws -> AgentThread? {
+        try await threadRepository.thread(id: id, in: root)
+    }
+
+    public func upsertThread(_ thread: AgentThread, in root: ResearchRoot) async throws {
+        try await threadRepository.upsert(thread, in: root)
+    }
+
+    public func draft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?, in root: ResearchRoot) async throws -> String? {
+        try await draftRepository.draft(projectID: projectID, threadID: threadID, in: root)
+    }
+
+    public func saveDraft(_ text: String, projectID: ResearchProject.ID?, threadID: AgentThread.ID?, in root: ResearchRoot) async throws {
+        try await draftRepository.saveDraft(text, projectID: projectID, threadID: threadID, in: root)
+    }
+
+    public func removeDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?, in root: ResearchRoot) async throws {
+        try await draftRepository.removeDraft(projectID: projectID, threadID: threadID, in: root)
     }
 
     public func exportCopilotBridge(

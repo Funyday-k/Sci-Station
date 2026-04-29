@@ -30,6 +30,8 @@ public actor WorkspacePreferencesRepository {
             "library_visible_columns:"
         ]
         lines.append(contentsOf: preferences.libraryVisibleColumns.map { "  - \(quoted($0))" })
+        lines.append("library_sort_field: \(preferences.librarySortState.field.map { quoted($0.rawValue) } ?? "")")
+        lines.append("library_sort_ascending: \(preferences.librarySortState.isAscending)")
         let defaultCollection = preferences.defaultCollectionPath.map(quoted) ?? ""
         let recentSection = preferences.recentSection.map(quoted) ?? ""
         lines.append("default_collection: \(defaultCollection)")
@@ -42,6 +44,8 @@ public actor WorkspacePreferencesRepository {
         let lines = contents.components(separatedBy: .newlines)
         var schemaVersion = WorkspacePreferences.currentSchemaVersion
         var libraryVisibleColumns: [String] = []
+        var librarySortField: LibrarySortField?
+        var librarySortAscending = true
         var defaultCollectionPath: String?
         var recentSection: String?
         var syncTodosToAppleReminders = true
@@ -56,6 +60,12 @@ public actor WorkspacePreferencesRepository {
                 let result = parseIndentedArray(from: lines, start: cursor + 1)
                 libraryVisibleColumns = result.values
                 cursor = result.nextIndex - 1
+            } else if trimmed.hasPrefix("library_sort_field:") {
+                let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "library_sort_field:", with: "").trimmingCharacters(in: .whitespaces)))
+                librarySortField = value.flatMap(LibrarySortField.init(rawValue:))
+            } else if trimmed.hasPrefix("library_sort_ascending:") {
+                let value = trimmed.replacingOccurrences(of: "library_sort_ascending:", with: "").trimmingCharacters(in: .whitespaces)
+                librarySortAscending = Bool(value) ?? true
             } else if trimmed.hasPrefix("default_collection:") {
                 defaultCollectionPath = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "default_collection:", with: "").trimmingCharacters(in: .whitespaces)))
             } else if trimmed.hasPrefix("recent_section:") {
@@ -70,6 +80,7 @@ public actor WorkspacePreferencesRepository {
         return WorkspacePreferences(
             schemaVersion: schemaVersion,
             libraryVisibleColumns: libraryVisibleColumns,
+            librarySortState: LibrarySortState(field: librarySortField, isAscending: librarySortAscending),
             defaultCollectionPath: defaultCollectionPath,
             recentSection: recentSection,
             syncTodosToAppleReminders: syncTodosToAppleReminders

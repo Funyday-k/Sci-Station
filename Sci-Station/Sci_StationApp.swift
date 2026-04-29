@@ -59,8 +59,14 @@ struct Sci_StationApp: App {
                 Button("Reveal Paper in Finder", action: appModel.revealSelectedPaperInFinder)
                     .disabled(appModel.selectedPaperDraft == nil)
 
+                Button("Copy Citation", action: appModel.copySelectedPaperCitation)
+                    .disabled(appModel.selectedPaperDraft == nil && appModel.selectedLibraryPaperCount == 0)
+
+                Button("Copy BibTeX", action: appModel.copySelectedPaperBibTeX)
+                    .disabled(appModel.selectedPaperDraft == nil && appModel.selectedLibraryPaperCount == 0)
+
                 Button("Export BibTeX", action: appModel.exportSelectedPaperBibTeX)
-                    .disabled(appModel.selectedPaperDraft == nil)
+                    .disabled(appModel.selectedPaperDraft == nil && appModel.selectedLibraryPaperCount == 0)
 
                 Divider()
 
