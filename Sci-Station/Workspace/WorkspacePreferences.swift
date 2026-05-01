@@ -3,6 +3,7 @@ import Foundation
 public struct WorkspacePreferences: Hashable, Sendable {
     public nonisolated static let currentSchemaVersion = 1
     public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
+    public nonisolated static let defaultAgentChatFontSize = 14.0
 
     public var schemaVersion: Int
     public var libraryVisibleColumns: [String]
@@ -11,6 +12,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var recentSection: String?
     public var syncTodosToAppleReminders: Bool
     public var appLanguage: AppLanguagePreference
+    public var agentChatFontSize: Double
     public var agentKnowledgePaperIDs: [String]?
     public var agentDisabledToolNamesByScope: [String: [String]]
     public var pinnedAgentThreadIDsByProject: [String: [String]]
@@ -27,6 +29,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
         recentSection: String? = "library",
         syncTodosToAppleReminders: Bool = true,
         appLanguage: AppLanguagePreference = .system,
+        agentChatFontSize: Double = Self.defaultAgentChatFontSize,
         agentKnowledgePaperIDs: [String]? = nil,
         agentDisabledToolNamesByScope: [String: [String]] = [:],
         pinnedAgentThreadIDsByProject: [String: [String]] = [:],
@@ -42,6 +45,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.recentSection = recentSection
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
         self.appLanguage = appLanguage
+        let normalizedFontSize = agentChatFontSize.isFinite ? agentChatFontSize : Self.defaultAgentChatFontSize
+        self.agentChatFontSize = min(max(normalizedFontSize, 11), 22)
         self.agentKnowledgePaperIDs = agentKnowledgePaperIDs
         self.agentDisabledToolNamesByScope = agentDisabledToolNamesByScope
         self.pinnedAgentThreadIDsByProject = pinnedAgentThreadIDsByProject

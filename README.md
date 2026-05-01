@@ -199,7 +199,7 @@ ResearchRoot/
 ### 11. Codex-style AI Lab V1
 
 - AI Lab 提供对话优先的 Agent Panel，conversation scope 跟随 Sidebar 当前项目
-- 每个项目 conversation 使用对应 project context 生成 plan、执行 approved tools 和导出 Copilot Bridge
+- 每个项目 conversation 使用对应 project context 生成 plan 与执行 approved tools
 - 首屏以 thread strip、prompt composer 和 session event timeline 为主，Context、Current Plan、Permission Dock、Hook Activity、MCP Servers、Preset Manager、Conversation History 等管理内容收进折叠区
 - New Chat 先创建 session-only pending thread，第一次成功 plan 后写入 `.sci-station/agent/threads.jsonl`
 - prompt draft 先按 project/thread 保存在 App session 内，避免切换项目或 thread 后立即丢失
@@ -212,14 +212,12 @@ ResearchRoot/
 - Thread 支持重命名、归档隐藏、空 draft 丢弃；历史 unthreaded project runs 可手动整理为新 thread 或加入当前 thread
 - Prompt draft 按 project/thread 持久化到 `.sci-station/agent/drafts.json`，切换项目或 thread 后可恢复
 - 历史 run 可将 prompt 复制到 New Chat 复用，但不会自动执行工具
-- 支持导出 Copilot Bridge prompt/manifest 到 `.sci-station/agent/copilot-bridge/`
-- Settings 预留 GitHub Copilot SDK experimental provider：Connect GitHub 在未填写 Client ID 时会打开 GitHub OAuth App 创建页，填写后会打开 github.com OAuth 授权并回到 `sci-station://github-copilot/callback`；桌面端只保存非敏感 OAuth/GitHub App 配置，OAuth code-to-token 交换必须通过 token exchange relay 完成，user token 走 Keychain 而不是 workspace 明文文件
 - Agent Platform V1 core 已加入 Swift-native 底座模型：agent profile、subagent profile、allow/ask/deny permission rule、hook definition/result、plugin manifest、command template、skill manifest、MCP server configuration、append-only session event，以及 Provider V2 request/response skeleton；OpenAI-compatible Provider V2 wrapper 已可生成 chat/tool payload，主 plan path 仍保留稳定 `LLMProvider.complete`
 - AI Lab 可展示和临时禁用 `SessionStart`、`PreToolUse`、`PostToolUse`、`Stop` hooks，hook result 进入 session event timeline
 - MCP UI 先展示 product preset template 与 local workspace config 的边界、enabled 状态、local command/remote URL、allowed tools、timeout 和 credential reference count；本阶段不启动 MCP server，写入或外部 side-effect MCP tools 仍必须进入 permission layer
 - 当前 `.claude` hooks、skills 和 `.mcp.json` 作为工作区级 prototype；产品化路径是迁移到 Sci-Station 内置 preset registry、permission layer、hook engine 和 MCP 配置 UI
 - `.sci-ai/sci-station/presets/research-core/` 已提供可进 GitHub 的 research-core preset；`.sci-ai/workspace.local/`、`.claude/` 和 `.mcp.json` 被视为本机配置并由 gitignore 排除
-- Agent thread log、run log、Copilot Bridge、workspace preferences、LLM settings 等路径信息集中在 Settings
+- Agent thread log、run log、workspace preferences、LLM settings 等路径信息集中在 Settings
 
 ### 12. 核心验证
 
@@ -242,7 +240,7 @@ ResearchRoot/
 - ProjectPaperLinkRepository 可保存项目-论文关系，并在加载论文时叠加到 Paper metadata
 - PaperAnnotationsRepository 可读写 `annotations.md`
 - TodoRepository 保留 priority、notes、related paper ids 和 Reminders 映射字段
-- Agent plan parser、tool approval、Agent run log/history、project conversation filtering、thread archiving、prompt draft persistence、approved execution、Copilot Bridge 导出、Agent Platform core model、permission matcher、hook engine、plugin/skill/MCP schema、session event log 和 Provider V2 request model
+- Agent plan parser、tool approval、Agent run log/history、project conversation filtering、thread archiving、prompt draft persistence、approved execution、Agent Platform core model、permission matcher、hook engine、plugin/skill/MCP schema、session event log 和 Provider V2 request model
 - LibrarySearchService 覆盖 DOI、abstract、BibTeX 等扩展字段
 - PDF 导入后在 `library/papers` 生成 `paper.md` 和 `figures/`
 - WikiPageGenerator 生成模板页并拒绝静默覆盖

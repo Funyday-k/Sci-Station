@@ -106,6 +106,12 @@ struct LibraryListView: View {
         } message: {
             Text("Delete \(appModel.deletePendingPaperTitle) from the workspace. This removes the paper directory at \(appModel.deletePendingPaperRelativePath).")
         }
+        .alert(appModel.markdownOverwriteConfirmationTitle, isPresented: $appModel.isShowingMarkdownOverwriteConfirmation) {
+            Button(appModel.localized("覆盖并转换", "Overwrite and Convert"), role: .destructive, action: appModel.confirmMarkdownOverwriteConversion)
+            Button(appModel.localized("取消", "Cancel"), role: .cancel, action: appModel.cancelMarkdownOverwriteConversion)
+        } message: {
+            Text(appModel.markdownOverwriteConfirmationMessage)
+        }
         .overlay(alignment: .bottomTrailing) {
             if isTargetedForDrop {
                 Text("Drop PDF to import")
@@ -178,6 +184,12 @@ struct LibraryListView: View {
                 Label("Open PDF", systemImage: "arrow.up.right.square")
             }
             .disabled(!appModel.canOpenPDF(for: paper))
+
+            Button {
+                appModel.revealPaperInFinder(paper)
+            } label: {
+                Label("打开所在文件夹", systemImage: "folder")
+            }
 
             Button {
                 appModel.exportBibTeX(for: paper)
@@ -571,13 +583,6 @@ private struct LibraryPaperTableView: View {
         let selectedIDs = appModel.selectedLibraryPaperIDs
         if selectedIDs.contains(row.id), selectedIDs.count > 1 {
             Button {
-                appModel.previewLibrarySelection()
-            } label: {
-                Label("Preview PDF", systemImage: "eye")
-            }
-            .disabled(!appModel.canPreviewLibrarySelection)
-
-            Button {
                 appModel.convertLibrarySelectionToMarkdown()
             } label: {
                 Label("批量转换 Markdown", systemImage: "doc.richtext")
@@ -673,13 +678,6 @@ private struct LibraryPaperTableView: View {
     @ViewBuilder
     private func singlePaperContextMenu(for paper: Paper) -> some View {
         Button {
-            appModel.previewPaper(paper)
-        } label: {
-            Label("Preview PDF", systemImage: "eye")
-        }
-        .disabled(!appModel.canOpenPDF(for: paper))
-
-        Button {
             appModel.openPaperReader(paper)
         } label: {
             Label("Read in App", systemImage: "doc.viewfinder")
@@ -692,6 +690,12 @@ private struct LibraryPaperTableView: View {
             Label("Open PDF", systemImage: "arrow.up.right.square")
         }
         .disabled(!appModel.canOpenPDF(for: paper))
+
+        Button {
+            appModel.revealPaperInFinder(paper)
+        } label: {
+            Label("打开所在文件夹", systemImage: "folder")
+        }
 
         Button {
             appModel.copyCitation(for: paper)
@@ -717,6 +721,14 @@ private struct LibraryPaperTableView: View {
             Label("转换为 Markdown", systemImage: "doc.richtext")
         }
         .disabled(!appModel.agentKnowledgePaperHasPDF(paper) || appModel.paperMarkdownConversionState(for: paper) == .converting)
+
+        if appModel.agentKnowledgePaperHasMarkdown(paper) {
+            Button {
+                appModel.openPaperMarkdown(paper)
+            } label: {
+                Label("查看 Markdown", systemImage: "doc.text.magnifyingglass")
+            }
+        }
 
         Divider()
 
@@ -1078,6 +1090,8 @@ struct BibTeXExportView: View {
 }
 
 private struct LibraryColumnValueView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let column: LibraryColumn
     let row: LibraryPaperTableRow
 
@@ -1093,10 +1107,22 @@ private struct LibraryColumnValueView: View {
                     Text(paper.displayTitle)
                         .fontWeight(.medium)
                         .lineLimit(2)
-                    PaperMarkdownConversionBadge(
-                        state: row.markdownConversionState,
-                        message: row.markdownConversionMessage
-                    )
+                    HStack(spacing: 6) {
+                        PaperMarkdownConversionBadge(
+                            state: row.markdownConversionState,
+                            message: row.markdownConversionMessage
+                        )
+                        if row.markdownConversionState == .succeeded || row.markdownConversionState == .fallback {
+                            Button {
+                                appModel.openPaperMarkdown(paper)
+                            } label: {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                    .imageScale(.small)
+                            }
+                            .buttonStyle(.plain)
+                            .help("查看 Markdown")
+                        }
+                    }
                 }
             case .authors:
                 secondaryText(paper.authorsDisplay, lineLimit: 2)

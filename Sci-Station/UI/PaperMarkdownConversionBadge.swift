@@ -24,6 +24,8 @@ struct PaperMarkdownConversionBadge: View {
             return "转换中"
         case .succeeded:
             return "已转换"
+        case .fallback:
+            return "已回退"
         case .failed:
             return "转换失败"
         }
@@ -39,6 +41,8 @@ struct PaperMarkdownConversionBadge: View {
             return "arrow.triangle.2.circlepath"
         case .succeeded:
             return "checkmark.circle"
+        case .fallback:
+            return "exclamationmark.circle"
         case .failed:
             return "exclamationmark.triangle"
         }
@@ -52,6 +56,8 @@ struct PaperMarkdownConversionBadge: View {
             return .blue
         case .succeeded:
             return .green
+        case .fallback:
+            return .orange
         case .failed:
             return .red
         }
@@ -65,6 +71,8 @@ struct PaperMarkdownConversionBadge: View {
             return Color.blue.opacity(0.12)
         case .succeeded:
             return Color.green.opacity(0.12)
+        case .fallback:
+            return Color.orange.opacity(0.12)
         case .failed:
             return Color.red.opacity(0.12)
         }

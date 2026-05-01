@@ -4,6 +4,9 @@ import PDFKit
 public actor AgentWorkspaceContextBuilder {
     private let paperRepository: PaperRepository
     private let todoRepository: TodoRepository
+    private nonisolated static let defaultMarkdownExcerptCharacters = 10_000
+    private nonisolated static let knowledgeMarkdownExcerptCharacters = 120_000
+    private nonisolated static let defaultPDFExcerptCharacters = 8_000
 
     public init(paperRepository: PaperRepository = PaperRepository(), todoRepository: TodoRepository = TodoRepository()) {
         self.paperRepository = paperRepository
@@ -57,10 +60,16 @@ public actor AgentWorkspaceContextBuilder {
         }
         let selectedPaper = selectedPaperID
             .flatMap { id in papers.first(where: { $0.id == id }) }
-            .map { paperSnapshot(for: $0, in: workspace) }
+            .map { paperSnapshot(for: $0, in: workspace, usesKnowledgeExcerpt: true) }
         let recentPapers = papers
             .prefix(max(0, paperLimit))
-            .map { paperSnapshot(for: $0, in: workspace) }
+            .map { paper in
+                paperSnapshot(
+                    for: paper,
+                    in: workspace,
+                    usesKnowledgeExcerpt: includedPaperIDs?.contains(paper.id) == true || selectedPaperID == paper.id
+                )
+            }
         let openTodos = todos
             .filter { $0.status != .done && $0.status != .cancelled }
             .prefix(max(0, todoLimit))
@@ -85,12 +94,20 @@ public actor AgentWorkspaceContextBuilder {
                 )
             },
             projects: projectSnapshots,
-            projectPapers: Array(projectPapers.prefix(max(0, paperLimit)).map { paperSnapshot(for: $0, in: workspace) }),
+            projectPapers: Array(projectPapers.prefix(max(0, paperLimit)).map { paper in
+                paperSnapshot(
+                    for: paper,
+                    in: workspace,
+                    usesKnowledgeExcerpt: includedPaperIDs?.contains(paper.id) == true || selectedPaperID == paper.id
+                )
+            }),
             projectOpenTodos: Array(projectOpenTodos.prefix(max(0, todoLimit)).map(AgentTodoSnapshot.init))
         )
     }
 
-    private nonisolated func paperSnapshot(for paper: Paper, in workspace: ResearchWorkspace) -> AgentPaperSnapshot {
+    private nonisolated func paperSnapshot(for paper: Paper, in workspace: ResearchWorkspace, usesKnowledgeExcerpt: Bool = false) -> AgentPaperSnapshot {
+        let markdownCharacterLimit = usesKnowledgeExcerpt ? Self.knowledgeMarkdownExcerptCharacters : Self.defaultMarkdownExcerptCharacters
+        let pdfCharacterLimit = usesKnowledgeExcerpt ? Self.knowledgeMarkdownExcerptCharacters : Self.defaultPDFExcerptCharacters
         let markdownURL = paper.rawMarkdownURL(in: workspace)
         if let markdown = try? String(contentsOf: markdownURL, encoding: .utf8),
            !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -98,25 +115,25 @@ public actor AgentWorkspaceContextBuilder {
                 paper: paper,
                 rawMarkdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
                 sourceExcerptKind: "paper.md",
-                sourceExcerpt: limited(markdown, maximumCharacters: 10_000)
+                sourceExcerpt: limited(markdown, maximumCharacters: markdownCharacterLimit)
             )
         }
 
         if let pdfURL = paper.pdfURL(in: workspace),
-           let pdfText = extractedPDFText(from: pdfURL),
+           let pdfText = extractedPDFText(from: pdfURL, maximumCharacters: pdfCharacterLimit),
            !pdfText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return AgentPaperSnapshot(
                 paper: paper,
                 rawMarkdownRelativePath: nil,
                 sourceExcerptKind: "pdf_text_fallback",
-                sourceExcerpt: limited(pdfText, maximumCharacters: 8_000)
+                sourceExcerpt: limited(pdfText, maximumCharacters: pdfCharacterLimit)
             )
         }
 
         return AgentPaperSnapshot(paper: paper)
     }
 
-    private nonisolated func extractedPDFText(from pdfURL: URL) -> String? {
+    private nonisolated func extractedPDFText(from pdfURL: URL, maximumCharacters: Int) -> String? {
         guard let document = PDFDocument(url: pdfURL) else {
             return nil
         }
@@ -131,7 +148,7 @@ public actor AgentWorkspaceContextBuilder {
 
             pageTexts.append("### Page \(pageIndex + 1)\n\(pageText)")
             collectedLength += pageText.count
-            if collectedLength >= 8_000 {
+            if collectedLength >= maximumCharacters {
                 break
             }
         }

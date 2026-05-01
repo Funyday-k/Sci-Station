@@ -1219,7 +1219,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
         case .plan:
             return "计划"
         case .assistant:
-            return "执行"
+            return "助理"
         }
     }
 
@@ -1230,7 +1230,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
         case .plan:
             return "计划"
         case .assistant:
-            return "执行"
+            return "助理"
         }
     }
 

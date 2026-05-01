@@ -30,9 +30,13 @@
 
 任务书 22 已完成 Swift-native Agent Platform core 第一版：agent/subagent profile、permission rule/evaluator、hook definition/engine、plugin/skill/command/MCP schema、session event log、tool metadata 扩展和 Provider V2 skeleton 均已进入 SwiftPM core，并新增纯逻辑验证；AI Lab 已显示 core/provider/preset/permission/hook/MCP 状态摘要，`.sci-ai/` 已区分可进 GitHub 的 Sci-Station product preset 与本机 workspace AI 配置。
 
-任务书 23 已制定为 AI Lab Agent Platform Runtime UI V1：把任务书 22 的 core 底座接入更完整的 permission dock、hook activity、MCP server 状态、session event timeline、preset manager 和 Provider V2 adapter 流程。
+任务书 23 已完成 AI Lab Agent Platform Runtime UI V1：session event timeline、permission dock、hook activity、MCP server 状态、preset manager、Provider V2 OpenAI-compatible wrapper 和 `.sci-ai` 边界验证均已落地；主路径仍保持保守 permission model，不启用无限 Auto Run Loop。
 
-迁移收束见 [DOC/Proposal13.md](Proposal13.md)，关系 UI 收束见 [DOC/Proposal14.md](Proposal14.md)，Agent Panel 收束见 [DOC/Proposal15.md](Proposal15.md)，Mac 基础体验收束见 [DOC/Proposal16.md](Proposal16.md)，Library 原生表格见 [DOC/Proposal17.md](Proposal17.md)，AI Lab 会话体验见 [DOC/Proposal18.md](Proposal18.md)，Thread 化准备见 [DOC/Proposal19.md](Proposal19.md)，Thread 管理见 [DOC/Proposal20.md](Proposal20.md)，Library V2 与 Copilot SDK adapter 见 [DOC/Proposal21.md](Proposal21.md)，Agent Platform core 见 [DOC/Proposal22.md](Proposal22.md)，下一轮执行方案见 [DOC/Proposal23.md](Proposal23.md)。
+任务书 23.5 已完成 AI Lab dialog-first UI refinement：AI Lab 主屏改为 context bar + thread timeline + bottom composer dock + pending permission dock + runtime rail，借鉴 opencode-dev 的 session/composer/dock 模式，但不引入 OpenCode runtime 依赖，也不改变 agent core 安全边界。
+
+任务书 24 已制定为 Project Lifecycle Control V1：重新审议项目生命周期控制的合理边界，把它定位为 project-level runtime rail，而不是自动推进项目的 agent loop；第一版只做可见 summary、manual transition 和 agent suggestion draft。
+
+迁移收束见 [DOC/Proposal13.md](Proposal13.md)，关系 UI 收束见 [DOC/Proposal14.md](Proposal14.md)，Agent Panel 收束见 [DOC/Proposal15.md](Proposal15.md)，Mac 基础体验收束见 [DOC/Proposal16.md](Proposal16.md)，Library 原生表格见 [DOC/Proposal17.md](Proposal17.md)，AI Lab 会话体验见 [DOC/Proposal18.md](Proposal18.md)，Thread 化准备见 [DOC/Proposal19.md](Proposal19.md)，Thread 管理见 [DOC/Proposal20.md](Proposal20.md)，Library V2 与 Copilot SDK adapter 见 [DOC/Proposal21.md](Proposal21.md)，Agent Platform core 见 [DOC/Proposal22.md](Proposal22.md)，AI Lab runtime UI 见 [DOC/Proposal23.md](Proposal23.md)，AI Lab dialog-first UI refinement 见 [DOC/Proposal23.5.md](Proposal23.5.md)，下一轮执行方案见 [DOC/Proposal24.md](Proposal24.md)。
 
 ## 2. 当前代码基线
 
@@ -51,6 +55,7 @@
 - `LegacyPaperMigrationService` 已能生成 `raw/papers` 到 `library/papers` 的 dry-run 计划，并执行 copy-only 迁移报告。
 - Library 原生表格体验 V1 已完成：SwiftUI `Table`、排序模型、selection 同步、右键菜单、Copy Citation/Copy BibTeX 和批量 BibTeX 导出准备。
 - AI Lab Thread 管理与计划复用 V1 已完成；Library Table V2 与 GitHub Copilot SDK OAuth 接口适配第一版已完成。
+- AI Lab 23.5 对话式交互已完成：主区域优先显示 thread timeline，底部 composer dock 负责输入和次级操作，Permission Dock 前置到 composer 上方，runtime details 进入右侧 rail。
 - 当前工作区已有 Claude Code 原型预设：`.claude/settings.json`、`SessionStart` / `PreToolUse` hooks、agent platform skill、research workflow skill，以及受限到仓库的 filesystem MCP 配置。
 - Agent Platform core 第一版已完成：`AgentProfile`、`SubagentProfile`、permission rules、hook engine、plugin/skill/command/MCP schema、session events、tool metadata 和 Provider V2 request/response skeleton 已有 SwiftPM 验证。
 - `.sci-ai/sci-station/` 已保存可进 GitHub 的 research-core product preset；`.sci-ai/workspace.local/`、`.claude/` 和 `.mcp.json` 是本机 AI bridge 配置，不进 GitHub。
@@ -69,6 +74,7 @@ Global Research Root
   -> Library Table V2 + GitHub Copilot SDK Adapter
   -> Agent Platform Presets + Swift-native Migration
   -> AI Lab Agent Platform UI Integration
+  -> AI Lab Dialog-First Interaction Refinement
   -> Project Lifecycle Controls
 ```
 
@@ -162,11 +168,10 @@ Global Research Root
 
 ## 5. 建议优先级
 
-1. 下一轮按 [DOC/Proposal23.md](Proposal23.md) 做 AI Lab Agent Platform Runtime UI V1：完整 permission dock、hook activity、MCP server 状态、session event timeline、preset manager 和 Provider V2 adapter 流程。
-2. 项目生命周期控制可作为任务书 24 候选：归档/取消归档、项目排序和更保守的删除策略。
-3. Library 后续可继续评估 `QLPreviewPanel`、真正列宽持久化或 `NSTableView` wrapper。
-4. GitHub Copilot 后续需确定 OAuth relay / GitHub App / PKCE 方案后，才接入真实 SDK session。
-5. Auto Run Loop 继续保持 disabled，不进入自动连续执行实现。
+1. 下一轮按 [DOC/Proposal24.md](Proposal24.md) 做 Project Lifecycle Control V1：project-local lifecycle state、summary builder、Project Overview lifecycle rail、AI Lab lifecycle section 和 agent suggestion draft。
+2. Library 后续可继续评估 `QLPreviewPanel`、真正列宽持久化或 `NSTableView` wrapper。
+3. GitHub Copilot 后续需确定 OAuth relay / GitHub App / PKCE 方案后，才接入真实 SDK session。
+4. Auto Run Loop 继续保持 disabled，不进入自动连续执行实现。
 
 ## 6. 验收标准
 

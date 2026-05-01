@@ -107,9 +107,6 @@ private struct AILabCompactHeaderView: View {
                         .truncationMode(.middle)
                 }
                 .menuStyle(.borderlessButton)
-                Label(appModel.agentProviderSummary, systemImage: "sparkles")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
                 Button {
                     appModel.openSettings(category: .aiLab)
                 } label: {
@@ -240,6 +237,12 @@ private struct AIKnowledgeLibrarySheet: View {
         }
         .padding(20)
         .frame(minWidth: 620, minHeight: 500)
+        .alert(appModel.markdownOverwriteConfirmationTitle, isPresented: $appModel.isShowingMarkdownOverwriteConfirmation) {
+            Button(appModel.localized("覆盖并转换", "Overwrite and Convert"), role: .destructive, action: appModel.confirmMarkdownOverwriteConversion)
+            Button(appModel.localized("取消", "Cancel"), role: .cancel, action: appModel.cancelMarkdownOverwriteConversion)
+        } message: {
+            Text(appModel.markdownOverwriteConfirmationMessage)
+        }
     }
 
     private func matchesSelectedFilter(_ paper: Paper) -> Bool {
@@ -400,28 +403,39 @@ private struct AgentPanelView: View {
     }
 
     private var sessionHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("对话")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    Text("项目：\(appModel.agentConversationTitle)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Label("计划模式：\(appModel.agentInteractionMode.title)", systemImage: "switch.2")
+                .font(.caption.weight(.semibold))
+
+            if !appModel.activeResearchProjects.isEmpty {
+                Picker("项目", selection: projectSelection) {
+                    ForEach(appModel.activeResearchProjects) { project in
+                        Text(project.name).tag(project.id)
+                    }
                 }
-
-                Spacer(minLength: 0)
-
-                statusMessages
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 220)
+            } else {
+                Text("项目：全局")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Text(appModel.agentModeStatusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+
+            statusMessages
         }
-        .padding(16)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(Color.secondary.opacity(0.04))
+    }
+
+    private var projectSelection: Binding<ResearchProject.ID> {
+        Binding(
+            get: { appModel.currentResearchProject?.id ?? appModel.activeResearchProjects.first?.id ?? "" },
+            set: { appModel.focusResearchProject($0) }
+        )
     }
 
     private var runtimeRail: some View {
@@ -573,8 +587,8 @@ private struct AgentPanelView: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     ZStack(alignment: .topLeading) {
                         TextEditor(text: $appModel.agentGoal)
-                            .font(.body)
-                            .frame(minHeight: 76, maxHeight: 120)
+                            .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
+                            .frame(minHeight: 54, maxHeight: 92)
                             .padding(4)
                             .onKeyPress(keys: [.return]) { keyPress in
                                 if keyPress.modifiers.contains(.shift) {
@@ -586,7 +600,8 @@ private struct AgentPanelView: View {
                             }
 
                         if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("输入问题、计划请求，或让 AI 阅读所选论文。")
+                            Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
+                                .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 12)
@@ -674,11 +689,15 @@ private struct AgentPanelView: View {
     private var statusMessages: some View {
         if let error = appModel.agentErrorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
+                .font(.caption)
                 .foregroundStyle(.red)
+                .lineLimit(1)
         }
         if let message = appModel.agentStatusMessage {
             Label(message, systemImage: "checkmark.circle")
+                .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 }
@@ -974,6 +993,8 @@ private struct AgentTurnBubbleView: View {
 }
 
 private struct AgentMarkdownBubbleText: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let markdown: String
     let isError: Bool
 
@@ -989,7 +1010,7 @@ private struct AgentMarkdownBubbleText: View {
                 Text(markdown)
             }
         }
-        .font(.callout)
+        .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
         .foregroundStyle(isError ? .red : .primary)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)

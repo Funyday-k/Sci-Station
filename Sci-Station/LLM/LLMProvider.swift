@@ -167,10 +167,6 @@ public protocol LLMStreamingChatProvider: LLMChatProvider {
     nonisolated func streamResponse(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) -> AsyncThrowingStream<LLMProviderStreamEvent, Error>
 }
 
-public protocol CopilotSDKStreamingProvider: CopilotSDKProvider {
-    nonisolated func streamComplete(prompt: String, configuration: GitHubCopilotConfiguration, userToken: String) -> AsyncThrowingStream<String, Error>
-}
-
 public enum LLMProviderError: LocalizedError, Sendable {
     case invalidEndpoint(String)
     case httpError(statusCode: Int, message: String)

@@ -235,6 +235,40 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+
+                GroupBox("MinerU PDF -> Markdown") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("PDF 转 Markdown 会优先调用 MinerU API；token 保存在 Keychain，不写入工作区文件。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        SecureField("粘贴 MinerU API Token", text: $appModel.minerUAPIToken)
+                            .textFieldStyle(.roundedBorder)
+
+                        TextField("MinerU API Base URL", text: Binding(
+                            get: { appModel.workspacePreferences.minerUAPIBaseURLString },
+                            set: { appModel.updateMinerUAPIBaseURL($0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField("MinerU language", text: Binding(
+                            get: { appModel.workspacePreferences.minerUAPILanguage },
+                            set: { appModel.updateMinerUAPILanguage($0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        Toggle("默认允许覆盖已有 paper.md（已转换论文会先确认）", isOn: Binding(
+                            get: { appModel.workspacePreferences.minerUOverwriteExistingMarkdown },
+                            set: { appModel.setMinerUOverwriteExistingMarkdown($0) }
+                        ))
+                        .toggleStyle(.checkbox)
+
+                        Button("保存 MinerU API 设置", action: appModel.saveMinerUMarkdownConversionSettings)
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 }
 
                 if appModel.selectedSettingsCategory == .tasks {
@@ -289,6 +323,33 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                GroupBox(appModel.localized("AI Lab 显示", "AI Lab Display")) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            Text(appModel.localized("对话字体", "Chat Font"))
+                                .frame(width: 86, alignment: .leading)
+                            Slider(
+                                value: Binding(
+                                    get: { appModel.workspacePreferences.agentChatFontSize },
+                                    set: { appModel.updateAgentChatFontSize($0) }
+                                ),
+                                in: 11...22,
+                                step: 1
+                            )
+                            .frame(maxWidth: 260)
+                            Text("\(Int(appModel.workspacePreferences.agentChatFontSize.rounded())) pt")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 48, alignment: .trailing)
+                        }
+
+                        Text(appModel.localized("调整 AI Lab 对话消息与输入框的默认显示字号。", "Adjusts the default display size for AI Lab chat messages and the composer."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox("AI Lab Tools") {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Tool availability is filtered by the current mode. Conversation mode still cannot call tools even when tools are enabled here.")
@@ -321,40 +382,6 @@ struct SettingsView: View {
                                 .toggleStyle(.checkbox)
                             }
                         }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                GroupBox("MinerU PDF -> Markdown") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("PDF 转 Markdown 会优先调用 MinerU API；API token、网络或服务不可用时，会在 paper.md frontmatter 中记录原因并降级到 PDFKit fallback。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        SecureField("MinerU API Token", text: $appModel.minerUAPIToken)
-                            .textFieldStyle(.roundedBorder)
-
-                        TextField("MinerU API Base URL", text: Binding(
-                            get: { appModel.workspacePreferences.minerUAPIBaseURLString },
-                            set: { appModel.updateMinerUAPIBaseURL($0) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        TextField("MinerU language", text: Binding(
-                            get: { appModel.workspacePreferences.minerUAPILanguage },
-                            set: { appModel.updateMinerUAPILanguage($0) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        Toggle("覆盖已有 paper.md", isOn: Binding(
-                            get: { appModel.workspacePreferences.minerUOverwriteExistingMarkdown },
-                            set: { appModel.setMinerUOverwriteExistingMarkdown($0) }
-                        ))
-                        .toggleStyle(.checkbox)
-
-                        Button("保存 MinerU API 设置", action: appModel.saveMinerUMarkdownConversionSettings)
-                            .buttonStyle(.borderedProminent)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -578,7 +605,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects:
             return "Edit project names, descriptions, icons, and colors."
         case .library:
-            return "Control paper import defaults, migration, and library table behavior."
+            return "Control paper import defaults, MinerU conversion, migration, and library table behavior."
         case .tasks:
             return "Configure todo sync with Apple Reminders."
         case .aiLab:

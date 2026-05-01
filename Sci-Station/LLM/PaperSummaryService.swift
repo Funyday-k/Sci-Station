@@ -95,6 +95,8 @@ public struct PaperMarkdownConversionResult: Identifiable, Hashable, Sendable {
     public var markdownRelativePath: String?
     public var didWriteMarkdown: Bool
     public var errorMessage: String?
+    public var extractionEngine: String? = nil
+    public var fallbackReason: String? = nil
 }
 
 public nonisolated enum PaperMarkdownConversionState: String, Codable, Hashable, Sendable {
@@ -102,6 +104,7 @@ public nonisolated enum PaperMarkdownConversionState: String, Codable, Hashable,
     case notConverted = "not_converted"
     case converting
     case succeeded
+    case fallback
     case failed
 }
 
@@ -242,7 +245,9 @@ public actor PaperMarkdownConversionService {
                     title: paper.displayTitle,
                     markdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
                     didWriteMarkdown: true,
-                    errorMessage: nil
+                    errorMessage: nil,
+                    extractionEngine: "mineru_api",
+                    fallbackReason: nil
                 )
             } catch {
                 fallbackReason = error.localizedDescription
@@ -285,7 +290,9 @@ public actor PaperMarkdownConversionService {
                 title: paper.displayTitle,
                 markdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
                 didWriteMarkdown: true,
-                errorMessage: nil
+                errorMessage: nil,
+                extractionEngine: "pdfkit_fallback",
+                fallbackReason: fallbackReason
             )
         } catch {
             return PaperMarkdownConversionResult(
@@ -334,7 +341,12 @@ public actor PaperMarkdownConversionService {
             throw PaperMarkdownConversionError.markdownNotFound
         }
 
-        return generatedMarkdown
+        return try markdownByRestoringMinerUAssets(
+            generatedMarkdown,
+            generatedMarkdownURL: generatedMarkdownURL,
+            outputDirectory: outputDirectory,
+            markdownURL: markdownURL
+        )
     }
 
     private func createMinerUBatchUpload(
@@ -374,9 +386,10 @@ public actor PaperMarkdownConversionService {
     private func uploadPDF(_ pdfURL: URL, to uploadURL: URL) async throws {
         var request = URLRequest(url: uploadURL)
         request.httpMethod = "PUT"
-        let (_, response) = try await session.upload(for: request, fromFile: pdfURL)
+        request.httpBody = try Data(contentsOf: pdfURL)
+        let (_, response) = try await session.data(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard statusCode == 200 || statusCode == 201 else {
+        guard (200..<300).contains(statusCode) else {
             throw PaperMarkdownConversionError.uploadFailed(statusCode)
         }
     }
@@ -507,6 +520,234 @@ public actor PaperMarkdownConversionService {
         }.first
     }
 
+    private nonisolated func markdownByRestoringMinerUAssets(
+        _ markdown: String,
+        generatedMarkdownURL: URL,
+        outputDirectory: URL,
+        markdownURL: URL
+    ) throws -> String {
+        let assetDirectory = markdownURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("figures", isDirectory: true)
+            .appendingPathComponent("mineru", isDirectory: true)
+
+        if FileManager.default.fileExists(atPath: assetDirectory.path) {
+            try FileManager.default.removeItem(at: assetDirectory)
+        }
+
+        var copiedAssetPathsBySource: [String: String] = [:]
+        let imagePattern = #"!\[[^\]]*\]\(([^)\n]+)\)"#
+        let imageLinkedMarkdown = try rewriteMinerULocalAssetReferences(
+            in: markdown,
+            pattern: imagePattern,
+            captureGroup: 1,
+            generatedMarkdownURL: generatedMarkdownURL,
+            outputDirectory: outputDirectory,
+            assetDirectory: assetDirectory,
+            copiedAssetPathsBySource: &copiedAssetPathsBySource,
+            preservesMarkdownDestinationSuffix: true
+        )
+        let htmlImagePattern = #"<img\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"'][^>]*>"#
+        return try rewriteMinerULocalAssetReferences(
+            in: imageLinkedMarkdown,
+            pattern: htmlImagePattern,
+            captureGroup: 1,
+            generatedMarkdownURL: generatedMarkdownURL,
+            outputDirectory: outputDirectory,
+            assetDirectory: assetDirectory,
+            copiedAssetPathsBySource: &copiedAssetPathsBySource,
+            preservesMarkdownDestinationSuffix: false
+        )
+    }
+
+    private nonisolated func rewriteMinerULocalAssetReferences(
+        in markdown: String,
+        pattern: String,
+        captureGroup: Int,
+        generatedMarkdownURL: URL,
+        outputDirectory: URL,
+        assetDirectory: URL,
+        copiedAssetPathsBySource: inout [String: String],
+        preservesMarkdownDestinationSuffix: Bool
+    ) throws -> String {
+        let expression = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        let mutableMarkdown = NSMutableString(string: markdown)
+        let fullRange = NSRange(location: 0, length: mutableMarkdown.length)
+        let matches = expression.matches(in: markdown, options: [], range: fullRange)
+
+        for match in matches.reversed() {
+            let destinationRange = match.range(at: captureGroup)
+            guard destinationRange.location != NSNotFound else {
+                continue
+            }
+
+            let originalDestination = mutableMarkdown.substring(with: destinationRange)
+            let pathToken: MinerUMarkdownPathToken
+            if preservesMarkdownDestinationSuffix {
+                guard let parsedPathToken = minerUMarkdownPathToken(from: originalDestination) else {
+                    continue
+                }
+                pathToken = parsedPathToken
+            } else {
+                pathToken = MinerUMarkdownPathToken(prefix: "", path: originalDestination, suffix: "", usesAngleBrackets: false)
+            }
+
+            guard let sourceURL = minerULocalAssetURL(
+                for: pathToken.path,
+                relativeTo: generatedMarkdownURL.deletingLastPathComponent(),
+                outputDirectory: outputDirectory
+            ) else {
+                continue
+            }
+
+            let sourceKey = sourceURL.standardizedFileURL.path
+            let stableRelativePath: String
+            if let copiedPath = copiedAssetPathsBySource[sourceKey] {
+                stableRelativePath = copiedPath
+            } else {
+                stableRelativePath = try copyMinerULocalAsset(
+                    from: sourceURL,
+                    outputDirectory: outputDirectory,
+                    assetDirectory: assetDirectory
+                )
+                copiedAssetPathsBySource[sourceKey] = stableRelativePath
+            }
+
+            let replacement = pathToken.replacingPath(with: stableRelativePath)
+            mutableMarkdown.replaceCharacters(in: destinationRange, with: replacement)
+        }
+
+        return mutableMarkdown as String
+    }
+
+    private nonisolated func minerUMarkdownPathToken(from destination: String) -> MinerUMarkdownPathToken? {
+        let leadingWhitespaceLength = destination.prefix { $0.isWhitespace }.count
+        let prefix = String(destination.prefix(leadingWhitespaceLength))
+        let rest = String(destination.dropFirst(leadingWhitespaceLength))
+        guard !rest.isEmpty else {
+            return nil
+        }
+
+        if rest.first == "<", let closeIndex = rest.firstIndex(of: ">") {
+            let pathStart = rest.index(after: rest.startIndex)
+            let path = String(rest[pathStart..<closeIndex])
+            let suffix = String(rest[rest.index(after: closeIndex)...])
+            return MinerUMarkdownPathToken(prefix: prefix, path: path, suffix: suffix, usesAngleBrackets: true)
+        }
+
+        let pathEnd = rest.firstIndex { $0.isWhitespace } ?? rest.endIndex
+        let path = String(rest[..<pathEnd])
+        let suffix = String(rest[pathEnd...])
+        return MinerUMarkdownPathToken(prefix: prefix, path: path, suffix: suffix, usesAngleBrackets: false)
+    }
+
+    private nonisolated func minerULocalAssetURL(for rawPath: String, relativeTo baseDirectory: URL, outputDirectory: URL) -> URL? {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty,
+              !path.hasPrefix("#"),
+              !path.hasPrefix("data:"),
+              !path.hasPrefix("mailto:"),
+              URLComponents(string: path)?.scheme == nil else {
+            return nil
+        }
+
+        let pathWithoutSuffix = path.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? path
+        let pathWithoutQuery = pathWithoutSuffix.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? pathWithoutSuffix
+        let decodedPath = pathWithoutQuery.removingPercentEncoding ?? pathWithoutQuery
+
+        let candidateURL: URL
+        if decodedPath.hasPrefix("/") {
+            candidateURL = URL(fileURLWithPath: decodedPath)
+        } else {
+            candidateURL = baseDirectory.appendingPathComponent(decodedPath)
+        }
+
+        if isMinerUAsset(candidateURL, inside: outputDirectory) {
+            return candidateURL.standardizedFileURL
+        }
+
+        return minerUAssetURLMatchingLastPathComponent(decodedPath, in: outputDirectory)
+    }
+
+    private nonisolated func minerUAssetURLMatchingLastPathComponent(_ path: String, in outputDirectory: URL) -> URL? {
+        let lastPathComponent = URL(fileURLWithPath: path).lastPathComponent
+        guard !lastPathComponent.isEmpty,
+              let enumerator = FileManager.default.enumerator(
+                at: outputDirectory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.lastPathComponent == lastPathComponent,
+                  isMinerUAsset(fileURL, inside: outputDirectory) else {
+                continue
+            }
+            return fileURL.standardizedFileURL
+        }
+
+        return nil
+    }
+
+    private nonisolated func isMinerUAsset(_ url: URL, inside outputDirectory: URL) -> Bool {
+        let standardizedURL = url.standardizedFileURL
+        let outputPath = outputDirectory.standardizedFileURL.path
+        let assetPath = standardizedURL.path
+        guard assetPath == outputPath || assetPath.hasPrefix(outputPath + "/") else {
+            return false
+        }
+        guard supportedMinerUAssetExtensions.contains(standardizedURL.pathExtension.lowercased()) else {
+            return false
+        }
+        return (try? standardizedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+    }
+
+    private nonisolated var supportedMinerUAssetExtensions: Set<String> {
+        ["apng", "bmp", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"]
+    }
+
+    private nonisolated func copyMinerULocalAsset(from sourceURL: URL, outputDirectory: URL, assetDirectory: URL) throws -> String {
+        let relativeComponents = minerURelativePathComponents(for: sourceURL, outputDirectory: outputDirectory)
+        let safeComponents = relativeComponents.map(sanitizedMinerUAssetPathComponent)
+        let relativePath = safeComponents.joined(separator: "/")
+        let destinationURL = safeComponents.reduce(assetDirectory) { partialURL, component in
+            partialURL.appendingPathComponent(component, isDirectory: false)
+        }
+
+        try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+
+        return "figures/mineru/" + relativePath
+    }
+
+    private nonisolated func minerURelativePathComponents(for sourceURL: URL, outputDirectory: URL) -> [String] {
+        let outputPath = outputDirectory.standardizedFileURL.path
+        let sourcePath = sourceURL.standardizedFileURL.path
+        let relativePath: String
+        if sourcePath.hasPrefix(outputPath + "/") {
+            relativePath = String(sourcePath.dropFirst(outputPath.count + 1))
+        } else {
+            relativePath = sourceURL.lastPathComponent
+        }
+
+        let components = relativePath.split(separator: "/").map(String.init).filter { !$0.isEmpty && $0 != "." && $0 != ".." }
+        return components.isEmpty ? [sourceURL.lastPathComponent] : components
+    }
+
+    private nonisolated func sanitizedMinerUAssetPathComponent(_ component: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let scalars = component.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let sanitized = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+        return sanitized.isEmpty ? "asset" : sanitized
+    }
+
     private nonisolated func extractedMarkdown(from document: PDFDocument) -> String {
         var sections: [String] = []
         for pageIndex in 0..<document.pageCount {
@@ -557,5 +798,19 @@ public actor PaperMarkdownConversionService {
 
         \(pageMarkdown)
         """
+    }
+}
+
+private struct MinerUMarkdownPathToken {
+    let prefix: String
+    let path: String
+    let suffix: String
+    let usesAngleBrackets: Bool
+
+    nonisolated func replacingPath(with replacement: String) -> String {
+        if usesAngleBrackets {
+            return prefix + "<" + replacement + ">" + suffix
+        }
+        return prefix + replacement + suffix
     }
 }

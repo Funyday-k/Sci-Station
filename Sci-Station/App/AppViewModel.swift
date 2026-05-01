@@ -50,6 +50,18 @@ private enum MarkdownConversionStatusSurface {
     case workspace
 }
 
+private struct PendingMarkdownConversionRequest {
+    var papers: [Paper]
+    var workspace: ResearchWorkspace
+    var statusSurface: MarkdownConversionStatusSurface
+    var existingMarkdownCount: Int
+}
+
+private struct PaperMarkdownConversionMetadata {
+    var extractionEngine: String?
+    var fallbackReason: String?
+}
+
 struct DeepSeekModelOption: Identifiable, Hashable {
     let id: String
     let title: String
@@ -135,10 +147,6 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var llmConfiguration = LLMConfiguration()
     @Published var llmAPIKey = ""
     @Published var minerUAPIToken = ""
-    @Published var githubCopilotConfiguration = GitHubCopilotConfiguration()
-    @Published var githubCopilotToken = ""
-    @Published private(set) var githubCopilotConnectionStatusMessage: String?
-    @Published private(set) var isConnectingGitHubCopilot = false
     @Published private(set) var isTestingLLMConnection = false
     @Published private(set) var llmConnectionStatusMessage: String?
     @Published private(set) var isGeneratingSummary = false
@@ -174,7 +182,6 @@ final class AppViewModel: ObservableObject {
     @Published var isShowingAgentThreadArchiveConfirmation = false
     @Published var agentThreadRenameDraft = ""
     @Published private(set) var agentThreadPendingArchive: AgentThread?
-    @Published private(set) var agentBridgeExport: AgentCopilotBridgeExport?
     @Published private(set) var agentStatusMessage: String?
     @Published private(set) var agentErrorMessage: String?
     @Published private(set) var selectedAgentKnowledgePaperIDs: Set<Paper.ID> = []
@@ -185,10 +192,10 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isRefreshingAgentContext = false
     @Published private(set) var isPlanningAgentRun = false
     @Published private(set) var isExecutingAgentTools = false
-    @Published private(set) var isExportingAgentBridge = false
     @Published private(set) var isConvertingAgentKnowledgeMarkdown = false
     @Published private(set) var paperMarkdownConversionStates: [Paper.ID: PaperMarkdownConversionState] = [:]
     @Published private(set) var paperMarkdownConversionMessages: [Paper.ID: String] = [:]
+    @Published var isShowingMarkdownOverwriteConfirmation = false
     @Published private(set) var isGeneratingWikiPage = false
     @Published private(set) var markdownDocuments: [MarkdownDocument] = []
     @Published private(set) var selectedMarkdownID: String?
@@ -214,12 +221,7 @@ final class AppViewModel: ObservableObject {
     private let pdfReadingStateService: PDFReadingStateService
     private let remoteImportService: RemoteImportService
     private let llmConfigurationStore: LLMConfigurationStore
-    private let githubCopilotConfigurationStore: GitHubCopilotConfigurationStore
     private let apiKeyStore: KeychainAPIKeyStore
-    private let githubCopilotTokenClassifier: GitHubCopilotTokenClassifier
-    private let githubCopilotSDKAdapter: GitHubCopilotSDKAdapter
-    private let githubCopilotOAuthRequestBuilder: GitHubCopilotOAuthRequestBuilder
-    private let githubCopilotOAuthTokenExchanger: GitHubCopilotOAuthTokenExchanger
     private let openAIProvider: OpenAICompatibleProvider
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
@@ -228,6 +230,7 @@ final class AppViewModel: ObservableObject {
     private let markdownRepository: MarkdownRepository
     private let markdownSnippetRepository: MarkdownSnippetRepository
     private let wikiPageGenerator: WikiPageGenerator
+    private var pendingMarkdownConversionRequest: PendingMarkdownConversionRequest?
     private let pdfOpeningService: any PDFOpeningService
     private let librarySearchService: LibrarySearchService
     private let batchImportInputParser = BatchImportInputParser()
@@ -239,7 +242,6 @@ final class AppViewModel: ObservableObject {
     private var agentDraftSaveTask: Task<Void, Never>?
     private var agentPlanningTask: Task<Void, Never>?
     private var agentStreamingRawResponseText = ""
-    private var pendingGitHubCopilotOAuthState: String?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -274,6 +276,18 @@ final class AppViewModel: ObservableObject {
         agentInteractionMode.summary
     }
 
+    var markdownOverwriteConfirmationTitle: String {
+        localized("覆盖已有 Markdown？", "Overwrite existing Markdown?")
+    }
+
+    var markdownOverwriteConfirmationMessage: String {
+        let count = pendingMarkdownConversionRequest?.existingMarkdownCount ?? 0
+        return localized(
+            "已有 \(count) 篇论文生成过 paper.md。再次转换会覆盖现有 Markdown，并重新写入转换结果。",
+            "\(count) paper(s) already have generated paper.md files. Converting again will overwrite the existing Markdown with fresh results."
+        )
+    }
+
     private var effectiveAgentAllowedToolNames: Set<String>? {
         let enabledNames = agentEnabledToolNames
         if let modeAllowedNames = agentInteractionMode.allowedToolNames {
@@ -300,10 +314,7 @@ final class AppViewModel: ObservableObject {
         pdfReadingStateService: PDFReadingStateService? = nil,
         remoteImportService: RemoteImportService? = nil,
         llmConfigurationStore: LLMConfigurationStore? = nil,
-        githubCopilotConfigurationStore: GitHubCopilotConfigurationStore? = nil,
         apiKeyStore: KeychainAPIKeyStore? = nil,
-        githubCopilotSDKAdapter: GitHubCopilotSDKAdapter? = nil,
-        githubCopilotOAuthTokenExchanger: GitHubCopilotOAuthTokenExchanger? = nil,
         openAIProvider: OpenAICompatibleProvider? = nil,
         paperSummaryService: PaperSummaryService? = nil,
         llmWritebackService: LLMWritebackService? = nil,
@@ -335,12 +346,7 @@ final class AppViewModel: ObservableObject {
             linkOnlyImportService: LinkOnlyImportService(repository: resolvedPaperRepository)
         )
         let resolvedLLMConfigurationStore = llmConfigurationStore ?? LLMConfigurationStore()
-        let resolvedGitHubCopilotConfigurationStore = githubCopilotConfigurationStore ?? GitHubCopilotConfigurationStore()
         let resolvedAPIKeyStore = apiKeyStore ?? KeychainAPIKeyStore()
-        let resolvedGitHubCopilotTokenClassifier = GitHubCopilotTokenClassifier()
-        let resolvedGitHubCopilotSDKAdapter = githubCopilotSDKAdapter ?? GitHubCopilotSDKAdapter(tokenClassifier: resolvedGitHubCopilotTokenClassifier)
-        let resolvedGitHubCopilotOAuthRequestBuilder = GitHubCopilotOAuthRequestBuilder()
-        let resolvedGitHubCopilotOAuthTokenExchanger = githubCopilotOAuthTokenExchanger ?? GitHubCopilotOAuthTokenExchanger()
         let resolvedOpenAIProvider = openAIProvider ?? OpenAICompatibleProvider()
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
@@ -370,12 +376,7 @@ final class AppViewModel: ObservableObject {
         self.pdfReadingStateService = resolvedPDFReadingStateService
         self.remoteImportService = resolvedRemoteImportService
         self.llmConfigurationStore = resolvedLLMConfigurationStore
-        self.githubCopilotConfigurationStore = resolvedGitHubCopilotConfigurationStore
         self.apiKeyStore = resolvedAPIKeyStore
-        self.githubCopilotTokenClassifier = resolvedGitHubCopilotTokenClassifier
-        self.githubCopilotSDKAdapter = resolvedGitHubCopilotSDKAdapter
-        self.githubCopilotOAuthRequestBuilder = resolvedGitHubCopilotOAuthRequestBuilder
-        self.githubCopilotOAuthTokenExchanger = resolvedGitHubCopilotOAuthTokenExchanger
         self.openAIProvider = resolvedOpenAIProvider
         self.paperSummaryService = resolvedPaperSummaryService
         self.llmWritebackService = resolvedLLMWritebackService
@@ -694,10 +695,6 @@ final class AppViewModel: ObservableObject {
 
     var canPreviewLibrarySelection: Bool {
         previewPaperForLibrarySelection() != nil
-    }
-
-    private var githubCopilotTokenKind: GitHubCopilotTokenKind {
-        githubCopilotTokenClassifier.classify(githubCopilotToken)
     }
 
     var agentProviderSummary: String {
@@ -1157,7 +1154,19 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        let paperDirectoryURL = currentWorkspace.directoryURL(for: selectedPaperDraft.paperDirectoryRelativePath)
+        revealPaperInFinder(selectedPaperDraft, in: currentWorkspace)
+    }
+
+    func revealPaperInFinder(_ paper: Paper) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        revealPaperInFinder(paper, in: currentWorkspace)
+    }
+
+    private func revealPaperInFinder(_ paper: Paper, in workspace: ResearchWorkspace) {
+        let paperDirectoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: paperDirectoryURL.path)
     }
 
@@ -1285,6 +1294,30 @@ final class AppViewModel: ObservableObject {
         return !trimmed.isEmpty
             && !trimmed.contains("status: not_extracted")
             && !trimmed.localizedCaseInsensitiveContains("PDF text has not been extracted yet")
+    }
+
+    private func paperMarkdownConversionMetadata(_ paper: Paper, in workspace: ResearchWorkspace) -> PaperMarkdownConversionMetadata? {
+        let markdownURL = paper.rawMarkdownURL(in: workspace)
+        guard let contents = try? String(contentsOf: markdownURL, encoding: .utf8) else {
+            return nil
+        }
+
+        let frontmatter = FrontmatterParser().parse(contents).frontmatter
+        return PaperMarkdownConversionMetadata(
+            extractionEngine: frontmatter["extraction_engine"]?.stringValue,
+            fallbackReason: frontmatter["fallback_reason"]?.stringValue
+        )
+    }
+
+    private func paperMarkdownConversionState(for result: PaperMarkdownConversionResult) -> PaperMarkdownConversionState {
+        guard result.didWriteMarkdown else {
+            return .failed
+        }
+
+        if result.extractionEngine == "pdfkit_fallback" {
+            return .fallback
+        }
+        return .succeeded
     }
 
     func setAgentKnowledgePaper(_ paperID: Paper.ID, isSelected: Bool) {
@@ -1553,18 +1586,49 @@ final class AppViewModel: ObservableObject {
         }
 
         guard let provider = providers.first(where: {
-            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+            $0.hasItemConformingToTypeIdentifier(UTType.pdf.identifier)
+                || $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
         }) else {
             return false
         }
 
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            guard let droppedFileURL = Self.fileURL(from: item) else {
+        let typeIdentifier = provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier)
+            ? UTType.pdf.identifier
+            : UTType.fileURL.identifier
+        provider.loadInPlaceFileRepresentation(forTypeIdentifier: typeIdentifier) { fileURL, isInPlace, _ in
+            guard let fileURL else {
                 return
             }
 
+            let importURL: URL
+            let shouldRemoveTemporaryFile: Bool
+            if isInPlace {
+                importURL = fileURL
+                shouldRemoveTemporaryFile = false
+            } else {
+                let pathExtension = fileURL.pathExtension.isEmpty ? "pdf" : fileURL.pathExtension
+                let temporaryURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension(pathExtension)
+                do {
+                    if FileManager.default.fileExists(atPath: temporaryURL.path) {
+                        try FileManager.default.removeItem(at: temporaryURL)
+                    }
+                    try FileManager.default.copyItem(at: fileURL, to: temporaryURL)
+                } catch {
+                    return
+                }
+                importURL = temporaryURL
+                shouldRemoveTemporaryFile = true
+            }
+
             Task { @MainActor in
-                self.importPDF(from: droppedFileURL, into: currentWorkspace)
+                defer {
+                    if shouldRemoveTemporaryFile {
+                        try? FileManager.default.removeItem(at: importURL)
+                    }
+                }
+                self.importPDF(from: importURL, into: currentWorkspace)
             }
         }
 
@@ -1999,139 +2063,6 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func saveGitHubCopilotSettings() {
-        guard let currentWorkspace else {
-            return
-        }
-
-        Task {
-            do {
-                try await githubCopilotConfigurationStore.save(githubCopilotConfiguration, in: currentWorkspace)
-                try await apiKeyStore.save(apiKey: githubCopilotToken, for: githubCopilotTokenAccount(for: currentWorkspace))
-                githubCopilotConnectionStatusMessage = githubCopilotStatusText()
-            } catch {
-                present(error)
-            }
-        }
-    }
-
-    func connectGitHubCopilot() {
-        guard currentWorkspace != nil else {
-            githubCopilotConnectionStatusMessage = "Open a workspace before connecting GitHub Copilot."
-            return
-        }
-
-        isConnectingGitHubCopilot = true
-        do {
-            var configuration = githubCopilotConfiguration
-            configuration.isEnabled = true
-            if configuration.callbackURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                configuration.callbackURLString = GitHubCopilotConfiguration.defaultCallbackURLString
-            }
-            githubCopilotConfiguration = configuration
-
-            if configuration.clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                isConnectingGitHubCopilot = false
-                githubCopilotConnectionStatusMessage = "Add a GitHub OAuth Client ID first. Opening GitHub OAuth App setup in your browser."
-                openExternalURL(URL(string: "https://github.com/settings/applications/new")!)
-                return
-            }
-
-            let state = Self.secureOAuthState()
-            let authorizationURL = try githubCopilotOAuthRequestBuilder.authorizationURL(
-                configuration: configuration,
-                state: state
-            )
-            pendingGitHubCopilotOAuthState = state
-            githubCopilotConnectionStatusMessage = "Opening GitHub authorization in your browser..."
-            if !openExternalURL(authorizationURL) {
-                isConnectingGitHubCopilot = false
-                githubCopilotConnectionStatusMessage = "Could not open the GitHub authorization URL. Copy this URL into your browser: \(authorizationURL.absoluteString)"
-            }
-        } catch {
-            isConnectingGitHubCopilot = false
-            githubCopilotConnectionStatusMessage = error.localizedDescription
-        }
-    }
-
-    func handleIncomingURL(_ url: URL) {
-        do {
-            let callback = try GitHubCopilotOAuthCallback(url: url)
-            try handleGitHubCopilotOAuthCallback(callback)
-        } catch {
-            githubCopilotConnectionStatusMessage = error.localizedDescription
-        }
-    }
-
-    private func handleGitHubCopilotOAuthCallback(_ callback: GitHubCopilotOAuthCallback) throws {
-        if let error = callback.error {
-            isConnectingGitHubCopilot = false
-            throw GitHubCopilotOAuthError.authorizationDenied(callback.errorDescription ?? error)
-        }
-
-        guard let code = callback.code, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            isConnectingGitHubCopilot = false
-            throw GitHubCopilotOAuthError.missingCode
-        }
-        guard let callbackState = callback.state,
-              let pendingState = pendingGitHubCopilotOAuthState,
-              callbackState == pendingState else {
-            isConnectingGitHubCopilot = false
-            throw GitHubCopilotOAuthError.stateMismatch
-        }
-
-        guard githubCopilotConfiguration.hasTokenExchangeRelay else {
-            isConnectingGitHubCopilot = false
-            githubCopilotConnectionStatusMessage = GitHubCopilotOAuthError.missingTokenExchangeRelay.localizedDescription
-            return
-        }
-
-        githubCopilotConnectionStatusMessage = "GitHub authorized. Exchanging OAuth code for a user token..."
-        Task {
-            do {
-                let token = try await githubCopilotOAuthTokenExchanger.exchange(
-                    code: code,
-                    state: callbackState,
-                    configuration: githubCopilotConfiguration
-                )
-                githubCopilotToken = token
-                pendingGitHubCopilotOAuthState = nil
-                isConnectingGitHubCopilot = false
-                saveGitHubCopilotSettings()
-                githubCopilotConnectionStatusMessage = "GitHub Copilot connected with \(githubCopilotTokenKind.label)."
-            } catch {
-                isConnectingGitHubCopilot = false
-                githubCopilotConnectionStatusMessage = error.localizedDescription
-            }
-        }
-    }
-
-    func updateGitHubCopilotConfiguration(_ mutate: (inout GitHubCopilotConfiguration) -> Void) {
-        mutate(&githubCopilotConfiguration)
-    }
-
-    func disconnectGitHubCopilot() {
-        githubCopilotToken = ""
-        pendingGitHubCopilotOAuthState = nil
-        isConnectingGitHubCopilot = false
-        githubCopilotConnectionStatusMessage = "GitHub Copilot token cleared from this session. Save settings to clear the Keychain value."
-    }
-
-    func testGitHubCopilotAdapter() {
-        Task {
-            do {
-                _ = try await githubCopilotSDKAdapter.complete(
-                    prompt: "Reply with OK.",
-                    configuration: githubCopilotConfiguration,
-                    userToken: githubCopilotToken
-                )
-                githubCopilotConnectionStatusMessage = "GitHub Copilot SDK adapter is connected."
-            } catch {
-                githubCopilotConnectionStatusMessage = error.localizedDescription
-            }
-        }
-    }
-
     func updateLLMConfiguration(_ mutate: (inout LLMConfiguration) -> Void) {
         mutate(&llmConfiguration)
     }
@@ -2288,8 +2219,16 @@ final class AppViewModel: ObservableObject {
     }
 
     func updateAppLanguagePreference(_ preference: AppLanguagePreference) {
+        Task { @MainActor [weak self] in
+            self?.updateWorkspacePreferences { preferences in
+                preferences.appLanguage = preference
+            }
+        }
+    }
+
+    func updateAgentChatFontSize(_ fontSize: Double) {
         updateWorkspacePreferences { preferences in
-            preferences.appLanguage = preference
+            preferences.agentChatFontSize = fontSize
         }
     }
 
@@ -2384,7 +2323,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        startMarkdownConversion(for: selectedAgentKnowledgePapers, in: currentWorkspace, statusSurface: .agent)
+        requestMarkdownConversion(for: selectedAgentKnowledgePapers, in: currentWorkspace, statusSurface: .agent)
     }
 
     func convertPaperToMarkdown(_ paper: Paper) {
@@ -2393,7 +2332,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        startMarkdownConversion(for: [paper], in: currentWorkspace, statusSurface: .workspace)
+        requestMarkdownConversion(for: [paper], in: currentWorkspace, statusSurface: .workspace)
     }
 
     func convertLibrarySelectionToMarkdown() {
@@ -2402,7 +2341,28 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        startMarkdownConversion(for: selectedLibraryPapers, in: currentWorkspace, statusSurface: .workspace)
+        requestMarkdownConversion(for: selectedLibraryPapers, in: currentWorkspace, statusSurface: .workspace)
+    }
+
+    func confirmMarkdownOverwriteConversion() {
+        guard let request = pendingMarkdownConversionRequest else {
+            isShowingMarkdownOverwriteConfirmation = false
+            return
+        }
+
+        pendingMarkdownConversionRequest = nil
+        isShowingMarkdownOverwriteConfirmation = false
+        startMarkdownConversion(
+            for: request.papers,
+            in: request.workspace,
+            statusSurface: request.statusSurface,
+            forceOverwriteExistingMarkdown: true
+        )
+    }
+
+    func cancelMarkdownOverwriteConversion() {
+        pendingMarkdownConversionRequest = nil
+        isShowingMarkdownOverwriteConfirmation = false
     }
 
     func paperMarkdownConversionState(for paper: Paper) -> PaperMarkdownConversionState {
@@ -2415,20 +2375,92 @@ final class AppViewModel: ObservableObject {
         guard paperPDFExists(paper, in: currentWorkspace) else {
             return .noPDF
         }
-        return paperHasExtractedMarkdown(paper, in: currentWorkspace) ? .succeeded : .notConverted
+        guard paperHasExtractedMarkdown(paper, in: currentWorkspace) else {
+            return .notConverted
+        }
+
+        let metadata = paperMarkdownConversionMetadata(paper, in: currentWorkspace)
+        if metadata?.extractionEngine == "pdfkit_fallback" {
+            return .fallback
+        }
+        return .succeeded
     }
 
     func paperMarkdownConversionMessage(for paper: Paper) -> String? {
-        paperMarkdownConversionMessages[paper.id]
+        if let message = paperMarkdownConversionMessages[paper.id] {
+            return message
+        }
+        guard let currentWorkspace,
+              let fallbackReason = paperMarkdownConversionMetadata(paper, in: currentWorkspace)?.fallbackReason,
+              !fallbackReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return fallbackReason
     }
 
-    private func startMarkdownConversion(
+    private func requestMarkdownConversion(
         for requestedPapers: [Paper],
         in workspace: ResearchWorkspace,
         statusSurface: MarkdownConversionStatusSurface
     ) {
         let uniquePapers = uniquePapersByID(requestedPapers)
+        let existingMarkdownPapers = uniquePapers.filter { paperHasExtractedMarkdown($0, in: workspace) }
+        guard existingMarkdownPapers.isEmpty else {
+            pendingMarkdownConversionRequest = PendingMarkdownConversionRequest(
+                papers: uniquePapers,
+                workspace: workspace,
+                statusSurface: statusSurface,
+                existingMarkdownCount: existingMarkdownPapers.count
+            )
+            isShowingMarkdownOverwriteConfirmation = true
+            return
+        }
+
+        startMarkdownConversion(for: uniquePapers, in: workspace, statusSurface: statusSurface)
+    }
+
+    private func markdownConversionSummaryMessage(
+        convertedCount: Int,
+        fallbackCount: Int,
+        failedCount: Int,
+        skippedNoPDFCount: Int,
+        skippedExistingMarkdownCount: Int
+    ) -> String {
+        var chineseParts = ["已转换 \(convertedCount) 篇论文"]
+        var englishParts = ["Converted \(convertedCount) paper(s)"]
+        if fallbackCount > 0 {
+            chineseParts.append("\(fallbackCount) 篇使用 PDFKit fallback")
+            englishParts.append("\(fallbackCount) used PDFKit fallback")
+        }
+        if failedCount > 0 {
+            chineseParts.append("\(failedCount) 篇失败")
+            englishParts.append("\(failedCount) failed")
+        }
+        if skippedNoPDFCount > 0 {
+            chineseParts.append("\(skippedNoPDFCount) 篇无 PDF 已跳过")
+            englishParts.append("\(skippedNoPDFCount) skipped without PDF")
+        }
+        if skippedExistingMarkdownCount > 0 {
+            chineseParts.append("\(skippedExistingMarkdownCount) 篇已有 Markdown 已跳过")
+            englishParts.append("\(skippedExistingMarkdownCount) skipped with existing Markdown")
+        }
+        return localized(chineseParts.joined(separator: "；") + "。", englishParts.joined(separator: "; ") + ".")
+    }
+
+    private func startMarkdownConversion(
+        for requestedPapers: [Paper],
+        in workspace: ResearchWorkspace,
+        statusSurface: MarkdownConversionStatusSurface,
+        forceOverwriteExistingMarkdown: Bool? = nil
+    ) {
+        let uniquePapers = uniquePapersByID(requestedPapers)
         let convertiblePapers = uniquePapers.filter { paperPDFExists($0, in: workspace) }
+        let skippedNoPDFPapers = uniquePapers.filter { !paperPDFExists($0, in: workspace) }
+        for paper in skippedNoPDFPapers {
+            paperMarkdownConversionStates[paper.id] = .noPDF
+            paperMarkdownConversionMessages[paper.id] = localized("这篇论文没有可转换的 PDF。", "This paper does not have a convertible PDF.")
+        }
+
         guard !convertiblePapers.isEmpty else {
             let message = localized("请选择至少一篇带 PDF 的论文。", "Select at least one paper with a PDF.")
             switch statusSurface {
@@ -2475,19 +2507,28 @@ final class AppViewModel: ObservableObject {
                         minerUAPIBaseURLString: preferences.minerUAPIBaseURLString,
                         minerUAPILanguage: preferences.minerUAPILanguage,
                         minerUCommand: preferences.minerUCommand,
-                        overwriteExistingMarkdown: preferences.minerUOverwriteExistingMarkdown
+                        overwriteExistingMarkdown: forceOverwriteExistingMarkdown ?? preferences.minerUOverwriteExistingMarkdown
                     )
                 )
-                let convertedCount = results.filter(\.didWriteMarkdown).count
-                let failedCount = results.filter { $0.errorMessage != nil }.count
+                let convertedCount = results.filter { $0.didWriteMarkdown && $0.extractionEngine == "mineru_api" }.count
+                let fallbackCount = results.filter { $0.didWriteMarkdown && $0.extractionEngine == "pdfkit_fallback" }.count
+                let skippedExistingMarkdownCount = results.filter { $0.errorMessage == "paper.md already exists; overwrite is disabled." }.count
+                let failedCount = results.filter { result in
+                    !result.didWriteMarkdown
+                        && result.errorMessage != nil
+                        && result.errorMessage != "paper.md already exists; overwrite is disabled."
+                }.count
                 for result in results {
-                    paperMarkdownConversionStates[result.paperID] = result.didWriteMarkdown ? .succeeded : .failed
-                    paperMarkdownConversionMessages[result.paperID] = result.errorMessage
+                    paperMarkdownConversionStates[result.paperID] = paperMarkdownConversionState(for: result)
+                    paperMarkdownConversionMessages[result.paperID] = result.fallbackReason ?? result.errorMessage
                 }
 
-                let message = localized(
-                    "已转换 \(convertedCount) 篇论文" + (failedCount > 0 ? "；\(failedCount) 篇失败。" : "。"),
-                    "Converted \(convertedCount) paper(s)" + (failedCount > 0 ? "; \(failedCount) failed." : ".")
+                let message = markdownConversionSummaryMessage(
+                    convertedCount: convertedCount,
+                    fallbackCount: fallbackCount,
+                    failedCount: failedCount,
+                    skippedNoPDFCount: skippedNoPDFPapers.count,
+                    skippedExistingMarkdownCount: skippedExistingMarkdownCount
                 )
                 switch statusSurface {
                 case .agent:
@@ -2548,7 +2589,6 @@ final class AppViewModel: ObservableObject {
         agentStreamingResponseText = nil
         agentStreamingRawResponseText = ""
         resetAgentPermissionDockState()
-        agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
         restoreAgentToolStateForCurrentScope()
         agentStatusMessage = "已开始新的 \(agentConversationTitle) 对话。"
@@ -2568,7 +2608,6 @@ final class AppViewModel: ObservableObject {
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         agentCurrentRun = nil
         resetAgentPermissionDockState()
-        agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
         agentStatusMessage = "Discarded the empty draft chat."
         agentErrorMessage = nil
@@ -2592,7 +2631,6 @@ final class AppViewModel: ObservableObject {
         restorePersistedAgentDraft(projectID: thread.projectID, threadID: thread.id)
         agentStreamingResponseText = nil
         resetAgentPermissionDockState()
-        agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
         restoreAgentToolStateForCurrentScope()
         agentStatusMessage = "已打开 \(agentConversationTitle) 中的 \(thread.title)。"
@@ -2611,7 +2649,6 @@ final class AppViewModel: ObservableObject {
         agentGoal = run.goal
         agentStreamingResponseText = nil
         resetAgentPermissionDockState()
-        agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
         agentStatusMessage = "Opened a previous \(agentConversationTitle) run."
         agentErrorMessage = nil
@@ -2773,7 +2810,6 @@ final class AppViewModel: ObservableObject {
         agentCurrentRun = nil
         agentStreamingResponseText = nil
         resetAgentPermissionDockState()
-        agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
         restorePinnedAgentThreadsForCurrentProject()
         restoreAgentToolStateForCurrentScope()
@@ -2854,7 +2890,6 @@ final class AppViewModel: ObservableObject {
                 agentStreamingResponseText = nil
                 try await attachRunToActiveThread(run, in: currentWorkspace)
                 resetAgentPermissionDockState()
-                agentBridgeExport = nil
                 agentStatusMessage = interactionMode == .conversation
                     ? "已根据所选 AI 知识库生成回复。"
                     : "计划已生成。运行前请审查允许写入工作区的工具。"
@@ -2915,46 +2950,6 @@ final class AppViewModel: ObservableObject {
                     selectingPaper: selectedPaperID,
                     selectingMarkdown: selectedMarkdownID
                 )
-            } catch {
-                agentErrorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    func exportAgentCopilotBridge() {
-        guard let currentWorkspace else {
-            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
-            return
-        }
-
-        let trimmedGoal = agentGoal.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedGoal.isEmpty else {
-            agentErrorMessage = AgentPanelValidationError.emptyGoal.localizedDescription
-            return
-        }
-
-        isExportingAgentBridge = true
-        agentErrorMessage = nil
-        agentStatusMessage = nil
-
-        Task {
-            defer {
-                isExportingAgentBridge = false
-            }
-
-            do {
-                let export = try await agentService.exportCopilotBridge(
-                    goal: trimmedGoal,
-                    in: currentWorkspace,
-                    root: currentResearchRoot,
-                    projects: researchProjects,
-                    currentProjectID: agentConversationProjectID,
-                    selectedPaperID: selectedPaperID,
-                    includedPaperIDs: agentKnowledgePaperIDsForContext
-                )
-                agentBridgeExport = export
-                agentStatusMessage = "Copilot Bridge exported to \(export.promptRelativePath)."
-                await refreshAgentState(in: currentWorkspace)
             } catch {
                 agentErrorMessage = error.localizedDescription
             }
@@ -3541,6 +3536,10 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func openPaperMarkdown(_ paper: Paper) {
+        openMarkdownDocument(relativePath: paper.paperDirectoryRelativePath + "/paper.md")
+    }
+
     func openCurrentProjectOverviewPage() {
         guard let project = currentResearchProject else {
             selectedSection = .wiki
@@ -3957,9 +3956,6 @@ final class AppViewModel: ObservableObject {
         llmConfiguration = try await llmConfigurationStore.load(in: workspace)
         llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
         minerUAPIToken = try await apiKeyStore.loadAPIKey(for: minerUAPITokenAccount(for: workspace)) ?? ""
-        githubCopilotConfiguration = try await githubCopilotConfigurationStore.load(in: workspace)
-        githubCopilotToken = try await apiKeyStore.loadAPIKey(for: githubCopilotTokenAccount(for: workspace)) ?? ""
-        githubCopilotConnectionStatusMessage = githubCopilotStatusText()
     }
 
     private func resolvedLLMAPIKey(for workspace: ResearchWorkspace) async throws -> String {
@@ -3972,37 +3968,6 @@ final class AppViewModel: ObservableObject {
 
     private func minerUAPITokenAccount(for workspace: ResearchWorkspace) -> String {
         "\(workspace.rootURL.path)#mineru-api"
-    }
-
-    private func githubCopilotTokenAccount(for workspace: ResearchWorkspace) -> String {
-        "\(workspace.rootURL.path)#github-copilot"
-    }
-
-    private func githubCopilotStatusText() -> String {
-        guard githubCopilotConfiguration.isEnabled else {
-            return "GitHub Copilot SDK provider is disabled."
-        }
-
-        let trimmedToken = githubCopilotToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedToken.isEmpty else {
-            return "GitHub Copilot is configured but not connected."
-        }
-
-        let kind = githubCopilotTokenKind
-        if kind.isRecommended {
-            return "GitHub Copilot token detected: \(kind.label)."
-        }
-
-        return "GitHub Copilot token detected: \(kind.label). This token type is not recommended."
-    }
-
-    private nonisolated static func secureOAuthState() -> String {
-        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-    }
-
-    @discardableResult
-    private func openExternalURL(_ url: URL) -> Bool {
-        NSWorkspace.shared.open(url)
     }
 
     private func refreshAgentState(in workspace: ResearchWorkspace) async {
@@ -4367,21 +4332,6 @@ final class AppViewModel: ObservableObject {
             ?? FileManager.default.homeDirectoryForCurrentUser
     }
 
-    nonisolated private static func fileURL(from item: NSSecureCoding?) -> URL? {
-        if let url = item as? URL {
-            return url
-        }
-
-        if let data = item as? Data {
-            return URL(dataRepresentation: data, relativeTo: nil)
-        }
-
-        if let string = item as? String {
-            return URL(string: string)
-        }
-
-        return nil
-    }
 }
 
 private extension String {

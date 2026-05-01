@@ -148,12 +148,27 @@
 
 ## 6. Question
 
-1. Permission dock 是否先只支持 allow once / deny / correction feedback，不做 persistent allowlist？建议是。
-2. MCP 本轮是否只做状态展示与配置边界，不启动 server？建议是。
-3. Provider V2 是否先通过 wrapper 接入 OpenAI-compatible provider，不强制切换 Copilot SDK？建议是。
-4. Preset manager 的 local overrides 是否只写 `.sci-ai/workspace.local/` 或 `.sci-station/agent/` 非敏感状态？建议是。
-5. 项目生命周期控制是否推迟到任务书 24？建议是。
+1. Permission dock 先只支持 allow once / deny / correction feedback，并保留 session-scoped approval 草案入口；不做 persistent allowlist。
+2. MCP 本轮只做状态展示与配置边界，不启动 server。
+3. Provider V2 先通过 OpenAI-compatible wrapper 接入 skeleton，不强制切换 Copilot SDK。
+4. Preset manager 的 local overrides 只允许写 `.sci-ai/workspace.local/` 或 `.sci-station/agent/` 的非敏感状态；本轮未写 tracked preset override。
+5. 项目生命周期控制不简单推迟，而是重新审议其合理边界：它应作为项目级可见状态轨道与 agent runtime 交叉引用，不应变成自动推进项目或绕过审批的执行循环；详细规划进入任务书 24。
 
 ## 7. 完成记录
 
-待执行。
+已完成。
+
+- AI Lab timeline 已读取当前 thread / run 对应的 `AgentSessionEvent`，显示 user message、assistant summary、permission requested/resolved、tool completed/failed 和 hook result；损坏 JSONL 行仍由 logger 跳过。
+- Tool Calls / Approvals 已升级为 Permission Dock，展示 permission key、risk、matched/default policy、path preview、allow once、deny、correction feedback 与 session-scoped approval 草案入口；未实现 persistent allowlist。
+- Hook Activity 已展示 `SessionStart`、`PreToolUse`、`PostToolUse`、`Stop`，支持临时禁用，并将 hook result 写入 session event log。
+- MCP Server 状态已区分 `.sci-ai/sci-station/` tracked product template 与 `.sci-ai/workspace.local/` local config，展示 enabled、endpoint、allowed tools、timeout 和 credential reference count；未启动 MCP server。
+- Preset Manager 已读取 `.sci-ai/sci-station/presets/research-core/plugin.json`，展示 commands、skills、hooks、MCP servers 和 validation issues。
+- Provider V2 已补 OpenAI-compatible chat wrapper 与 adapter flow model，现有 `LLMProvider.complete` plan path 保持兼容。
+- `.sci-ai` 验证已覆盖 tracked preset 无 raw secret-looking values、local workspace config 与 root bridge 文件 gitignore/git tracked 边界。
+- README 已同步 AI Lab runtime UI 与 `.sci-ai` 约定。
+- 已新增纯逻辑测试：session event timeline、permission dock summary、hook activity summary、MCP status summary、Provider V2 wrapper payload、`.sci-ai` boundary validation。
+
+验证：
+
+- `swift run SciStationCoreTestRunner` 通过。
+- `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' -derivedDataPath .derivedData build` 通过。

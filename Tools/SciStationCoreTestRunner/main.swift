@@ -25,10 +25,6 @@ private struct CoreVerificationSuite {
         try await workspacePreferencesRoundTrip()
         try librarySortStateSortsPapers()
         try await libraryBulkEditServiceUpdatesSelectedPapers()
-        try await githubCopilotConfigurationStaysNonSensitive()
-        try githubCopilotOAuthBuildsAuthorizeURLAndParsesCallback()
-        try githubCopilotTokenExchangeRequestExcludesClientSecret()
-        try githubCopilotTokenClassifierRecognizesSupportedPrefixes()
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
         try await workspaceMaterialRepositoryLoadsOnlyUserMaterials()
         try batchImportInputParserSplitsMultipleIdentifiers()
@@ -62,9 +58,10 @@ private struct CoreVerificationSuite {
         try await agentToolExecutorRequiresApprovalForTodoWrites()
         try await agentPaperClassificationToolUpdatesMetadata()
         try await agentWorkspaceSnapshotIncludesProjectContext()
-        try await agentRunLoggerAndCopilotBridgeExporterWriteWorkspaceFiles()
+        try await agentWorkspaceSnapshotKeepsDeepKnowledgePaperContext()
+        try await agentRunLoggerWritesWorkspaceFiles()
         try await agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory()
-        try await agentServiceExecutesApprovedPlanAndExportsBridge()
+        try await agentServiceExecutesApprovedPlan()
         try await agentRunLoggerSkipsDamagedHistoryLines()
         try await agentRunLoggerFiltersProjectConversations()
         try await agentThreadRepositoryUpsertsProjectThreads()
@@ -84,6 +81,7 @@ private struct CoreVerificationSuite {
         try openAIStreamDeltaParserIgnoresBadChunks()
         try llmProviderV2RequestModelsToolDefinitions()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
+        try await minerUAPIConversionCopiesImageAssets()
         try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
         try await wikiPageGenerationRejectsSilentOverwrite()
@@ -323,6 +321,7 @@ private struct CoreVerificationSuite {
         )
         preferences.updateLibraryVisibleColumns(from: "title,authors,bibtex")
         preferences.appLanguage = .simplifiedChinese
+        preferences.agentChatFontSize = 17
         preferences.minerUCommand = "mineru"
         preferences.minerUAPIBaseURLString = "https://mineru.example.com"
         preferences.minerUAPILanguage = "zh"
@@ -342,6 +341,7 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
         try expect(loadedPreferences.appLanguage == .simplifiedChinese, "Workspace preferences should preserve app language.")
+        try expect(loadedPreferences.agentChatFontSize == 17, "Workspace preferences should preserve AI Lab chat font size.")
         try expect(loadedPreferences.minerUCommand == "mineru", "Workspace preferences should preserve MinerU command.")
         try expect(loadedPreferences.minerUAPIBaseURLString == "https://mineru.example.com", "Workspace preferences should preserve MinerU API base URL.")
         try expect(loadedPreferences.minerUAPILanguage == "zh", "Workspace preferences should preserve MinerU API language.")
@@ -386,100 +386,6 @@ private struct CoreVerificationSuite {
         try expect(loadedPapers.allSatisfy { $0.tags.contains("dm") && $0.tags.contains("capture") }, "Bulk edit should add tags to all selected papers.")
         try expect(loadedPapers.allSatisfy { Set($0.tags).count == $0.tags.count }, "Bulk edit should not create duplicate tags.")
         try expect(loadedPapers.allSatisfy { !$0.tags.contains("graph") }, "Bulk edit should remove requested tags.")
-    }
-
-    private func githubCopilotConfigurationStaysNonSensitive() async throws {
-        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
-        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
-        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
-        let workspaceService = WorkspaceService(
-            fileManager: .default,
-            bookmarkStore: bookmarkStore
-        )
-        let store = GitHubCopilotConfigurationStore()
-        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("GitHubCopilotSettingsWorkspace", isDirectory: true)
-
-        defer {
-            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
-        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
-        let configuration = GitHubCopilotConfiguration(
-            isEnabled: true,
-            clientID: "client-id",
-            callbackURLString: "sci-station://github-copilot/callback",
-            tokenExchangeURLString: "https://relay.example.com/github/copilot/token",
-            requiredOrganization: "example-org",
-            model: "gpt-4.1",
-            scopeString: "read:user read:org"
-        )
-        try await store.save(configuration, in: workspace)
-        let loadedConfiguration = try await store.load(in: workspace)
-        let settingsContents = try String(contentsOf: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath), encoding: .utf8)
-
-        try expect(loadedConfiguration == configuration, "GitHub Copilot configuration should round trip non-sensitive fields.")
-        try expect(!settingsContents.lowercased().contains("secret"), "GitHub Copilot config must not contain OAuth client secrets.")
-        try expect(!settingsContents.contains("gho_"), "GitHub Copilot config must not contain user tokens.")
-    }
-
-    private func githubCopilotOAuthBuildsAuthorizeURLAndParsesCallback() throws {
-        let configuration = GitHubCopilotConfiguration(
-            isEnabled: true,
-            clientID: "client-id",
-            callbackURLString: "sci-station://github-copilot/callback",
-            tokenExchangeURLString: "https://relay.example.com/github/copilot/token",
-            model: "gpt-4.1",
-            scopeString: "read:user read:org"
-        )
-        let url = try GitHubCopilotOAuthRequestBuilder().authorizationURL(configuration: configuration, state: "state-123")
-        let components = try require(URLComponents(url: url, resolvingAgainstBaseURL: false), "Authorize URL should be parseable.")
-        let queryItems = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in item.value.map { (item.name, $0) } })
-
-        try expect(url.scheme == "https", "Authorize URL should use HTTPS.")
-        try expect(url.host == "github.com", "Authorize URL should target github.com.")
-        try expect(components.path == "/login/oauth/authorize", "Authorize URL should use GitHub OAuth authorize path.")
-        try expect(queryItems["client_id"] == "client-id", "Authorize URL should include client id.")
-        try expect(queryItems["redirect_uri"] == "sci-station://github-copilot/callback", "Authorize URL should include callback URL.")
-        try expect(queryItems["state"] == "state-123", "Authorize URL should include state.")
-        try expect(queryItems["scope"] == "read:user read:org", "Authorize URL should include scopes.")
-
-        let callbackURL = try require(URL(string: "sci-station://github-copilot/callback?code=abc&state=state-123"), "Callback URL should be constructible.")
-        let callback = try GitHubCopilotOAuthCallback(url: callbackURL)
-        try expect(callback.code == "abc", "Callback parser should extract code.")
-        try expect(callback.state == "state-123", "Callback parser should extract state.")
-    }
-
-    private func githubCopilotTokenExchangeRequestExcludesClientSecret() throws {
-        let configuration = GitHubCopilotConfiguration(
-            isEnabled: true,
-            clientID: "client-id",
-            callbackURLString: "sci-station://github-copilot/callback",
-            tokenExchangeURLString: "https://relay.example.com/github/copilot/token",
-            model: "gpt-4.1"
-        )
-        let request = try GitHubCopilotOAuthTokenExchanger().buildRequest(
-            code: "code-123",
-            state: "state-123",
-            configuration: configuration
-        )
-        let body = try require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) }, "Token exchange request should have JSON body.")
-
-        try expect(request.url?.absoluteString == "https://relay.example.com/github/copilot/token", "Token exchange should target configured relay.")
-        try expect(body.contains("\"client_id\""), "Token exchange body should include client id.")
-        try expect(body.contains("\"code\""), "Token exchange body should include OAuth code.")
-        try expect(body.contains("\"redirect_uri\""), "Token exchange body should include redirect URI.")
-        try expect(!body.lowercased().contains("client_secret"), "Token exchange body must not include a client secret.")
-    }
-
-    private func githubCopilotTokenClassifierRecognizesSupportedPrefixes() throws {
-        let classifier = GitHubCopilotTokenClassifier()
-        try expect(classifier.classify("gho_abc") == .oauthUser, "gho_ should be classified as OAuth user token.")
-        try expect(classifier.classify("ghu_abc") == .githubAppUser, "ghu_ should be classified as GitHub App user token.")
-        try expect(classifier.classify("github_pat_abc") == .fineGrainedPAT, "github_pat_ should be classified as fine-grained PAT.")
-        try expect(classifier.classify("ghp_abc") == .classicPAT, "ghp_ should be classified as classic PAT.")
-        try expect(!classifier.classify("ghp_abc").isRecommended, "Classic PAT should not be recommended.")
-        try expect(classifier.classify("unknown") == .unsupported, "Unknown token prefixes should be unsupported.")
     }
 
     private func librarySortStateSortsPapers() throws {
@@ -1752,7 +1658,39 @@ private struct CoreVerificationSuite {
                 try expect(snapshot.paperLibraryRelativePath == Paper.globalLibraryRootRelativePath, "Agent snapshot should advertise the global paper library path.")
             }
 
-            private func agentRunLoggerAndCopilotBridgeExporterWriteWorkspaceFiles() async throws {
+            private func agentWorkspaceSnapshotKeepsDeepKnowledgePaperContext() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let repository = PaperRepository()
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentLongPaperContextWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let paper = try await repository.save(samplePaper(id: "long-context-paper"), in: workspace)
+                let paperDirectoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
+                try FileManager.default.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
+
+                let earlyText = String(repeating: "Early context sentence for old cutoff testing.\n", count: 320)
+                let deepMarker = "Section 5 evaporation-rate formula marker: E_sun_deep_context"
+                try ("---\ntype: paper_raw_markdown\n---\n\n" + earlyText + "\n## 5 Evaporation Rate\n\n" + deepMarker)
+                    .write(to: paper.rawMarkdownURL(in: workspace), atomically: true, encoding: .utf8)
+
+                let snapshot = try await AgentWorkspaceContextBuilder(paperRepository: repository).snapshot(
+                    in: workspace,
+                    includedPaperIDs: [paper.id],
+                    paperLimit: 5
+                )
+                let paperSnapshot = try require(snapshot.recentPapers.first(where: { $0.id == paper.id }), "Included knowledge paper should be present in the snapshot.")
+                try expect(paperSnapshot.sourceExcerpt?.contains(deepMarker) == true, "Included AI Knowledge papers should preserve deeper Markdown sections beyond 10k characters.")
+            }
+
+            private func agentRunLoggerWritesWorkspaceFiles() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
                 let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
@@ -1765,25 +1703,6 @@ private struct CoreVerificationSuite {
                 }
 
                 let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
-                let toolDefinition = CreateTodoAgentTool(todoRepository: TodoRepository()).definition
-                let snapshot = AgentWorkspaceSnapshot(
-                    workspaceName: workspace.displayName,
-                    selectedPaper: nil,
-                    recentPapers: [],
-                    openTodos: [],
-                    paperCount: 0,
-                    todoCount: 0
-                )
-                let export = try await AgentCopilotBridgeExporter().export(
-                    goal: "Plan a todo",
-                    workspaceSnapshot: snapshot,
-                    tools: [toolDefinition],
-                    in: workspace
-                )
-
-                try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: export.promptRelativePath).path), "Copilot bridge exporter should write a prompt file.")
-                try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: export.manifestRelativePath).path), "Copilot bridge exporter should write a manifest file.")
-
                 let run = AgentRun(
                     id: "agent-run-test",
                     goal: "Plan a todo",
@@ -1862,7 +1781,7 @@ private struct CoreVerificationSuite {
                 try expect(sessionEvents.map(\.kind).contains(.permissionRequested), "Plan-only runs should append permission request session events for requested tools.")
             }
 
-            private func agentServiceExecutesApprovedPlanAndExportsBridge() async throws {
+            private func agentServiceExecutesApprovedPlan() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
                 let projectRegistryRepository = ProjectRegistryRepository()
@@ -1929,16 +1848,6 @@ private struct CoreVerificationSuite {
                 try expect(todos.first?.projectIDs == [project.id], "Approved service tool execution should use the current project context.")
                 let executionEvents = try await service.sessionEvents(in: root, sessionID: approvedRun.id)
                 try expect(executionEvents.map(\.kind).contains(.toolCallCompleted), "Approved execution should append completed tool session events.")
-
-                let export = try await service.exportCopilotBridge(
-                    goal: "Create approved todo",
-                    in: workspace,
-                    root: root,
-                    projects: registry.projects,
-                    currentProjectID: project.id
-                )
-                try expect(FileManager.default.fileExists(atPath: root.fileURL(for: export.promptRelativePath).path), "Agent service should export a Copilot Bridge prompt.")
-                try expect(FileManager.default.fileExists(atPath: root.fileURL(for: export.manifestRelativePath).path), "Agent service should export a Copilot Bridge manifest.")
             }
 
             private func agentRunLoggerSkipsDamagedHistoryLines() async throws {
@@ -2198,7 +2107,7 @@ private struct CoreVerificationSuite {
                     AgentPermissionRequest(command: "rm -rf .derivedData", risk: .externalSideEffect)
                 )
                 let sensitivePath = evaluator.evaluate(
-                    AgentPermissionRequest(path: "settings/github_copilot_token.yaml", risk: .writesWorkspace)
+                    AgentPermissionRequest(path: "settings/private_api_token.yaml", risk: .writesWorkspace)
                 )
                 let defaultRead = evaluator.evaluate(
                     AgentPermissionRequest(toolName: "list_papers", risk: .readOnly)
@@ -2609,6 +2518,90 @@ private struct CoreVerificationSuite {
         try expect(rawMarkdown.contains("status: not_extracted"), "paper.md should record extraction status.")
     }
 
+    private func minerUAPIConversionCopiesImageAssets() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = PaperRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("MinerUAssetWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+            MinerUAPIMockURLProtocol.zipData = Data()
+            MinerUAPIMockURLProtocol.requestLog = []
+            MinerUAPIMockURLProtocol.uploadContentTypeHeaders = []
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await repository.save(samplePaper(id: "mineru-images-paper"), in: workspace)
+        let paperDirectoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
+        try FileManager.default.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
+        try Data("%PDF-1.4\n% fake test pdf".utf8).write(to: paperDirectoryURL.appendingPathComponent("paper.pdf"), options: .atomic)
+
+        MinerUAPIMockURLProtocol.zipData = try zipData(entries: [
+            (
+                "full.md",
+                Data(
+                    """
+                    # MinerU Output
+
+                    ![Figure](images/figure-1.png)
+
+                    <img src="images/figure-2.webp" alt="Second">
+                    """.utf8
+                )
+            ),
+            ("images/figure-1.png", Data([0x89, 0x50, 0x4E, 0x47])),
+            ("images/figure-2.webp", Data("WEBP".utf8))
+        ])
+        MinerUAPIMockURLProtocol.requestLog = []
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MinerUAPIMockURLProtocol.self]
+        let service = PaperMarkdownConversionService(session: URLSession(configuration: sessionConfiguration))
+        let results = try await service.convert(
+            [paper],
+            in: workspace,
+            configuration: PaperMarkdownConversionConfiguration(
+                minerUAPIToken: "test-token",
+                minerUAPIBaseURLString: "https://mineru.test",
+                overwriteExistingMarkdown: true,
+                pollIntervalSeconds: 1,
+                pollTimeoutSeconds: 5
+            )
+        )
+
+        let result = try require(results.first, "MinerU conversion should return a result.")
+        try expect(result.didWriteMarkdown, result.errorMessage ?? "MinerU conversion should write paper.md.")
+
+        let paperMarkdownURL = paper.rawMarkdownURL(in: workspace)
+        let markdown = try String(contentsOf: paperMarkdownURL, encoding: .utf8)
+        try expect(markdown.contains("extraction_engine: mineru_api"), "MinerU conversion should record the API extraction engine.")
+        try expect(markdown.contains("![Figure](figures/mineru/images/figure-1.png)"), "Markdown image links should point to copied MinerU assets.")
+        try expect(markdown.contains("<img src=\"figures/mineru/images/figure-2.webp\""), "HTML image links should point to copied MinerU assets.")
+        try expect(
+            FileManager.default.fileExists(atPath: paperDirectoryURL.appendingPathComponent("figures/mineru/images/figure-1.png").path),
+            "MinerU PNG assets should be copied into the paper figures directory."
+        )
+        try expect(
+            FileManager.default.fileExists(atPath: paperDirectoryURL.appendingPathComponent("figures/mineru/images/figure-2.webp").path),
+            "MinerU WebP assets should be copied into the paper figures directory."
+        )
+        try expect(
+            MinerUAPIMockURLProtocol.requestLog.contains("PUT upload.test/upload/mineru-images-paper.pdf"),
+            "MinerU conversion should upload the PDF to the signed upload URL."
+        )
+        try expect(
+            MinerUAPIMockURLProtocol.uploadContentTypeHeaders == [nil],
+            "MinerU signed URL upload should not include a Content-Type header."
+        )
+    }
+
     private func movePaperToCollectionUpdatesMetadataAndPath() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
         let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -2857,6 +2850,41 @@ private struct CoreVerificationSuite {
         return baseURL
     }
 
+    private func zipData(entries: [(path: String, data: Data)]) throws -> Data {
+        let sourceDirectoryURL = temporaryDirectoryURL()
+        let zipDirectoryURL = temporaryDirectoryURL()
+        let zipURL = zipDirectoryURL.appendingPathComponent("archive.zip", isDirectory: false)
+
+        defer {
+            try? FileManager.default.removeItem(at: sourceDirectoryURL)
+            try? FileManager.default.removeItem(at: zipDirectoryURL)
+        }
+
+        for entry in entries {
+            let fileURL = sourceDirectoryURL.appendingPathComponent(entry.path, isDirectory: false)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try entry.data.write(to: fileURL, options: .atomic)
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.arguments = ["-qry", zipURL.path, "."]
+        process.currentDirectoryURL = sourceDirectoryURL
+
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let errorText = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "unknown zip error"
+            throw ValidationError(message: "zip failed: \(errorText)")
+        }
+
+        return try Data(contentsOf: zipURL)
+    }
+
     private func gitTrackedFiles(in repoURL: URL) throws -> [String] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -2937,4 +2965,104 @@ private struct StaticLLMProvider: LLMProvider {
     func complete(prompt: String, configuration: LLMConfiguration, apiKey: String) async throws -> String {
         response
     }
+}
+
+private final class MinerUAPIMockURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var zipData = Data()
+    nonisolated(unsafe) static var requestLog: [String] = []
+    nonisolated(unsafe) static var uploadContentTypeHeaders: [String?] = []
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+
+        let method = request.httpMethod ?? "GET"
+        let host = url.host ?? ""
+        let requestKey = "\(method) \(host)\(url.path)"
+        Self.requestLog.append(requestKey)
+
+        let statusCode: Int
+        let contentType: String
+        let data: Data
+
+        switch requestKey {
+        case "POST mineru.test/api/v4/file-urls/batch":
+            statusCode = 200
+            contentType = "application/json"
+            data = Data(
+                """
+                {
+                  "code": 0,
+                  "msg": "ok",
+                  "data": {
+                    "batch_id": "batch-1",
+                    "file_urls": ["https://upload.test/upload/mineru-images-paper.pdf"]
+                  }
+                }
+                """.utf8
+            )
+        case "PUT upload.test/upload/mineru-images-paper.pdf":
+            Self.uploadContentTypeHeaders.append(request.value(forHTTPHeaderField: "Content-Type"))
+            statusCode = request.value(forHTTPHeaderField: "Content-Type") == nil ? 204 : 415
+            contentType = "text/plain"
+            data = Data()
+        case "GET mineru.test/api/v4/extract-results/batch/batch-1":
+            statusCode = 200
+            contentType = "application/json"
+            data = Data(
+                """
+                {
+                  "code": 0,
+                  "msg": "ok",
+                  "data": {
+                    "extract_result": [
+                      {
+                        "file_name": "mineru-images-paper.pdf",
+                        "data_id": "mineru-images-paper",
+                        "state": "done",
+                        "full_zip_url": "https://download.test/mineru.zip"
+                      }
+                    ]
+                  }
+                }
+                """.utf8
+            )
+        case "GET download.test/mineru.zip":
+            statusCode = 200
+            contentType = "application/zip"
+            data = Self.zipData
+        default:
+            statusCode = 404
+            contentType = "text/plain"
+            data = Data("not found: \(requestKey)".utf8)
+        }
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": contentType]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !data.isEmpty {
+            client?.urlProtocol(self, didLoad: data)
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

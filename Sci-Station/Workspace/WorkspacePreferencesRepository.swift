@@ -38,6 +38,7 @@ public actor WorkspacePreferencesRepository {
         lines.append("recent_section: \(recentSection)")
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
         lines.append("app_language: \(quoted(preferences.appLanguage.rawValue))")
+        lines.append("agent_chat_font_size: \(preferences.agentChatFontSize)")
         lines.append("mineru_command: \(quoted(preferences.minerUCommand))")
         lines.append("mineru_api_base_url: \(quoted(preferences.minerUAPIBaseURLString))")
         lines.append("mineru_api_language: \(quoted(preferences.minerUAPILanguage))")
@@ -61,6 +62,7 @@ public actor WorkspacePreferencesRepository {
         var recentSection: String?
         var syncTodosToAppleReminders = true
         var appLanguage = AppLanguagePreference.system
+        var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
         var agentKnowledgePaperIDs: [String]?
         var agentDisabledToolNamesByScope: [String: [String]] = [:]
         var pinnedAgentThreadIDsByProject: [String: [String]] = [:]
@@ -95,6 +97,9 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("app_language:") {
                 let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "app_language:", with: "").trimmingCharacters(in: .whitespaces)))
                 appLanguage = value.flatMap(AppLanguagePreference.init(rawValue:)) ?? .system
+            } else if trimmed.hasPrefix("agent_chat_font_size:") {
+                let value = trimmed.replacingOccurrences(of: "agent_chat_font_size:", with: "").trimmingCharacters(in: .whitespaces)
+                agentChatFontSize = Double(value) ?? WorkspacePreferences.defaultAgentChatFontSize
             } else if trimmed.hasPrefix("mineru_command:") {
                 minerUCommand = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_command:", with: "").trimmingCharacters(in: .whitespaces))) ?? "mineru"
             } else if trimmed.hasPrefix("mineru_api_base_url:") {
@@ -128,6 +133,7 @@ public actor WorkspacePreferencesRepository {
             recentSection: recentSection,
             syncTodosToAppleReminders: syncTodosToAppleReminders,
             appLanguage: appLanguage,
+            agentChatFontSize: agentChatFontSize,
             agentKnowledgePaperIDs: agentKnowledgePaperIDs,
             agentDisabledToolNamesByScope: agentDisabledToolNamesByScope,
             pinnedAgentThreadIDsByProject: pinnedAgentThreadIDsByProject,

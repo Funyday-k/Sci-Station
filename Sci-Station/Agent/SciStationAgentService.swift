@@ -9,7 +9,6 @@ public actor SciStationAgentService {
     private let sessionEventLogger: AgentSessionEventLogger
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
-    private let bridgeExporter: AgentCopilotBridgeExporter
     private let hookDefinitions: [AgentHookDefinition]
 
     public init(
@@ -24,7 +23,6 @@ public actor SciStationAgentService {
         sessionEventLogger: AgentSessionEventLogger = AgentSessionEventLogger(),
         threadRepository: AgentThreadRepository = AgentThreadRepository(),
         draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
-        bridgeExporter: AgentCopilotBridgeExporter = AgentCopilotBridgeExporter(),
         hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks()
     ) {
         let resolvedContextBuilder = contextBuilder ?? AgentWorkspaceContextBuilder(
@@ -45,7 +43,6 @@ public actor SciStationAgentService {
         self.sessionEventLogger = sessionEventLogger
         self.threadRepository = threadRepository
         self.draftRepository = draftRepository
-        self.bridgeExporter = bridgeExporter
         self.hookDefinitions = hookDefinitions
     }
 
@@ -281,33 +278,6 @@ public actor SciStationAgentService {
 
     public func removeDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?, in root: ResearchRoot) async throws {
         try await draftRepository.removeDraft(projectID: projectID, threadID: threadID, in: root)
-    }
-
-    public func exportCopilotBridge(
-        goal: String,
-        in workspace: ResearchWorkspace,
-        root: ResearchRoot? = nil,
-        projects: [ResearchProject] = [],
-        currentProjectID: ResearchProject.ID? = nil,
-        selectedPaperID: String? = nil,
-        includedPaperIDs: Set<String>? = nil
-    ) async throws -> AgentCopilotBridgeExport {
-        let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
-        let workspaceSnapshot = try await snapshot(
-            in: workspace,
-            root: resolvedRoot,
-            projects: projects,
-            currentProjectID: currentProjectID,
-            selectedPaperID: selectedPaperID,
-            includedPaperIDs: includedPaperIDs
-        )
-        let tools = await toolDefinitions()
-        return try await bridgeExporter.export(
-            goal: goal,
-            workspaceSnapshot: workspaceSnapshot,
-            tools: tools,
-            in: resolvedRoot
-        )
     }
 
     public func sessionEvents(in root: ResearchRoot, sessionID: String? = nil, limit: Int = 100) async throws -> [AgentSessionEvent] {
