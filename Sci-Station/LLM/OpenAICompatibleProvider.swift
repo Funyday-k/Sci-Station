@@ -1,5 +1,25 @@
 import Foundation
 
+public nonisolated struct OpenAICompatibleStreamDeltaParser: Sendable {
+    public nonisolated init() {}
+
+    public nonisolated static func contentDelta(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let firstChoice = choices.first else {
+            return nil
+        }
+
+        if let delta = firstChoice["delta"] as? [String: Any] {
+            return (delta["content"] as? String)?.nilIfEmpty
+        }
+        if let message = firstChoice["message"] as? [String: Any] {
+            return (message["content"] as? String)?.nilIfEmpty
+        }
+        return nil
+    }
+}
+
 public actor OpenAICompatibleProvider: LLMProvider {
     private let session: URLSession
 
@@ -241,7 +261,7 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
                             break
                         }
                         guard let data = payload.data(using: .utf8),
-                              let delta = Self.streamDeltaContent(from: data),
+                            let delta = OpenAICompatibleStreamDeltaParser.contentDelta(from: data),
                               !delta.isEmpty else {
                             continue
                         }
@@ -261,21 +281,6 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
         }
     }
 
-    private nonisolated static func streamDeltaContent(from data: Data) -> String? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = root["choices"] as? [[String: Any]],
-              let firstChoice = choices.first else {
-            return nil
-        }
-
-        if let delta = firstChoice["delta"] as? [String: Any] {
-            return delta["content"] as? String
-        }
-        if let message = firstChoice["message"] as? [String: Any] {
-            return message["content"] as? String
-        }
-        return nil
-    }
 }
 
 private extension String {

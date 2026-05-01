@@ -45,6 +45,11 @@ private enum AgentPanelValidationError: LocalizedError {
     }
 }
 
+private enum MarkdownConversionStatusSurface {
+    case agent
+    case workspace
+}
+
 struct DeepSeekModelOption: Identifiable, Hashable {
     let id: String
     let title: String
@@ -129,6 +134,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isSavingSelectedPaper = false
     @Published private(set) var llmConfiguration = LLMConfiguration()
     @Published var llmAPIKey = ""
+    @Published var minerUAPIToken = ""
     @Published var githubCopilotConfiguration = GitHubCopilotConfiguration()
     @Published var githubCopilotToken = ""
     @Published private(set) var githubCopilotConnectionStatusMessage: String?
@@ -181,6 +187,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isExecutingAgentTools = false
     @Published private(set) var isExportingAgentBridge = false
     @Published private(set) var isConvertingAgentKnowledgeMarkdown = false
+    @Published private(set) var paperMarkdownConversionStates: [Paper.ID: PaperMarkdownConversionState] = [:]
+    @Published private(set) var paperMarkdownConversionMessages: [Paper.ID: String] = [:]
     @Published private(set) var isGeneratingWikiPage = false
     @Published private(set) var markdownDocuments: [MarkdownDocument] = []
     @Published private(set) var selectedMarkdownID: String?
@@ -230,6 +238,7 @@ final class AppViewModel: ObservableObject {
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
     private var agentPlanningTask: Task<Void, Never>?
+    private var agentStreamingRawResponseText = ""
     private var pendingGitHubCopilotOAuthState: String?
 
     var identifierImportInputs: [String] {
@@ -687,30 +696,42 @@ final class AppViewModel: ObservableObject {
         previewPaperForLibrarySelection() != nil
     }
 
-    var githubCopilotTokenKind: GitHubCopilotTokenKind {
+    private var githubCopilotTokenKind: GitHubCopilotTokenKind {
         githubCopilotTokenClassifier.classify(githubCopilotToken)
     }
 
     var agentProviderSummary: String {
-        if githubCopilotConfiguration.isEnabled {
-            let status: String
-            if isConnectingGitHubCopilot {
-                status = "connecting"
-            } else {
-                status = githubCopilotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "not connected" : githubCopilotTokenKind.label
-            }
-            return "GitHub Copilot SDK experimental (\(status))"
-        }
-
         return "OpenAI-compatible / \(llmConfiguration.model)"
     }
 
     var agentProviderV2Summary: String {
-        if githubCopilotConfiguration.isEnabled {
-            return "GitHub Copilot SDK remains experimental and is not selected for the main agent path."
-        }
+        "Provider V2 wrapper is available for OpenAI-compatible chat requests; plan generation still uses the stable complete path."
+    }
 
-        return "Provider V2 wrapper is available for OpenAI-compatible chat requests; plan generation still uses the stable complete path."
+    var usesEnglishInterface: Bool {
+        switch workspacePreferences.appLanguage {
+        case .english:
+            return true
+        case .simplifiedChinese:
+            return false
+        case .system:
+            return !(Locale.preferredLanguages.first?.hasPrefix("zh") ?? false)
+        }
+    }
+
+    func localized(_ simplifiedChinese: String, _ english: String) -> String {
+        usesEnglishInterface ? english : simplifiedChinese
+    }
+
+    func appLanguageLabel(for option: AppLanguagePreference) -> String {
+        switch option {
+        case .system:
+            return localized("跟随系统", "Follow System")
+        case .simplifiedChinese:
+            return localized("中文", "Chinese")
+        case .english:
+            return localized("English", "English")
+        }
     }
 
     var agentPlatformSummary: String {
@@ -1242,7 +1263,28 @@ final class AppViewModel: ObservableObject {
             return false
         }
 
-        return FileManager.default.fileExists(atPath: paper.rawMarkdownURL(in: currentWorkspace).path)
+        return paperHasExtractedMarkdown(paper, in: currentWorkspace)
+    }
+
+    private func paperPDFExists(_ paper: Paper, in workspace: ResearchWorkspace) -> Bool {
+        guard let pdfURL = paper.pdfURL(in: workspace) else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: pdfURL.path)
+    }
+
+    private func paperHasExtractedMarkdown(_ paper: Paper, in workspace: ResearchWorkspace) -> Bool {
+        let markdownURL = paper.rawMarkdownURL(in: workspace)
+        guard FileManager.default.fileExists(atPath: markdownURL.path),
+              let contents = try? String(contentsOf: markdownURL, encoding: .utf8) else {
+            return false
+        }
+
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
+            && !trimmed.contains("status: not_extracted")
+            && !trimmed.localizedCaseInsensitiveContains("PDF text has not been extracted yet")
     }
 
     func setAgentKnowledgePaper(_ paperID: Paper.ID, isSelected: Bool) {
@@ -1438,6 +1480,7 @@ final class AppViewModel: ObservableObject {
                 let importTags = commaSeparatedValues(from: identifierImportTagsText)
                 var existingPapers = papers
                 var importedPaperID: Paper.ID?
+                var importedPapers: [Paper] = []
                 var failedInputs: [(String, Error)] = []
 
                 for input in importInputs {
@@ -1457,6 +1500,7 @@ final class AppViewModel: ObservableObject {
                         }
                         existingPapers.append(importedPaper)
                         importedPaperID = importedPaper.id
+                        importedPapers.append(importedPaper)
                     } catch {
                         failedInputs.append((input, error))
                     }
@@ -1468,6 +1512,9 @@ final class AppViewModel: ObservableObject {
                     selectingMarkdown: selectedMarkdownID
                 )
                 selectedSection = .library
+                if !importedPapers.isEmpty {
+                    startMarkdownConversion(for: importedPapers, in: currentWorkspace, statusSurface: .workspace)
+                }
 
                 let importedCount = importInputs.count - failedInputs.count
                 if failedInputs.isEmpty {
@@ -2240,9 +2287,44 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func updateAppLanguagePreference(_ preference: AppLanguagePreference) {
+        updateWorkspacePreferences { preferences in
+            preferences.appLanguage = preference
+        }
+    }
+
+    func updateMinerUAPIBaseURL(_ baseURLString: String) {
+        updateWorkspacePreferences { preferences in
+            let trimmed = baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+            preferences.minerUAPIBaseURLString = trimmed.isEmpty ? "https://mineru.net" : trimmed
+        }
+    }
+
+    func updateMinerUAPILanguage(_ language: String) {
+        updateWorkspacePreferences { preferences in
+            let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+            preferences.minerUAPILanguage = trimmed.isEmpty ? "en" : trimmed
+        }
+    }
+
     func setMinerUOverwriteExistingMarkdown(_ shouldOverwrite: Bool) {
         updateWorkspacePreferences { preferences in
             preferences.minerUOverwriteExistingMarkdown = shouldOverwrite
+        }
+    }
+
+    func saveMinerUMarkdownConversionSettings() {
+        guard let currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                try await apiKeyStore.save(apiKey: minerUAPIToken, for: minerUAPITokenAccount(for: currentWorkspace))
+                workspaceSettingsStatusMessage = localized("MinerU API 设置已保存。", "MinerU API settings saved.")
+            } catch {
+                present(error)
+            }
         }
     }
 
@@ -2302,40 +2384,142 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        let selectedPapers = selectedAgentKnowledgePapers.filter { agentKnowledgePaperHasPDF($0) }
-        guard !selectedPapers.isEmpty else {
-            agentErrorMessage = "Select at least one paper with a PDF before generating Markdown."
+        startMarkdownConversion(for: selectedAgentKnowledgePapers, in: currentWorkspace, statusSurface: .agent)
+    }
+
+    func convertPaperToMarkdown(_ paper: Paper) {
+        guard let currentWorkspace else {
+            workspaceSettingsStatusMessage = localized("请先打开工作区。", "Open a workspace first.")
             return
         }
 
-        isConvertingAgentKnowledgeMarkdown = true
-        agentErrorMessage = nil
-        agentStatusMessage = nil
+        startMarkdownConversion(for: [paper], in: currentWorkspace, statusSurface: .workspace)
+    }
 
+    func convertLibrarySelectionToMarkdown() {
+        guard let currentWorkspace else {
+            workspaceSettingsStatusMessage = localized("请先打开工作区。", "Open a workspace first.")
+            return
+        }
+
+        startMarkdownConversion(for: selectedLibraryPapers, in: currentWorkspace, statusSurface: .workspace)
+    }
+
+    func paperMarkdownConversionState(for paper: Paper) -> PaperMarkdownConversionState {
+        guard let currentWorkspace else {
+            return .notConverted
+        }
+        if let state = paperMarkdownConversionStates[paper.id] {
+            return state
+        }
+        guard paperPDFExists(paper, in: currentWorkspace) else {
+            return .noPDF
+        }
+        return paperHasExtractedMarkdown(paper, in: currentWorkspace) ? .succeeded : .notConverted
+    }
+
+    func paperMarkdownConversionMessage(for paper: Paper) -> String? {
+        paperMarkdownConversionMessages[paper.id]
+    }
+
+    private func startMarkdownConversion(
+        for requestedPapers: [Paper],
+        in workspace: ResearchWorkspace,
+        statusSurface: MarkdownConversionStatusSurface
+    ) {
+        let uniquePapers = uniquePapersByID(requestedPapers)
+        let convertiblePapers = uniquePapers.filter { paperPDFExists($0, in: workspace) }
+        guard !convertiblePapers.isEmpty else {
+            let message = localized("请选择至少一篇带 PDF 的论文。", "Select at least one paper with a PDF.")
+            switch statusSurface {
+            case .agent:
+                agentErrorMessage = message
+            case .workspace:
+                workspaceSettingsStatusMessage = message
+            }
+            return
+        }
+
+        for paper in convertiblePapers {
+            paperMarkdownConversionStates[paper.id] = .converting
+            paperMarkdownConversionMessages[paper.id] = nil
+        }
+
+        if statusSurface == .agent {
+            isConvertingAgentKnowledgeMarkdown = true
+            agentErrorMessage = nil
+            agentStatusMessage = nil
+        } else {
+            workspaceSettingsStatusMessage = localized(
+                "正在转换 \(convertiblePapers.count) 篇论文为 Markdown...",
+                "Converting \(convertiblePapers.count) paper(s) to Markdown..."
+            )
+        }
+
+        let preferences = workspacePreferences
+        let apiToken = minerUAPIToken
         Task {
             defer {
-                isConvertingAgentKnowledgeMarkdown = false
+                if statusSurface == .agent {
+                    isConvertingAgentKnowledgeMarkdown = false
+                }
             }
 
             do {
                 let service = PaperMarkdownConversionService()
                 let results = try await service.convert(
-                    selectedPapers,
-                    in: currentWorkspace,
+                    convertiblePapers,
+                    in: workspace,
                     configuration: PaperMarkdownConversionConfiguration(
-                        minerUCommand: workspacePreferences.minerUCommand,
-                        overwriteExistingMarkdown: workspacePreferences.minerUOverwriteExistingMarkdown
+                        minerUAPIToken: apiToken,
+                        minerUAPIBaseURLString: preferences.minerUAPIBaseURLString,
+                        minerUAPILanguage: preferences.minerUAPILanguage,
+                        minerUCommand: preferences.minerUCommand,
+                        overwriteExistingMarkdown: preferences.minerUOverwriteExistingMarkdown
                     )
                 )
                 let convertedCount = results.filter(\.didWriteMarkdown).count
                 let failedCount = results.filter { $0.errorMessage != nil }.count
-                agentStatusMessage = "Generated Markdown for \(convertedCount) selected paper(s)" + (failedCount > 0 ? "; \(failedCount) failed." : ".")
-                await refreshAgentState(in: currentWorkspace)
-                try await loadMarkdownDocuments(in: currentWorkspace, selecting: selectedMarkdownID)
+                for result in results {
+                    paperMarkdownConversionStates[result.paperID] = result.didWriteMarkdown ? .succeeded : .failed
+                    paperMarkdownConversionMessages[result.paperID] = result.errorMessage
+                }
+
+                let message = localized(
+                    "已转换 \(convertedCount) 篇论文" + (failedCount > 0 ? "；\(failedCount) 篇失败。" : "。"),
+                    "Converted \(convertedCount) paper(s)" + (failedCount > 0 ? "; \(failedCount) failed." : ".")
+                )
+                switch statusSurface {
+                case .agent:
+                    agentStatusMessage = message
+                case .workspace:
+                    workspaceSettingsStatusMessage = message
+                }
+                await refreshAgentState(in: workspace)
+                try await loadMarkdownDocuments(in: workspace, selecting: selectedMarkdownID)
             } catch {
-                agentErrorMessage = error.localizedDescription
+                for paper in convertiblePapers {
+                    paperMarkdownConversionStates[paper.id] = .failed
+                    paperMarkdownConversionMessages[paper.id] = error.localizedDescription
+                }
+                switch statusSurface {
+                case .agent:
+                    agentErrorMessage = error.localizedDescription
+                case .workspace:
+                    workspaceSettingsStatusMessage = error.localizedDescription
+                }
             }
         }
+    }
+
+    private func uniquePapersByID(_ papers: [Paper]) -> [Paper] {
+        var seen: Set<Paper.ID> = []
+        var result: [Paper] = []
+        for paper in papers where !seen.contains(paper.id) {
+            seen.insert(paper.id)
+            result.append(paper)
+        }
+        return result
     }
 
     private func resetAgentPermissionDockState() {
@@ -2362,6 +2546,7 @@ final class AppViewModel: ObservableObject {
         agentGoal = ""
         agentCurrentRun = nil
         agentStreamingResponseText = nil
+        agentStreamingRawResponseText = ""
         resetAgentPermissionDockState()
         agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
@@ -2628,6 +2813,7 @@ final class AppViewModel: ObservableObject {
         isPlanningAgentRun = true
         agentPendingUserPrompt = trimmedGoal
         agentStreamingResponseText = nil
+        agentStreamingRawResponseText = ""
         agentGoal = ""
         persistAgentDraftForCurrentConversation()
         agentErrorMessage = nil
@@ -3491,6 +3677,7 @@ final class AppViewModel: ObservableObject {
                     selectingMarkdown: selectedMarkdownID
                 )
                 selectedSection = .library
+                startMarkdownConversion(for: [importedPaper], in: workspace, statusSurface: .workspace)
             } catch {
                 present(error)
             }
@@ -3769,21 +3956,22 @@ final class AppViewModel: ObservableObject {
     private func loadLLMSettings(in workspace: ResearchWorkspace) async throws {
         llmConfiguration = try await llmConfigurationStore.load(in: workspace)
         llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+        minerUAPIToken = try await apiKeyStore.loadAPIKey(for: minerUAPITokenAccount(for: workspace)) ?? ""
         githubCopilotConfiguration = try await githubCopilotConfigurationStore.load(in: workspace)
         githubCopilotToken = try await apiKeyStore.loadAPIKey(for: githubCopilotTokenAccount(for: workspace)) ?? ""
         githubCopilotConnectionStatusMessage = githubCopilotStatusText()
     }
 
     private func resolvedLLMAPIKey(for workspace: ResearchWorkspace) async throws -> String {
-        if llmConfiguration.provider == .githubCopilot {
-            throw GitHubCopilotProviderError.sdkUnavailable
-        }
-
         if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return llmAPIKey
         }
 
         return try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+    }
+
+    private func minerUAPITokenAccount(for workspace: ResearchWorkspace) -> String {
+        "\(workspace.rootURL.path)#mineru-api"
     }
 
     private func githubCopilotTokenAccount(for workspace: ResearchWorkspace) -> String {
@@ -3906,7 +4094,9 @@ final class AppViewModel: ObservableObject {
         guard !delta.isEmpty else {
             return
         }
-        agentStreamingResponseText = (agentStreamingResponseText ?? "") + delta
+        agentStreamingRawResponseText += delta
+        let visibleText = AgentVisibleResponseExtractor.visibleText(from: agentStreamingRawResponseText)
+        agentStreamingResponseText = visibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : visibleText
     }
 
     private func makeAgentStreamingDeltaHandler() -> (@Sendable (String) async -> Void) {

@@ -39,3 +39,75 @@ public nonisolated struct AgentPlanParser {
         return String(response[startIndex...endIndex])
     }
 }
+
+public nonisolated struct AgentVisibleResponseExtractor {
+    public nonisolated init() {}
+
+    public nonisolated static func visibleText(from response: String) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard looksStructured(trimmed) else {
+            return response
+        }
+
+        guard let json = balancedJSONObject(in: trimmed),
+              let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ""
+        }
+
+        for key in ["final_response_draft", "finalResponseDraft", "answer", "content", "summary"] {
+            if let value = object[key] as? String,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return value
+            }
+        }
+
+        return ""
+    }
+
+    private nonisolated static func looksStructured(_ value: String) -> Bool {
+        value.hasPrefix("{")
+            || value.hasPrefix("```json")
+            || value.hasPrefix("```JSON")
+            || value.contains("\"tool_calls\"")
+            || value.contains("\"final_response_draft\"")
+    }
+
+    private nonisolated static func balancedJSONObject(in value: String) -> String? {
+        guard let startIndex = value.firstIndex(of: "{") else {
+            return nil
+        }
+
+        var depth = 0
+        var isInsideString = false
+        var isEscaped = false
+        var index = startIndex
+
+        while index < value.endIndex {
+            let character = value[index]
+            if isInsideString {
+                if isEscaped {
+                    isEscaped = false
+                } else if character == "\\" {
+                    isEscaped = true
+                } else if character == "\"" {
+                    isInsideString = false
+                }
+            } else {
+                if character == "\"" {
+                    isInsideString = true
+                } else if character == "{" {
+                    depth += 1
+                } else if character == "}" {
+                    depth -= 1
+                    if depth == 0 {
+                        return String(value[startIndex...index])
+                    }
+                }
+            }
+            index = value.index(after: index)
+        }
+
+        return nil
+    }
+}

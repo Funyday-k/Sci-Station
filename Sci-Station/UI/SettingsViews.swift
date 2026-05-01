@@ -25,6 +25,25 @@ struct SettingsView: View {
                 }
 
                 if appModel.selectedSettingsCategory == .workspace {
+                GroupBox(appModel.localized("基本设置", "Basic Settings")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker(appModel.localized("界面语言", "Interface Language"), selection: Binding(
+                            get: { appModel.workspacePreferences.appLanguage },
+                            set: appModel.updateAppLanguagePreference
+                        )) {
+                            ForEach(AppLanguagePreference.allCases) { option in
+                                Text(appModel.appLanguageLabel(for: option)).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 360)
+                        Text(appModel.localized("语言设置会逐步统一新界面文案。", "The language setting is used for newly unified interface text."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox("Research Root") {
                     VStack(alignment: .leading, spacing: 12) {
                         TextField("Workspace name", text: $workspaceName)
@@ -308,14 +327,23 @@ struct SettingsView: View {
 
                 GroupBox("MinerU PDF -> Markdown") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("PDF 转 Markdown 会优先调用 MinerU；命令不可用或没有产出 Markdown 时，自动降级到 PDFKit fallback，并在 paper.md frontmatter 中记录来源。")
+                        Text("PDF 转 Markdown 会优先调用 MinerU API；API token、网络或服务不可用时，会在 paper.md frontmatter 中记录原因并降级到 PDFKit fallback。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        TextField("MinerU command", text: Binding(
-                            get: { appModel.workspacePreferences.minerUCommand },
-                            set: { appModel.updateMinerUCommand($0) }
+                        SecureField("MinerU API Token", text: $appModel.minerUAPIToken)
+                            .textFieldStyle(.roundedBorder)
+
+                        TextField("MinerU API Base URL", text: Binding(
+                            get: { appModel.workspacePreferences.minerUAPIBaseURLString },
+                            set: { appModel.updateMinerUAPIBaseURL($0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField("MinerU language", text: Binding(
+                            get: { appModel.workspacePreferences.minerUAPILanguage },
+                            set: { appModel.updateMinerUAPILanguage($0) }
                         ))
                         .textFieldStyle(.roundedBorder)
 
@@ -324,6 +352,9 @@ struct SettingsView: View {
                             set: { appModel.setMinerUOverwriteExistingMarkdown($0) }
                         ))
                         .toggleStyle(.checkbox)
+
+                        Button("保存 MinerU API 设置", action: appModel.saveMinerUMarkdownConversionSettings)
+                            .buttonStyle(.borderedProminent)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -341,7 +372,7 @@ struct SettingsView: View {
                 GroupBox("LLM") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 10) {
-                            Label("DeepSeek is the default OpenAI-compatible provider.", systemImage: "sparkles")
+                            Label("OpenAI-compatible API provider.", systemImage: "sparkles")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
@@ -430,128 +461,6 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Copilot Bridge") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Copilot Bridge exports the current AI Lab context into a prompt file and manifest under `.sci-station/agent/`. It is for external VS Code Copilot review or handoff, not required for normal chat.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 12) {
-                            Button {
-                                appModel.exportAgentCopilotBridge()
-                            } label: {
-                                Label(appModel.isExportingAgentBridge ? "Exporting" : "Export Bridge", systemImage: "square.and.arrow.up")
-                            }
-                            .disabled(appModel.isExportingAgentBridge)
-
-                            if let export = appModel.agentBridgeExport {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    WorkspacePathRow(label: "Prompt", value: export.promptRelativePath)
-                                    WorkspacePathRow(label: "Manifest", value: export.manifestRelativePath)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                GroupBox("GitHub Copilot SDK Experimental") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("Enable GitHub Copilot SDK provider", isOn: githubCopilotBinding(
-                            get: { $0.isEnabled },
-                            set: { configuration, newValue in
-                                configuration.isEnabled = newValue
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-
-                        Text("Click Connect GitHub to open github.com and authorize Sci-Station. OAuth code exchange must go through a relay/backend so the desktop app never stores a GitHub client secret.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-
-                        TextField("GitHub Client ID", text: githubCopilotBinding(
-                            get: { $0.clientID },
-                            set: { configuration, newValue in
-                                configuration.clientID = newValue
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        TextField("OAuth Callback URL", text: githubCopilotBinding(
-                            get: { $0.callbackURLString },
-                            set: { configuration, newValue in
-                                configuration.callbackURLString = newValue
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        TextField("Token Exchange Relay URL", text: githubCopilotBinding(
-                            get: { $0.tokenExchangeURLString },
-                            set: { configuration, newValue in
-                                configuration.tokenExchangeURLString = newValue
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .help(Text(verbatim: "Backend endpoint that exchanges GitHub OAuth code for a user access token. Do not put a client secret in the app."))
-
-                        TextField("Required GitHub Organization", text: githubCopilotBinding(
-                            get: { $0.requiredOrganization ?? "" },
-                            set: { configuration, newValue in
-                                configuration.requiredOrganization = trimmedOrNil(newValue)
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        TextField("Copilot Model", text: githubCopilotBinding(
-                            get: { $0.model },
-                            set: { configuration, newValue in
-                                configuration.model = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "gpt-4.1" : newValue
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        TextField("OAuth Scope", text: githubCopilotBinding(
-                            get: { $0.scopeString },
-                            set: { configuration, newValue in
-                                configuration.scopeString = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? GitHubCopilotConfiguration.defaultScopeString : newValue
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-
-                        SecureField("GitHub User Token (optional developer override)", text: $appModel.githubCopilotToken)
-                            .textFieldStyle(.roundedBorder)
-
-                        HStack(spacing: 12) {
-                            Button {
-                                appModel.connectGitHubCopilot()
-                            } label: {
-                                Label(appModel.isConnectingGitHubCopilot ? "Connecting..." : "Connect GitHub", systemImage: "person.crop.circle.badge.checkmark")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(appModel.isConnectingGitHubCopilot)
-
-                            Button("Save Copilot Settings", action: appModel.saveGitHubCopilotSettings)
-                                .buttonStyle(.bordered)
-                            Button("Check Adapter", action: appModel.testGitHubCopilotAdapter)
-                                .buttonStyle(.bordered)
-                            Button("Disconnect", action: appModel.disconnectGitHubCopilot)
-                                .buttonStyle(.bordered)
-                        }
-
-                        WorkspacePathRow(label: "Token Type", value: appModel.githubCopilotTokenKind.label)
-                        WorkspacePathRow(label: "Recommended", value: appModel.githubCopilotTokenKind.isRecommended ? "Yes" : "No")
-                        WorkspacePathRow(label: "Callback", value: appModel.githubCopilotConfiguration.callbackURLString)
-                        WorkspacePathRow(label: "Relay", value: appModel.githubCopilotConfiguration.tokenExchangeURLString.isEmpty ? "Not configured" : appModel.githubCopilotConfiguration.tokenExchangeURLString)
-                        WorkspacePathRow(label: "Config File", value: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath).path)
-
-                        if let message = appModel.githubCopilotConnectionStatusMessage {
-                            Text(message)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
                 }
 
                 if appModel.selectedSettingsCategory == .developer {
@@ -560,13 +469,11 @@ struct SettingsView: View {
                         Text("Workspace paths and generated agent files are centralized here instead of taking space in working views.")
                             .foregroundStyle(.secondary)
                         WorkspacePathRow(label: "LLM Settings", value: workspace.fileURL(for: "settings.yaml").path)
-                        WorkspacePathRow(label: "GitHub Copilot Settings", value: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath).path)
                         WorkspacePathRow(label: "Workspace Preferences", value: workspace.workspacePreferencesURL.path)
                         WorkspacePathRow(label: "Schema", value: "v\(appModel.workspacePreferences.schemaVersion)")
                         WorkspacePathRow(label: "Markdown Snippets", value: workspace.markdownSnippetsURL.path)
                         WorkspacePathRow(label: "Agent Run Log", value: workspace.fileURL(for: ".sci-station/agent/runs.jsonl").path)
                         WorkspacePathRow(label: "Agent Threads", value: workspace.fileURL(for: ".sci-station/agent/threads.jsonl").path)
-                        WorkspacePathRow(label: "Copilot Bridge", value: workspace.directoryURL(for: ".sci-station/agent/copilot-bridge").path)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -635,24 +542,6 @@ struct SettingsView: View {
         )
     }
 
-    private func githubCopilotBinding<Value>(
-        get: @escaping (GitHubCopilotConfiguration) -> Value,
-        set: @escaping (inout GitHubCopilotConfiguration, Value) -> Void
-    ) -> Binding<Value> {
-        Binding(
-            get: { get(appModel.githubCopilotConfiguration) },
-            set: { newValue in
-                appModel.updateGitHubCopilotConfiguration { configuration in
-                    set(&configuration, newValue)
-                }
-            }
-        )
-    }
-
-    private func trimmedOrNil(_ value: String) -> String? {
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedValue.isEmpty ? nil : trimmedValue
-    }
 }
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
@@ -693,7 +582,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .tasks:
             return "Configure todo sync with Apple Reminders."
         case .aiLab:
-            return "Configure AI provider, Copilot, runtime, hooks, MCP, and knowledge context."
+            return "Configure API provider, runtime, hooks, MCP, and knowledge context."
         case .developer:
             return "Inspect settings files and generated agent paths."
         }

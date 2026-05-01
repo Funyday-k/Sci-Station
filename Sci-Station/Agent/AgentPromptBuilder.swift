@@ -8,7 +8,8 @@ public nonisolated struct AgentPromptBuilder {
         workspaceSnapshot: AgentWorkspaceSnapshot,
         tools: [AgentToolDefinition],
       modeInstructions: String? = nil,
-      conversationHistory: [LLMChatMessage] = []
+      conversationHistory: [LLMChatMessage] = [],
+      allowsPlainTextResponse: Bool = false
     ) throws -> String {
       let history = conversationHistory
         .filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -20,7 +21,8 @@ public nonisolated struct AgentPromptBuilder {
         buildSystemPrompt(
           workspaceSnapshot: workspaceSnapshot,
           tools: tools,
-          modeInstructions: modeInstructions
+          modeInstructions: modeInstructions,
+          allowsPlainTextResponse: allowsPlainTextResponse
         ),
         history.isEmpty ? nil : "conversation_history:\n\(history)",
         "user_goal:\n\(goal)"
@@ -34,12 +36,14 @@ public nonisolated struct AgentPromptBuilder {
       workspaceSnapshot: AgentWorkspaceSnapshot,
       tools: [AgentToolDefinition],
       modeInstructions: String? = nil,
-      conversationHistory: [LLMChatMessage] = []
+      conversationHistory: [LLMChatMessage] = [],
+      allowsPlainTextResponse: Bool = false
     ) throws -> [LLMChatMessage] {
       let systemPrompt = try buildSystemPrompt(
         workspaceSnapshot: workspaceSnapshot,
         tools: tools,
-        modeInstructions: modeInstructions
+        modeInstructions: modeInstructions,
+        allowsPlainTextResponse: allowsPlainTextResponse
       )
       let safeHistory = conversationHistory
         .filter { $0.role == .user || $0.role == .assistant }
@@ -54,11 +58,36 @@ public nonisolated struct AgentPromptBuilder {
     private nonisolated func buildSystemPrompt(
       workspaceSnapshot: AgentWorkspaceSnapshot,
       tools: [AgentToolDefinition],
-      modeInstructions: String?
+      modeInstructions: String?,
+      allowsPlainTextResponse: Bool
     ) throws -> String {
         let snapshotJSON = try encoded(workspaceSnapshot)
         let toolsJSON = try encoded(tools)
         let resolvedModeInstructions = modeInstructions?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Mode: Assistant. Use available tools only when they help and respect approval requirements."
+
+        if allowsPlainTextResponse {
+            return """
+            You are the Sci-Station in-app research assistant. Answer the user's question using only the workspace_context and conversation history.
+
+            Operating mode:
+            \(resolvedModeInstructions)
+
+            Operating rules:
+            - Do not call tools.
+            - Do not invent papers, file paths, todo items, or citations that are not present in workspace_context.
+            - Respond in the same language as the latest user_goal unless the user explicitly asks for another language.
+            - If the latest user_goal contains Chinese, answer in Simplified Chinese.
+            - When paper markdown excerpts are present, use them as the primary paper content. When only metadata is present, say what is known and what is missing.
+            - Return only the user-facing answer as natural Markdown.
+            - Do not return JSON, schema fields, tool_calls, summaries, or envelope metadata.
+
+            workspace_context:
+            \(snapshotJSON)
+
+            available_tools:
+            \(toolsJSON)
+            """
+        }
 
         return """
         You are the Sci-Station in-app research agent. Plan actions that can be executed by Sci-Station tools.

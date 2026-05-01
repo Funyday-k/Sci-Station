@@ -71,11 +71,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         ),
         SeededFile(
             relativePath: "settings/workspace_preferences.yaml",
-            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"projects\"\n  - \"collection\"\nlibrary_sort_field: \"\"\nlibrary_sort_ascending: true\ndefault_collection: \"\"\nrecent_section: \"projects\"\nsync_todos_to_apple_reminders: true\n"
-        ),
-        SeededFile(
-            relativePath: GitHubCopilotConfigurationStore.relativePath,
-            contents: "github_copilot:\n  enabled: false\n  client_id: \"\"\n  callback_url: \"sci-station://github-copilot/callback\"\n  token_exchange_url: \"\"\n  required_org: \"\"\n  model: \"gpt-4.1\"\n  scope: \"read:user read:org\"\n"
+            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"projects\"\n  - \"collection\"\nlibrary_sort_field: \"\"\nlibrary_sort_ascending: true\ndefault_collection: \"\"\nrecent_section: \"projects\"\nsync_todos_to_apple_reminders: true\napp_language: \"system\"\nmineru_command: \"mineru\"\nmineru_api_base_url: \"https://mineru.net\"\nmineru_api_language: \"en\"\nmineru_overwrite_existing_markdown: true\n"
         ),
         SeededFile(
             relativePath: "settings/markdown_snippets.yaml",

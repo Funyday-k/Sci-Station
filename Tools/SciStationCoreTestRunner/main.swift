@@ -57,6 +57,7 @@ private struct CoreVerificationSuite {
         try await llmConfigurationStorePersistsWithoutAPIKey()
         try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
         try agentPlanParserExtractsJSONFromMarkdownFence()
+        try agentVisibleResponseExtractorHidesJSONEnvelope()
         try await agentPlannerAcceptsPlainTextConversationResponse()
         try await agentToolExecutorRequiresApprovalForTodoWrites()
         try await agentPaperClassificationToolUpdatesMetadata()
@@ -80,6 +81,7 @@ private struct CoreVerificationSuite {
         try agentPermissionDockSummarizesPolicies()
         try agentHookActivitySummaryReflectsTogglesAndResults()
         try agentMCPServerStatusSummaryParsesProductAndLocal()
+        try openAIStreamDeltaParserIgnoresBadChunks()
         try llmProviderV2RequestModelsToolDefinitions()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
@@ -320,7 +322,10 @@ private struct CoreVerificationSuite {
             recentSection: "library"
         )
         preferences.updateLibraryVisibleColumns(from: "title,authors,bibtex")
+        preferences.appLanguage = .simplifiedChinese
         preferences.minerUCommand = "mineru"
+        preferences.minerUAPIBaseURLString = "https://mineru.example.com"
+        preferences.minerUAPILanguage = "zh"
         preferences.minerUOverwriteExistingMarkdown = false
         preferences.agentDisabledToolNamesByScope = [
             "project:test-workspace|thread:agent-thread-1": ["create_todo", "write_markdown_plan"]
@@ -336,7 +341,10 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.librarySortState == LibrarySortState(field: .year, isAscending: false), "Workspace preferences should preserve Library sort state.")
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
+        try expect(loadedPreferences.appLanguage == .simplifiedChinese, "Workspace preferences should preserve app language.")
         try expect(loadedPreferences.minerUCommand == "mineru", "Workspace preferences should preserve MinerU command.")
+        try expect(loadedPreferences.minerUAPIBaseURLString == "https://mineru.example.com", "Workspace preferences should preserve MinerU API base URL.")
+        try expect(loadedPreferences.minerUAPILanguage == "zh", "Workspace preferences should preserve MinerU API language.")
         try expect(loadedPreferences.minerUOverwriteExistingMarkdown == false, "Workspace preferences should preserve MinerU overwrite behavior.")
         try expect(loadedPreferences.agentDisabledToolNamesByScope["project:test-workspace|thread:agent-thread-1"] == ["create_todo", "write_markdown_plan"], "Workspace preferences should preserve scoped disabled tools.")
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
@@ -1554,6 +1562,24 @@ private struct CoreVerificationSuite {
                 try expect(plan.toolCalls.first?.argumentsJSON.contains("Read the selected paper") == true, "Agent plan parser should preserve encoded tool arguments.")
             }
 
+            private func agentVisibleResponseExtractorHidesJSONEnvelope() throws {
+                let jsonResponse = """
+                {
+                    "summary": "Internal summary",
+                    "tool_calls": [],
+                    "final_response_draft": "只显示这一段。"
+                }
+                """
+
+                let visibleText = AgentVisibleResponseExtractor.visibleText(from: jsonResponse)
+                let partialJSON = "{\"summary\": \"still streaming"
+                let plainText = "普通 Markdown 回复"
+
+                try expect(visibleText == "只显示这一段。", "Visible response extractor should return final_response_draft from JSON envelopes.")
+                try expect(AgentVisibleResponseExtractor.visibleText(from: partialJSON).isEmpty, "Visible response extractor should hide partial JSON while it is still streaming.")
+                try expect(AgentVisibleResponseExtractor.visibleText(from: plainText) == plainText, "Visible response extractor should preserve plain text responses.")
+            }
+
             private func agentPlannerAcceptsPlainTextConversationResponse() async throws {
                 let provider = StaticLLMProvider(response: "你好，我可以用 **Markdown** 回答。")
                 let planner = AgentPlanner(provider: provider)
@@ -2342,6 +2368,16 @@ private struct CoreVerificationSuite {
 
                 try expect(alphaEvents.map(\.id) == ["event-1", "event-2"], "Session event logger should replay valid events in append order.")
                 try expect(missingEvents.isEmpty, "Session event logger should filter by session id.")
+            }
+
+            private func openAIStreamDeltaParserIgnoresBadChunks() throws {
+                let validChunk = #"{"choices":[{"delta":{"content":"Hello"}}]}"#.data(using: .utf8)!
+                let emptyDeltaChunk = #"{"choices":[{"delta":{}}]}"#.data(using: .utf8)!
+                let badChunk = Data("{not-json}".utf8)
+
+                try expect(OpenAICompatibleStreamDeltaParser.contentDelta(from: validChunk) == "Hello", "SSE parser should decode content deltas.")
+                try expect(OpenAICompatibleStreamDeltaParser.contentDelta(from: emptyDeltaChunk) == nil, "SSE parser should ignore empty deltas.")
+                try expect(OpenAICompatibleStreamDeltaParser.contentDelta(from: badChunk) == nil, "SSE parser should ignore malformed JSON chunks.")
             }
 
             private func llmProviderV2RequestModelsToolDefinitions() throws {

@@ -37,7 +37,8 @@ public actor AgentPlanner {
                 workspaceSnapshot: workspaceSnapshot,
                 tools: tools,
                 modeInstructions: modeInstructions,
-                conversationHistory: conversationHistory
+                conversationHistory: conversationHistory,
+                allowsPlainTextResponse: allowsPlainTextResponse
             )
             let request = LLMProviderRequest(messages: messages)
 
@@ -62,7 +63,8 @@ public actor AgentPlanner {
             workspaceSnapshot: workspaceSnapshot,
             tools: tools,
             modeInstructions: modeInstructions,
-            conversationHistory: conversationHistory
+            conversationHistory: conversationHistory,
+            allowsPlainTextResponse: allowsPlainTextResponse
         )
         let response = try await provider.complete(prompt: prompt, configuration: configuration, apiKey: apiKey)
         return try parsedPlan(from: response, allowsPlainTextResponse: allowsPlainTextResponse)
@@ -98,18 +100,19 @@ public actor AgentPlanner {
         do {
             return try planParser.parse(response)
         } catch let error as AgentPlanParserError where allowsPlainTextResponse {
-            let trimmedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedResponse.isEmpty else {
+            let visibleResponse = AgentVisibleResponseExtractor.visibleText(from: response)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !visibleResponse.isEmpty else {
                 throw error
             }
 
             return AgentPlan(
                 title: "对话回复",
-                summary: trimmedResponse,
+                summary: visibleResponse,
                 risk: nil,
                 steps: [],
                 toolCalls: [],
-                finalResponseDraft: trimmedResponse
+                finalResponseDraft: visibleResponse
             )
         }
     }

@@ -2,7 +2,6 @@ import Foundation
 
 public enum LLMProviderKind: String, Codable, CaseIterable, Sendable {
     case openAICompatible = "openai-compatible"
-    case githubCopilot = "github-copilot"
 }
 
 public struct LLMConfiguration: Codable, Hashable, Sendable {

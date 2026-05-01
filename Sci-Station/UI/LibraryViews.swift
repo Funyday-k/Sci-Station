@@ -185,6 +185,13 @@ struct LibraryListView: View {
                 Label("Export BibTeX", systemImage: "doc.on.doc")
             }
 
+            Button {
+                appModel.convertPaperToMarkdown(paper)
+            } label: {
+                Label("转换为 Markdown", systemImage: "doc.richtext")
+            }
+            .disabled(!appModel.agentKnowledgePaperHasPDF(paper) || appModel.paperMarkdownConversionState(for: paper) == .converting)
+
             Divider()
 
             PaperClassificationMenuItems(paper: paper)
@@ -324,7 +331,9 @@ private struct LibraryPaperTableView: View {
                 projectNames: appModel.projectNames(for: paper).joined(separator: ", "),
                 coreProjectNames: appModel.coreProjectNames(for: paper).joined(separator: ", "),
                 wikiStatus: appModel.paperWikiStatusText(for: paper, in: workspace),
-                hasWiki: appModel.paperHasWikiPage(paper, in: workspace)
+                hasWiki: appModel.paperHasWikiPage(paper, in: workspace),
+                markdownConversionState: appModel.paperMarkdownConversionState(for: paper),
+                markdownConversionMessage: appModel.paperMarkdownConversionMessage(for: paper)
             )
         }
     }
@@ -568,6 +577,13 @@ private struct LibraryPaperTableView: View {
             }
             .disabled(!appModel.canPreviewLibrarySelection)
 
+            Button {
+                appModel.convertLibrarySelectionToMarkdown()
+            } label: {
+                Label("批量转换 Markdown", systemImage: "doc.richtext")
+            }
+            .disabled(!appModel.selectedLibraryPapers.contains { appModel.agentKnowledgePaperHasPDF($0) })
+
             Divider()
 
             batchEditMenu
@@ -695,6 +711,13 @@ private struct LibraryPaperTableView: View {
             Label("Export BibTeX", systemImage: "doc.on.doc")
         }
 
+        Button {
+            appModel.convertPaperToMarkdown(paper)
+        } label: {
+            Label("转换为 Markdown", systemImage: "doc.richtext")
+        }
+        .disabled(!appModel.agentKnowledgePaperHasPDF(paper) || appModel.paperMarkdownConversionState(for: paper) == .converting)
+
         Divider()
 
         PaperClassificationMenuItems(paper: paper)
@@ -715,6 +738,8 @@ private struct LibraryPaperTableRow: Identifiable, Hashable {
     let coreProjectNames: String
     let wikiStatus: String
     let hasWiki: Bool
+    let markdownConversionState: PaperMarkdownConversionState
+    let markdownConversionMessage: String?
 
     var id: Paper.ID { paper.id }
     var titleSortKey: String { paper.displayTitle }
@@ -805,7 +830,9 @@ private struct LibraryPaperTableRow: Identifiable, Hashable {
             projectNames: "",
             coreProjectNames: "",
             wikiStatus: "Missing",
-            hasWiki: false
+            hasWiki: false,
+            markdownConversionState: .notConverted,
+            markdownConversionMessage: nil
         )
     }
 
@@ -1062,9 +1089,15 @@ private struct LibraryColumnValueView: View {
         Group {
             switch column {
             case .title:
-                Text(paper.displayTitle)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(paper.displayTitle)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                    PaperMarkdownConversionBadge(
+                        state: row.markdownConversionState,
+                        message: row.markdownConversionMessage
+                    )
+                }
             case .authors:
                 secondaryText(paper.authorsDisplay, lineLimit: 2)
             case .year:

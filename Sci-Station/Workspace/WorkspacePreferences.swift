@@ -10,10 +10,13 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var defaultCollectionPath: String?
     public var recentSection: String?
     public var syncTodosToAppleReminders: Bool
+    public var appLanguage: AppLanguagePreference
     public var agentKnowledgePaperIDs: [String]?
     public var agentDisabledToolNamesByScope: [String: [String]]
     public var pinnedAgentThreadIDsByProject: [String: [String]]
     public var minerUCommand: String
+    public var minerUAPIBaseURLString: String
+    public var minerUAPILanguage: String
     public var minerUOverwriteExistingMarkdown: Bool
 
     public nonisolated init(
@@ -23,10 +26,13 @@ public struct WorkspacePreferences: Hashable, Sendable {
         defaultCollectionPath: String? = nil,
         recentSection: String? = "library",
         syncTodosToAppleReminders: Bool = true,
+        appLanguage: AppLanguagePreference = .system,
         agentKnowledgePaperIDs: [String]? = nil,
         agentDisabledToolNamesByScope: [String: [String]] = [:],
         pinnedAgentThreadIDsByProject: [String: [String]] = [:],
         minerUCommand: String = "mineru",
+        minerUAPIBaseURLString: String = "https://mineru.net",
+        minerUAPILanguage: String = "en",
         minerUOverwriteExistingMarkdown: Bool = true
     ) {
         self.schemaVersion = schemaVersion
@@ -35,10 +41,13 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.defaultCollectionPath = defaultCollectionPath
         self.recentSection = recentSection
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
+        self.appLanguage = appLanguage
         self.agentKnowledgePaperIDs = agentKnowledgePaperIDs
         self.agentDisabledToolNamesByScope = agentDisabledToolNamesByScope
         self.pinnedAgentThreadIDsByProject = pinnedAgentThreadIDsByProject
         self.minerUCommand = minerUCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mineru" : minerUCommand
+        self.minerUAPIBaseURLString = minerUAPIBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://mineru.net" : minerUAPIBaseURLString
+        self.minerUAPILanguage = minerUAPILanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "en" : minerUAPILanguage
         self.minerUOverwriteExistingMarkdown = minerUOverwriteExistingMarkdown
     }
 
@@ -53,6 +62,14 @@ public struct WorkspacePreferences: Hashable, Sendable {
             .filter { !$0.isEmpty }
         libraryVisibleColumns = columns.isEmpty ? Self.defaultLibraryVisibleColumns : columns
     }
+}
+
+public enum AppLanguagePreference: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case system
+    case simplifiedChinese = "zh-Hans"
+    case english = "en"
+
+    public nonisolated var id: String { rawValue }
 }
 
 public enum LibrarySortField: String, CaseIterable, Hashable, Sendable {

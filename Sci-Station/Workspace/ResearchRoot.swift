@@ -25,7 +25,6 @@ public nonisolated struct ResearchRoot: Identifiable, Equatable, Sendable {
         "settings",
         ".sci-station",
         ".sci-station/agent",
-        ".sci-station/agent/copilot-bridge",
         ".sci-station/vscode"
     ]
 

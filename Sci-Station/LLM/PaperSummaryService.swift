@@ -97,19 +97,90 @@ public struct PaperMarkdownConversionResult: Identifiable, Hashable, Sendable {
     public var errorMessage: String?
 }
 
+public nonisolated enum PaperMarkdownConversionState: String, Codable, Hashable, Sendable {
+    case noPDF = "no_pdf"
+    case notConverted = "not_converted"
+    case converting
+    case succeeded
+    case failed
+}
+
+public nonisolated enum PaperMarkdownConversionError: LocalizedError, Sendable {
+    case missingMinerUAPIToken
+    case invalidMinerUAPIBaseURL(String)
+    case minerUAPIError(String)
+    case missingUploadURL
+    case uploadFailed(Int)
+    case resultFailed(String)
+    case resultTimedOut
+    case missingResultZipURL
+    case badZipArchive
+    case markdownNotFound
+
+    public var errorDescription: String? {
+        switch self {
+        case .missingMinerUAPIToken:
+            return "MinerU API token is missing."
+        case let .invalidMinerUAPIBaseURL(value):
+            return "Invalid MinerU API base URL: \(value)."
+        case let .minerUAPIError(message):
+            return "MinerU API error: \(message)"
+        case .missingUploadURL:
+            return "MinerU API did not return an upload URL."
+        case let .uploadFailed(statusCode):
+            return "MinerU upload failed with HTTP \(statusCode)."
+        case let .resultFailed(message):
+            return "MinerU extraction failed: \(message)"
+        case .resultTimedOut:
+            return "MinerU extraction timed out."
+        case .missingResultZipURL:
+            return "MinerU result did not include a Markdown zip URL."
+        case .badZipArchive:
+            return "MinerU result zip could not be extracted."
+        case .markdownNotFound:
+            return "MinerU result zip did not contain a Markdown file."
+        }
+    }
+}
+
 public struct PaperMarkdownConversionConfiguration: Hashable, Sendable {
+    public var minerUAPIToken: String
+    public var minerUAPIBaseURLString: String
+    public var minerUModelVersion: String
+    public var minerUAPILanguage: String
     public var minerUCommand: String
     public var overwriteExistingMarkdown: Bool
+    public var pollIntervalSeconds: UInt64
+    public var pollTimeoutSeconds: TimeInterval
 
-    public nonisolated init(minerUCommand: String = "mineru", overwriteExistingMarkdown: Bool = true) {
+    public nonisolated init(
+        minerUAPIToken: String = "",
+        minerUAPIBaseURLString: String = "https://mineru.net",
+        minerUModelVersion: String = "vlm",
+        minerUAPILanguage: String = "en",
+        minerUCommand: String = "mineru",
+        overwriteExistingMarkdown: Bool = true,
+        pollIntervalSeconds: UInt64 = 10,
+        pollTimeoutSeconds: TimeInterval = 1_800
+    ) {
+        self.minerUAPIToken = minerUAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.minerUAPIBaseURLString = minerUAPIBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://mineru.net" : minerUAPIBaseURLString
+        self.minerUModelVersion = minerUModelVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "vlm" : minerUModelVersion
+        self.minerUAPILanguage = minerUAPILanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "en" : minerUAPILanguage
         let trimmedCommand = minerUCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         self.minerUCommand = trimmedCommand.isEmpty ? "mineru" : trimmedCommand
         self.overwriteExistingMarkdown = overwriteExistingMarkdown
+        self.pollIntervalSeconds = max(1, pollIntervalSeconds)
+        self.pollTimeoutSeconds = max(30, pollTimeoutSeconds)
     }
 }
 
 public actor PaperMarkdownConversionService {
-    public init() {}
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
 
     public func convert(
         _ papers: [Paper],
@@ -149,13 +220,33 @@ public actor PaperMarkdownConversionService {
             )
         }
 
-        if let minerUResult = await convertWithMinerU(
-            paper,
-            pdfURL: pdfURL,
-            markdownURL: markdownURL,
-            configuration: configuration
-        ) {
-            return minerUResult
+        var fallbackReason = PaperMarkdownConversionError.missingMinerUAPIToken.localizedDescription
+        if !configuration.minerUAPIToken.isEmpty {
+            do {
+                let generatedMarkdown = try await convertWithMinerUAPI(
+                    paper,
+                    pdfURL: pdfURL,
+                    markdownURL: markdownURL,
+                    configuration: configuration
+                )
+                let markdown = markdownDocument(
+                    for: paper,
+                    pageMarkdown: generatedMarkdown,
+                    extractionEngine: "mineru_api",
+                    fallbackReason: nil
+                )
+                try FileManager.default.createDirectory(at: markdownURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+                return PaperMarkdownConversionResult(
+                    paperID: paper.id,
+                    title: paper.displayTitle,
+                    markdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
+                    didWriteMarkdown: true,
+                    errorMessage: nil
+                )
+            } catch {
+                fallbackReason = error.localizedDescription
+            }
         }
 
         guard let document = PDFDocument(url: pdfURL) else {
@@ -183,7 +274,7 @@ public actor PaperMarkdownConversionService {
             for: paper,
             pageMarkdown: pageMarkdown,
             extractionEngine: "pdfkit_fallback",
-            fallbackReason: "MinerU command failed or did not produce Markdown."
+            fallbackReason: fallbackReason
         )
 
         do {
@@ -207,48 +298,178 @@ public actor PaperMarkdownConversionService {
         }
     }
 
-    private func convertWithMinerU(
+    private func convertWithMinerUAPI(
         _ paper: Paper,
         pdfURL: URL,
         markdownURL: URL,
         configuration: PaperMarkdownConversionConfiguration
-    ) async -> PaperMarkdownConversionResult? {
-        let outputDirectory = markdownURL.deletingLastPathComponent().appendingPathComponent("mineru-output", isDirectory: true)
+    ) async throws -> String {
+        let outputDirectory = markdownURL.deletingLastPathComponent().appendingPathComponent("mineru-api-output", isDirectory: true)
+        let uploadName = "\(paper.id).pdf"
+        let dataID = paper.id.replacingOccurrences(of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression)
 
-        do {
-            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            let result = try runMinerU(command: configuration.minerUCommand, pdfURL: pdfURL, outputDirectory: outputDirectory)
-            guard result.exitCode == 0,
-                  let generatedMarkdownURL = newestMarkdownFile(in: outputDirectory),
-                  let generatedMarkdown = try? String(contentsOf: generatedMarkdownURL, encoding: .utf8),
-                  !generatedMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return nil
-            }
+        let upload = try await createMinerUBatchUpload(
+            uploadName: uploadName,
+            dataID: dataID,
+            configuration: configuration
+        )
+        try await uploadPDF(pdfURL, to: upload.uploadURL)
+        let zipURL = try await pollMinerUResult(
+            batchID: upload.batchID,
+            uploadName: uploadName,
+            dataID: dataID,
+            configuration: configuration
+        )
+        let zipData = try await downloadMinerUZip(from: zipURL)
 
-            let markdown = markdownDocument(
-                for: paper,
-                pageMarkdown: generatedMarkdown,
-                extractionEngine: "mineru",
-                fallbackReason: nil
-            )
-            try FileManager.default.createDirectory(at: markdownURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
-            return PaperMarkdownConversionResult(
-                paperID: paper.id,
-                title: paper.displayTitle,
-                markdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
-                didWriteMarkdown: true,
-                errorMessage: nil
-            )
-        } catch {
-            return nil
+        if FileManager.default.fileExists(atPath: outputDirectory.path) {
+            try FileManager.default.removeItem(at: outputDirectory)
+        }
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try extractZipData(zipData, into: outputDirectory)
+
+        guard let generatedMarkdownURL = preferredMarkdownFile(in: outputDirectory),
+              let generatedMarkdown = try? String(contentsOf: generatedMarkdownURL, encoding: .utf8),
+              !generatedMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PaperMarkdownConversionError.markdownNotFound
+        }
+
+        return generatedMarkdown
+    }
+
+    private func createMinerUBatchUpload(
+        uploadName: String,
+        dataID: String,
+        configuration: PaperMarkdownConversionConfiguration
+    ) async throws -> (batchID: String, uploadURL: URL) {
+        let endpoint = try minerUEndpoint("/api/v4/file-urls/batch", configuration: configuration)
+        var request = minerURequest(url: endpoint, method: "POST", token: configuration.minerUAPIToken)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "files": [[
+                "name": uploadName,
+                "data_id": dataID
+            ]],
+            "model_version": configuration.minerUModelVersion,
+            "enable_formula": true,
+            "enable_table": true,
+            "language": configuration.minerUAPILanguage
+        ])
+
+        let root = try await minerUJSONResponse(for: request)
+        guard let data = root["data"] as? [String: Any] else {
+            throw PaperMarkdownConversionError.minerUAPIError("Missing data field.")
+        }
+        guard let batchID = data["batch_id"] as? String,
+              !batchID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PaperMarkdownConversionError.minerUAPIError("Missing batch_id.")
+        }
+        guard let uploadURLString = (data["file_urls"] as? [String])?.first,
+              let uploadURL = URL(string: uploadURLString) else {
+            throw PaperMarkdownConversionError.missingUploadURL
+        }
+
+        return (batchID, uploadURL)
+    }
+
+    private func uploadPDF(_ pdfURL: URL, to uploadURL: URL) async throws {
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        let (_, response) = try await session.upload(for: request, fromFile: pdfURL)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 || statusCode == 201 else {
+            throw PaperMarkdownConversionError.uploadFailed(statusCode)
         }
     }
 
-    private nonisolated func runMinerU(command: String, pdfURL: URL, outputDirectory: URL) throws -> (exitCode: Int32, output: String) {
+    private func pollMinerUResult(
+        batchID: String,
+        uploadName: String,
+        dataID: String,
+        configuration: PaperMarkdownConversionConfiguration
+    ) async throws -> URL {
+        let endpoint = try minerUEndpoint("/api/v4/extract-results/batch/\(batchID)", configuration: configuration)
+        let deadline = Date().addingTimeInterval(configuration.pollTimeoutSeconds)
+
+        while Date() < deadline {
+            let request = minerURequest(url: endpoint, method: "GET", token: configuration.minerUAPIToken)
+            let root = try await minerUJSONResponse(for: request)
+            let data = root["data"] as? [String: Any]
+            let results = data?["extract_result"] as? [[String: Any]] ?? []
+            let result = results.first { item in
+                (item["file_name"] as? String) == uploadName || (item["data_id"] as? String) == dataID
+            } ?? results.first
+
+            if let result {
+                let state = result["state"] as? String ?? ""
+                if state == "done" {
+                    guard let zipURLString = result["full_zip_url"] as? String,
+                          let zipURL = URL(string: zipURLString) else {
+                        throw PaperMarkdownConversionError.missingResultZipURL
+                    }
+                    return zipURL
+                }
+                if state == "failed" {
+                    throw PaperMarkdownConversionError.resultFailed(result["err_msg"] as? String ?? "unknown error")
+                }
+            }
+
+            try await Task.sleep(nanoseconds: configuration.pollIntervalSeconds * 1_000_000_000)
+        }
+
+        throw PaperMarkdownConversionError.resultTimedOut
+    }
+
+    private func downloadMinerUZip(from zipURL: URL) async throws -> Data {
+        let (data, response) = try await session.data(from: zipURL)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(statusCode), !data.isEmpty else {
+            throw PaperMarkdownConversionError.missingResultZipURL
+        }
+        return data
+    }
+
+    private func minerUJSONResponse(for request: URLRequest) async throws -> [String: Any] {
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(statusCode) else {
+            throw PaperMarkdownConversionError.minerUAPIError(String(data: data, encoding: .utf8) ?? "HTTP \(statusCode)")
+        }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PaperMarkdownConversionError.minerUAPIError("Malformed JSON response.")
+        }
+        let code = root["code"] as? Int ?? -1
+        guard code == 0 else {
+            throw PaperMarkdownConversionError.minerUAPIError(root["msg"] as? String ?? "code=\(code)")
+        }
+        return root
+    }
+
+    private nonisolated func minerURequest(url: URL, method: String, token: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    private nonisolated func minerUEndpoint(_ path: String, configuration: PaperMarkdownConversionConfiguration) throws -> URL {
+        let baseURLString = configuration.minerUAPIBaseURLString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !baseURLString.isEmpty,
+              let url = URL(string: baseURLString + path) else {
+            throw PaperMarkdownConversionError.invalidMinerUAPIBaseURL(configuration.minerUAPIBaseURLString)
+        }
+        return url
+    }
+
+    private nonisolated func extractZipData(_ zipData: Data, into directory: URL) throws {
+        let zipURL = directory.appendingPathComponent("mineru-result.zip", isDirectory: false)
+        try zipData.write(to: zipURL, options: .atomic)
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [command, "-p", pdfURL.path, "-o", outputDirectory.path]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-oq", zipURL.path, "-d", directory.path]
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -257,29 +478,33 @@ public actor PaperMarkdownConversionService {
         try process.run()
         process.waitUntilExit()
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8) ?? ""
-        return (process.terminationStatus, output)
+        guard process.terminationStatus == 0 else {
+            throw PaperMarkdownConversionError.badZipArchive
+        }
     }
 
-    private nonisolated func newestMarkdownFile(in directory: URL) -> URL? {
+    private nonisolated func preferredMarkdownFile(in directory: URL) -> URL? {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
+            includingPropertiesForKeys: [.fileSizeKey],
             options: [.skipsHiddenFiles]
         ) else {
             return nil
         }
 
-        return enumerator
+        let markdownFiles = enumerator
             .compactMap { $0 as? URL }
             .filter { $0.pathExtension.lowercased() == "md" }
-            .sorted { first, second in
-                let firstDate = (try? first.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let secondDate = (try? second.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return firstDate > secondDate
-            }
-            .first
+
+        if let fullMarkdown = markdownFiles.first(where: { $0.lastPathComponent == "full.md" }) {
+            return fullMarkdown
+        }
+
+        return markdownFiles.sorted { first, second in
+            let firstSize = (try? first.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            let secondSize = (try? second.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            return firstSize > secondSize
+        }.first
     }
 
     private nonisolated func extractedMarkdown(from document: PDFDocument) -> String {

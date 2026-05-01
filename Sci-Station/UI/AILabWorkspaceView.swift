@@ -162,10 +162,10 @@ private struct AIKnowledgeLibrarySheet: View {
                 Button {
                     appModel.convertSelectedAgentKnowledgePapersToMarkdown()
                 } label: {
-                    Label(appModel.isConvertingAgentKnowledgeMarkdown ? "Converting" : "PDF -> MD", systemImage: "doc.richtext")
+                    Label(appModel.isConvertingAgentKnowledgeMarkdown ? "转换中" : "PDF -> MD", systemImage: "doc.richtext")
                 }
                 .disabled(appModel.isConvertingAgentKnowledgeMarkdown || appModel.agentKnowledgePaperSelectedCount == 0)
-                .help("Generate paper.md for selected knowledge papers with the MinerU-compatible Markdown bridge")
+                .help("使用 MinerU API 将所选论文转换为 paper.md")
 
                 Button("All") {
                     appModel.selectAllAgentKnowledgePapers()
@@ -224,11 +224,10 @@ private struct AIKnowledgeLibrarySheet: View {
                             if appModel.agentKnowledgePaperHasPDF(paper) {
                                 Label("PDF", systemImage: "doc")
                             }
-                            if appModel.agentKnowledgePaperHasMarkdown(paper) {
-                                Label("Markdown", systemImage: "doc.richtext")
-                            } else {
-                                Label("Missing Markdown", systemImage: "exclamationmark.circle")
-                            }
+                            PaperMarkdownConversionBadge(
+                                state: appModel.paperMarkdownConversionState(for: paper),
+                                message: appModel.paperMarkdownConversionMessage(for: paper)
+                            )
                         }
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -357,8 +356,6 @@ private struct AgentPanelView: View {
     @State private var isMCPExpanded = false
     @State private var isPresetExpanded = false
     @State private var isHistoryExpanded = false
-    @State private var isBridgeExpanded = false
-    @State private var isHandlingComposerChange = false
     private let timelineBottomID = "agent-timeline-bottom"
 
     var body: some View {
@@ -457,12 +454,6 @@ private struct AgentPanelView: View {
                 if let run = appModel.agentCurrentRun {
                     DisclosureGroup("Current Plan", isExpanded: $isPlanExpanded) {
                         AgentPlanSummaryView(run: run)
-                    }
-                }
-
-                if appModel.agentBridgeExport != nil {
-                    DisclosureGroup("Copilot Bridge Export", isExpanded: $isBridgeExpanded) {
-                        bridgeExportDetails
                     }
                 }
 
@@ -585,8 +576,13 @@ private struct AgentPanelView: View {
                             .font(.body)
                             .frame(minHeight: 76, maxHeight: 120)
                             .padding(4)
-                            .onChange(of: appModel.agentGoal) { _, newValue in
-                                handleComposerChange(newValue)
+                            .onKeyPress(keys: [.return]) { keyPress in
+                                if keyPress.modifiers.contains(.shift) {
+                                    return .ignored
+                                }
+
+                                submitComposer()
+                                return .handled
                             }
 
                         if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -616,7 +612,7 @@ private struct AgentPanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(appModel.isExecutingAgentTools)
-                    .help(appModel.isPlanningAgentRun ? "停止输出" : "连按两次 Return 发送")
+                    .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
                     .accessibilityLabel(appModel.isPlanningAgentRun ? "停止输出" : "发送")
                 }
             }
@@ -636,14 +632,6 @@ private struct AgentPanelView: View {
                             Label(appModel.isRefreshingAgentContext ? "刷新中" : "刷新", systemImage: "arrow.clockwise")
                         }
                         .disabled(appModel.isRefreshingAgentContext)
-
-                        Button {
-                            appModel.exportAgentCopilotBridge()
-                        } label: {
-                            Label(appModel.isExportingAgentBridge ? "Exporting" : "Copilot Bridge", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(appModel.isExportingAgentBridge)
-                        .help("Export the current AI context as a prompt and manifest for external Copilot review")
 
                         Button {
                             appModel.openSettings(category: .aiLab)
@@ -666,32 +654,12 @@ private struct AgentPanelView: View {
         .background(Color.secondary.opacity(0.04))
     }
 
-    private func handleComposerChange(_ newValue: String) {
-        guard !isHandlingComposerChange else {
-            return
-        }
-
-        if appModel.isPlanningAgentRun {
-            return
-        }
-
-        guard newValue.hasSuffix("\n\n") else {
-            return
-        }
-
-        let prompt = String(newValue.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
-        updateComposerText(prompt)
-        if prompt.isEmpty {
+    private func submitComposer() {
+        guard !appModel.isPlanningAgentRun else {
             return
         }
 
         appModel.generateAgentPlan()
-    }
-
-    private func updateComposerText(_ text: String) {
-        isHandlingComposerChange = true
-        appModel.agentGoal = text
-        isHandlingComposerChange = false
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -699,17 +667,6 @@ private struct AgentPanelView: View {
             withAnimation(.easeOut(duration: 0.22)) {
                 proxy.scrollTo(timelineBottomID, anchor: .bottom)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var bridgeExportDetails: some View {
-        if let export = appModel.agentBridgeExport {
-            VStack(alignment: .leading, spacing: 4) {
-                WorkspacePathRow(label: "Bridge Prompt", value: export.promptRelativePath)
-                WorkspacePathRow(label: "Bridge Manifest", value: export.manifestRelativePath)
-            }
-            .padding(.top, 8)
         }
     }
 
@@ -1386,6 +1343,7 @@ private struct AgentPermissionDockRow: View {
 
 struct AgentHookActivityView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @State private var selectedHookResult: AgentHookActivityItem?
 
     var body: some View {
         GroupBox("Hook Activity") {
@@ -1449,12 +1407,22 @@ struct AgentHookActivityView: View {
                                 Text(result.summary)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                                     .textSelection(.enabled)
-                                if let additionalContext = result.additionalContext {
-                                    Text(additionalContext)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
+                                HStack(spacing: 8) {
+                                    if result.additionalContext != nil {
+                                        Label("含完整上下文", systemImage: "text.badge.plus")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 0)
+                                    Button {
+                                        selectedHookResult = result
+                                    } label: {
+                                        Label("查看", systemImage: "eye")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
                                 }
                             }
                             .padding(8)
@@ -1465,6 +1433,65 @@ struct AgentHookActivityView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
+        }
+        .sheet(item: $selectedHookResult) { result in
+            AgentHookResultDetailSheet(result: result)
+        }
+    }
+}
+
+private struct AgentHookResultDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let result: AgentHookActivityItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(result.eventName?.rawValue ?? "Hook Result")
+                        .font(.headline)
+                    Text(result.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button("完成") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    detailBlock(title: "Summary", value: result.summary)
+                    if let additionalContext = result.additionalContext {
+                        detailBlock(title: "Additional Context", value: additionalContext)
+                    }
+                    if let permissionDecision = result.permissionDecision {
+                        WorkspacePathRow(label: "Permission", value: permissionDecision.rawValue)
+                    }
+                    if let hookID = result.hookID {
+                        WorkspacePathRow(label: "Hook ID", value: hookID)
+                    }
+                    WorkspacePathRow(label: "Session", value: result.sessionID)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    private func detailBlock(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            Text(value)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

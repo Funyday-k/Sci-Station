@@ -37,7 +37,10 @@ public actor WorkspacePreferencesRepository {
         lines.append("default_collection: \(defaultCollection)")
         lines.append("recent_section: \(recentSection)")
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
+        lines.append("app_language: \(quoted(preferences.appLanguage.rawValue))")
         lines.append("mineru_command: \(quoted(preferences.minerUCommand))")
+        lines.append("mineru_api_base_url: \(quoted(preferences.minerUAPIBaseURLString))")
+        lines.append("mineru_api_language: \(quoted(preferences.minerUAPILanguage))")
         lines.append("mineru_overwrite_existing_markdown: \(preferences.minerUOverwriteExistingMarkdown)")
         if let agentKnowledgePaperIDs = preferences.agentKnowledgePaperIDs {
             lines.append("agent_knowledge_paper_ids:")
@@ -57,10 +60,13 @@ public actor WorkspacePreferencesRepository {
         var defaultCollectionPath: String?
         var recentSection: String?
         var syncTodosToAppleReminders = true
+        var appLanguage = AppLanguagePreference.system
         var agentKnowledgePaperIDs: [String]?
         var agentDisabledToolNamesByScope: [String: [String]] = [:]
         var pinnedAgentThreadIDsByProject: [String: [String]] = [:]
         var minerUCommand = "mineru"
+        var minerUAPIBaseURLString = "https://mineru.net"
+        var minerUAPILanguage = "en"
         var minerUOverwriteExistingMarkdown = true
         var cursor = 0
 
@@ -86,8 +92,15 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("sync_todos_to_apple_reminders:") {
                 let value = trimmed.replacingOccurrences(of: "sync_todos_to_apple_reminders:", with: "").trimmingCharacters(in: .whitespaces)
                 syncTodosToAppleReminders = Bool(value) ?? true
+            } else if trimmed.hasPrefix("app_language:") {
+                let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "app_language:", with: "").trimmingCharacters(in: .whitespaces)))
+                appLanguage = value.flatMap(AppLanguagePreference.init(rawValue:)) ?? .system
             } else if trimmed.hasPrefix("mineru_command:") {
                 minerUCommand = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_command:", with: "").trimmingCharacters(in: .whitespaces))) ?? "mineru"
+            } else if trimmed.hasPrefix("mineru_api_base_url:") {
+                minerUAPIBaseURLString = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_api_base_url:", with: "").trimmingCharacters(in: .whitespaces))) ?? "https://mineru.net"
+            } else if trimmed.hasPrefix("mineru_api_language:") {
+                minerUAPILanguage = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_api_language:", with: "").trimmingCharacters(in: .whitespaces))) ?? "en"
             } else if trimmed.hasPrefix("mineru_overwrite_existing_markdown:") {
                 let value = trimmed.replacingOccurrences(of: "mineru_overwrite_existing_markdown:", with: "").trimmingCharacters(in: .whitespaces)
                 minerUOverwriteExistingMarkdown = Bool(value) ?? true
@@ -114,10 +127,13 @@ public actor WorkspacePreferencesRepository {
             defaultCollectionPath: defaultCollectionPath,
             recentSection: recentSection,
             syncTodosToAppleReminders: syncTodosToAppleReminders,
+            appLanguage: appLanguage,
             agentKnowledgePaperIDs: agentKnowledgePaperIDs,
             agentDisabledToolNamesByScope: agentDisabledToolNamesByScope,
             pinnedAgentThreadIDsByProject: pinnedAgentThreadIDsByProject,
             minerUCommand: minerUCommand,
+            minerUAPIBaseURLString: minerUAPIBaseURLString,
+            minerUAPILanguage: minerUAPILanguage,
             minerUOverwriteExistingMarkdown: minerUOverwriteExistingMarkdown
         )
     }
