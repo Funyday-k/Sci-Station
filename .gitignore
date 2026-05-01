@@ -3,6 +3,7 @@
 *.xcbkptlist
 xcuserdata/
 DerivedData/
+/.derivedData/
 *.hmap
 *.ipa
 *.dSYM.zip
@@ -25,6 +26,11 @@ Icon
 
 # VS Code
 .vscode/
+
+# Reference open-source repos
+/claude-code-main/
+/everything-claude-code-main/
+/opencode-dev/
 
 # Local AI agent bridge settings/state (not for GitHub)
 .claude/
