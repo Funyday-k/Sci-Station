@@ -2,7 +2,6 @@
 
 Sci-Station 是一个面向 macOS 的本地优先科研工作站试用版。它用一个 Research Root 管理论文库、项目 Wiki、材料、任务、日历、PDF 阅读和可选的 LLM/Agent 工作流，核心数据都落在用户选择的本地文件夹里。
 
-这份仓库适合分享给可信试用者从源码运行或自行打包体验。App 不内置任何 API Key；LLM 和 MinerU 等外部服务需要试用者自己配置，敏感凭据保存到 macOS Keychain，不写入工作区明文配置文件。
 
 ## 快速试用
 
@@ -109,18 +108,7 @@ ResearchRoot/
 
 任何 API key、OAuth token、refresh token、client secret、private key 或机器私有凭据都不得写入 `.sci-ai/sci-station/`。
 
-## 分享前检查
 
-建议每次发给别人试用前至少做一次：
-
-```bash
-git status --short
-swift run SciStationCoreTestRunner
-xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!DOC/**'
-```
-
-看到的安全关键词应只来自 Keychain 代码、安全规则、说明文档或测试用假值。不要把真实 Research Root、`.sci-ai/workspace.local/`、`.claude/`、`.mcp.json`、`.env*`、`.xcarchive`、`.xcresult`、`.app`、`.zip` 或 `.dSYM` 放进要提交/分享的源码包。
 
 ## 已实现功能
 
@@ -407,11 +395,7 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 - Workspace、Library、Tasks、Markdown 等核心类型已开放给 SwiftPM 交叉 target 使用。
 - 目前没有引入外部 SwiftPM 依赖，YAML 编解码采用轻量手写实现。
 
-## 打包给试用者
 
-源码试用最稳妥：让试用者用 Xcode 直接运行。若要发送 `.app`，可以在 Xcode 中选择 `Product -> Archive`，或用命令行构建后从 DerivedData 取出 App，再压缩分享。
-
-试用版尚未做 Developer ID 公证。直接分发 `.app` 时，接收者可能需要在 macOS 的 Privacy & Security 里手动允许打开。不要把自己的 Keychain、Research Root、DerivedData、archive、symbol 或 `.env` 文件一起打包。
 
 ## 相关文档
 
