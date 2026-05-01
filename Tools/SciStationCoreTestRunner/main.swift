@@ -73,7 +73,12 @@ private struct CoreVerificationSuite {
         try agentHookEngineEvaluatesLifecycleResults()
         try agentPluginSkillAndMCPModelsValidate()
         try sciAITrackedPresetManifestValidates()
+        try sciAIConfigurationBoundaryValidates()
         try await agentSessionEventLoggerAppendsAndReplaysEvents()
+        try agentSessionTimelineItemsFilterCurrentSessions()
+        try agentPermissionDockSummarizesPolicies()
+        try agentHookActivitySummaryReflectsTogglesAndResults()
+        try agentMCPServerStatusSummaryParsesProductAndLocal()
         try llmProviderV2RequestModelsToolDefinitions()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
@@ -2240,6 +2245,22 @@ private struct CoreVerificationSuite {
                 try expect(issues.isEmpty, "Tracked .sci-ai product preset should pass plugin validation.")
             }
 
+            private func sciAIConfigurationBoundaryValidates() throws {
+                let repoURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+                let trackedPresetURL = repoURL.appendingPathComponent(".sci-ai/sci-station", isDirectory: true)
+                let gitignoreURL = repoURL.appendingPathComponent(".gitignore", isDirectory: false)
+                let gitignore = try String(contentsOf: gitignoreURL, encoding: .utf8)
+                let trackedFiles = try gitTrackedFiles(in: repoURL)
+
+                try expect(!trackedSciAIContainsRawSecrets(at: trackedPresetURL), "Tracked .sci-ai/sci-station files should not contain raw secret-looking values.")
+                try expect(gitignore.contains(".sci-ai/workspace.local/"), "Local .sci-ai workspace config path should be ignored by git.")
+                try expect(gitignore.contains(".claude/"), "Root .claude bridge should be ignored by git.")
+                try expect(gitignore.contains(".mcp.json"), "Root .mcp.json bridge should be ignored by git.")
+                try expect(!trackedFiles.contains { $0.hasPrefix(".sci-ai/workspace.local/") }, "Local .sci-ai workspace config should not be tracked.")
+                try expect(!trackedFiles.contains { $0.hasPrefix(".claude/") }, "Root .claude bridge directory should not be tracked.")
+                try expect(!trackedFiles.contains(".mcp.json"), "Root .mcp.json bridge file should not be tracked.")
+            }
+
             private func agentSessionEventLoggerAppendsAndReplaysEvents() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -2306,6 +2327,19 @@ private struct CoreVerificationSuite {
                     message: LLMChatMessage(role: .assistant, content: "Ready."),
                     toolCalls: [AgentToolCall(id: "call-1", toolName: "create_todo", argumentsJSON: "{\"title\":\"Review\"}")]
                 )
+                let adapterFlow = LLMProviderV2AdapterFlow(
+                    messages: request.messages,
+                    toolDefinitions: [definition],
+                    options: request.options
+                )
+                let provider = OpenAICompatibleProvider()
+                let configuration = LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "fallback-model")
+                let chatRequest = try provider.buildChatRequest(
+                    configuration: configuration,
+                    apiKey: "secret-key",
+                    providerRequest: adapterFlow.request
+                )
+                let chatBody = try require(chatRequest.httpBody.flatMap { String(data: $0, encoding: .utf8) }, "Provider V2 chat body should encode as UTF-8.")
 
                 let decodedRequest = try JSONDecoder().decode(LLMProviderRequest.self, from: JSONEncoder().encode(request))
                 let decodedResponse = try JSONDecoder().decode(LLMProviderResponse.self, from: JSONEncoder().encode(response))
@@ -2314,6 +2348,154 @@ private struct CoreVerificationSuite {
                 try expect(decodedRequest.tools.first?.permissionKey == "tool.write_workspace", "Provider V2 tool specs should preserve permission keys.")
                 try expect(decodedRequest.options.model == "gpt-4.1", "Provider V2 requests should preserve model options.")
                 try expect(decodedResponse.toolCalls.first?.toolName == "create_todo", "Provider V2 responses should preserve tool calls.")
+                try expect(adapterFlow.preservesLegacyCompletePath, "Provider V2 adapter flow should explicitly preserve the legacy complete path.")
+                try expect(adapterFlow.supportsTaskCancellation, "Provider V2 adapter flow should document Task cancellation support.")
+                try expect(chatBody.contains("tools"), "OpenAI-compatible Provider V2 wrapper should encode tool definitions.")
+                try expect(chatBody.contains("gpt-4.1"), "OpenAI-compatible Provider V2 wrapper should use request model options.")
+            }
+
+            private func agentSessionTimelineItemsFilterCurrentSessions() throws {
+                let events = [
+                    AgentSessionEvent(
+                        id: "timeline-1",
+                        sessionID: "run-current",
+                        createdAt: Date(timeIntervalSince1970: 10),
+                        kind: .userMessage,
+                        summary: "Review current papers."
+                    ),
+                    AgentSessionEvent(
+                        id: "timeline-2",
+                        sessionID: "run-other",
+                        createdAt: Date(timeIntervalSince1970: 11),
+                        kind: .assistantMessage,
+                        summary: "Other run summary."
+                    ),
+                    AgentSessionEvent(
+                        id: "timeline-3",
+                        sessionID: "run-current",
+                        createdAt: Date(timeIntervalSince1970: 12),
+                        kind: .permissionRequested,
+                        summary: "create_todo needs approval.",
+                        payloadJSON: "{\"title\":\"Follow up\"}"
+                    )
+                ]
+
+                let items = AgentSessionTimelineItem.items(from: events, sessionIDs: Set(["run-current"]))
+
+                try expect(items.map(\.eventID) == ["timeline-1", "timeline-3"], "Timeline items should filter to the current run/session ids.")
+                try expect(items.last?.title == "Permission Requested", "Timeline items should label permission request events.")
+                try expect(items.last?.payloadPreview?.contains("Follow up") == true, "Timeline items should preserve payload previews for audit.")
+            }
+
+            private func agentPermissionDockSummarizesPolicies() throws {
+                let writeDefinition = AgentToolDefinition(
+                    name: "write_note",
+                    summary: "Write a note.",
+                    inputSchema: "{\"path\":\"string\"}",
+                    risk: .writesWorkspace
+                )
+                let readDefinition = AgentToolDefinition(
+                    name: "read_note",
+                    summary: "Read a note.",
+                    inputSchema: "{}",
+                    risk: .readOnly
+                )
+                let plan = AgentPlan(
+                    summary: "Use two tools.",
+                    toolCalls: [
+                        AgentToolCall(id: "call-write", toolName: "write_note", argumentsJSON: "{\"path\":\"settings/token.yaml\"}"),
+                        AgentToolCall(id: "call-read", toolName: "read_note", argumentsJSON: "{}")
+                    ]
+                )
+                let run = AgentRun(
+                    id: "run-dock",
+                    goal: "Test dock.",
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    completedAt: nil,
+                    mode: .planOnly,
+                    plan: plan,
+                    toolResults: []
+                )
+                let items = AgentPermissionDockItem.items(
+                    for: run,
+                    toolDefinitions: [readDefinition, writeDefinition],
+                    state: AgentPermissionDockState(
+                        approvedCallIDs: ["call-write"],
+                        correctionFeedbackByCallID: ["call-write": "Use a safer path."]
+                    )
+                )
+
+                let writeItem = try require(items.first { $0.id == "call-write" }, "Write dock item should exist.")
+                let readItem = try require(items.first { $0.id == "call-read" }, "Read dock item should exist.")
+
+                try expect(writeItem.permissionKey == "tool.write_workspace", "Permission dock should expose permission keys.")
+                try expect(writeItem.approvalState == .allowedOnce, "Permission dock should show allow-once state.")
+                try expect(writeItem.matchedPolicyDescription.contains("ask-sensitive-path"), "Permission dock should report matched policy rules.")
+                try expect(writeItem.pathPreview == ["settings/token.yaml"], "Permission dock should extract path previews from structured arguments.")
+                try expect(writeItem.correctionFeedback == "Use a safer path.", "Permission dock should preserve correction feedback.")
+                try expect(readItem.approvalState == .autoAllowed, "Read-only tools should display auto-allow state.")
+            }
+
+            private func agentHookActivitySummaryReflectsTogglesAndResults() throws {
+                let result = AgentHookResult(
+                    hookID: "pre-tool-permission-reminder",
+                    eventName: .preToolUse,
+                    permissionDecision: .ask,
+                    message: "Review write before running."
+                )
+                let payload = try require(String(data: JSONEncoder().encode(result), encoding: .utf8), "Hook result payload should encode.")
+                let event = AgentSessionEvent(
+                    id: "hook-event",
+                    sessionID: "run-hook",
+                    kind: .hookResult,
+                    summary: "PreToolUse hook pre-tool-permission-reminder. Decision: ask.",
+                    payloadJSON: payload
+                )
+
+                let summary = AgentHookActivitySummary(
+                    hooks: AgentSafetyPreset.defaultHooks(),
+                    events: [event],
+                    disabledHookIDs: ["post-tool-audit-reminder"]
+                )
+
+                try expect(summary.enabledEventNames.contains(.sessionStart), "Hook activity should expose enabled SessionStart hooks.")
+                try expect(summary.enabledEventNames.contains(.preToolUse), "Hook activity should expose enabled PreToolUse hooks.")
+                try expect(!summary.hooks.first { $0.id == "post-tool-audit-reminder" }!.isEnabled, "Hook activity should reflect disabled hooks.")
+                try expect(summary.results.first?.permissionDecision == .ask, "Hook activity should decode hook permission decisions.")
+            }
+
+            private func agentMCPServerStatusSummaryParsesProductAndLocal() throws {
+                let repoURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+                let root = ResearchRoot(rootURL: repoURL)
+                let loader = AgentRuntimeConfigurationLoader()
+                let preset = try require(try loader.loadProductPreset(in: root), "Tracked research-core preset should load.")
+                let localJSON = """
+                {
+                  "mcpServers": {
+                    "local-filesystem": {
+                      "command": "npx",
+                      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/workspace"],
+                      "env": {
+                        "API_TOKEN": "keychain:mcp/local/token",
+                        "LOG_LEVEL": "info"
+                      },
+                      "allowed_tools": ["read_file"],
+                      "timeout_seconds": 45
+                    }
+                  }
+                }
+                """
+                let localStatuses = try AgentRuntimeConfigurationLoader.localMCPServerStatuses(from: Data(localJSON.utf8))
+                let productStatus = try require(preset.mcpServers.first, "Product preset should expose MCP server status.")
+                let localStatus = try require(localStatuses.first, "Local MCP status should parse from Claude-style config.")
+
+                try expect(productStatus.source == .trackedProductTemplate, "Product MCP status should identify tracked template source.")
+                try expect(productStatus.endpointSummary.contains("npx"), "Product MCP status should show local command.")
+                try expect(localStatus.source == .localWorkspaceConfig, "Local MCP status should identify local source.")
+                try expect(localStatus.allowedTools == ["read_file"], "Local MCP status should preserve allowed tools.")
+                try expect(Int(localStatus.timeoutSeconds) == 45, "Local MCP status should preserve timeout.")
+                try expect(localStatus.credentialReferenceCount == 1, "Local MCP status should count credential references without exposing values.")
+                try expect(localStatus.sideEffectsRequirePermission, "MCP side-effect tools should remain routed through permission layer.")
             }
 
     private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {
@@ -2600,6 +2782,58 @@ private struct CoreVerificationSuite {
         )
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
         return baseURL
+    }
+
+    private func gitTrackedFiles(in repoURL: URL) throws -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "ls-files"]
+        process.currentDirectoryURL = repoURL
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let errorText = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "unknown git error"
+            throw ValidationError(message: "git ls-files failed: \(errorText)")
+        }
+
+        let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return output.split(whereSeparator: \.isNewline).map(String.init)
+    }
+
+    private func trackedSciAIContainsRawSecrets(at directoryURL: URL) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+
+        let secretPattern = #"(?i)(bearer\s+[A-Za-z0-9._\-]{12,}|sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\"(api[_-]?key|client[_-]?secret|refresh[_-]?token|private[_-]?key)\"\s*:\s*\"(?!\$\{|keychain:|env:|secret-ref:)[^\"]{8,}\")"#
+        guard let expression = try? NSRegularExpression(pattern: secretPattern) else {
+            return true
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                  resourceValues.isRegularFile == true,
+                  let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                continue
+            }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            if expression.firstMatch(in: text, options: [], range: range) != nil {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {

@@ -629,6 +629,19 @@ public nonisolated struct AgentSafetyPreset: Sendable {
                 additionalContext: "Use Sci-Station's Swift-native agent core, keep secrets out of workspace files, and preserve existing agent history."
             ),
             AgentHookDefinition(
+                id: "pre-tool-permission-reminder",
+                eventName: .preToolUse,
+                matcher: #".+"#,
+                permissionDecision: .ask,
+                message: "Tool use is routed through the permission layer before workspace writes or external side effects."
+            ),
+            AgentHookDefinition(
+                id: "post-tool-audit-reminder",
+                eventName: .postToolUse,
+                matcher: #".+"#,
+                message: "Record modified paths and keep tool output auditable in the session timeline."
+            ),
+            AgentHookDefinition(
                 id: "stop-validation-reminder",
                 eventName: .stop,
                 matcher: #".+"#,
@@ -1196,15 +1209,18 @@ public nonisolated struct AgentExecutionOptions: Sendable {
     public var mode: AgentRunMode
     public var approvedToolCallIDs: Set<String>
     public var loopPolicy: AgentLoopPolicy
+    public var disabledHookIDs: Set<String>
 
     public nonisolated init(
         mode: AgentRunMode = .planOnly,
         approvedToolCallIDs: Set<String> = [],
-        loopPolicy: AgentLoopPolicy = .manualApprovalOnly
+        loopPolicy: AgentLoopPolicy = .manualApprovalOnly,
+        disabledHookIDs: Set<String> = []
     ) {
         self.mode = mode
         self.approvedToolCallIDs = approvedToolCallIDs
         self.loopPolicy = loopPolicy
+        self.disabledHookIDs = disabledHookIDs
     }
 }
 

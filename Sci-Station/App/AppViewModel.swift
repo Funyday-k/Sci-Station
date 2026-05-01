@@ -130,11 +130,20 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentToolDefinitions: [AgentToolDefinition] = []
     @Published private(set) var agentCurrentRun: AgentRun?
     @Published private(set) var agentToolApprovals: Set<String> = []
+    @Published private(set) var agentToolDenials: Set<String> = []
+    @Published private(set) var agentToolSessionApprovalDrafts: Set<String> = []
+    @Published private(set) var agentToolCorrectionFeedback: [String: String] = [:]
     @Published private(set) var agentRunHistory: [AgentRun] = []
+    @Published private(set) var agentSessionEvents: [AgentSessionEvent] = []
     @Published private(set) var agentThreads: [AgentThread] = []
     @Published private(set) var allAgentThreads: [AgentThread] = []
     @Published private(set) var activeAgentThreadID: AgentThread.ID?
     @Published private(set) var pendingAgentThread: AgentThread?
+    @Published private(set) var agentPresetDetails: AgentPresetSummary?
+    @Published private(set) var agentProductMCPServerStatuses: [AgentMCPServerStatus] = []
+    @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
+    @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
+    @Published private(set) var agentDisabledHookIDs: Set<String> = []
     @Published var isShowingAgentThreadRename = false
     @Published var agentThreadRenameDraft = ""
     @Published private(set) var agentBridgeExport: AgentCopilotBridgeExport?
@@ -420,6 +429,22 @@ final class AppViewModel: ObservableObject {
         return thread.runIDs.compactMap { runsByID[$0] }
     }
 
+    var agentTimelineItems: [AgentSessionTimelineItem] {
+        let sessionIDs = agentRelevantSessionIDs
+        return AgentSessionTimelineItem.items(
+            from: agentSessionEvents,
+            sessionIDs: sessionIDs.isEmpty ? nil : sessionIDs
+        )
+    }
+
+    private var agentRelevantSessionIDs: Set<String> {
+        var ids = Set(agentConversationRuns.map(\.id))
+        if let currentRunID = agentCurrentRun?.id {
+            ids.insert(currentRunID)
+        }
+        return ids
+    }
+
     var agentOrphanRuns: [AgentRun] {
         let threadedRunIDs = Set(allAgentThreads.flatMap(\.runIDs))
         return agentRunHistory.filter { run in
@@ -610,26 +635,62 @@ final class AppViewModel: ObservableObject {
         return "OpenAI-compatible / \(llmConfiguration.model)"
     }
 
+    var agentProviderV2Summary: String {
+        if githubCopilotConfiguration.isEnabled {
+            return "GitHub Copilot SDK remains experimental and is not selected for the main agent path."
+        }
+
+        return "Provider V2 wrapper is available for OpenAI-compatible chat requests; plan generation still uses the stable complete path."
+    }
+
     var agentPlatformSummary: String {
         "Swift-native Agent Platform V1 core"
     }
 
     var agentPresetSummary: String {
-        "research-core, security-and-secrets, library-curator, proposal-draft, code-and-data-review"
+        if let agentPresetDetails {
+            let issueSummary = agentPresetDetails.validationIssues.isEmpty ? "valid" : "\(agentPresetDetails.validationIssues.count) issues"
+            return "\(agentPresetDetails.name) \(agentPresetDetails.version); \(agentPresetDetails.commands.count) commands; \(agentPresetDetails.skills.count) skills; \(issueSummary)"
+        }
+
+        return "research-core preset not found in the current root"
     }
 
     var agentPermissionSummary: String {
         let writingTools = agentToolDefinitions.filter(\.requiresConfirmation).count
-        let approvedCalls = agentToolApprovals.count
-        return "allow / ask / deny rules active; \(writingTools) tools require approval; \(approvedCalls) calls approved in this plan"
+        let dockItems = agentCurrentRun.map { agentPermissionDockItems(for: $0) } ?? []
+        let waitingCount = dockItems.filter { $0.approvalState == .waitingForApproval }.count
+        let autoAllowedCount = dockItems.filter { $0.approvalState == .autoAllowed }.count
+        return "allow / ask / deny rules active; \(writingTools) tools require approval; \(waitingCount) waiting; \(agentToolApprovals.count) allow once; \(agentToolDenials.count) denied; \(autoAllowedCount) auto-allowed"
     }
 
     var agentHookSummary: String {
-        "SessionStart, PreToolUse, PostToolUse, Stop"
+        let enabledNames = agentHookActivitySummary.enabledEventNames.map(\.rawValue)
+        let resultsCount = agentHookActivitySummary.results.count
+        return "\(enabledNames.joined(separator: ", ").nilIfEmpty ?? "No hooks enabled"); \(resultsCount) results in current timeline"
     }
 
     var agentMCPStatusSummary: String {
-        ".sci-ai/sci-station presets are tracked; .sci-ai/workspace.local and bridge files are local-only"
+        let productCount = agentProductMCPServerStatuses.count
+        let localCount = agentLocalMCPServerStatuses.count
+        return ".sci-ai/sci-station: \(productCount) templates; .sci-ai/workspace.local: \(localCount) local configs; side-effect tools require permissions"
+    }
+
+    var agentMCPServerStatuses: [AgentMCPServerStatus] {
+        agentProductMCPServerStatuses + agentLocalMCPServerStatuses
+    }
+
+    func agentPermissionDockItems(for run: AgentRun) -> [AgentPermissionDockItem] {
+        AgentPermissionDockItem.items(
+            for: run,
+            toolDefinitions: agentToolDefinitions,
+            state: AgentPermissionDockState(
+                approvedCallIDs: agentToolApprovals,
+                deniedCallIDs: agentToolDenials,
+                sessionScopedApprovalDraftCallIDs: agentToolSessionApprovalDrafts,
+                correctionFeedbackByCallID: agentToolCorrectionFeedback
+            )
+        )
     }
 
     var selectedPaperPDFURL: URL? {
@@ -1969,13 +2030,62 @@ final class AppViewModel: ObservableObject {
     func setAgentToolApproval(callID: String, isApproved: Bool) {
         if isApproved {
             agentToolApprovals.insert(callID)
+            agentToolDenials.remove(callID)
         } else {
             agentToolApprovals.remove(callID)
         }
     }
 
+    func setAgentToolDenied(callID: String, isDenied: Bool) {
+        if isDenied {
+            agentToolDenials.insert(callID)
+            agentToolApprovals.remove(callID)
+            agentToolSessionApprovalDrafts.remove(callID)
+        } else {
+            agentToolDenials.remove(callID)
+        }
+    }
+
+    func setAgentSessionApprovalDraft(callID: String, isEnabled: Bool) {
+        if isEnabled {
+            agentToolSessionApprovalDrafts.insert(callID)
+            agentToolDenials.remove(callID)
+        } else {
+            agentToolSessionApprovalDrafts.remove(callID)
+        }
+    }
+
+    func agentCorrectionFeedback(callID: String) -> String {
+        agentToolCorrectionFeedback[callID] ?? ""
+    }
+
+    func updateAgentCorrectionFeedback(callID: String, text: String) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedText.isEmpty {
+            agentToolCorrectionFeedback[callID] = nil
+        } else {
+            agentToolCorrectionFeedback[callID] = text
+        }
+    }
+
+    func setAgentHook(_ hookID: String, isEnabled: Bool) {
+        if isEnabled {
+            agentDisabledHookIDs.remove(hookID)
+        } else {
+            agentDisabledHookIDs.insert(hookID)
+        }
+        rebuildAgentHookActivitySummary()
+    }
+
     func agentToolDefinition(for call: AgentToolCall) -> AgentToolDefinition? {
         agentToolDefinitions.first { $0.name == call.toolName }
+    }
+
+    private func resetAgentPermissionDockState() {
+        agentToolApprovals = []
+        agentToolDenials = []
+        agentToolSessionApprovalDrafts = []
+        agentToolCorrectionFeedback = [:]
     }
 
     func startNewAgentConversation() {
@@ -1994,8 +2104,9 @@ final class AppViewModel: ObservableObject {
         activeAgentThreadID = thread.id
         agentGoal = ""
         agentCurrentRun = nil
-        agentToolApprovals = []
+        resetAgentPermissionDockState()
         agentBridgeExport = nil
+        rebuildAgentHookActivitySummary()
         agentStatusMessage = "New \(agentConversationTitle) chat started."
         agentErrorMessage = nil
     }
@@ -2012,8 +2123,9 @@ final class AppViewModel: ObservableObject {
         activeAgentThreadID = agentThreads.first { $0.projectID == projectID }?.id
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         agentCurrentRun = nil
-        agentToolApprovals = []
+        resetAgentPermissionDockState()
         agentBridgeExport = nil
+        rebuildAgentHookActivitySummary()
         agentStatusMessage = "Discarded the empty draft chat."
         agentErrorMessage = nil
 
@@ -2034,8 +2146,9 @@ final class AppViewModel: ObservableObject {
         agentCurrentRun = thread.runIDs.reversed().compactMap { runsByID[$0] }.first
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: thread.projectID, threadID: thread.id)] ?? ""
         restorePersistedAgentDraft(projectID: thread.projectID, threadID: thread.id)
-        agentToolApprovals = []
+        resetAgentPermissionDockState()
         agentBridgeExport = nil
+        rebuildAgentHookActivitySummary()
         agentStatusMessage = "Opened \(thread.title) in \(agentConversationTitle)."
         agentErrorMessage = nil
     }
@@ -2050,8 +2163,9 @@ final class AppViewModel: ObservableObject {
         pendingAgentThread = nil
         agentCurrentRun = run
         agentGoal = run.goal
-        agentToolApprovals = []
+        resetAgentPermissionDockState()
         agentBridgeExport = nil
+        rebuildAgentHookActivitySummary()
         agentStatusMessage = "Opened a previous \(agentConversationTitle) run."
         agentErrorMessage = nil
         refreshAgentContext()
@@ -2200,8 +2314,9 @@ final class AppViewModel: ObservableObject {
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         restorePersistedAgentDraft(projectID: projectID, threadID: activeAgentThreadID)
         agentCurrentRun = nil
-        agentToolApprovals = []
+        resetAgentPermissionDockState()
         agentBridgeExport = nil
+        rebuildAgentHookActivitySummary()
         agentStatusMessage = nil
         agentErrorMessage = nil
     }
@@ -2242,11 +2357,11 @@ final class AppViewModel: ObservableObject {
                     selectedPaperID: selectedPaperID,
                     configuration: llmConfiguration,
                     apiKey: apiKey,
-                    options: AgentExecutionOptions(mode: .planOnly)
+                    options: AgentExecutionOptions(mode: .planOnly, disabledHookIDs: agentDisabledHookIDs)
                 )
                 agentCurrentRun = run
                 try await attachRunToActiveThread(run, in: currentWorkspace)
-                agentToolApprovals = []
+                resetAgentPermissionDockState()
                 agentBridgeExport = nil
                 agentStatusMessage = "Plan generated. Review and approve workspace-writing tools before running."
                 await refreshAgentState(in: currentWorkspace)
@@ -2284,7 +2399,10 @@ final class AppViewModel: ObservableObject {
                     root: currentResearchRoot,
                     currentProjectID: agentConversationProjectID,
                     selectedPaperID: selectedPaperID,
-                    approvedToolCallIDs: agentToolApprovals
+                    approvedToolCallIDs: agentToolApprovals,
+                    deniedToolCallIDs: agentToolDenials,
+                    correctionFeedbackByCallID: agentToolCorrectionFeedback,
+                    disabledHookIDs: agentDisabledHookIDs
                 )
                 agentCurrentRun = executedRun
                 try await attachRunToActiveThread(executedRun, in: currentWorkspace)
@@ -3391,9 +3509,35 @@ final class AppViewModel: ObservableObject {
                 activeAgentThreadID = agentThreads.first?.id
             }
             restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
+            agentSessionEvents = try await agentService.sessionEvents(in: root, limit: 300)
+            let runtimeLoader = AgentRuntimeConfigurationLoader()
+            agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
+            agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
+            agentLocalMCPServerStatuses = try runtimeLoader.loadLocalMCPServerStatuses(in: root)
+            rebuildAgentHookActivitySummary()
         } catch {
             agentErrorMessage = error.localizedDescription
         }
+    }
+
+    private var agentRuntimeHookDefinitions: [AgentHookDefinition] {
+        var hooks = agentPresetDetails?.hooks ?? []
+        for defaultHook in AgentSafetyPreset.defaultHooks() where !hooks.contains(where: { $0.id == defaultHook.id }) {
+            hooks.append(defaultHook)
+        }
+        return hooks.isEmpty ? AgentSafetyPreset.defaultHooks() : hooks
+    }
+
+    private func rebuildAgentHookActivitySummary() {
+        let sessionIDs = agentRelevantSessionIDs
+        let visibleEvents = agentSessionEvents.filter { event in
+            sessionIDs.isEmpty || sessionIDs.contains(event.sessionID)
+        }
+        agentHookActivitySummary = AgentHookActivitySummary(
+            hooks: agentRuntimeHookDefinitions,
+            events: visibleEvents,
+            disabledHookIDs: agentDisabledHookIDs
+        )
     }
 
     private func attachRunToActiveThread(_ run: AgentRun, in workspace: ResearchWorkspace) async throws {

@@ -107,6 +107,34 @@ public nonisolated struct LLMProviderRequest: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated struct LLMProviderV2AdapterFlow: Codable, Hashable, Sendable {
+    public var request: LLMProviderRequest
+    public var preservesLegacyCompletePath: Bool
+    public var supportsTaskCancellation: Bool
+
+    public nonisolated init(
+        messages: [LLMChatMessage],
+        toolDefinitions: [AgentToolDefinition] = [],
+        options: LLMProviderOptions = LLMProviderOptions(),
+        preservesLegacyCompletePath: Bool = true,
+        supportsTaskCancellation: Bool = true
+    ) {
+        self.request = LLMProviderRequest(
+            messages: messages,
+            tools: toolDefinitions.map(LLMToolSpecification.init(agentTool:)),
+            options: options
+        )
+        self.preservesLegacyCompletePath = preservesLegacyCompletePath
+        self.supportsTaskCancellation = supportsTaskCancellation
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case request
+        case preservesLegacyCompletePath = "preserves_legacy_complete_path"
+        case supportsTaskCancellation = "supports_task_cancellation"
+    }
+}
+
 public nonisolated struct LLMProviderResponse: Codable, Hashable, Sendable {
     public var message: LLMChatMessage
     public var toolCalls: [AgentToolCall]

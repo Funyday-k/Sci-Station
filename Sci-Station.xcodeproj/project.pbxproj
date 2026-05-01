@@ -265,14 +265,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleURLName = "Sci-Station GitHub Copilot OAuth";
-						CFBundleURLSchemes = (
-							"sci-station",
-						);
-					},
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"Sci-Station GitHub Copilot OAuth\";\n    CFBundleURLSchemes =     (\n        \"sci-station\"\n    );\n}";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Sci-Station shows Apple Calendar items alongside workspace tasks.";
 				INFOPLIST_KEY_NSRemindersUsageDescription = "Sci-Station can add workspace todos to Apple Reminders.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -330,14 +323,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleURLName = "Sci-Station GitHub Copilot OAuth";
-						CFBundleURLSchemes = (
-							"sci-station",
-						);
-					},
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"Sci-Station GitHub Copilot OAuth\";\n    CFBundleURLSchemes =     (\n        \"sci-station\"\n    );\n}";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Sci-Station shows Apple Calendar items alongside workspace tasks.";
 				INFOPLIST_KEY_NSRemindersUsageDescription = "Sci-Station can add workspace todos to Apple Reminders.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
