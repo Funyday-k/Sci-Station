@@ -1,8 +1,19 @@
 # Sci-Station
 
-Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原型。它以一个全局研究根目录组织多个科研项目，共享全局论文库、任务、Agent/LLM 设置，并让每个项目拥有自己的 Wiki、材料、任务和输出。
+Sci-Station 是一个面向 macOS 的本地优先科研工作站试用版。它用一个 Research Root 管理论文库、项目 Wiki、材料、任务、日历、PDF 阅读和可选的 LLM/Agent 工作流，核心数据都落在用户选择的本地文件夹里。
 
-当前代码已经完成核心骨架：工作区创建与恢复、项目总览、论文导入、元数据读写、Library 管理、Wiki、Todo/Calendar、BibTeX 出口、内置 PDF Reader、Codex-style AI Lab V1 + thread 化准备，以及可独立运行的核心验证工具。
+这份仓库适合分享给可信试用者从源码运行或自行打包体验。App 不内置任何 API Key；LLM 和 MinerU 等外部服务需要试用者自己配置，敏感凭据保存到 macOS Keychain，不写入工作区明文配置文件。
+
+## 快速试用
+
+1. 用 macOS 14+ 和 Xcode 15+ 打开仓库。
+2. 运行 `open Sci-Station.xcodeproj`，在 Xcode 里选择 `Sci-Station` scheme 和 `My Mac`，按 `Command + R`。
+3. 首次启动后点击 `Create Workspace`，建议选择一个空文件夹作为 Research Root，不要直接选择源码仓库根目录。
+4. 进入 Library 后用 `Import PDF`、拖入 PDF，或 `Add by Identifier` 添加 DOI、arXiv、PDF URL。
+5. 进入 Projects / Wiki / Materials 继续整理项目介绍、核心论文、材料、代码、图表和输出。
+6. 需要 AI 功能时再到 Settings -> AI Lab 填写自己的 OpenAI-compatible API 设置。
+
+更完整的试用流程见 [TUTORIAL.md](TUTORIAL.md)。
 
 ## 当前状态
 
@@ -11,6 +22,16 @@ Sci-Station 是一个面向 macOS 的本地优先科研 all-in-one 工作站原�
 - 架构：MVVM + Service/Repository + actor 并发隔离
 - 数据原则：文件系统优先，核心数据落在用户可见目录中
 - 当前验证状态：Xcode App 可构建；SwiftPM 核心验证通过
+- 试用边界：本地优先，外部 LLM/MinerU/API 连接均为用户显式配置；未做公证发布流程
+
+## 隐私与凭据
+
+- App 不随仓库或构建产物附带 API Key、OAuth token、refresh token、client secret、private key 或本机 MCP 配置。
+- LLM API Key 和 MinerU API Token 通过 `SecureField` 输入，并保存到 macOS Keychain。
+- `settings.yaml` 只保存 provider、base URL、model、temperature、max token 等非敏感设置。
+- Research Root 中的论文、笔记、任务、Agent 日志和生成文件都保存在本地文件系统；分享 Research Root 前请自行确认其中没有私人论文、实验数据或未公开材料。
+- `.sci-ai/sci-station/` 是可版本化的产品 preset，只能放模板、schema、skills、hooks、commands、MCP 模板和 secret references。
+- `.sci-ai/workspace.local/`、`.claude/`、`.mcp.json`、`.env*`、打包产物和本机 research root 数据均应保持在 Git 之外。
 
 ## 工作区结构
 
@@ -87,6 +108,19 @@ ResearchRoot/
 - `.claude/` 与 `.mcp.json`：为需要固定路径的外部 agent 工具保留的本机 bridge 文件，不进 GitHub。
 
 任何 API key、OAuth token、refresh token、client secret、private key 或机器私有凭据都不得写入 `.sci-ai/sci-station/`。
+
+## 分享前检查
+
+建议每次发给别人试用前至少做一次：
+
+```bash
+git status --short
+swift run SciStationCoreTestRunner
+xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
+git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!DOC/**'
+```
+
+看到的安全关键词应只来自 Keychain 代码、安全规则、说明文档或测试用假值。不要把真实 Research Root、`.sci-ai/workspace.local/`、`.claude/`、`.mcp.json`、`.env*`、`.xcarchive`、`.xcresult`、`.app`、`.zip` 或 `.dSYM` 放进要提交/分享的源码包。
 
 ## 已实现功能
 
@@ -373,16 +407,15 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 - Workspace、Library、Tasks、Markdown 等核心类型已开放给 SwiftPM 交叉 target 使用。
 - 目前没有引入外部 SwiftPM 依赖，YAML 编解码采用轻量手写实现。
 
+## 打包给试用者
+
+源码试用最稳妥：让试用者用 Xcode 直接运行。若要发送 `.app`，可以在 Xcode 中选择 `Product -> Archive`，或用命令行构建后从 DerivedData 取出 App，再压缩分享。
+
+试用版尚未做 Developer ID 公证。直接分发 `.app` 时，接收者可能需要在 macOS 的 Privacy & Security 里手动允许打开。不要把自己的 Keychain、Research Root、DerivedData、archive、symbol 或 `.env` 文件一起打包。
+
 ## 相关文档
 
-- 项目原始任务书：[DOC/Proposal.md](DOC/Proposal.md)
-- 任务书 5：[DOC/Proposal5.md](DOC/Proposal5.md)
-- 任务书 6：[DOC/Proposal6.md](DOC/Proposal6.md)
-- 任务书 7：[DOC/Proposal7.md](DOC/Proposal7.md)
-- 任务书 8：[DOC/Proposal8.md](DOC/Proposal8.md)
-- 任务书 9：[DOC/Proposal9.md](DOC/Proposal9.md)
-- 任务书 10：[DOC/Proposal10.md](DOC/Proposal10.md)
-- 任务书 11：[DOC/Proposal11.md](DOC/Proposal11.md)
-- 任务书 17：[DOC/Proposal17.md](DOC/Proposal17.md)
-- 任务书 18：[DOC/Proposal18.md](DOC/Proposal18.md)
-- 任务书 19：[DOC/Proposal19.md](DOC/Proposal19.md)
+- 试用教程：[TUTORIAL.md](TUTORIAL.md)
+- AI 配置边界：[.sci-ai/README.md](.sci-ai/README.md)
+- 内置 AI preset 说明：[.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)
+- `DOC/` 目录保存开发迭代任务书，适合开发协作参考，不是面向试用者的上手教程。

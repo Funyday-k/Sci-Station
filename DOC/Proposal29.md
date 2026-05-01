@@ -8,7 +8,7 @@
 
 ## 2. 已验证状态
 
-- MinerU API token 已保存在 `/Users/funyday/Documents/Test_Workspace#mineru-api` 的 Keychain account 中。
+- MinerU API token 已保存在 `~/Documents/Test_Workspace#mineru-api` 的 Keychain account 中。
 - `swift run SciStationCoreTestRunner` 已通过，其中包含 mock MinerU zip 图片恢复测试。
 - Test_Workspace 当前 3 篇 `paper.md` 仍是 `extraction_engine: pdfkit_fallback`，需要重新转换来验证真实图片资产。
 - GitHub Copilot UI 入口已隐藏；旧源码仍保留为 legacy code。
@@ -17,7 +17,7 @@
 
 ### 3.1 Real MinerU API Smoke
 
-1. 在 Xcode 构建后的 App 中打开 `/Users/funyday/Documents/Test_Workspace`。
+1. 在 Xcode 构建后的 App 中打开 `~/Documents/Test_Workspace`。
 2. 选择 3 篇带 PDF 的论文，触发“转换为 Markdown”或 AI Knowledge 的 `PDF -> MD`。
 3. 允许覆盖当前 `pdfkit_fallback` 的 `paper.md`。
 4. 对每篇论文检查：
@@ -82,7 +82,7 @@
 
 已完成。
 
-- Real MinerU API smoke 已对 `/Users/funyday/Documents/Test_Workspace` 的 3 篇 DM 论文完成真实转换检查；当前 3 篇 `paper.md` 均为 `extraction_engine: mineru_api`。
+- Real MinerU API smoke 已对 `~/Documents/Test_Workspace` 的 3 篇 DM 论文完成真实转换检查；当前 3 篇 `paper.md` 均为 `extraction_engine: mineru_api`。
    - `garani2017-dark-matter-sun`：`figures/mineru` 资产数 21，Markdown 中含 `figures/mineru/` 链接。
    - `sarkarxxxx-constraining-dark-matter`：`figures/mineru` 资产数 12，Markdown 中含 `figures/mineru/` 链接。
    - `widmark2017-thermalization-time-scales`：`figures/mineru` 资产数 10，Markdown 中含 `figures/mineru/` 链接。

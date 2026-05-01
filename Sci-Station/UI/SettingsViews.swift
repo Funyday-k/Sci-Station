@@ -399,7 +399,7 @@ struct SettingsView: View {
                 GroupBox("LLM") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 10) {
-                            Label("OpenAI-compatible API provider.", systemImage: "sparkles")
+                            Label("OpenAI-compatible provider. Bring your own key; Sci-Station stores it in Keychain.", systemImage: "sparkles")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
@@ -465,6 +465,11 @@ struct SettingsView: View {
 
                         SecureField("API Key", text: $appModel.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
+
+                        Text("API Key is never written to settings.yaml or the research root. Base URL and model settings are saved as non-sensitive workspace preferences.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         HStack(spacing: 12) {
                             Button("Save Settings", action: appModel.saveLLMSettings)

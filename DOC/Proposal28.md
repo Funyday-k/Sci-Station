@@ -10,8 +10,8 @@
 
 - `swift run SciStationCoreTestRunner` 通过。
 - `xcodebuild -quiet -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build` 通过；仅有多个 My Mac destination 的 Xcode warning。
-- `/Users/funyday/Documents/Test_Workspace` 的 LLM Keychain token 存在。
-- `/Users/funyday/Documents/Test_Workspace#mineru-api` 的 MinerU API Keychain token 已配置；token 只保存在 Keychain，不写入仓库文件。
+- `~/Documents/Test_Workspace` 的 LLM Keychain token 存在。
+- `~/Documents/Test_Workspace#mineru-api` 的 MinerU API Keychain token 已配置；token 只保存在 Keychain，不写入仓库文件。
 - Test_Workspace 当前 3 篇 `paper.md` 仍是 `extraction_engine: pdfkit_fallback`，需要在新版本中重新触发 MinerU API 转换来生成带图片资产的 Markdown。
 - GitHub Copilot 在 UI/provider 选择/新 workspace seed 中已隐藏，但部分旧 configuration/store/exporter 源码仍保留，未暴力删除以降低本轮构建风险。
 

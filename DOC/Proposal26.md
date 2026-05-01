@@ -108,7 +108,7 @@
 
 ### 8.2 Smoke 观察
 
-- 找到外部工作区：`/Users/funyday/Documents/Test_Workspace`。
+- 找到外部测试工作区：`~/Documents/Test_Workspace`。
 - 该工作区包含 3 个 PDF：`sarkarxxxx-constraining-dark-matter`、`garani2017-dark-matter-sun`、`widmark2017-thermalization-time-scales`。
 - 3 个 `paper.md` 目前都存在，但内容仍为 `status: not_extracted` stub。
 - 当前终端 PATH 未找到 `mineru`，因此真实 MinerU CLI run 在本机环境中不可执行；App 会在命令不可用时进入 PDFKit fallback。

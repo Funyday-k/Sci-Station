@@ -741,10 +741,10 @@ struct WorkspaceSectionOverview: View {
                     .padding(.vertical, 4)
                 }
 
-                GroupBox("MVP Status") {
+                GroupBox("Trial Notes") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("当前优先级已经切到 Markdown 知识闭环：导入论文后补齐 paper.md、生成 wiki/papers 模板，并在应用内编辑知识页。")
-                        Text("Wiki Inspector 已支持 frontmatter、outgoing links 和 backlinks。Graph、LLM Provider 和更深的 PDF 联动仍在后续阶段。")
+                        Text("Sci-Station keeps papers, Markdown pages, tasks, settings, and agent logs inside the selected research root.")
+                        Text("API keys are stored in macOS Keychain. Share a research root only after checking that it contains no private papers, unpublished data, or local credentials.")
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -853,19 +853,33 @@ private struct EmptyWorkspaceView: View {
                 ProgressView("Preparing workspace…")
             }
 
-            GroupBox("Workspace Layout") {
+            GroupBox("Quick Start") {
+                VStack(alignment: .leading, spacing: 12) {
+                    TrialStepRow(
+                        index: "1",
+                        title: "Create a Research Root",
+                        detail: "Choose an empty local folder outside this source repo. Sci-Station creates the library, projects, wiki, tasks, settings, and agent state there."
+                    )
+                    TrialStepRow(
+                        index: "2",
+                        title: "Import Papers",
+                        detail: "Use Import PDF, drag in a PDF, or paste DOI/arXiv/PDF links with Add by Identifier."
+                    )
+                    TrialStepRow(
+                        index: "3",
+                        title: "Work In Projects",
+                        detail: "Create a project, edit its Project Brief, collect core papers, and keep data, code, figures, and outputs under Materials."
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+
+            GroupBox("Privacy") {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(ResearchWorkspace.requiredDirectoryPaths, id: \.self) { path in
-                        Text(path)
-                            .font(.system(.body, design: .monospaced))
-                    }
-
-                    Divider()
-
-                    ForEach(ResearchWorkspace.seededFiles.map(\.relativePath), id: \.self) { path in
-                        Text(path)
-                            .font(.system(.body, design: .monospaced))
-                    }
+                    Label("All workspace files stay in the selected Research Root.", systemImage: "folder")
+                    Label("LLM and MinerU tokens are optional and saved to macOS Keychain.", systemImage: "key")
+                    Label("Before sharing a Research Root, check papers, notes, data, and agent logs for private content.", systemImage: "checkmark.shield")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
@@ -873,6 +887,32 @@ private struct EmptyWorkspaceView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct TrialStepRow: View {
+    let index: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(index)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 22, height: 22)
+                .background(Color.accentColor.opacity(0.14), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .fontWeight(.medium)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

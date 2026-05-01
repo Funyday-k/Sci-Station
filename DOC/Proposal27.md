@@ -10,7 +10,7 @@
 
 1. AI Lab 设置中的最近结果需要折叠，或提供查看入口并用弹窗展示完整信息。
 2. 语言需要统一，或在基本设置里加入中文/英文设置。
-3. Markdown 转换应参考 `/Users/funyday/Documents/DaMaSCUS-SUN/.github/skills/sync-papers`，使用 MinerU API 方式；新论文加入时自动转换；论文列表显示转换是否成功；右键提供转换 Markdown；支持多选批量转换。
+3. Markdown 转换应参考本机 `sync-papers` 技能原型，使用 MinerU API 方式；新论文加入时自动转换；论文列表显示转换是否成功；右键提供转换 Markdown；支持多选批量转换。
 4. AI Lab 发送逻辑改为 Return 直接发送，Shift+Return 换行，避免换行和发送同时发生。
 5. AI 生成字符动画不能暴露 JSON，只显示要发送的内容本身。
 6. GitHub Copilot 不再作为特殊 SDK/Bridge 路径处理，本轮先删除特殊入口；未来与 DeepSeek/OpenAI-compatible 等一样作为普通 API 模型接入。
@@ -26,7 +26,7 @@
 - AI Lab 气泡支持 Markdown 渲染。
 - OpenAI-compatible provider 已支持 SSE delta streaming。
 - MinerU 默认命令已设为 `mineru`；命令不可用时 fallback 到 PDFKit。
-- Test_Workspace 位于 `/Users/funyday/Documents/Test_Workspace`，包含 3 篇 PDF；当前 `paper.md` 都还是 `status: not_extracted` stub。
+- Test_Workspace 位于 `~/Documents/Test_Workspace`，包含 3 篇 PDF；当前 `paper.md` 都还是 `status: not_extracted` stub。
 
 ## 3. 执行任务
 
@@ -123,5 +123,5 @@
 
 限制与转入下一轮：
 
-- Test_Workspace 的 LLM token 已存在，但 MinerU API token 缺失：`/Users/funyday/Documents/Test_Workspace#mineru-api` 未在 Keychain 中找到。因此本轮无法做真实 MinerU API 转换 smoke；该项进入任务书 28 的第一优先级。
+- Test_Workspace 的 LLM token 已存在，但 MinerU API token 缺失：`~/Documents/Test_Workspace#mineru-api` 未在 Keychain 中找到。因此本轮无法做真实 MinerU API 转换 smoke；该项进入任务书 28 的第一优先级。
 - Paper-doc-todo end-to-end smoke 仍需要在真实 MinerU 转换后跑一次完整 App 交互，避免继续基于 `status: not_extracted` stub 评估论文内容。

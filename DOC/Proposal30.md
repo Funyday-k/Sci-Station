@@ -18,7 +18,7 @@
 
 ### 3.1 App GUI Regression
 
-1. 用 Xcode 构建后的 App 打开 `/Users/funyday/Documents/Test_Workspace`。
+1. 用 Xcode 构建后的 App 打开 `~/Documents/Test_Workspace`。
 2. 在 Settings -> Library 确认 MinerU API 设置展示、保存和语言偏好文案正常。
 3. 在 Library 表格确认 3 篇论文显示 `已转换`，badge 旁“查看 Markdown”入口能打开对应 `paper.md`。
 4. 对已转换论文重新触发转换，确认覆盖提示、跳过/失败/fallback 信息和最终状态清晰。

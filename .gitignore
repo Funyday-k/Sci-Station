@@ -4,7 +4,12 @@
 xcuserdata/
 DerivedData/
 /.derivedData/
+build/
+Build/
+*.xcresult
+*.xcarchive
 *.hmap
+*.app
 *.ipa
 *.dSYM.zip
 *.dSYM
@@ -27,6 +32,54 @@ Icon
 # VS Code
 .vscode/
 
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.p8
+*.cer
+*.key
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+*.local.json
+*.local.yaml
+*.local.yml
+*.local.plist
+
+# Share/build artifacts
+dist/
+release/
+*.zip
+*.tar.gz
+*.log
+
+# Accidental local Sci-Station research roots inside this repo
+/.sci-station/
+/library/
+/projects/
+/inbox/
+/raw/
+/wiki/
+/refs/
+/settings/
+/tasks/
+/imports/
+/data/
+/prompts/
+/scripts/
+/code/
+/figures/
+/outputs/
+/shared_research.md
+/researchflow.sqlite
+/*.sqlite
+/*.sqlite-shm
+/*.sqlite-wal
+
 # Reference open-source repos
 /claude-code-main/
 /everything-claude-code-main/
@@ -35,6 +88,7 @@ Icon
 # Local AI agent bridge settings/state (not for GitHub)
 .claude/
 .mcp.json
+.mcp.local.json
 .sci-ai/workspace.local/
 
 # CocoaPods (not used, but just in case)
