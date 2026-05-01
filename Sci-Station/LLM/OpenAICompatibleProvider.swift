@@ -40,7 +40,8 @@ public actor OpenAICompatibleProvider: LLMProvider {
     public nonisolated func buildChatRequest(
         configuration: LLMConfiguration,
         apiKey: String,
-        providerRequest: LLMProviderRequest
+        providerRequest: LLMProviderRequest,
+        stream: Bool = false
     ) throws -> URLRequest {
         let trimmedBaseURL = configuration.baseURLString
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,6 +66,9 @@ public actor OpenAICompatibleProvider: LLMProvider {
         }
         if !providerRequest.tools.isEmpty {
             payload["tools"] = providerRequest.tools.map(Self.toolPayload(from:))
+        }
+        if stream {
+            payload["stream"] = true
         }
         for (key, value) in providerRequest.options.providerOptions {
             payload[key] = value
@@ -199,6 +203,80 @@ public actor OpenAICompatibleProvider: LLMProvider {
 }
 
 extension OpenAICompatibleProvider: LLMChatProvider {}
+
+extension OpenAICompatibleProvider: LLMStreamingChatProvider {
+    public nonisolated func streamResponse(
+        to request: LLMProviderRequest,
+        configuration: LLMConfiguration,
+        apiKey: String
+    ) -> AsyncThrowingStream<LLMProviderStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    try Task.checkCancellation()
+                    let urlRequest = try buildChatRequest(
+                        configuration: configuration,
+                        apiKey: apiKey,
+                        providerRequest: request,
+                        stream: true
+                    )
+                    let (bytes, response) = try await session.bytes(for: urlRequest)
+                    try Task.checkCancellation()
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw LLMProviderError.malformedResponse
+                    }
+                    guard (200..<300).contains(httpResponse.statusCode) else {
+                        throw LLMProviderError.httpError(statusCode: httpResponse.statusCode, message: "Streaming request failed.")
+                    }
+
+                    var accumulated = ""
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        guard line.hasPrefix("data:") else {
+                            continue
+                        }
+                        let payload = line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if payload == "[DONE]" {
+                            break
+                        }
+                        guard let data = payload.data(using: .utf8),
+                              let delta = Self.streamDeltaContent(from: data),
+                              !delta.isEmpty else {
+                            continue
+                        }
+                        accumulated += delta
+                        continuation.yield(.messageDelta(delta))
+                    }
+
+                    continuation.yield(.completed(LLMProviderResponse(
+                        message: LLMChatMessage(role: .assistant, content: accumulated),
+                        rawResponse: accumulated
+                    )))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated static func streamDeltaContent(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let firstChoice = choices.first else {
+            return nil
+        }
+
+        if let delta = firstChoice["delta"] as? [String: Any] {
+            return delta["content"] as? String
+        }
+        if let message = firstChoice["message"] as? [String: Any] {
+            return message["content"] as? String
+        }
+        return nil
+    }
+}
 
 private extension String {
     nonisolated var nilIfEmpty: String? {

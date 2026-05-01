@@ -57,6 +57,7 @@ private struct CoreVerificationSuite {
         try await llmConfigurationStorePersistsWithoutAPIKey()
         try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
         try agentPlanParserExtractsJSONFromMarkdownFence()
+        try await agentPlannerAcceptsPlainTextConversationResponse()
         try await agentToolExecutorRequiresApprovalForTodoWrites()
         try await agentPaperClassificationToolUpdatesMetadata()
         try await agentWorkspaceSnapshotIncludesProjectContext()
@@ -319,6 +320,14 @@ private struct CoreVerificationSuite {
             recentSection: "library"
         )
         preferences.updateLibraryVisibleColumns(from: "title,authors,bibtex")
+        preferences.minerUCommand = "mineru"
+        preferences.minerUOverwriteExistingMarkdown = false
+        preferences.agentDisabledToolNamesByScope = [
+            "project:test-workspace|thread:agent-thread-1": ["create_todo", "write_markdown_plan"]
+        ]
+        preferences.pinnedAgentThreadIDsByProject = [
+            "test-workspace": ["agent-thread-1"]
+        ]
 
         try await repository.save(preferences, in: workspace)
         let loadedPreferences = try await repository.load(in: workspace)
@@ -327,6 +336,10 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.librarySortState == LibrarySortState(field: .year, isAscending: false), "Workspace preferences should preserve Library sort state.")
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
+        try expect(loadedPreferences.minerUCommand == "mineru", "Workspace preferences should preserve MinerU command.")
+        try expect(loadedPreferences.minerUOverwriteExistingMarkdown == false, "Workspace preferences should preserve MinerU overwrite behavior.")
+        try expect(loadedPreferences.agentDisabledToolNamesByScope["project:test-workspace|thread:agent-thread-1"] == ["create_todo", "write_markdown_plan"], "Workspace preferences should preserve scoped disabled tools.")
+        try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
     }
 
     private func libraryBulkEditServiceUpdatesSelectedPapers() async throws {
@@ -1541,6 +1554,30 @@ private struct CoreVerificationSuite {
                 try expect(plan.toolCalls.first?.argumentsJSON.contains("Read the selected paper") == true, "Agent plan parser should preserve encoded tool arguments.")
             }
 
+            private func agentPlannerAcceptsPlainTextConversationResponse() async throws {
+                let provider = StaticLLMProvider(response: "你好，我可以用 **Markdown** 回答。")
+                let planner = AgentPlanner(provider: provider)
+                let plan = try await planner.plan(
+                    goal: "请用中文介绍当前项目",
+                    workspaceSnapshot: AgentWorkspaceSnapshot(
+                        workspaceName: "Test_Workspace",
+                        selectedPaper: nil,
+                        recentPapers: [],
+                        openTodos: [],
+                        paperCount: 0,
+                        todoCount: 0
+                    ),
+                    tools: [],
+                    configuration: LLMConfiguration(),
+                    apiKey: "test-key",
+                    modeInstructions: AgentInteractionMode.conversation.plannerInstructions,
+                    allowsPlainTextResponse: true
+                )
+
+                try expect(plan.toolCalls.isEmpty, "Plain text conversation fallback should not create tool calls.")
+                try expect(plan.finalResponseDraft?.contains("Markdown") == true, "Plain text conversation fallback should preserve the assistant response.")
+            }
+
             private func agentToolExecutorRequiresApprovalForTodoWrites() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -2383,7 +2420,7 @@ private struct CoreVerificationSuite {
                 let items = AgentSessionTimelineItem.items(from: events, sessionIDs: Set(["run-current"]))
 
                 try expect(items.map(\.eventID) == ["timeline-1", "timeline-3"], "Timeline items should filter to the current run/session ids.")
-                try expect(items.last?.title == "Permission Requested", "Timeline items should label permission request events.")
+                try expect(items.last?.title == "请求审批", "Timeline items should label permission request events.")
                 try expect(items.last?.payloadPreview?.contains("Follow up") == true, "Timeline items should preserve payload previews for audit.")
             }
 

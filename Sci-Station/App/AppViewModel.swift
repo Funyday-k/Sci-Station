@@ -34,14 +34,31 @@ private enum AgentPanelValidationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingWorkspace:
-            return "Open a workspace before running the agent."
+            return "请先打开工作区，再运行 AI Lab。"
         case .emptyGoal:
-            return "Enter an agent goal first."
+            return "请先输入要发送给 AI 的内容。"
         case .missingAPIKey:
-            return "Add an LLM API key in Settings before generating an agent plan."
+            return "请先在设置中填写 LLM API Key。"
         case .missingPlan:
-            return "Generate a plan before running approved tools."
+            return "请先生成计划，再运行已审批的工具。"
         }
+    }
+}
+
+struct DeepSeekModelOption: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let detail: String
+
+    static let presets: [DeepSeekModelOption] = [
+        DeepSeekModelOption(id: "deepseek-chat", title: "DeepSeek Chat", detail: "General conversation and paper reading."),
+        DeepSeekModelOption(id: "deepseek-reasoner", title: "DeepSeek Reasoner", detail: "Reasoning-heavy planning and analysis."),
+        DeepSeekModelOption(id: "deepseek-v4-flash", title: "DeepSeek V4 Flash", detail: "Fast cached responses, useful for interactive runs."),
+        DeepSeekModelOption(id: "deepseek-v4-pro", title: "DeepSeek V4 Pro", detail: "Higher quality planning and tool-call drafting.")
+    ]
+
+    static func option(for model: String) -> DeepSeekModelOption? {
+        presets.first { $0.id == model }
     }
 }
 
@@ -76,6 +93,7 @@ final class AppViewModel: ObservableObject {
     @Published var addTodosToAppleReminders = true
     @Published private(set) var workspacePreferences = WorkspacePreferences()
     @Published private(set) var workspaceSettingsStatusMessage: String?
+    @Published var selectedSettingsCategory: SettingsCategory = .workspace
     @Published private(set) var selectedPaperID: Paper.ID?
     @Published private(set) var selectedLibraryPaperIDs: Set<Paper.ID> = []
     @Published private(set) var selectedPaperDraft: Paper?
@@ -128,6 +146,7 @@ final class AppViewModel: ObservableObject {
     }
     @Published private(set) var agentWorkspaceSnapshot: AgentWorkspaceSnapshot?
     @Published private(set) var agentToolDefinitions: [AgentToolDefinition] = []
+    @Published private(set) var agentDisabledToolNames: Set<String> = []
     @Published private(set) var agentCurrentRun: AgentRun?
     @Published private(set) var agentToolApprovals: Set<String> = []
     @Published private(set) var agentToolDenials: Set<String> = []
@@ -139,20 +158,29 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var allAgentThreads: [AgentThread] = []
     @Published private(set) var activeAgentThreadID: AgentThread.ID?
     @Published private(set) var pendingAgentThread: AgentThread?
+    @Published private(set) var pinnedAgentThreadIDs: Set<AgentThread.ID> = []
     @Published private(set) var agentPresetDetails: AgentPresetSummary?
     @Published private(set) var agentProductMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentDisabledHookIDs: Set<String> = []
     @Published var isShowingAgentThreadRename = false
+    @Published var isShowingAgentThreadArchiveConfirmation = false
     @Published var agentThreadRenameDraft = ""
+    @Published private(set) var agentThreadPendingArchive: AgentThread?
     @Published private(set) var agentBridgeExport: AgentCopilotBridgeExport?
     @Published private(set) var agentStatusMessage: String?
     @Published private(set) var agentErrorMessage: String?
+    @Published private(set) var selectedAgentKnowledgePaperIDs: Set<Paper.ID> = []
+    @Published var isShowingAgentKnowledgeLibrary = false
+    @Published var agentInteractionMode: AgentInteractionMode = .conversation
+    @Published private(set) var agentPendingUserPrompt: String?
+    @Published private(set) var agentStreamingResponseText: String?
     @Published private(set) var isRefreshingAgentContext = false
     @Published private(set) var isPlanningAgentRun = false
     @Published private(set) var isExecutingAgentTools = false
     @Published private(set) var isExportingAgentBridge = false
+    @Published private(set) var isConvertingAgentKnowledgeMarkdown = false
     @Published private(set) var isGeneratingWikiPage = false
     @Published private(set) var markdownDocuments: [MarkdownDocument] = []
     @Published private(set) var selectedMarkdownID: String?
@@ -201,10 +229,49 @@ final class AppViewModel: ObservableObject {
     private var pendingAgentThreadsByProject: [String: AgentThread] = [:]
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
+    private var agentPlanningTask: Task<Void, Never>?
     private var pendingGitHubCopilotOAuthState: String?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
+    }
+
+    var agentKnowledgePaperTotalCount: Int {
+        papers.count
+    }
+
+    var agentKnowledgePaperSelectedCount: Int {
+        selectedAgentKnowledgePaperIDs.intersection(Set(papers.map(\.id))).count
+    }
+
+    var selectedAgentKnowledgePapers: [Paper] {
+        papers.filter { selectedAgentKnowledgePaperIDs.contains($0.id) }
+    }
+
+    var agentEnabledToolNames: Set<String> {
+        Set(agentToolDefinitions.map(\.name)).subtracting(agentDisabledToolNames)
+    }
+
+    var agentEnabledToolSummary: String {
+        let count = agentEnabledToolNames.count
+        return "\(count) 工具"
+    }
+
+    var agentKnowledgePaperIDsForContext: Set<Paper.ID> {
+        selectedAgentKnowledgePaperIDs.intersection(Set(papers.map(\.id)))
+    }
+
+    var agentModeStatusText: String {
+        agentInteractionMode.summary
+    }
+
+    private var effectiveAgentAllowedToolNames: Set<String>? {
+        let enabledNames = agentEnabledToolNames
+        if let modeAllowedNames = agentInteractionMode.allowedToolNames {
+            return modeAllowedNames.intersection(enabledNames)
+        }
+
+        return enabledNames
     }
 
     init(
@@ -431,9 +498,12 @@ final class AppViewModel: ObservableObject {
 
     var agentTimelineItems: [AgentSessionTimelineItem] {
         let sessionIDs = agentRelevantSessionIDs
+        guard !sessionIDs.isEmpty else {
+            return []
+        }
         return AgentSessionTimelineItem.items(
             from: agentSessionEvents,
-            sessionIDs: sessionIDs.isEmpty ? nil : sessionIDs
+            sessionIDs: sessionIDs
         )
     }
 
@@ -463,7 +533,7 @@ final class AppViewModel: ObservableObject {
 
     var agentConversationTitle: String {
         guard let agentConversationProjectID else {
-            return "Global"
+            return "全局"
         }
 
         return projectName(for: agentConversationProjectID)
@@ -681,8 +751,13 @@ final class AppViewModel: ObservableObject {
     }
 
     func agentPermissionDockItems(for run: AgentRun) -> [AgentPermissionDockItem] {
-        AgentPermissionDockItem.items(
-            for: run,
+        var filteredRun = run
+        if let allowedToolNames = effectiveAgentAllowedToolNames {
+            filteredRun.plan.toolCalls = filteredRun.plan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
+        }
+
+        return AgentPermissionDockItem.items(
+            for: filteredRun,
             toolDefinitions: agentToolDefinitions,
             state: AgentPermissionDockState(
                 approvedCallIDs: agentToolApprovals,
@@ -784,6 +859,11 @@ final class AppViewModel: ObservableObject {
             selectedCollectionPath = nil
             selectedTagName = nil
         }
+    }
+
+    func openSettings(category: SettingsCategory) {
+        selectedSettingsCategory = category
+        selectSection(.settings)
     }
 
     func selectLibraryScope() {
@@ -1142,6 +1222,65 @@ final class AppViewModel: ObservableObject {
     func resetLibraryVisibleColumns() {
         updateWorkspacePreferences { preferences in
             preferences.libraryVisibleColumns = WorkspacePreferences.defaultLibraryVisibleColumns
+        }
+    }
+
+    func showAgentKnowledgeLibrary() {
+        isShowingAgentKnowledgeLibrary = true
+    }
+
+    func agentKnowledgePaperHasPDF(_ paper: Paper) -> Bool {
+        guard let currentWorkspace, let pdfURL = paper.pdfURL(in: currentWorkspace) else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: pdfURL.path)
+    }
+
+    func agentKnowledgePaperHasMarkdown(_ paper: Paper) -> Bool {
+        guard let currentWorkspace else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: paper.rawMarkdownURL(in: currentWorkspace).path)
+    }
+
+    func setAgentKnowledgePaper(_ paperID: Paper.ID, isSelected: Bool) {
+        let availablePaperIDs = Set(papers.map(\.id))
+        guard availablePaperIDs.contains(paperID) else {
+            return
+        }
+
+        if isSelected {
+            selectedAgentKnowledgePaperIDs.insert(paperID)
+        } else {
+            selectedAgentKnowledgePaperIDs.remove(paperID)
+        }
+
+        persistAgentKnowledgeSelectionAsCustom()
+        refreshAgentContext()
+    }
+
+    func selectAllAgentKnowledgePapers() {
+        selectedAgentKnowledgePaperIDs = Set(papers.map(\.id))
+        updateWorkspacePreferences { preferences in
+            preferences.agentKnowledgePaperIDs = nil
+        }
+        refreshAgentContext()
+    }
+
+    func clearAgentKnowledgePapers() {
+        selectedAgentKnowledgePaperIDs = []
+        updateWorkspacePreferences { preferences in
+            preferences.agentKnowledgePaperIDs = []
+        }
+        refreshAgentContext()
+    }
+
+    private func persistAgentKnowledgeSelectionAsCustom() {
+        let selectedIDs = selectedAgentKnowledgePaperIDs.sorted()
+        updateWorkspacePreferences { preferences in
+            preferences.agentKnowledgePaperIDs = selectedIDs
         }
     }
 
@@ -1960,6 +2099,10 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func useDeepSeekModel(_ option: DeepSeekModelOption) {
+        useDeepSeekDefaults(model: option.id)
+    }
+
     func testLLMConnection() {
         isTestingLLMConnection = true
         llmConnectionStatusMessage = nil
@@ -2077,8 +2220,122 @@ final class AppViewModel: ObservableObject {
         rebuildAgentHookActivitySummary()
     }
 
+    func setAgentTool(_ toolName: String, isEnabled: Bool) {
+        guard agentToolDefinitions.contains(where: { $0.name == toolName }) else {
+            return
+        }
+
+        if isEnabled {
+            agentDisabledToolNames.remove(toolName)
+        } else {
+            agentDisabledToolNames.insert(toolName)
+        }
+        persistAgentToolStateForCurrentScope()
+    }
+
+    func updateMinerUCommand(_ command: String) {
+        updateWorkspacePreferences { preferences in
+            let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+            preferences.minerUCommand = trimmed.isEmpty ? "mineru" : trimmed
+        }
+    }
+
+    func setMinerUOverwriteExistingMarkdown(_ shouldOverwrite: Bool) {
+        updateWorkspacePreferences { preferences in
+            preferences.minerUOverwriteExistingMarkdown = shouldOverwrite
+        }
+    }
+
     func agentToolDefinition(for call: AgentToolCall) -> AgentToolDefinition? {
         agentToolDefinitions.first { $0.name == call.toolName }
+    }
+
+    func isAgentThreadPinned(_ threadID: AgentThread.ID) -> Bool {
+        pinnedAgentThreadIDs.contains(threadID)
+    }
+
+    func toggleAgentThreadPin(_ thread: AgentThread) {
+        if pinnedAgentThreadIDs.contains(thread.id) {
+            pinnedAgentThreadIDs.remove(thread.id)
+            agentStatusMessage = "已取消置顶 \(thread.title)。"
+        } else {
+            pinnedAgentThreadIDs.insert(thread.id)
+            agentStatusMessage = "已置顶 \(thread.title)。"
+        }
+        persistPinnedAgentThreadsForCurrentProject()
+    }
+
+    func confirmArchiveAgentThread(_ thread: AgentThread) {
+        agentThreadPendingArchive = thread
+        isShowingAgentThreadArchiveConfirmation = true
+    }
+
+    func archiveConfirmedAgentThread() {
+        guard let thread = agentThreadPendingArchive else {
+            isShowingAgentThreadArchiveConfirmation = false
+            return
+        }
+
+        pinnedAgentThreadIDs.remove(thread.id)
+        persistPinnedAgentThreadsForCurrentProject()
+        agentThreadPendingArchive = nil
+        isShowingAgentThreadArchiveConfirmation = false
+        archiveAgentThread(thread)
+    }
+
+    func cancelAgentGeneration() {
+        guard isPlanningAgentRun else {
+            return
+        }
+
+        agentPlanningTask?.cancel()
+        agentPlanningTask = nil
+        isPlanningAgentRun = false
+        agentPendingUserPrompt = nil
+        agentStatusMessage = "已停止 AI 输出。"
+        agentErrorMessage = nil
+    }
+
+    func convertSelectedAgentKnowledgePapersToMarkdown() {
+        guard let currentWorkspace else {
+            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+
+        let selectedPapers = selectedAgentKnowledgePapers.filter { agentKnowledgePaperHasPDF($0) }
+        guard !selectedPapers.isEmpty else {
+            agentErrorMessage = "Select at least one paper with a PDF before generating Markdown."
+            return
+        }
+
+        isConvertingAgentKnowledgeMarkdown = true
+        agentErrorMessage = nil
+        agentStatusMessage = nil
+
+        Task {
+            defer {
+                isConvertingAgentKnowledgeMarkdown = false
+            }
+
+            do {
+                let service = PaperMarkdownConversionService()
+                let results = try await service.convert(
+                    selectedPapers,
+                    in: currentWorkspace,
+                    configuration: PaperMarkdownConversionConfiguration(
+                        minerUCommand: workspacePreferences.minerUCommand,
+                        overwriteExistingMarkdown: workspacePreferences.minerUOverwriteExistingMarkdown
+                    )
+                )
+                let convertedCount = results.filter(\.didWriteMarkdown).count
+                let failedCount = results.filter { $0.errorMessage != nil }.count
+                agentStatusMessage = "Generated Markdown for \(convertedCount) selected paper(s)" + (failedCount > 0 ? "; \(failedCount) failed." : ".")
+                await refreshAgentState(in: currentWorkspace)
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: selectedMarkdownID)
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func resetAgentPermissionDockState() {
@@ -2104,10 +2361,12 @@ final class AppViewModel: ObservableObject {
         activeAgentThreadID = thread.id
         agentGoal = ""
         agentCurrentRun = nil
+        agentStreamingResponseText = nil
         resetAgentPermissionDockState()
         agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
-        agentStatusMessage = "New \(agentConversationTitle) chat started."
+        restoreAgentToolStateForCurrentScope()
+        agentStatusMessage = "已开始新的 \(agentConversationTitle) 对话。"
         agentErrorMessage = nil
     }
 
@@ -2146,10 +2405,12 @@ final class AppViewModel: ObservableObject {
         agentCurrentRun = thread.runIDs.reversed().compactMap { runsByID[$0] }.first
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: thread.projectID, threadID: thread.id)] ?? ""
         restorePersistedAgentDraft(projectID: thread.projectID, threadID: thread.id)
+        agentStreamingResponseText = nil
         resetAgentPermissionDockState()
         agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
-        agentStatusMessage = "Opened \(thread.title) in \(agentConversationTitle)."
+        restoreAgentToolStateForCurrentScope()
+        agentStatusMessage = "已打开 \(agentConversationTitle) 中的 \(thread.title)。"
         agentErrorMessage = nil
     }
 
@@ -2163,6 +2424,7 @@ final class AppViewModel: ObservableObject {
         pendingAgentThread = nil
         agentCurrentRun = run
         agentGoal = run.goal
+        agentStreamingResponseText = nil
         resetAgentPermissionDockState()
         agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
@@ -2299,6 +2561,16 @@ final class AppViewModel: ObservableObject {
         agentStatusMessage = "Copied the previous prompt into a new chat."
     }
 
+    func duplicateAgentThreadPromptToNewChat(_ thread: AgentThread) {
+        guard let runID = thread.runIDs.last,
+              let run = agentRunHistory.first(where: { $0.id == runID }) else {
+            agentErrorMessage = "No prompt found for this chat yet."
+            return
+        }
+
+        duplicateAgentRunPromptToNewChat(run)
+    }
+
     private func resetAgentDraftIfConversationChanged(to projectID: ResearchProject.ID?) {
         guard agentCurrentRun?.currentProjectID != projectID else {
             return
@@ -2314,14 +2586,22 @@ final class AppViewModel: ObservableObject {
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         restorePersistedAgentDraft(projectID: projectID, threadID: activeAgentThreadID)
         agentCurrentRun = nil
+        agentStreamingResponseText = nil
         resetAgentPermissionDockState()
         agentBridgeExport = nil
         rebuildAgentHookActivitySummary()
+        restorePinnedAgentThreadsForCurrentProject()
+        restoreAgentToolStateForCurrentScope()
         agentStatusMessage = nil
         agentErrorMessage = nil
     }
 
     func generateAgentPlan() {
+        if isPlanningAgentRun {
+            cancelAgentGeneration()
+            return
+        }
+
         guard let currentWorkspace else {
             agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
             return
@@ -2333,20 +2613,41 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        let conversationHistory = agentConversationMessagesForPrompt()
+        let allowedToolNames = effectiveAgentAllowedToolNames
+        let interactionMode = agentInteractionMode
+        let executionOptions = AgentExecutionOptions(
+            mode: .planOnly,
+            disabledHookIDs: agentDisabledHookIDs,
+            plannerInstructions: interactionMode.plannerInstructions,
+            allowedToolNames: allowedToolNames,
+            allowsPlainTextResponse: interactionMode.allowsPlainTextResponse
+        )
+        let responseDeltaHandler = interactionMode == .conversation ? makeAgentStreamingDeltaHandler() : nil
+
         isPlanningAgentRun = true
+        agentPendingUserPrompt = trimmedGoal
+        agentStreamingResponseText = nil
+        agentGoal = ""
+        persistAgentDraftForCurrentConversation()
         agentErrorMessage = nil
         agentStatusMessage = nil
 
-        Task {
+        agentPlanningTask?.cancel()
+        agentPlanningTask = Task {
             defer {
                 isPlanningAgentRun = false
+                agentPendingUserPrompt = nil
+                agentPlanningTask = nil
             }
 
             do {
+                try Task.checkCancellation()
                 let apiKey = try await resolvedLLMAPIKey(for: currentWorkspace)
                 guard !apiKey.isEmpty else {
                     throw AgentPanelValidationError.missingAPIKey
                 }
+                try Task.checkCancellation()
 
                 let run = try await agentService.run(
                     goal: trimmedGoal,
@@ -2355,16 +2656,26 @@ final class AppViewModel: ObservableObject {
                     projects: researchProjects,
                     currentProjectID: agentConversationProjectID,
                     selectedPaperID: selectedPaperID,
+                    includedPaperIDs: agentKnowledgePaperIDsForContext,
+                    conversationHistory: conversationHistory,
                     configuration: llmConfiguration,
                     apiKey: apiKey,
-                    options: AgentExecutionOptions(mode: .planOnly, disabledHookIDs: agentDisabledHookIDs)
+                    options: executionOptions,
+                    responseDeltaHandler: responseDeltaHandler
                 )
+                try Task.checkCancellation()
                 agentCurrentRun = run
+                agentStreamingResponseText = nil
                 try await attachRunToActiveThread(run, in: currentWorkspace)
                 resetAgentPermissionDockState()
                 agentBridgeExport = nil
-                agentStatusMessage = "Plan generated. Review and approve workspace-writing tools before running."
+                agentStatusMessage = interactionMode == .conversation
+                    ? "已根据所选 AI 知识库生成回复。"
+                    : "计划已生成。运行前请审查允许写入工作区的工具。"
                 await refreshAgentState(in: currentWorkspace)
+            } catch is CancellationError {
+                agentStatusMessage = "已停止 AI 输出。"
+                agentErrorMessage = nil
             } catch {
                 agentErrorMessage = error.localizedDescription
             }
@@ -2378,6 +2689,10 @@ final class AppViewModel: ObservableObject {
         }
         guard let currentRun = agentCurrentRun else {
             agentErrorMessage = AgentPanelValidationError.missingPlan.localizedDescription
+            return
+        }
+        guard agentInteractionMode.allowsApprovedToolExecution else {
+            agentErrorMessage = "Conversation mode cannot execute tools. Switch to Plan or Assistant mode."
             return
         }
 
@@ -2399,6 +2714,8 @@ final class AppViewModel: ObservableObject {
                     root: currentResearchRoot,
                     currentProjectID: agentConversationProjectID,
                     selectedPaperID: selectedPaperID,
+                    includedPaperIDs: agentKnowledgePaperIDsForContext,
+                    allowedToolNames: effectiveAgentAllowedToolNames,
                     approvedToolCallIDs: agentToolApprovals,
                     deniedToolCallIDs: agentToolDenials,
                     correctionFeedbackByCallID: agentToolCorrectionFeedback,
@@ -2446,7 +2763,8 @@ final class AppViewModel: ObservableObject {
                     root: currentResearchRoot,
                     projects: researchProjects,
                     currentProjectID: agentConversationProjectID,
-                    selectedPaperID: selectedPaperID
+                    selectedPaperID: selectedPaperID,
+                    includedPaperIDs: agentKnowledgePaperIDsForContext
                 )
                 agentBridgeExport = export
                 agentStatusMessage = "Copilot Bridge exported to \(export.promptRelativePath)."
@@ -3285,6 +3603,7 @@ final class AppViewModel: ObservableObject {
         selectedPaperID = nextSelectedPaper?.id
         selectedLibraryPaperIDs = nextSelectedPaper.map { [$0.id] } ?? []
         selectedPaperDraft = nextSelectedPaper
+        reconcileAgentKnowledgeSelectionWithLoadedPapers()
         try await loadSelectedPaperAnnotations(in: workspace)
     }
 
@@ -3295,6 +3614,17 @@ final class AppViewModel: ObservableObject {
     private func loadWorkspacePreferences(in workspace: ResearchWorkspace) async throws {
         workspacePreferences = try await workspacePreferencesRepository.load(in: workspace)
         addTodosToAppleReminders = workspacePreferences.syncTodosToAppleReminders
+        restorePinnedAgentThreadsForCurrentProject()
+        restoreAgentToolStateForCurrentScope()
+    }
+
+    private func reconcileAgentKnowledgeSelectionWithLoadedPapers() {
+        let availablePaperIDs = Set(papers.map(\.id))
+        if let storedPaperIDs = workspacePreferences.agentKnowledgePaperIDs {
+            selectedAgentKnowledgePaperIDs = Set(storedPaperIDs).intersection(availablePaperIDs)
+        } else {
+            selectedAgentKnowledgePaperIDs = availablePaperIDs
+        }
     }
 
     private func loadSelectedPaperAnnotations(in workspace: ResearchWorkspace) async throws {
@@ -3495,7 +3825,8 @@ final class AppViewModel: ObservableObject {
                 root: root,
                 projects: researchProjects,
                 currentProjectID: agentConversationProjectID,
-                selectedPaperID: selectedPaperID
+                selectedPaperID: selectedPaperID,
+                includedPaperIDs: agentKnowledgePaperIDsForContext
             )
             agentToolDefinitions = await agentService.toolDefinitions()
             agentRunHistory = try await agentService.recentRuns(in: root, limit: 200)
@@ -3509,6 +3840,8 @@ final class AppViewModel: ObservableObject {
                 activeAgentThreadID = agentThreads.first?.id
             }
             restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
+            restorePinnedAgentThreadsForCurrentProject()
+            restoreAgentToolStateForCurrentScope()
             agentSessionEvents = try await agentService.sessionEvents(in: root, limit: 300)
             let runtimeLoader = AgentRuntimeConfigurationLoader()
             agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
@@ -3567,6 +3900,61 @@ final class AppViewModel: ObservableObject {
 
     private func saveAgentDraftForCurrentConversation() {
         agentGoalDrafts[agentDraftKey(projectID: agentConversationProjectID, threadID: activeAgentThreadID)] = agentGoal
+    }
+
+    private func appendAgentStreamingResponseDelta(_ delta: String) {
+        guard !delta.isEmpty else {
+            return
+        }
+        agentStreamingResponseText = (agentStreamingResponseText ?? "") + delta
+    }
+
+    private func makeAgentStreamingDeltaHandler() -> (@Sendable (String) async -> Void) {
+        { [weak self] delta in
+            await self?.appendAgentStreamingResponseDelta(delta)
+        }
+    }
+
+    private func persistAgentToolStateForCurrentScope() {
+        let scopeKey = agentToolPreferenceScopeKey(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
+        let disabledToolNames = agentDisabledToolNames.sorted()
+        updateWorkspacePreferences { preferences in
+            if disabledToolNames.isEmpty {
+                preferences.agentDisabledToolNamesByScope[scopeKey] = nil
+            } else {
+                preferences.agentDisabledToolNamesByScope[scopeKey] = disabledToolNames
+            }
+        }
+    }
+
+    private func restoreAgentToolStateForCurrentScope() {
+        let scopeKey = agentToolPreferenceScopeKey(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
+        agentDisabledToolNames = Set(workspacePreferences.agentDisabledToolNamesByScope[scopeKey] ?? [])
+    }
+
+    private func persistPinnedAgentThreadsForCurrentProject() {
+        let projectKey = agentProjectPreferenceKey(agentConversationProjectID)
+        let pinnedIDs = pinnedAgentThreadIDs.sorted()
+        updateWorkspacePreferences { preferences in
+            if pinnedIDs.isEmpty {
+                preferences.pinnedAgentThreadIDsByProject[projectKey] = nil
+            } else {
+                preferences.pinnedAgentThreadIDsByProject[projectKey] = pinnedIDs
+            }
+        }
+    }
+
+    private func restorePinnedAgentThreadsForCurrentProject() {
+        let projectKey = agentProjectPreferenceKey(agentConversationProjectID)
+        pinnedAgentThreadIDs = Set(workspacePreferences.pinnedAgentThreadIDsByProject[projectKey] ?? [])
+    }
+
+    private func agentToolPreferenceScopeKey(projectID: ResearchProject.ID?, threadID: AgentThread.ID?) -> String {
+        "project:\(agentProjectPreferenceKey(projectID))|thread:\(threadID ?? "__project__")"
+    }
+
+    private func agentProjectPreferenceKey(_ projectID: ResearchProject.ID?) -> String {
+        projectID ?? "__global__"
     }
 
     private func agentDraftKey(projectID: ResearchProject.ID?, threadID: AgentThread.ID?) -> String {
@@ -3631,6 +4019,24 @@ final class AppViewModel: ObservableObject {
                 agentErrorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func agentConversationMessagesForPrompt(limit: Int = 6) -> [LLMChatMessage] {
+        agentConversationRuns
+            .suffix(limit)
+            .flatMap { run -> [LLMChatMessage] in
+                let assistantText = [
+                    run.plan.finalResponseDraft?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                    run.plan.summary.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ]
+                .compactMap { $0 }
+                .first ?? "Plan generated."
+
+                return [
+                    LLMChatMessage(role: .user, content: run.goal),
+                    LLMChatMessage(role: .assistant, content: assistantText)
+                ]
+            }
     }
 
     private func agentProjectDraftKey(_ projectID: ResearchProject.ID?) -> String {

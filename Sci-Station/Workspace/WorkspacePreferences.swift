@@ -10,6 +10,11 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var defaultCollectionPath: String?
     public var recentSection: String?
     public var syncTodosToAppleReminders: Bool
+    public var agentKnowledgePaperIDs: [String]?
+    public var agentDisabledToolNamesByScope: [String: [String]]
+    public var pinnedAgentThreadIDsByProject: [String: [String]]
+    public var minerUCommand: String
+    public var minerUOverwriteExistingMarkdown: Bool
 
     public nonisolated init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -17,7 +22,12 @@ public struct WorkspacePreferences: Hashable, Sendable {
         librarySortState: LibrarySortState = LibrarySortState(),
         defaultCollectionPath: String? = nil,
         recentSection: String? = "library",
-        syncTodosToAppleReminders: Bool = true
+        syncTodosToAppleReminders: Bool = true,
+        agentKnowledgePaperIDs: [String]? = nil,
+        agentDisabledToolNamesByScope: [String: [String]] = [:],
+        pinnedAgentThreadIDsByProject: [String: [String]] = [:],
+        minerUCommand: String = "mineru",
+        minerUOverwriteExistingMarkdown: Bool = true
     ) {
         self.schemaVersion = schemaVersion
         self.libraryVisibleColumns = libraryVisibleColumns.isEmpty ? Self.defaultLibraryVisibleColumns : libraryVisibleColumns
@@ -25,6 +35,11 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.defaultCollectionPath = defaultCollectionPath
         self.recentSection = recentSection
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
+        self.agentKnowledgePaperIDs = agentKnowledgePaperIDs
+        self.agentDisabledToolNamesByScope = agentDisabledToolNamesByScope
+        self.pinnedAgentThreadIDsByProject = pinnedAgentThreadIDsByProject
+        self.minerUCommand = minerUCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mineru" : minerUCommand
+        self.minerUOverwriteExistingMarkdown = minerUOverwriteExistingMarkdown
     }
 
     public nonisolated var libraryVisibleColumnsStorageValue: String {

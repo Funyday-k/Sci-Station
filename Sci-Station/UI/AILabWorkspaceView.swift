@@ -6,14 +6,20 @@ struct AILabWorkspaceView: View {
     let workspace: ResearchWorkspace
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                AILabCompactHeaderView()
+        VStack(spacing: 0) {
+            AILabCompactHeaderView()
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
 
-                AgentPanelView(workspace: workspace)
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+
+            AgentPanelView(workspace: workspace)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $appModel.isShowingAgentKnowledgeLibrary) {
+            AIKnowledgeLibrarySheet()
+                .environmentObject(appModel)
         }
     }
 }
@@ -22,42 +28,320 @@ private struct AILabCompactHeaderView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("AI Lab")
-                    .font(.largeTitle)
+                    .font(.headline)
                     .fontWeight(.semibold)
-                Text("Conversation follows the project selected in the Sidebar.")
-                    .font(.callout)
+                Text(appModel.agentConversationTitle)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+            .frame(minWidth: 150, alignment: .leading)
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 8) {
-                Label(appModel.agentConversationTitle, systemImage: "folder")
-                Divider()
-                    .frame(height: 18)
-                Label(appModel.llmConfiguration.model, systemImage: "cpu")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Divider()
-                    .frame(height: 18)
+            Picker("模式", selection: $appModel.agentInteractionMode) {
+                ForEach(AgentInteractionMode.allCases) { mode in
+                    Text(mode.shortTitle).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 220)
+            .help(Text(verbatim: appModel.agentModeStatusText))
+
+            Button {
+                appModel.showAgentKnowledgeLibrary()
+            } label: {
+                Label("\(appModel.agentKnowledgePaperSelectedCount)/\(appModel.agentKnowledgePaperTotalCount)", systemImage: "books.vertical")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("AI 知识库")
+
+            Menu {
+                if appModel.agentToolDefinitions.isEmpty {
+                    Text("未加载工具")
+                } else {
+                    ForEach(appModel.agentToolDefinitions, id: \.identifier) { tool in
+                        Toggle(isOn: Binding(
+                            get: { appModel.agentEnabledToolNames.contains(tool.name) },
+                            set: { appModel.setAgentTool(tool.name, isEnabled: $0) }
+                        )) {
+                            VStack(alignment: .leading) {
+                                Text(tool.name)
+                                Text(tool.summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label(appModel.agentEnabledToolSummary, systemImage: "wrench.and.screwdriver")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("选择当前模式边界内可用的 AI Lab 工具")
+
+            HStack(spacing: 6) {
+                Menu {
+                    ForEach(DeepSeekModelOption.presets) { option in
+                        Button {
+                            appModel.useDeepSeekModel(option)
+                        } label: {
+                            Label(option.title, systemImage: appModel.llmConfiguration.model == option.id ? "checkmark" : "cpu")
+                        }
+                        .help(Text(verbatim: option.detail))
+                    }
+                    Divider()
+                    Button {
+                        appModel.openSettings(category: .aiLab)
+                    } label: {
+                        Label("全部模型设置", systemImage: "gearshape")
+                    }
+                } label: {
+                    Label(appModel.llmConfiguration.model, systemImage: "cpu")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .menuStyle(.borderlessButton)
                 Label(appModel.agentProviderSummary, systemImage: "sparkles")
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Button {
-                    appModel.selectSection(.settings)
+                    appModel.openSettings(category: .aiLab)
                 } label: {
-                    Label("AI Settings", systemImage: "gearshape")
+                    Label("AI 设置", systemImage: "gearshape")
+                        .labelStyle(.iconOnly)
                 }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.08), in: Capsule())
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         }
+    }
+}
+
+private struct AIKnowledgeLibrarySheet: View {
+    @EnvironmentObject private var appModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var selectedFilter = AIKnowledgeFilter.all
+
+    private var filteredPapers: [Paper] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filteredByCategory = appModel.papers.filter(matchesSelectedFilter)
+        guard !query.isEmpty else {
+            return filteredByCategory
+        }
+
+        return filteredByCategory.filter { paper in
+            paper.displayTitle.lowercased().contains(query)
+                || paper.authorsDisplay.lowercased().contains(query)
+                || paper.tagsDisplay.lowercased().contains(query)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("AI Knowledge Library")
+                        .font(.headline)
+                    Text("\(appModel.agentKnowledgePaperSelectedCount) of \(appModel.agentKnowledgePaperTotalCount) papers selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    appModel.convertSelectedAgentKnowledgePapersToMarkdown()
+                } label: {
+                    Label(appModel.isConvertingAgentKnowledgeMarkdown ? "Converting" : "PDF -> MD", systemImage: "doc.richtext")
+                }
+                .disabled(appModel.isConvertingAgentKnowledgeMarkdown || appModel.agentKnowledgePaperSelectedCount == 0)
+                .help("Generate paper.md for selected knowledge papers with the MinerU-compatible Markdown bridge")
+
+                Button("All") {
+                    appModel.selectAllAgentKnowledgePapers()
+                }
+                Button("Clear") {
+                    appModel.clearAgentKnowledgePapers()
+                }
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            TextField("Search papers", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AIKnowledgeFilter.allCases) { filter in
+                        Button {
+                            selectedFilter = filter
+                        } label: {
+                            Label(filter.title, systemImage: filter.systemImage)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(selectedFilter == filter ? Color.accentColor : Color.secondary)
+                        .controlSize(.small)
+                    }
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("Showing \(filteredPapers.count) papers")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if appModel.isConvertingAgentKnowledgeMarkdown {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            List(filteredPapers) { paper in
+                Toggle(isOn: Binding(
+                    get: { appModel.selectedAgentKnowledgePaperIDs.contains(paper.id) },
+                    set: { appModel.setAgentKnowledgePaper(paper.id, isSelected: $0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(paper.displayTitle)
+                            .font(.subheadline)
+                            .lineLimit(2)
+                        Text([paper.authorsDisplay, paper.publicationDisplay, paper.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        HStack(spacing: 8) {
+                            if appModel.agentKnowledgePaperHasPDF(paper) {
+                                Label("PDF", systemImage: "doc")
+                            }
+                            if appModel.agentKnowledgePaperHasMarkdown(paper) {
+                                Label("Markdown", systemImage: "doc.richtext")
+                            } else {
+                                Label("Missing Markdown", systemImage: "exclamationmark.circle")
+                            }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 3)
+                }
+                .toggleStyle(.checkbox)
+            }
+            .frame(minHeight: 360)
+        }
+        .padding(20)
+        .frame(minWidth: 620, minHeight: 500)
+    }
+
+    private func matchesSelectedFilter(_ paper: Paper) -> Bool {
+        switch selectedFilter {
+        case .all:
+            return true
+        case .project:
+            guard let projectID = appModel.agentConversationProjectID else {
+                return false
+            }
+            return paper.projectIDs.contains(projectID)
+        case .core:
+            guard let projectID = appModel.agentConversationProjectID else {
+                return false
+            }
+            return paper.coreProjectIDs.contains(projectID)
+        case .tagged:
+            return !paper.tags.isEmpty || !paper.categories.isEmpty
+        case .hasPDF:
+            return appModel.agentKnowledgePaperHasPDF(paper)
+        case .hasMarkdown:
+            return appModel.agentKnowledgePaperHasMarkdown(paper)
+        case .missingMarkdown:
+            return appModel.agentKnowledgePaperHasPDF(paper) && !appModel.agentKnowledgePaperHasMarkdown(paper)
+        }
+    }
+}
+
+private enum AIKnowledgeFilter: String, CaseIterable, Identifiable {
+    case all
+    case project
+    case core
+    case tagged
+    case hasPDF
+    case hasMarkdown
+    case missingMarkdown
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .project: return "Project"
+        case .core: return "Core"
+        case .tagged: return "Tagged"
+        case .hasPDF: return "Has PDF"
+        case .hasMarkdown: return "Has Markdown"
+        case .missingMarkdown: return "Missing Markdown"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .all: return "tray.full"
+        case .project: return "folder"
+        case .core: return "star"
+        case .tagged: return "tag"
+        case .hasPDF: return "doc"
+        case .hasMarkdown: return "doc.richtext"
+        case .missingMarkdown: return "exclamationmark.circle"
+        }
+    }
+}
+
+private struct AILabDockShell<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(10)
+            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.16))
+            }
+            .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
+    }
+}
+
+private struct AILabDockTray<Content: View>: View {
+    let attachTop: Bool
+    let content: Content
+
+    init(attachTop: Bool = false, @ViewBuilder content: () -> Content) {
+        self.attachTop = attachTop
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.12))
+            }
+            .padding(.top, attachTop ? -10 : 0)
     }
 }
 
@@ -74,79 +358,43 @@ private struct AgentPanelView: View {
     @State private var isPresetExpanded = false
     @State private var isHistoryExpanded = false
     @State private var isBridgeExpanded = false
+    @State private var isHandlingComposerChange = false
+    private let timelineBottomID = "agent-timeline-bottom"
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                statusMessages
-                threadStrip
-                goalEditor
-                actionButtons
-                AgentConversationTimelineView(
-                    thread: appModel.activeAgentThread,
-                    runs: appModel.agentConversationRuns,
-                    currentRun: appModel.agentCurrentRun,
-                    events: appModel.agentTimelineItems
-                )
+        VStack(spacing: 0) {
+            sessionHeader
 
-                DisclosureGroup("Agent Panel Details", isExpanded: $isAgentDetailsExpanded) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        AgentPlatformStatusView()
+            Divider()
 
-                        DisclosureGroup("Preset Manager", isExpanded: $isPresetExpanded) {
-                            AgentPresetManagerView()
-                        }
-
-                        DisclosureGroup("Hook Activity", isExpanded: $isHooksExpanded) {
-                            AgentHookActivityView()
-                        }
-
-                        DisclosureGroup("MCP Servers", isExpanded: $isMCPExpanded) {
-                            AgentMCPServerStatusView()
-                        }
-
-                        DisclosureGroup("Context", isExpanded: $isContextExpanded) {
-                            AgentContextSummaryView(snapshot: appModel.agentWorkspaceSnapshot, tools: appModel.agentToolDefinitions)
-                        }
-
-                        if let run = appModel.agentCurrentRun {
-                            DisclosureGroup("Current Plan", isExpanded: $isPlanExpanded) {
-                                AgentPlanSummaryView(run: run)
-                            }
-
-                            DisclosureGroup("Permission Dock", isExpanded: $isPermissionDockExpanded) {
-                                AgentPermissionDockView(run: run)
-                            }
-                        }
-
-                        if appModel.agentBridgeExport != nil {
-                            DisclosureGroup("Copilot Bridge Export", isExpanded: $isBridgeExpanded) {
-                                bridgeExportDetails
-                            }
-                        }
-
-                        DisclosureGroup("Conversation History", isExpanded: $isHistoryExpanded) {
-                            AgentRunHistoryView(
-                                currentRuns: appModel.agentConversationRuns,
-                                orphanRuns: appModel.agentOrphanRuns
-                            )
-                        }
-                    }
-                    .padding(.top, 8)
-                }
-
-                if appModel.agentConversationRuns.isEmpty, appModel.agentCurrentRun == nil {
-                    ContentUnavailableView(
-                        "No Messages Yet",
-                        systemImage: "bubble.left.and.text.bubble.right",
-                        description: Text("Enter a prompt above. The conversation uses the project selected in the Sidebar.")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    AgentConversationTimelineView(
+                        thread: appModel.activeAgentThread,
+                        runs: appModel.agentConversationRuns,
+                        currentRun: appModel.agentCurrentRun,
+                        events: appModel.agentTimelineItems,
+                        pendingPrompt: appModel.agentPendingUserPrompt,
+                        streamingResponse: appModel.agentStreamingResponseText,
+                        isThinking: appModel.isPlanningAgentRun,
+                        thinkingModeTitle: appModel.agentInteractionMode.title
                     )
-                    .frame(maxWidth: .infinity, minHeight: 120)
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(timelineBottomID)
                 }
+                .onChange(of: appModel.agentTimelineItems.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: appModel.agentPendingUserPrompt) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: appModel.isPlanningAgentRun) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: appModel.agentCurrentRun?.id) { _, _ in scrollToBottom(proxy) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            pendingInteractionDock
+            composerDock
         }
         .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
             AgentThreadRenameSheet()
@@ -154,14 +402,81 @@ private struct AgentPanelView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Agent Panel")
-                .font(.headline)
-                .fontWeight(.semibold)
-            Text("Project: \(appModel.agentConversationTitle). Use the Sidebar to switch project conversations.")
+    private var sessionHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("对话")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    Text("项目：\(appModel.agentConversationTitle)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                statusMessages
+            }
+
+            Text(appModel.agentModeStatusText)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .padding(16)
+        .background(Color.secondary.opacity(0.04))
+    }
+
+    private var runtimeRail: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Runtime", systemImage: "switch.2")
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                }
+
+                AgentPlatformStatusView()
+
+                DisclosureGroup("Preset Manager", isExpanded: $isPresetExpanded) {
+                    AgentPresetManagerView()
+                }
+
+                DisclosureGroup("Hook Activity", isExpanded: $isHooksExpanded) {
+                    AgentHookActivityView()
+                }
+
+                DisclosureGroup("MCP Servers", isExpanded: $isMCPExpanded) {
+                    AgentMCPServerStatusView()
+                }
+
+                DisclosureGroup("Context", isExpanded: $isContextExpanded) {
+                    AgentContextSummaryView(snapshot: appModel.agentWorkspaceSnapshot, tools: appModel.agentToolDefinitions)
+                }
+
+                if let run = appModel.agentCurrentRun {
+                    DisclosureGroup("Current Plan", isExpanded: $isPlanExpanded) {
+                        AgentPlanSummaryView(run: run)
+                    }
+                }
+
+                if appModel.agentBridgeExport != nil {
+                    DisclosureGroup("Copilot Bridge Export", isExpanded: $isBridgeExpanded) {
+                        bridgeExportDetails
+                    }
+                }
+
+                DisclosureGroup("Conversation History", isExpanded: $isHistoryExpanded) {
+                    AgentRunHistoryView(
+                        currentRuns: appModel.agentConversationRuns,
+                        orphanRuns: appModel.agentOrphanRuns
+                    )
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.secondary.opacity(0.025))
     }
 
     @ViewBuilder
@@ -249,74 +564,141 @@ private struct AgentPanelView: View {
         .frame(minWidth: 110, alignment: .leading)
     }
 
-    private var goalEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Prompt")
-                .font(.headline)
-            TextEditor(text: $appModel.agentGoal)
-                .font(.body)
-                .frame(minHeight: 82)
-                .padding(6)
-                .background(.background, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.18))
-                }
-            Text("Example: Review this project's open papers and propose the next three safe actions.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var pendingInteractionDock: some View {
+        if appModel.agentInteractionMode.allowsApprovedToolExecution,
+           let run = appModel.agentCurrentRun,
+           !appModel.agentPermissionDockItems(for: run).isEmpty {
+            AgentPermissionDockView(run: run)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
         }
     }
 
-    private var actionButtons: some View {
-        HStack(spacing: 10) {
-            Button {
-                appModel.generateAgentPlan()
-            } label: {
-                Label(appModel.isPlanningAgentRun ? "Thinking..." : "Send / Generate Plan", systemImage: "paperplane")
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(appModel.isPlanningAgentRun || appModel.isExecutingAgentTools)
+    private var composerDock: some View {
+        VStack(spacing: 0) {
+            AILabDockShell {
+                HStack(alignment: .bottom, spacing: 10) {
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $appModel.agentGoal)
+                            .font(.body)
+                            .frame(minHeight: 76, maxHeight: 120)
+                            .padding(4)
+                            .onChange(of: appModel.agentGoal) { _, newValue in
+                                handleComposerChange(newValue)
+                            }
 
-            Button {
-            } label: {
-                Label("Auto Run Loop", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .buttonStyle(.bordered)
-            .disabled(true)
-            .help("Reserved for a future Codex-style loop. It will only auto-run read-only tools; workspace writes still require approval. Stops will include max rounds, max tool calls, repeated failures, approval waits, and manual stop.")
+                        if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("输入问题、计划请求，或让 AI 阅读所选论文。")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 12)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.16))
+                    }
 
-            Button {
-                appModel.executeApprovedAgentTools()
-            } label: {
-                Label(appModel.isExecutingAgentTools ? "Running..." : "Run Approved Tools", systemImage: "checkmark.shield")
+                    Button {
+                        if appModel.isPlanningAgentRun {
+                            appModel.cancelAgentGeneration()
+                        } else {
+                            appModel.generateAgentPlan()
+                        }
+                    } label: {
+                        Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(appModel.isExecutingAgentTools)
+                    .help(appModel.isPlanningAgentRun ? "停止输出" : "连按两次 Return 发送")
+                    .accessibilityLabel(appModel.isPlanningAgentRun ? "停止输出" : "发送")
+                }
             }
-            .buttonStyle(.bordered)
-            .disabled(appModel.agentCurrentRun?.plan.toolCalls.isEmpty ?? true || appModel.isPlanningAgentRun || appModel.isExecutingAgentTools)
 
-            Button {
-                appModel.exportAgentCopilotBridge()
-            } label: {
-                Label(appModel.isExportingAgentBridge ? "Exporting..." : "Export Copilot Bridge", systemImage: "square.and.arrow.up")
-            }
-            .buttonStyle(.bordered)
-            .disabled(appModel.isExportingAgentBridge)
+            AILabDockTray(attachTop: true) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        Button {
+                            appModel.startNewAgentConversation()
+                        } label: {
+                            Label("新对话", systemImage: "plus.bubble")
+                        }
 
-            Button {
-                appModel.startNewAgentConversation()
-            } label: {
-                Label("New Chat", systemImage: "plus.bubble")
-            }
-            .buttonStyle(.bordered)
+                        Button {
+                            appModel.refreshAgentContext()
+                        } label: {
+                            Label(appModel.isRefreshingAgentContext ? "刷新中" : "刷新", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(appModel.isRefreshingAgentContext)
 
-            Button {
-                appModel.refreshAgentContext()
-            } label: {
-                Label("Refresh Context", systemImage: "arrow.clockwise")
+                        Button {
+                            appModel.exportAgentCopilotBridge()
+                        } label: {
+                            Label(appModel.isExportingAgentBridge ? "Exporting" : "Copilot Bridge", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(appModel.isExportingAgentBridge)
+                        .help("Export the current AI context as a prompt and manifest for external Copilot review")
+
+                        Button {
+                            appModel.openSettings(category: .aiLab)
+                        } label: {
+                            Label("设置", systemImage: "gearshape")
+                        }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                }
             }
-            .buttonStyle(.bordered)
-            .disabled(appModel.isRefreshingAgentContext)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 14)
+        .background(Color.secondary.opacity(0.04))
+    }
+
+    private func handleComposerChange(_ newValue: String) {
+        guard !isHandlingComposerChange else {
+            return
+        }
+
+        if appModel.isPlanningAgentRun {
+            return
+        }
+
+        guard newValue.hasSuffix("\n\n") else {
+            return
+        }
+
+        let prompt = String(newValue.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        updateComposerText(prompt)
+        if prompt.isEmpty {
+            return
+        }
+
+        appModel.generateAgentPlan()
+    }
+
+    private func updateComposerText(_ text: String) {
+        isHandlingComposerChange = true
+        appModel.agentGoal = text
+        isHandlingComposerChange = false
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.22)) {
+                proxy.scrollTo(timelineBottomID, anchor: .bottom)
+            }
         }
     }
 
@@ -379,6 +761,14 @@ private struct AgentConversationTimelineView: View {
     let runs: [AgentRun]
     let currentRun: AgentRun?
     let events: [AgentSessionTimelineItem]
+    let pendingPrompt: String?
+    let streamingResponse: String?
+    let isThinking: Bool
+    let thinkingModeTitle: String
+
+    private var visibleEvents: [AgentSessionTimelineItem] {
+        events.filter { $0.kind != .hookResult }
+    }
 
     private var visibleRuns: [AgentRun] {
         if let currentRun, !runs.contains(where: { $0.id == currentRun.id }) {
@@ -389,9 +779,9 @@ private struct AgentConversationTimelineView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Thread Timeline")
+                Text("对话时间线")
                     .font(.headline)
                 if let thread {
                     Text(thread.title)
@@ -401,14 +791,15 @@ private struct AgentConversationTimelineView: View {
                 Spacer(minLength: 0)
             }
 
-            if events.isEmpty, visibleRuns.isEmpty {
-                Text("No messages in this thread yet. Try: Review this project's open papers and propose the next three safe actions.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-            } else if !events.isEmpty {
-                ForEach(events) { item in
+            if visibleEvents.isEmpty, visibleRuns.isEmpty, pendingPrompt == nil, !isThinking {
+                ContentUnavailableView(
+                    "还没有消息",
+                    systemImage: "bubble.left.and.text.bubble.right",
+                    description: Text("从下方输入框开始。")
+                )
+                .frame(maxWidth: .infinity, minHeight: 260)
+            } else if !visibleEvents.isEmpty {
+                ForEach(visibleEvents) { item in
                     AgentSessionEventRowView(item: item)
                 }
             } else {
@@ -416,6 +807,60 @@ private struct AgentConversationTimelineView: View {
                     AgentConversationRunCard(run: run, isCurrent: currentRun?.id == run.id)
                 }
             }
+
+            if let pendingPrompt {
+                AgentTurnBubbleView(
+                    title: "你",
+                    iconName: "person.crop.circle",
+                    detail: pendingPrompt,
+                    metadata: "发送中",
+                    payloadPreview: nil,
+                    isUser: true,
+                    isError: false
+                )
+            }
+
+            if let streamingResponse,
+               !streamingResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                AgentTurnBubbleView(
+                    title: "AI",
+                    iconName: "sparkles",
+                    detail: streamingResponse,
+                    metadata: isThinking ? "正在生成" : "已停止",
+                    payloadPreview: nil,
+                    isUser: false,
+                    isError: false
+                )
+            } else if isThinking {
+                AgentThinkingBubbleView(thinkingModeTitle: thinkingModeTitle)
+            }
+        }
+    }
+}
+
+private struct AgentThinkingBubbleView: View {
+    let thinkingModeTitle: String
+
+    private let messages = [
+        "正在读取所选论文和项目上下文",
+        "正在整理多轮对话线索",
+        "正在组织回答与可执行边界"
+    ]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.8)) { context in
+            let tick = Int(context.date.timeIntervalSinceReferenceDate / 0.8)
+            let message = messages[tick % messages.count]
+            let dots = String(repeating: ".", count: (tick % 3) + 1)
+            AgentTurnBubbleView(
+                title: "AI",
+                iconName: "sparkles",
+                detail: message + dots,
+                metadata: thinkingModeTitle,
+                payloadPreview: nil,
+                isUser: false,
+                isError: false
+            )
         }
     }
 }
@@ -423,39 +868,40 @@ private struct AgentConversationTimelineView: View {
 private struct AgentSessionEventRowView: View {
     let item: AgentSessionTimelineItem
 
+    @ViewBuilder
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
-                .frame(width: 18)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(item.title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text(item.detail)
-                    .font(.callout)
-                    .foregroundStyle(item.kind == .toolCallFailed ? .red : .primary)
-                    .textSelection(.enabled)
-                if let payload = item.payloadPreview {
-                    Text(payload)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
-                }
-            }
-
-            Spacer(minLength: 0)
+        switch item.kind {
+        case .userMessage:
+            AgentTurnBubbleView(
+                title: item.title,
+                iconName: iconName,
+                detail: item.detail,
+                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                payloadPreview: item.payloadPreview,
+                isUser: true,
+                isError: false
+            )
+        case .assistantMessage, .reasoningSummary:
+            AgentTurnBubbleView(
+                title: item.title,
+                iconName: iconName,
+                detail: item.detail,
+                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                payloadPreview: item.payloadPreview,
+                isUser: false,
+                isError: false
+            )
+        default:
+            AgentRuntimeEventRow(
+                title: item.title,
+                iconName: iconName,
+                iconColor: iconColor,
+                detail: item.detail,
+                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                payloadPreview: item.payloadPreview,
+                isError: item.kind == .toolCallFailed
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var iconName: String {
@@ -497,46 +943,176 @@ private struct AgentSessionEventRowView: View {
     }
 }
 
+private struct AgentTurnBubbleView: View {
+    let title: String
+    let iconName: String
+    let detail: String
+    let metadata: String
+    let payloadPreview: String?
+    let isUser: Bool
+    let isError: Bool
+
+    private var alignment: HorizontalAlignment {
+        isUser ? .trailing : .leading
+    }
+
+    private var bubbleColor: Color {
+        if isError {
+            return Color.red.opacity(0.10)
+        }
+        return isUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08)
+    }
+
+    private var bubbleWidth: CGFloat {
+        let text = [detail, payloadPreview ?? ""].joined(separator: "\n")
+        let longestLine = text.split(separator: "\n", omittingEmptySubsequences: false).map(\.count).max() ?? text.count
+        let estimated = CGFloat(min(max(longestLine, 12), 78)) * 7.6 + 42
+        return min(max(estimated, 140), 680)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if isUser {
+                Spacer(minLength: 72)
+            }
+
+            VStack(alignment: alignment, spacing: 5) {
+                Label(title, systemImage: iconName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+
+                VStack(alignment: alignment, spacing: 6) {
+                    AgentMarkdownBubbleText(markdown: detail, isError: isError)
+
+                    if let payloadPreview {
+                        Text(payloadPreview)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(5)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(width: bubbleWidth, alignment: isUser ? .trailing : .leading)
+                .background(bubbleColor, in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(isUser ? 0.08 : 0.12))
+                }
+
+                Text(metadata)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !isUser {
+                Spacer(minLength: 72)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+}
+
+private struct AgentMarkdownBubbleText: View {
+    let markdown: String
+    let isError: Bool
+
+    private var attributedText: AttributedString? {
+        try? AttributedString(markdown: markdown)
+    }
+
+    var body: some View {
+        Group {
+            if let attributedText {
+                Text(attributedText)
+            } else {
+                Text(markdown)
+            }
+        }
+        .font(.callout)
+        .foregroundStyle(isError ? .red : .primary)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct AgentRuntimeEventRow: View {
+    let title: String
+    let iconName: String
+    let iconColor: Color
+    let detail: String
+    let metadata: String
+    let payloadPreview: String?
+    let isError: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .foregroundStyle(iconColor)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text(metadata)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(isError ? .red : .secondary)
+                    .textSelection(.enabled)
+
+                if let payloadPreview {
+                    Text(payloadPreview)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 private struct AgentConversationRunCard: View {
     let run: AgentRun
     let isCurrent: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 8) {
-                Label("You", systemImage: "person.crop.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(run.goal)
-                    .font(.callout)
-                    .lineLimit(3)
-                Spacer(minLength: 0)
-                if isCurrent {
-                    Text("Current")
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            AgentTurnBubbleView(
+                title: "You",
+                iconName: "person.crop.circle",
+                detail: run.goal,
+                metadata: run.createdAt.formatted(date: .abbreviated, time: .shortened),
+                payloadPreview: nil,
+                isUser: true,
+                isError: false
+            )
 
-            HStack(alignment: .top, spacing: 8) {
-                Label("Agent", systemImage: "sparkles")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(run.plan.title?.nilIfEmpty ?? "Plan")
-                        .fontWeight(.semibold)
-                    Text(run.plan.summary)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                    Text("\(run.mode.rawValue) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            AgentTurnBubbleView(
+                title: isCurrent ? "Agent / Current" : "Agent",
+                iconName: "sparkles",
+                detail: run.plan.finalResponseDraft?.nilIfEmpty ?? "\(run.plan.title?.nilIfEmpty ?? "Plan")\n\n\(run.plan.summary)",
+                metadata: run.mode.rawValue,
+                payloadPreview: nil,
+                isUser: false,
+                isError: false
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(isCurrent ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -625,20 +1201,46 @@ private struct AgentPermissionDockView: View {
     let run: AgentRun
 
     var body: some View {
-        GroupBox("Permission Dock") {
-            VStack(alignment: .leading, spacing: 12) {
-                let items = appModel.agentPermissionDockItems(for: run)
-                if items.isEmpty {
-                    Text("This plan does not request any tool calls.")
-                        .foregroundStyle(.secondary)
-                } else {
+        let items = appModel.agentPermissionDockItems(for: run)
+
+        VStack(spacing: 0) {
+            AILabDockShell {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        Label("Permission Dock", systemImage: "questionmark.shield")
+                            .font(.headline)
+                        Text("\(items.count) tool calls")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                    }
+
                     ForEach(items) { item in
                         AgentPermissionDockRow(item: item)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
+
+            AILabDockTray(attachTop: true) {
+                HStack(spacing: 8) {
+                    Label("Ready to execute", systemImage: "checkmark.shield")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button {
+                        appModel.executeApprovedAgentTools()
+                    } label: {
+                        Label(appModel.isExecutingAgentTools ? "Running" : "Run Approved Tools", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(run.plan.toolCalls.isEmpty || appModel.isPlanningAgentRun || appModel.isExecutingAgentTools)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 18)
+                .padding(.bottom, 8)
+            }
         }
     }
 }
@@ -782,7 +1384,7 @@ private struct AgentPermissionDockRow: View {
     }
 }
 
-private struct AgentHookActivityView: View {
+struct AgentHookActivityView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
@@ -867,7 +1469,7 @@ private struct AgentHookActivityView: View {
     }
 }
 
-private struct AgentMCPServerStatusView: View {
+struct AgentMCPServerStatusView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {

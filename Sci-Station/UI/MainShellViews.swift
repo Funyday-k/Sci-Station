@@ -4,6 +4,7 @@ struct SidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
     let workspace: ResearchWorkspace?
     @State private var isAllPapersExpanded = true
+    @State private var isAILabExpanded = true
 
     var body: some View {
         VStack(spacing: 10) {
@@ -74,14 +75,7 @@ struct SidebarView: View {
                             }
                         }
 
-                        SidebarActionRow(
-                            title: WorkspaceSection.llmLab.title,
-                            systemImage: WorkspaceSection.llmLab.systemImage,
-                            isSelected: appModel.selectedSection == .llmLab
-                        ) {
-                            appModel.selectSection(.llmLab)
-                        }
-                        .help("Open the global AI Lab")
+                        SidebarAILabGroup(isExpanded: $isAILabExpanded)
                     }
 
                     if workspace != nil {
@@ -187,6 +181,202 @@ struct SidebarView: View {
     }
 }
 
+private struct SidebarAILabGroup: View {
+    @EnvironmentObject private var appModel: AppViewModel
+    @Binding var isExpanded: Bool
+
+    private var visibleThreads: [AgentThread] {
+        isExpanded ? appModel.agentThreads : appModel.agentThreads.filter { appModel.isAgentThreadPinned($0.id) }
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 6) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption)
+                        .frame(width: 14, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(isExpanded ? "Collapse AI Lab" : "Expand AI Lab")
+
+                HStack(spacing: 8) {
+                    Image(systemName: WorkspaceSection.llmLab.systemImage)
+                        .frame(width: 16)
+                        .foregroundStyle(appModel.selectedSection == .llmLab ? Color.accentColor : Color.secondary)
+                    Text("AI Lab")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Text("\(appModel.agentThreads.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        appModel.selectSection(.llmLab)
+                    } label: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Open AI Lab")
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(appModel.selectedSection == .llmLab ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isExpanded.toggle()
+                }
+                .help("Open the global AI Lab")
+                .contextMenu {
+                    Button("New Chat") {
+                        appModel.startNewAgentConversation()
+                        appModel.selectSection(.llmLab)
+                    }
+                }
+            }
+
+            if isExpanded || !visibleThreads.isEmpty {
+                VStack(spacing: 2) {
+                    if let pendingThread = appModel.pendingAgentThread {
+                        AgentSidebarThreadRow(
+                            thread: pendingThread,
+                            subtitle: "Draft",
+                            isActive: appModel.activeAgentThreadID == pendingThread.id,
+                            isPinned: false,
+                            openAction: {
+                                appModel.selectSection(.llmLab)
+                            },
+                            pinAction: {},
+                            archiveAction: {
+                                appModel.discardPendingAgentThread()
+                            }
+                        )
+                        .contextMenu {
+                            Button("Discard Draft", role: .destructive) {
+                                appModel.discardPendingAgentThread()
+                            }
+                        }
+                    }
+
+                    ForEach(visibleThreads) { thread in
+                        AgentSidebarThreadRow(
+                            thread: thread,
+                            isActive: appModel.activeAgentThreadID == thread.id,
+                            isPinned: appModel.isAgentThreadPinned(thread.id),
+                            openAction: {
+                            appModel.selectAgentThread(thread)
+                            appModel.selectSection(.llmLab)
+                            },
+                            pinAction: {
+                                appModel.toggleAgentThreadPin(thread)
+                            },
+                            archiveAction: {
+                                appModel.confirmArchiveAgentThread(thread)
+                            }
+                        )
+                        .contextMenu {
+                            Button("Open") {
+                                appModel.selectAgentThread(thread)
+                                appModel.selectSection(.llmLab)
+                            }
+                            Button("Rename") {
+                                appModel.beginRenameAgentThread(thread)
+                            }
+                            Button("Duplicate Prompt") {
+                                appModel.duplicateAgentThreadPromptToNewChat(thread)
+                                appModel.selectSection(.llmLab)
+                            }
+                            Button("Archive", role: .destructive) {
+                                appModel.confirmArchiveAgentThread(thread)
+                            }
+                        }
+                    }
+
+                    if appModel.agentThreads.isEmpty, appModel.pendingAgentThread == nil {
+                        Text("暂无对话")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 36)
+                            .padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.leading, 28)
+            }
+        }
+        .confirmationDialog(
+            "归档这个对话？",
+            isPresented: $appModel.isShowingAgentThreadArchiveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("归档", role: .destructive) {
+                appModel.archiveConfirmedAgentThread()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(appModel.agentThreadPendingArchive?.title ?? "归档后会从当前对话列表中隐藏。")
+        }
+    }
+}
+
+private struct AgentSidebarThreadRow: View {
+    let thread: AgentThread
+    var subtitle: String? = nil
+    let isActive: Bool
+    let isPinned: Bool
+    let openAction: () -> Void
+    let pinAction: () -> Void
+    let archiveAction: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: pinAction) {
+                Image(systemName: isPinned ? "pin.fill" : "pin")
+                    .font(.caption)
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isPinned ? Color.accentColor : Color.secondary)
+            .opacity(isHovering || isPinned ? 1 : 0)
+            .help(isPinned ? "Unpin chat" : "Pin chat")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(thread.title)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(subtitle ?? "\(thread.runIDs.count) runs")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button(action: archiveAction) {
+                Image(systemName: "archivebox")
+                    .font(.caption)
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isHovering ? 1 : 0)
+            .help("Archive chat")
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .background(isActive ? Color.accentColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: openAction)
+        .onHover { isHovering = $0 }
+    }
+}
+
 private struct SidebarCollectionTree: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -223,7 +413,11 @@ private struct SidebarCollectionTree: View {
                 }
 
                 Button {
-                    appModel.selectCollection(collection.relativePath)
+                    if children.isEmpty {
+                        appModel.selectCollection(collection.relativePath)
+                    } else {
+                        appModel.toggleCollectionCollapse(collection.relativePath)
+                    }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "folder")
@@ -231,7 +425,7 @@ private struct SidebarCollectionTree: View {
                             .foregroundStyle(.secondary)
                         Text(collection.name)
                             .lineLimit(1)
-                            .truncationMode(.middle)
+                            .truncationMode(.tail)
                         Spacer(minLength: 8)
                         Text("\(collection.paperCount)")
                             .font(.caption)
@@ -244,6 +438,9 @@ private struct SidebarCollectionTree: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
+                    Button("Open Folder") {
+                        appModel.selectCollection(collection.relativePath)
+                    }
                     Button("Create Subfolder") {
                         appModel.createSubfolder(in: collection.relativePath)
                     }
@@ -303,7 +500,7 @@ private struct SidebarProjectGroup: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    appModel.focusResearchProject(project.id)
+                    appModel.toggleResearchProjectCollapse(project.id)
                 }
                 .onTapGesture(count: 2) {
                     appModel.selectResearchProject(project.id, section: .projects)

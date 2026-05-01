@@ -1205,22 +1205,102 @@ public nonisolated enum AgentLoopPolicy: String, Sendable {
     case readOnlyAutoApproveWritesRequireApproval
 }
 
+public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable, Sendable {
+    case conversation
+    case plan
+    case assistant
+
+    public nonisolated var id: String { rawValue }
+
+    public nonisolated var title: String {
+        switch self {
+        case .conversation:
+            return "对话"
+        case .plan:
+            return "计划"
+        case .assistant:
+            return "执行"
+        }
+    }
+
+    public nonisolated var shortTitle: String {
+        switch self {
+        case .conversation:
+            return "聊天"
+        case .plan:
+            return "计划"
+        case .assistant:
+            return "执行"
+        }
+    }
+
+    public nonisolated var summary: String {
+        switch self {
+        case .conversation:
+            return "读取并推理所选论文、文档与任务，不执行工具。"
+        case .plan:
+            return "生成计划，并仅在审批后写入 Markdown 计划文档。"
+        case .assistant:
+            return "可提出工具调用，任何写入仍需审批。"
+        }
+    }
+
+    public nonisolated var plannerInstructions: String {
+        switch self {
+        case .conversation:
+            return "Mode: Conversation. Answer the user from workspace_context only. Do not call tools. Keep tool_calls empty. Put user-facing content in final_response_draft when returning JSON. If the latest user_goal is Chinese, all user-facing fields must be Simplified Chinese. Markdown is acceptable in final_response_draft."
+        case .plan:
+            return "Mode: Plan. You may propose steps and, when useful, call only Markdown planning tools to write a plan document. Do not modify papers, todos, settings, or app state. User-facing fields must follow the latest user_goal language."
+        case .assistant:
+            return "Mode: Assistant. You may propose available tools, but every workspace write still requires user approval before execution. User-facing fields must follow the latest user_goal language."
+        }
+    }
+
+    public nonisolated var allowedToolNames: Set<String>? {
+        switch self {
+        case .conversation:
+            return []
+        case .plan:
+            return ["write_markdown_plan"]
+        case .assistant:
+            return nil
+        }
+    }
+
+    public nonisolated var allowsApprovedToolExecution: Bool {
+        self != .conversation
+    }
+
+    public nonisolated var allowsPlainTextResponse: Bool {
+        self == .conversation
+    }
+}
+
 public nonisolated struct AgentExecutionOptions: Sendable {
     public var mode: AgentRunMode
     public var approvedToolCallIDs: Set<String>
     public var loopPolicy: AgentLoopPolicy
     public var disabledHookIDs: Set<String>
+    public var plannerInstructions: String?
+    public var allowedToolNames: Set<String>?
+    public var allowsPlainTextResponse: Bool
 
     public nonisolated init(
         mode: AgentRunMode = .planOnly,
         approvedToolCallIDs: Set<String> = [],
         loopPolicy: AgentLoopPolicy = .manualApprovalOnly,
-        disabledHookIDs: Set<String> = []
+        disabledHookIDs: Set<String> = [],
+        plannerInstructions: String? = nil,
+        allowedToolNames: Set<String>? = nil,
+        allowsPlainTextResponse: Bool = false
     ) {
         self.mode = mode
         self.approvedToolCallIDs = approvedToolCallIDs
         self.loopPolicy = loopPolicy
         self.disabledHookIDs = disabledHookIDs
+        self.plannerInstructions = plannerInstructions
+        self.allowedToolNames = allowedToolNames
+        self.allowsPlainTextResponse = allowsPlainTextResponse
     }
 }
 
@@ -1230,31 +1310,73 @@ public nonisolated struct AgentPaperSnapshot: Codable, Hashable, Sendable {
     public var title: String
     public var authors: [String]
     public var year: Int?
+    public var venue: String?
+    public var publicationTitle: String?
+    public var doi: String?
+    public var arxiv: String?
+    public var url: String?
+    public var language: String?
     public var collectionPath: String?
     public var projectIDs: [String]
     public var coreProjectIDs: [String]
     public var folderPath: String?
+    public var paperDirectoryRelativePath: String?
+    public var pdfRelativePath: String?
+    public var rawMarkdownRelativePath: String?
     public var tags: [String]
     public var categories: [String]
     public var status: ReadingStatus
     public var priority: Priority
     public var abstract: String?
+    public var metadataSummary: String?
+    public var sourceExcerptKind: String?
+    public var sourceExcerpt: String?
 
-    public nonisolated init(paper: Paper) {
+    public nonisolated init(
+        paper: Paper,
+        rawMarkdownRelativePath: String? = nil,
+        sourceExcerptKind: String? = nil,
+        sourceExcerpt: String? = nil
+    ) {
         self.id = paper.id
         self.citekey = paper.citekey
         self.title = paper.title
         self.authors = paper.authors
         self.year = paper.year
+        self.venue = paper.venue
+        self.publicationTitle = paper.publicationTitle
+        self.doi = paper.doi
+        self.arxiv = paper.arxiv
+        self.url = paper.url
+        self.language = paper.language
         self.collectionPath = paper.collectionPath
         self.projectIDs = paper.projectIDs
         self.coreProjectIDs = paper.coreProjectIDs
         self.folderPath = paper.folderPath
+        self.paperDirectoryRelativePath = paper.paperDirectoryRelativePath
+        self.pdfRelativePath = paper.pdfRelativePath
+        self.rawMarkdownRelativePath = rawMarkdownRelativePath
         self.tags = paper.tags
         self.categories = paper.categories
         self.status = paper.status
         self.priority = paper.priority
         self.abstract = paper.abstract
+        self.metadataSummary = [
+            paper.title.nilIfEmpty,
+            paper.authors.isEmpty ? nil : "authors: \(paper.authors.joined(separator: ", "))",
+            paper.year.map { "year: \($0)" },
+            (paper.publicationTitle ?? paper.venue)?.nilIfEmpty.map { "venue: \($0)" },
+            paper.doi?.nilIfEmpty.map { "doi: \($0)" },
+            paper.arxiv?.nilIfEmpty.map { "arxiv: \($0)" },
+            paper.tags.isEmpty ? nil : "tags: \(paper.tags.joined(separator: ", "))",
+            paper.categories.isEmpty ? nil : "categories: \(paper.categories.joined(separator: ", "))",
+            "status: \(paper.status.rawValue)",
+            "priority: \(paper.priority.rawValue)"
+        ]
+        .compactMap { $0 }
+        .joined(separator: "; ")
+        self.sourceExcerptKind = sourceExcerptKind
+        self.sourceExcerpt = sourceExcerpt
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1263,15 +1385,27 @@ public nonisolated struct AgentPaperSnapshot: Codable, Hashable, Sendable {
         case title
         case authors
         case year
+        case venue
+        case publicationTitle = "publication_title"
+        case doi
+        case arxiv
+        case url
+        case language
         case collectionPath = "collection_path"
         case projectIDs = "project_ids"
         case coreProjectIDs = "core_project_ids"
         case folderPath = "folder_path"
+        case paperDirectoryRelativePath = "paper_directory_relative_path"
+        case pdfRelativePath = "pdf_relative_path"
+        case rawMarkdownRelativePath = "raw_markdown_relative_path"
         case tags
         case categories
         case status
         case priority
         case abstract
+        case metadataSummary = "metadata_summary"
+        case sourceExcerptKind = "source_excerpt_kind"
+        case sourceExcerpt = "source_excerpt"
     }
 }
 
@@ -1439,5 +1573,11 @@ public nonisolated enum AgentError: LocalizedError, Sendable {
         case let .paperNotFound(id):
             return "No paper found with id \(id)."
         }
+    }
+}
+
+private extension String {
+    nonisolated var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

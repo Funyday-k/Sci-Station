@@ -7,9 +7,9 @@ public nonisolated enum AgentPlanParserError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .missingJSONObject:
-            return "Agent response did not contain a JSON object."
+            return "AI 返回的内容不是结构化 JSON。聊天模式会自动接受自然语言；计划/执行模式请重新生成。"
         case let .invalidJSON(message):
-            return "Agent response JSON could not be decoded: \(message)"
+            return "AI 返回的 JSON 无法解析：\(message)"
         }
     }
 }

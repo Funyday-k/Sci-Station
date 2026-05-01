@@ -42,23 +42,23 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
     private nonisolated static func title(for kind: AgentSessionEventKind) -> String {
         switch kind {
         case .userMessage:
-            return "User Message"
+            return "用户消息"
         case .assistantMessage, .reasoningSummary:
-            return "Assistant Summary"
+            return "AI 回复"
         case .permissionRequested:
-            return "Permission Requested"
+            return "请求审批"
         case .permissionResolved:
-            return "Permission Resolved"
+            return "审批完成"
         case .toolCallStarted:
-            return "Tool Call Started"
+            return "工具开始"
         case .toolCallCompleted:
-            return "Tool Call Completed"
+            return "工具完成"
         case .toolCallFailed:
-            return "Tool Call Failed"
+            return "工具失败"
         case .hookResult:
-            return "Hook Result"
+            return "Hook 结果"
         case .compactionSummary:
-            return "Compaction Summary"
+            return "压缩摘要"
         }
     }
 }

@@ -37,6 +37,14 @@ public actor WorkspacePreferencesRepository {
         lines.append("default_collection: \(defaultCollection)")
         lines.append("recent_section: \(recentSection)")
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
+        lines.append("mineru_command: \(quoted(preferences.minerUCommand))")
+        lines.append("mineru_overwrite_existing_markdown: \(preferences.minerUOverwriteExistingMarkdown)")
+        if let agentKnowledgePaperIDs = preferences.agentKnowledgePaperIDs {
+            lines.append("agent_knowledge_paper_ids:")
+            lines.append(contentsOf: agentKnowledgePaperIDs.sorted().map { "  - \(quoted($0))" })
+        }
+        appendStringArrayMap(preferences.agentDisabledToolNamesByScope, key: "agent_disabled_tool_names_by_scope", to: &lines)
+        appendStringArrayMap(preferences.pinnedAgentThreadIDsByProject, key: "pinned_agent_thread_ids_by_project", to: &lines)
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -49,6 +57,11 @@ public actor WorkspacePreferencesRepository {
         var defaultCollectionPath: String?
         var recentSection: String?
         var syncTodosToAppleReminders = true
+        var agentKnowledgePaperIDs: [String]?
+        var agentDisabledToolNamesByScope: [String: [String]] = [:]
+        var pinnedAgentThreadIDsByProject: [String: [String]] = [:]
+        var minerUCommand = "mineru"
+        var minerUOverwriteExistingMarkdown = true
         var cursor = 0
 
         while cursor < lines.count {
@@ -73,6 +86,23 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("sync_todos_to_apple_reminders:") {
                 let value = trimmed.replacingOccurrences(of: "sync_todos_to_apple_reminders:", with: "").trimmingCharacters(in: .whitespaces)
                 syncTodosToAppleReminders = Bool(value) ?? true
+            } else if trimmed.hasPrefix("mineru_command:") {
+                minerUCommand = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_command:", with: "").trimmingCharacters(in: .whitespaces))) ?? "mineru"
+            } else if trimmed.hasPrefix("mineru_overwrite_existing_markdown:") {
+                let value = trimmed.replacingOccurrences(of: "mineru_overwrite_existing_markdown:", with: "").trimmingCharacters(in: .whitespaces)
+                minerUOverwriteExistingMarkdown = Bool(value) ?? true
+            } else if trimmed == "agent_knowledge_paper_ids:" {
+                let result = parseIndentedArray(from: lines, start: cursor + 1)
+                agentKnowledgePaperIDs = result.values
+                cursor = result.nextIndex - 1
+            } else if trimmed == "agent_disabled_tool_names_by_scope:" {
+                let result = parseIndentedStringArrayMap(from: lines, start: cursor + 1)
+                agentDisabledToolNamesByScope = result.values
+                cursor = result.nextIndex - 1
+            } else if trimmed == "pinned_agent_thread_ids_by_project:" {
+                let result = parseIndentedStringArrayMap(from: lines, start: cursor + 1)
+                pinnedAgentThreadIDsByProject = result.values
+                cursor = result.nextIndex - 1
             }
             cursor += 1
         }
@@ -83,8 +113,58 @@ public actor WorkspacePreferencesRepository {
             librarySortState: LibrarySortState(field: librarySortField, isAscending: librarySortAscending),
             defaultCollectionPath: defaultCollectionPath,
             recentSection: recentSection,
-            syncTodosToAppleReminders: syncTodosToAppleReminders
+            syncTodosToAppleReminders: syncTodosToAppleReminders,
+            agentKnowledgePaperIDs: agentKnowledgePaperIDs,
+            agentDisabledToolNamesByScope: agentDisabledToolNamesByScope,
+            pinnedAgentThreadIDsByProject: pinnedAgentThreadIDsByProject,
+            minerUCommand: minerUCommand,
+            minerUOverwriteExistingMarkdown: minerUOverwriteExistingMarkdown
         )
+    }
+
+    private nonisolated func appendStringArrayMap(_ map: [String: [String]], key: String, to lines: inout [String]) {
+        guard !map.isEmpty else {
+            return
+        }
+
+        lines.append("\(key):")
+        for scope in map.keys.sorted() {
+            let values = Array(Set(map[scope] ?? [])).sorted()
+            lines.append("  \(quoted(scope)):")
+            lines.append(contentsOf: values.map { "    - \(quoted($0))" })
+        }
+    }
+
+    private nonisolated func parseIndentedStringArrayMap(from lines: [String], start: Int) -> (values: [String: [String]], nextIndex: Int) {
+        var values: [String: [String]] = [:]
+        var cursor = start
+
+        while cursor < lines.count {
+            let line = lines[cursor]
+            guard line.hasPrefix("  ") else {
+                break
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasSuffix(":"), !trimmed.hasPrefix("-") else {
+                break
+            }
+
+            let key = unquoted(String(trimmed.dropLast()).trimmingCharacters(in: .whitespaces))
+            cursor += 1
+
+            var mappedValues: [String] = []
+            while cursor < lines.count, lines[cursor].hasPrefix("    ") {
+                let item = lines[cursor].trimmingCharacters(in: .whitespaces)
+                guard item.hasPrefix("-") else {
+                    break
+                }
+                mappedValues.append(unquoted(item.replacingOccurrences(of: "-", with: "", options: [], range: item.startIndex..<item.index(after: item.startIndex)).trimmingCharacters(in: .whitespaces)))
+                cursor += 1
+            }
+            values[key] = mappedValues
+        }
+
+        return (values, cursor)
     }
 
     private nonisolated func parseIndentedArray(from lines: [String], start: Int) -> (values: [String], nextIndex: Int) {

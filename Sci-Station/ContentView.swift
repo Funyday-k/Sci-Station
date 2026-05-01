@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @State private var mainColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var isInspectorCollapsed = false
 
     var body: some View {
         Group {
@@ -35,12 +36,37 @@ struct ContentView: View {
                     )
                     .navigationSplitViewColumnWidth(min: 560, ideal: 760)
                 } detail: {
-                    WorkspaceInspectorView(
-                        workspace: appModel.currentWorkspace,
-                        selectedSection: appModel.selectedSection,
-                        revealInFinder: appModel.revealCurrentWorkspaceInFinder
-                    )
-                    .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+                    if isInspectorCollapsed {
+                        CollapsedInspectorRestoreButton {
+                            isInspectorCollapsed = false
+                        }
+                        .navigationSplitViewColumnWidth(min: 44, ideal: 48, max: 52)
+                    } else {
+                        VStack(spacing: 0) {
+                            HStack {
+                                Spacer(minLength: 0)
+                                Button {
+                                    isInspectorCollapsed = true
+                                } label: {
+                                    Label("Collapse Inspector", systemImage: "sidebar.right")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Collapse Inspector")
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+
+                            Divider()
+
+                            WorkspaceInspectorView(
+                                workspace: appModel.currentWorkspace,
+                                selectedSection: appModel.selectedSection,
+                                revealInFinder: appModel.revealCurrentWorkspaceInFinder
+                            )
+                        }
+                        .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+                    }
                 }
             }
         }
@@ -127,6 +153,26 @@ struct ContentView: View {
             ResearchProjectEditorView()
                 .environmentObject(appModel)
         }
+    }
+}
+
+private struct CollapsedInspectorRestoreButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        VStack {
+            Button(action: action) {
+                Label("Show Inspector", systemImage: "sidebar.right")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help("Show Inspector")
+            .padding(.top, 12)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
 

@@ -16,6 +16,7 @@ public actor SciStationAgentService {
         provider: any LLMProvider,
         paperRepository: PaperRepository = PaperRepository(),
         todoRepository: TodoRepository = TodoRepository(),
+        markdownRepository: MarkdownRepository = MarkdownRepository(),
         contextBuilder: AgentWorkspaceContextBuilder? = nil,
         toolRegistry: AgentToolRegistry? = nil,
         toolExecutor: AgentToolExecutor? = nil,
@@ -32,7 +33,8 @@ public actor SciStationAgentService {
         )
         let resolvedToolRegistry = toolRegistry ?? AgentToolRegistry(tools: [
             CreateTodoAgentTool(todoRepository: todoRepository),
-            UpdatePaperClassificationAgentTool(paperRepository: paperRepository)
+            UpdatePaperClassificationAgentTool(paperRepository: paperRepository),
+            WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository)
         ])
 
         self.contextBuilder = resolvedContextBuilder
@@ -52,14 +54,16 @@ public actor SciStationAgentService {
         root: ResearchRoot? = nil,
         projects: [ResearchProject] = [],
         currentProjectID: ResearchProject.ID? = nil,
-        selectedPaperID: String? = nil
+        selectedPaperID: String? = nil,
+        includedPaperIDs: Set<String>? = nil
     ) async throws -> AgentWorkspaceSnapshot {
         try await contextBuilder.snapshot(
             in: workspace,
             root: root ?? ResearchRoot(rootURL: workspace.rootURL),
             projects: projects,
             currentProjectID: currentProjectID,
-            selectedPaperID: selectedPaperID
+            selectedPaperID: selectedPaperID,
+            includedPaperIDs: includedPaperIDs
         )
     }
 
@@ -74,9 +78,12 @@ public actor SciStationAgentService {
         projects: [ResearchProject] = [],
         currentProjectID: ResearchProject.ID? = nil,
         selectedPaperID: String? = nil,
+        includedPaperIDs: Set<String>? = nil,
+        conversationHistory: [LLMChatMessage] = [],
         configuration: LLMConfiguration,
         apiKey: String,
-        options: AgentExecutionOptions = AgentExecutionOptions()
+        options: AgentExecutionOptions = AgentExecutionOptions(),
+        responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
     ) async throws -> AgentRun {
         let createdAt = Date()
         let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
@@ -92,21 +99,30 @@ public actor SciStationAgentService {
             root: resolvedRoot,
             projects: projects,
             currentProjectID: currentProjectID,
-            selectedPaperID: selectedPaperID
+            selectedPaperID: selectedPaperID,
+            includedPaperIDs: includedPaperIDs
         )
-        let toolDefinitions = await toolRegistry.definitions()
-        let plan = try await planner.plan(
+        let toolDefinitions = await filteredToolDefinitions(allowedToolNames: options.allowedToolNames)
+        var plan = try await planner.plan(
             goal: goal,
             workspaceSnapshot: snapshot,
             tools: toolDefinitions,
             configuration: configuration,
-            apiKey: apiKey
+            apiKey: apiKey,
+            modeInstructions: options.plannerInstructions,
+            conversationHistory: conversationHistory,
+            allowsPlainTextResponse: options.allowsPlainTextResponse,
+            responseDeltaHandler: responseDeltaHandler
         )
+        if let allowedToolNames = options.allowedToolNames {
+            plan.toolCalls = plan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
+        }
         let context = AgentToolContext(
             workspace: workspace,
             selectedPaperID: selectedPaperID,
             researchRoot: resolvedRoot,
-            currentProjectID: currentProjectID
+            currentProjectID: currentProjectID,
+            allowedPaperIDs: includedPaperIDs
         )
         for call in plan.toolCalls {
             hookResults.append(contentsOf: hookEngine.evaluate(
@@ -154,15 +170,21 @@ public actor SciStationAgentService {
         root: ResearchRoot? = nil,
         currentProjectID: ResearchProject.ID? = nil,
         selectedPaperID: String? = nil,
+        includedPaperIDs: Set<String>? = nil,
+        allowedToolNames: Set<String>? = nil,
         approvedToolCallIDs: Set<String>,
         deniedToolCallIDs: Set<String> = [],
         correctionFeedbackByCallID: [String: String] = [:],
         disabledHookIDs: Set<String> = []
     ) async throws -> AgentRun {
         let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
+        var executablePlan = plan
+        if let allowedToolNames {
+            executablePlan.toolCalls = executablePlan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
+        }
         let hookEngine = hookEngine(disabledHookIDs: disabledHookIDs)
         var hookResults: [AgentHookResult] = []
-        for call in plan.toolCalls {
+        for call in executablePlan.toolCalls {
             hookResults.append(contentsOf: hookEngine.evaluate(
                 AgentHookEvent(
                     name: .preToolUse,
@@ -176,10 +198,11 @@ public actor SciStationAgentService {
             workspace: workspace,
             selectedPaperID: selectedPaperID,
             researchRoot: resolvedRoot,
-            currentProjectID: currentProjectID
+            currentProjectID: currentProjectID,
+            allowedPaperIDs: includedPaperIDs
         )
         let toolResults = await toolExecutor.execute(
-            plan: plan,
+            plan: executablePlan,
             context: context,
             approvedToolCallIDs: approvedToolCallIDs
         )
@@ -208,7 +231,7 @@ public actor SciStationAgentService {
             createdAt: Date(),
             completedAt: Date(),
             mode: .executeApproved,
-            plan: plan,
+            plan: executablePlan,
             toolResults: toolResults,
             currentProjectID: currentProjectID
         )
@@ -266,7 +289,8 @@ public actor SciStationAgentService {
         root: ResearchRoot? = nil,
         projects: [ResearchProject] = [],
         currentProjectID: ResearchProject.ID? = nil,
-        selectedPaperID: String? = nil
+        selectedPaperID: String? = nil,
+        includedPaperIDs: Set<String>? = nil
     ) async throws -> AgentCopilotBridgeExport {
         let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
         let workspaceSnapshot = try await snapshot(
@@ -274,7 +298,8 @@ public actor SciStationAgentService {
             root: resolvedRoot,
             projects: projects,
             currentProjectID: currentProjectID,
-            selectedPaperID: selectedPaperID
+            selectedPaperID: selectedPaperID,
+            includedPaperIDs: includedPaperIDs
         )
         let tools = await toolDefinitions()
         return try await bridgeExporter.export(
@@ -309,7 +334,7 @@ public actor SciStationAgentService {
                 sessionID: run.id,
                 createdAt: run.completedAt ?? Date(),
                 kind: .assistantMessage,
-                summary: run.plan.summary
+                summary: run.plan.finalResponseDraft?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? run.plan.summary
             ),
             in: root
         )
@@ -444,6 +469,15 @@ public actor SciStationAgentService {
                 return updatedHook
             }
         )
+    }
+
+    private func filteredToolDefinitions(allowedToolNames: Set<String>?) async -> [AgentToolDefinition] {
+        let definitions = await toolRegistry.definitions()
+        guard let allowedToolNames else {
+            return definitions
+        }
+
+        return definitions.filter { allowedToolNames.contains($0.name) }
     }
 }
 

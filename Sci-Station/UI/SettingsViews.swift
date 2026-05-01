@@ -9,16 +9,22 @@ struct SettingsView: View {
     @State private var isShowingLegacyMigrationConfirmation = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        HStack(spacing: 0) {
+            SettingsCategorySidebar(selection: $appModel.selectedSettingsCategory)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Settings")
+                    Text(appModel.selectedSettingsCategory.title)
                         .font(.system(size: 42, weight: .bold, design: .rounded))
-                    Text("Manage the research root, project defaults, library organization, task sync, and LLM provider.")
+                    Text(appModel.selectedSettingsCategory.summary)
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
 
+                if appModel.selectedSettingsCategory == .workspace {
                 GroupBox("Research Root") {
                     VStack(alignment: .leading, spacing: 12) {
                         TextField("Workspace name", text: $workspaceName)
@@ -71,7 +77,9 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
 
+                if appModel.selectedSettingsCategory == .projects {
                 GroupBox("Projects") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
@@ -114,7 +122,9 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
 
+                if appModel.selectedSettingsCategory == .library {
                 GroupBox("Library") {
                     VStack(alignment: .leading, spacing: 12) {
                         TextField("Default folder for new imports", text: $defaultFolderPath, prompt: Text("Uncategorized"))
@@ -206,7 +216,9 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
 
+                if appModel.selectedSettingsCategory == .tasks {
                 GroupBox("Tasks And Apple Reminders") {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle("Sync new todos to Apple Reminders", isOn: Binding(
@@ -242,6 +254,89 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
+
+                if appModel.selectedSettingsCategory == .aiLab {
+                GroupBox("AI Lab Runtime") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        WorkspacePathRow(label: "Mode", value: appModel.agentInteractionMode.title)
+                        WorkspacePathRow(label: "Knowledge Papers", value: "\(appModel.agentKnowledgePaperSelectedCount) / \(appModel.agentKnowledgePaperTotalCount)")
+                        WorkspacePathRow(label: "Agent Platform", value: appModel.agentPlatformSummary)
+                        WorkspacePathRow(label: "Preset", value: appModel.agentPresetSummary)
+                        WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
+                        WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
+                        WorkspacePathRow(label: "MCP", value: appModel.agentMCPStatusSummary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("AI Lab Tools") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Tool availability is filtered by the current mode. Conversation mode still cannot call tools even when tools are enabled here.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if appModel.agentToolDefinitions.isEmpty {
+                            Text("No tools loaded for the current workspace.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(appModel.agentToolDefinitions, id: \.identifier) { tool in
+                                Toggle(isOn: Binding(
+                                    get: { appModel.agentEnabledToolNames.contains(tool.name) },
+                                    set: { appModel.setAgentTool(tool.name, isEnabled: $0) }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 8) {
+                                            Text(tool.name)
+                                                .fontWeight(.medium)
+                                            Text(tool.requiresConfirmation ? "Requires approval" : "Read-only / auto")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Text(tool.summary)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("MinerU PDF -> Markdown") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("PDF 转 Markdown 会优先调用 MinerU；命令不可用或没有产出 Markdown 时，自动降级到 PDFKit fallback，并在 paper.md frontmatter 中记录来源。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        TextField("MinerU command", text: Binding(
+                            get: { appModel.workspacePreferences.minerUCommand },
+                            set: { appModel.updateMinerUCommand($0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        Toggle("覆盖已有 paper.md", isOn: Binding(
+                            get: { appModel.workspacePreferences.minerUOverwriteExistingMarkdown },
+                            set: { appModel.setMinerUOverwriteExistingMarkdown($0) }
+                        ))
+                        .toggleStyle(.checkbox)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Hook Activity") {
+                    AgentHookActivityView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("MCP Servers") {
+                    AgentMCPServerStatusView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 GroupBox("LLM") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -250,14 +345,19 @@ struct SettingsView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
-                            Button("DeepSeek Flash") {
-                                appModel.useDeepSeekDefaults(model: "deepseek-v4-flash")
+                            Picker("DeepSeek Model", selection: Binding(
+                                get: { appModel.llmConfiguration.model },
+                                set: { newValue in
+                                    appModel.useDeepSeekDefaults(model: newValue)
+                                }
+                            )) {
+                                ForEach(DeepSeekModelOption.presets) { option in
+                                    Text(option.title).tag(option.id)
+                                }
                             }
-                            .help(Text(verbatim: "Use https://api.deepseek.com with deepseek-v4-flash"))
-                            Button("DeepSeek Pro") {
-                                appModel.useDeepSeekDefaults(model: "deepseek-v4-pro")
-                            }
-                            .help(Text(verbatim: "Use https://api.deepseek.com with deepseek-v4-pro"))
+                            .pickerStyle(.menu)
+                            .frame(width: 210)
+                            .help(Text(verbatim: DeepSeekModelOption.option(for: appModel.llmConfiguration.model)?.detail ?? "Choose a DeepSeek-compatible model"))
                         }
 
                         TextField(
@@ -325,6 +425,31 @@ struct SettingsView: View {
                             Text(message)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Copilot Bridge") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Copilot Bridge exports the current AI Lab context into a prompt file and manifest under `.sci-station/agent/`. It is for external VS Code Copilot review or handoff, not required for normal chat.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 12) {
+                            Button {
+                                appModel.exportAgentCopilotBridge()
+                            } label: {
+                                Label(appModel.isExportingAgentBridge ? "Exporting" : "Export Bridge", systemImage: "square.and.arrow.up")
+                            }
+                            .disabled(appModel.isExportingAgentBridge)
+
+                            if let export = appModel.agentBridgeExport {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    WorkspacePathRow(label: "Prompt", value: export.promptRelativePath)
+                                    WorkspacePathRow(label: "Manifest", value: export.manifestRelativePath)
+                                }
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -427,7 +552,9 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
 
+                if appModel.selectedSettingsCategory == .developer {
                 GroupBox("Settings Files") {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Workspace paths and generated agent files are centralized here instead of taking space in working views.")
@@ -443,6 +570,7 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
 
                 if let message = appModel.workspaceSettingsStatusMessage {
                     Text(message)
@@ -451,6 +579,8 @@ struct SettingsView: View {
                 }
             }
             .padding(24)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear(perform: syncDrafts)
         .onChange(of: workspace.rootURL) { _, _ in
@@ -522,6 +652,106 @@ struct SettingsView: View {
     private func trimmedOrNil(_ value: String) -> String? {
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+}
+
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case workspace
+    case projects
+    case library
+    case tasks
+    case aiLab
+    case developer
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .workspace:
+            return "Workspace"
+        case .projects:
+            return "Projects"
+        case .library:
+            return "Library"
+        case .tasks:
+            return "Tasks"
+        case .aiLab:
+            return "AI Lab"
+        case .developer:
+            return "Developer"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .workspace:
+            return "Manage the research root and workspace identity."
+        case .projects:
+            return "Edit project names, descriptions, icons, and colors."
+        case .library:
+            return "Control paper import defaults, migration, and library table behavior."
+        case .tasks:
+            return "Configure todo sync with Apple Reminders."
+        case .aiLab:
+            return "Configure AI provider, Copilot, runtime, hooks, MCP, and knowledge context."
+        case .developer:
+            return "Inspect settings files and generated agent paths."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .workspace:
+            return "externaldrive"
+        case .projects:
+            return "folder"
+        case .library:
+            return "books.vertical"
+        case .tasks:
+            return "checklist"
+        case .aiLab:
+            return "sparkles"
+        case .developer:
+            return "terminal"
+        }
+    }
+}
+
+private struct SettingsCategorySidebar: View {
+    @Binding var selection: SettingsCategory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Settings")
+                .font(.headline)
+                .padding(.horizontal, 12)
+                .padding(.top, 16)
+
+            ForEach(SettingsCategory.allCases) { category in
+                Button {
+                    selection = category
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: category.systemImage)
+                            .frame(width: 16)
+                            .foregroundStyle(.secondary)
+                        Text(category.title)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
+                    .background(selection == category ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(width: 190)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
 

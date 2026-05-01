@@ -5,17 +5,20 @@ public nonisolated struct AgentToolContext: Sendable {
     public var selectedPaperID: String?
     public var researchRoot: ResearchRoot?
     public var currentProjectID: ResearchProject.ID?
+    public var allowedPaperIDs: Set<String>?
 
     public nonisolated init(
         workspace: ResearchWorkspace,
         selectedPaperID: String? = nil,
         researchRoot: ResearchRoot? = nil,
-        currentProjectID: ResearchProject.ID? = nil
+        currentProjectID: ResearchProject.ID? = nil,
+        allowedPaperIDs: Set<String>? = nil
     ) {
         self.workspace = workspace
         self.selectedPaperID = selectedPaperID
         self.researchRoot = researchRoot
         self.currentProjectID = currentProjectID
+        self.allowedPaperIDs = allowedPaperIDs
     }
 }
 

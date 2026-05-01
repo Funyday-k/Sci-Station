@@ -29,6 +29,10 @@ public nonisolated struct CreateTodoAgentTool: AgentTool {
         let priority = arguments.priority.flatMap(Priority.init(rawValue:)) ?? .medium
         let projectIDs = arguments.projectIDs ?? context.currentProjectID.map { [$0] } ?? []
         let relatedPaperIDs = arguments.relatedPaperIDs ?? context.selectedPaperID.map { [$0] } ?? []
+        if let allowedPaperIDs = context.allowedPaperIDs,
+           relatedPaperIDs.contains(where: { !allowedPaperIDs.contains($0) }) {
+            throw AgentError.invalidArguments("related_paper_ids contains a paper outside the AI knowledge selection")
+        }
         let todo = TodoItem(
             id: "todo-\(UUID().uuidString.lowercased())",
             title: trimmedTitle,
@@ -79,6 +83,10 @@ public nonisolated struct UpdatePaperClassificationAgentTool: AgentTool {
         let paperID = arguments.paperID ?? context.selectedPaperID
         guard let paperID else {
             throw AgentError.missingSelectedPaper
+        }
+        if let allowedPaperIDs = context.allowedPaperIDs,
+           !allowedPaperIDs.contains(paperID) {
+            throw AgentError.invalidArguments("paper_id is outside the AI knowledge selection")
         }
 
         let papers = try await paperRepository.loadPapers(in: context.workspace)
@@ -132,6 +140,84 @@ public nonisolated struct UpdatePaperClassificationAgentTool: AgentTool {
     }
 }
 
+public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
+    private let markdownRepository: MarkdownRepository
+
+    public nonisolated init(markdownRepository: MarkdownRepository) {
+        self.markdownRepository = markdownRepository
+    }
+
+    public nonisolated var definition: AgentToolDefinition {
+        AgentToolDefinition(
+            name: "write_markdown_plan",
+            summary: "Create or replace a Markdown planning document under wiki/plans.",
+            inputSchema: "{\"title\":\"string\",\"body\":\"markdown string\",\"relative_path\":\"wiki/plans/name.md optional\"}",
+            risk: .writesWorkspace,
+            requiresConfirmation: true,
+            examples: ["{\"title\":\"Paper reading plan\",\"body\":\"# Plan\\n\\n- Read selected papers\"}"]
+        )
+    }
+
+    public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        let arguments = try decodeArguments(WriteMarkdownPlanArguments.self, from: argumentsJSON)
+        let title = arguments.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = arguments.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            throw AgentError.invalidArguments("title is required")
+        }
+        guard !body.isEmpty else {
+            throw AgentError.invalidArguments("body is required")
+        }
+
+        let relativePath = try resolvedPlanPath(title: title, proposedPath: arguments.relativePath)
+        let contents = body.hasPrefix("# ") ? body + "\n" : "# \(title)\n\n\(body)\n"
+        let document = try await markdownRepository.saveContents(contents, relativePath: relativePath, in: context.workspace)
+
+        return AgentToolResult(
+            callID: "",
+            toolName: definition.name,
+            succeeded: true,
+            message: "Saved Markdown plan: \(document.title)",
+            modifiedPaths: [document.relativePath]
+        )
+    }
+
+    private nonisolated func resolvedPlanPath(title: String, proposedPath: String?) throws -> String {
+        if let proposedPath = proposedPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !proposedPath.isEmpty {
+            guard proposedPath.hasPrefix("wiki/plans/"),
+                  proposedPath.hasSuffix(".md"),
+                  !proposedPath.contains(".."),
+                  !proposedPath.hasPrefix("/") else {
+                throw AgentError.invalidArguments("relative_path must be under wiki/plans and end with .md")
+            }
+            return proposedPath
+        }
+
+        return "wiki/plans/\(slug(from: title)).md"
+    }
+
+    private nonisolated func slug(from title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let lowercased = title.lowercased()
+        var output = ""
+        var previousWasDash = false
+
+        for scalar in lowercased.unicodeScalars {
+            if allowed.contains(scalar) {
+                output.unicodeScalars.append(scalar)
+                previousWasDash = false
+            } else if !previousWasDash {
+                output.append("-")
+                previousWasDash = true
+            }
+        }
+
+        let slug = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "plan-\(UUID().uuidString.lowercased())" : slug
+    }
+}
+
 private struct CreateTodoArguments: Decodable {
     var title: String
     var dueDate: String?
@@ -173,6 +259,18 @@ private struct UpdatePaperClassificationArguments: Decodable {
         case markCoreInCurrentProject = "mark_core_in_current_project"
         case priority
         case status
+    }
+}
+
+private struct WriteMarkdownPlanArguments: Decodable {
+    var title: String
+    var body: String
+    var relativePath: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case body
+        case relativePath = "relative_path"
     }
 }
 

@@ -264,7 +264,7 @@ public enum GitHubCopilotProviderError: LocalizedError, Sendable {
     }
 }
 
-public actor GitHubCopilotSDKAdapter: CopilotSDKProvider {
+public actor GitHubCopilotSDKAdapter: CopilotSDKProvider, CopilotSDKStreamingProvider {
     private let tokenClassifier: GitHubCopilotTokenClassifier
 
     public init(tokenClassifier: GitHubCopilotTokenClassifier = GitHubCopilotTokenClassifier()) {
@@ -282,6 +282,22 @@ public actor GitHubCopilotSDKAdapter: CopilotSDKProvider {
         }
 
         throw GitHubCopilotProviderError.sdkUnavailable
+    }
+
+    public nonisolated func streamComplete(prompt: String, configuration: GitHubCopilotConfiguration, userToken: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let response = try await self.complete(prompt: prompt, configuration: configuration, userToken: userToken)
+                    if !response.isEmpty {
+                        continuation.yield(response)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 }
 
