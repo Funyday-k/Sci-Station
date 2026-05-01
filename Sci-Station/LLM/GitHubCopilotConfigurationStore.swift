@@ -22,10 +22,14 @@ public actor GitHubCopilotConfigurationStore {
                 configuration.clientID = scalarValue(from: trimmed)
             } else if trimmed.hasPrefix("callback_url:") {
                 configuration.callbackURLString = scalarValue(from: trimmed)
+            } else if trimmed.hasPrefix("token_exchange_url:") {
+                configuration.tokenExchangeURLString = scalarValue(from: trimmed)
             } else if trimmed.hasPrefix("required_org:") {
                 configuration.requiredOrganization = emptyToNil(scalarValue(from: trimmed))
             } else if trimmed.hasPrefix("model:") {
                 configuration.model = emptyToNil(scalarValue(from: trimmed)) ?? "gpt-4.1"
+            } else if trimmed.hasPrefix("scope:") {
+                configuration.scopeString = emptyToNil(scalarValue(from: trimmed)) ?? GitHubCopilotConfiguration.defaultScopeString
             }
         }
 
@@ -41,8 +45,10 @@ public actor GitHubCopilotConfigurationStore {
           enabled: \(configuration.isEnabled)
           client_id: \(quoted(configuration.clientID))
           callback_url: \(quoted(configuration.callbackURLString))
+          token_exchange_url: \(quoted(configuration.tokenExchangeURLString))
           required_org: \(requiredOrganization)
           model: \(quoted(configuration.model))
+          scope: \(quoted(configuration.scopeString))
         """
         try contents.write(to: fileURL, atomically: true, encoding: .utf8)
     }

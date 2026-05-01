@@ -1,6 +1,6 @@
 # 任务书 21：Library Table V2 与 GitHub Copilot SDK 接口适配
 
-更新时间：2026-04-29
+更新时间：2026-05-01
 
 ## 1. 本轮结论
 
@@ -188,13 +188,40 @@
 - Space / Preview PDF 使用现有外部 PDF opening 作为 Quick Look fallback；单选、多选右键和 Paper 菜单均可进入预览，未选中 PDF 时显示非阻塞状态。
 - 新增 `LibraryBulkEditService`，核心验证覆盖批量 status/priority/rating/tag add/remove。
 - 新增 GitHub Copilot SDK experimental 配置、token 分类、adapter 协议和 settings store；配置只保存 client id、callback URL、required org、model、enabled 等非敏感字段。
+- GitHub Copilot Settings 增加 Connect GitHub：直接打开 `https://github.com/login/oauth/authorize`，授权后回到 `sci-station://github-copilot/callback`。
+- Connect GitHub 不再静默失败：未打开 workspace 时显示说明，未填写 Client ID 时会打开 GitHub OAuth App 创建页，授权页打开失败时会显示可复制 URL。
+- 新增 token exchange relay URL 配置；桌面端只接收 OAuth callback code/state，不内置 client secret，code-to-token 交换通过 relay/backend 完成。
 - GitHub user token 通过 Keychain account 保存；`settings/github_copilot.yaml` 不写 client secret、access token 或 refresh token。
 - Settings 增加 GitHub Copilot SDK Experimental 区域，可配置 Client ID、Callback URL、Required Org、Model、Token、保存/检查 adapter/断开连接。
 - AI Lab header 显示当前 provider summary；GitHub Copilot SDK provider 目前保持 experimental，不替换现有 OpenAI-compatible / DeepSeek provider，也不绕过 plan-only 和 tool approval。
 - README 与 `DOC/Next-Step-Task-Book.md` 已同步 Library V2 与 Copilot SDK adapter 状态。
 - 核心验证增加 GitHub Copilot token prefix 分类和非敏感配置往返测试。
+- 核心验证增加 GitHub authorize URL 构造、callback code/state 解析和 token exchange request 不含 client secret。
 
 验证：
 
 - `swift run SciStationCoreTestRunner` 通过。
 - `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' -derivedDataPath .derivedData build` 通过。
+
+## 8. 追加修订：转入 Agent Platform 预设化迁移
+
+追加时间：2026-05-01
+
+任务书 21 已完成 Library Table V2 与 GitHub Copilot SDK adapter 的第一版后，后续计划调整为吸收 OpenCode 与 Claude Code 的 agent 平台设计：OpenCode 作为运行时、session、tool registry、permission、MCP 和 provider 抽象参考，Claude Code 插件作为 hooks、skills、commands、MCP preset、settings 与安全治理参考。
+
+本次已按该计划先完成当前工作区的轻量预设落地：
+
+- 新增 `.claude/settings.json`，启用 `SessionStart` 与 `PreToolUse` hooks。
+- 新增 `.claude/hooks/session_start.py`，在 Claude Code 会话开始时注入 Sci-Station 架构、安全与验证上下文。
+- 新增 `.claude/hooks/sci_station_guard.py`，对危险 shell、敏感路径写入和疑似 secret 内容做确定性拦截或人工确认。
+- 新增 `.claude/skills/sci-station-agent-platform/`，沉淀 AI Lab、OpenCode/Claude Code 迁移、provider/tool/session、MCP、hooks、skills 和安全 preset 的默认指导。
+- 新增 `.claude/skills/sci-station-research-workflow/`，沉淀科研 workflow、proposal、论文库、文献综述和代码/数据复核的默认指导。
+- 新增 `.mcp.json`，提供受限到当前仓库的 filesystem MCP 入口。
+
+这些文件是产品化迁移的原型，不等同于最终 Sci-Station App 内置 agent 平台。任务书 22 将把这组预设上升为 Swift-native Agent Platform V1 的正式实施路线：核心模型、权限层、hook engine、plugin/skill/command schema、MCP 配置边界、session event log、provider V2 和 AI Lab UI 演进。
+
+追加验证：
+
+- `python3 -m py_compile .claude/hooks/session_start.py .claude/hooks/sci_station_guard.py` 通过。
+- `python3 -m json.tool .claude/settings.json` 通过。
+- `python3 -m json.tool .mcp.json` 通过。

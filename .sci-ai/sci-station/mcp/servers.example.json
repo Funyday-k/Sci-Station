@@ -1,0 +1,16 @@
+{
+  "mcp_servers": [
+    {
+      "id": "sci-station-filesystem",
+      "display_name": "Sci-Station Filesystem",
+      "transport": "local_command",
+      "is_enabled": false,
+      "command": "npx",
+      "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceRoot}"],
+      "timeout_seconds": 30,
+      "allowed_tools": ["read_file", "list_directory", "search_files"],
+      "header_references": [],
+      "secret_references": []
+    }
+  ]
+}

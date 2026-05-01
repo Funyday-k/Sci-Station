@@ -15,6 +15,9 @@ struct Sci_StationApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appModel)
+                .onOpenURL { url in
+                    appModel.handleIncomingURL(url)
+                }
         }
         .defaultSize(width: 1360, height: 860)
         .commands {

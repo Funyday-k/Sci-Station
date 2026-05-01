@@ -26,6 +26,8 @@ private struct CoreVerificationSuite {
         try librarySortStateSortsPapers()
         try await libraryBulkEditServiceUpdatesSelectedPapers()
         try await githubCopilotConfigurationStaysNonSensitive()
+        try githubCopilotOAuthBuildsAuthorizeURLAndParsesCallback()
+        try githubCopilotTokenExchangeRequestExcludesClientSecret()
         try githubCopilotTokenClassifierRecognizesSupportedPrefixes()
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
         try await workspaceMaterialRepositoryLoadsOnlyUserMaterials()
@@ -66,6 +68,13 @@ private struct CoreVerificationSuite {
         try await agentThreadRepositoryUpsertsProjectThreads()
         try await agentThreadRepositoryArchivesAndReadsLegacyThreads()
         try await agentPromptDraftRepositoryPersistsDrafts()
+        try agentToolDefinitionsExposePlatformMetadata()
+        try agentPermissionRulesEvaluateSafetyDecisions()
+        try agentHookEngineEvaluatesLifecycleResults()
+        try agentPluginSkillAndMCPModelsValidate()
+        try sciAITrackedPresetManifestValidates()
+        try await agentSessionEventLoggerAppendsAndReplaysEvents()
+        try llmProviderV2RequestModelsToolDefinitions()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
         try await movePaperToCollectionUpdatesMetadataAndPath()
         try await wikiPageGenerationWritesTemplateAndUpdatesMetadata()
@@ -374,8 +383,10 @@ private struct CoreVerificationSuite {
             isEnabled: true,
             clientID: "client-id",
             callbackURLString: "sci-station://github-copilot/callback",
+            tokenExchangeURLString: "https://relay.example.com/github/copilot/token",
             requiredOrganization: "example-org",
-            model: "gpt-4.1"
+            model: "gpt-4.1",
+            scopeString: "read:user read:org"
         )
         try await store.save(configuration, in: workspace)
         let loadedConfiguration = try await store.load(in: workspace)
@@ -384,6 +395,55 @@ private struct CoreVerificationSuite {
         try expect(loadedConfiguration == configuration, "GitHub Copilot configuration should round trip non-sensitive fields.")
         try expect(!settingsContents.lowercased().contains("secret"), "GitHub Copilot config must not contain OAuth client secrets.")
         try expect(!settingsContents.contains("gho_"), "GitHub Copilot config must not contain user tokens.")
+    }
+
+    private func githubCopilotOAuthBuildsAuthorizeURLAndParsesCallback() throws {
+        let configuration = GitHubCopilotConfiguration(
+            isEnabled: true,
+            clientID: "client-id",
+            callbackURLString: "sci-station://github-copilot/callback",
+            tokenExchangeURLString: "https://relay.example.com/github/copilot/token",
+            model: "gpt-4.1",
+            scopeString: "read:user read:org"
+        )
+        let url = try GitHubCopilotOAuthRequestBuilder().authorizationURL(configuration: configuration, state: "state-123")
+        let components = try require(URLComponents(url: url, resolvingAgainstBaseURL: false), "Authorize URL should be parseable.")
+        let queryItems = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in item.value.map { (item.name, $0) } })
+
+        try expect(url.scheme == "https", "Authorize URL should use HTTPS.")
+        try expect(url.host == "github.com", "Authorize URL should target github.com.")
+        try expect(components.path == "/login/oauth/authorize", "Authorize URL should use GitHub OAuth authorize path.")
+        try expect(queryItems["client_id"] == "client-id", "Authorize URL should include client id.")
+        try expect(queryItems["redirect_uri"] == "sci-station://github-copilot/callback", "Authorize URL should include callback URL.")
+        try expect(queryItems["state"] == "state-123", "Authorize URL should include state.")
+        try expect(queryItems["scope"] == "read:user read:org", "Authorize URL should include scopes.")
+
+        let callbackURL = try require(URL(string: "sci-station://github-copilot/callback?code=abc&state=state-123"), "Callback URL should be constructible.")
+        let callback = try GitHubCopilotOAuthCallback(url: callbackURL)
+        try expect(callback.code == "abc", "Callback parser should extract code.")
+        try expect(callback.state == "state-123", "Callback parser should extract state.")
+    }
+
+    private func githubCopilotTokenExchangeRequestExcludesClientSecret() throws {
+        let configuration = GitHubCopilotConfiguration(
+            isEnabled: true,
+            clientID: "client-id",
+            callbackURLString: "sci-station://github-copilot/callback",
+            tokenExchangeURLString: "https://relay.example.com/github/copilot/token",
+            model: "gpt-4.1"
+        )
+        let request = try GitHubCopilotOAuthTokenExchanger().buildRequest(
+            code: "code-123",
+            state: "state-123",
+            configuration: configuration
+        )
+        let body = try require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) }, "Token exchange request should have JSON body.")
+
+        try expect(request.url?.absoluteString == "https://relay.example.com/github/copilot/token", "Token exchange should target configured relay.")
+        try expect(body.contains("\"client_id\""), "Token exchange body should include client id.")
+        try expect(body.contains("\"code\""), "Token exchange body should include OAuth code.")
+        try expect(body.contains("\"redirect_uri\""), "Token exchange body should include redirect URI.")
+        try expect(!body.lowercased().contains("client_secret"), "Token exchange body must not include a client secret.")
     }
 
     private func githubCopilotTokenClassifierRecognizesSupportedPrefixes() throws {
@@ -1730,6 +1790,8 @@ private struct CoreVerificationSuite {
                 try expect(run.plan.steps.count == 2, "Agent plan should decode ordered steps.")
                 try expect(history.first?.id == run.id, "Agent service should read recent run history with newest entries first.")
                 try expect(logContents.contains(project.id), "Agent run log should include current_project_id.")
+                let sessionEvents = try await service.sessionEvents(in: root, sessionID: run.id)
+                try expect(sessionEvents.map(\.kind).contains(.permissionRequested), "Plan-only runs should append permission request session events for requested tools.")
             }
 
             private func agentServiceExecutesApprovedPlanAndExportsBridge() async throws {
@@ -1797,6 +1859,8 @@ private struct CoreVerificationSuite {
                 try expect(approvedRun.toolResults.first?.succeeded == true, "Approved service tool execution should succeed.")
                 try expect(todos.first?.title == "Approved agent todo", "Approved service tool execution should persist the todo.")
                 try expect(todos.first?.projectIDs == [project.id], "Approved service tool execution should use the current project context.")
+                let executionEvents = try await service.sessionEvents(in: root, sessionID: approvedRun.id)
+                try expect(executionEvents.map(\.kind).contains(.toolCallCompleted), "Approved execution should append completed tool session events.")
 
                 let export = try await service.exportCopilotBridge(
                     goal: "Create approved todo",
@@ -2028,6 +2092,228 @@ private struct CoreVerificationSuite {
                 let removedDraft = try await repository.draft(projectID: "project-alpha", threadID: "thread-alpha", in: root)
 
                 try expect(removedDraft == nil, "Prompt drafts should be removable when discarding an empty pending thread.")
+            }
+
+            private func agentToolDefinitionsExposePlatformMetadata() throws {
+                let readDefinition = AgentToolDefinition(
+                    name: "read_context",
+                    summary: "Read current workspace context.",
+                    inputSchema: "{}",
+                    risk: .readOnly
+                )
+                let writeDefinition = AgentToolDefinition(
+                    name: "write_note",
+                    displayName: "Write Note",
+                    summary: "Write a note into the workspace.",
+                    inputSchema: "{\"path\":\"string\"}",
+                    inputSchemaVersion: 2,
+                    risk: .writesWorkspace,
+                    outputPolicy: AgentToolOutputPolicy(maxCharacters: 500, includeAttachments: true)
+                )
+
+                let encoded = try JSONEncoder().encode(writeDefinition)
+                let decoded = try JSONDecoder().decode(AgentToolDefinition.self, from: encoded)
+
+                try expect(readDefinition.permissionKey == "tool.read", "Read-only tools should default to the read permission key.")
+                try expect(!readDefinition.requiresConfirmation, "Read-only tools should not require confirmation by default.")
+                try expect(writeDefinition.identifier == "write_note", "Tool definitions should expose a stable identifier.")
+                try expect(writeDefinition.permissionKey == "tool.write_workspace", "Workspace-writing tools should expose a write permission key.")
+                try expect(writeDefinition.requiresConfirmation, "Workspace-writing tools should require confirmation by default.")
+                try expect(decoded.inputSchemaVersion == 2, "Tool definition schema version should round-trip.")
+                try expect(decoded.outputPolicy.maxCharacters == 500, "Tool output policy should round-trip.")
+            }
+
+            private func agentPermissionRulesEvaluateSafetyDecisions() throws {
+                let evaluator = AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
+
+                let destructive = evaluator.evaluate(
+                    AgentPermissionRequest(command: "rm -rf .derivedData", risk: .externalSideEffect)
+                )
+                let sensitivePath = evaluator.evaluate(
+                    AgentPermissionRequest(path: "settings/github_copilot_token.yaml", risk: .writesWorkspace)
+                )
+                let defaultRead = evaluator.evaluate(
+                    AgentPermissionRequest(toolName: "list_papers", risk: .readOnly)
+                )
+                let defaultWrite = evaluator.evaluate(
+                    AgentPermissionRequest(toolName: "create_todo", risk: .writesWorkspace)
+                )
+
+                try expect(destructive.action == .deny, "Safety preset should deny recursive removal commands.")
+                try expect(destructive.ruleID == "deny-recursive-removal", "Permission decisions should include the matching rule id.")
+                try expect(sensitivePath.action == .ask, "Safety preset should ask before sensitive-looking path writes.")
+                try expect(defaultRead.action == .allow, "Read-only requests should be allowed by default.")
+                try expect(defaultWrite.action == .ask, "Workspace writes should ask by default.")
+            }
+
+            private func agentHookEngineEvaluatesLifecycleResults() throws {
+                let hooks = AgentSafetyPreset.defaultHooks() + [
+                    AgentHookDefinition(
+                        id: "deny-shell-preview",
+                        eventName: .preToolUse,
+                        matcher: #"rm\s+-rf"#,
+                        permissionDecision: .deny,
+                        message: "Dangerous command blocked."
+                    )
+                ]
+                let engine = AgentHookEngine(hooks: hooks)
+
+                let sessionResults = engine.evaluate(AgentHookEvent(name: .sessionStart))
+                let preToolResults = engine.evaluate(
+                    AgentHookEvent(name: .preToolUse, toolName: "Bash", command: "rm -rf build")
+                )
+                let stopResults = engine.evaluate(
+                    AgentHookEvent(name: .stop, modifiedPaths: ["Sci-Station/Agent/AgentModels.swift"], validationRecorded: false)
+                )
+
+                try expect(sessionResults.first?.additionalContext?.contains("Swift-native") == true, "SessionStart hooks should be able to inject context.")
+                try expect(preToolResults.contains(where: { $0.permissionDecision == .deny }), "PreToolUse hooks should return permission decisions.")
+                try expect(stopResults.first?.message?.contains("validation") == true, "Stop hooks should be able to remind about validation.")
+            }
+
+            private func agentPluginSkillAndMCPModelsValidate() throws {
+                let skill = try AgentSkillManifest.parseFrontmatter(from: """
+                ---
+                name: proposal-draft
+                description: Draft Sci-Station proposals from project context.
+                version: 0.1.0
+                ---
+
+                # Proposal Draft
+                """)
+                let command = AgentCommandTemplate(
+                    id: "proposal-draft",
+                    slashCommand: "/proposal-draft",
+                    title: "Proposal Draft",
+                    promptTemplate: "Draft the next proposal from current project context.",
+                    requiredSkillIDs: [skill.id]
+                )
+                let server = MCPServerConfiguration(
+                    id: "sci-station-filesystem",
+                    displayName: "Sci-Station Filesystem",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "npx",
+                    arguments: ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceRoot}"],
+                    allowedTools: ["read_file"],
+                    headerReferences: [MCPHeaderReference(name: "Authorization", valueReference: "keychain:mcp/filesystem/authorization")]
+                )
+                let manifest = AgentPluginManifest(
+                    id: "research-core",
+                    name: "Research Core",
+                    description: "Default Sci-Station research workflow preset.",
+                    commands: [command],
+                    skills: [skill],
+                    hooks: AgentSafetyPreset.defaultHooks(),
+                    mcpServers: [server]
+                )
+                let invalidManifest = AgentPluginManifest(
+                    id: "bad",
+                    name: "Bad",
+                    description: "Invalid command example.",
+                    commands: [AgentCommandTemplate(id: "bad", slashCommand: "bad", title: "Bad", promptTemplate: "Bad")],
+                    mcpServers: [MCPServerConfiguration(id: "remote", displayName: "Remote", transport: .remoteHTTP)]
+                )
+
+                let encodedServer = try JSONEncoder().encode(server)
+                let encodedServerText = try require(String(data: encodedServer, encoding: .utf8), "Encoded MCP server should be UTF-8.")
+                let issues = AgentPluginValidator().validate(manifest)
+                let invalidIssues = AgentPluginValidator().validate(invalidManifest)
+
+                try expect(skill.name == "proposal-draft", "Skill frontmatter parser should read the name.")
+                try expect(issues.isEmpty, "Valid plugin manifests should pass validation.")
+                try expect(invalidIssues.count == 2, "Validator should report invalid command and remote MCP URL.")
+                try expect(encodedServerText.contains("value_reference"), "MCP headers should serialize credential references.")
+                try expect(!encodedServerText.contains("Bearer "), "MCP config serialization should not include raw authorization values.")
+            }
+
+            private func sciAITrackedPresetManifestValidates() throws {
+                let manifestURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                    .appendingPathComponent(".sci-ai/sci-station/presets/research-core/plugin.json", isDirectory: false)
+                let data = try Data(contentsOf: manifestURL)
+                let manifest = try JSONDecoder().decode(AgentPluginManifest.self, from: data)
+                let issues = AgentPluginValidator().validate(manifest)
+
+                try expect(manifest.id == "research-core", "Tracked .sci-ai product preset should decode as research-core.")
+                try expect(manifest.commands.contains(where: { $0.slashCommand == "/proposal-draft" }), "Tracked .sci-ai product preset should include proposal drafting.")
+                try expect(manifest.mcpServers.allSatisfy { $0.secretReferences.isEmpty }, "Tracked .sci-ai product preset should not include raw secret values.")
+                try expect(issues.isEmpty, "Tracked .sci-ai product preset should pass plugin validation.")
+            }
+
+            private func agentSessionEventLoggerAppendsAndReplaysEvents() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentSessionEventWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let logger = AgentSessionEventLogger()
+                let firstEvent = AgentSessionEvent(
+                    id: "event-1",
+                    sessionID: "session-alpha",
+                    threadID: "thread-alpha",
+                    createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+                    kind: .userMessage,
+                    summary: "User asked for a plan."
+                )
+                let secondEvent = AgentSessionEvent(
+                    id: "event-2",
+                    sessionID: "session-alpha",
+                    threadID: "thread-alpha",
+                    createdAt: Date(timeIntervalSince1970: 1_777_600_001),
+                    kind: .hookResult,
+                    summary: "PreToolUse asked for confirmation.",
+                    payloadJSON: "{\"decision\":\"ask\"}"
+                )
+
+                try await logger.append(firstEvent, in: root)
+                let logURL = root.fileURL(for: AgentSessionEventLogger.relativePath)
+                let existingContents = try String(contentsOf: logURL, encoding: .utf8)
+                try (existingContents + "{not-json}\n").write(to: logURL, atomically: true, encoding: .utf8)
+                try await logger.append(secondEvent, in: root)
+
+                let alphaEvents = try await logger.events(in: root, sessionID: "session-alpha")
+                let missingEvents = try await logger.events(in: workspace, sessionID: "missing")
+
+                try expect(alphaEvents.map(\.id) == ["event-1", "event-2"], "Session event logger should replay valid events in append order.")
+                try expect(missingEvents.isEmpty, "Session event logger should filter by session id.")
+            }
+
+            private func llmProviderV2RequestModelsToolDefinitions() throws {
+                let definition = AgentToolDefinition(
+                    name: "create_todo",
+                    summary: "Create a todo.",
+                    inputSchema: "{\"title\":\"string\"}",
+                    risk: .writesWorkspace
+                )
+                let tool = LLMToolSpecification(agentTool: definition)
+                let request = LLMProviderRequest(
+                    messages: [
+                        LLMChatMessage(role: .system, content: "Plan first."),
+                        LLMChatMessage(role: .user, content: "Create a follow-up todo.")
+                    ],
+                    tools: [tool],
+                    options: LLMProviderOptions(model: "gpt-4.1", temperature: 0.2)
+                )
+                let response = LLMProviderResponse(
+                    message: LLMChatMessage(role: .assistant, content: "Ready."),
+                    toolCalls: [AgentToolCall(id: "call-1", toolName: "create_todo", argumentsJSON: "{\"title\":\"Review\"}")]
+                )
+
+                let decodedRequest = try JSONDecoder().decode(LLMProviderRequest.self, from: JSONEncoder().encode(request))
+                let decodedResponse = try JSONDecoder().decode(LLMProviderResponse.self, from: JSONEncoder().encode(response))
+
+                try expect(decodedRequest.messages.count == 2, "Provider V2 requests should preserve message history.")
+                try expect(decodedRequest.tools.first?.permissionKey == "tool.write_workspace", "Provider V2 tool specs should preserve permission keys.")
+                try expect(decodedRequest.options.model == "gpt-4.1", "Provider V2 requests should preserve model options.")
+                try expect(decodedResponse.toolCalls.first?.toolName == "create_todo", "Provider V2 responses should preserve tool calls.")
             }
 
     private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {

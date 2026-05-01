@@ -7,41 +7,938 @@ public nonisolated enum AgentRunMode: String, Codable, Sendable {
 
 public nonisolated enum AgentToolRisk: String, Codable, Sendable {
     case readOnly
+    case network
     case writesWorkspace
     case externalSideEffect
+
+    public nonisolated var defaultRequiresConfirmation: Bool {
+        switch self {
+        case .readOnly:
+            return false
+        case .network, .writesWorkspace, .externalSideEffect:
+            return true
+        }
+    }
+
+    public nonisolated var defaultPermissionKey: String {
+        switch self {
+        case .readOnly:
+            return "tool.read"
+        case .network:
+            return "tool.network"
+        case .writesWorkspace:
+            return "tool.write_workspace"
+        case .externalSideEffect:
+            return "tool.external_side_effect"
+        }
+    }
+}
+
+public nonisolated struct AgentToolOutputPolicy: Codable, Hashable, Sendable {
+    public var maxCharacters: Int
+    public var includeAttachments: Bool
+    public var redactSensitiveValues: Bool
+
+    public nonisolated init(
+        maxCharacters: Int = 12_000,
+        includeAttachments: Bool = false,
+        redactSensitiveValues: Bool = true
+    ) {
+        self.maxCharacters = maxCharacters
+        self.includeAttachments = includeAttachments
+        self.redactSensitiveValues = redactSensitiveValues
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case maxCharacters = "max_characters"
+        case includeAttachments = "include_attachments"
+        case redactSensitiveValues = "redact_sensitive_values"
+    }
 }
 
 public nonisolated struct AgentToolDefinition: Codable, Hashable, Sendable {
+    public var identifier: String
     public var name: String
+    public var displayName: String
     public var summary: String
     public var inputSchema: String
+    public var inputSchemaVersion: Int
     public var risk: AgentToolRisk
     public var requiresConfirmation: Bool
+    public var permissionKey: String
+    public var outputPolicy: AgentToolOutputPolicy
     public var examples: [String]
 
     public nonisolated init(
+        identifier: String? = nil,
         name: String,
+        displayName: String? = nil,
         summary: String,
         inputSchema: String,
+        inputSchemaVersion: Int = 1,
         risk: AgentToolRisk,
-        requiresConfirmation: Bool,
+        requiresConfirmation: Bool? = nil,
+        permissionKey: String? = nil,
+        outputPolicy: AgentToolOutputPolicy = AgentToolOutputPolicy(),
         examples: [String] = []
     ) {
+        self.identifier = identifier ?? name
         self.name = name
+        self.displayName = displayName ?? name
         self.summary = summary
         self.inputSchema = inputSchema
+        self.inputSchemaVersion = max(1, inputSchemaVersion)
         self.risk = risk
-        self.requiresConfirmation = requiresConfirmation
+        self.requiresConfirmation = requiresConfirmation ?? risk.defaultRequiresConfirmation
+        self.permissionKey = permissionKey ?? risk.defaultPermissionKey
+        self.outputPolicy = outputPolicy
         self.examples = examples
     }
 
     private enum CodingKeys: String, CodingKey {
+        case identifier
         case name
+        case displayName = "display_name"
         case summary
         case inputSchema = "input_schema"
+        case inputSchemaVersion = "input_schema_version"
         case risk
         case requiresConfirmation = "requires_confirmation"
+        case permissionKey = "permission_key"
+        case outputPolicy = "output_policy"
         case examples
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let name = try container.decode(String.self, forKey: .name)
+        let risk = try container.decode(AgentToolRisk.self, forKey: .risk)
+
+        self.identifier = try container.decodeIfPresent(String.self, forKey: .identifier) ?? name
+        self.name = name
+        self.displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? name
+        self.summary = try container.decode(String.self, forKey: .summary)
+        self.inputSchema = try container.decode(String.self, forKey: .inputSchema)
+        self.inputSchemaVersion = try container.decodeIfPresent(Int.self, forKey: .inputSchemaVersion) ?? 1
+        self.risk = risk
+        self.requiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .requiresConfirmation) ?? risk.defaultRequiresConfirmation
+        self.permissionKey = try container.decodeIfPresent(String.self, forKey: .permissionKey) ?? risk.defaultPermissionKey
+        self.outputPolicy = try container.decodeIfPresent(AgentToolOutputPolicy.self, forKey: .outputPolicy) ?? AgentToolOutputPolicy()
+        self.examples = try container.decodeIfPresent([String].self, forKey: .examples) ?? []
+    }
+}
+
+public nonisolated enum AgentMode: String, Codable, CaseIterable, Sendable {
+    case plan
+    case build
+    case explore
+    case research
+    case review
+    case summary
+}
+
+public nonisolated struct AgentProfile: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var mode: AgentMode
+    public var systemPrompt: String
+    public var preferredModel: String?
+    public var allowedToolIDs: [String]
+    public var permissionRuleIDs: [String]
+    public var enabledPresetIDs: [String]
+    public var iconName: String
+    public var colorHex: String
+    public var isHidden: Bool
+
+    public nonisolated init(
+        id: String,
+        name: String,
+        mode: AgentMode,
+        systemPrompt: String,
+        preferredModel: String? = nil,
+        allowedToolIDs: [String] = [],
+        permissionRuleIDs: [String] = [],
+        enabledPresetIDs: [String] = [],
+        iconName: String = "sparkles",
+        colorHex: String = "#4F46E5",
+        isHidden: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.mode = mode
+        self.systemPrompt = systemPrompt
+        self.preferredModel = preferredModel
+        self.allowedToolIDs = allowedToolIDs
+        self.permissionRuleIDs = permissionRuleIDs
+        self.enabledPresetIDs = enabledPresetIDs
+        self.iconName = iconName
+        self.colorHex = colorHex
+        self.isHidden = isHidden
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case mode
+        case systemPrompt = "system_prompt"
+        case preferredModel = "preferred_model"
+        case allowedToolIDs = "allowed_tool_ids"
+        case permissionRuleIDs = "permission_rule_ids"
+        case enabledPresetIDs = "enabled_preset_ids"
+        case iconName = "icon_name"
+        case colorHex = "color_hex"
+        case isHidden = "is_hidden"
+    }
+}
+
+public nonisolated struct SubagentProfile: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var purpose: String
+    public var mode: AgentMode
+    public var allowedToolIDs: [String]
+    public var maxContextCharacters: Int
+
+    public nonisolated init(
+        id: String,
+        name: String,
+        purpose: String,
+        mode: AgentMode,
+        allowedToolIDs: [String] = [],
+        maxContextCharacters: Int = 80_000
+    ) {
+        self.id = id
+        self.name = name
+        self.purpose = purpose
+        self.mode = mode
+        self.allowedToolIDs = allowedToolIDs
+        self.maxContextCharacters = maxContextCharacters
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case purpose
+        case mode
+        case allowedToolIDs = "allowed_tool_ids"
+        case maxContextCharacters = "max_context_characters"
+    }
+}
+
+public nonisolated enum AgentPermissionAction: String, Codable, Sendable {
+    case allow
+    case ask
+    case deny
+}
+
+public nonisolated enum AgentPermissionScope: String, Codable, Sendable {
+    case once
+    case session
+    case workspace
+    case managed
+}
+
+public nonisolated struct AgentPermissionRequest: Codable, Hashable, Sendable {
+    public var toolName: String?
+    public var permissionKey: String?
+    public var command: String?
+    public var path: String?
+    public var risk: AgentToolRisk
+
+    public nonisolated init(
+        toolName: String? = nil,
+        permissionKey: String? = nil,
+        command: String? = nil,
+        path: String? = nil,
+        risk: AgentToolRisk = .readOnly
+    ) {
+        self.toolName = toolName
+        self.permissionKey = permissionKey
+        self.command = command
+        self.path = path
+        self.risk = risk
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case toolName = "tool_name"
+        case permissionKey = "permission_key"
+        case command
+        case path
+        case risk
+    }
+}
+
+public nonisolated struct AgentPermissionDecision: Codable, Hashable, Sendable {
+    public var action: AgentPermissionAction
+    public var ruleID: String?
+    public var scope: AgentPermissionScope
+    public var message: String?
+
+    public nonisolated init(
+        action: AgentPermissionAction,
+        ruleID: String? = nil,
+        scope: AgentPermissionScope = .once,
+        message: String? = nil
+    ) {
+        self.action = action
+        self.ruleID = ruleID
+        self.scope = scope
+        self.message = message
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case ruleID = "rule_id"
+        case scope
+        case message
+    }
+}
+
+public nonisolated struct AgentPermissionRule: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var description: String
+    public var action: AgentPermissionAction
+    public var scope: AgentPermissionScope
+    public var toolNamePattern: String?
+    public var permissionKeyPattern: String?
+    public var commandPattern: String?
+    public var pathPattern: String?
+    public var risk: AgentToolRisk?
+    public var message: String?
+    public var isEnabled: Bool
+
+    public nonisolated init(
+        id: String,
+        description: String,
+        action: AgentPermissionAction,
+        scope: AgentPermissionScope = .once,
+        toolNamePattern: String? = nil,
+        permissionKeyPattern: String? = nil,
+        commandPattern: String? = nil,
+        pathPattern: String? = nil,
+        risk: AgentToolRisk? = nil,
+        message: String? = nil,
+        isEnabled: Bool = true
+    ) {
+        self.id = id
+        self.description = description
+        self.action = action
+        self.scope = scope
+        self.toolNamePattern = toolNamePattern
+        self.permissionKeyPattern = permissionKeyPattern
+        self.commandPattern = commandPattern
+        self.pathPattern = pathPattern
+        self.risk = risk
+        self.message = message
+        self.isEnabled = isEnabled
+    }
+
+    public nonisolated func matches(_ request: AgentPermissionRequest) -> Bool {
+        guard isEnabled else {
+            return false
+        }
+        if let risk, risk != request.risk {
+            return false
+        }
+        if let toolNamePattern, !Self.matches(pattern: toolNamePattern, value: request.toolName) {
+            return false
+        }
+        if let permissionKeyPattern, !Self.matches(pattern: permissionKeyPattern, value: request.permissionKey) {
+            return false
+        }
+        if let commandPattern, !Self.matches(pattern: commandPattern, value: request.command) {
+            return false
+        }
+        if let pathPattern, !Self.matches(pattern: pathPattern, value: request.path) {
+            return false
+        }
+
+        return risk != nil || toolNamePattern != nil || permissionKeyPattern != nil || commandPattern != nil || pathPattern != nil
+    }
+
+    private nonisolated static func matches(pattern: String, value: String?) -> Bool {
+        guard let value, !value.isEmpty else {
+            return false
+        }
+        if pattern == "*" {
+            return true
+        }
+
+        do {
+            let expression = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+            let range = NSRange(value.startIndex..<value.endIndex, in: value)
+            return expression.firstMatch(in: value, options: [], range: range) != nil
+        } catch {
+            return value.localizedCaseInsensitiveContains(pattern)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case description
+        case action
+        case scope
+        case toolNamePattern = "tool_name_pattern"
+        case permissionKeyPattern = "permission_key_pattern"
+        case commandPattern = "command_pattern"
+        case pathPattern = "path_pattern"
+        case risk
+        case message
+        case isEnabled = "is_enabled"
+    }
+}
+
+public nonisolated struct AgentPermissionEvaluator: Sendable {
+    public var rules: [AgentPermissionRule]
+
+    public nonisolated init(rules: [AgentPermissionRule]) {
+        self.rules = rules
+    }
+
+    public nonisolated func evaluate(_ request: AgentPermissionRequest) -> AgentPermissionDecision {
+        if let rule = rules.first(where: { $0.matches(request) }) {
+            return AgentPermissionDecision(action: rule.action, ruleID: rule.id, scope: rule.scope, message: rule.message)
+        }
+
+        return AgentPermissionDecision(
+            action: request.risk.defaultRequiresConfirmation ? .ask : .allow,
+            scope: .once,
+            message: request.risk.defaultRequiresConfirmation ? "This action requires confirmation." : nil
+        )
+    }
+}
+
+public nonisolated enum AgentHookEventName: String, Codable, CaseIterable, Sendable {
+    case sessionStart = "SessionStart"
+    case userPromptSubmit = "UserPromptSubmit"
+    case preToolUse = "PreToolUse"
+    case postToolUse = "PostToolUse"
+    case stop = "Stop"
+    case subagentStop = "SubagentStop"
+}
+
+public nonisolated struct AgentHookEvent: Codable, Hashable, Sendable {
+    public var name: AgentHookEventName
+    public var toolName: String?
+    public var command: String?
+    public var path: String?
+    public var prompt: String?
+    public var modifiedPaths: [String]
+    public var validationRecorded: Bool
+
+    public nonisolated init(
+        name: AgentHookEventName,
+        toolName: String? = nil,
+        command: String? = nil,
+        path: String? = nil,
+        prompt: String? = nil,
+        modifiedPaths: [String] = [],
+        validationRecorded: Bool = false
+    ) {
+        self.name = name
+        self.toolName = toolName
+        self.command = command
+        self.path = path
+        self.prompt = prompt
+        self.modifiedPaths = modifiedPaths
+        self.validationRecorded = validationRecorded
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case toolName = "tool_name"
+        case command
+        case path
+        case prompt
+        case modifiedPaths = "modified_paths"
+        case validationRecorded = "validation_recorded"
+    }
+}
+
+public nonisolated struct AgentHookResult: Codable, Hashable, Sendable {
+    public var hookID: String
+    public var eventName: AgentHookEventName
+    public var permissionDecision: AgentPermissionAction?
+    public var message: String?
+    public var additionalContext: String?
+
+    public nonisolated init(
+        hookID: String,
+        eventName: AgentHookEventName,
+        permissionDecision: AgentPermissionAction? = nil,
+        message: String? = nil,
+        additionalContext: String? = nil
+    ) {
+        self.hookID = hookID
+        self.eventName = eventName
+        self.permissionDecision = permissionDecision
+        self.message = message
+        self.additionalContext = additionalContext
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hookID = "hook_id"
+        case eventName = "event_name"
+        case permissionDecision = "permission_decision"
+        case message
+        case additionalContext = "additional_context"
+    }
+}
+
+public nonisolated struct AgentHookDefinition: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var eventName: AgentHookEventName
+    public var matcher: String?
+    public var permissionDecision: AgentPermissionAction?
+    public var message: String?
+    public var additionalContext: String?
+    public var isEnabled: Bool
+
+    public nonisolated init(
+        id: String,
+        eventName: AgentHookEventName,
+        matcher: String? = nil,
+        permissionDecision: AgentPermissionAction? = nil,
+        message: String? = nil,
+        additionalContext: String? = nil,
+        isEnabled: Bool = true
+    ) {
+        self.id = id
+        self.eventName = eventName
+        self.matcher = matcher
+        self.permissionDecision = permissionDecision
+        self.message = message
+        self.additionalContext = additionalContext
+        self.isEnabled = isEnabled
+    }
+
+    public nonisolated func evaluate(_ event: AgentHookEvent) -> AgentHookResult? {
+        guard isEnabled, event.name == eventName, matches(event) else {
+            return nil
+        }
+
+        return AgentHookResult(
+            hookID: id,
+            eventName: event.name,
+            permissionDecision: permissionDecision,
+            message: message,
+            additionalContext: additionalContext
+        )
+    }
+
+    private nonisolated func matches(_ event: AgentHookEvent) -> Bool {
+        guard let matcher, !matcher.isEmpty, matcher != "*" else {
+            return true
+        }
+
+        let haystack = [
+            event.toolName,
+            event.command,
+            event.path,
+            event.prompt,
+            event.modifiedPaths.joined(separator: "\n")
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+
+        return AgentPermissionRule(
+            id: "hook-pattern",
+            description: "Hook pattern",
+            action: .ask,
+            commandPattern: matcher
+        )
+        .matches(AgentPermissionRequest(command: haystack))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case eventName = "event_name"
+        case matcher
+        case permissionDecision = "permission_decision"
+        case message
+        case additionalContext = "additional_context"
+        case isEnabled = "is_enabled"
+    }
+}
+
+public nonisolated struct AgentHookEngine: Sendable {
+    public var hooks: [AgentHookDefinition]
+
+    public nonisolated init(hooks: [AgentHookDefinition]) {
+        self.hooks = hooks
+    }
+
+    public nonisolated func evaluate(_ event: AgentHookEvent) -> [AgentHookResult] {
+        hooks.compactMap { $0.evaluate(event) }
+    }
+}
+
+public nonisolated struct AgentSafetyPreset: Sendable {
+    public nonisolated static func defaultPermissionRules() -> [AgentPermissionRule] {
+        [
+            AgentPermissionRule(
+                id: "deny-recursive-removal",
+                description: "Block recursive removal from agent shell calls.",
+                action: .deny,
+                commandPattern: #"\brm\s+-[A-Za-z]*r[f]?[A-Za-z]*\b"#,
+                message: "Recursive removal must be reviewed and run manually."
+            ),
+            AgentPermissionRule(
+                id: "deny-git-reset-hard",
+                description: "Block destructive git resets.",
+                action: .deny,
+                commandPattern: #"\bgit\s+reset\s+--hard\b"#,
+                message: "Hard resets can destroy user work."
+            ),
+            AgentPermissionRule(
+                id: "deny-git-clean",
+                description: "Block git clean deletes.",
+                action: .deny,
+                commandPattern: #"\bgit\s+clean\s+-[^&;|]*[fd]"#,
+                message: "git clean can delete untracked work."
+            ),
+            AgentPermissionRule(
+                id: "deny-remote-shell-pipe",
+                description: "Block piping remote scripts into a shell.",
+                action: .deny,
+                commandPattern: #"\bcurl\b[^|]*\|\s*(sh|bash)|\bwget\b[^|]*\|\s*(sh|bash)"#,
+                message: "Piping remote scripts into a shell is blocked."
+            ),
+            AgentPermissionRule(
+                id: "ask-sensitive-path",
+                description: "Review writes to sensitive-looking paths.",
+                action: .ask,
+                pathPattern: #"(^|/)\.env(\.|$)|credentials?|secrets?|token|keychain"#,
+                message: "Sensitive-looking path requires review."
+            ),
+            AgentPermissionRule(
+                id: "ask-external-side-effect",
+                description: "Review external side effects.",
+                action: .ask,
+                risk: .externalSideEffect,
+                message: "External side effects require confirmation."
+            )
+        ]
+    }
+
+    public nonisolated static func defaultHooks() -> [AgentHookDefinition] {
+        [
+            AgentHookDefinition(
+                id: "session-start-context",
+                eventName: .sessionStart,
+                additionalContext: "Use Sci-Station's Swift-native agent core, keep secrets out of workspace files, and preserve existing agent history."
+            ),
+            AgentHookDefinition(
+                id: "stop-validation-reminder",
+                eventName: .stop,
+                matcher: #".+"#,
+                message: "If this task modified code or data, record validation or explain why validation was not run."
+            )
+        ]
+    }
+}
+
+public nonisolated struct AgentCommandTemplate: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var slashCommand: String
+    public var title: String
+    public var promptTemplate: String
+    public var requiredSkillIDs: [String]
+
+    public nonisolated init(
+        id: String,
+        slashCommand: String,
+        title: String,
+        promptTemplate: String,
+        requiredSkillIDs: [String] = []
+    ) {
+        self.id = id
+        self.slashCommand = slashCommand
+        self.title = title
+        self.promptTemplate = promptTemplate
+        self.requiredSkillIDs = requiredSkillIDs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case slashCommand = "slash_command"
+        case title
+        case promptTemplate = "prompt_template"
+        case requiredSkillIDs = "required_skill_ids"
+    }
+}
+
+public nonisolated struct AgentSkillManifest: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var description: String
+    public var version: String
+    public var referencePaths: [String]
+
+    public nonisolated init(
+        id: String,
+        name: String,
+        description: String,
+        version: String = "0.1.0",
+        referencePaths: [String] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.version = version
+        self.referencePaths = referencePaths
+    }
+
+    public nonisolated static func parseFrontmatter(from markdown: String) throws -> AgentSkillManifest {
+        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.first == "---", let endIndex = lines.dropFirst().firstIndex(of: "---") else {
+            throw AgentError.invalidArguments("Skill frontmatter is required.")
+        }
+
+        var fields: [String: String] = [:]
+        for line in lines[1..<endIndex] {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else {
+                continue
+            }
+            fields[String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)] = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let name = fields["name"] ?? ""
+        let description = fields["description"] ?? ""
+        guard !name.isEmpty, !description.isEmpty else {
+            throw AgentError.invalidArguments("Skill frontmatter must include name and description.")
+        }
+
+        return AgentSkillManifest(
+            id: name,
+            name: name,
+            description: description,
+            version: fields["version"] ?? "0.1.0"
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case version
+        case referencePaths = "reference_paths"
+    }
+}
+
+public nonisolated enum MCPServerTransport: String, Codable, Sendable {
+    case localCommand = "local_command"
+    case remoteHTTP = "remote_http"
+    case remoteSSE = "remote_sse"
+}
+
+public nonisolated struct MCPHeaderReference: Codable, Hashable, Sendable {
+    public var name: String
+    public var valueReference: String
+
+    public nonisolated init(name: String, valueReference: String) {
+        self.name = name
+        self.valueReference = valueReference
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case valueReference = "value_reference"
+    }
+}
+
+public nonisolated struct MCPServerConfiguration: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var displayName: String
+    public var transport: MCPServerTransport
+    public var isEnabled: Bool
+    public var command: String?
+    public var arguments: [String]
+    public var urlString: String?
+    public var timeoutSeconds: Double
+    public var allowedTools: [String]
+    public var headerReferences: [MCPHeaderReference]
+    public var secretReferences: [String]
+
+    public nonisolated init(
+        id: String,
+        displayName: String,
+        transport: MCPServerTransport,
+        isEnabled: Bool = false,
+        command: String? = nil,
+        arguments: [String] = [],
+        urlString: String? = nil,
+        timeoutSeconds: Double = 30,
+        allowedTools: [String] = [],
+        headerReferences: [MCPHeaderReference] = [],
+        secretReferences: [String] = []
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.transport = transport
+        self.isEnabled = isEnabled
+        self.command = command
+        self.arguments = arguments
+        self.urlString = urlString
+        self.timeoutSeconds = timeoutSeconds
+        self.allowedTools = allowedTools
+        self.headerReferences = headerReferences
+        self.secretReferences = secretReferences
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case transport
+        case isEnabled = "is_enabled"
+        case command
+        case arguments
+        case urlString = "url"
+        case timeoutSeconds = "timeout_seconds"
+        case allowedTools = "allowed_tools"
+        case headerReferences = "header_references"
+        case secretReferences = "secret_references"
+    }
+}
+
+public nonisolated struct AgentPluginManifest: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var version: String
+    public var description: String
+    public var commands: [AgentCommandTemplate]
+    public var subagents: [SubagentProfile]
+    public var skills: [AgentSkillManifest]
+    public var hooks: [AgentHookDefinition]
+    public var mcpServers: [MCPServerConfiguration]
+    public var isEnabledByDefault: Bool
+
+    public nonisolated init(
+        id: String,
+        name: String,
+        version: String = "0.1.0",
+        description: String,
+        commands: [AgentCommandTemplate] = [],
+        subagents: [SubagentProfile] = [],
+        skills: [AgentSkillManifest] = [],
+        hooks: [AgentHookDefinition] = [],
+        mcpServers: [MCPServerConfiguration] = [],
+        isEnabledByDefault: Bool = true
+    ) {
+        self.id = id
+        self.name = name
+        self.version = version
+        self.description = description
+        self.commands = commands
+        self.subagents = subagents
+        self.skills = skills
+        self.hooks = hooks
+        self.mcpServers = mcpServers
+        self.isEnabledByDefault = isEnabledByDefault
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case version
+        case description
+        case commands
+        case subagents
+        case skills
+        case hooks
+        case mcpServers = "mcp_servers"
+        case isEnabledByDefault = "is_enabled_by_default"
+    }
+}
+
+public nonisolated struct AgentPluginValidationIssue: Codable, Hashable, Sendable {
+    public var field: String
+    public var message: String
+
+    public nonisolated init(field: String, message: String) {
+        self.field = field
+        self.message = message
+    }
+}
+
+public nonisolated struct AgentPluginValidator: Sendable {
+    public nonisolated init() {}
+
+    public nonisolated func validate(_ manifest: AgentPluginManifest) -> [AgentPluginValidationIssue] {
+        var issues: [AgentPluginValidationIssue] = []
+
+        if manifest.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append(AgentPluginValidationIssue(field: "id", message: "Plugin id is required."))
+        }
+        if manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append(AgentPluginValidationIssue(field: "name", message: "Plugin name is required."))
+        }
+        if manifest.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append(AgentPluginValidationIssue(field: "version", message: "Plugin version is required."))
+        }
+        for command in manifest.commands where !command.slashCommand.hasPrefix("/") {
+            issues.append(AgentPluginValidationIssue(field: "commands.\(command.id).slash_command", message: "Slash commands must start with /."))
+        }
+        for server in manifest.mcpServers where server.transport == .localCommand && (server.command ?? "").isEmpty {
+            issues.append(AgentPluginValidationIssue(field: "mcp_servers.\(server.id).command", message: "Local MCP servers require a command."))
+        }
+        for server in manifest.mcpServers where server.transport != .localCommand && (server.urlString ?? "").isEmpty {
+            issues.append(AgentPluginValidationIssue(field: "mcp_servers.\(server.id).url", message: "Remote MCP servers require a URL."))
+        }
+
+        return issues
+    }
+}
+
+public nonisolated enum AgentSessionEventKind: String, Codable, Sendable {
+    case userMessage = "user_message"
+    case assistantMessage = "assistant_message"
+    case reasoningSummary = "reasoning_summary"
+    case toolCallStarted = "tool_call_started"
+    case toolCallCompleted = "tool_call_completed"
+    case toolCallFailed = "tool_call_failed"
+    case permissionRequested = "permission_requested"
+    case permissionResolved = "permission_resolved"
+    case hookResult = "hook_result"
+    case compactionSummary = "compaction_summary"
+}
+
+public nonisolated struct AgentSessionEvent: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var sessionID: String
+    public var threadID: String?
+    public var createdAt: Date
+    public var kind: AgentSessionEventKind
+    public var summary: String
+    public var payloadJSON: String?
+
+    public nonisolated init(
+        id: String = UUID().uuidString.lowercased(),
+        sessionID: String,
+        threadID: String? = nil,
+        createdAt: Date = Date(),
+        kind: AgentSessionEventKind,
+        summary: String,
+        payloadJSON: String? = nil
+    ) {
+        self.id = id
+        self.sessionID = sessionID
+        self.threadID = threadID
+        self.createdAt = createdAt
+        self.kind = kind
+        self.summary = summary
+        self.payloadJSON = payloadJSON
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sessionID = "session_id"
+        case threadID = "thread_id"
+        case createdAt = "created_at"
+        case kind
+        case summary
+        case payloadJSON = "payload_json"
     }
 }
 

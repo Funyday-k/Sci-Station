@@ -69,3 +69,71 @@ public actor AgentRunLogger {
         return Array(validRuns.suffix(limit).reversed())
     }
 }
+
+public actor AgentSessionEventLogger {
+    public static let relativePath = ".sci-station/agent/session_events.jsonl"
+
+    private let fileManager: FileManager
+
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    public func append(_ event: AgentSessionEvent, in workspace: ResearchWorkspace) throws {
+        try append(event, logURL: workspace.fileURL(for: Self.relativePath))
+    }
+
+    public func append(_ event: AgentSessionEvent, in root: ResearchRoot) throws {
+        try append(event, logURL: root.fileURL(for: Self.relativePath))
+    }
+
+    public func events(in workspace: ResearchWorkspace, sessionID: String? = nil, limit: Int = 200) throws -> [AgentSessionEvent] {
+        try events(logURL: workspace.fileURL(for: Self.relativePath), sessionID: sessionID, limit: limit)
+    }
+
+    public func events(in root: ResearchRoot, sessionID: String? = nil, limit: Int = 200) throws -> [AgentSessionEvent] {
+        try events(logURL: root.fileURL(for: Self.relativePath), sessionID: sessionID, limit: limit)
+    }
+
+    private func append(_ event: AgentSessionEvent, logURL: URL) throws {
+        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(event)
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        if fileManager.fileExists(atPath: logURL.path) {
+            let handle = try FileHandle(forWritingTo: logURL)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data((line + "\n").utf8))
+        } else {
+            try (line + "\n").write(to: logURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func events(logURL: URL, sessionID: String?, limit: Int) throws -> [AgentSessionEvent] {
+        guard limit > 0, fileManager.fileExists(atPath: logURL.path) else {
+            return []
+        }
+
+        let contents = try String(contentsOf: logURL, encoding: .utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let validEvents = contents
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> AgentSessionEvent? in
+                try? decoder.decode(AgentSessionEvent.self, from: Data(line.utf8))
+            }
+            .filter { event in
+                sessionID.map { event.sessionID == $0 } ?? true
+            }
+
+        return Array(validEvents.suffix(limit))
+    }
+}

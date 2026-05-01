@@ -114,6 +114,7 @@ final class AppViewModel: ObservableObject {
     @Published var githubCopilotConfiguration = GitHubCopilotConfiguration()
     @Published var githubCopilotToken = ""
     @Published private(set) var githubCopilotConnectionStatusMessage: String?
+    @Published private(set) var isConnectingGitHubCopilot = false
     @Published private(set) var isTestingLLMConnection = false
     @Published private(set) var llmConnectionStatusMessage: String?
     @Published private(set) var isGeneratingSummary = false
@@ -172,6 +173,8 @@ final class AppViewModel: ObservableObject {
     private let apiKeyStore: KeychainAPIKeyStore
     private let githubCopilotTokenClassifier: GitHubCopilotTokenClassifier
     private let githubCopilotSDKAdapter: GitHubCopilotSDKAdapter
+    private let githubCopilotOAuthRequestBuilder: GitHubCopilotOAuthRequestBuilder
+    private let githubCopilotOAuthTokenExchanger: GitHubCopilotOAuthTokenExchanger
     private let openAIProvider: OpenAICompatibleProvider
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
@@ -189,6 +192,7 @@ final class AppViewModel: ObservableObject {
     private var pendingAgentThreadsByProject: [String: AgentThread] = [:]
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
+    private var pendingGitHubCopilotOAuthState: String?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -214,6 +218,7 @@ final class AppViewModel: ObservableObject {
         githubCopilotConfigurationStore: GitHubCopilotConfigurationStore? = nil,
         apiKeyStore: KeychainAPIKeyStore? = nil,
         githubCopilotSDKAdapter: GitHubCopilotSDKAdapter? = nil,
+        githubCopilotOAuthTokenExchanger: GitHubCopilotOAuthTokenExchanger? = nil,
         openAIProvider: OpenAICompatibleProvider? = nil,
         paperSummaryService: PaperSummaryService? = nil,
         llmWritebackService: LLMWritebackService? = nil,
@@ -249,6 +254,8 @@ final class AppViewModel: ObservableObject {
         let resolvedAPIKeyStore = apiKeyStore ?? KeychainAPIKeyStore()
         let resolvedGitHubCopilotTokenClassifier = GitHubCopilotTokenClassifier()
         let resolvedGitHubCopilotSDKAdapter = githubCopilotSDKAdapter ?? GitHubCopilotSDKAdapter(tokenClassifier: resolvedGitHubCopilotTokenClassifier)
+        let resolvedGitHubCopilotOAuthRequestBuilder = GitHubCopilotOAuthRequestBuilder()
+        let resolvedGitHubCopilotOAuthTokenExchanger = githubCopilotOAuthTokenExchanger ?? GitHubCopilotOAuthTokenExchanger()
         let resolvedOpenAIProvider = openAIProvider ?? OpenAICompatibleProvider()
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
@@ -282,6 +289,8 @@ final class AppViewModel: ObservableObject {
         self.apiKeyStore = resolvedAPIKeyStore
         self.githubCopilotTokenClassifier = resolvedGitHubCopilotTokenClassifier
         self.githubCopilotSDKAdapter = resolvedGitHubCopilotSDKAdapter
+        self.githubCopilotOAuthRequestBuilder = resolvedGitHubCopilotOAuthRequestBuilder
+        self.githubCopilotOAuthTokenExchanger = resolvedGitHubCopilotOAuthTokenExchanger
         self.openAIProvider = resolvedOpenAIProvider
         self.paperSummaryService = resolvedPaperSummaryService
         self.llmWritebackService = resolvedLLMWritebackService
@@ -589,11 +598,38 @@ final class AppViewModel: ObservableObject {
 
     var agentProviderSummary: String {
         if githubCopilotConfiguration.isEnabled {
-            let status = githubCopilotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "not connected" : githubCopilotTokenKind.label
+            let status: String
+            if isConnectingGitHubCopilot {
+                status = "connecting"
+            } else {
+                status = githubCopilotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "not connected" : githubCopilotTokenKind.label
+            }
             return "GitHub Copilot SDK experimental (\(status))"
         }
 
         return "OpenAI-compatible / \(llmConfiguration.model)"
+    }
+
+    var agentPlatformSummary: String {
+        "Swift-native Agent Platform V1 core"
+    }
+
+    var agentPresetSummary: String {
+        "research-core, security-and-secrets, library-curator, proposal-draft, code-and-data-review"
+    }
+
+    var agentPermissionSummary: String {
+        let writingTools = agentToolDefinitions.filter(\.requiresConfirmation).count
+        let approvedCalls = agentToolApprovals.count
+        return "allow / ask / deny rules active; \(writingTools) tools require approval; \(approvedCalls) calls approved in this plan"
+    }
+
+    var agentHookSummary: String {
+        "SessionStart, PreToolUse, PostToolUse, Stop"
+    }
+
+    var agentMCPStatusSummary: String {
+        ".sci-ai/sci-station presets are tracked; .sci-ai/workspace.local and bridge files are local-only"
     }
 
     var selectedPaperPDFURL: URL? {
@@ -1732,12 +1768,105 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func connectGitHubCopilot() {
+        guard currentWorkspace != nil else {
+            githubCopilotConnectionStatusMessage = "Open a workspace before connecting GitHub Copilot."
+            return
+        }
+
+        isConnectingGitHubCopilot = true
+        do {
+            var configuration = githubCopilotConfiguration
+            configuration.isEnabled = true
+            if configuration.callbackURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                configuration.callbackURLString = GitHubCopilotConfiguration.defaultCallbackURLString
+            }
+            githubCopilotConfiguration = configuration
+
+            if configuration.clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isConnectingGitHubCopilot = false
+                githubCopilotConnectionStatusMessage = "Add a GitHub OAuth Client ID first. Opening GitHub OAuth App setup in your browser."
+                openExternalURL(URL(string: "https://github.com/settings/applications/new")!)
+                return
+            }
+
+            let state = Self.secureOAuthState()
+            let authorizationURL = try githubCopilotOAuthRequestBuilder.authorizationURL(
+                configuration: configuration,
+                state: state
+            )
+            pendingGitHubCopilotOAuthState = state
+            githubCopilotConnectionStatusMessage = "Opening GitHub authorization in your browser..."
+            if !openExternalURL(authorizationURL) {
+                isConnectingGitHubCopilot = false
+                githubCopilotConnectionStatusMessage = "Could not open the GitHub authorization URL. Copy this URL into your browser: \(authorizationURL.absoluteString)"
+            }
+        } catch {
+            isConnectingGitHubCopilot = false
+            githubCopilotConnectionStatusMessage = error.localizedDescription
+        }
+    }
+
+    func handleIncomingURL(_ url: URL) {
+        do {
+            let callback = try GitHubCopilotOAuthCallback(url: url)
+            try handleGitHubCopilotOAuthCallback(callback)
+        } catch {
+            githubCopilotConnectionStatusMessage = error.localizedDescription
+        }
+    }
+
+    private func handleGitHubCopilotOAuthCallback(_ callback: GitHubCopilotOAuthCallback) throws {
+        if let error = callback.error {
+            isConnectingGitHubCopilot = false
+            throw GitHubCopilotOAuthError.authorizationDenied(callback.errorDescription ?? error)
+        }
+
+        guard let code = callback.code, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            isConnectingGitHubCopilot = false
+            throw GitHubCopilotOAuthError.missingCode
+        }
+        guard let callbackState = callback.state,
+              let pendingState = pendingGitHubCopilotOAuthState,
+              callbackState == pendingState else {
+            isConnectingGitHubCopilot = false
+            throw GitHubCopilotOAuthError.stateMismatch
+        }
+
+        guard githubCopilotConfiguration.hasTokenExchangeRelay else {
+            isConnectingGitHubCopilot = false
+            githubCopilotConnectionStatusMessage = GitHubCopilotOAuthError.missingTokenExchangeRelay.localizedDescription
+            return
+        }
+
+        githubCopilotConnectionStatusMessage = "GitHub authorized. Exchanging OAuth code for a user token..."
+        Task {
+            do {
+                let token = try await githubCopilotOAuthTokenExchanger.exchange(
+                    code: code,
+                    state: callbackState,
+                    configuration: githubCopilotConfiguration
+                )
+                githubCopilotToken = token
+                pendingGitHubCopilotOAuthState = nil
+                isConnectingGitHubCopilot = false
+                saveGitHubCopilotSettings()
+                githubCopilotConnectionStatusMessage = "GitHub Copilot connected with \(githubCopilotTokenKind.label)."
+            } catch {
+                isConnectingGitHubCopilot = false
+                githubCopilotConnectionStatusMessage = error.localizedDescription
+            }
+        }
+    }
+
     func updateGitHubCopilotConfiguration(_ mutate: (inout GitHubCopilotConfiguration) -> Void) {
         mutate(&githubCopilotConfiguration)
     }
 
     func disconnectGitHubCopilot() {
         githubCopilotToken = ""
+        pendingGitHubCopilotOAuthState = nil
+        isConnectingGitHubCopilot = false
         githubCopilotConnectionStatusMessage = "GitHub Copilot token cleared from this session. Save settings to clear the Keychain value."
     }
 
@@ -3229,6 +3358,15 @@ final class AppViewModel: ObservableObject {
         }
 
         return "GitHub Copilot token detected: \(kind.label). This token type is not recommended."
+    }
+
+    private nonisolated static func secureOAuthState() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    @discardableResult
+    private func openExternalURL(_ url: URL) -> Bool {
+        NSWorkspace.shared.open(url)
     }
 
     private func refreshAgentState(in workspace: ResearchWorkspace) async {

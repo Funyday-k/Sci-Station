@@ -24,7 +24,7 @@ struct SettingsView: View {
                         TextField("Workspace name", text: $workspaceName)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(renameWorkspace)
-                            .help("Rename the current research root folder")
+                            .help(Text(verbatim: "Rename the current research root folder"))
 
                         HStack(spacing: 10) {
                             Button {
@@ -32,25 +32,25 @@ struct SettingsView: View {
                             } label: {
                                 Label("Create Root", systemImage: "plus")
                             }
-                            .help("Create a new research root")
+                            .help(Text(verbatim: "Create a new research root"))
 
                             Button {
                                 appModel.openWorkspace()
                             } label: {
                                 Label("Open Root", systemImage: "folder.badge.plus")
                             }
-                            .help("Open an existing research root")
+                            .help(Text(verbatim: "Open an existing research root"))
 
                             Button {
                                 appModel.revealCurrentWorkspaceInFinder()
                             } label: {
                                 Label("Reveal in Finder", systemImage: "arrow.up.right.square")
                             }
-                            .help("Reveal this research root in Finder")
+                            .help(Text(verbatim: "Reveal this research root in Finder"))
 
                             Button("Rename", action: renameWorkspace)
                                 .buttonStyle(.borderedProminent)
-                                .help("Apply the workspace name change")
+                                .help(Text(verbatim: "Apply the workspace name change"))
                         }
 
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], alignment: .leading, spacing: 12) {
@@ -83,7 +83,7 @@ struct SettingsView: View {
                             } label: {
                                 Label("New Project", systemImage: "plus")
                             }
-                            .help("Create a new project")
+                            .help(Text(verbatim: "Create a new project"))
                         }
 
                         ForEach(appModel.activeResearchProjects) { project in
@@ -107,7 +107,7 @@ struct SettingsView: View {
                                     appModel.beginEditingResearchProject(project.id)
                                 }
                                 .buttonStyle(.link)
-                                .help("Edit this project")
+                                .help(Text(verbatim: "Edit this project"))
                             }
                             .padding(.vertical, 4)
                         }
@@ -120,18 +120,18 @@ struct SettingsView: View {
                         TextField("Default folder for new imports", text: $defaultFolderPath, prompt: Text("Uncategorized"))
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(saveLibraryDefaults)
-                            .help("Set the default Library folder for imported papers")
+                            .help(Text(verbatim: "Set the default Library folder for imported papers"))
 
                         HStack(spacing: 12) {
                             Button("Save Library Defaults", action: saveLibraryDefaults)
                                 .buttonStyle(.borderedProminent)
-                                .help("Save the default folder")
+                                .help(Text(verbatim: "Save the default folder"))
                             Button("Reset Library Columns", action: appModel.resetLibraryVisibleColumns)
                                 .buttonStyle(.bordered)
-                                .help("Restore default Library table columns")
+                                .help(Text(verbatim: "Restore default Library table columns"))
                             Button("Clear Recent Workspace", action: appModel.clearRecentWorkspaceBookmark)
                                 .buttonStyle(.bordered)
-                                .help("Clear the auto-open bookmark for this workspace")
+                                .help(Text(verbatim: "Clear the auto-open bookmark for this workspace"))
                         }
 
                         Divider()
@@ -151,7 +151,7 @@ struct SettingsView: View {
                                     Label("Refresh", systemImage: "arrow.clockwise")
                                 }
                                 .controlSize(.small)
-                                .help("Refresh the legacy paper scan")
+                                .help(Text(verbatim: "Refresh the legacy paper scan"))
 
                                 Button {
                                     isShowingLegacyMigrationConfirmation = true
@@ -160,7 +160,7 @@ struct SettingsView: View {
                                 }
                                 .controlSize(.small)
                                 .disabled(appModel.legacyPaperMigrationPlan.readyCount == 0 || appModel.isRunningLegacyPaperMigration)
-                                .help("Copy ready legacy papers to library/papers and write a migration report")
+                                .help(Text(verbatim: "Copy ready legacy papers to library/papers and write a migration report"))
                             }
 
                             if appModel.isRunningLegacyPaperMigration {
@@ -214,7 +214,7 @@ struct SettingsView: View {
                             set: appModel.updateAddTodosToAppleReminders
                         ))
                         .toggleStyle(.checkbox)
-                        .help("Create an Apple Reminder when adding a new todo")
+                        .help(Text(verbatim: "Create an Apple Reminder when adding a new todo"))
 
                         HStack(spacing: 12) {
                             Button {
@@ -222,7 +222,7 @@ struct SettingsView: View {
                             } label: {
                                 Label(appModel.systemCalendarAccessState.label, systemImage: "calendar.badge.plus")
                             }
-                            .help("Grant Sci-Station access to Apple Calendar and Reminders")
+                            .help(Text(verbatim: "Grant Sci-Station access to Apple Calendar and Reminders"))
                             .disabled(appModel.systemCalendarAccessState == .authorized)
 
                             Button {
@@ -230,7 +230,7 @@ struct SettingsView: View {
                             } label: {
                                 Label("Refresh", systemImage: "arrow.clockwise")
                             }
-                            .help("Refresh Apple Calendar and Reminders")
+                            .help(Text(verbatim: "Refresh Apple Calendar and Reminders"))
                             .disabled(!appModel.systemCalendarAccessState.canReadSchedule)
 
                             if appModel.isLoadingSystemSchedule {
@@ -253,11 +253,11 @@ struct SettingsView: View {
                             Button("DeepSeek Flash") {
                                 appModel.useDeepSeekDefaults(model: "deepseek-v4-flash")
                             }
-                            .help("Use https://api.deepseek.com with deepseek-v4-flash")
+                            .help(Text(verbatim: "Use https://api.deepseek.com with deepseek-v4-flash"))
                             Button("DeepSeek Pro") {
                                 appModel.useDeepSeekDefaults(model: "deepseek-v4-pro")
                             }
-                            .help("Use https://api.deepseek.com with deepseek-v4-pro")
+                            .help(Text(verbatim: "Use https://api.deepseek.com with deepseek-v4-pro"))
                         }
 
                         TextField(
@@ -311,10 +311,10 @@ struct SettingsView: View {
                         HStack(spacing: 12) {
                             Button("Save Settings", action: appModel.saveLLMSettings)
                                 .buttonStyle(.borderedProminent)
-                                .help("Save LLM provider settings")
+                                .help(Text(verbatim: "Save LLM provider settings"))
                             Button("Test Connection", action: appModel.testLLMConnection)
                                 .buttonStyle(.bordered)
-                                .help("Send a small test request to the configured provider")
+                                .help(Text(verbatim: "Send a small test request to the configured provider"))
                         }
 
                         if appModel.isTestingLLMConnection {
@@ -340,7 +340,7 @@ struct SettingsView: View {
                         ))
                         .toggleStyle(.checkbox)
 
-                        Text("Uses GitHub OAuth or GitHub App user tokens. Client secrets and user tokens must not be written to workspace files; tokens are stored through Keychain.")
+                        Text("Click Connect GitHub to open github.com and authorize Sci-Station. OAuth code exchange must go through a relay/backend so the desktop app never stores a GitHub client secret.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
 
@@ -360,6 +360,15 @@ struct SettingsView: View {
                         ))
                         .textFieldStyle(.roundedBorder)
 
+                        TextField("Token Exchange Relay URL", text: githubCopilotBinding(
+                            get: { $0.tokenExchangeURLString },
+                            set: { configuration, newValue in
+                                configuration.tokenExchangeURLString = newValue
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .help(Text(verbatim: "Backend endpoint that exchanges GitHub OAuth code for a user access token. Do not put a client secret in the app."))
+
                         TextField("Required GitHub Organization", text: githubCopilotBinding(
                             get: { $0.requiredOrganization ?? "" },
                             set: { configuration, newValue in
@@ -376,12 +385,28 @@ struct SettingsView: View {
                         ))
                         .textFieldStyle(.roundedBorder)
 
-                        SecureField("GitHub User Token (gho_, ghu_, or github_pat_)", text: $appModel.githubCopilotToken)
+                        TextField("OAuth Scope", text: githubCopilotBinding(
+                            get: { $0.scopeString },
+                            set: { configuration, newValue in
+                                configuration.scopeString = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? GitHubCopilotConfiguration.defaultScopeString : newValue
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        SecureField("GitHub User Token (optional developer override)", text: $appModel.githubCopilotToken)
                             .textFieldStyle(.roundedBorder)
 
                         HStack(spacing: 12) {
+                            Button {
+                                appModel.connectGitHubCopilot()
+                            } label: {
+                                Label(appModel.isConnectingGitHubCopilot ? "Connecting..." : "Connect GitHub", systemImage: "person.crop.circle.badge.checkmark")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(appModel.isConnectingGitHubCopilot)
+
                             Button("Save Copilot Settings", action: appModel.saveGitHubCopilotSettings)
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.bordered)
                             Button("Check Adapter", action: appModel.testGitHubCopilotAdapter)
                                 .buttonStyle(.bordered)
                             Button("Disconnect", action: appModel.disconnectGitHubCopilot)
@@ -390,6 +415,8 @@ struct SettingsView: View {
 
                         WorkspacePathRow(label: "Token Type", value: appModel.githubCopilotTokenKind.label)
                         WorkspacePathRow(label: "Recommended", value: appModel.githubCopilotTokenKind.isRecommended ? "Yes" : "No")
+                        WorkspacePathRow(label: "Callback", value: appModel.githubCopilotConfiguration.callbackURLString)
+                        WorkspacePathRow(label: "Relay", value: appModel.githubCopilotConfiguration.tokenExchangeURLString.isEmpty ? "Not configured" : appModel.githubCopilotConfiguration.tokenExchangeURLString)
                         WorkspacePathRow(label: "Config File", value: workspace.fileURL(for: GitHubCopilotConfigurationStore.relativePath).path)
 
                         if let message = appModel.githubCopilotConnectionStatusMessage {

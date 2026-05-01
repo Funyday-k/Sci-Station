@@ -1,0 +1,36 @@
+{
+  "permission_rules": [
+    {
+      "id": "deny-recursive-removal",
+      "description": "Block recursive removal from agent shell calls.",
+      "action": "deny",
+      "command_pattern": "\\brm\\s+-[A-Za-z]*r[f]?[A-Za-z]*\\b",
+      "message": "Recursive removal must be reviewed and run manually.",
+      "is_enabled": true
+    },
+    {
+      "id": "deny-git-reset-hard",
+      "description": "Block destructive git resets.",
+      "action": "deny",
+      "command_pattern": "\\bgit\\s+reset\\s+--hard\\b",
+      "message": "Hard resets can destroy user work.",
+      "is_enabled": true
+    },
+    {
+      "id": "deny-remote-shell-pipe",
+      "description": "Block piping remote scripts into a shell.",
+      "action": "deny",
+      "command_pattern": "\\bcurl\\b[^|]*\\|\\s*(sh|bash)|\\bwget\\b[^|]*\\|\\s*(sh|bash)",
+      "message": "Piping remote scripts into a shell is blocked.",
+      "is_enabled": true
+    },
+    {
+      "id": "ask-sensitive-path",
+      "description": "Review writes to sensitive-looking paths.",
+      "action": "ask",
+      "path_pattern": "(^|/)\\.env(\\.|$)|credentials?|secrets?|token|keychain",
+      "message": "Sensitive-looking path requires review.",
+      "is_enabled": true
+    }
+  ]
+}

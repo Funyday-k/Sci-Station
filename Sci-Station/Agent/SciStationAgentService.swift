@@ -6,6 +6,7 @@ public actor SciStationAgentService {
     private let toolRegistry: AgentToolRegistry
     private let toolExecutor: AgentToolExecutor
     private let runLogger: AgentRunLogger
+    private let sessionEventLogger: AgentSessionEventLogger
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
     private let bridgeExporter: AgentCopilotBridgeExporter
@@ -18,6 +19,7 @@ public actor SciStationAgentService {
         toolRegistry: AgentToolRegistry? = nil,
         toolExecutor: AgentToolExecutor? = nil,
         runLogger: AgentRunLogger = AgentRunLogger(),
+        sessionEventLogger: AgentSessionEventLogger = AgentSessionEventLogger(),
         threadRepository: AgentThreadRepository = AgentThreadRepository(),
         draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
         bridgeExporter: AgentCopilotBridgeExporter = AgentCopilotBridgeExporter()
@@ -36,6 +38,7 @@ public actor SciStationAgentService {
         self.toolRegistry = resolvedToolRegistry
         self.toolExecutor = toolExecutor ?? AgentToolExecutor(registry: resolvedToolRegistry)
         self.runLogger = runLogger
+        self.sessionEventLogger = sessionEventLogger
         self.threadRepository = threadRepository
         self.draftRepository = draftRepository
         self.bridgeExporter = bridgeExporter
@@ -108,8 +111,9 @@ public actor SciStationAgentService {
             )
         }
 
+        let runID = "agent-run-\(UUID().uuidString.lowercased())"
         let run = AgentRun(
-            id: "agent-run-\(UUID().uuidString.lowercased())",
+            id: runID,
             goal: goal,
             createdAt: createdAt,
             completedAt: Date(),
@@ -119,6 +123,7 @@ public actor SciStationAgentService {
             currentProjectID: currentProjectID
         )
         try await runLogger.append(run, in: resolvedRoot)
+        try await appendPlanningEvents(for: run, in: resolvedRoot)
         return run
     }
 
@@ -143,8 +148,9 @@ public actor SciStationAgentService {
             context: context,
             approvedToolCallIDs: approvedToolCallIDs
         )
+        let runID = "agent-run-\(UUID().uuidString.lowercased())"
         let run = AgentRun(
-            id: "agent-run-\(UUID().uuidString.lowercased())",
+            id: runID,
             goal: goal,
             createdAt: Date(),
             completedAt: Date(),
@@ -154,6 +160,7 @@ public actor SciStationAgentService {
             currentProjectID: currentProjectID
         )
         try await runLogger.append(run, in: resolvedRoot)
+        try await appendExecutionEvents(for: run, in: resolvedRoot)
         return run
     }
 
@@ -216,5 +223,72 @@ public actor SciStationAgentService {
             tools: tools,
             in: resolvedRoot
         )
+    }
+
+    public func sessionEvents(in root: ResearchRoot, sessionID: String? = nil, limit: Int = 100) async throws -> [AgentSessionEvent] {
+        try await sessionEventLogger.events(in: root, sessionID: sessionID, limit: limit)
+    }
+
+    private func appendPlanningEvents(for run: AgentRun, in root: ResearchRoot) async throws {
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: run.createdAt,
+                kind: .userMessage,
+                summary: run.goal
+            ),
+            in: root
+        )
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: run.completedAt ?? Date(),
+                kind: .assistantMessage,
+                summary: run.plan.summary
+            ),
+            in: root
+        )
+
+        for call in run.plan.toolCalls {
+            try await sessionEventLogger.append(
+                AgentSessionEvent(
+                    sessionID: run.id,
+                    kind: .permissionRequested,
+                    summary: "Tool call \(call.toolName) is waiting for explicit approval.",
+                    payloadJSON: call.argumentsJSON
+                ),
+                in: root
+            )
+        }
+    }
+
+    private func appendExecutionEvents(for run: AgentRun, in root: ResearchRoot) async throws {
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: run.createdAt,
+                kind: .userMessage,
+                summary: run.goal
+            ),
+            in: root
+        )
+
+        for result in run.toolResults {
+            try await sessionEventLogger.append(
+                AgentSessionEvent(
+                    sessionID: run.id,
+                    kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
+                    summary: result.message,
+                    payloadJSON: result.modifiedPaths.joined(separator: "\n").nilIfEmpty
+                ),
+                in: root
+            )
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

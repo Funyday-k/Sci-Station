@@ -1,6 +1,6 @@
 # Sci-Station 下一阶段任务书
 
-更新时间：2026-04-29
+更新时间：2026-05-01
 
 ## 1. 当前阶段结论
 
@@ -24,9 +24,15 @@
 
 任务书 21 已定稿为 Library Table V2 与 GitHub Copilot SDK 接口适配：下一轮优先补齐列布局、选择集批量编辑和 Quick Look，同时按 `DOC/Github Copilot` 接入手册为 AI Lab 增加 OAuth/GitHub App user token、每用户 Copilot client、token 安全边界和组织校验的 adapter 方案。
 
-任务书 21 已完成第一版：Library 表格列顺序管理、多选批量编辑、Space/Preview PDF fallback、GitHub Copilot SDK experimental 配置与 token 分类、安全 adapter 边界和核心验证均已落地；Copilot SDK 仍保持 experimental，不替换现有 DeepSeek/OpenAI-compatible provider。
+任务书 21 已完成第一版并补齐 GitHub OAuth 登录入口：Library 表格列顺序管理、多选批量编辑、Space/Preview PDF fallback、GitHub Copilot SDK experimental 配置与 token 分类、安全 adapter 边界、Connect GitHub 跳转 github.com、`sci-station://github-copilot/callback` 回调和 token exchange relay 边界均已落地；Copilot SDK 仍保持 experimental，不替换现有 DeepSeek/OpenAI-compatible provider。
 
-迁移收束见 [DOC/Proposal13.md](Proposal13.md)，关系 UI 收束见 [DOC/Proposal14.md](Proposal14.md)，Agent Panel 收束见 [DOC/Proposal15.md](Proposal15.md)，Mac 基础体验收束见 [DOC/Proposal16.md](Proposal16.md)，Library 原生表格收束见 [DOC/Proposal17.md](Proposal17.md)，AI Lab 会话体验见 [DOC/Proposal18.md](Proposal18.md)，Thread 化准备见 [DOC/Proposal19.md](Proposal19.md)，Thread 管理见 [DOC/Proposal20.md](Proposal20.md)，下一轮执行方案见 [DOC/Proposal21.md](Proposal21.md)。
+任务书 21 追加修订已将 OpenCode + Claude Code 双平台借鉴计划落到当前工作区预设：`.claude` hooks、skills 与 `.mcp.json` 已作为 Sci-Station 内置 agent preset 的原型；任务书 22 已制定为 Swift-native Agent Platform 预设化迁移 V1。
+
+任务书 22 已完成 Swift-native Agent Platform core 第一版：agent/subagent profile、permission rule/evaluator、hook definition/engine、plugin/skill/command/MCP schema、session event log、tool metadata 扩展和 Provider V2 skeleton 均已进入 SwiftPM core，并新增纯逻辑验证；AI Lab 已显示 core/provider/preset/permission/hook/MCP 状态摘要，`.sci-ai/` 已区分可进 GitHub 的 Sci-Station product preset 与本机 workspace AI 配置。
+
+任务书 23 已制定为 AI Lab Agent Platform Runtime UI V1：把任务书 22 的 core 底座接入更完整的 permission dock、hook activity、MCP server 状态、session event timeline、preset manager 和 Provider V2 adapter 流程。
+
+迁移收束见 [DOC/Proposal13.md](Proposal13.md)，关系 UI 收束见 [DOC/Proposal14.md](Proposal14.md)，Agent Panel 收束见 [DOC/Proposal15.md](Proposal15.md)，Mac 基础体验收束见 [DOC/Proposal16.md](Proposal16.md)，Library 原生表格见 [DOC/Proposal17.md](Proposal17.md)，AI Lab 会话体验见 [DOC/Proposal18.md](Proposal18.md)，Thread 化准备见 [DOC/Proposal19.md](Proposal19.md)，Thread 管理见 [DOC/Proposal20.md](Proposal20.md)，Library V2 与 Copilot SDK adapter 见 [DOC/Proposal21.md](Proposal21.md)，Agent Platform core 见 [DOC/Proposal22.md](Proposal22.md)，下一轮执行方案见 [DOC/Proposal23.md](Proposal23.md)。
 
 ## 2. 当前代码基线
 
@@ -45,6 +51,9 @@
 - `LegacyPaperMigrationService` 已能生成 `raw/papers` 到 `library/papers` 的 dry-run 计划，并执行 copy-only 迁移报告。
 - Library 原生表格体验 V1 已完成：SwiftUI `Table`、排序模型、selection 同步、右键菜单、Copy Citation/Copy BibTeX 和批量 BibTeX 导出准备。
 - AI Lab Thread 管理与计划复用 V1 已完成；Library Table V2 与 GitHub Copilot SDK OAuth 接口适配第一版已完成。
+- 当前工作区已有 Claude Code 原型预设：`.claude/settings.json`、`SessionStart` / `PreToolUse` hooks、agent platform skill、research workflow skill，以及受限到仓库的 filesystem MCP 配置。
+- Agent Platform core 第一版已完成：`AgentProfile`、`SubagentProfile`、permission rules、hook engine、plugin/skill/command/MCP schema、session events、tool metadata 和 Provider V2 request/response skeleton 已有 SwiftPM 验证。
+- `.sci-ai/sci-station/` 已保存可进 GitHub 的 research-core product preset；`.sci-ai/workspace.local/`、`.claude/` 和 `.mcp.json` 是本机 AI bridge 配置，不进 GitHub。
 
 ## 3. 下一阶段主线
 
@@ -58,6 +67,8 @@ Global Research Root
   -> Codex-style AI Lab + Threads
   -> AI Lab Thread Management V1
   -> Library Table V2 + GitHub Copilot SDK Adapter
+  -> Agent Platform Presets + Swift-native Migration
+  -> AI Lab Agent Platform UI Integration
   -> Project Lifecycle Controls
 ```
 
@@ -131,17 +142,31 @@ Global Research Root
 - 继续保留现有 Copilot Bridge prompt/manifest 文件导出。
 - 新增面向 GitHub Copilot SDK 的 provider/adapter 抽象，支持 OAuth 或 GitHub App user token、每用户 client、model、required org 和未连接状态。
 - GitHub OAuth client secret 不得进入桌面端、workspace 配置或仓库文件。
+- Connect GitHub 会打开 GitHub OAuth authorize 页面，并通过 `sci-station://github-copilot/callback` 接收 code/state。
+- OAuth code-to-token 交换必须通过 token exchange relay / backend 完成，桌面端不保存 client secret。
 - 用户 access token / refresh token 只能进入 Keychain 或后续安全后端，不写入 settings、preferences、agent log、thread log、drafts 或 Copilot Bridge manifest。
 - 明确支持 `gho_`、`ghu_`、`github_pat_` token 类型，`ghp_` classic PAT 不作为推荐路径。
 - Copilot SDK provider 不绕过 plan-only 和逐项 tool approval 安全边界。
 - 第一版只实现 experimental adapter 边界与设置入口，不真正替换现有 agent provider。
 
+### 4.10 Agent Platform 预设化迁移
+
+- 吸收 OpenCode 的 agent runtime、session event、tool registry、permission、MCP 和 provider 抽象，但保持 Swift-native 实现。
+- 吸收 Claude Code 插件的 manifest、commands、agents、skills、hooks、settings、MCP preset、validator 和安全治理模式。
+- 当前 `.claude` hooks、skills 和 `.mcp.json` 作为工作区级原型，后续产品化到 Sci-Station 内置 preset registry 与 UI 管理。
+- 第一批核心模型覆盖 `AgentProfile`、`AgentMode`、`SubagentProfile`、`AgentPermissionRule`、`AgentHookDefinition`、`AgentPluginManifest`、`AgentSessionEvent` 和 `MCPServerConfiguration`。
+- 权限层统一 allow / ask / deny，所有 workspace 写入、shell、MCP side effect 和外部网络动作继续可审计。
+- Hook engine 第一版优先支持 `SessionStart`、`PreToolUse`、`PostToolUse` 和 `Stop`。
+- Plugin / skill / command schema 优先服务科研 workflow：paper review、proposal drafting、experiment planning、library curation、code/data review。
+- Session event log 与现有 `runs.jsonl` 并行，不破坏旧历史。
+
 ## 5. 建议优先级
 
-1. 下一轮可转向项目生命周期控制：归档/取消归档、项目排序和更保守的删除策略。
-2. Library 后续可继续评估 `QLPreviewPanel`、真正列宽持久化或 `NSTableView` wrapper。
-3. GitHub Copilot 后续需确定 OAuth relay / GitHub App / PKCE 方案后，才接入真实 SDK session。
-4. Auto Run Loop 继续保持 disabled，不进入自动连续执行实现。
+1. 下一轮按 [DOC/Proposal23.md](Proposal23.md) 做 AI Lab Agent Platform Runtime UI V1：完整 permission dock、hook activity、MCP server 状态、session event timeline、preset manager 和 Provider V2 adapter 流程。
+2. 项目生命周期控制可作为任务书 24 候选：归档/取消归档、项目排序和更保守的删除策略。
+3. Library 后续可继续评估 `QLPreviewPanel`、真正列宽持久化或 `NSTableView` wrapper。
+4. GitHub Copilot 后续需确定 OAuth relay / GitHub App / PKCE 方案后，才接入真实 SDK session。
+5. Auto Run Loop 继续保持 disabled，不进入自动连续执行实现。
 
 ## 6. 验收标准
 
@@ -164,8 +189,14 @@ Global Research Root
 17. Space / Quick Look 或 fallback 预览入口对有 PDF 的论文可用。
 18. GitHub Copilot SDK adapter 不保存 client secret 或用户 token 到明文 workspace 文件。
 19. AI Lab 保留 Copilot Bridge export，并能表达 GitHub Copilot provider 的未连接/连接状态。
-20. SwiftPM Core Test Runner 通过。
-21. Xcode macOS build 通过。
+20. Agent Platform core models 能表达 profile、permission、hook、plugin、session event 和 MCP server 配置。
+21. Permission rule 支持 allow / ask / deny，并能按工具、命令和路径匹配。
+22. Hook model 支持 `SessionStart`、`PreToolUse`、`PostToolUse` 和 `Stop` 的第一版语义。
+23. Plugin manifest、skill frontmatter、command template 和 MCP config 有 parser / validator 草案。
+24. MCP 配置不会把 secret value 序列化到 workspace。
+25. Session event log 与现有 `runs.jsonl` 并行，不破坏旧历史。
+26. SwiftPM Core Test Runner 通过。
+27. Xcode macOS build 通过。
 
 ## 7. Question
 
@@ -174,3 +205,6 @@ Global Research Root
 3. Quick Look 是否必须使用 `QLPreviewPanel`，还是允许先用现有内置 Reader / PDF opening 作为 Space fallback？建议允许 fallback。
 4. GitHub Copilot SDK 接口本轮是否只做安全 adapter 边界和设置草案，不真正替换现有 provider？建议是。
 5. GitHub OAuth token exchange 是否必须通过后端 relay，而不是桌面端保存 client secret？建议必须通过后端 relay 或后续明确的 GitHub App/PKCE 方案。
+6. 任务书 22 是否先完成 Agent Platform core models、permission、hook、plugin/MCP schema，再重构 AI Lab UI？建议是。
+7. Session event log 是否应与现有 `runs.jsonl` 并行一段时间，而不是立即替换？建议并行。
+8. OpenCode 子进程 bridge 是否暂缓，先做 Swift-native core？建议暂缓。

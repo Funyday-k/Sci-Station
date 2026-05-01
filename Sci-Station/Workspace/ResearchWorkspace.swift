@@ -75,7 +75,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         ),
         SeededFile(
             relativePath: GitHubCopilotConfigurationStore.relativePath,
-            contents: "github_copilot:\n  enabled: false\n  client_id: \"\"\n  callback_url: \"\"\n  required_org: \"\"\n  model: \"gpt-4.1\"\n"
+            contents: "github_copilot:\n  enabled: false\n  client_id: \"\"\n  callback_url: \"sci-station://github-copilot/callback\"\n  token_exchange_url: \"\"\n  required_org: \"\"\n  model: \"gpt-4.1\"\n  scope: \"read:user read:org\"\n"
         ),
         SeededFile(
             relativePath: "settings/markdown_snippets.yaml",

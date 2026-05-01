@@ -88,6 +88,8 @@ private struct AgentPanelView: View {
 
                 DisclosureGroup("Agent Panel Details", isExpanded: $isAgentDetailsExpanded) {
                     VStack(alignment: .leading, spacing: 12) {
+                        AgentPlatformStatusView()
+
                         DisclosureGroup("Context", isExpanded: $isContextExpanded) {
                             AgentContextSummaryView(snapshot: appModel.agentWorkspaceSnapshot, tools: appModel.agentToolDefinitions)
                         }
@@ -437,6 +439,25 @@ private struct AgentConversationRunCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(isCurrent ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct AgentPlatformStatusView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    var body: some View {
+        GroupBox("Agent Platform") {
+            VStack(alignment: .leading, spacing: 10) {
+                WorkspacePathRow(label: "Core", value: appModel.agentPlatformSummary)
+                WorkspacePathRow(label: "Provider", value: appModel.agentProviderSummary)
+                WorkspacePathRow(label: "Presets", value: appModel.agentPresetSummary)
+                WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
+                WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
+                WorkspacePathRow(label: "MCP", value: appModel.agentMCPStatusSummary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
     }
 }
 

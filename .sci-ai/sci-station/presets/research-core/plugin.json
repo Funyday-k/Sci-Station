@@ -1,0 +1,98 @@
+{
+  "id": "research-core",
+  "name": "Research Core",
+  "version": "0.1.0",
+  "description": "Default Sci-Station research agent preset for project-aware planning, paper review, proposal drafting, library curation, and code/data review.",
+  "is_enabled_by_default": true,
+  "commands": [
+    {
+      "id": "paper-review",
+      "slash_command": "/paper-review",
+      "title": "Paper Review",
+      "prompt_template": "Review the selected paper for contribution, method, assumptions, limitations, and relevance to the current project.",
+      "required_skill_ids": ["research-workflow"]
+    },
+    {
+      "id": "proposal-draft",
+      "slash_command": "/proposal-draft",
+      "title": "Proposal Draft",
+      "prompt_template": "Draft or update a modular project proposal from current project wiki, core papers, tasks, and materials.",
+      "required_skill_ids": ["research-workflow"]
+    },
+    {
+      "id": "experiment-plan",
+      "slash_command": "/experiment-plan",
+      "title": "Experiment Plan",
+      "prompt_template": "Turn the current research question into tasks, code/data requirements, risks, and validation checks.",
+      "required_skill_ids": ["research-workflow"]
+    },
+    {
+      "id": "library-curate",
+      "slash_command": "/library-curate",
+      "title": "Library Curate",
+      "prompt_template": "Propose reversible metadata cleanup, tags, priorities, and project links for the current paper selection.",
+      "required_skill_ids": ["research-workflow"]
+    },
+    {
+      "id": "code-data-review",
+      "slash_command": "/code-data-review",
+      "title": "Code And Data Review",
+      "prompt_template": "Review selected code and data paths for reproducibility risks, local-only assumptions, silent failures, and validation gaps.",
+      "required_skill_ids": ["agent-platform", "research-workflow"]
+    }
+  ],
+  "subagents": [],
+  "skills": [
+    {
+      "id": "agent-platform",
+      "name": "agent-platform",
+      "description": "Sci-Station Swift-native agent platform architecture, safety, provider, tool, hook, plugin, and MCP guidance.",
+      "version": "0.1.0",
+      "reference_paths": ["skills/agent-platform.md"]
+    },
+    {
+      "id": "research-workflow",
+      "name": "research-workflow",
+      "description": "Sci-Station research workflows for literature review, proposal drafting, library curation, and code/data review.",
+      "version": "0.1.0",
+      "reference_paths": ["skills/research-workflow.md"]
+    }
+  ],
+  "hooks": [
+    {
+      "id": "session-start-context",
+      "event_name": "SessionStart",
+      "additional_context": "Use Sci-Station's Swift-native agent core, keep secrets out of workspace files, and preserve existing agent history.",
+      "is_enabled": true
+    },
+    {
+      "id": "pre-tool-safety",
+      "event_name": "PreToolUse",
+      "matcher": "rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+clean\\s+-|curl.*\\|\\s*(sh|bash)|wget.*\\|\\s*(sh|bash)",
+      "permission_decision": "deny",
+      "message": "Dangerous command blocked by the research-core safety preset.",
+      "is_enabled": true
+    },
+    {
+      "id": "stop-validation-reminder",
+      "event_name": "Stop",
+      "matcher": ".+",
+      "message": "If this task modified code or data, record validation or explain why validation was not run.",
+      "is_enabled": true
+    }
+  ],
+  "mcp_servers": [
+    {
+      "id": "sci-station-filesystem",
+      "display_name": "Sci-Station Filesystem",
+      "transport": "local_command",
+      "is_enabled": false,
+      "command": "npx",
+      "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceRoot}"],
+      "timeout_seconds": 30,
+      "allowed_tools": ["read_file", "list_directory", "search_files"],
+      "header_references": [],
+      "secret_references": []
+    }
+  ]
+}

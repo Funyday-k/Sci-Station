@@ -78,6 +78,16 @@ ResearchRoot/
 └── researchflow.sqlite
 ```
 
+## AI 配置分层
+
+仓库根目录的 `.sci-ai/` 用于区分产品化 AI preset 与本机工作区 AI bridge 配置：
+
+- `.sci-ai/sci-station/`：Sci-Station 产品内置 AI preset，允许进 GitHub；只保存非敏感配置、schema、skills、hooks、commands、MCP 模板和 secret references。
+- `.sci-ai/workspace.local/`：当前 checkout 的本机 AI 配置，不进 GitHub；可放 Claude Code bridge、MCP 实际路径和机器相关设置。
+- `.claude/` 与 `.mcp.json`：为需要固定路径的外部 agent 工具保留的本机 bridge 文件，不进 GitHub。
+
+任何 API key、OAuth token、refresh token、client secret、private key 或机器私有凭据都不得写入 `.sci-ai/sci-station/`。
+
 ## 已实现功能
 
 ### 1. 工作区管理
@@ -203,7 +213,10 @@ ResearchRoot/
 - Prompt draft 按 project/thread 持久化到 `.sci-station/agent/drafts.json`，切换项目或 thread 后可恢复
 - 历史 run 可将 prompt 复制到 New Chat 复用，但不会自动执行工具
 - 支持导出 Copilot Bridge prompt/manifest 到 `.sci-station/agent/copilot-bridge/`
-- Settings 预留 GitHub Copilot SDK experimental provider：保存非敏感 OAuth/GitHub App 配置，按 `gho_`、`ghu_`、`github_pat_`、`ghp_` 分类 token，并要求 user token 走 Keychain 而不是 workspace 明文文件
+- Settings 预留 GitHub Copilot SDK experimental provider：Connect GitHub 在未填写 Client ID 时会打开 GitHub OAuth App 创建页，填写后会打开 github.com OAuth 授权并回到 `sci-station://github-copilot/callback`；桌面端只保存非敏感 OAuth/GitHub App 配置，OAuth code-to-token 交换必须通过 token exchange relay 完成，user token 走 Keychain 而不是 workspace 明文文件
+- Agent Platform V1 core 已加入 Swift-native 底座模型：agent profile、subagent profile、allow/ask/deny permission rule、hook definition/result、plugin manifest、command template、skill manifest、MCP server configuration、append-only session event，以及 Provider V2 request/response skeleton
+- 当前 `.claude` hooks、skills 和 `.mcp.json` 作为工作区级 prototype；产品化路径是迁移到 Sci-Station 内置 preset registry、permission layer、hook engine 和 MCP 配置 UI
+- `.sci-ai/sci-station/presets/research-core/` 已提供可进 GitHub 的 research-core preset；`.sci-ai/workspace.local/`、`.claude/` 和 `.mcp.json` 被视为本机配置并由 gitignore 排除
 - Agent thread log、run log、Copilot Bridge、workspace preferences、LLM settings 等路径信息集中在 Settings
 
 ### 12. 核心验证
@@ -227,7 +240,7 @@ ResearchRoot/
 - ProjectPaperLinkRepository 可保存项目-论文关系，并在加载论文时叠加到 Paper metadata
 - PaperAnnotationsRepository 可读写 `annotations.md`
 - TodoRepository 保留 priority、notes、related paper ids 和 Reminders 映射字段
-- Agent plan parser、tool approval、Agent run log/history、project conversation filtering、thread archiving、prompt draft persistence、approved execution 和 Copilot Bridge 导出
+- Agent plan parser、tool approval、Agent run log/history、project conversation filtering、thread archiving、prompt draft persistence、approved execution、Copilot Bridge 导出、Agent Platform core model、permission matcher、hook engine、plugin/skill/MCP schema、session event log 和 Provider V2 request model
 - LibrarySearchService 覆盖 DOI、abstract、BibTeX 等扩展字段
 - PDF 导入后在 `library/papers` 生成 `paper.md` 和 `figures/`
 - WikiPageGenerator 生成模板页并拒绝静默覆盖
@@ -266,7 +279,7 @@ ResearchRoot/
 - Project Overview 的项目配置模型、阶段状态和核心论文拖拽排序
 - 项目-论文关系 UI 已切到 `ProjectPaperLinkRepository` 第一写入路径；仍需更完整的关系历史和批量编辑
 - Library 原生表格体验 V1 已完成：SwiftUI `Table`、排序模型、selection 同步、多选、Copy Citation、Copy BibTeX 和低风险批量 BibTeX 导出；列拖拽/任意列顺序在 SwiftUI `Table` 版本中暂停，后续可评估 `NSTableView` wrapper
-- AI Lab 后续增强：更多工具、计划导入和可选多轮 Agent loop
+- AI Lab 后续增强：将 Agent Platform V1 core 接入 UI 的 preset/provider 状态、permission dock、hook activity、MCP server 状态、更多工具、计划导入和有限轮次 Agent loop
 - Markdown renderer 的离线资源打包、snippet 图形化管理和更完整编辑器快捷键
 - SQLite/FTS 统一搜索索引和增量更新
 - Apple Reminders 双向同步、完成状态回写和冲突选择 UI
@@ -288,7 +301,7 @@ Sci-Station/
 ├── Import/             DOI/arXiv/INSPIRE/URL 导入服务
 ├── Importer/           PDF 导入逻辑
 ├── Library/            Paper 模型、YAML 编解码、Repository、搜索、annotations
-├── LLM/                LLM 配置、提示词和写回服务
+├── LLM/                LLM 配置、Provider V1/V2 抽象、提示词和写回服务
 ├── Markdown/           Markdown、frontmatter、wikilink、backlink 支持
 ├── MetadataProviders/  DOI、arXiv、INSPIRE provider 与 mapper
 ├── PDF/                PDFKit Reader 和 PDF 打开协议
@@ -297,6 +310,7 @@ Sci-Station/
 ├── UI/                 侧边栏、Projects、Library、Dashboard、Inspector 等 SwiftUI 视图
 ├── Wiki/               Wiki page 生成服务
 ├── Workspace/          工作区模型、偏好、bookmark 持久化
+├── Agent/              Agent run/thread、tool、permission、hook、plugin/MCP、session event 模型
 ├── ContentView.swift   主界面入口
 └── Sci_StationApp.swift
 Tools/
