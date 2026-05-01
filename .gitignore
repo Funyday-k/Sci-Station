@@ -26,6 +26,11 @@ Icon
 # VS Code
 .vscode/
 
+# Local AI agent bridge settings/state (not for GitHub)
+.claude/
+.mcp.json
+.sci-ai/workspace.local/
+
 # CocoaPods (not used, but just in case)
 Pods/
 
