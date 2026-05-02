@@ -57,14 +57,18 @@ private struct CoreVerificationSuite {
         try await agentPlannerAcceptsPlainTextConversationResponse()
         try await agentToolExecutorRequiresApprovalForTodoWrites()
         try await agentPaperClassificationToolUpdatesMetadata()
+        try await agentPaperReadToolsReturnSectionsAndSearchMatches()
         try await agentWorkspaceSnapshotIncludesProjectContext()
-        try await agentWorkspaceSnapshotKeepsDeepKnowledgePaperContext()
+        try await agentWorkspaceSnapshotDoesNotEmbedMarkdownByDefault()
+        try await agentWorkspaceSnapshotLegacyPolicyKeepsDeepKnowledgePaperContext()
+        try agentPromptBuilderDirectsPaperToolsForMetadataOnlyContext()
         try await agentRunLoggerWritesWorkspaceFiles()
         try await agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory()
         try await agentServiceExecutesApprovedPlan()
         try await agentRunLoggerSkipsDamagedHistoryLines()
         try await agentRunLoggerFiltersProjectConversations()
-        try await agentThreadRepositoryUpsertsProjectThreads()
+        try await agentThreadRepositoryGlobalStoreFiltersByWorkspaceID()
+        try await agentThreadRepositoryMigratesPerWorkspaceLegacy()
         try await agentThreadRepositoryArchivesAndReadsLegacyThreads()
         try await agentPromptDraftRepositoryPersistsDrafts()
         try agentToolDefinitionsExposePlatformMetadata()
@@ -1596,6 +1600,89 @@ private struct CoreVerificationSuite {
                 try expect(updatedPaper.status == .skimmed, "Classification tool should update reading status.")
             }
 
+            private func agentPaperReadToolsReturnSectionsAndSearchMatches() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let paperRepository = PaperRepository()
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentPaperReadToolsWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                var paper = samplePaper(id: "agent-readable-paper")
+                paper.title = "Evaporation Rate Reference"
+                paper.tags = ["dm"]
+                let savedPaper = try await paperRepository.save(paper, in: workspace)
+                let markdown = """
+                # Evaporation Rate Reference
+
+                ## 1 Overview
+
+                This section introduces the model.
+
+                ## 5 Evaporation Rate
+
+                The evaporation rate marker is E_sun_section_marker.
+
+                $$
+                E_{\\odot} = \\sum_i \\int s(r) n_\\chi(r) 4\\pi r^2 dr
+                $$
+
+                ## Appendix
+
+                Extra material.
+                """
+                try markdown.write(to: savedPaper.rawMarkdownURL(in: workspace), atomically: true, encoding: .utf8)
+
+                let registry = AgentToolRegistry(tools: [
+                    ListPapersAgentTool(paperRepository: paperRepository),
+                    ReadPaperSectionAgentTool(paperRepository: paperRepository),
+                    SearchPapersAgentTool(paperRepository: paperRepository)
+                ])
+                let executor = AgentToolExecutor(registry: registry)
+                let plan = AgentPlan(
+                    summary: "Read paper sections",
+                    toolCalls: [
+                        AgentToolCall(
+                            id: "call-section",
+                            toolName: "read_paper_section",
+                            argumentsJSON: "{\"paper_id\":\"\(savedPaper.id)\",\"heading\":\"5 Evaporation Rate\"}"
+                        ),
+                        AgentToolCall(
+                            id: "call-search",
+                            toolName: "search_papers",
+                            argumentsJSON: "{\"query\":\"E_sun_section_marker\",\"paper_ids\":[\"\(savedPaper.id)\"]}"
+                        ),
+                        AgentToolCall(
+                            id: "call-list",
+                            toolName: "list_papers",
+                            argumentsJSON: "{\"query\":\"Evaporation\"}"
+                        )
+                    ]
+                )
+
+                let results = await executor.execute(
+                    plan: plan,
+                    context: AgentToolContext(workspace: workspace, selectedPaperID: savedPaper.id),
+                    approvedToolCallIDs: []
+                )
+                let definitions = await SciStationAgentService(
+                    provider: StaticLLMProvider(response: "{\"summary\":\"No-op\",\"tool_calls\":[]}")
+                ).toolDefinitions()
+                let definitionNames = Set(definitions.map(\.name))
+
+                try expect(results.allSatisfy(\.succeeded), "Read-only paper tools should run without approval.")
+                try expect(results.first(where: { $0.callID == "call-section" })?.message.contains("E_sun_section_marker") == true, "read_paper_section should return the requested heading content.")
+                try expect(results.first(where: { $0.callID == "call-search" })?.message.contains("#L") == true, "search_papers should return line-anchored matches.")
+                try expect(results.first(where: { $0.callID == "call-list" })?.message.contains(savedPaper.id) == true, "list_papers should expose matching paper ids.")
+                try expect(definitionNames.isSuperset(of: ["list_papers", "read_paper", "read_paper_section", "search_papers"]), "Default agent tool registry should expose paper read/search tools.")
+            }
+
             private func agentWorkspaceSnapshotIncludesProjectContext() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -1658,7 +1745,46 @@ private struct CoreVerificationSuite {
                 try expect(snapshot.paperLibraryRelativePath == Paper.globalLibraryRootRelativePath, "Agent snapshot should advertise the global paper library path.")
             }
 
-            private func agentWorkspaceSnapshotKeepsDeepKnowledgePaperContext() async throws {
+            private func agentWorkspaceSnapshotDoesNotEmbedMarkdownByDefault() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let repository = PaperRepository()
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentMetadataOnlyContextWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let paper = try await repository.save(samplePaper(id: "metadata-only-paper"), in: workspace)
+                let marker = "metadata_only_snapshot_should_not_embed_this_marker"
+                try ("# Metadata Only Paper\n\n## Hidden Body\n\n\(marker)")
+                    .write(to: paper.rawMarkdownURL(in: workspace), atomically: true, encoding: .utf8)
+
+                let snapshot = try await AgentWorkspaceContextBuilder(paperRepository: repository).snapshot(
+                    in: workspace,
+                    selectedPaperID: paper.id,
+                    includedPaperIDs: [paper.id],
+                    paperLimit: 5
+                )
+                let selectedPaper = try require(snapshot.selectedPaper, "Selected paper should be present in the snapshot.")
+                let recentPaper = try require(snapshot.recentPapers.first(where: { $0.id == paper.id }), "Recent paper should be present in the snapshot.")
+                let prompt = try AgentPromptBuilder().buildPrompt(
+                    goal: "Explain the hidden body marker.",
+                    workspaceSnapshot: snapshot,
+                    tools: []
+                )
+
+                try expect(selectedPaper.sourceExcerpt == nil, "Default selected paper snapshot should not embed paper.md text.")
+                try expect(recentPaper.sourceExcerpt == nil, "Default recent paper snapshot should not embed paper.md text.")
+                try expect(recentPaper.rawMarkdownRelativePath?.hasSuffix("/paper.md") == true, "Metadata-only paper snapshots should still advertise converted paper.md paths.")
+                try expect(!prompt.contains(marker), "Agent prompt should not contain paper markdown body text by default.")
+            }
+
+            private func agentWorkspaceSnapshotLegacyPolicyKeepsDeepKnowledgePaperContext() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
                 let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
@@ -1684,10 +1810,44 @@ private struct CoreVerificationSuite {
                 let snapshot = try await AgentWorkspaceContextBuilder(paperRepository: repository).snapshot(
                     in: workspace,
                     includedPaperIDs: [paper.id],
+                    paperContextPolicy: .legacyExcerpts,
                     paperLimit: 5
                 )
                 let paperSnapshot = try require(snapshot.recentPapers.first(where: { $0.id == paper.id }), "Included knowledge paper should be present in the snapshot.")
-                try expect(paperSnapshot.sourceExcerpt?.contains(deepMarker) == true, "Included AI Knowledge papers should preserve deeper Markdown sections beyond 10k characters.")
+                try expect(paperSnapshot.sourceExcerpt?.contains(deepMarker) == true, "Legacy excerpt policy should preserve deeper Markdown sections beyond 10k characters.")
+            }
+
+            private func agentPromptBuilderDirectsPaperToolsForMetadataOnlyContext() throws {
+                var paper = samplePaper(id: "prompt-metadata-paper")
+                paper.title = "Prompt Metadata Paper"
+                let paperSnapshot = AgentPaperSnapshot(
+                    paper: paper,
+                    rawMarkdownRelativePath: "papers/prompt-metadata-paper/paper.md"
+                )
+                let snapshot = AgentWorkspaceSnapshot(
+                    workspaceName: "Prompt Workspace",
+                    selectedPaper: paperSnapshot,
+                    recentPapers: [paperSnapshot],
+                    openTodos: [],
+                    paperCount: 1,
+                    todoCount: 0
+                )
+                let paperRepository = PaperRepository()
+                let tools = [
+                    SearchPapersAgentTool(paperRepository: paperRepository).definition,
+                    ReadPaperSectionAgentTool(paperRepository: paperRepository).definition,
+                    ReadPaperAgentTool(paperRepository: paperRepository).definition
+                ]
+                let prompt = try AgentPromptBuilder().buildPrompt(
+                    goal: "解释这篇论文第 5 节的公式。",
+                    workspaceSnapshot: snapshot,
+                    tools: tools
+                )
+
+                try expect(prompt.contains("Paper snapshots are metadata-first"), "Prompt should explain metadata-first paper snapshots.")
+                try expect(prompt.contains("plan paper tool calls before answering"), "Prompt should direct the model to call paper tools before detailed answers.")
+                try expect(prompt.contains("Prefer `search_papers`"), "Prompt should guide search_papers usage.")
+                try expect(prompt.contains("Prefer `read_paper_section`"), "Prompt should guide read_paper_section usage.")
             }
 
             private func agentRunLoggerWritesWorkspaceFiles() async throws {
@@ -1954,21 +2114,26 @@ private struct CoreVerificationSuite {
                 try expect(globalRuns.map(\.id) == ["global-run"], "Global conversation history should only include runs without a project id.")
             }
 
-            private func agentThreadRepositoryUpsertsProjectThreads() async throws {
+            private func agentThreadRepositoryGlobalStoreFiltersByWorkspaceID() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
                 let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
                 let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
-                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentThreadWorkspace", isDirectory: true)
+                let suiteRoot = temporaryDirectoryURL().appendingPathComponent("AgentThreadGlobalStoreSuite", isDirectory: true)
+                let workspaceRoot = suiteRoot.appendingPathComponent("AgentThreadWorkspaceA", isDirectory: true)
+                let secondWorkspaceRoot = suiteRoot.appendingPathComponent("AgentThreadWorkspaceB", isDirectory: true)
+                let storeDirectory = suiteRoot.appendingPathComponent("GlobalAgentStore", isDirectory: true)
 
                 defer {
-                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    try? FileManager.default.removeItem(at: suiteRoot)
                     defaults.removePersistentDomain(forName: suiteName)
                 }
 
                 let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
                 let root = ResearchRoot(rootURL: workspace.rootURL)
-                let repository = AgentThreadRepository()
+                let secondWorkspace = try await workspaceService.createWorkspace(at: secondWorkspaceRoot)
+                let secondRoot = ResearchRoot(rootURL: secondWorkspace.rootURL)
+                let repository = AgentThreadRepository(storeDirectory: storeDirectory)
                 let firstDate = Date(timeIntervalSince1970: 1_777_600_000)
                 var thread = AgentThread(
                     id: "agent-thread-alpha",
@@ -1992,16 +2157,85 @@ private struct CoreVerificationSuite {
                     ),
                     in: root
                 )
+                try await repository.upsert(
+                    AgentThread(
+                        id: "agent-thread-beta",
+                        projectID: "project-beta",
+                        title: "Beta analysis",
+                        runIDs: ["run-beta"],
+                        createdAt: firstDate,
+                        updatedAt: firstDate.addingTimeInterval(20)
+                    ),
+                    in: secondRoot
+                )
 
                 let projectThreads = try await repository.threads(in: root, projectID: "project-alpha")
                 let globalThreads = try await repository.threads(in: root, projectID: nil)
-                let threadsURL = root.fileURL(for: ".sci-station/agent/threads.jsonl")
+                let currentWorkspaceThreads = try await repository.allThreads(
+                    in: secondRoot,
+                    workspaceID: AgentThreadRepository.workspaceID(for: secondRoot),
+                    includeArchived: false
+                )
+                let threadsURL = AgentThreadRepository.threadsFileURL(in: storeDirectory)
                 let lines = try String(contentsOf: threadsURL, encoding: .utf8).split(whereSeparator: \.isNewline)
 
                 try expect(projectThreads.map(\.id) == ["agent-thread-alpha"], "Project thread history should be filtered by project id.")
                 try expect(projectThreads.first?.runIDs == ["run-1", "run-2"], "Upserting a thread should preserve ordered run ids.")
                 try expect(globalThreads.map(\.id) == ["agent-thread-global"], "Global thread history should include only global threads.")
-                try expect(lines.count == 2, "Thread upsert should replace the existing thread record instead of duplicating it.")
+                try expect(currentWorkspaceThreads.map(\.id) == ["agent-thread-beta"], "Thread repository should filter the global store by workspace id.")
+                try expect(projectThreads.first?.workspaceID == AgentThreadRepository.workspaceID(for: root), "Upserted threads should be tagged with their workspace id.")
+                try expect(projectThreads.first?.workspaceName == root.displayName, "Upserted threads should be tagged with their workspace name.")
+                try expect(lines.count == 3, "Thread upsert should replace existing records in the global store instead of duplicating them.")
+                try expect(!FileManager.default.fileExists(atPath: root.fileURL(for: AgentThreadRepository.legacyRelativePath).path), "Upserting threads should no longer write workspace-local thread files.")
+            }
+
+            private func agentThreadRepositoryMigratesPerWorkspaceLegacy() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let suiteRoot = temporaryDirectoryURL().appendingPathComponent("AgentThreadLegacyMigrationSuite", isDirectory: true)
+                let firstWorkspaceRoot = suiteRoot.appendingPathComponent("LegacyWorkspaceA", isDirectory: true)
+                let secondWorkspaceRoot = suiteRoot.appendingPathComponent("LegacyWorkspaceB", isDirectory: true)
+                let storeDirectory = suiteRoot.appendingPathComponent("GlobalAgentStore", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: suiteRoot)
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let firstWorkspace = try await workspaceService.createWorkspace(at: firstWorkspaceRoot)
+                let firstRoot = ResearchRoot(rootURL: firstWorkspace.rootURL)
+                let secondWorkspace = try await workspaceService.createWorkspace(at: secondWorkspaceRoot)
+                let secondRoot = ResearchRoot(rootURL: secondWorkspace.rootURL)
+                let firstLegacyURL = firstRoot.fileURL(for: AgentThreadRepository.legacyRelativePath)
+                let secondLegacyURL = secondRoot.fileURL(for: AgentThreadRepository.legacyRelativePath)
+                let firstLegacyLine = """
+                {"created_at":"2026-04-29T00:00:00Z","id":"legacy-thread-a","project_id":"project-alpha","run_ids":["run-a"],"title":"Legacy A","updated_at":"2026-04-29T00:00:01Z"}
+                """
+                let secondLegacyLine = """
+                {"created_at":"2026-04-30T00:00:00Z","id":"legacy-thread-b","project_id":"project-beta","run_ids":["run-b"],"title":"Legacy B","updated_at":"2026-04-30T00:00:01Z"}
+                """
+                try firstLegacyLine.write(to: firstLegacyURL, atomically: true, encoding: .utf8)
+                try secondLegacyLine.write(to: secondLegacyURL, atomically: true, encoding: .utf8)
+
+                let repository = AgentThreadRepository(storeDirectory: storeDirectory)
+                let firstMigration = try await repository.migrateLegacyThreads(from: firstRoot)
+                let secondMigration = try await repository.migrateLegacyThreads(from: secondRoot)
+                let allThreads = try await repository.allThreads(in: firstRoot, includeArchived: false)
+                let threadsByID = Dictionary(uniqueKeysWithValues: allThreads.map { ($0.id, $0) })
+                let firstArchiveURL = firstLegacyURL.deletingLastPathComponent().appendingPathComponent(AgentThreadRepository.legacyArchiveFileName)
+                let secondArchiveURL = secondLegacyURL.deletingLastPathComponent().appendingPathComponent(AgentThreadRepository.legacyArchiveFileName)
+
+                try expect(firstMigration.migratedCount == 1, "First workspace legacy migration should report one migrated thread.")
+                try expect(secondMigration.migratedCount == 1, "Second workspace legacy migration should report one migrated thread.")
+                try expect(Set(allThreads.map(\.id)) == ["legacy-thread-a", "legacy-thread-b"], "Legacy threads from multiple workspaces should merge into one global store.")
+                try expect(threadsByID["legacy-thread-a"]?.workspaceID == AgentThreadRepository.workspaceID(for: firstRoot), "Migrated legacy A should keep a workspace tag.")
+                try expect(threadsByID["legacy-thread-b"]?.workspaceID == AgentThreadRepository.workspaceID(for: secondRoot), "Migrated legacy B should keep a workspace tag.")
+                try expect(FileManager.default.fileExists(atPath: firstArchiveURL.path), "First workspace legacy thread file should be preserved as threads.legacy.jsonl.")
+                try expect(FileManager.default.fileExists(atPath: secondArchiveURL.path), "Second workspace legacy thread file should be preserved as threads.legacy.jsonl.")
+                try expect(!FileManager.default.fileExists(atPath: firstLegacyURL.path), "First workspace legacy thread file should be removed after archival.")
+                try expect(!FileManager.default.fileExists(atPath: secondLegacyURL.path), "Second workspace legacy thread file should be removed after archival.")
             }
 
             private func agentThreadRepositoryArchivesAndReadsLegacyThreads() async throws {
@@ -2009,22 +2243,24 @@ private struct CoreVerificationSuite {
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
                 let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
                 let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
-                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentArchivedThreadWorkspace", isDirectory: true)
+                let suiteRoot = temporaryDirectoryURL().appendingPathComponent("AgentArchivedThreadSuite", isDirectory: true)
+                let workspaceRoot = suiteRoot.appendingPathComponent("AgentArchivedThreadWorkspace", isDirectory: true)
+                let storeDirectory = suiteRoot.appendingPathComponent("GlobalAgentStore", isDirectory: true)
 
                 defer {
-                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    try? FileManager.default.removeItem(at: suiteRoot)
                     defaults.removePersistentDomain(forName: suiteName)
                 }
 
                 let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
                 let root = ResearchRoot(rootURL: workspace.rootURL)
-                let threadsURL = root.fileURL(for: ".sci-station/agent/threads.jsonl")
+                let threadsURL = root.fileURL(for: AgentThreadRepository.legacyRelativePath)
                 let legacyLine = """
                 {"created_at":"2026-04-29T00:00:00Z","id":"legacy-thread","project_id":"project-alpha","run_ids":["run-1"],"title":"Legacy thread","updated_at":"2026-04-29T00:00:01Z"}
                 """
                 try legacyLine.write(to: threadsURL, atomically: true, encoding: .utf8)
 
-                let repository = AgentThreadRepository()
+                let repository = AgentThreadRepository(storeDirectory: storeDirectory)
                 let legacyThreads = try await repository.threads(in: root, projectID: "project-alpha")
                 var archivedThread = try require(legacyThreads.first, "Legacy thread without archived_at should still decode.")
                 archivedThread.archive(at: Date(timeIntervalSince1970: 1_777_600_100))

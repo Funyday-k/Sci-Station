@@ -20,6 +20,7 @@ public actor AgentWorkspaceContextBuilder {
         currentProjectID: ResearchProject.ID? = nil,
         selectedPaperID: String? = nil,
         includedPaperIDs: Set<String>? = nil,
+        paperContextPolicy: AgentPaperContextPolicy = .metadataOnly,
         paperLimit: Int = 20,
         todoLimit: Int = 20
     ) async throws -> AgentWorkspaceSnapshot {
@@ -60,13 +61,21 @@ public actor AgentWorkspaceContextBuilder {
         }
         let selectedPaper = selectedPaperID
             .flatMap { id in papers.first(where: { $0.id == id }) }
-            .map { paperSnapshot(for: $0, in: workspace, usesKnowledgeExcerpt: true) }
+            .map {
+                paperSnapshot(
+                    for: $0,
+                    in: workspace,
+                    policy: paperContextPolicy,
+                    usesKnowledgeExcerpt: true
+                )
+            }
         let recentPapers = papers
             .prefix(max(0, paperLimit))
             .map { paper in
                 paperSnapshot(
                     for: paper,
                     in: workspace,
+                    policy: paperContextPolicy,
                     usesKnowledgeExcerpt: includedPaperIDs?.contains(paper.id) == true || selectedPaperID == paper.id
                 )
             }
@@ -98,6 +107,7 @@ public actor AgentWorkspaceContextBuilder {
                 paperSnapshot(
                     for: paper,
                     in: workspace,
+                    policy: paperContextPolicy,
                     usesKnowledgeExcerpt: includedPaperIDs?.contains(paper.id) == true || selectedPaperID == paper.id
                 )
             }),
@@ -105,7 +115,35 @@ public actor AgentWorkspaceContextBuilder {
         )
     }
 
-    private nonisolated func paperSnapshot(for paper: Paper, in workspace: ResearchWorkspace, usesKnowledgeExcerpt: Bool = false) -> AgentPaperSnapshot {
+    private nonisolated func paperSnapshot(
+        for paper: Paper,
+        in workspace: ResearchWorkspace,
+        policy: AgentPaperContextPolicy,
+        usesKnowledgeExcerpt: Bool = false
+    ) -> AgentPaperSnapshot {
+        switch policy {
+        case .metadataOnly:
+            return metadataOnlyPaperSnapshot(for: paper, in: workspace)
+        case .legacyExcerpts:
+            return excerptPaperSnapshot(for: paper, in: workspace, usesKnowledgeExcerpt: usesKnowledgeExcerpt)
+        }
+    }
+
+    private nonisolated func metadataOnlyPaperSnapshot(for paper: Paper, in workspace: ResearchWorkspace) -> AgentPaperSnapshot {
+        let markdownURL = paper.rawMarkdownURL(in: workspace)
+        let rawMarkdownRelativePath = FileManager.default.fileExists(atPath: markdownURL.path)
+            ? paper.paperDirectoryRelativePath + "/paper.md"
+            : nil
+
+        return AgentPaperSnapshot(
+            paper: paper,
+            rawMarkdownRelativePath: rawMarkdownRelativePath,
+            sourceExcerptKind: nil,
+            sourceExcerpt: nil
+        )
+    }
+
+    private nonisolated func excerptPaperSnapshot(for paper: Paper, in workspace: ResearchWorkspace, usesKnowledgeExcerpt: Bool = false) -> AgentPaperSnapshot {
         let markdownCharacterLimit = usesKnowledgeExcerpt ? Self.knowledgeMarkdownExcerptCharacters : Self.defaultMarkdownExcerptCharacters
         let pdfCharacterLimit = usesKnowledgeExcerpt ? Self.knowledgeMarkdownExcerptCharacters : Self.defaultPDFExcerptCharacters
         let markdownURL = paper.rawMarkdownURL(in: workspace)

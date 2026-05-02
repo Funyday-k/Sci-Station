@@ -43,8 +43,10 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         switch kind {
         case .userMessage:
             return "用户消息"
-        case .assistantMessage, .reasoningSummary:
+        case .assistantMessage:
             return "AI 回复"
+        case .reasoningSummary:
+            return "思考摘要"
         case .permissionRequested:
             return "请求审批"
         case .permissionResolved:

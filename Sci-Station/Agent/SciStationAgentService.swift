@@ -30,6 +30,10 @@ public actor SciStationAgentService {
             todoRepository: todoRepository
         )
         let resolvedToolRegistry = toolRegistry ?? AgentToolRegistry(tools: [
+            ListPapersAgentTool(paperRepository: paperRepository),
+            ReadPaperAgentTool(paperRepository: paperRepository),
+            ReadPaperSectionAgentTool(paperRepository: paperRepository),
+            SearchPapersAgentTool(paperRepository: paperRepository),
             CreateTodoAgentTool(todoRepository: todoRepository),
             UpdatePaperClassificationAgentTool(paperRepository: paperRepository),
             WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository)
@@ -52,7 +56,8 @@ public actor SciStationAgentService {
         projects: [ResearchProject] = [],
         currentProjectID: ResearchProject.ID? = nil,
         selectedPaperID: String? = nil,
-        includedPaperIDs: Set<String>? = nil
+        includedPaperIDs: Set<String>? = nil,
+        paperContextPolicy: AgentPaperContextPolicy = .metadataOnly
     ) async throws -> AgentWorkspaceSnapshot {
         try await contextBuilder.snapshot(
             in: workspace,
@@ -60,7 +65,8 @@ public actor SciStationAgentService {
             projects: projects,
             currentProjectID: currentProjectID,
             selectedPaperID: selectedPaperID,
-            includedPaperIDs: includedPaperIDs
+            includedPaperIDs: includedPaperIDs,
+            paperContextPolicy: paperContextPolicy
         )
     }
 
@@ -299,6 +305,18 @@ public actor SciStationAgentService {
             ),
             in: root
         )
+        if let reasoningSummary = reasoningSummary(for: run.plan, toolDefinitions: toolDefinitions) {
+            try await sessionEventLogger.append(
+                AgentSessionEvent(
+                    sessionID: run.id,
+                    createdAt: run.createdAt.addingTimeInterval(0.001),
+                    kind: .reasoningSummary,
+                    summary: reasoningSummary.summary,
+                    payloadJSON: reasoningSummary.payload
+                ),
+                in: root
+            )
+        }
         try await sessionEventLogger.append(
             AgentSessionEvent(
                 sessionID: run.id,
@@ -388,6 +406,18 @@ public actor SciStationAgentService {
         }
         try await appendHookResults(hookResults, sessionID: run.id, in: root)
 
+        for call in run.plan.toolCalls where run.toolResults.contains(where: { $0.callID == call.id }) {
+            try await sessionEventLogger.append(
+                AgentSessionEvent(
+                    sessionID: run.id,
+                    kind: .toolCallStarted,
+                    summary: "Running \(call.toolName).",
+                    payloadJSON: call.argumentsJSON
+                ),
+                in: root
+            )
+        }
+
         for result in run.toolResults {
             try await sessionEventLogger.append(
                 AgentSessionEvent(
@@ -399,6 +429,30 @@ public actor SciStationAgentService {
                 in: root
             )
         }
+    }
+
+    private func reasoningSummary(
+        for plan: AgentPlan,
+        toolDefinitions: [AgentToolDefinition]
+    ) -> (summary: String, payload: String?)? {
+        let plannedTools = plan.toolCalls.map { call in
+            let displayName = toolDefinitions.first { $0.name == call.toolName }?.displayName ?? call.toolName
+            return "\(displayName) (`\(call.toolName)`)"
+        }
+        let summaryParts = [
+            plan.summary.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty.map { "计划判断：\($0)" },
+            plan.steps.isEmpty ? nil : "步骤：\(plan.steps.joined(separator: "；"))",
+            plannedTools.isEmpty ? "未计划调用工具。" : "计划工具：\(plannedTools.joined(separator: "、"))。"
+        ].compactMap { $0 }
+        guard !summaryParts.isEmpty else {
+            return nil
+        }
+        let payload = plan.toolCalls.isEmpty
+            ? plan.steps.joined(separator: "\n").nilIfEmpty
+            : plan.toolCalls.map { call in
+                "tool: \(call.toolName)\narguments:\n\(call.argumentsJSON)"
+            }.joined(separator: "\n\n")
+        return (summaryParts.joined(separator: "\n"), payload)
     }
 
     private func appendHookResults(_ results: [AgentHookResult], sessionID: String, in root: ResearchRoot) async throws {

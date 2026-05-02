@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chat Markdown</title>
+    <link rel="stylesheet" href="katex.min.css">
+    <style>
+        :root {
+            color-scheme: light dark;
+            --chat-fg: #1d1d1f;
+            --chat-fg-secondary: #6c6c73;
+            --chat-link: #0a7aff;
+            --chat-link-hover: #0a5ed4;
+            --chat-code-bg: rgba(120, 120, 128, 0.16);
+            --chat-code-border: rgba(120, 120, 128, 0.20);
+            --chat-blockquote: rgba(120, 120, 128, 0.30);
+            --chat-table-border: rgba(120, 120, 128, 0.30);
+            --chat-error: #d2393b;
+            --chat-font-size: 14px;
+            --chat-line-height: 1.55;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --chat-fg: #f5f5f7;
+                --chat-fg-secondary: #a1a1aa;
+                --chat-link: #6dafff;
+                --chat-link-hover: #91c4ff;
+                --chat-code-bg: rgba(255, 255, 255, 0.10);
+                --chat-code-border: rgba(255, 255, 255, 0.12);
+                --chat-blockquote: rgba(255, 255, 255, 0.22);
+                --chat-table-border: rgba(255, 255, 255, 0.22);
+                --chat-error: #ff6b6e;
+            }
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: var(--chat-fg);
+            font: var(--chat-font-size)/var(--chat-line-height) -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -webkit-user-select: text;
+        }
+
+        #content {
+            padding: 0;
+            word-wrap: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        #content p:first-child { margin-top: 0; }
+        #content > *:last-child { margin-bottom: 0; }
+
+        #content p {
+            margin: 0 0 0.7em 0;
+        }
+
+        #content h1, #content h2, #content h3,
+        #content h4, #content h5, #content h6 {
+            margin: 0.9em 0 0.45em 0;
+            line-height: 1.3;
+            font-weight: 600;
+        }
+        #content h1 { font-size: 1.35em; }
+        #content h2 { font-size: 1.20em; }
+        #content h3 { font-size: 1.10em; }
+        #content h4, #content h5, #content h6 { font-size: 1em; }
+
+        #content ul, #content ol {
+            margin: 0 0 0.7em 0;
+            padding-left: 1.4em;
+        }
+        #content li { margin: 0.2em 0; }
+        #content li > p { margin: 0 0 0.3em 0; }
+
+        #content a {
+            color: var(--chat-link);
+            text-decoration: none;
+        }
+        #content a:hover {
+            text-decoration: underline;
+            color: var(--chat-link-hover);
+        }
+
+        #content blockquote {
+            margin: 0.5em 0;
+            padding: 0.2em 0.9em;
+            color: var(--chat-fg-secondary);
+            border-left: 3px solid var(--chat-blockquote);
+        }
+
+        #content code {
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            font-size: 0.92em;
+            padding: 0.12em 0.36em;
+            background: var(--chat-code-bg);
+            border-radius: 4px;
+        }
+
+        #content pre {
+            margin: 0.6em 0;
+            padding: 0.6em 0.8em;
+            background: var(--chat-code-bg);
+            border: 1px solid var(--chat-code-border);
+            border-radius: 6px;
+            max-width: 100%;
+            overflow-x: hidden;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-size: 0.92em;
+        }
+        #content pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            white-space: inherit;
+            overflow-wrap: inherit;
+        }
+
+        #content table {
+            border-collapse: collapse;
+            margin: 0.6em 0;
+            font-size: 0.95em;
+        }
+        #content th, #content td {
+            border: 1px solid var(--chat-table-border);
+            padding: 0.3em 0.6em;
+        }
+        #content th { font-weight: 600; }
+
+        #content hr {
+            border: 0;
+            border-top: 1px solid var(--chat-table-border);
+            margin: 1em 0;
+        }
+
+        body.error #content { color: var(--chat-error); }
+
+        .katex-display {
+            margin: 0.6em 0 !important;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        #content .math-error {
+            color: var(--chat-error);
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            font-size: 0.92em;
+        }
+    </style>
+</head>
+<body>
+<div id="content"></div>
+<script src="marked.min.js"></script>
+<script src="katex.min.js"></script>
+<script src="auto-render.min.js"></script>
+<script>
+(function () {
+    "use strict";
+
+    var contentEl = document.getElementById("content");
+    var lastReportedHeight = -1;
+
+    if (window.marked && typeof window.marked.use === "function") {
+        window.marked.use({
+            gfm: true,
+            breaks: true
+        });
+    }
+
+    function reportHeight() {
+        var height = Math.max(
+            document.body.scrollHeight,
+            document.documentElement.scrollHeight,
+            contentEl ? contentEl.scrollHeight : 0
+        );
+        if (height === lastReportedHeight) {
+            return;
+        }
+        lastReportedHeight = height;
+        try {
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.chatHeight) {
+                window.webkit.messageHandlers.chatHeight.postMessage({ height: height });
+            }
+        } catch (_) { /* native bridge missing in preview */ }
+    }
+
+    function renderMath() {
+        if (typeof window.renderMathInElement !== "function") {
+            return;
+        }
+        try {
+            window.renderMathInElement(contentEl, {
+                delimiters: [
+                    { left: "$$", right: "$$", display: true },
+                    { left: "$", right: "$", display: false },
+                    { left: "\\[", right: "\\]", display: true },
+                    { left: "\\(", right: "\\)", display: false }
+                ],
+                ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+                throwOnError: false,
+                errorColor: "var(--chat-error)"
+            });
+        } catch (err) {
+            // keep raw text if math render fails
+        }
+    }
+
+    function applyState(state) {
+        var markdown = (state && typeof state.markdown === "string") ? state.markdown : "";
+        var fontSize = (state && state.fontSize) ? state.fontSize : null;
+        var isError = !!(state && state.isError);
+
+        if (fontSize) {
+            document.documentElement.style.setProperty("--chat-font-size", fontSize + "px");
+        }
+        document.body.classList.toggle("error", isError);
+
+        var html;
+        if (window.marked && typeof window.marked.parse === "function") {
+            try {
+                html = window.marked.parse(markdown);
+            } catch (e) {
+                html = escapeHtml(markdown);
+            }
+        } else {
+            html = escapeHtml(markdown);
+        }
+        contentEl.innerHTML = html;
+        renderMath();
+        requestAnimationFrame(reportHeight);
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML.replace(/\n/g, "<br>");
+    }
+
+    window.setChatState = function (state) {
+        try {
+            applyState(state || {});
+        } catch (err) {
+            contentEl.textContent = state && state.markdown ? state.markdown : "";
+            requestAnimationFrame(reportHeight);
+        }
+    };
+
+    var resizeObserver = null;
+    if (typeof ResizeObserver === "function") {
+        resizeObserver = new ResizeObserver(function () { reportHeight(); });
+        resizeObserver.observe(contentEl);
+    }
+    window.addEventListener("load", reportHeight);
+    window.addEventListener("resize", reportHeight);
+})();
+</script>
+</body>
+</html>

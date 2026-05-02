@@ -1100,6 +1100,8 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
 public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable {
     public var id: String
     public var projectID: String?
+    public var workspaceID: String?
+    public var workspaceName: String?
     public var title: String
     public var runIDs: [String]
     public var createdAt: Date
@@ -1109,6 +1111,8 @@ public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable
     public nonisolated init(
         id: String,
         projectID: String? = nil,
+        workspaceID: String? = nil,
+        workspaceName: String? = nil,
         title: String,
         runIDs: [String] = [],
         createdAt: Date,
@@ -1117,6 +1121,8 @@ public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable
     ) {
         self.id = id
         self.projectID = projectID
+        self.workspaceID = workspaceID
+        self.workspaceName = workspaceName
         self.title = title
         self.runIDs = runIDs
         self.createdAt = createdAt
@@ -1145,9 +1151,28 @@ public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable
         updatedAt = date
     }
 
+    public nonisolated mutating func assignWorkspace(id: String?, name: String?) {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if workspaceID == nil {
+            workspaceID = id
+        }
+        if workspaceName == nil, let trimmedName, !trimmedName.isEmpty {
+            workspaceName = trimmedName
+        }
+    }
+
+    public nonisolated func belongsToWorkspace(id: String?) -> Bool {
+        guard let id else {
+            return false
+        }
+        return workspaceID == id
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case projectID = "project_id"
+        case workspaceID = "workspace_id"
+        case workspaceName = "workspace_name"
         case title
         case runIDs = "run_ids"
         case createdAt = "created_at"
@@ -1302,6 +1327,11 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         self.allowedToolNames = allowedToolNames
         self.allowsPlainTextResponse = allowsPlainTextResponse
     }
+}
+
+public nonisolated enum AgentPaperContextPolicy: String, Sendable {
+    case metadataOnly = "metadata_only"
+    case legacyExcerpts = "legacy_excerpts"
 }
 
 public nonisolated struct AgentPaperSnapshot: Codable, Hashable, Sendable {

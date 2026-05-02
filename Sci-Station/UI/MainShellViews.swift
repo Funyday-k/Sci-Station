@@ -266,11 +266,12 @@ private struct SidebarAILabGroup: View {
                     ForEach(visibleThreads) { thread in
                         AgentSidebarThreadRow(
                             thread: thread,
+                            subtitle: appModel.agentThreadSubtitle(for: thread),
                             isActive: appModel.activeAgentThreadID == thread.id,
                             isPinned: appModel.isAgentThreadPinned(thread.id),
                             openAction: {
-                            appModel.selectAgentThread(thread)
-                            appModel.selectSection(.llmLab)
+                                appModel.selectAgentThread(thread)
+                                appModel.selectSection(.llmLab)
                             },
                             pinAction: {
                                 appModel.toggleAgentThreadPin(thread)

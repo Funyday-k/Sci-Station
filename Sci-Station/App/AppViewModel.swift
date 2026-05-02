@@ -170,6 +170,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentSessionEvents: [AgentSessionEvent] = []
     @Published private(set) var agentThreads: [AgentThread] = []
     @Published private(set) var allAgentThreads: [AgentThread] = []
+    @Published var isAgentThreadWorkspaceFilterEnabled = false {
+        didSet { applyAgentThreadFilterForCurrentScope() }
+    }
     @Published private(set) var activeAgentThreadID: AgentThread.ID?
     @Published private(set) var pendingAgentThread: AgentThread?
     @Published private(set) var pinnedAgentThreadIDs: Set<AgentThread.ID> = []
@@ -537,8 +540,29 @@ final class AppViewModel: ObservableObject {
             return agentThreads.first
         }
 
-        return agentThreads.first { $0.id == activeAgentThreadID }
+        return allAgentThreads.first { $0.id == activeAgentThreadID && !$0.isArchived }
             ?? (pendingAgentThread?.id == activeAgentThreadID ? pendingAgentThread : nil)
+    }
+
+    var agentThreadFilterLabel: String {
+        isAgentThreadWorkspaceFilterEnabled ? "当前工作区" : "全部工作区"
+    }
+
+    var agentCurrentWorkspaceThreadCount: Int {
+        allAgentThreads.filter { !$0.isArchived && isAgentThreadInCurrentWorkspace($0) }.count
+    }
+
+    func isAgentThreadInCurrentWorkspace(_ thread: AgentThread) -> Bool {
+        thread.belongsToWorkspace(id: currentAgentWorkspaceID)
+    }
+
+    func agentThreadSubtitle(for thread: AgentThread) -> String {
+        let runLabel = "\(thread.runIDs.count) runs"
+        guard let workspaceName = thread.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceName.isEmpty else {
+            return runLabel
+        }
+        return "\(runLabel) - \(workspaceName)"
     }
 
     var agentConversationTitle: String {
@@ -2577,6 +2601,8 @@ final class AppViewModel: ObservableObject {
         let thread = AgentThread(
             id: "agent-thread-\(UUID().uuidString.lowercased())",
             projectID: agentConversationProjectID,
+            workspaceID: currentAgentWorkspaceID,
+            workspaceName: currentAgentWorkspaceName,
             title: "New Chat",
             createdAt: now,
             updatedAt: now
@@ -2604,7 +2630,7 @@ final class AppViewModel: ObservableObject {
         pendingAgentThreadsByProject[agentProjectDraftKey(projectID)] = nil
         agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: pendingAgentThread.id)] = nil
         self.pendingAgentThread = nil
-        activeAgentThreadID = agentThreads.first { $0.projectID == projectID }?.id
+        activeAgentThreadID = preferredAgentThreadID(projectID: projectID)
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         agentCurrentRun = nil
         resetAgentPermissionDockState()
@@ -2633,7 +2659,8 @@ final class AppViewModel: ObservableObject {
         resetAgentPermissionDockState()
         rebuildAgentHookActivitySummary()
         restoreAgentToolStateForCurrentScope()
-        agentStatusMessage = "已打开 \(agentConversationTitle) 中的 \(thread.title)。"
+        let workspaceSuffix = thread.workspaceName.map { "（\($0)）" } ?? ""
+        agentStatusMessage = "已打开 \(thread.title)\(workspaceSuffix)。"
         agentErrorMessage = nil
     }
 
@@ -2643,7 +2670,7 @@ final class AppViewModel: ObservableObject {
         if let projectID = run.currentProjectID {
             focusResearchProject(projectID)
         }
-        activeAgentThreadID = agentThreads.first { $0.runIDs.contains(run.id) }?.id
+        activeAgentThreadID = allAgentThreads.first { $0.runIDs.contains(run.id) }?.id
         pendingAgentThread = nil
         agentCurrentRun = run
         agentGoal = run.goal
@@ -2730,6 +2757,8 @@ final class AppViewModel: ObservableObject {
         let thread = AgentThread(
             id: "agent-thread-\(UUID().uuidString.lowercased())",
             projectID: run.currentProjectID,
+            workspaceID: currentAgentWorkspaceID,
+            workspaceName: currentAgentWorkspaceName,
             title: Self.agentThreadTitle(for: run),
             runIDs: [run.id],
             createdAt: now,
@@ -2754,6 +2783,10 @@ final class AppViewModel: ObservableObject {
     func addAgentRunToCurrentThread(_ run: AgentRun) {
         guard let currentWorkspace, var thread = activeAgentThread else {
             agentErrorMessage = "Open a thread before adding a history run."
+            return
+        }
+        guard thread.workspaceID == nil || thread.belongsToWorkspace(id: currentAgentWorkspaceID) else {
+            agentErrorMessage = "This thread belongs to another workspace. Start a new chat in the current workspace before adding runs."
             return
         }
         guard run.currentProjectID == agentConversationProjectID, thread.projectID == run.currentProjectID else {
@@ -2803,7 +2836,7 @@ final class AppViewModel: ObservableObject {
             activeAgentThreadID = pendingThread.id
         } else {
             pendingAgentThread = nil
-            activeAgentThreadID = agentThreads.first { $0.projectID == projectID }?.id
+            activeAgentThreadID = preferredAgentThreadID(projectID: projectID)
         }
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         restorePersistedAgentDraft(projectID: projectID, threadID: activeAgentThreadID)
@@ -3984,14 +4017,7 @@ final class AppViewModel: ObservableObject {
             agentToolDefinitions = await agentService.toolDefinitions()
             agentRunHistory = try await agentService.recentRuns(in: root, limit: 200)
             allAgentThreads = try await agentService.allThreads(in: root)
-            agentThreads = try await agentService.threads(in: root, projectID: agentConversationProjectID)
-            if let activeAgentThreadID,
-               !agentThreads.contains(where: { $0.id == activeAgentThreadID }),
-               pendingAgentThread?.id != activeAgentThreadID {
-                self.activeAgentThreadID = agentThreads.first?.id
-            } else if activeAgentThreadID == nil {
-                activeAgentThreadID = agentThreads.first?.id
-            }
+            applyAgentThreadFilterForCurrentScope()
             restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
             restorePinnedAgentThreadsForCurrentProject()
             restoreAgentToolStateForCurrentScope()
@@ -4029,13 +4055,24 @@ final class AppViewModel: ObservableObject {
     private func attachRunToActiveThread(_ run: AgentRun, in workspace: ResearchWorkspace) async throws {
         let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
         let now = Date()
-        var thread = activeAgentThread ?? AgentThread(
+        let workspaceID = currentAgentWorkspaceID
+        let workspaceName = currentAgentWorkspaceName
+        let reusableThread = activeAgentThread.flatMap { thread -> AgentThread? in
+            guard thread.workspaceID == nil || thread.belongsToWorkspace(id: workspaceID) else {
+                return nil
+            }
+            return thread
+        }
+        var thread = reusableThread ?? AgentThread(
             id: "agent-thread-\(UUID().uuidString.lowercased())",
             projectID: run.currentProjectID,
+            workspaceID: workspaceID,
+            workspaceName: workspaceName,
             title: Self.agentThreadTitle(for: run),
             createdAt: now,
             updatedAt: now
         )
+        thread.assignWorkspace(id: workspaceID, name: workspaceName)
 
         if thread.title == "New Chat" || thread.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             thread.title = Self.agentThreadTitle(for: run)
@@ -4047,8 +4084,57 @@ final class AppViewModel: ObservableObject {
         pendingAgentThread = nil
         activeAgentThreadID = thread.id
         allAgentThreads = try await agentService.allThreads(in: root)
-        agentThreads = try await agentService.threads(in: root, projectID: agentConversationProjectID)
+        applyAgentThreadFilterForCurrentScope()
         persistAgentDraftForCurrentConversation()
+    }
+
+    private var currentAgentWorkspaceID: String? {
+        guard let currentWorkspace else {
+            return nil
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        return AgentThreadRepository.workspaceID(for: root)
+    }
+
+    private var currentAgentWorkspaceName: String? {
+        currentResearchRoot?.displayName ?? currentWorkspace?.displayName
+    }
+
+    private func applyAgentThreadFilterForCurrentScope() {
+        let workspaceID = currentAgentWorkspaceID
+        agentThreads = allAgentThreads
+            .filter { !$0.isArchived }
+            .filter { thread in
+                !isAgentThreadWorkspaceFilterEnabled || thread.belongsToWorkspace(id: workspaceID)
+            }
+            .sorted { first, second in
+                if first.updatedAt == second.updatedAt {
+                    return first.id < second.id
+                }
+                return first.updatedAt > second.updatedAt
+            }
+
+        if let pendingAgentThread,
+           isAgentThreadWorkspaceFilterEnabled,
+           !pendingAgentThread.belongsToWorkspace(id: workspaceID) {
+            self.pendingAgentThread = nil
+        }
+
+        if let activeAgentThreadID,
+           !agentThreads.contains(where: { $0.id == activeAgentThreadID }),
+           pendingAgentThread?.id != activeAgentThreadID {
+            self.activeAgentThreadID = preferredAgentThreadID(projectID: agentConversationProjectID)
+        } else if activeAgentThreadID == nil {
+            activeAgentThreadID = preferredAgentThreadID(projectID: agentConversationProjectID)
+        }
+    }
+
+    private func preferredAgentThreadID(projectID: ResearchProject.ID?) -> AgentThread.ID? {
+        let workspaceID = currentAgentWorkspaceID
+        return agentThreads.first { $0.belongsToWorkspace(id: workspaceID) && $0.projectID == projectID }?.id
+            ?? agentThreads.first { $0.belongsToWorkspace(id: workspaceID) }?.id
+            ?? agentThreads.first { $0.projectID == projectID }?.id
+            ?? agentThreads.first?.id
     }
 
     private func saveAgentDraftForCurrentConversation() {

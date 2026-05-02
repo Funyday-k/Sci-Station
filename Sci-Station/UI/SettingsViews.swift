@@ -505,7 +505,7 @@ struct SettingsView: View {
                         WorkspacePathRow(label: "Schema", value: "v\(appModel.workspacePreferences.schemaVersion)")
                         WorkspacePathRow(label: "Markdown Snippets", value: workspace.markdownSnippetsURL.path)
                         WorkspacePathRow(label: "Agent Run Log", value: workspace.fileURL(for: ".sci-station/agent/runs.jsonl").path)
-                        WorkspacePathRow(label: "Agent Threads", value: workspace.fileURL(for: ".sci-station/agent/threads.jsonl").path)
+                        WorkspacePathRow(label: "Agent Threads", value: AgentThreadRepository.defaultThreadsFileURL.path)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

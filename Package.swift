@@ -18,6 +18,7 @@ let package = Package(
                 "Assets.xcassets",
                 "ContentView.swift",
                 "PDF",
+                "Resources",
                 "Sci_StationApp.swift",
                 "UI"
             ],

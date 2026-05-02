@@ -491,10 +491,15 @@ private struct AgentPanelView: View {
                 Text("Threads")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                Spacer(minLength: 0)
-                Text("New Chat is saved after the first successful plan.")
+                Text("\(appModel.agentThreads.count) / \(appModel.allAgentThreads.filter { !$0.isArchived }.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Toggle("Current workspace", isOn: $appModel.isAgentThreadWorkspaceFilterEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .font(.caption)
+                    .help("Show only chats tagged with \(workspace.displayName).")
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -513,7 +518,7 @@ private struct AgentPanelView: View {
                     ForEach(appModel.agentThreads) { thread in
                         threadButton(
                             title: thread.title,
-                            subtitle: "\(thread.runIDs.count) runs",
+                            subtitle: appModel.agentThreadSubtitle(for: thread),
                             isActive: appModel.activeAgentThreadID == thread.id
                         ) {
                             appModel.selectAgentThread(thread)
@@ -529,7 +534,7 @@ private struct AgentPanelView: View {
                     }
 
                     if appModel.agentThreads.isEmpty, appModel.pendingAgentThread == nil {
-                        Text("No saved threads yet.")
+                        Text(appModel.isAgentThreadWorkspaceFilterEnabled ? "No chats in this workspace." : "No saved threads yet.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 6)
@@ -857,7 +862,7 @@ private struct AgentSessionEventRowView: View {
                 isUser: true,
                 isError: false
             )
-        case .assistantMessage, .reasoningSummary:
+        case .assistantMessage:
             AgentTurnBubbleView(
                 title: item.title,
                 iconName: iconName,
@@ -865,6 +870,16 @@ private struct AgentSessionEventRowView: View {
                 metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
                 payloadPreview: item.payloadPreview,
                 isUser: false,
+                isError: false
+            )
+        case .reasoningSummary:
+            AgentRuntimeEventRow(
+                title: item.title,
+                iconName: iconName,
+                iconColor: iconColor,
+                detail: item.detail,
+                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                payloadPreview: item.payloadPreview,
                 isError: false
             )
         default:
@@ -884,8 +899,10 @@ private struct AgentSessionEventRowView: View {
         switch item.kind {
         case .userMessage:
             return "person.crop.circle"
-        case .assistantMessage, .reasoningSummary:
+        case .assistantMessage:
             return "sparkles"
+        case .reasoningSummary:
+            return "brain.head.profile"
         case .permissionRequested:
             return "questionmark.shield"
         case .permissionResolved:
@@ -913,6 +930,8 @@ private struct AgentSessionEventRowView: View {
             return .green
         case .hookResult:
             return .purple
+        case .reasoningSummary:
+            return .blue
         default:
             return .secondary
         }
@@ -940,10 +959,13 @@ private struct AgentTurnBubbleView: View {
     }
 
     private var bubbleWidth: CGFloat {
-        let text = [detail, payloadPreview ?? ""].joined(separator: "\n")
-        let longestLine = text.split(separator: "\n", omittingEmptySubsequences: false).map(\.count).max() ?? text.count
-        let estimated = CGFloat(min(max(longestLine, 12), 78)) * 7.6 + 42
-        return min(max(estimated, 140), 680)
+        if isUser {
+            let text = [detail, payloadPreview ?? ""].joined(separator: "\n")
+            let longestLine = text.split(separator: "\n", omittingEmptySubsequences: false).map(\.count).max() ?? text.count
+            let estimated = CGFloat(min(max(longestLine, 12), 60)) * 7.6 + 42
+            return min(max(estimated, 140), 480)
+        }
+        return 640
     }
 
     var body: some View {
@@ -998,6 +1020,22 @@ private struct AgentMarkdownBubbleText: View {
     let markdown: String
     let isError: Bool
 
+    var body: some View {
+        let fontSize = appModel.workspacePreferences.agentChatFontSize
+        if ChatMarkdownResources.isAvailable {
+            ChatMarkdownWebView(markdown: markdown, fontSize: fontSize, isError: isError)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            AgentMarkdownLegacyText(markdown: markdown, fontSize: fontSize, isError: isError)
+        }
+    }
+}
+
+private struct AgentMarkdownLegacyText: View {
+    let markdown: String
+    let fontSize: Double
+    let isError: Bool
+
     private var attributedText: AttributedString? {
         try? AttributedString(markdown: markdown)
     }
@@ -1010,7 +1048,7 @@ private struct AgentMarkdownBubbleText: View {
                 Text(markdown)
             }
         }
-        .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
+        .font(.system(size: CGFloat(fontSize)))
         .foregroundStyle(isError ? .red : .primary)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
@@ -1025,6 +1063,8 @@ private struct AgentRuntimeEventRow: View {
     let metadata: String
     let payloadPreview: String?
     let isError: Bool
+
+    @State private var isExpanded = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -1048,11 +1088,20 @@ private struct AgentRuntimeEventRow: View {
                     .textSelection(.enabled)
 
                 if let payloadPreview {
-                    Text(payloadPreview)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
+                    DisclosureGroup(isExpanded: $isExpanded) {
+                        Text(payloadPreview)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+                    } label: {
+                        Label(isExpanded ? "隐藏详情" : "查看详情", systemImage: "curlybraces")
+                            .font(.caption)
+                    }
+                    .tint(.secondary)
                 }
             }
 
