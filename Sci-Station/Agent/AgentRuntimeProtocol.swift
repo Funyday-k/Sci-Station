@@ -312,6 +312,70 @@ public nonisolated struct AgentArtifactDraft: Codable, Hashable, Sendable, Ident
     }
 }
 
+public nonisolated struct AgentCitationCriticReport: Codable, Hashable, Sendable {
+    public var unsupportedClaims: [JSONValue]
+    public var staleEvidence: [JSONValue]
+    public var weakEvidence: [JSONValue]
+    public var overclaims: [JSONValue]
+    public var requiredRevisions: [String]
+    public var canRequestApproval: Bool
+
+    public nonisolated init(
+        unsupportedClaims: [JSONValue] = [],
+        staleEvidence: [JSONValue] = [],
+        weakEvidence: [JSONValue] = [],
+        overclaims: [JSONValue] = [],
+        requiredRevisions: [String] = [],
+        canRequestApproval: Bool = true
+    ) {
+        self.unsupportedClaims = unsupportedClaims
+        self.staleEvidence = staleEvidence
+        self.weakEvidence = weakEvidence
+        self.overclaims = overclaims
+        self.requiredRevisions = requiredRevisions
+        self.canRequestApproval = canRequestApproval
+    }
+
+    public nonisolated var blocksFinalApproval: Bool {
+        !canRequestApproval || !unsupportedClaims.isEmpty || !requiredRevisions.isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case unsupportedClaims = "unsupported_claims"
+        case staleEvidence = "stale_evidence"
+        case weakEvidence = "weak_evidence"
+        case overclaims
+        case requiredRevisions = "required_revisions"
+        case canRequestApproval = "can_request_approval"
+    }
+}
+
+public nonisolated struct AgentEmbeddingRetrievalConfiguration: Codable, Hashable, Sendable {
+    public var enabled: Bool
+    public var provider: String
+    public var model: String
+    public var dimension: Int
+    public var store: String
+
+    public nonisolated init(
+        enabled: Bool = false,
+        provider: String = "swift-proxy",
+        model: String = "",
+        dimension: Int = 0,
+        store: String = "sqlite-vec"
+    ) {
+        self.enabled = enabled
+        self.provider = provider
+        self.model = model
+        self.dimension = dimension
+        self.store = store
+    }
+
+    public nonisolated var usesFTSFallback: Bool {
+        !enabled
+    }
+}
+
 public nonisolated struct AgentFinalResponse: Codable, Hashable, Sendable {
     public var markdown: String
     public nonisolated init(markdown: String) { self.markdown = markdown }

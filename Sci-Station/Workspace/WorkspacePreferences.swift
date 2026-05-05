@@ -13,6 +13,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var syncTodosToAppleReminders: Bool
     public var appLanguage: AppLanguagePreference
     public var agentChatFontSize: Double
+    public var agentRuntimeSelection: AgentRuntimeSelection
+    public var isSidecarDisabledForWorkspace: Bool
     public var agentKnowledgePaperIDs: [String]?
     public var agentDisabledToolNamesByScope: [String: [String]]
     public var pinnedAgentThreadIDsByProject: [String: [String]]
@@ -30,6 +32,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
         syncTodosToAppleReminders: Bool = true,
         appLanguage: AppLanguagePreference = .system,
         agentChatFontSize: Double = Self.defaultAgentChatFontSize,
+        agentRuntimeSelection: AgentRuntimeSelection = .autoFallback,
+        isSidecarDisabledForWorkspace: Bool = false,
         agentKnowledgePaperIDs: [String]? = nil,
         agentDisabledToolNamesByScope: [String: [String]] = [:],
         pinnedAgentThreadIDsByProject: [String: [String]] = [:],
@@ -47,6 +51,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.appLanguage = appLanguage
         let normalizedFontSize = agentChatFontSize.isFinite ? agentChatFontSize : Self.defaultAgentChatFontSize
         self.agentChatFontSize = min(max(normalizedFontSize, 11), 22)
+        self.agentRuntimeSelection = agentRuntimeSelection
+        self.isSidecarDisabledForWorkspace = isSidecarDisabledForWorkspace
         self.agentKnowledgePaperIDs = agentKnowledgePaperIDs
         self.agentDisabledToolNamesByScope = agentDisabledToolNamesByScope
         self.pinnedAgentThreadIDsByProject = pinnedAgentThreadIDsByProject
@@ -66,6 +72,56 @@ public struct WorkspacePreferences: Hashable, Sendable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         libraryVisibleColumns = columns.isEmpty ? Self.defaultLibraryVisibleColumns : columns
+    }
+}
+
+public enum AgentRuntimeSelection: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
+    case swiftLoop = "swift_loop"
+    case langGraphSidecar = "langgraph_sidecar"
+    case autoFallback = "auto_fallback"
+
+    public nonisolated var id: String { rawValue }
+
+    public nonisolated var label: String {
+        switch self {
+        case .swiftLoop:
+            return "Swift Loop"
+        case .langGraphSidecar:
+            return "LangGraph Sidecar"
+        case .autoFallback:
+            return "Auto fallback"
+        }
+    }
+
+    public nonisolated func effectiveRuntime(sidecarAvailable: Bool, sidecarDisabled: Bool = false) -> AgentRuntimeSelection {
+        if sidecarDisabled {
+            return .swiftLoop
+        }
+        switch self {
+        case .swiftLoop:
+            return .swiftLoop
+        case .langGraphSidecar:
+            return sidecarAvailable ? .langGraphSidecar : .swiftLoop
+        case .autoFallback:
+            return sidecarAvailable ? .langGraphSidecar : .swiftLoop
+        }
+    }
+
+    public nonisolated func fallbackReason(sidecarAvailable: Bool, sidecarDisabled: Bool = false) -> String? {
+        if sidecarDisabled {
+            return "Sidecar disabled for this workspace."
+        }
+        guard effectiveRuntime(sidecarAvailable: sidecarAvailable) == .swiftLoop else {
+            return nil
+        }
+        switch self {
+        case .swiftLoop:
+            return nil
+        case .langGraphSidecar:
+            return sidecarAvailable ? nil : "LangGraph sidecar unavailable; falling back to Swift Loop."
+        case .autoFallback:
+            return sidecarAvailable ? nil : "Auto fallback selected Swift Loop because sidecar health is unavailable."
+        }
     }
 }
 

@@ -290,6 +290,45 @@ public nonisolated struct AgentEvidenceRef: Codable, Hashable, Sendable, Identif
         return sourceHash != currentSourceHash
     }
 
+    public nonisolated func sourceJump(in root: ResearchRoot, currentSourceHash: String? = nil) -> AgentEvidenceSourceJump {
+        guard let relativePath, !relativePath.isEmpty else {
+            return AgentEvidenceSourceJump(
+                evidenceID: id,
+                relativePath: nil,
+                sourceURL: nil,
+                startLine: lines.first,
+                endLine: lines.dropFirst().first,
+                status: .missingSource,
+                warning: "Evidence has no relative source path."
+            )
+        }
+
+        let url = root.fileURL(for: relativePath)
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        let status: AgentEvidenceSourceStatus
+        let warning: String?
+        if !exists {
+            status = .missingSource
+            warning = "Missing source: \(relativePath)"
+        } else if isStale(currentSourceHash: currentSourceHash) {
+            status = .stale
+            warning = "Source changed since this evidence was retrieved."
+        } else {
+            status = .available
+            warning = nil
+        }
+
+        return AgentEvidenceSourceJump(
+            evidenceID: id,
+            relativePath: relativePath,
+            sourceURL: exists ? url : nil,
+            startLine: lines.first,
+            endLine: lines.dropFirst().first,
+            status: status,
+            warning: warning
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case sourceType = "source_type"
@@ -302,6 +341,40 @@ public nonisolated struct AgentEvidenceRef: Codable, Hashable, Sendable, Identif
         case heading
         case quote
         case confidence
+    }
+}
+
+public nonisolated enum AgentEvidenceSourceStatus: String, Codable, Hashable, Sendable {
+    case available
+    case stale
+    case missingSource = "missing_source"
+}
+
+public nonisolated struct AgentEvidenceSourceJump: Codable, Hashable, Sendable {
+    public var evidenceID: String
+    public var relativePath: String?
+    public var sourceURL: URL?
+    public var startLine: Int?
+    public var endLine: Int?
+    public var status: AgentEvidenceSourceStatus
+    public var warning: String?
+
+    public nonisolated init(
+        evidenceID: String,
+        relativePath: String?,
+        sourceURL: URL?,
+        startLine: Int?,
+        endLine: Int?,
+        status: AgentEvidenceSourceStatus,
+        warning: String? = nil
+    ) {
+        self.evidenceID = evidenceID
+        self.relativePath = relativePath
+        self.sourceURL = sourceURL
+        self.startLine = startLine
+        self.endLine = endLine
+        self.status = status
+        self.warning = warning
     }
 }
 

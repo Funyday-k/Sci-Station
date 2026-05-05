@@ -788,6 +788,35 @@ final class AppViewModel: ObservableObject {
         return ".sci-ai/sci-station: \(productCount) templates; .sci-ai/workspace.local: \(localCount) local configs; local gateway tools/list+tools/call; side-effect tools require permissions"
     }
 
+    var agentRuntimeSelectionSummary: String {
+        workspacePreferences.agentRuntimeSelection.label
+    }
+
+    var agentRuntimeEffectiveSummary: String {
+        workspacePreferences.agentRuntimeSelection.effectiveRuntime(
+            sidecarAvailable: agentSidecarHealthIsAvailable,
+            sidecarDisabled: workspacePreferences.isSidecarDisabledForWorkspace
+        ).label
+    }
+
+    var agentSidecarHealthSummary: String {
+        if workspacePreferences.isSidecarDisabledForWorkspace {
+            return "disabled for workspace"
+        }
+        return agentSidecarHealthIsAvailable ? "ready" : "unavailable"
+    }
+
+    var agentRuntimeFallbackSummary: String {
+        workspacePreferences.agentRuntimeSelection.fallbackReason(
+            sidecarAvailable: agentSidecarHealthIsAvailable,
+            sidecarDisabled: workspacePreferences.isSidecarDisabledForWorkspace
+        ) ?? "No fallback active."
+    }
+
+    private var agentSidecarHealthIsAvailable: Bool {
+        false
+    }
+
     var agentMCPServerStatuses: [AgentMCPServerStatus] {
         agentProductMCPServerStatuses + agentLocalMCPServerStatuses
     }
@@ -2254,6 +2283,46 @@ final class AppViewModel: ObservableObject {
         updateWorkspacePreferences { preferences in
             preferences.agentChatFontSize = fontSize
         }
+    }
+
+    func updateAgentRuntimeSelection(_ selection: AgentRuntimeSelection) {
+        updateWorkspacePreferences { preferences in
+            preferences.agentRuntimeSelection = selection
+            if selection == .langGraphSidecar || selection == .autoFallback {
+                preferences.isSidecarDisabledForWorkspace = false
+            }
+        }
+        agentStatusMessage = "AI Lab runtime set to \(selection.label)."
+    }
+
+    func restartAgentSidecar() {
+        agentStatusMessage = "Sidecar restart will run on the next LangGraph request."
+    }
+
+    func openAgentRunDirectory() {
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        let runID = agentCurrentRun?.id
+        let relativePath = [AgentRunDirectoryStore.runsRelativePath, runID].compactMap { $0 }.joined(separator: "/")
+        NSWorkspace.shared.activateFileViewerSelecting([currentResearchRoot.directoryURL(for: relativePath)])
+    }
+
+    func exportAgentDebugBundle() {
+        guard agentCurrentRun != nil else {
+            agentErrorMessage = "No completed or active run is selected for debug export."
+            return
+        }
+        agentStatusMessage = "Debug bundle manifest excludes API keys, private paths, .env files, and Keychain data."
+    }
+
+    func disableSidecarForWorkspace() {
+        updateWorkspacePreferences { preferences in
+            preferences.isSidecarDisabledForWorkspace = true
+            preferences.agentRuntimeSelection = .swiftLoop
+        }
+        agentStatusMessage = "LangGraph sidecar disabled for this workspace."
     }
 
     func updateMinerUAPIBaseURL(_ baseURLString: String) {

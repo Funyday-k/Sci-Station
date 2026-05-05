@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import platform
 import sys
 import time
 from pathlib import Path
@@ -90,10 +91,14 @@ class SidecarServer:
                 "paperReading": True,
                 "relatedWork": True,
                 "gapPlanning": True,
+                "citationCritic": True,
+                "runReplay": True,
+                "hybridRetrieval": True,
                 "mcpGateway": True,
                 "llmProxy": True,
                 "approvalResume": True,
                 "ftsIndex": True,
+                "embeddingRetrieval": True,
             },
             "dependencies": dependencies,
             "workspaceAccepted": bool(params.get("workspaceRoot") or params.get("workspace_root")),
@@ -106,6 +111,10 @@ class SidecarServer:
             "schemaVersion": SCHEMA_VERSION,
             "sidecarVersion": __version__,
             "dependencies": self._dependency_status(),
+            "pythonVersion": platform.python_version(),
+            "protocolSchemaVersion": f"{PROTOCOL_VERSION}/{SCHEMA_VERSION}",
+            "lastCrash": None,
+            "fallbackReason": None,
         }
 
     def _start(self, params: JsonDict) -> None:

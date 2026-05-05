@@ -39,6 +39,8 @@ public actor WorkspacePreferencesRepository {
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
         lines.append("app_language: \(quoted(preferences.appLanguage.rawValue))")
         lines.append("agent_chat_font_size: \(preferences.agentChatFontSize)")
+        lines.append("agent_runtime_selection: \(quoted(preferences.agentRuntimeSelection.rawValue))")
+        lines.append("agent_sidecar_disabled_for_workspace: \(preferences.isSidecarDisabledForWorkspace)")
         lines.append("mineru_command: \(quoted(preferences.minerUCommand))")
         lines.append("mineru_api_base_url: \(quoted(preferences.minerUAPIBaseURLString))")
         lines.append("mineru_api_language: \(quoted(preferences.minerUAPILanguage))")
@@ -63,6 +65,8 @@ public actor WorkspacePreferencesRepository {
         var syncTodosToAppleReminders = true
         var appLanguage = AppLanguagePreference.system
         var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
+        var agentRuntimeSelection = AgentRuntimeSelection.autoFallback
+        var isSidecarDisabledForWorkspace = false
         var agentKnowledgePaperIDs: [String]?
         var agentDisabledToolNamesByScope: [String: [String]] = [:]
         var pinnedAgentThreadIDsByProject: [String: [String]] = [:]
@@ -100,6 +104,12 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("agent_chat_font_size:") {
                 let value = trimmed.replacingOccurrences(of: "agent_chat_font_size:", with: "").trimmingCharacters(in: .whitespaces)
                 agentChatFontSize = Double(value) ?? WorkspacePreferences.defaultAgentChatFontSize
+            } else if trimmed.hasPrefix("agent_runtime_selection:") {
+                let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "agent_runtime_selection:", with: "").trimmingCharacters(in: .whitespaces)))
+                agentRuntimeSelection = value.flatMap(AgentRuntimeSelection.init(rawValue:)) ?? .autoFallback
+            } else if trimmed.hasPrefix("agent_sidecar_disabled_for_workspace:") {
+                let value = trimmed.replacingOccurrences(of: "agent_sidecar_disabled_for_workspace:", with: "").trimmingCharacters(in: .whitespaces)
+                isSidecarDisabledForWorkspace = Bool(value) ?? false
             } else if trimmed.hasPrefix("mineru_command:") {
                 minerUCommand = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_command:", with: "").trimmingCharacters(in: .whitespaces))) ?? "mineru"
             } else if trimmed.hasPrefix("mineru_api_base_url:") {
@@ -134,6 +144,8 @@ public actor WorkspacePreferencesRepository {
             syncTodosToAppleReminders: syncTodosToAppleReminders,
             appLanguage: appLanguage,
             agentChatFontSize: agentChatFontSize,
+            agentRuntimeSelection: agentRuntimeSelection,
+            isSidecarDisabledForWorkspace: isSidecarDisabledForWorkspace,
             agentKnowledgePaperIDs: agentKnowledgePaperIDs,
             agentDisabledToolNamesByScope: agentDisabledToolNamesByScope,
             pinnedAgentThreadIDsByProject: pinnedAgentThreadIDsByProject,

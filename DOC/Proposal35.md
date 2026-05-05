@@ -50,7 +50,7 @@ P35 的重点是把“能跑”变成“对科研真正有用、可审计、可�
   - 确认 P34 输出资产存在：`AgentRuntime/` skeleton、stdio JSON-RPC transport、`LangGraphAgentRuntime`、`SidecarProcessSupervisor`、`SciStationGatewayClient`、FTS index V1、`paper_reading` graph MVP。
   - 若 P34 缺项，优先补齐 P34 gate，不在 P35 中重写基础协议。
 
-- [ ] [P35.1] 单篇论文精读 workflow 产品化。
+- [x] [P35.1] 单篇论文精读 workflow 产品化。
   - 在 P34 `paper_reading` graph 基础上增强节点：
 
 ```text
@@ -86,7 +86,7 @@ approval
   - 每条 evidence 必须可跳转到 `relative_path + line range`。
   - 无 `paper.md` 或证据不足时，不生成伪精读，只生成“需要转换/OCR/补全文本”的任务草稿。
 
-- [ ] [P35.2] Related work workflow production。
+- [x] [P35.2] Related work workflow production。
   - 将 P34 的 related work beta graph 升级为 production graph。
   - 节点：
 
@@ -127,7 +127,7 @@ projects/{project-id}/wiki/related_work.md
   - citation critic 能发现无证据段落，并要求 graph 重写或降级置信度。
   - 写入前必须通过 Swift Permission Dock；sidecar 不直接写 `related_work.md`。
 
-- [ ] [P35.3] Research gap / task planning workflow production。
+- [x] [P35.3] Research gap / task planning workflow production。
   - 将 P34 的 gap planning beta graph 升级为 production graph。
   - 节点：
 
@@ -169,7 +169,7 @@ todo drafts
   - todo draft 必须含 priority、related paper/project、reason、optional due date。
   - 不自动创建 todo，必须经 Swift approval；如果现有 tasks 已有相同目标，必须提示可能重复。
 
-- [ ] [P35.4] Citation Critic / Evidence Critic。
+- [x] [P35.4] Citation Critic / Evidence Critic。
   - 新增通用 critic 子图：
 
 ```text
@@ -196,7 +196,7 @@ output: critic_report + revised_draft 或 approval_blocker
   - 用户可以选择“仍然保存为 low confidence draft”，但 UI 必须显示 warning。
   - critic report 写入 run directory。
 
-- [ ] [P35.5] Embedding retrieval V1，可选启用。
+- [x] [P35.5] Embedding retrieval V1，可选启用。
   - 在 FTS V1 基础上新增 embedding 检索，但必须保留 FTS-only fallback。
   - 支持配置：
 
@@ -223,14 +223,14 @@ return evidence refs
 
   - FTS-only 与 embedding-enabled 两种路径均通过测试；embedding index schema version 可迁移；source_hash 变化后 embedding chunk 标记 stale 或重建。
 
-- [ ] [P35.6] Evidence UI 与 source jump。
+- [x] [P35.6] Evidence UI 与 source jump。
   - 增强 AI Lab / Wiki / artifact preview：artifact draft 中 evidenceRefs 可展开。
   - 点击 evidence 跳转到 `paper.md` line range、wiki page line range、`annotations.md`，或在有页码映射时跳转 PDF Reader 页。
   - 显示 source title、relative path、heading、line range、confidence、stale / missing warning。
   - Wiki citation block 可折叠；保存 artifact 后保留 evidence metadata。
   - 单篇论文精读 artifact 中点击 evidence 可定位到源文本；source_hash 变化后 UI 显示 stale evidence；不存在的 source 显示 missing source warning，而不是崩溃。
 
-- [ ] [P35.7] Sidecar run replay 与 debug bundle。
+- [x] [P35.7] Sidecar run replay 与 debug bundle。
   - 新增 run replay 能力：
 
 ```text
@@ -246,7 +246,7 @@ return evidence refs
   - run replay 可重新渲染 timeline，不一定重新调用模型。
   - 已完成 run 可在 AI Lab 重新打开并重放 timeline；sidecar crash 后可查看最后成功 checkpoint；debug bundle 生成前显示包含文件清单与隐私提示。
 
-- [ ] [P35.8] Sidecar Runtime UI 产品化。
+- [x] [P35.8] Sidecar Runtime UI 产品化。
   - 新增或增强 Settings / AI Lab runtime panel。
   - Runtime selector：
 
@@ -278,7 +278,7 @@ Disable sidecar for this workspace
 
   - sidecar unavailable 时用户能看到明确原因；fallback 到 Legacy Swift runtime 时 UI 明确提示；runtime selector 不影响已完成 run 的回放。
 
-- [ ] [P35.9] Tests。
+- [x] [P35.9] Tests。
   - Swift CoreTestRunner 新增：
 
 ```text
@@ -307,7 +307,7 @@ test_run_replay_redaction
   - Fixture tests 复用 P34 fake sidecar fixtures。
   - 新增 sample workspace：3 篇 `paper.md`、1 个 project、project core papers、wiki/project overview、existing todos。
 
-- [ ] [P35.10] 验证与交付记录。
+- [x] [P35.10] 验证与交付记录。
   - 必须运行：
 
 ```bash
@@ -363,3 +363,17 @@ P35-H: Embedding retrieval V1
 2. Related work 与 gap planning 的 production 顺序是否按 related work 优先？当前建议为 related work 先行，因为 evidence matrix 与 citation critic 可直接复用到 gap planning。
 3. Embedding retrieval V1 是否保持可选且靠后？当前建议为可选启用，FTS-only fallback 必须始终可用。
 4. Sidecar Runtime UI 与 run replay 是否放在 embedding 之前？当前建议为放在 embedding 之前，优先改善可恢复性与用户可理解性。
+
+## 8. P35 交付记录
+
+本轮已完成 P35 Production V1：Python sidecar 增加 citation/evidence critic、结构化 paper reading note、related work 主题聚类、research gap/todo draft、hybrid retriever 与 run replay/debug bundle；Swift Core 增加 citation critic report、embedding config、evidence source jump、run replay/debug manifest 与 runtime selector 持久化；AI Lab/Settings 增加 runtime health/fallback 面板与 evidence 展开/source open 控件。
+
+验证已完成：
+
+```bash
+python -m pytest AgentRuntime/tests
+swift run SciStationCoreTestRunner
+xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
+```
+
+P35 留给 P36 深化的边界：runtime selector 已持久化并显示 fallback，但默认 AI Lab 运行路径仍以现有 Swift runtime 为主；sidecar health panel 已产品化为可理解状态，但 live restart/export zip 需要接入真实 supervisor session；embedding V1 已具备配置、fallback 与混合去重测试，持久化 sqlite-vec/LanceDB store 与 Swift embedding proxy 的真实模型调用放入下一轮。

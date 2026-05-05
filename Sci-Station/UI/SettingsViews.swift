@@ -312,13 +312,52 @@ struct SettingsView: View {
                 if appModel.selectedSettingsCategory == .aiLab {
                 GroupBox("AI Lab Runtime") {
                     VStack(alignment: .leading, spacing: 10) {
+                        Picker("Runtime", selection: Binding(
+                            get: { appModel.workspacePreferences.agentRuntimeSelection },
+                            set: { appModel.updateAgentRuntimeSelection($0) }
+                        )) {
+                            ForEach(AgentRuntimeSelection.allCases) { selection in
+                                Text(selection.label).tag(selection)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 420)
+
                         WorkspacePathRow(label: "Mode", value: appModel.agentInteractionMode.title)
                         WorkspacePathRow(label: "Knowledge Papers", value: "\(appModel.agentKnowledgePaperSelectedCount) / \(appModel.agentKnowledgePaperTotalCount)")
+                        WorkspacePathRow(label: "Effective Runtime", value: appModel.agentRuntimeEffectiveSummary)
+                        WorkspacePathRow(label: "Health", value: appModel.agentSidecarHealthSummary)
+                        WorkspacePathRow(label: "Fallback", value: appModel.agentRuntimeFallbackSummary)
                         WorkspacePathRow(label: "Agent Platform", value: appModel.agentPlatformSummary)
                         WorkspacePathRow(label: "Preset", value: appModel.agentPresetSummary)
                         WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
                         WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
                         WorkspacePathRow(label: "MCP", value: appModel.agentMCPStatusSummary)
+
+                        HStack(spacing: 8) {
+                            Button {
+                                appModel.restartAgentSidecar()
+                            } label: {
+                                Label("Restart", systemImage: "arrow.clockwise")
+                            }
+                            Button {
+                                appModel.openAgentRunDirectory()
+                            } label: {
+                                Label("Runs", systemImage: "folder")
+                            }
+                            Button {
+                                appModel.exportAgentDebugBundle()
+                            } label: {
+                                Label("Debug", systemImage: "shippingbox")
+                            }
+                            Button(role: .destructive) {
+                                appModel.disableSidecarForWorkspace()
+                            } label: {
+                                Label("Disable", systemImage: "power")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

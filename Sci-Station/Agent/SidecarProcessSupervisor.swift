@@ -131,19 +131,31 @@ public nonisolated struct SidecarHealth: Codable, Hashable, Sendable {
     public var schemaVersion: Int?
     public var sidecarVersion: String?
     public var dependencies: [String: Bool]
+    public var pythonVersion: String?
+    public var protocolSchemaVersion: String?
+    public var lastCrash: String?
+    public var fallbackReason: String?
 
     public nonisolated init(
         status: String,
         protocolVersion: String? = nil,
         schemaVersion: Int? = nil,
         sidecarVersion: String? = nil,
-        dependencies: [String: Bool] = [:]
+        dependencies: [String: Bool] = [:],
+        pythonVersion: String? = nil,
+        protocolSchemaVersion: String? = nil,
+        lastCrash: String? = nil,
+        fallbackReason: String? = nil
     ) {
         self.status = status
         self.protocolVersion = protocolVersion
         self.schemaVersion = schemaVersion
         self.sidecarVersion = sidecarVersion
         self.dependencies = dependencies
+        self.pythonVersion = pythonVersion
+        self.protocolSchemaVersion = protocolSchemaVersion
+        self.lastCrash = lastCrash
+        self.fallbackReason = fallbackReason
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -152,6 +164,10 @@ public nonisolated struct SidecarHealth: Codable, Hashable, Sendable {
         case schemaVersion
         case sidecarVersion
         case dependencies
+        case pythonVersion
+        case protocolSchemaVersion
+        case lastCrash
+        case fallbackReason
     }
 }
 

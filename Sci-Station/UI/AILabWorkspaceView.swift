@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AILabWorkspaceView: View {
@@ -1056,6 +1057,8 @@ private struct AgentMarkdownLegacyText: View {
 }
 
 private struct AgentRuntimeEventRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let title: String
     let iconName: String
     let iconColor: Color
@@ -1089,14 +1092,20 @@ private struct AgentRuntimeEventRow: View {
 
                 if let payloadPreview {
                     DisclosureGroup(isExpanded: $isExpanded) {
-                        Text(payloadPreview)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(8)
-                            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(payloadPreview)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+
+                            if let artifact = AgentArtifactDraftPreview(payloadPreview), !artifact.evidenceRefs.isEmpty {
+                                AgentEvidenceRefListView(evidenceRefs: artifact.evidenceRefs)
+                            }
+                        }
                     } label: {
                         Label(isExpanded ? "隐藏详情" : "查看详情", systemImage: "curlybraces")
                             .font(.caption)
@@ -1110,6 +1119,108 @@ private struct AgentRuntimeEventRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(9)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct AgentEvidenceRefListView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let evidenceRefs: [AgentEvidenceRef]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Evidence")
+                .font(.caption.weight(.semibold))
+            ForEach(evidenceRefs) { evidence in
+                evidenceRow(evidence)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func evidenceRow(_ evidence: AgentEvidenceRef) -> some View {
+        let jump = appModel.currentResearchRoot.map { evidence.sourceJump(in: $0) }
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: iconName(for: jump?.status))
+                .foregroundStyle(color(for: jump?.status))
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(evidence.relativePath ?? "Missing source")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(evidenceLineSummary(evidence, jump: jump))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if let warning = jump?.warning {
+                    Text(warning)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Spacer(minLength: 0)
+            Button {
+                if let url = jump?.sourceURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            } label: {
+                Label("Open Source", systemImage: "arrow.up.right.square")
+                    .labelStyle(.iconOnly)
+            }
+            .disabled(jump?.sourceURL == nil)
+            .help("Open source file")
+        }
+        .padding(7)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func evidenceLineSummary(_ evidence: AgentEvidenceRef, jump: AgentEvidenceSourceJump?) -> String {
+        let lineText: String
+        if let start = jump?.startLine, let end = jump?.endLine {
+            lineText = "lines \(start)-\(end)"
+        } else {
+            lineText = "line range unavailable"
+        }
+        let confidence = evidence.confidence.map { String(format: "%.2f", $0) }
+        return [lineText, evidence.heading, confidence.map { "confidence \($0)" }].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func iconName(for status: AgentEvidenceSourceStatus?) -> String {
+        switch status {
+        case .available:
+            return "link"
+        case .stale:
+            return "exclamationmark.triangle"
+        case .missingSource, nil:
+            return "questionmark.circle"
+        }
+    }
+
+    private func color(for status: AgentEvidenceSourceStatus?) -> Color {
+        switch status {
+        case .available:
+            return .green
+        case .stale:
+            return .orange
+        case .missingSource, nil:
+            return .secondary
+        }
+    }
+}
+
+private struct AgentArtifactDraftPreview: Decodable {
+    var evidenceRefs: [AgentEvidenceRef]
+
+    init?(_ rawJSON: String) {
+        guard let data = rawJSON.data(using: .utf8), let decoded = try? AgentRunDirectoryStore.decoder().decode(Self.self, from: data) else {
+            return nil
+        }
+        self = decoded
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case evidenceRefs = "evidence_refs"
     }
 }
 
@@ -1150,12 +1261,35 @@ private struct AgentPlatformStatusView: View {
         GroupBox("Agent Platform") {
             VStack(alignment: .leading, spacing: 10) {
                 WorkspacePathRow(label: "Core", value: appModel.agentPlatformSummary)
+                WorkspacePathRow(label: "Runtime", value: appModel.agentRuntimeSelectionSummary)
+                WorkspacePathRow(label: "Effective", value: appModel.agentRuntimeEffectiveSummary)
+                WorkspacePathRow(label: "Health", value: appModel.agentSidecarHealthSummary)
+                WorkspacePathRow(label: "Fallback", value: appModel.agentRuntimeFallbackSummary)
                 WorkspacePathRow(label: "Provider", value: appModel.agentProviderSummary)
                 WorkspacePathRow(label: "Provider V2", value: appModel.agentProviderV2Summary)
                 WorkspacePathRow(label: "Presets", value: appModel.agentPresetSummary)
                 WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
                 WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
                 WorkspacePathRow(label: "MCP", value: appModel.agentMCPStatusSummary)
+                HStack(spacing: 8) {
+                    Button {
+                        appModel.restartAgentSidecar()
+                    } label: {
+                        Label("Restart", systemImage: "arrow.clockwise")
+                    }
+                    Button {
+                        appModel.openAgentRunDirectory()
+                    } label: {
+                        Label("Runs", systemImage: "folder")
+                    }
+                    Button {
+                        appModel.exportAgentDebugBundle()
+                    } label: {
+                        Label("Debug", systemImage: "shippingbox")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)

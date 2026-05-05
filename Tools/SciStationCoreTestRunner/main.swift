@@ -86,6 +86,14 @@ private struct CoreVerificationSuite {
         try await langGraphRuntimeDoesNotLoseApprovalWhenSidecarCrashes()
         try await sidecarLLMProxyDisablesProviderNativeToolCalling()
         try await authorizedResourceProviderListsAndReadsDocuments()
+        try paperReadingWorkflowProducesEvidenceBackedDraft()
+        try relatedWorkWorkflowClustersByTheme()
+        try await gapPlanningWorkflowGeneratesTodoDraftsWithoutWriting()
+        try citationCriticBlocksUnsupportedClaims()
+        try await evidenceRefsJumpToSourceLineRange()
+        try await sidecarRuntimeSelectorPersistsAndFallbacks()
+        try await runReplayLoadsTimelineFromRunDirectory()
+        try embeddingFallbackUsesFTSWhenDisabled()
         try agentEvidenceRefStableIDMarksStale()
         try await runtimeEventEnvelopeSequencesAreStableAndDeduplicated()
         try agentHumanDecisionActionDecodesLegacyAliases()
@@ -2612,6 +2620,124 @@ private struct CoreVerificationSuite {
         try expect(first.isStale(currentSourceHash: "sha256:b"), "Evidence should be stale when current source hash changes.")
     }
 
+    private func paperReadingWorkflowProducesEvidenceBackedDraft() throws {
+        let evidence = sampleEvidenceRefs(prefix: "paper")
+        let draft = AgentArtifactDraft(
+            runID: "paper-reading-run",
+            kind: "paper_reading_note",
+            proposedPath: "wiki/papers/demo.md",
+            title: "Paper Note",
+            content: "# Paper Note\n\n## TL;DR\n- Claim. [evidence:\(evidence[0].id)]\n\n## Contributions\n- Claim. [evidence:\(evidence[1].id)]\n- Claim. [evidence:\(evidence[2].id)]\n- Claim. [evidence:\(evidence[3].id)]\n\n## Method\n- Claim. [evidence:\(evidence[4].id)]\n- Claim. [evidence:\(evidence[5].id)]\n\n## Experiments\n## Limitations\n## Open Questions\n## Relevance to Current Project\n## Follow-up Todos\n## Evidence\n",
+            evidenceRefs: evidence,
+            risk: .readOnly
+        )
+
+        try expect(draft.content.contains("## TL;DR"), "Paper reading draft should include the production note structure.")
+        try expect(draft.content.contains("## Follow-up Todos"), "Paper reading draft should include follow-up todos.")
+        try expect(draft.evidenceRefs.count >= 6, "Paper reading draft should carry evidence refs for claims.")
+    }
+
+    private func relatedWorkWorkflowClustersByTheme() throws {
+        let content = "# Related Work\n\n## Scope\n- Scope. [evidence:e1]\n\n## Theme 1\n- Retrieval claim. [evidence:e1]\n\n## Theme 2\n- Workflow claim. [evidence:e2]\n\n## Theme 3\n- Evaluation claim. [evidence:e3]\n\n## Evidence Matrix\n- e1\n"
+        let themeCount = content.components(separatedBy: "\n").filter { $0.hasPrefix("## Theme") }.count
+        try expect(themeCount == 3, "Related work production drafts should cluster by theme.")
+        try expect(content.contains("## Evidence Matrix"), "Related work production drafts should include an evidence matrix.")
+    }
+
+    private func gapPlanningWorkflowGeneratesTodoDraftsWithoutWriting() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "GapPlanningDraftWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let draft = AgentArtifactDraft(
+            runID: "gap-run",
+            kind: "research_plan",
+            proposedPath: "projects/demo-project/wiki/research_plan.md",
+            title: "Research Plan",
+            content: "# Research Plan\n\n## Todo Drafts\n- [high] Investigate gap. [evidence:e1]\n",
+            evidenceRefs: sampleEvidenceRefs(prefix: "gap"),
+            risk: .readOnly
+        )
+        let targetURL = fixture.root.fileURL(for: draft.proposedPath ?? "")
+
+        try expect(draft.risk == .readOnly, "Gap planning should emit drafts and wait for Swift approval before writing.")
+        try expect(!FileManager.default.fileExists(atPath: targetURL.path), "Gap planning draft creation should not write research_plan.md by itself.")
+    }
+
+    private func citationCriticBlocksUnsupportedClaims() throws {
+        let report = AgentCitationCriticReport(
+            unsupportedClaims: [.object(["claim": .string("Unsupported core claim")])],
+            requiredRevisions: ["Core scientific claims must cite evidence before final approval."],
+            canRequestApproval: false
+        )
+
+        try expect(report.blocksFinalApproval, "Citation critic report should block final approval when unsupported claims exist.")
+    }
+
+    private func evidenceRefsJumpToSourceLineRange() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "EvidenceJumpWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let paperURL = fixture.root.fileURL(for: "library/papers/p1/paper.md")
+        try FileManager.default.createDirectory(at: paperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Intro\nLine anchored evidence.\n".write(to: paperURL, atomically: true, encoding: .utf8)
+        let evidence = AgentEvidenceRef(sourceType: "paper", sourceID: "p1", relativePath: "library/papers/p1/paper.md", startLine: 1, endLine: 2, sourceHash: "sha256:a")
+        let jump = evidence.sourceJump(in: fixture.root, currentSourceHash: "sha256:a")
+        let staleJump = evidence.sourceJump(in: fixture.root, currentSourceHash: "sha256:b")
+        let missing = AgentEvidenceRef(sourceType: "paper", sourceID: "p2", relativePath: "library/papers/p2/paper.md", startLine: 1, endLine: 2, sourceHash: "sha256:c").sourceJump(in: fixture.root)
+
+        try expect(jump.status == .available, "Existing evidence source should be jumpable.")
+        try expect(jump.startLine == 1 && jump.endLine == 2, "Evidence jump should preserve source line range.")
+        try expect(staleJump.status == .stale, "Changed source hash should mark evidence as stale.")
+        try expect(missing.status == .missingSource, "Missing source should be reported instead of crashing.")
+    }
+
+    private func sidecarRuntimeSelectorPersistsAndFallbacks() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "RuntimeSelectorWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let repository = WorkspacePreferencesRepository()
+        let preferences = WorkspacePreferences(agentRuntimeSelection: .langGraphSidecar)
+        try await repository.save(preferences, in: fixture.workspace)
+        let loaded = try await repository.load(in: fixture.workspace)
+
+        try expect(loaded.agentRuntimeSelection == .langGraphSidecar, "Workspace preferences should persist the sidecar runtime selector.")
+        try expect(loaded.agentRuntimeSelection.effectiveRuntime(sidecarAvailable: false) == .swiftLoop, "Sidecar selection should fall back to Swift Loop when health is unavailable.")
+        try expect(loaded.agentRuntimeSelection.fallbackReason(sidecarAvailable: false) != nil, "Fallback should explain why Swift Loop is active.")
+    }
+
+    private func runReplayLoadsTimelineFromRunDirectory() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "RunReplayWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let store = AgentRunDirectoryStore()
+        let first = AgentRuntimeEventEnvelope(id: "evt-replay-1", runID: "replay-run", sequence: 1, event: .runStarted(AgentRunStarted(goal: "Replay")))
+        let second = AgentRuntimeEventEnvelope(id: "evt-replay-2", runID: "replay-run", sequence: 2, event: .finalResponse(AgentFinalResponse(markdown: "Done")))
+        try await store.appendEvent(first, in: fixture.root)
+        try await store.appendEvent(second, in: fixture.root)
+        try await store.saveCriticReport(.object(["can_request_approval": .bool(true)]), runID: "replay-run", in: fixture.root)
+        try await store.saveRetrievalTrace(.object(["path": .string("FTS")]), runID: "replay-run", in: fixture.root)
+        let replay = try await store.saveReplay(runID: "replay-run", in: fixture.root, debugPromptResponse: .object(["api_key": .string("sk-secret"), "prompt": .string("read /private/tmp/paper.md")]))
+        let loaded = try await store.runReplay(runID: "replay-run", in: fixture.root)
+        let manifest = try await store.saveDebugBundleManifest(runID: "replay-run", in: fixture.root)
+
+        try expect(replay.events.map(\.id) == ["evt-replay-1", "evt-replay-2"], "Replay should preserve persisted runtime timeline events.")
+        try expect(loaded.events.count == 2, "Replay should reload from replay.json.")
+        try expect(manifest.includedFiles.contains("critic_report.json"), "Debug manifest should include critic reports when present.")
+        if case let .object(debug) = replay.debugPromptResponse {
+            try expect(debug["api_key"] == .string("[REDACTED]"), "Replay debug payload should redact API keys.")
+            try expect(debug["prompt"] == .string("read [PATH]"), "Replay debug payload should redact private paths.")
+        } else {
+            throw ValidationError(message: "Replay should keep a redacted debug payload when explicitly requested.")
+        }
+    }
+
+    private func embeddingFallbackUsesFTSWhenDisabled() throws {
+        let configuration = AgentEmbeddingRetrievalConfiguration(enabled: false, provider: "swift-proxy", model: "embedding-test", dimension: 3, store: "sqlite-vec")
+
+        try expect(configuration.usesFTSFallback, "Embedding retrieval should preserve FTS-only fallback when disabled.")
+        try expect(configuration.store == "sqlite-vec", "Embedding retrieval config should preserve local store selection.")
+    }
+
     private func runtimeEventEnvelopeSequencesAreStableAndDeduplicated() async throws {
         let fixture = try await loopWorkspaceFixture(named: "RuntimeEventDedupeWorkspace")
         defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -4239,6 +4365,23 @@ private struct CoreVerificationSuite {
             notesSummaryRelativePath: nil,
             annotationsRelativePath: "annotations.md"
         )
+    }
+
+    private func sampleEvidenceRefs(prefix: String, count: Int = 6) -> [AgentEvidenceRef] {
+        (1...count).map { index in
+            AgentEvidenceRef(
+                sourceType: "paper",
+                sourceID: "\(prefix)-paper-\(index)",
+                relativePath: "library/papers/\(prefix)-paper-\(index)/paper.md",
+                startLine: 1,
+                endLine: 8,
+                sourceHash: "sha256:\(prefix)-\(index)",
+                chunkID: "paper:\(prefix)-\(index):1-8",
+                heading: "Evidence \(index)",
+                quote: "Evidence-backed claim \(index).",
+                confidence: 0.74
+            )
+        }
     }
 
     private func temporaryDirectoryURL() -> URL {

@@ -75,6 +75,74 @@ public nonisolated struct AgentToolExecutionLedgerRecord: Codable, Hashable, Sen
     }
 }
 
+public nonisolated struct AgentRunReplay: Codable, Hashable, Sendable {
+    public var schemaVersion: Int
+    public var runID: String
+    public var events: [AgentRuntimeEventEnvelope]
+    public var checkpoint: AgentCheckpointSummary?
+    public var generatedAt: Date
+    public var debugPromptResponse: JSONValue?
+
+    public nonisolated init(
+        schemaVersion: Int = 1,
+        runID: String,
+        events: [AgentRuntimeEventEnvelope],
+        checkpoint: AgentCheckpointSummary? = nil,
+        generatedAt: Date = Date(),
+        debugPromptResponse: JSONValue? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.runID = runID
+        self.events = events
+        self.checkpoint = checkpoint
+        self.generatedAt = generatedAt
+        self.debugPromptResponse = debugPromptResponse
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case runID = "run_id"
+        case events
+        case checkpoint
+        case generatedAt = "generated_at"
+        case debugPromptResponse = "debug_prompt_response"
+    }
+}
+
+public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable {
+    public var schemaVersion: Int
+    public var runID: String
+    public var includedFiles: [String]
+    public var excludedPatterns: [String]
+    public var privacyNotice: String
+    public var generatedAt: Date
+
+    public nonisolated init(
+        schemaVersion: Int = 1,
+        runID: String,
+        includedFiles: [String],
+        excludedPatterns: [String] = ["*.env", "*key*", "*token*", "Keychain", "private paths"],
+        privacyNotice: String = "Debug bundle excludes API keys, private path inventories, environment files, and Keychain content.",
+        generatedAt: Date = Date()
+    ) {
+        self.schemaVersion = schemaVersion
+        self.runID = runID
+        self.includedFiles = includedFiles
+        self.excludedPatterns = excludedPatterns
+        self.privacyNotice = privacyNotice
+        self.generatedAt = generatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case runID = "run_id"
+        case includedFiles = "included_files"
+        case excludedPatterns = "excluded_patterns"
+        case privacyNotice = "privacy_notice"
+        case generatedAt = "generated_at"
+    }
+}
+
 public actor AgentRunDirectoryStore {
     public static let runsRelativePath = ".sci-station/agent/runs"
 
@@ -190,6 +258,45 @@ public actor AgentRunDirectoryStore {
         )
     }
 
+    public func saveCriticReport(_ report: JSONValue, runID: String, in root: ResearchRoot) throws {
+        let runDirectory = try ensureRunDirectory(runID: runID, in: root)
+        try Self.encoder().encode(report).write(to: runDirectory.appendingPathComponent("critic_report.json", isDirectory: false), options: .atomic)
+    }
+
+    public func saveRetrievalTrace(_ trace: JSONValue, runID: String, in root: ResearchRoot) throws {
+        let runDirectory = try ensureRunDirectory(runID: runID, in: root)
+        try Self.encoder().encode(trace).write(to: runDirectory.appendingPathComponent("retrieval_trace.json", isDirectory: false), options: .atomic)
+    }
+
+    public func saveReplay(runID: String, in root: ResearchRoot, debugPromptResponse: JSONValue? = nil) throws -> AgentRunReplay {
+        let runDirectory = try ensureRunDirectory(runID: runID, in: root)
+        let replay = AgentRunReplay(
+            runID: runID,
+            events: try eventEnvelopes(runID: runID, in: root),
+            checkpoint: try checkpointSummary(runID: runID, in: root),
+            debugPromptResponse: debugPromptResponse.map(Self.redactedDebugPayload)
+        )
+        try Self.encoder().encode(replay).write(to: runDirectory.appendingPathComponent("replay.json", isDirectory: false), options: .atomic)
+        return replay
+    }
+
+    public func runReplay(runID: String, in root: ResearchRoot) throws -> AgentRunReplay {
+        let replayURL = runDirectoryURL(runID: runID, in: root).appendingPathComponent("replay.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: replayURL.path) else {
+            return try saveReplay(runID: runID, in: root)
+        }
+        return try Self.decoder().decode(AgentRunReplay.self, from: Data(contentsOf: replayURL))
+    }
+
+    public func saveDebugBundleManifest(runID: String, in root: ResearchRoot) throws -> AgentDebugBundleManifest {
+        let runDirectory = try ensureRunDirectory(runID: runID, in: root)
+        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json"]
+        let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
+        let manifest = AgentDebugBundleManifest(runID: runID, includedFiles: included)
+        try Self.encoder().encode(manifest).write(to: runDirectory.appendingPathComponent("debug_bundle_manifest.json", isDirectory: false), options: .atomic)
+        return manifest
+    }
+
     private func appendJSONLine<T: Encodable>(_ value: T, to url: URL, encoder: JSONEncoder) throws {
         let data = try encoder.encode(value)
         guard let line = String(data: data, encoding: .utf8) else {
@@ -225,6 +332,34 @@ public actor AgentRunDirectoryStore {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+
+    public nonisolated static func redactedDebugPayload(_ value: JSONValue) -> JSONValue {
+        switch value {
+        case let .object(object):
+            var redacted: [String: JSONValue] = [:]
+            for (key, item) in object {
+                let lowered = key.lowercased()
+                if lowered.contains("api") || lowered.contains("key") || lowered.contains("token") || lowered.contains("secret") || lowered.contains("password") {
+                    redacted[key] = .string("[REDACTED]")
+                } else {
+                    redacted[key] = redactedDebugPayload(item)
+                }
+            }
+            return .object(redacted)
+        case let .array(array):
+            return .array(array.map(redactedDebugPayload))
+        case let .string(string):
+            return .string(redactPathLikeText(string))
+        default:
+            return value
+        }
+    }
+
+    private nonisolated static func redactPathLikeText(_ string: String) -> String {
+        let homeRedacted = string.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        let pattern = #"(?<![\w:])/(?:[^\s]+/)*[^\s]+"#
+        return homeRedacted.replacingOccurrences(of: pattern, with: "[PATH]", options: .regularExpression)
     }
 }
 

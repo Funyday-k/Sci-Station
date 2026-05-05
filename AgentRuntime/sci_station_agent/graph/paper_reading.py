@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from .citation_critic import critic_check_evidence
 from ..rag.evidence import EvidenceRef, stable_evidence_id
 
 
@@ -10,6 +11,7 @@ from ..rag.evidence import EvidenceRef, stable_evidence_id
 class PaperReadingDraft:
     artifact: dict
     evidence: list[dict]
+    critic_report: dict | None = None
     needs_conversion: bool = False
 
 
@@ -28,7 +30,7 @@ def draft_paper_reading_note(
             "kind": "paper_reading_note",
             "proposed_path": f"wiki/papers/{paper_id}.md",
             "title": "Paper text needs conversion",
-            "content": "# Paper Note\n\nThe converted paper text is missing or too short. Convert or OCR the paper before generating an evidence-backed deep reading note.",
+            "content": "# Paper Note\n\n## Follow-up Todos\n- Convert or OCR the source paper before generating an evidence-backed deep reading note.\n- Re-run paper reading after `paper.md` contains enough section text.\n",
             "evidence_refs": [],
             "risk": "readOnly",
         }
@@ -40,8 +42,11 @@ def draft_paper_reading_note(
         _evidence("paper", paper_id, relative_path, 17, min(24, len(lines)), source_hash, "method", lines),
         _evidence("paper", paper_id, relative_path, 25, min(32, len(lines)), source_hash, "contribution", lines),
         _evidence("paper", paper_id, relative_path, 33, min(40, len(lines)), source_hash, "contribution", lines),
+        _evidence("paper", paper_id, relative_path, 41, min(48, len(lines)), source_hash, "experiment", lines),
+        _evidence("paper", paper_id, relative_path, 49, min(56, len(lines)), source_hash, "experiment", lines),
+        _evidence("paper", paper_id, relative_path, 57, min(64, len(lines)), source_hash, "open question", lines, confidence=0.62),
         _evidence("paper", paper_id, relative_path, 41, min(48, len(lines)), source_hash, "limitation", lines),
-        _evidence("paper", paper_id, relative_path, 49, min(56, len(lines)), source_hash, "limitation", lines),
+        _evidence("paper", paper_id, relative_path, 49, min(56, len(lines)), source_hash, "limitation", lines, confidence=0.58),
     ]
     evidence_refs = [{
         "id": item["id"],
@@ -62,7 +67,8 @@ def draft_paper_reading_note(
         "evidence_refs": evidence_refs,
         "risk": "readOnly",
     }
-    return PaperReadingDraft(artifact=artifact, evidence=evidence)
+    report = critic_check_evidence(artifact, evidence, source_line_counts={relative_path: len(lines)}).to_dict()
+    return PaperReadingDraft(artifact=artifact, evidence=evidence, critic_report=report)
 
 
 def build_sample_paper_reading_events(run_id: str, goal: str, intent: str) -> list[dict]:
@@ -74,7 +80,7 @@ def build_sample_paper_reading_events(run_id: str, goal: str, intent: str) -> li
     ]
 
 
-def _evidence(source_type: str, source_id: str, relative_path: str, start_line: int, end_line: int, source_hash: str, heading: str, lines: list[str]) -> dict:
+def _evidence(source_type: str, source_id: str, relative_path: str, start_line: int, end_line: int, source_hash: str, heading: str, lines: list[str], confidence: float = 0.76) -> dict:
     chunk_id = f"{source_type}:{source_id}:{start_line}-{end_line}"
     evidence_id = stable_evidence_id(source_type, source_id, relative_path, start_line, end_line, source_hash)
     quote = " ".join(lines[max(0, start_line - 1) : min(len(lines), end_line)])[:240]
@@ -89,7 +95,7 @@ def _evidence(source_type: str, source_id: str, relative_path: str, start_line: 
         retrieved_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         heading=heading,
         quote=quote,
-        confidence=0.76,
+        confidence=confidence,
     )
     return ref.to_dict()
 
@@ -97,20 +103,36 @@ def _evidence(source_type: str, source_id: str, relative_path: str, start_line: 
 def _note_content(paper_id: str, evidence_refs: list[dict]) -> str:
     ids = [ref["id"] for ref in evidence_refs]
     return "\n".join([
-        f"# Paper Note: {paper_id}",
+        "# Paper Note",
+        "",
+        "## TL;DR",
+        f"- {paper_id} is ready for an evidence-backed structured note. [evidence:{ids[0]}]",
         "",
         "## Contributions",
         f"- Contribution claim 1. [evidence:{ids[3]}]",
         f"- Contribution claim 2. [evidence:{ids[4]}]",
         f"- Contribution claim 3. [evidence:{ids[0]}]",
         "",
-        "## Methods",
+        "## Method",
         f"- Method claim 1. [evidence:{ids[1]}]",
         f"- Method claim 2. [evidence:{ids[2]}]",
         "",
+        "## Experiments",
+        f"- Experiment claim 1. [evidence:{ids[5]}]",
+        f"- Experiment claim 2. [evidence:{ids[6]}]",
+        "",
         "## Limitations",
-        f"- Limitation claim 1. [evidence:{ids[5]}]",
-        f"- Limitation claim 2. [evidence:{ids[6]}]",
+        f"- Limitation claim 1, low confidence because it is inferred from a narrow source span. [evidence:{ids[8]}]",
+        f"- Limitation claim 2, low confidence because it needs confirmation from the full discussion. [evidence:{ids[9]}]",
+        "",
+        "## Open Questions",
+        f"- Follow-up question that should be checked against related papers. [evidence:{ids[7]}]",
+        "",
+        "## Relevance to Current Project",
+        f"- Relevance should be evaluated against the active project scope. [evidence:{ids[0]}]",
+        "",
+        "## Follow-up Todos",
+        f"- Draft a project-specific todo that cites the paper evidence. [evidence:{ids[7]}]",
         "",
         "## Evidence",
         *[f"- {ref['id']}: {ref['relative_path']} lines {ref['lines'][0]}-{ref['lines'][1]}" for ref in evidence_refs],
