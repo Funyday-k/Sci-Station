@@ -55,6 +55,47 @@ public nonisolated struct AgentPromptBuilder {
         + [LLMChatMessage(role: .user, content: "user_goal:\n\(goal)")]
     }
 
+    public nonisolated func buildToolLoopChatMessages(
+      goal: String,
+      workspaceSnapshot: AgentWorkspaceSnapshot,
+      tools: [AgentToolDefinition],
+      conversationHistory: [LLMChatMessage] = []
+    ) throws -> [LLMChatMessage] {
+      let snapshotJSON = try encoded(workspaceSnapshot)
+      let toolsJSON = try encoded(tools)
+      let safeHistory = conversationHistory
+        .filter { $0.role == .user || $0.role == .assistant }
+        .filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .suffix(12)
+
+      let systemPrompt = """
+      You are the Sci-Station in-app research assistant running in a Swift-native tool loop.
+
+      Operating rules:
+      - Answer using only workspace_context, conversation history, and tool results returned in this loop.
+      - Use provider-native tool calls when paper body details, equations, methods, claims, section summaries, quotations, or exact evidence are needed.
+      - Prefer `search_papers` for keywords, symbols, formula names, or concepts; then use `read_paper_section` when a focused section is needed.
+      - Prefer `read_paper_section` when the user names a section or heading. Use `read_paper` only for overview/page-based reading or when the target section is unknown.
+      - Read-only tools may run automatically. Workspace writes, network actions, and external side effects require approval and may pause the loop.
+      - Do not invent papers, file paths, todo items, equations, citations, or tool results.
+      - Respond in the same language as the latest user_goal unless the user explicitly asks for another language.
+      - If the latest user_goal contains Chinese, answer in Simplified Chinese.
+      - Return final user-facing content as natural GitHub-flavored Markdown, not JSON.
+      - Render inline math as `$...$` and display math as `$$...$$`. Never wrap math in backticks.
+      - When citing a paper or section, include the paper title, paper id, or relative file path so the user can re-locate it.
+
+      workspace_context:
+      \(snapshotJSON)
+
+      available_tools:
+      \(toolsJSON)
+      """
+
+      return [LLMChatMessage(role: .system, content: systemPrompt)]
+        + safeHistory
+        + [LLMChatMessage(role: .user, content: "user_goal:\n\(goal)")]
+    }
+
     private nonisolated func buildSystemPrompt(
       workspaceSnapshot: AgentWorkspaceSnapshot,
       tools: [AgentToolDefinition],

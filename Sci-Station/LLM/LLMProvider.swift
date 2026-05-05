@@ -16,12 +16,20 @@ public nonisolated struct LLMChatMessage: Codable, Hashable, Sendable {
     public var content: String
     public var name: String?
     public var toolCallID: String?
+    public var toolCalls: [AgentToolCall]
 
-    public nonisolated init(role: LLMChatRole, content: String, name: String? = nil, toolCallID: String? = nil) {
+    public nonisolated init(
+        role: LLMChatRole,
+        content: String,
+        name: String? = nil,
+        toolCallID: String? = nil,
+        toolCalls: [AgentToolCall] = []
+    ) {
         self.role = role
         self.content = content
         self.name = name
         self.toolCallID = toolCallID
+        self.toolCalls = toolCalls
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -29,6 +37,16 @@ public nonisolated struct LLMChatMessage: Codable, Hashable, Sendable {
         case content
         case name
         case toolCallID = "tool_call_id"
+        case toolCalls = "tool_calls"
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.role = try container.decode(LLMChatRole.self, forKey: .role)
+        self.content = try container.decode(String.self, forKey: .content)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.toolCallID = try container.decodeIfPresent(String.self, forKey: .toolCallID)
+        self.toolCalls = try container.decodeIfPresent([AgentToolCall].self, forKey: .toolCalls) ?? []
     }
 }
 

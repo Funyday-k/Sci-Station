@@ -65,6 +65,17 @@ private struct CoreVerificationSuite {
         try await agentRunLoggerWritesWorkspaceFiles()
         try await agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory()
         try await agentServiceExecutesApprovedPlan()
+        try await agentLoopRunnerCallsReadOnlyToolThenContinues()
+        try await agentLoopRunnerPausesForWorkspaceWrite()
+        try await agentLoopRunnerStopsAtMaxSteps()
+        try await agentLoopRunnerInjectsToolResultMessages()
+        try await agentLoopRunnerResumesPendingApproval()
+        try await agentLoopRunnerDoesNotRepeatApprovedWriteOnResume()
+        try await agentLoopRunnerEditArgumentsRevalidatesBeforeExecution()
+        try await agentLoopRunnerSafetyDenyIsFatal()
+        try await agentLoopRunnerCachesRepeatedReadOnlyToolCall()
+        try await agentLoopRunnerStopsAtContextBudget()
+        try openAIProviderPayloadIncludesToolChoiceAuto()
         try await agentRunLoggerSkipsDamagedHistoryLines()
         try await agentRunLoggerFiltersProjectConversations()
         try await agentThreadRepositoryGlobalStoreFiltersByWorkspaceID()
@@ -2010,6 +2021,331 @@ private struct CoreVerificationSuite {
                 try expect(executionEvents.map(\.kind).contains(.toolCallCompleted), "Approved execution should append completed tool session events.")
             }
 
+            private func agentLoopRunnerCallsReadOnlyToolThenContinues() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopReadOnlyWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-read", toolName: "read_note", argumentsJSON: "{\"path\":\"paper.md\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "最终回答包含 $E_{\\odot}$."))
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "section 5 says E_sun_section_marker")
+                ])
+                let logger = AgentSessionEventLogger()
+                let runner = AgentLoopRunner(sessionEventLogger: logger)
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-read-only",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture
+                ))
+                let events = try await logger.events(in: fixture.root, sessionID: "loop-read-only")
+
+                try expect(result.finalResponseMarkdown?.contains("E_{\\odot}") == true, "Loop should continue after a read-only tool and return the final assistant message.")
+                try expect(result.toolResults.first?.message.contains("E_sun_section_marker") == true, "Loop should preserve read-only tool output.")
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 1, "Read-only tool should execute once.")
+                try expect(events.map(\.kind).contains(.toolCallStarted), "Loop should append tool start events.")
+                try expect(events.map(\.kind).contains(.toolCallCompleted), "Loop should append tool completion events.")
+            }
+
+            private func agentLoopRunnerPausesForWorkspaceWrite() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopWritePauseWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-write", toolName: "create_todo", argumentsJSON: "{\"title\":\"Review\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+                ])
+                let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Created todo")
+                ])
+                let logger = AgentSessionEventLogger()
+                let runner = AgentLoopRunner(sessionEventLogger: logger)
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-write-pause",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture
+                ))
+                let pending = try await AgentLoopCheckpointStore().pending(runID: "loop-write-pause", in: fixture.root)
+                let events = try await logger.events(in: fixture.root, sessionID: "loop-write-pause")
+
+                try expect(result.pauseReason?.kind == .approvalRequired, "Workspace writes should pause for approval.")
+                try expect(result.pendingToolCall?.toolCall.toolName == "create_todo", "Paused result should include the pending tool call.")
+                try expect(pending?.toolCall.id == "call-write", "Pending write tool call should be saved as a checkpoint.")
+                try expect(events.map(\.kind).contains(.permissionRequested), "Loop should append a permissionRequested event.")
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 0, "Write tool must not run before approval.")
+            }
+
+            private func agentLoopRunnerStopsAtMaxSteps() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopMaxStepsWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-repeat", toolName: "read_note", argumentsJSON: "{}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "same result")
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-max-steps",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture,
+                    options: AgentLoopOptions(maxSteps: 2)
+                ))
+
+                try expect(result.pauseReason?.kind == .maxStepsExceeded, "Loop should stop when maxSteps is exceeded.")
+            }
+
+            private func agentLoopRunnerInjectsToolResultMessages() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopInjectsToolResultWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-inject", toolName: "read_note", argumentsJSON: "{}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Final"))
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "Injected evidence")
+                ])
+                let runner = AgentLoopRunner()
+
+                _ = try await runner.run(loopRequest(
+                    runID: "loop-inject",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture
+                ))
+                let requests = await provider.recordedRequests()
+                let secondRequestMessages = try require(requests.dropFirst().first?.messages, "Expected a second model request.")
+                let toolMessage = try require(secondRequestMessages.first { $0.role == .tool }, "Second request should include a tool result message.")
+
+                try expect(toolMessage.toolCallID == "call-inject", "Tool result message should preserve tool_call_id.")
+                try expect(toolMessage.content.contains("schema_version"), "Tool result message should be stable JSON.")
+                try expect(toolMessage.content.contains("Injected evidence"), "Tool result message should include tool content.")
+            }
+
+            private func agentLoopRunnerResumesPendingApproval() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopResumeWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-write", toolName: "create_todo", argumentsJSON: "{\"title\":\"Resume\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Created after approval."))
+                ])
+                let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Created todo", modifiedPaths: ["tasks/todos.yaml"])
+                ])
+                let registry = AgentToolRegistry(tools: [tool])
+                let runner = AgentLoopRunner()
+                let paused = try await runner.run(loopRequest(runID: "loop-resume", provider: provider, definitions: [definition], registry: registry, fixture: fixture))
+                let pending = try require(paused.pendingToolCall, "Expected pending write call.")
+
+                let resumed = try await runner.resume(loopResumeRequest(
+                    pending: pending,
+                    action: .allowOnce,
+                    provider: provider,
+                    definitions: [definition],
+                    registry: registry,
+                    fixture: fixture
+                ))
+
+                try expect(resumed.finalResponseMarkdown?.contains("approval") == true, "Approved pending call should continue to a final assistant message.")
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 1, "Approved write should execute exactly once.")
+            }
+
+            private func agentLoopRunnerDoesNotRepeatApprovedWriteOnResume() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopNoRepeatWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-write", toolName: "create_todo", argumentsJSON: "{\"title\":\"No repeat\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Done once.")),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Done twice."))
+                ])
+                let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Created once", modifiedPaths: ["tasks/todos.yaml"])
+                ])
+                let registry = AgentToolRegistry(tools: [tool])
+                let runner = AgentLoopRunner()
+                let paused = try await runner.run(loopRequest(runID: "loop-no-repeat", provider: provider, definitions: [definition], registry: registry, fixture: fixture))
+                let pending = try require(paused.pendingToolCall, "Expected pending write call.")
+
+                _ = try await runner.resume(loopResumeRequest(pending: pending, action: .allowOnce, provider: provider, definitions: [definition], registry: registry, fixture: fixture))
+                _ = try await runner.resume(loopResumeRequest(pending: pending, action: .allowOnce, provider: provider, definitions: [definition], registry: registry, fixture: fixture))
+
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 1, "Write ledger should prevent repeat execution for an already approved fingerprint.")
+            }
+
+            private func agentLoopRunnerEditArgumentsRevalidatesBeforeExecution() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopEditArgsWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-write", toolName: "create_todo", argumentsJSON: "{\"title\":\"Original\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+                ])
+                let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Created edited")
+                ])
+                let registry = AgentToolRegistry(tools: [tool])
+                let runner = AgentLoopRunner()
+                let paused = try await runner.run(loopRequest(runID: "loop-edit-args", provider: provider, definitions: [definition], registry: registry, fixture: fixture))
+                let pending = try require(paused.pendingToolCall, "Expected pending write call.")
+
+                let edited = try await runner.resume(loopResumeRequest(
+                    pending: pending,
+                    action: .editArguments,
+                    editedArgumentsJSON: "{\"title\":\"Edited\"}",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: registry,
+                    fixture: fixture
+                ))
+
+                try expect(edited.pauseReason?.kind == .approvalRequired, "Edited write arguments should be revalidated and return to approval instead of executing directly.")
+                try expect(edited.pendingToolCall?.toolCall.argumentsJSON.contains("Edited") == true, "Edited arguments should be normalized into the new pending call.")
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 0, "Edited arguments should not execute before the fresh approval pass.")
+            }
+
+            private func agentLoopRunnerSafetyDenyIsFatal() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopSafetyDenyWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-danger", toolName: "write_note", argumentsJSON: "{\"command\":\"git reset --hard\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+                ])
+                let definition = loopToolDefinition(name: "write_note", risk: .writesWorkspace)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "write_note", succeeded: true, message: "Should not run")
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-safety-deny",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture
+                ))
+
+                try expect(result.pauseReason?.kind == .safetyPolicyBlocked, "Deterministic safety deny should stop the run.")
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 0, "Safety-denied tools should never execute.")
+            }
+
+            private func agentLoopRunnerCachesRepeatedReadOnlyToolCall() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopReadCacheWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let firstCall = AgentToolCall(id: "call-read-1", toolName: "read_note", argumentsJSON: "{\"path\":\"paper.md\"}")
+                let secondCall = AgentToolCall(id: "call-read-2", toolName: "read_note", argumentsJSON: "{\"path\":\"paper.md\"}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [firstCall, secondCall]), toolCalls: [firstCall, secondCall]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Cached final."))
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "Cached once")
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-read-cache",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture
+                ))
+
+                let invocationCount = await tool.invocationCount()
+                try expect(invocationCount == 1, "Repeated read-only fingerprint should reuse cache in the same run.")
+                try expect(result.steps.first?.cachedToolCallIDs == Optional(["call-read-2"]), "Loop step should record cached read-only call ids.")
+            }
+
+            private func agentLoopRunnerStopsAtContextBudget() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopContextBudgetWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-large", toolName: "read_note", argumentsJSON: "{}")
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly, maxOutputCharacters: 2_000)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: String(repeating: "x", count: 1_600))
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-context-budget",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture,
+                    options: AgentLoopOptions(maxSteps: 4, maxAccumulatedToolResultCharacters: 1_000)
+                ))
+
+                try expect(result.pauseReason?.kind == .contextLimitExceeded, "Loop should stop when accumulated tool result budget is exceeded.")
+            }
+
+            private func openAIProviderPayloadIncludesToolChoiceAuto() throws {
+                let provider = OpenAICompatibleProvider()
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let request = LLMProviderRequest(
+                    messages: [
+                        LLMChatMessage(role: .system, content: "Use tools."),
+                        LLMChatMessage(role: .assistant, content: "", toolCalls: [
+                            AgentToolCall(id: "call-1", toolName: "read_note", argumentsJSON: "{\"path\":\"paper.md\"}")
+                        ]),
+                        LLMChatMessage(role: .tool, content: "{\"schema_version\":1}", name: "read_note", toolCallID: "call-1")
+                    ],
+                    tools: [LLMToolSpecification(agentTool: definition)]
+                )
+                let chatRequest = try provider.buildChatRequest(
+                    configuration: LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "test-model"),
+                    apiKey: "secret-key",
+                    providerRequest: request
+                )
+                let body = try require(chatRequest.httpBody.flatMap { String(data: $0, encoding: .utf8) }, "Expected chat body.")
+
+                try expect(body.contains("tool_choice"), "Provider payload should include tool_choice when tools are present.")
+                try expect(body.contains("auto"), "Provider payload should set tool_choice to auto.")
+                try expect(body.contains("tool_calls"), "Assistant messages should serialize tool_calls.")
+                try expect(body.contains("tool_call_id"), "Tool result messages should serialize tool_call_id.")
+            }
+
             private func agentRunLoggerSkipsDamagedHistoryLines() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -3052,6 +3388,106 @@ private struct CoreVerificationSuite {
         try expect(loadedDocuments.contains(where: { $0.relativePath == pageRelativePath }), "MarkdownRepository should scan wiki/ for markdown files.")
     }
 
+    private struct LoopWorkspaceFixture {
+        let workspace: ResearchWorkspace
+        let root: ResearchRoot
+        let suiteName: String
+        let containerURL: URL
+    }
+
+    private func loopWorkspaceFixture(named name: String) async throws -> LoopWorkspaceFixture {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let containerURL = temporaryDirectoryURL()
+        let workspaceURL = containerURL.appendingPathComponent(name, isDirectory: true)
+        let workspace = try await workspaceService.createWorkspace(at: workspaceURL)
+        return LoopWorkspaceFixture(
+            workspace: workspace,
+            root: ResearchRoot(rootURL: workspace.rootURL),
+            suiteName: suiteName,
+            containerURL: containerURL
+        )
+    }
+
+    private func cleanupLoopWorkspaceFixture(_ fixture: LoopWorkspaceFixture) {
+        try? FileManager.default.removeItem(at: fixture.containerURL)
+        UserDefaults(suiteName: fixture.suiteName)?.removePersistentDomain(forName: fixture.suiteName)
+    }
+
+    private func loopToolDefinition(
+        name: String,
+        risk: AgentToolRisk,
+        maxOutputCharacters: Int = 12_000
+    ) -> AgentToolDefinition {
+        AgentToolDefinition(
+            name: name,
+            summary: "Loop test tool \(name).",
+            inputSchema: "{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"command\":{\"type\":\"string\"}}}",
+            risk: risk,
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: maxOutputCharacters)
+        )
+    }
+
+    private func loopRequest(
+        runID: String,
+        provider: any LLMChatProvider,
+        definitions: [AgentToolDefinition],
+        registry: AgentToolRegistry,
+        fixture: LoopWorkspaceFixture,
+        options: AgentLoopOptions = AgentLoopOptions(),
+        permissionEvaluator: AgentPermissionEvaluator = AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
+    ) -> AgentLoopRequest {
+        AgentLoopRequest(
+            runID: runID,
+            goal: "Loop test goal",
+            initialMessages: [
+                LLMChatMessage(role: .system, content: "Use tools when useful."),
+                LLMChatMessage(role: .user, content: "Please inspect the selected context.")
+            ],
+            provider: provider,
+            toolDefinitions: definitions,
+            toolRegistry: registry,
+            toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key",
+            options: options,
+            hookEngine: AgentHookEngine(hooks: []),
+            permissionEvaluator: permissionEvaluator
+        )
+    }
+
+    private func loopResumeRequest(
+        pending: AgentPendingToolCall,
+        action: AgentHumanDecisionAction,
+        feedback: String? = nil,
+        editedArgumentsJSON: String? = nil,
+        provider: any LLMChatProvider,
+        definitions: [AgentToolDefinition],
+        registry: AgentToolRegistry,
+        fixture: LoopWorkspaceFixture,
+        options: AgentLoopOptions = AgentLoopOptions()
+    ) -> AgentLoopResumeRequest {
+        AgentLoopResumeRequest(
+            pending: pending,
+            action: action,
+            feedback: feedback,
+            editedArgumentsJSON: editedArgumentsJSON,
+            provider: provider,
+            toolDefinitions: definitions,
+            toolRegistry: registry,
+            toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key",
+            options: options,
+            hookEngine: AgentHookEngine(hooks: []),
+            permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
+        )
+    }
+
     private func samplePaper(id: String) -> Paper {
         Paper(
             id: id,
@@ -3200,6 +3636,64 @@ private struct StaticLLMProvider: LLMProvider {
 
     func complete(prompt: String, configuration: LLMConfiguration, apiKey: String) async throws -> String {
         response
+    }
+}
+
+private actor ScriptedChatProvider: LLMProvider, LLMChatProvider {
+    private var responses: [LLMProviderResponse]
+    private var requests: [LLMProviderRequest] = []
+
+    init(responses: [LLMProviderResponse]) {
+        self.responses = responses
+    }
+
+    func complete(prompt: String, configuration: LLMConfiguration, apiKey: String) async throws -> String {
+        responses.first?.message.content ?? ""
+    }
+
+    func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse {
+        requests.append(request)
+        if responses.count > 1 {
+            return responses.removeFirst()
+        }
+        if let response = responses.first {
+            return response
+        }
+        return LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: ""))
+    }
+
+    func recordedRequests() -> [LLMProviderRequest] {
+        requests
+    }
+}
+
+private actor RecordingAgentTool: AgentTool {
+    nonisolated let definition: AgentToolDefinition
+    private var results: [AgentToolResult]
+    private var argumentsLog: [String] = []
+
+    init(definition: AgentToolDefinition, results: [AgentToolResult]) {
+        self.definition = definition
+        self.results = results
+    }
+
+    func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        argumentsLog.append(argumentsJSON)
+        if results.count > 1 {
+            return results.removeFirst()
+        }
+        if let result = results.first {
+            return result
+        }
+        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: "Recorded tool result.")
+    }
+
+    func invocationCount() -> Int {
+        argumentsLog.count
+    }
+
+    func invokedArguments() -> [String] {
+        argumentsLog
     }
 }
 

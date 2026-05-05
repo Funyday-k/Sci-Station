@@ -38,3 +38,9 @@ P1.6 完成。本轮交付总结：
 - `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build` 通过。
 
 **下一项建议进入 `DOC/Proposal32.md`**：实现 P1.2 AgentLoopRunner，让模型能真正 `model -> tool_call -> tool_result -> model` 多步运行。当前 paper tools、metadata-only prompt、折叠 runtime UI 已经为这一步打底。
+
+继续根据用户两张截图调研 OpenCode agent 交互逻辑，并重新规划权限/交互：
+
+- 新增 `DOC/OpenCode-Agent-Interaction-Report.md`，记录 OpenCode session loop、tool part、permission ask/reply、auto-allow 和 UI dock 逻辑。
+- 确认本地三个根因：Chat 模式禁用所有工具；Permission Dock 显示了 auto-allowed read-only 工具；手动执行工具后没有继续第二轮模型回答。
+- `DOC/Proposal32.md` 已调整：Chat/Assistant 都应走 loop；Chat 只允许只读工具自动执行；Permission Dock 只保留 pending ask。

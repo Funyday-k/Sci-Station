@@ -2872,6 +2872,7 @@ final class AppViewModel: ObservableObject {
         let interactionMode = agentInteractionMode
         let executionOptions = AgentExecutionOptions(
             mode: .planOnly,
+            loopPolicy: interactionMode == .conversation ? .readOnlyAutoApproveWritesRequireApproval : .manualApprovalOnly,
             disabledHookIDs: agentDisabledHookIDs,
             plannerInstructions: interactionMode.plannerInstructions,
             allowedToolNames: allowedToolNames,
@@ -2923,9 +2924,12 @@ final class AppViewModel: ObservableObject {
                 agentStreamingResponseText = nil
                 try await attachRunToActiveThread(run, in: currentWorkspace)
                 resetAgentPermissionDockState()
-                agentStatusMessage = interactionMode == .conversation
-                    ? "已根据所选 AI 知识库生成回复。"
-                    : "计划已生成。运行前请审查允许写入工作区的工具。"
+                let isWaitingForApproval = interactionMode == .conversation && run.completedAt == nil && !run.plan.toolCalls.isEmpty
+                agentStatusMessage = isWaitingForApproval
+                    ? "等待批准工具调用。输入草稿已保留。"
+                    : (interactionMode == .conversation
+                        ? "已根据所选 AI 知识库生成回复。"
+                        : "计划已生成。运行前请审查允许写入工作区的工具。")
                 await refreshAgentState(in: currentWorkspace)
             } catch is CancellationError {
                 agentStatusMessage = "已停止 AI 输出。"
@@ -2961,6 +2965,50 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
+                if agentInteractionMode == .conversation {
+                    let dockItems = agentPermissionDockItems(for: currentRun)
+                    let approvedCall = currentRun.plan.toolCalls.first { agentToolApprovals.contains($0.id) }
+                    let deniedCall = currentRun.plan.toolCalls.first { agentToolDenials.contains($0.id) }
+                    guard let selectedCall = approvedCall ?? deniedCall else {
+                        agentErrorMessage = "请先允许或拒绝待审批工具。"
+                        return
+                    }
+                    let selectedItem = dockItems.first { $0.id == selectedCall.id }
+                    let action: AgentHumanDecisionAction
+                    if approvedCall != nil {
+                        action = .allowOnce
+                    } else if selectedItem?.risk == .writesWorkspace || selectedItem?.risk == .externalSideEffect {
+                        action = .denyAndStop
+                    } else {
+                        action = .denyAndContinue
+                    }
+                    let resumedRun = try await agentService.resumePendingToolCall(
+                        runID: currentRun.id,
+                        action: action,
+                        feedback: agentToolCorrectionFeedback[selectedCall.id],
+                        in: currentWorkspace,
+                        root: currentResearchRoot,
+                        currentProjectID: agentConversationProjectID,
+                        selectedPaperID: selectedPaperID,
+                        includedPaperIDs: agentKnowledgePaperIDsForContext,
+                        allowedToolNames: effectiveAgentAllowedToolNames,
+                        disabledHookIDs: agentDisabledHookIDs,
+                        configuration: llmConfiguration,
+                        apiKey: try await resolvedLLMAPIKey(for: currentWorkspace),
+                        responseDeltaHandler: makeAgentStreamingDeltaHandler()
+                    )
+                    agentCurrentRun = resumedRun
+                    try await attachRunToActiveThread(resumedRun, in: currentWorkspace)
+                    resetAgentPermissionDockState()
+                    agentStatusMessage = resumedRun.completedAt == nil ? "等待下一步工具审批。" : "已从审批点继续生成回复。"
+                    try await loadWorkspaceData(
+                        in: currentWorkspace,
+                        selectingPaper: selectedPaperID,
+                        selectingMarkdown: selectedMarkdownID
+                    )
+                    return
+                }
+
                 let executedRun = try await agentService.executeApprovedPlan(
                     goal: goal,
                     plan: currentRun.plan,

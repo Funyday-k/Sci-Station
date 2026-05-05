@@ -1,194 +1,810 @@
-# Sci-Station macOS 软件设计审阅意见
+可以。我先说明边界：我不能在这里把整个 Xcode 工程像本地 IDE 一样完整编译、逐行调试；但我已经基于你提供的 README/仓库上下文，以及 Agent 目录中可见的核心代码结构，做了架构判断。我的结论是：
+
+**不要在 Swift 里继续自研完整 agent 框架。建议保留 Sci-Station 现有 Swift App、权限 UI、本地文件系统与 Repository 层，把成熟 agent runtime 作为本地 sidecar 嵌入。首选方案是：LangGraph Python 作为主 agent 编排框架 + MCP 作为工具/知识接口标准 + 可选 OpenAI Agents SDK Sandbox 处理代码执行/长任务。**
+
+---
+
+## 1. 你现在的 Agent 能力大致处于什么阶段
+
+从项目描述看，Sci-Station 已经有很好的“科研工作台底座”：本地 Research Root、论文库、Wiki、Materials、Tasks、PDF Reader、项目视图、AI Lab、权限面板、hook、session event、run log 等都已经搭起来了，而且数据原则是本地优先，核心数据落在用户可见目录中 [1]。LLM API Key 也已经通过 Keychain 保存，settings 只保存非敏感配置 [1]。
+
+但目前 Agent 本身更像是一个 **plan-and-execute 原型**，不是成熟的长期运行 agent：
+
+- 有 `AgentPlanner`：让 LLM 生成一个结构化 plan。
+- 有 `AgentToolRegistry` / `AgentToolExecutor`：注册和执行工具。
+- 有基础工具：列论文、读论文、搜索论文、创建 todo、更新论文分类、写 markdown plan。
+- 有审批：写入工具需要用户确认。
+- 有 JSONL run log、thread、draft、session events。
+- 有 hooks、permission dock、MCP UI 的雏形，但 README 也明确说当前阶段“不启动 MCP server”，外部 side-effect MCP tools 仍需进入 permission layer [1]。
+
+这说明你现在强的是 **产品壳、知识库结构、权限与本地文件模型**，弱的是：
+
+1. 没有真正的多轮 agent loop。  
+2. 没有 durable checkpoint / resume。  
+3. 没有工具调用后的反思、重试、分支、子任务分解。  
+4. 没有成熟的 RAG / citation / evidence pipeline。  
+5. MCP 还只是 UI/配置边界，没有成为真正的工具协议层。  
+6. 代码执行、文件编辑、实验复现等能力还没有沙箱化。  
+7. 当前工具数量少，且工具语义仍是 app 内部函数，不是可扩展插件系统。  
+
+所以正确方向不是“把现在的 Swift Agent 继续堆复杂”，而是把它改造成 **Sci-Station Agent Host**，让成熟 runtime 来做循环、状态机、human-in-the-loop、checkpoint、多 agent 协作。
+
+---
+
+## 2. 推荐总架构
+
+我建议的目标架构：
+
+```text
+Sci-Station.app  SwiftUI / macOS
+│
+├─ AI Lab UI
+│  ├─ Chat / thread
+│  ├─ Plan viewer
+│  ├─ Permission Dock
+│  ├─ Event timeline
+│  └─ Diff / approval / resume UI
+│
+├─ Swift Domain Layer
+│  ├─ PaperRepository
+│  ├─ MarkdownRepository
+│  ├─ TodoRepository
+│  ├─ ProjectPaperLinkRepository
+│  ├─ Workspace / Materials / PDF services
+│  └─ Keychain / settings / security-scoped bookmark
+│
+├─ SciStationAgentBridge
+│  ├─ start_run
+│  ├─ stream_events
+│  ├─ approve_tool_call
+│  ├─ deny_tool_call
+│  ├─ cancel_run
+│  └─ get_checkpoint
+│
+└─ Local Agent Runtime Sidecar  Python
+   │
+   ├─ LangGraph Orchestrator
+   │  ├─ graph state
+   │  ├─ checkpoint
+   │  ├─ human interrupt
+   │  ├─ subgraphs
+   │  └─ streaming events
+   │
+   ├─ MCP Client
+   │  └─ connects to Sci-Station MCP Server
+   │
+   ├─ Optional RAG Layer
+   │  ├─ SQLite FTS
+   │  ├─ sqlite-vec / Qdrant / LanceDB
+   │  └─ local index metadata
+   │
+   └─ Optional Code Sandbox
+      ├─ OpenAI Agents SDK sandbox
+      ├─ local .venv runner
+      └─ restricted filesystem mount
+```
+
+其中：
+
+- **Swift App 继续负责产品体验、文件系统、权限、Keychain、本地数据。**
+- **LangGraph 负责 agent 状态机、循环、checkpoint、human-in-the-loop。**
+- **MCP 负责把 Sci-Station 的知识库能力暴露成标准工具。**
+- **OpenAI Agents SDK Sandbox 可作为“代码执行/长任务 worker”，不是主编排框架。**
+
+---
+
+## 3. 为什么首选 LangGraph，而不是 CrewAI / AutoGen / Semantic Kernel / 纯 OpenAI Agents SDK
+
+### 首选：LangGraph
+
+你的场景非常适合 LangGraph，因为 Sci-Station 不是简单聊天机器人，而是：
+
+- 长任务：读几十篇论文、归纳 gap、写 proposal。
+- 有状态：项目、论文、Wiki、任务、材料、运行记录。
+- 需要暂停审批：写文件、改元数据、创建任务、运行代码。
+- 需要可恢复：agent 可能跑一半等待用户批准。
+- 需要多角色：文献管家、论文阅读器、Wiki 作者、实验助手、项目经理。
 
-本文从 macOS 桌面软件设计视角审阅 Sci-Station 当前代码框架、信息架构与主要 UI 实现。审阅范围包括 `README.md`、`ContentView.swift`、`Sci_StationApp.swift`、`AppViewModel.swift`、`MainShellViews.swift`、`LibraryViews.swift`、`ProjectOverviewView.swift`、`MaterialsView.swift`、`WikiViews.swift`、`MarkdownEditorView.swift`、`SettingsViews.swift`、`EmbeddedPDFReaderView.swift` 以及 Workspace / Library / Repository 等核心层。
+LangGraph 的核心价值正好是：**stateful、durable、human-in-the-loop、streaming、multi-step orchestration**。
 
-## 总体判断
+### OpenAI Agents SDK：适合作为可选执行层
 
-Sci-Station 已经具备清晰的产品方向：它不是单一 PDF 管理器，而是一个本地优先的科研工作站，把论文库、项目、Wiki、材料、任务、PDF 阅读和 LLM 辅助放在同一个 macOS 应用里。当前架构采用 SwiftUI + MVVM + Service/Repository + actor 的组合，数据层坚持文件系统优先，Markdown / YAML / PDF 都落在用户可见目录中。这一方向非常适合科研用户，也符合 macOS 上“用户拥有文件、应用组织文件”的心智模型。
+OpenAI Agents SDK 现在对 OpenAI 模型、tool calling、sandbox、文件/命令执行支持越来越好。如果你未来明确绑定 OpenAI 模型，它可以做主框架。但你的 README 里写的是 OpenAI-compatible API 设置 [1]，说明你可能希望兼容不同 provider。那 LangGraph 更灵活。
 
-从产品形态看，项目已经完成了从“功能原型”到“可使用工作台”的关键骨架：三栏 `NavigationSplitView`、全局 Library、项目 Overview、Materials 浏览、Wiki 编辑、Dashboard、Settings、PDFKit Reader、Finder / VS Code / Apple Reminders 联动都已经出现。下一阶段最重要的不是继续堆功能，而是把它打磨成更像一个成熟 Mac 应用：更原生的导航与表格行为、更完整的菜单和快捷键、更可靠的窗口模型、更明确的信息层级，以及更细致的错误恢复。
+我的建议是：
 
-## 已有设计优势
+- **主控：LangGraph**
+- **代码执行/文件操作 sandbox：可选接 OpenAI Agents SDK Sandbox**
+- **模型调用：仍保留 OpenAI-compatible provider 配置**
 
-1. **本地优先的数据模型是产品核心优势。** Workspace 使用用户可见目录，论文、标注、Wiki、任务、偏好都用普通文件组织，这让用户可以备份、版本控制、外部编辑和迁移。这个方向应继续保持，不建议过早把核心数据隐藏进私有数据库。
+### LlamaIndex：适合做知识/RAG，不适合做主编排
 
-2. **代码分层方向正确。** `WorkspaceService`、`PaperRepository`、`ProjectPaperLinkRepository`、`MarkdownRepository`、`TodoRepository` 等承担了明确的文件读写职责，SwiftPM target 又把核心逻辑从 UI 中排除出来，方便用 `SciStationCoreTestRunner` 做行为验证。
+LlamaIndex 在论文、文档、索引、query engine、citation retrieval 方面很强。你可以把它作为：
 
-3. **macOS 原生能力已经被纳入设计。** 当前已经使用 security-scoped bookmark、Finder reveal、PDFKit、EventKit、Keychain、Settings scene、菜单命令和系统打开方式。这些能力是 Mac 应用体验的基础，后续应把它们从“能调用”提升到“符合 Mac 用户预期”。
+- paper.md / wiki / materials 的索引层
+- semantic search
+- evidence retrieval
+- citation-aware synthesis
 
-4. **研究项目的工作流表达有潜力。** Projects Overview 把 proposal、core papers、data、code、figures、outputs、tasks 和 shared context 组织成研究流程，比传统文献管理器更贴近科研过程。
+但主 agent 状态机还是 LangGraph 更合适。
 
-5. **PDF Reader 与论文元数据闭环已经成形。** 从 Library 双击进入内置 PDF Reader，Reader 侧栏提供 Metadata、Notes、Tasks、Citations、Links、Abstract、Files，这是很好的“阅读中工作台”方向。
+### CrewAI：适合快速多角色 demo，不建议做你的底座
 
-## 高优先级改进建议
+CrewAI 对“多个角色协作”上手快，但你的核心需求是本地知识库、严格审批、可恢复状态机、工具安全、复杂工作流。CrewAI 的抽象偏高，后期反而可能卡住。
 
-### 1. 让导航更符合 macOS Sidebar 语义
+### Microsoft Agent Framework / Semantic Kernel
 
-当前 Sidebar 是自定义 `VStack` / `ScrollView` / `onTapGesture` 组合，视觉上接近侧边栏，但缺少 `List(selection:)`、Outline、键盘选择、焦点环、VoiceOver 语义和系统选择行为。项目、Library folders、Tags 又都放在同一个手写侧栏里，随着项目和文件夹增长，用户会很快遇到层级拥挤和选择状态不清的问题。
+如果你是 .NET / Azure / enterprise stack，它很强。但你的项目是 Swift macOS 本地优先工具，直接嵌入 Microsoft Agent Framework 会引入过重生态依赖，不是最自然。
 
-建议：
+---
 
-- 将主侧边栏逐步迁移为 `List(selection:)` + `Section` + `DisclosureGroup` / `OutlineGroup`，保留当前视觉风格但交给系统处理选择、键盘、可访问性和高亮。
-- 明确区分“当前项目”“当前页面”“Library filter”三种状态。现在 project 单击是 focus，双击才 open，这在 Mac 上不够直观，建议改为单击即进入项目 Overview，并在内容区顶部显示项目 breadcrumb。
-- 侧栏底部的 Settings 可以保留，但全局 Settings 也应符合 macOS 菜单和 Settings scene 的入口预期，避免同一设置有两个不完全一致的入口。
+## 4. 关键设计：把 Sci-Station 做成 MCP Server
 
-### 2. Library 应改造成真正的 Mac 表格体验
+你现在已有很多 Swift Repository 和 Service。不要让 Python sidecar 直接乱读 Research Root 文件，也不要重写一套 Python Repository。更好的做法是：
 
-Library 是应用的核心生产力页面，但当前表格是自定义 header + `ScrollView` + `LazyVStack`。这能快速实现列显示和拖拽排序，但距离 macOS 用户期待的表格还有差距：列宽调整、排序、多选、键盘上下移动、空格预览、复制字段、批量操作、拖拽到文件夹、右键菜单作用于多选项等都会变得困难。
+**由 Sci-Station 暴露一个本地 MCP Server，把内部能力包装成标准 tools/resources/prompts。**
 
-建议：
+### 4.1 MCP Tools 设计
 
-- 优先评估 SwiftUI `Table` + `TableColumn`，如果受限再考虑轻量 `NSTableView` wrapper。Library 是最值得引入原生表格能力的地方。
-- 增加排序模型：标题、作者、年份、更新时间、评分、优先级、阅读状态都应可排序，并把排序状态写入 workspace preferences。
-- 支持多选和批量操作：移动文件夹、加标签、加入项目、标记 core、导出 BibTeX、删除。
-- 搜索框建议接入 `.searchable` 或至少提供 `Cmd+F` 聚焦搜索；过滤条件应该以 token / chip 形式展示，让用户知道当前列表为什么变少。
-- 删除提示文案仍提到 `raw/papers`，但 README 显示新导入已进入 `library/papers`。建议统一为“从 workspace 中删除该论文目录”，并显示实际相对路径。
+先分三类。
 
-### 3. 补齐菜单栏、快捷键和命令体系
+#### A. Read-only tools，默认自动允许
 
-当前 `Sci_StationApp.swift` 只有 Workspace 和 Paper 两个自定义菜单，且快捷键很少。Mac 用户会自然尝试 `Cmd+O` 打开、`Cmd+N` 新建、`Cmd+S` 保存、`Cmd+F` 搜索、`Space` 预览、`Cmd+,` 设置、`Cmd+I` Inspector、`Cmd+W` 关闭窗口等。
-
-建议：
-
-- 建立完整 Command 设计：Workspace、Project、Paper、View、Navigate、Window、Help。
-- 关键命令建议先补：New Project、Create/Open Workspace、Import PDF、Add by Identifier、Save Metadata、Save Wiki Page、Search Library、Open in Reader、Open External PDF、Reveal in Finder、Toggle Inspector、Toggle Reader Sidebar。
-- 将 Reader 搜索绑定到 `Cmd+F`，页码跳转和 zoom 也应支持快捷键。
-- 对所有 destructive command 保持菜单 disabled 状态和确认流程一致。
-
-### 4. 重新设计窗口与多任务模型
-
-当前 App 使用单个 `WindowGroup` 和一个全局 `AppViewModel`。这对原型简单，但科研工作常常需要同时比较多个项目、多个 PDF、一个 Wiki 页面和一个 PDF。macOS 用户也会期待可以打开多个窗口或独立 Reader 窗口。
-
-建议：
-
-- 将全局服务和每个窗口的 UI state 分开。workspace 数据可以共享，但 selected section、selected paper、reader state、markdown draft 等应更接近 per-window state。
-- 增加“Open Reader in New Window”或“Open Paper in Separate Window”，用于并排阅读论文。
-- 支持恢复窗口状态：最近 workspace、当前项目、最近页面、Reader 页码、Wiki 编辑模式、Library 列宽和排序。
-- 如果暂不支持多窗口，应在产品层明确这是单工作台模式，并确保 Reader 切换不会让用户丢失 Library 上下文。
-
-### 5. Settings 页面需要从长表单变成 macOS 偏好面板
-
-当前 Settings 把 Research Root、Projects、Library、Migration、Tasks/Reminders、LLM、Settings Files 放在一个长 ScrollView。功能可用，但长期会变成“管理后台”，不太像 Mac 设置面板。
-
-建议：
-
-- 使用 Settings scene 内的分组导航或 toolbar tabs：General、Library、Projects、Integrations、AI、Advanced。
-- 将 Legacy migration 放入 Advanced 或独立 sheet，显示 dry-run 结果、冲突处理和报告入口。
-- 对 Clear Recent Workspace、Delete Folder、Copy Ready legacy papers 等操作加更明确的风险说明和二次确认。
-- LLM API Key 存 Keychain 是正确方向，UI 上应明确“不会写入 workspace 明文文件”。
-
-### 6. 强化错误恢复与长任务反馈
-
-当前错误主要通过全局 alert 呈现，长任务以 `ProgressView` 和状态文字为主。随着远程导入、PDF 下载、LLM 调用、Reminders 同步、Legacy migration 增多，单一 alert 会让用户难以判断哪个对象失败、是否可重试、失败后数据是否安全。
-
-建议：
-
-- 为导入、迁移、LLM、Reminders、文件保存建立局部错误状态，并提供 Retry、Reveal Log、Copy Error、Open Target Folder 等 recovery action。
-- 对批量导入提供可展开的结果清单：成功、跳过、失败、失败原因、可重试项。
-- 对文件写入和删除提供更清晰的 atomic / backup 策略。删除论文目录前可考虑移入 workspace 内 Trash 或 `.sci-station/trash`，再提供清空操作。
-
-## 中优先级设计建议
-
-### 1. Onboarding 应少展示目录树，多解释用户收益
-
-空 workspace 页面现在展示大量目录和 seeded files，这对开发者有帮助，但对普通用户偏技术。建议把第一屏改成“创建研究根目录 / 打开已有根目录 / 从 Zotero 或 PDF 文件夹开始 / 查看示例项目”，目录结构放到 Advanced 或 Help 中。
-
-### 2. Project Overview 需要更强的“下一步”导向
-
-当前 Overview 有指标卡、Project Brief、Core Papers、Project Documents、Workflow tiles。建议增加一个明确的 Next Actions 区域，例如“补充 proposal、导入核心论文、添加第一个任务、打开 data/code 文件夹”。科研工作站的首页应帮用户继续推进研究，而不仅是展示入口。
-
-### 3. Wiki 编辑器需要文档级编辑体验
-
-当前 Markdown editor 已支持 Source / Preview / Split 和 snippets，这是好基础。建议补充：
-
-- `Cmd+S` 保存、dirty indicator、关闭/切换页面前的未保存确认。
-- 编辑器 line wrap、字体大小、字数/行数、插入 wikilink、快速打开页面。
-- Preview 滚动同步和本地资源安全策略。
-- snippets 图形化管理，减少用户直接编辑 YAML 的频率。
-
-### 4. Materials 更适合接入 Quick Look 与文件监听
-
-Materials 页面已经能预览 Markdown、Python、文本、图片和 PDF，并能打开 VS Code / Finder。建议继续 Mac 化：
-
-- 使用 Quick Look 或 QuickLookThumbnailing 提供更接近 Finder 的文件预览。
-- 接入 FSEvents 或目录监听，减少手动 Reload。
-- 支持拖拽文件到 Materials、从 Materials 拖到 Finder / 邮件 / 其他 App。
-- Python 运行结果目前更像桥接入口，后续可显示最近运行状态、日志位置和失败原因。
-
-### 5. PDF Reader 可向“研究阅读器”深化
-
-当前 PDFKit reader 已有页码、搜索、缩放、历史前进后退和右侧面板。建议下一阶段优先做：
-
-- `Cmd+F` 搜索、Find Next/Previous、搜索结果计数。
-- 页缩略图或 Outline 面板，用于长论文导航。
-- Reader Notes 自动保存或显式 dirty 状态，避免用户以为输入已保存。
-- 从 PDF 选中文本创建 note / task / citation snippet。
-- 支持独立窗口和最近阅读队列。
-
-## 架构层建议
-
-### 1. 拆分过大的 AppViewModel
-
-`AppViewModel` 当前承担 workspace、project、library、import、wiki、tasks、calendar、LLM、PDF reader、settings、migration 等大量状态和操作。对于早期原型这是有效的，但继续增长会降低测试性和 UI 变更速度。
-
-建议逐步拆成：
-
-- `WorkspaceCoordinator`：打开、恢复、权限、root compatibility。
-- `LibraryViewModel`：列表、筛选、排序、选择、批量操作、导入状态。
-- `ProjectViewModel`：当前项目、项目 registry、overview 数据。
-- `WikiViewModel`：页面列表、草稿、保存、backlinks、snippets。
-- `ReaderViewModel`：PDF 页面、搜索、侧栏、阅读状态。
-- `SettingsViewModel`：偏好、迁移、集成状态。
-
-不需要一次性重构。可以从 Library 和 Wiki 这两个 UI 状态最重的区域开始。
-
-### 2. 保持文件优先，但建立版本化迁移策略
-
-当前 YAML / Markdown 文件可见是优势，但也意味着格式升级需要严肃处理。建议为每类持久文件建立 schema version、迁移器和验证器，并在 Settings / Advanced 中提供“Validate Workspace”入口。
-
-重点对象：
-
-- `settings/workspace_preferences.yaml`
-- `library/paper_index.yaml`
-- `library/project_paper_links.yaml`
-- `paper/meta.yaml`
-- `tasks/todos.yaml`
-- `settings/markdown_snippets.yaml`
-
-### 3. 核心验证器可继续扩大到 UI 前的行为契约
-
-`SciStationCoreTestRunner` 已经覆盖许多文件系统与元数据逻辑。建议继续补以下合同测试：
-
-- Project link 与 paper metadata mirror 的冲突处理。
-- Collection rename / move 后的引用一致性。
-- Markdown backlinks 和 snippets 的边界情况。
-- Remote import provider 的固定 fixture。
-- Workspace migration 的 dry-run 与 report 格式。
-
-## 视觉与交互细节建议
-
-1. **统一标题层级。** 有些页面使用 `.largeTitle`，Settings 使用 42pt rounded bold，Empty Workspace 也使用 42pt。建议建立统一页面标题样式，避免设置页显得比核心工作页更重。
-
-2. **减少纯图标按钮。** 侧栏顶部和 Reader 工具栏大量使用 icon-only button。虽然有 `.help`，但仍建议补充 accessibility label，并在关键位置使用 `Label` 或可配置的文本显示。
-
-3. **谨慎使用项目颜色作为大面积背景。** Project cards 和 Sidebar project group 使用项目色 opacity。建议检查深色模式、高对比度和不同 accent color 下的可读性。
-
-4. **统一 primary action。** Library 的 Add by Link、Wiki 的 Save、Settings 的 Rename/Save、Materials 的 VS Code 都使用 prominent，但语义不完全一致。每个页面最好只有一个最主要的 prominent action。
-
-5. **提供空状态的下一步操作。** Library、Wiki、Materials、Projects 的空状态应直接提供 Import / Create / Open Folder 等下一步，而不仅是说明文字。
-
-## 建议的实施顺序
-
-1. **第一阶段：Mac 基础体验补齐。** 完成菜单命令、快捷键、`.searchable`、Reader `Cmd+F`、Wiki `Cmd+S`、删除文案修正、关键 icon button accessibility label。
-
-2. **第二阶段：Library 原生化。** 将论文列表迁移到 `Table` 或 `NSTableView` wrapper，加入排序、多选、批量操作和列宽持久化。
-
-3. **第三阶段：导航和窗口模型。** 侧栏迁移到 selection-based List / Outline，明确 current project 和 current page，增加独立 Reader window。
-
-4. **第四阶段：Settings 和错误恢复。** Settings 分区，迁移/导入/LLM/Reminders 提供局部错误、结果报告和重试。
-
-5. **第五阶段：科研工作流深化。** Project Overview 加 Next Actions，Wiki 加更完整编辑体验，Materials 加 Quick Look / FSEvents，PDF Reader 加选中文本到 note/task。
-
-## 结论
-
-Sci-Station 当前最有价值的部分不是某一个单点功能，而是“本地文件系统 + 科研项目工作流 + Mac 原生能力”的组合。代码框架已经足够支撑继续迭代，但 UI 需要尽快从自定义原型控件转向 macOS 用户熟悉的系统行为，尤其是 Sidebar、Table、Menu Commands、Window 和 Settings。只要下一阶段优先打磨这些 Mac 基础体验，Sci-Station 会更像一个可信赖的日常科研工具，而不是功能很多但操作仍偏原型的实验应用。
+```text
+list_projects
+get_project_overview
+list_papers
+search_papers
+read_paper_metadata
+read_paper_markdown
+read_paper_section
+search_wiki
+read_wiki_page
+list_materials
+read_material
+list_tasks
+get_backlinks
+get_related_papers
+```
+
+这些工具不修改 workspace，可以默认 allow，但仍记录 session events。
+
+#### B. Workspace write tools，必须审批
+
+```text
+create_wiki_page
+patch_wiki_page
+replace_wiki_page
+create_todo
+update_todo
+update_paper_metadata
+link_paper_to_project
+set_core_paper
+add_tags_to_paper
+import_identifier
+move_material
+create_project_note
+```
+
+这些工具必须在 Swift UI 的 Permission Dock 里展示：
+
+- 工具名
+- 参数
+- 影响路径
+- diff
+- 风险等级
+- allow once / deny / edit arguments / ask agent to revise
+
+#### C. High-risk tools，默认禁止或沙箱
+
+```text
+run_python
+run_shell
+install_package
+open_external_url
+call_external_api
+write_code_file
+delete_file
+bulk_modify_files
+```
+
+这些需要更严格策略：
+
+- 默认 deny 或 ask。
+- 只允许在 workspace `.venv` 或 sandbox 里执行。
+- 文件写入只允许进入 `.sci-station/agent/runs/{run_id}/artifacts/`，再由用户批准合并。
+
+---
+
+## 5. 推荐的 LangGraph 状态机
+
+你可以把科研 agent 分成几个子图。
+
+### 5.1 顶层 Router Graph
+
+```text
+User Input
+   ↓
+Intent Router
+   ↓
+┌───────────────────────────────┐
+│ literature_review_graph        │
+│ paper_reading_graph            │
+│ wiki_writing_graph             │
+│ project_planning_graph         │
+│ task_management_graph          │
+│ experiment_code_graph          │
+│ import_and_triage_graph        │
+└───────────────────────────────┘
+   ↓
+Final Response + Artifacts
+```
+
+### 5.2 文献综述 Graph
+
+```text
+clarify_scope
+   ↓
+retrieve_candidate_papers
+   ↓
+read_key_papers
+   ↓
+extract_claims_methods_gaps
+   ↓
+build_evidence_table
+   ↓
+draft_related_work
+   ↓
+critic_check_citations
+   ↓
+approval_before_write
+   ↓
+write_wiki_or_project_doc
+```
+
+产物：
+
+```text
+projects/{project-id}/wiki/literature_review.md
+wiki/gaps/{topic}.md
+wiki/methods/{method}.md
+.sci-station/agent/runs/{run-id}/evidence.json
+```
+
+### 5.3 单篇论文精读 Graph
+
+```text
+load_paper_metadata
+   ↓
+read_abstract_intro
+   ↓
+read_method
+   ↓
+read_experiments
+   ↓
+extract_contributions
+   ↓
+extract_limitations
+   ↓
+generate_structured_note
+   ↓
+approval_before_write
+   ↓
+update paper.md / annotations.md / wiki/papers/{citekey}.md
+```
+
+### 5.4 项目规划 Graph
+
+```text
+load_project_context
+   ↓
+load_core_papers
+   ↓
+analyze_current_tasks
+   ↓
+propose_milestones
+   ↓
+generate_todos
+   ↓
+approval_before_task_creation
+   ↓
+write_project_plan
+```
+
+### 5.5 代码/实验 Graph
+
+```text
+inspect_code_materials
+   ↓
+plan_experiment
+   ↓
+approval_before_execution
+   ↓
+run_in_sandbox
+   ↓
+collect_outputs
+   ↓
+summarize_results
+   ↓
+approval_before_commit
+   ↓
+write_report / update figures / create tasks
+```
+
+---
+
+## 6. 你现有 Swift Agent 层应该怎么改
+
+不要全删。建议改造成 façade。
+
+### 6.1 保留的部分
+
+保留：
+
+- `SciStationAgentService` 对 UI 的接口。
+- `AgentRunLogger`
+- `AgentSessionEventLogger`
+- `AgentThreadRepository`
+- `AgentPromptDraftRepository`
+- `AgentPermissionEvaluator`
+- Permission Dock UI
+- Hook Activity UI
+- Preset Manager UI
+- LLM Settings / Keychain / provider config
+
+这些是产品资产。
+
+### 6.2 替换的部分
+
+逐步弱化或替换：
+
+- `AgentPlanner`：不再让 Swift 自己 prompt LLM 生成 JSON plan。
+- `AgentPlanParser`：只作为 legacy fallback。
+- `AgentToolExecutor`：不再直接执行全部工具，改成 MCP tool gateway。
+- Built-in tools：迁移为 MCP tools，或通过 `SciStationToolHost` 统一暴露。
+
+### 6.3 新增一个 Agent Runtime Adapter
+
+Swift 侧定义协议：
+
+```swift
+public protocol ExternalAgentRuntime: Sendable {
+    func startRun(_ request: AgentRunRequest) async throws -> AsyncThrowingStream<AgentRuntimeEvent, Error>
+    func resumeRun(runID: String, decision: AgentHumanDecision) async throws
+    func cancelRun(runID: String) async throws
+    func loadCheckpoint(runID: String) async throws -> AgentCheckpoint?
+}
+```
+
+然后实现：
+
+```swift
+public actor LangGraphAgentRuntime: ExternalAgentRuntime {
+    private let transport: AgentRuntimeTransport
+
+    public func startRun(_ request: AgentRunRequest) async throws -> AsyncThrowingStream<AgentRuntimeEvent, Error> {
+        try await transport.stream(method: "agent.start", payload: request)
+    }
+
+    public func resumeRun(runID: String, decision: AgentHumanDecision) async throws {
+        try await transport.call(method: "agent.resume", payload: [
+            "run_id": runID,
+            "decision": decision
+        ])
+    }
+
+    public func cancelRun(runID: String) async throws {
+        try await transport.call(method: "agent.cancel", payload: [
+            "run_id": runID
+        ])
+    }
+}
+```
+
+Transport 可以先用：
+
+1. `Process` + stdio JSON-RPC  
+2. 后续再换 localhost HTTP / WebSocket  
+3. 正式发布时可 bundle 一个 helper  
+
+---
+
+## 7. Python sidecar 的结构
+
+建议仓库新增：
+
+```text
+AgentRuntime/
+├── pyproject.toml
+├── sci_station_agent/
+│   ├── main.py
+│   ├── server.py
+│   ├── graph/
+│   │   ├── state.py
+│   │   ├── router.py
+│   │   ├── literature_review.py
+│   │   ├── paper_reading.py
+│   │   ├── wiki_writing.py
+│   │   ├── project_planning.py
+│   │   └── experiment_code.py
+│   ├── mcp_client/
+│   │   ├── client.py
+│   │   └── tools.py
+│   ├── rag/
+│   │   ├── indexer.py
+│   │   ├── retriever.py
+│   │   └── citations.py
+│   ├── safety/
+│   │   ├── policy.py
+│   │   └── approvals.py
+│   └── storage/
+│       ├── checkpoints.py
+│       └── events.py
+└── tests/
+```
+
+LangGraph State 示例：
+
+```python
+from typing import TypedDict, Annotated, Literal
+from langgraph.graph.message import add_messages
+
+class SciStationAgentState(TypedDict):
+    run_id: str
+    thread_id: str | None
+    project_id: str | None
+    selected_paper_id: str | None
+    user_goal: str
+    messages: Annotated[list, add_messages]
+    intent: str | None
+    plan: dict | None
+    evidence: list[dict]
+    draft_artifacts: list[dict]
+    pending_approval: dict | None
+    approved_actions: list[dict]
+    denied_actions: list[dict]
+    final_response: str | None
+```
+
+approval node：
+
+```python
+def approval_gate(state: SciStationAgentState):
+    risky_actions = [
+        a for a in state.get("draft_artifacts", [])
+        if a.get("risk") in {"writes_workspace", "runs_code", "external_side_effect"}
+    ]
+
+    if not risky_actions:
+        return {"pending_approval": None}
+
+    return interrupt({
+        "type": "approval_required",
+        "actions": risky_actions,
+        "message": "这些操作需要用户确认后才能执行。"
+    })
+```
+
+---
+
+## 8. RAG / 知识索引建议
+
+你的项目已经有：
+
+- `library/papers/{paper-id}/paper.md`
+- `meta.yaml`
+- `annotations.md`
+- `wiki/`
+- `projects/{project-id}/wiki/`
+- `materials`
+- `tasks`
+- `shared_research.md`
+
+建议建立一个本地索引：
+
+```text
+.sci-station/index/
+├── chunks.sqlite
+├── embeddings.sqlite
+├── paper_chunks.jsonl
+├── wiki_chunks.jsonl
+└── material_chunks.jsonl
+```
+
+### 8.1 第一阶段：SQLite FTS
+
+先不要急着上向量库。第一版用：
+
+- SQLite FTS5
+- title / abstract / author / tag / citekey / BibTeX / wiki links
+- chunk path + line range
+- updated_at 增量更新
+
+这样与你的本地优先原则一致。
+
+### 8.2 第二阶段：Embedding
+
+再支持：
+
+- sqlite-vec
+- LanceDB
+- Qdrant local
+- 或者可选 OpenAI-compatible embedding API
+
+### 8.3 Agent 必须输出 evidence
+
+所有严肃科研回答都要求：
+
+```json
+{
+  "claim": "某方法在小样本设置下更稳定",
+  "evidence": [
+    {
+      "source_type": "paper",
+      "paper_id": "smith2024...",
+      "path": "library/papers/.../paper.md",
+      "lines": [120, 148],
+      "quote": "短摘录",
+      "confidence": 0.78
+    }
+  ]
+}
+```
+
+这样 Wiki 写入时可以生成可追踪的科研笔记，而不是普通聊天总结。
+
+---
+
+## 9. 最小可行迁移路线
+
+### Phase 0：冻结现有 Swift Agent API
+
+目标：不要继续让 UI 直接依赖 `AgentPlanner` / `AgentToolExecutor`。
+
+做：
+
+- 定义 `ExternalAgentRuntime`
+- 当前 Swift 内置 agent 包一层 `LegacySwiftAgentRuntime`
+- AI Lab UI 只依赖 runtime protocol
+
+收益：以后可以平滑切 LangGraph。
+
+---
+
+### Phase 1：做 Sci-Station MCP Server
+
+先实现 stdio MCP server，暴露只读工具：
+
+```text
+list_papers
+read_paper_markdown
+search_papers
+read_wiki_page
+search_wiki
+list_tasks
+```
+
+Swift 实现方式有两种：
+
+#### 方案 A：Swift 原生 MCP Server
+
+优点：直接复用 Repository。  
+缺点：你要自己实现 MCP JSON-RPC 细节。
+
+#### 方案 B：Python MCP Server + Swift CLI bridge
+
+优点：MCP SDK 生态成熟，上手快。  
+缺点：Python 需要调用 Swift CLI 或直接读文件，可能重复逻辑。
+
+我建议：
+
+- 短期用 Python MCP server 直接读 Research Root 文件。
+- 中期把关键写入能力切回 Swift service，避免 Python 破坏数据一致性。
+- 长期做 Swift 原生 MCP host。
+
+---
+
+### Phase 2：接入 LangGraph sidecar
+
+实现三个 API：
+
+```text
+agent.start
+agent.resume
+agent.cancel
+```
+
+事件流统一成：
+
+```json
+{"type":"run_started","run_id":"..."}
+{"type":"node_started","node":"retrieve_papers"}
+{"type":"tool_call_requested","tool":"search_papers","args":{...}}
+{"type":"tool_call_completed","tool":"search_papers","result_summary":"..."}
+{"type":"approval_required","actions":[...]}
+{"type":"artifact_draft","path":"wiki/plans/xxx.md","diff":"..."}
+{"type":"final_response","content":"..."}
+```
+
+Swift AI Lab 直接把这些映射到现有 session timeline。
+
+---
+
+### Phase 3：先做 3 个高价值 workflow
+
+不要一开始做“万能科研 agent”。先做最能体现 Sci-Station 价值的三个：
+
+#### Workflow 1：单篇论文精读
+
+用户说：
+
+> 帮我精读当前 PDF，生成结构化笔记和待办。
+
+Agent 做：
+
+1. 读取 meta.yaml。
+2. 读取 paper.md。
+3. 提取贡献、方法、实验、局限。
+4. 生成 `wiki/papers/{citekey}.md` 草稿。
+5. 生成相关 todo 草稿。
+6. 请求用户审批。
+7. 写入文件和 tasks。
+
+#### Workflow 2：项目 related work 草稿
+
+用户说：
+
+> 基于当前项目核心论文，写一版 related work。
+
+Agent 做：
+
+1. 获取 project core papers。
+2. 检索 paper.md。
+3. 生成 evidence table。
+4. 按主题聚类。
+5. 写 `projects/{project-id}/wiki/related_work.md` 草稿。
+6. 用户审批后保存。
+
+#### Workflow 3：研究计划 / gap 分析
+
+用户说：
+
+> 分析这个项目还有哪些 research gaps，拆成任务。
+
+Agent 做：
+
+1. 读 project overview。
+2. 读 core papers。
+3. 读 existing tasks。
+4. 生成 gaps、hypotheses、next experiments。
+5. 创建 todo 和 project plan 草稿。
+6. 审批后写入。
+
+这三个做好，你的知识平台 agent 就已经明显超越普通 PDF chat。
+
+---
+
+## 10. 权限系统要继续由 Swift 掌控
+
+不要把审批逻辑完全交给 LangGraph。正确边界是：
+
+```text
+LangGraph 决定“想做什么”
+Swift Permission Layer 决定“能不能做”
+Sci-Station Repository 执行“怎么安全地做”
+```
+
+审批对象不要只是“工具名”，而应该是：
+
+```json
+{
+  "tool": "patch_wiki_page",
+  "risk": "writes_workspace",
+  "permission_key": "wiki.write",
+  "target_path": "projects/demo/wiki/related_work.md",
+  "diff": "...",
+  "reason": "根据 8 篇核心论文生成 related work 草稿",
+  "rollback": {
+    "backup_path": ".sci-station/agent/backups/..."
+  }
+}
+```
+
+UI 给用户四个按钮：
+
+```text
+Allow once
+Deny
+Edit arguments
+Ask agent to revise
+```
+
+你 README 中已经有 Permission Dock、allow once、deny、correction feedback 等概念 [1]，所以这是顺着现有设计往成熟化推进。
+
+---
+
+## 11. 代码执行建议：必须沙箱化
+
+科研工作台迟早会需要：
+
+- 运行 Python 脚本
+- 分析 CSV
+- 生成图表
+- 调 notebook
+- 安装依赖
+- 调外部 API
+
+但这也是最大风险。
+
+建议策略：
+
+```text
+默认：禁止 agent 直接运行 shell
+低风险：只读查看代码文件
+中风险：在 workspace .venv 中运行指定 Python 文件
+高风险：安装包、联网、写代码、删除文件，必须二次审批
+```
+
+运行目录：
+
+```text
+.sci-station/agent/runs/{run-id}/sandbox/
+├── input/
+├── work/
+├── output/
+├── stdout.log
+├── stderr.log
+└── manifest.json
+```
+
+最终产物不要自动覆盖用户文件，而是生成 diff：
+
+```text
+outputs/report.md
+figures/result.png
+code/analysis_generated.py
+```
+
+用户确认后再合并。
+
+---
+
+## 12. 你可以保留的产品化优势
+
+和很多 agent 框架相比，Sci-Station 已经有几个非常好的差异化点：
+
+1. **本地 Research Root**：科研数据不是被上传到某个 SaaS。  
+2. **论文库 + Wiki + Tasks + Materials 一体化**：比普通 ChatPDF 强。  
+3. **macOS 原生体验**：PDF Reader、Finder、VS Code、Reminders 都有潜力。  
+4. **权限 UI 已经开始设计**：这对真正可用的 agent 很关键。  
+5. **可版本化 preset 与本机 local config 分层**：`.sci-ai/sci-station/` 和 `.sci-ai/workspace.local/` 的边界设计是对的 [1]。  
+
+所以成熟 agent 框架不应该替代 Sci-Station，而应该成为它的“推理和工作流引擎”。
+
+---
+
+## 13. 最终推荐方案一句话版
+
+**把 Sci-Station 定位为“本地科研知识平台 + Agent Host”，不要把它做成纯聊天工具。具体实现上：Swift App 保留 UI、Repository、权限和本地数据；新增本地 Python LangGraph sidecar 负责 agent loop、checkpoint、human-in-the-loop 和多 agent 工作流；通过 MCP 暴露论文、Wiki、项目、任务、材料、代码执行等能力；RAG 用本地 SQLite/FTS 起步，后续加 embedding；高风险执行通过沙箱和 Swift Permission Dock 审批。**
+
+---
+
+## 14. 推荐优先级
+
+我会这样排：
+
+1. **LangGraph sidecar + Sci-Station MCP Server**：主线。
+2. **本地 FTS/RAG index**：让 agent 真正懂你的知识库。
+3. **三个核心科研 workflow**：论文精读、related work、gap/task planning。
+4. **权限 diff / approval / resume**：让 agent 可控。
+5. **代码执行 sandbox**：后续增强。
+6. **OpenAI Agents SDK Sandbox**：作为高级 code worker，可选接入。
+7. **LlamaIndex**：作为 RAG/文档处理增强，而非主 orchestrator。
+8. **CrewAI / Microsoft Agent Framework**：暂不作为核心底座。
+
+参考框架资料：  
+- OpenAI Agents SDK: https://developers.openai.com/api/docs/guides/agents  
+- LangGraph: https://docs.langchain.com/oss/python/langgraph/overview  
+- LlamaIndex Agents: https://developers.llamaindex.ai/python/framework/module_guides/deploying/agents/  
+- Model Context Protocol: https://modelcontextprotocol.io/specification/2024-11-05/index  
+- Microsoft Agent Framework: https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/

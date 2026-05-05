@@ -20,6 +20,55 @@ public nonisolated struct OpenAICompatibleStreamDeltaParser: Sendable {
     }
 }
 
+private nonisolated struct OpenAICompatibleStreamingToolCallAccumulator: Sendable {
+    private struct PartialCall: Sendable {
+        var id: String?
+        var name: String?
+        var arguments: String
+    }
+
+    private var partials: [Int: PartialCall] = [:]
+
+    mutating func mergeDelta(from data: Data) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let delta = choices.first?["delta"] as? [String: Any],
+              let toolCalls = delta["tool_calls"] as? [[String: Any]] else {
+            return
+        }
+
+        for payload in toolCalls {
+            let index = payload["index"] as? Int ?? 0
+            var partial = partials[index] ?? PartialCall(id: nil, name: nil, arguments: "")
+            if let id = payload["id"] as? String, !id.isEmpty {
+                partial.id = id
+            }
+            if let function = payload["function"] as? [String: Any] {
+                if let name = function["name"] as? String, !name.isEmpty {
+                    partial.name = name
+                }
+                if let arguments = function["arguments"] as? String, !arguments.isEmpty {
+                    partial.arguments += arguments
+                }
+            }
+            partials[index] = partial
+        }
+    }
+
+    func toolCalls() -> [AgentToolCall] {
+        partials.keys.sorted().compactMap { index in
+            guard let partial = partials[index], let name = partial.name, !name.isEmpty else {
+                return nil
+            }
+            return AgentToolCall(
+                id: partial.id ?? "tool-call-\(UUID().uuidString.lowercased())",
+                toolName: name,
+                argumentsJSON: partial.arguments.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "{}"
+            )
+        }
+    }
+}
+
 public actor OpenAICompatibleProvider: LLMProvider {
     private let session: URLSession
 
@@ -86,6 +135,7 @@ public actor OpenAICompatibleProvider: LLMProvider {
         }
         if !providerRequest.tools.isEmpty {
             payload["tools"] = providerRequest.tools.map(Self.toolPayload(from:))
+            payload["tool_choice"] = "auto"
         }
         if stream {
             payload["stream"] = true
@@ -145,7 +195,7 @@ public actor OpenAICompatibleProvider: LLMProvider {
         }
 
         return LLMProviderResponse(
-            message: LLMChatMessage(role: .assistant, content: parsedMessage.content),
+            message: LLMChatMessage(role: .assistant, content: parsedMessage.content, toolCalls: parsedMessage.toolCalls),
             toolCalls: parsedMessage.toolCalls,
             rawResponse: String(data: data, encoding: .utf8)
         )
@@ -187,7 +237,21 @@ public actor OpenAICompatibleProvider: LLMProvider {
         if let toolCallID = message.toolCallID {
             payload["tool_call_id"] = toolCallID
         }
+        if message.role == .assistant, !message.toolCalls.isEmpty {
+            payload["tool_calls"] = message.toolCalls.map(Self.toolCallPayload(from:))
+        }
         return payload
+    }
+
+    private nonisolated static func toolCallPayload(from call: AgentToolCall) -> [String: Any] {
+        [
+            "id": call.id,
+            "type": "function",
+            "function": [
+                "name": call.toolName,
+                "arguments": call.argumentsJSON
+            ]
+        ]
     }
 
     private nonisolated static func toolPayload(from tool: LLMToolSpecification) -> [String: Any] {
@@ -251,6 +315,7 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
                     }
 
                     var accumulated = ""
+                    var toolCallAccumulator = OpenAICompatibleStreamingToolCallAccumulator()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
                         guard line.hasPrefix("data:") else {
@@ -260,17 +325,21 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
                         if payload == "[DONE]" {
                             break
                         }
-                        guard let data = payload.data(using: .utf8),
-                            let delta = OpenAICompatibleStreamDeltaParser.contentDelta(from: data),
-                              !delta.isEmpty else {
+                        guard let data = payload.data(using: .utf8) else {
+                            continue
+                        }
+                        toolCallAccumulator.mergeDelta(from: data)
+                        guard let delta = OpenAICompatibleStreamDeltaParser.contentDelta(from: data), !delta.isEmpty else {
                             continue
                         }
                         accumulated += delta
                         continuation.yield(.messageDelta(delta))
                     }
 
+                    let toolCalls = toolCallAccumulator.toolCalls()
                     continuation.yield(.completed(LLMProviderResponse(
-                        message: LLMChatMessage(role: .assistant, content: accumulated),
+                        message: LLMChatMessage(role: .assistant, content: accumulated, toolCalls: toolCalls),
+                        toolCalls: toolCalls,
                         rawResponse: accumulated
                     )))
                     continuation.finish()

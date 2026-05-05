@@ -1262,7 +1262,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
     public nonisolated var summary: String {
         switch self {
         case .conversation:
-            return "读取并推理所选论文、文档与任务，不执行工具。"
+            return "可自动读取论文工具并继续推理；写入会暂停等待审批。"
         case .plan:
             return "生成计划，并仅在审批后写入 Markdown 计划文档。"
         case .assistant:
@@ -1273,7 +1273,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
     public nonisolated var plannerInstructions: String {
         switch self {
         case .conversation:
-            return "Mode: Conversation. Answer the user from workspace_context only. Do not call tools. Keep tool_calls empty. Put user-facing content in final_response_draft when returning JSON. If the latest user_goal is Chinese, all user-facing fields must be Simplified Chinese. Markdown is acceptable in final_response_draft."
+            return "Mode: Conversation Loop. Use native tool calls when paper body details are needed. Read-only tools may run automatically; workspace writes must pause for approval. Final answers must be user-facing Markdown in the latest user_goal language."
         case .plan:
             return "Mode: Plan. You may propose steps and, when useful, call only Markdown planning tools to write a plan document. Do not modify papers, todos, settings, or app state. User-facing fields must follow the latest user_goal language."
         case .assistant:
@@ -1284,7 +1284,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
     public nonisolated var allowedToolNames: Set<String>? {
         switch self {
         case .conversation:
-            return []
+            return nil
         case .plan:
             return ["write_markdown_plan"]
         case .assistant:
@@ -1293,7 +1293,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
     }
 
     public nonisolated var allowsApprovedToolExecution: Bool {
-        self != .conversation
+        true
     }
 
     public nonisolated var allowsPlainTextResponse: Bool {

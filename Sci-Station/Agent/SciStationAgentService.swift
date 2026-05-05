@@ -1,12 +1,15 @@
 import Foundation
 
 public actor SciStationAgentService {
+    private let provider: any LLMProvider
     private let contextBuilder: AgentWorkspaceContextBuilder
     private let planner: AgentPlanner
     private let toolRegistry: AgentToolRegistry
     private let toolExecutor: AgentToolExecutor
     private let runLogger: AgentRunLogger
     private let sessionEventLogger: AgentSessionEventLogger
+    private let loopRunner: AgentLoopRunner
+    private let loopCheckpointStore: AgentLoopCheckpointStore
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
@@ -38,13 +41,17 @@ public actor SciStationAgentService {
             UpdatePaperClassificationAgentTool(paperRepository: paperRepository),
             WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository)
         ])
+        let resolvedLoopCheckpointStore = AgentLoopCheckpointStore()
 
+        self.provider = provider
         self.contextBuilder = resolvedContextBuilder
         self.planner = AgentPlanner(provider: provider)
         self.toolRegistry = resolvedToolRegistry
         self.toolExecutor = toolExecutor ?? AgentToolExecutor(registry: resolvedToolRegistry)
         self.runLogger = runLogger
         self.sessionEventLogger = sessionEventLogger
+        self.loopCheckpointStore = resolvedLoopCheckpointStore
+        self.loopRunner = AgentLoopRunner(sessionEventLogger: sessionEventLogger, checkpointStore: resolvedLoopCheckpointStore)
         self.threadRepository = threadRepository
         self.draftRepository = draftRepository
         self.hookDefinitions = hookDefinitions
@@ -106,6 +113,47 @@ public actor SciStationAgentService {
             includedPaperIDs: includedPaperIDs
         )
         let toolDefinitions = await filteredToolDefinitions(allowedToolNames: options.allowedToolNames)
+
+        if options.loopPolicy == .readOnlyAutoApproveWritesRequireApproval,
+           let chatProvider = provider as? any LLMChatProvider {
+            let runID = "agent-run-\(UUID().uuidString.lowercased())"
+            try await appendHookResults(hookResults, sessionID: runID, in: resolvedRoot)
+            let context = AgentToolContext(
+                workspace: workspace,
+                selectedPaperID: selectedPaperID,
+                researchRoot: resolvedRoot,
+                currentProjectID: currentProjectID,
+                allowedPaperIDs: includedPaperIDs
+            )
+            let messages = try AgentPromptBuilder().buildToolLoopChatMessages(
+                goal: goal,
+                workspaceSnapshot: snapshot,
+                tools: toolDefinitions,
+                conversationHistory: conversationHistory
+            )
+            let loopResult = try await loopRunner.run(
+                AgentLoopRequest(
+                    runID: runID,
+                    goal: goal,
+                    initialMessages: messages,
+                    provider: chatProvider,
+                    toolDefinitions: toolDefinitions,
+                    toolRegistry: toolRegistry,
+                    toolContext: context,
+                    root: resolvedRoot,
+                    configuration: configuration,
+                    apiKey: apiKey,
+                    options: AgentLoopOptions(),
+                    hookEngine: hookEngine,
+                    permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
+                    responseDeltaHandler: responseDeltaHandler
+                )
+            )
+            let run = run(from: loopResult, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
+            try await runLogger.append(run, in: resolvedRoot)
+            return run
+        }
+
         var plan = try await planner.plan(
             goal: goal,
             workspaceSnapshot: snapshot,
@@ -163,6 +211,61 @@ public actor SciStationAgentService {
         )
         try await runLogger.append(run, in: resolvedRoot)
         try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: hookResults, in: resolvedRoot)
+        return run
+    }
+
+    public func resumePendingToolCall(
+        runID: String,
+        action: AgentHumanDecisionAction,
+        feedback: String? = nil,
+        editedArgumentsJSON: String? = nil,
+        in workspace: ResearchWorkspace,
+        root: ResearchRoot? = nil,
+        currentProjectID: ResearchProject.ID? = nil,
+        selectedPaperID: String? = nil,
+        includedPaperIDs: Set<String>? = nil,
+        allowedToolNames: Set<String>? = nil,
+        disabledHookIDs: Set<String> = [],
+        configuration: LLMConfiguration,
+        apiKey: String,
+        responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
+    ) async throws -> AgentRun {
+        guard let chatProvider = provider as? any LLMChatProvider else {
+            throw AgentError.invalidArguments("The configured provider does not support chat tool-loop resume.")
+        }
+        let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
+        guard let pending = try await loopCheckpointStore.pending(runID: runID, in: resolvedRoot) else {
+            throw AgentError.invalidArguments("No pending tool call checkpoint was found for this run.")
+        }
+        let toolDefinitions = await filteredToolDefinitions(allowedToolNames: allowedToolNames)
+        let context = AgentToolContext(
+            workspace: workspace,
+            selectedPaperID: selectedPaperID,
+            researchRoot: resolvedRoot,
+            currentProjectID: currentProjectID,
+            allowedPaperIDs: includedPaperIDs
+        )
+        let loopResult = try await loopRunner.resume(
+            AgentLoopResumeRequest(
+                pending: pending,
+                action: action,
+                feedback: feedback,
+                editedArgumentsJSON: editedArgumentsJSON,
+                provider: chatProvider,
+                toolDefinitions: toolDefinitions,
+                toolRegistry: toolRegistry,
+                toolContext: context,
+                root: resolvedRoot,
+                configuration: configuration,
+                apiKey: apiKey,
+                options: AgentLoopOptions(),
+                hookEngine: hookEngine(disabledHookIDs: disabledHookIDs),
+                permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
+                responseDeltaHandler: responseDeltaHandler
+            )
+        )
+        let run = run(from: loopResult, goal: "Resume pending tool call", createdAt: Date(), currentProjectID: currentProjectID)
+        try await runLogger.append(run, in: resolvedRoot)
         return run
     }
 
@@ -502,6 +605,44 @@ public actor SciStationAgentService {
         }
 
         return definitions.filter { allowedToolNames.contains($0.name) }
+    }
+
+    private func run(
+        from loopResult: AgentLoopResult,
+        goal: String,
+        createdAt: Date,
+        currentProjectID: ResearchProject.ID?
+    ) -> AgentRun {
+        let toolCalls = loopResult.pendingToolCall.map { [$0.toolCall] } ?? []
+        let finalResponse = loopResult.finalResponseMarkdown?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let pauseSummary = loopResult.pauseReason?.message.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let summary = finalResponse ?? pauseSummary ?? "Agent loop completed without a visible response."
+        let steps = loopResult.steps.map { step in
+            if let pause = step.pauseReason {
+                return "Step \(step.stepIndex): \(pause.message)"
+            }
+            if step.toolCalls.isEmpty {
+                return "Step \(step.stepIndex): assistant response"
+            }
+            return "Step \(step.stepIndex): tools \(step.toolCalls.map(\.toolName).joined(separator: ", "))"
+        }
+        return AgentRun(
+            id: loopResult.runID,
+            goal: goal,
+            createdAt: createdAt,
+            completedAt: loopResult.pauseReason == nil ? Date() : nil,
+            mode: .planOnly,
+            plan: AgentPlan(
+                title: loopResult.pauseReason == nil ? "对话回复" : "等待工具审批",
+                summary: summary,
+                risk: pauseSummary,
+                steps: steps,
+                toolCalls: toolCalls,
+                finalResponseDraft: finalResponse
+            ),
+            toolResults: loopResult.toolResults,
+            currentProjectID: currentProjectID
+        )
     }
 }
 
