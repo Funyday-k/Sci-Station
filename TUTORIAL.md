@@ -1,47 +1,57 @@
-# Sci-Station 试用教程
+# Sci-Station Tutorial
 
-这份教程面向第一次拿到 Sci-Station 的试用者。建议先从源码运行，确认工作区和权限都正常后，再考虑打包 `.app` 分享。
+This tutorial walks through Sci-Station as a product: a local-first research workstation for macOS. It is intended for first-time testers running the app from source.
 
-## 1. 准备环境
+> Prefer Chinese? Read [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md). For the product overview, see [README.md](README.md) or [README.zh-CN.md](README.zh-CN.md).
 
-- macOS 14 或更高版本
-- Xcode 15 或更高版本
-- 一个空文件夹作为 Research Root，例如 `~/Documents/SciStationTrial`
+## 1. Prepare The Environment
 
-Research Root 是 Sci-Station 保存论文、Markdown、任务、设置和 Agent 日志的地方。不要把源码仓库本身当作 Research Root，也不要把包含私人资料的现有目录直接发给别人。
+You need:
 
-## 2. 运行 App
+- macOS 14 or later
+- Xcode 15 or later
+- An empty folder for your Research Root, for example `~/Documents/SciStationTrial`
+
+The Research Root is where Sci-Station stores papers, Markdown notes, project files, tasks, settings, and agent logs. Do not use the source repository itself as the Research Root, and do not share a Research Root that contains private papers or unpublished data without reviewing it first.
+
+## 2. Run The App
+
+Open the Xcode project:
 
 ```bash
 open Sci-Station.xcodeproj
 ```
 
-在 Xcode 中选择 `Sci-Station` scheme，运行目标选择 `My Mac`，然后按 `Command + R`。
+In Xcode:
 
-如果只想验证核心文件系统逻辑，可以在仓库根目录运行：
+1. Select the `Sci-Station` scheme.
+2. Select `My Mac` as the run destination.
+3. Press `Command + R`.
+
+To validate the core file-system and metadata logic without launching the app, run:
 
 ```bash
 swift run SciStationCoreTestRunner
 ```
 
-## 3. 创建 Research Root
+## 3. Create A Research Root
 
-1. App 首屏点击 `Create Workspace`。
-2. 选择一个空文件夹。
-3. Sci-Station 会自动创建 `library/`、`projects/`、`wiki/`、`tasks/`、`settings/`、`.sci-station/` 等目录和种子文件。
-4. 之后重启 App 会尝试通过 macOS security-scoped bookmark 自动恢复最近的 Research Root。
+1. On the first screen, click `Create Workspace`.
+2. Choose an empty folder.
+3. Sci-Station creates the default workspace structure, including `library/`, `projects/`, `wiki/`, `tasks/`, `settings/`, and `.sci-station/`.
+4. Restart the app once to confirm that macOS security-scoped bookmark restore opens the same Research Root automatically.
 
-如果 Research Root 被移动或删除，App 会清理失效 bookmark，并回到创建/打开工作区的状态。
+If the Research Root is moved or deleted, Sci-Station clears the stale bookmark and returns to the create/open workspace screen.
 
-## 4. 导入第一篇论文
+## 4. Import The First Paper
 
-可以用三种方式开始：
+Open Library and start with one of these paths:
 
-- 在 Library 中点击 `Import PDF`。
-- 将 PDF 拖进 Library。
-- 点击 `Add by Identifier`，粘贴 DOI、arXiv、PDF URL 或普通网页链接。
+- Click `Import PDF`.
+- Drag a PDF into Library.
+- Click `Add by Identifier` and paste a DOI, arXiv ID, PDF URL, or normal web link.
 
-导入后，每篇论文会在 `library/papers/` 下生成标准目录，通常包含：
+A successful PDF import creates a paper folder under `library/papers/` with files such as:
 
 ```text
 paper.pdf
@@ -51,20 +61,34 @@ annotations.md
 figures/
 ```
 
-`meta.yaml` 保存标题、作者、年份、标签、阅读状态、DOI、arXiv、BibTeX 等元数据。`annotations.md` 保存阅读笔记。
+Use the Inspector to review or edit title, authors, year, tags, reading status, priority, rating, DOI, arXiv ID, abstract, and BibTeX. Notes written in the PDF Reader are saved to `annotations.md`.
 
-## 5. 建立项目与 Wiki
+## 5. Turn The Library Into A Project
 
-1. 在侧边栏点击 `New Project`。
-2. 填写项目名称、描述、图标和颜色。
-3. 打开 `Project Overview`，查看项目介绍、核心论文、项目文档和任务概览。
-4. 点击 `Open Project Brief` 或进入 Wiki，编辑 Markdown 页面。
+1. Click `New Project` from the sidebar or app commands.
+2. Enter a name, description, icon, and color.
+3. Open Project Overview.
+4. Use the project brief as a living proposal.
+5. Add or mark core papers so the project overview has an explicit reading spine.
 
-Wiki 支持 Source、Preview 和 Split 视图，也会解析 YAML frontmatter 和 `[[wikilink]]`。默认 snippets 包含 `;eq`、`;fig`、`;todo`、`;paper`。
+Project Overview is meant to be the working surface for the research idea. It summarizes paper counts, core papers, project documents, and unfinished tasks, while linking into data, code, figures, outputs, wiki pages, and shared context.
 
-## 6. 使用 Materials
+## 6. Write In The Wiki
 
-Materials 用来浏览当前项目或 Research Root 下的用户材料。常用目录包括：
+Open Wiki or a project document and try:
+
+- `Source` mode for Markdown editing.
+- `Preview` mode for rendered reading.
+- `Split` mode for writing while previewing.
+- `Cmd+S` to save.
+- Snippets such as `;eq`, `;fig`, `;todo`, and `;paper`.
+- YAML frontmatter and `[[wikilink]]` references.
+
+The Markdown preview supports GFM tables, code blocks, images, and KaTeX formulas.
+
+## 7. Use Materials For Real Work Files
+
+Materials is the bridge between the research product and your working files. It scans user-facing paths such as:
 
 ```text
 data/
@@ -76,36 +100,56 @@ prompts/
 shared_research.md
 ```
 
-Markdown、Python、文本、图片和 PDF 可以直接预览。其他文件可用默认 App、Finder 或 VS Code 打开。Python 文件可以准备 VS Code task，也可以选择系统 Python、workspace `.venv` 或手选虚拟环境。
+Markdown, Python, text, images, and PDFs can be previewed directly. Other files can be opened in Finder, the default app, VS Code, or VSCodium.
 
-## 7. 配置可选 AI 功能
+For Python files, Sci-Station can prepare a VS Code task and remember the selected Python environment. You can use system Python, a workspace `.venv`, or a manually selected virtual environment.
 
-AI 功能不是试用 App 的必需项。需要时再进入 Settings -> AI Lab：
+## 8. Read PDFs In Context
 
-1. 选择 OpenAI-compatible provider。
-2. 填写 Base URL、Model、Temperature 和 Max Tokens。
-3. 在 `API Key` 中填写自己的 key。
-4. 点击 `Save Settings`，再用 `Test Connection` 测试。
+Open a paper from Library and use the built-in PDF Reader to:
 
-安全边界：
+- Search with `Cmd+F`.
+- Move through matches with `Cmd+G` and `Shift+Cmd+G`.
+- Zoom and navigate through pages.
+- Edit paper notes in the Notes panel.
+- Create a task linked to the current paper.
+- Copy or export BibTeX from Citations.
+- Open DOI, arXiv, INSPIRE, URL, or PDF URL links.
 
-- API Key 保存到 macOS Keychain。
-- `settings.yaml` 不写入 API Key。
-- `.sci-ai/sci-station/` 只能保存可提交的 preset 和模板。
-- `.sci-ai/workspace.local/`、`.claude/`、`.mcp.json` 用于本机 agent bridge 配置，不要提交或分享。
+This keeps reading actions close to the metadata, notes, tasks, and citation surface.
 
-MinerU PDF 转 Markdown 也需要试用者自己的 API Token。Token 同样保存到 Keychain。
+## 9. Manage Tasks And Calendar Items
 
-## 8. Calendar 与 Reminders 权限
+Sci-Station stores local todos in the Research Root. Calendar and Apple Reminders integration is optional:
 
-Tasks 可以和 Apple Calendar / Reminders 联动。首次使用时 macOS 会弹出权限请求：
+- If you allow macOS permissions, the dashboard can show Calendar/Reminders titles and publish workspace todos to Apple Reminders.
+- If you deny permissions, local todos still work.
 
-- 允许后，Sci-Station 可以读取日历/提醒事项标题，并把 workspace todo 发布到 Apple Reminders。
-- 拒绝后，本地 todo 仍可使用，只是不会同步到系统 Reminders。
+Published todos write mapping fields such as `external_source`, `external_identifier`, `external_updated_at`, `completed_at`, and `due_time` to `tasks/todos.yaml`.
 
-## 9. 分享前检查
+## 10. Configure Optional AI Features
 
-发给别人前建议运行：
+AI is not required for the core app. When you want to test it, open `Settings -> AI Lab`:
+
+1. Choose an OpenAI-compatible provider.
+2. Enter Base URL, Model, Temperature, and Max Tokens.
+3. Enter your API key in the secure field.
+4. Click `Save Settings`.
+5. Use `Test Connection` before running workflows.
+
+Security boundaries:
+
+- API keys are saved to macOS Keychain.
+- Workspace settings do not store API keys in plain text.
+- `.sci-ai/sci-station/` stores only versionable product presets and templates.
+- `.sci-ai/workspace.local/`, `.claude/`, `.mcp.json`, and `.env*` are local-only and should not be committed or shared.
+- Write actions from AI/agent workflows remain behind the permission layer.
+
+MinerU PDF-to-Markdown also requires the tester's own API token. Without it, Sci-Station falls back to local PDFKit extraction.
+
+## 11. Share Or Review A Trial Build Safely
+
+Before sharing a checkout or Research Root, run:
 
 ```bash
 git status --short
@@ -114,12 +158,12 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!DOC/**'
 ```
 
-确认没有真实凭据、本机 research 数据、`.env*`、`.mcp.json`、`.claude/`、`.sci-ai/workspace.local/`、DerivedData、archive、`.app`、`.zip`、`.dSYM` 或 `.xcresult` 混入分享包。
+Confirm that the shared package does not include real credentials, local research data, `.env*`, `.mcp.json`, `.claude/`, `.sci-ai/workspace.local/`, DerivedData, archives, `.app`, `.zip`, `.dSYM`, or `.xcresult` files.
 
-## 10. 已知试用边界
+## 12. Known Trial Boundaries
 
-- 这是本地优先试用版，不是公证发布版。
-- LLM、MinerU、Crossref、arXiv、INSPIRE 等网络能力依赖用户网络和第三方服务状态。
-- PDF 转 Markdown 的高质量转换依赖 MinerU；没有 token 时会降级使用本地 PDFKit 提取。
-- Apple Reminders 当前以发布和本地记录为主，完整双向同步仍在后续迭代。
-- AI Lab 的写入类工具仍需要权限确认，MCP server 当前以模板和状态展示为主。
+- Sci-Station is currently a local-first trial/development build, not a notarized public release.
+- Network features depend on user configuration, user network access, and third-party services.
+- High-quality PDF-to-Markdown conversion depends on MinerU.
+- Apple Reminders support is currently focused on publishing and local mapping; full bidirectional sync is future work.
+- MCP server execution is still guarded by templates, status display, and the permission model.
