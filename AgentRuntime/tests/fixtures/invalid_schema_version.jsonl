@@ -1,0 +1,2 @@
+{"fixture_schema_version":1,"name":"invalid_schema_version"}
+{"kind":"event","envelope":{"id":"evt-invalid-schema","schema_version":99,"run_id":"${run_id}","sequence":1,"timestamp":"2026-05-05T04:00:00Z","event":{"type":"run_started","payload":{"goal":"${goal}"}}}}

@@ -1,545 +1,736 @@
-下面是我对你**已修改后的 P33 / P34 任务书**的再次审核，以及对任务书末尾 Questions 的明确回答。
+下面给出两部分内容：
 
-## 总体结论
+1. **基于 P33 已完成状态，对 P34 的修改意见。**
+2. **起草 P35 任务书。**
 
-这版修改是正确的，已经从“未来架构设计”变成了“承接 P32 已落地实现的协议迁移与 sidecar 落地计划”。
-
-尤其是 P33 现在已经明确把第一优先级放在 **P32 provisional schema migration**，包括迁移 P32 的 approval、human decision、pending tool call、fingerprint、pause reason、stable tool result 与 legacy pending checkpoint，而不是并行再造一套新协议 [1]。这点非常关键。
-
-P34 也已经从“直接上 LangGraph + 三个 workflow”改为 **Fake Sidecar First**，并设置了 P33 dependency gate，明确 P34 不再理解 P32 legacy pending checkpoint，必须依赖 P33 的 run directory、persistent ledger、ToolHost、MCP Gateway 与 runtime envelope [2]。这个边界是对的。
-
-我的判断是：
-
-> **P33 / P34 现在可以进入执行。P33 按 migration → runtime façade → run directory/ledger → ToolHost adapter → MCP Gateway 的顺序做；P34 按 fake sidecar → real sidecar handshake → read-only tools → FTS evidence → 单篇论文精读的顺序做。**
+总体判断：**P33 已经把 P34 dependency gate 做实了，P34 现在可以从“设计 sidecar”进入“实现 sidecar MVP”。但 P34 仍建议再做一次范围收敛：P34 专注 fake sidecar、stdio JSON-RPC、真实 sidecar handshake、LLMProxy、read-only Gateway、FTS evidence 与单篇论文精读；把 related work / gap planning 的 production 化、embedding、citation critic、代码 sandbox、正式 Python bundle 全部放到 P35 或之后。** P33 完成记录已经明确 event envelope、schema migration、run directory、persistent ledger、ToolHost、MCP Gateway、deterministic safety policy 与 Skill loader core 均已落地，并且 SwiftPM 与 Xcode build 均通过 [1]。P34 启动记录也确认 P33 dependency gate 已通过，下一步应按 fake sidecar、stdio JSON-RPC、Python package skeleton、LLMProxy/MCP read-only tools、FTS 与单篇论文精读推进 [2]。
 
 ---
 
-# 一、对 P33 修改版的审核
+# 一、对 P34 的修改意见
 
-## 1. P33 的定位已经正确
+## 1. P34 现在应该改成“执行型任务书”，不要再保留过多讨论性内容
 
-P33 新标题改成：
-
-> P32 Agent Protocol Migration、Runtime Façade 与 MCP Gateway
-
-这个比之前更准确。因为 P32 已经完成了 Swift-native loop，并且实施记录明确指出 P32 的 `AgentApprovalRequest`、`AgentHumanDecisionAction`、checkpoint shape 仍是 provisional，write ledger 还是内存态，stable JSON tool result 的 evidence 仍为空数组 [3]。
-
-所以 P33 现在不应该只是“新增 façade”，而应该先做协议迁移。新版已经体现了这一点。
-
-## 2. P33 的关键修改是必要的
-
-新版 P33 已经补上了几条非常重要的内容：
-
-1. **P32 provisional protocol migration**  
-   迁移 P32 的 approval、human decision、pending tool call、fingerprint、pause reason、legacy pending checkpoint 和 stable tool result [1]。
-
-2. **AgentToolArguments 兼容层**  
-   保留 `AgentToolCall.argumentsJSON`，同时新增 `AgentToolArguments.rawJSON / canonicalJSON / value`，避免一次性重写 P32 loop、旧 run log、tool registry 和 planner path [1]。
-
-3. **AgentRunDirectoryStore**  
-   把长期 run 目录定义为：
-
-   ```text
-   .sci-station/agent/runs/{run_id}/
-   ├── checkpoint.json
-   ├── events.jsonl
-   ├── tool_calls.jsonl
-   ├── approvals.jsonl
-   └── tool_results/
-   ```
-
-   并规定 P32 的 `pending_tool_calls.jsonl` 只作为 legacy fallback 读取 [1]。
-
-4. **Persistent execution ledger**  
-   把 P32 的内存 write ledger 升级为持久 `tool_calls.jsonl`，防止 App 重启、sidecar resume 或重复 Allow once 后重复执行写入 [1]。
-
-5. **ToolHost adapter-first**  
-   第一版 `SciStationToolHost` 包装现有 `AgentToolRegistry`，不重写所有工具 [1]。这个非常实际，能降低 P33 的迁移风险。
-
-6. **Hook ask/deny 语义与 P32 对齐**  
-   明确 deterministic safety policy 是不可绕过阻断层；hook `.ask` 不直接等价于 `approvalRequired`；generic `PreToolUse` reminder 不得暂停 read-only tool [1]。
-
-这些修改都应保留。
-
----
-
-# 二、P33 还建议微调的地方
-
-P33 目前已经很完整，但我建议再补 5 个很小但重要的点。
-
-## P33 建议 1：把 `AgentHumanDecisionAction` 的枚举值统一掉
-
-P32 中 provisional enum 是：
-
-```swift
-allowOnce
-denyAndContinue
-denyAndStop
-reviseWithFeedback
-editArguments
-```
-
-而 P33 迁移段里写了：
+P34 已经写得比较成熟，但现在 P33 已完成，P34 的开头可以从“若 P33 gate 通过”改成“P33 gate 已通过”。目前 P34 已经在 P34.0 标记 P33 dependency gate 完成，并说明不需要兼容 P32 legacy pending 文件 [2]。建议进一步把 P34 的主线压成：
 
 ```text
-allowOnce、deny、editArguments、askAgentToRevise
-```
-
-这里出现了命名不一致。建议 P33 最终固定为：
-
-```swift
-public enum AgentHumanDecisionAction: String, Codable, Sendable {
-    case allowOnce
-    case denyAndContinue
-    case denyAndStop
-    case reviseWithFeedback
-    case editArguments
-}
-```
-
-然后做 legacy alias：
-
-```text
-deny -> denyAndStop
-askAgentToRevise -> reviseWithFeedback
-```
-
-这样和 P32 已实现 runner 行为一致，也避免 UI / sidecar / Permission Dock 出现三套命名。
-
-## P33 建议 2：`AgentApprovalRequest` 加入 fingerprint 字段
-
-P33 验收标准已经要求 Permission Dock pending item 包含 idempotency fingerprint [1]，但 `AgentApprovalRequest` struct 里还没有显式字段。
-
-建议加入：
-
-```swift
-public var fingerprint: String
-```
-
-或者：
-
-```swift
-public var idempotencyKey: String
-```
-
-否则 Permission Dock、ledger、resume 三方会各自重新计算，容易不一致。
-
-推荐：
-
-```swift
-public struct AgentApprovalRequest: Codable, Sendable, Identifiable {
-    public var id: String
-    public var runID: String
-    public var toolCallID: String
-    public var tool: String
-    public var risk: AgentToolRisk
-    public var permissionKey: String
-    public var arguments: AgentToolArguments
-    public var targetPaths: [String]
-    public var fingerprint: String
-    public var diffPreview: String?
-    public var summaryPreview: String?
-    public var reason: String
-    public var rollbackHint: AgentRollbackHint?
-    public var expiresAt: Date?
-    public var suggestedDecisions: [AgentHumanDecisionAction]
-}
-```
-
-## P33 建议 3：run directory 需要补 `events.jsonl` 的所有权
-
-P33 的 run directory 示例包含 `events.jsonl`，但实施任务里对 events 的 owner 描述还可以更硬一点。
-
-建议补一句：
-
-```text
-events.jsonl 由 Swift Host 作为最终 owner 写入；LegacySwiftAgentRuntime 直接写 host sequence，LangGraph sidecar event 经 Swift canonicalize 后再写入。
-```
-
-这和 P33 已定义的 sequence owner 规则一致 [1]。
-
-## P33 建议 4：ToolHost adapter 要定义“禁止 side effect 的 dry-run/diff 阶段”
-
-P33 要求写 Markdown/Todo/Paper metadata 工具尽量生成 diff/summary 后再请求审批 [1]。但为了实现这个能力，ToolHost 需要区分：
-
-```text
-previewApproval / buildApprovalRequest
-execute
-```
-
-建议新增 ToolHost 方法：
-
-```swift
-public func buildApprovalRequest(
-    for call: AgentToolCall,
-    context: AgentToolContext
-) async throws -> AgentApprovalRequest
-```
-
-并规定：
-
-```text
-buildApprovalRequest 不得产生 workspace side effect，只能做 schema validation、target path extraction、diff/summary preview、fingerprint 计算。
-```
-
-否则“生成 diff”本身可能误触写入。
-
-## P33 建议 5：Skill 可降为 P33-G，不阻塞主线
-
-新版 P33 已经写了执行顺序，P33-A 到 P33-D 是 P34 硬依赖，Skill 排在最后 [1]。这个安排正确。
-
-我建议在 P33 验收/交付里再明确：
-
-```text
-若 P33 runtime/schema/ledger/ToolHost 主线完成但 Skill 三级披露未完全产品化，可以作为 P33-G 延后，不阻塞 P34 fake sidecar。
-```
-
-这样可以避免 P34 被 Skill loader 的 UI/metadata 细节卡住。
-
----
-
-# 三、对 P34 修改版的审核
-
-## 1. P34 的新定位非常正确
-
-P34 标题改成：
-
-> Fake Sidecar First、LangGraph Sidecar、Local RAG 与科研 Workflow MVP
-
-这是非常好的修改。P34 现在明确要求先用 fake sidecar 验证协议与恢复路径，再接真实 LangGraph graph [2]。这能有效隔离问题来源：
-
-```text
-先验证:
-Swift Process 管理
-stdio JSON-RPC 双向调用
-event envelope parsing
-sequence canonicalization
-approval resume
-fallback
-
-再验证:
-LangGraph state
-workflow routing
-FTS evidence
-LLMProxy
-```
-
-这个顺序是工程上最稳的。
-
-## 2. P34 的 dependency gate 是必要的
-
-P34 现在明确规定开始前必须满足：
-
-- P33 `AgentRuntimeEventEnvelope` 已落地。
-- P32 provisional approval / pending checkpoint / stable tool result 已迁移。
-- `LegacySwiftAgentRuntime` 可包装 P32 `AgentLoopRunner`。
-- `SciStationToolHost` 已成为唯一工具入口。
-- MCP Gateway V1 可 `tools/list` / `tools/call`。
-- run directory / checkpoint / approvals / persistent tool ledger 已可读写 [2]。
-
-并且明确：
-
-> 若 dependency gate 未通过，P34 只能做 fake sidecar 协议测试，不得让 Python sidecar 兼容 P32 legacy pending 文件 [2]。
-
-这是非常正确的边界。
-
-## 3. P34 对三个 workflow 的范围收缩合理
-
-P34 现在规定：
-
-- 单篇论文精读是 MVP 的真实 workflow。
-- related work 和 gap planning 第一轮可以作为 sample/fake/beta graph，不阻塞 MVP 完成 [2]。
-
-这个比之前“一口气做三个 production graph”合理很多。因为 P34 同时涉及 sidecar、JSON-RPC、LLMProxy、FTS、evidence、approval/resume，如果三个 workflow 都要求生产级，会导致范围过大。
-
----
-
-# 四、P34 还建议微调的地方
-
-P34 也已经很完整，我只建议补 5 个小点。
-
-## P34 建议 1：fake sidecar 应该有独立 fixture 文件
-
-P34 现在要求 fake sidecar 覆盖 initialize、health、agent.start、approval_required、agent.resume、final_response、run_failed [2]。
-
-建议补充：
-
-```text
-fake sidecar 的事件序列使用 JSON fixture 文件驱动，避免测试逻辑写死在 Python 代码里。
-```
-
-例如：
-
-```text
-AgentRuntime/tests/fixtures/
-├── run_success_paper_reading.jsonl
-├── run_approval_then_resume.jsonl
-├── run_failed.jsonl
-├── sidecar_crash_after_approval.jsonl
-└── handshake_timeout.jsonl
-```
-
-这样 Swift CoreTestRunner 可以复用 fixture，后续真实 sidecar 的回归也能复用。
-
-## P34 建议 2：`llm.respond` 默认禁用 tool calling，但要有显式字段
-
-P34 已经规定 `llm.respond` 默认禁用 provider-native free tool calling，只有专门的 ToolCallingNode 才允许返回 tool calls [2]。
-
-建议在 JSON-RPC request 里显式加入：
-
-```json
-{
-  "allowToolCalls": false
-}
-```
-
-或者：
-
-```json
-{
-  "toolCallPolicy": "disabled"
-}
-```
-
-可选值：
-
-```text
-disabled
-structured_only
-tool_calling_node_only
-```
-
-MVP 用：
-
-```text
-disabled
-```
-
-这样 Python sidecar 和 Swift LLMProxy 都不会误解 `tools: []` 与 `tools: non-empty` 的语义。
-
-## P34 建议 3：`IndexableDocumentSnapshot` 应避免传真实 file URL
-
-P34 里 `IndexableDocumentSnapshot` 包含 `allowed_read_url` 或等价 file handle/path [2]。考虑 macOS security-scoped bookmark 和 workspace 安全边界，建议优先传：
-
-```text
-relative_path + resource_id
-```
-
-然后 Python 通过：
-
-```text
-resources/read
-```
-
-向 Swift 请求内容。
-
-也就是说，MVP 最安全路径是：
-
-```text
-Python 不直接 open 文件。
-Python 调 resources/list_indexable_documents 得到 snapshot。
-Python 调 resources/read(relative_path/resource_id) 读取内容。
-```
-
-如果为了性能允许 Python 直接读文件，也建议只在 development mode 或明确授权模式启用。
-
-## P34 建议 4：FTS owner 最好明确为“sidecar 维护，Swift 授权输入”
-
-P34 已经说第一版可由 Python 建索引，但文件发现优先使用 Swift 授权快照 [2]。建议再明确一句：
-
-```text
-P34 MVP 中 chunks.sqlite 的 writer 是 sidecar；Swift 是授权文档清单与写入锁协调者。后续可迁移为 Swift-owned index service。
-```
-
-否则后面可能出现 Swift 和 Python 都尝试写 `.sci-station/index/chunks.sqlite`。
-
-## P34 建议 5：单篇论文精读 workflow 的最低 evidence 要求再具体一点
-
-建议给 Workflow 1 加上最低验收：
-
-```text
-单篇论文精读至少生成:
-- contributions: >= 3 条，均有 evidenceRefs
-- methods: >= 2 条，均有 evidenceRefs
-- limitations: >= 2 条，允许标记 low confidence
-- todo drafts: 可选，但如生成必须引用对应 paper id
-```
-
-这样“生成 artifact draft + evidence”不会变成只有一段泛泛总结。
-
----
-
-# 五、对 P33 Questions 的回答
-
-## Q1：P33 第一优先级是否确认按 `P32 migration -> runtime façade -> run directory/ledger -> ToolHost adapter -> MCP Gateway` 执行？
-
-**确认。**
-
-我建议更精确地排成：
-
-```text
-1. P33.0  P32 provisional schema migration
-2. P33.0a AgentRunDirectoryStore
-3. P33.0b Persistent execution ledger
-4. P33.0c AgentToolResult wire-format V1
-5. P33.1  AgentRuntimeEventEnvelope / protocol model
-6. P33.2  LegacySwiftAgentRuntime
-7. P33.3  AI Lab dependency inversion + FakeExternalAgentRuntime
-8. P33.4  SciStationToolHost adapter
-9. P33.5  MCP Gateway V1
-10. P33.7 deterministic safety policy / hooks
-11. P33.6 Skill 三级披露
-12. P33.8 Permission Dock richer schema UI
-```
-
-也就是说，我会把 `run directory / ledger / tool result V1` 放在 `LegacySwiftAgentRuntime` 真正稳定前一起完成，因为 runtime resume 和 event replay 依赖它们。
-
-## Q2：Skill 三级披露、安全 hooks、richer approval request 是否都放进 P33 同一轮完成？
-
-**可以放在 P33，但要切片，不要阻塞主线。**
-
-建议优先级：
-
-```text
-必须完成:
-- richer approval schema
-- deterministic safety policy
-- secret/path blocking
-- hook deny blocks prompt/tool call
-
-可以延后:
-- Skill 三级披露完整 UI
-- workspace skill trust prompt 的产品化细节
-- Tier 3 references/scripts 资源浏览体验
-```
-
-P33 的硬依赖应该是 protocol、runtime、run directory、ledger、ToolHost、MCP Gateway。Skill 是重要能力，但不应阻塞 P34 fake sidecar。
-
-## Q3：P34 的 LangGraph sidecar 是否应在 P33 完成后立刻推进？
-
-**可以推进，但只推进 fake sidecar 和协议 harness；真实 LangGraph 要等 P33 dependency gate 通过。**
-
-也就是说：
-
-```text
-P33 未完全完成前:
-可以做 fake sidecar fixture、stdio JSON-RPC harness、Python package skeleton。
-
-P33 dependency gate 通过后:
-再接真实 LangGraph graph、LLMProxy、FTS、workflow。
-```
-
-这样不会让 Python sidecar 被迫兼容 P32 legacy checkpoint，也不会提前把协议债带进 P34。
-
----
-
-# 六、对 P34 Questions 的回答
-
-## Q1：P34 是否确认按 `fake sidecar -> real sidecar handshake -> read-only tools -> FTS evidence -> 单篇论文精读` 顺序推进？
-
-**确认。**
-
-推荐执行顺序：
-
-```text
-P34-M1: fake sidecar + LangGraphAgentRuntime 协议
-P34-M2: real sidecar initialize / health / lifecycle events
-P34-M3: Swift LLMProxy + read-only Gateway tools
+P34-M1: Fake sidecar + stdio JSON-RPC harness
+P34-M2: Real sidecar initialize/health + lifecycle events
+P34-M3: Swift LLMProxy + Gateway read-only tools
 P34-M4: FTS index + AgentEvidenceRef bridge
-P34-M5: 单篇论文精读真实 workflow
-P34-M6: related work beta
-P34-M7: gap planning beta
+P34-M5: 单篇论文精读 workflow
 ```
 
-不要先写 LangGraph 复杂 graph。先确保 sidecar 生命周期、event envelope、approval/resume 和 fallback 能稳定跑通。
-
-## Q2：Related work 与 gap planning 在 P34 第一轮是否接受 sample/fake/beta graph？
-
-**接受，而且建议这样做。**
-
-P34 MVP 的 production workflow 只要求单篇论文精读即可。related work 和 gap planning 更依赖：
-
-- 更好的 retrieval。
-- citation critic。
-- project context quality。
-- core paper clustering。
-- evidence table 稳定性。
-- task generation 的审批体验。
-
-这些可以先用 sample/fake/beta graph 验证 runtime 协议，不要强行在 P34 第一轮做成 production 质量。
-
-## Q3：FTS 第一版是否优先由 Swift 提供 `resources/list_indexable_documents`？
-
-**推荐优先做 Swift 授权快照。**
-
-理由是 Sci-Station 已经有本地 Research Root、Materials 扫描规则、隐藏目录规则、工作区结构和 security-scoped bookmark 访问边界。让 Python 直接 walk workspace 容易重复实现规则，也容易越界。
-
-推荐读取路径：
-
-```text
-Python -> resources/list_indexable_documents
-       -> 得到 IndexableDocumentSnapshot
-       -> Python -> resources/read
-       -> Swift 返回授权内容
-       -> Python 写 FTS index
-```
-
-如果为了开发效率保留 Python walk fallback，也应限制为：
-
-```text
-development mode only
-allowedRoots only
-ignoredGlobs enforced
-no hidden/system dirs
-```
+P34 不应再试图在同一轮里把 related work 与 gap planning 做成 production graph。P34 现在已写明 related work / gap planning 可先用 sample/fake/beta graph，不阻塞 MVP [2]。这个判断应该保留并强化。
 
 ---
 
-# 七、最终建议
+## 2. P34.0a fake sidecar 应增加“协议 golden fixtures”验收
 
-我建议你只再做下面这些小修，然后就可以开工。
-
-## P33 最后补 5 条
+P34 已要求 fake sidecar 使用 JSON fixture 文件驱动事件序列，避免测试逻辑写死在 Python 代码里 [2]。建议再补一条：
 
 ```text
-1. 统一 AgentHumanDecisionAction 命名:
-   allowOnce / denyAndContinue / denyAndStop / reviseWithFeedback / editArguments。
-
-2. AgentApprovalRequest 增加 fingerprint 或 idempotencyKey 字段。
-
-3. 明确 events.jsonl 由 Swift Host 作为最终 owner 写入。
-
-4. ToolHost 增加 buildApprovalRequest / previewApproval 阶段,且该阶段不得产生 side effect。
-
-5. Skill 三级披露可作为 P33-G,不阻塞 P34 dependency gate。
+Fake sidecar fixtures 同时作为协议 golden fixtures。
+Swift 侧解析后应生成稳定的 AgentRuntimeEventEnvelope 序列快照。
 ```
 
-## P34 最后补 5 条
+建议新增测试：
 
 ```text
-1. fake sidecar 使用 JSON fixture 驱动事件序列。
-
-2. llm.respond request 增加 allowToolCalls 或 toolCallPolicy 字段。
-
-3. IndexableDocumentSnapshot 优先返回 resource id / relative path,Python 通过 resources/read 读内容,避免默认直接 file URL。
-
-4. 明确 chunks.sqlite 在 P34 MVP 中由 sidecar 写入,Swift 提供授权快照与锁协调。
-
-5. 单篇论文精读 workflow 增加最低 evidence 验收要求。
+langGraphRuntimeReplaysGoldenFixtureRunSuccess
+langGraphRuntimeReplaysGoldenFixtureApprovalResume
+langGraphRuntimeRejectsInvalidFixtureSchemaVersion
+langGraphRuntimeCanonicalizesSidecarLocalSequence
 ```
+
+理由：P33 已经固定 runtime event 使用 `event.type + event.payload` wire-format，并且 Swift Host 是 sequence owner [1]。P34 fake sidecar 现在正好应该把这个协议固化成回归测试。
 
 ---
 
-## 最终判断
+## 3. P34.2 需要明确 JSON-RPC request/response correlation 与并发模型
 
-**P33 / P34 当前版本已经足够成熟，可以进入开发。**
+P34 已要求 stdio JSON-RPC 支持双向调用，Swift 到 sidecar 包括 `sidecar.initialize/health` 与 `agent.start/resume/cancel/checkpoint`，sidecar 到 Swift 包括 `runtime.event/tools.list/tools.call/resources.read/llm.respond` 等 [2]。但还应补充：
 
-P33 的主线是：
+```text
+所有 JSON-RPC request 必须有唯一 id。
+response 必须按 id correlation，不依赖返回顺序。
+stdio transport 支持 interleaved request/response/event。
+runtime.event 可以作为 notification 或 request，但必须明确 ack 语义。
+```
 
-> 把 P32 已实现的 Swift loop 临时协议迁移成长期协议，并建立 runtime façade、run directory、persistent ledger、ToolHost 和 MCP Gateway。
+建议 MVP 简化为：
 
-P34 的主线是：
+```text
+- runtime.event 使用 JSON-RPC notification，无需 sidecar 等待 ack。
+- tools.call / resources.read / llm.respond 使用 JSON-RPC request-response。
+- agent.start 返回 accepted 后，后续进度通过 runtime.event notification 推送。
+```
 
-> 先用 fake sidecar 验证协议，再接真实 LangGraph；MVP 只强制完成单篇论文精读，related work / gap planning 先 beta 化。
+否则后面 sidecar 一边等 `llm.respond`，一边发 event，很容易出现 stdio transport 死锁或顺序假设错误。
 
-这套顺序风险最低，也最符合你现在 Sci-Station 的实际源码状态。
+---
+
+## 4. P34.3 建议新增 sidecar supervisor，而不是把 Process 管理塞进 Runtime 本体
+
+P34 计划新增 `LangGraphAgentRuntime.swift`，用 `Process` 启动 Python sidecar [2]。建议拆成两个 Swift 类型：
+
+```swift
+public actor SidecarProcessSupervisor {
+    func start() async throws -> SidecarConnection
+    func stop() async
+    func restart() async throws -> SidecarConnection
+    func health() async -> SidecarHealth
+}
+
+public actor LangGraphAgentRuntime: ExternalAgentRuntime {
+    private let supervisor: SidecarProcessSupervisor
+}
+```
+
+这样好处是：
+
+- `LangGraphAgentRuntime` 专注 runtime 协议。
+- `SidecarProcessSupervisor` 专注 Python 路径、环境变量、stderr 收集、崩溃检测、超时、重启。
+- P35 如果做 packaging / bundle Python，不会污染 runtime 逻辑。
+
+P34 可以先做最小 supervisor，但应该在任务书里规定边界。
+
+---
+
+## 5. P34.4 LLMProxy 需要加入 redaction 与 usage 落库策略
+
+P34 已要求 sidecar 不持有 API key，所有模型调用通过 Swift LLMProxy，且 `llm.respond` 显式携带 `toolCallPolicy`，默认 `disabled` [2]。建议再补：
+
+```text
+LLMProxy request/response 落盘前必须走 P33 AgentRedactionPolicy。
+usage 可以落 events/debug，但 prompt/response 默认不落盘。
+llm.respond 的 modelOptions 只能包含非敏感字段，不得传 API key、credential ref 原文。
+```
+
+P34 已规定 debug prompts/responses 默认不写盘，显式开启后也必须 redacted，并复用 P33 redaction policy [2]。这条应该扩展到 LLMProxy 的 request/response event。
+
+---
+
+## 6. P34.5 FTS index 建议增加“只读资源读取限额与截断策略”
+
+P34 已规定 Python 默认不接收真实 file URL，而是通过 `resources/list_indexable_documents` 与 `resources/read` 获取内容；`chunks.sqlite` writer 是 sidecar，Swift 提供授权文档清单、资源读取与 write lock 协调 [2]。建议新增：
+
+```text
+resources/read 必须支持 maxBytes / maxCharacters。
+单个文档超限时返回 truncated 标记或分片读取。
+FTS chunker 只索引允许的文本类型与大小范围。
+```
+
+建议 schema：
+
+```json
+{
+  "resource_id": "paper:demo:paper.md",
+  "maxBytes": 1048576,
+  "range": null
+}
+```
+
+返回：
+
+```json
+{
+  "resource_id": "paper:demo:paper.md",
+  "content": "...",
+  "content_hash": "sha256:...",
+  "truncated": false,
+  "encoding": "utf-8"
+}
+```
+
+原因：Materials 可能包含大文件、数据文件或生成输出，P34 如果不加读取限额，sidecar FTS 建索引可能拖垮 UI。
+
+---
+
+## 7. P34.6 Evidence bridge 应明确 evidence id 的稳定生成规则
+
+P34 已要求 stable tool result JSON、FTS retriever、artifact draft 与 final Wiki citation block 通过同一 `AgentEvidenceRef` 串联 [2]。建议补：
+
+```text
+AgentEvidenceRef.id = sha256(source_type + source_id + relative_path + start_line + end_line + source_hash)
+```
+
+或者：
+
+```text
+chunk_id 作为 evidence ref 主键，claim-evidence 关系另有 edge id。
+```
+
+并明确：
+
+```text
+同一个 run 内 evidence id 必须稳定。
+source_hash 变化后 evidence 视为 stale。
+artifact draft 只能引用当前 evidence table 中存在的 evidence id。
+```
+
+这会让 UI 可以从 Wiki 草稿跳回论文段落。
+
+---
+
+## 8. P34.7 单篇论文精读 workflow 建议增加“无 paper.md 时的降级路径”
+
+当前仓库支持 PDF 导入后生成 `paper.md`，但实际使用中有些 paper.md 可能为空、未 OCR、未转换或只有模板。P34 单篇精读依赖 `paper.md`、annotations、FTS chunk [2]。建议加降级：
+
+```text
+如果 paper.md 不存在或内容过短:
+- 读取 meta.yaml / abstract / annotations.md。
+- 如果有 PDF 但无 Markdown，返回 artifactDraft 说明需要先转换/OCR，不做无来源总结。
+- 可生成 todo draft: “Convert/OCR paper to markdown”。
+```
+
+这对科研平台很重要，避免 agent 在没有证据时胡写精读笔记。
+
+---
+
+## 9. P34 验收标准建议拆成“强制验收”和“可选验收”
+
+当前 P34 验收标准较多，共 14 条 [2]。建议拆分：
+
+### 强制验收
+
+```text
+1. Fake sidecar fixtures 通过。
+2. LangGraphAgentRuntime 可启动 fake sidecar 并解析 event envelope。
+3. Real sidecar initialize/health 通过，失败可 fallback。
+4. LLMProxy 可完成一次 redacted llm.respond。
+5. Gateway read-only tools 可从 sidecar 调用。
+6. FTS index 可通过 Swift resources 快照建立并检索 line range/source_hash/chunk_id。
+7. 单篇论文精读生成 artifact draft + evidenceRefs。
+8. Approval 写入仍由 Swift ToolHost/Repository 执行，sidecar 不写 workspace。
+```
+
+### 可选或 beta 验收
+
+```text
+related work beta
+gap planning beta
+ToolCallingNode provider-native toolCalls
+真实 LangGraph graph 完整 crash resume
+Python packaging
+```
+
+这样开发时不会被非 MVP 项拖慢。
+
+---
+
+## 10. P34 完成后应该为 P35 留出明确接口
+
+P34 完成时应输出：
+
+```text
+- AgentRuntime/ Python package skeleton
+- fake sidecar fixtures
+- stdio JSON-RPC transport
+- LangGraphAgentRuntime + SidecarProcessSupervisor
+- LLMProxy bridge
+- SciStationGatewayClient
+- FTS index V1
+- AgentEvidenceRef bridge
+- paper_reading graph
+```
+
+这些正好成为 P35 的输入。P35 不应该再重写 sidecar 基础设施，而应该在 P34 之上做 workflow production 化与检索增强。
+
+---
+
+# 二、任务书 35 草案
+
+下面是建议的 P35 任务书内容。
+
+---
+
+# 任务书 35：Research Workflow Production、Citation Critic、Embedding RAG 与 Sidecar 产品化
+
+更新时间：2026-05-05
+
+> 本任务书承接任务书 34。P34 已完成 fake sidecar、真实 sidecar handshake、Swift LLMProxy、Gateway read-only tools、FTS evidence index V1 与单篇论文精读 workflow MVP 后，P35 的目标不是继续扩基础协议，而是把科研 workflow 从 MVP 推向可长期使用：增强 retrieval，生产化 related work / gap planning，引入 citation critic，改善 evidence UI 与 sidecar 运行体验，并为后续 code sandbox / embedding / multi-agent 打基础。
+
+---
+
+## 1. 背景
+
+完成 P33 后，Sci-Station 已经具备长期 agent 协议边界：
+
+```text
+AI Lab UI
+  -> ExternalAgentRuntime
+  -> LegacySwiftAgentRuntime / LangGraphAgentRuntime
+  -> SciStationToolHost / AgentMCPGateway
+  -> Swift Permission Layer
+  -> Repository / Local Research Root
+```
+
+P33 已完成 P32 provisional schema migration、runtime event envelope、run directory、persistent ledger、ToolHost、MCP Gateway、deterministic safety policy 与 Skill loader core，并通过 SwiftPM 与 Xcode 验证 [1]。
+
+P34 将在此基础上完成 sidecar MVP：
+
+```text
+fake sidecar
+stdio JSON-RPC
+real sidecar initialize/health
+Swift LLMProxy
+Gateway read-only tools
+FTS evidence index V1
+AgentEvidenceRef bridge
+single-paper reading workflow
+```
+
+P35 的重点是把“能跑”变成“对科研真正有用、可审计、可恢复、可迭代”。
+
+---
+
+## 2. 本轮目标
+
+1. 将 P34 的单篇论文精读 workflow 产品化，支持更稳定的结构化笔记、证据跳转、todo 草稿与 Wiki 写入审批。
+2. 将 related work 和 gap planning 从 sample/beta graph 提升为 production workflow。
+3. 新增 citation critic / evidence critic 节点，检查 claim 是否有 evidence、引用是否过期、证据是否支持结论。
+4. 在 FTS V1 基础上加入可选 embedding retrieval V1，但保留 FTS-only fallback。
+5. 改善 evidence UI：artifact draft、Wiki citation block、source jump、stale evidence warning。
+6. 完善 sidecar crash recovery、run replay、debug bundle 与用户可读错误提示。
+7. 产品化 sidecar runtime selector、health panel 与 fallback 策略。
+8. 不做 shell/python code execution，不做完整 sandbox，不让 sidecar 获得 workspace 写权限。
+
+---
+
+## 3. 实施任务
+
+### [P35.1] 单篇论文精读 workflow 产品化
+
+- 在 P34 paper reading graph 基础上增强节点：
+
+```text
+load_paper_context
+retrieve_sections
+extract_contributions
+extract_methods
+extract_experiments
+extract_limitations
+extract_open_questions
+draft_structured_note
+critic_check_evidence
+approval
+```
+
+- 输出结构固定为：
+
+```text
+# Paper Note
+
+## TL;DR
+## Contributions
+## Method
+## Experiments
+## Limitations
+## Open Questions
+## Relevance to Current Project
+## Follow-up Todos
+## Evidence
+```
+
+- 最低要求：
+  - contributions 至少 3 条 evidence-backed claim。
+  - methods 至少 2 条 evidence-backed claim。
+  - limitations 至少 2 条，可 low confidence，但必须说明来源。
+  - 每条 evidence 可跳转到 `relative_path + line range`。
+  - 无 `paper.md` 或证据不足时，不生成伪精读，只生成“需要转换/OCR/补全文本”的任务草稿。
+
+---
+
+### [P35.2] Related work workflow production
+
+- 将 P34 的 related work beta graph 升级为 production graph。
+- 节点：
+
+```text
+load_project_overview
+list_core_papers
+retrieve_candidate_evidence
+cluster_by_theme
+build_evidence_matrix
+draft_related_work_sections
+citation_critic
+style_rewrite
+approval
+```
+
+- 草稿产物：
+
+```text
+projects/{project-id}/wiki/related_work.md
+.sci-station/agent/runs/{run_id}/evidence.json
+```
+
+- 输出结构：
+
+```text
+# Related Work
+
+## Scope
+## Theme 1
+## Theme 2
+## Theme 3
+## Comparison Table
+## Research Gap Summary
+## Evidence Matrix
+```
+
+- 验收：
+  - 至少按主题聚类，而不是按论文逐篇罗列。
+  - 每个主题至少 2 个 evidence-backed claims。
+  - citation critic 能发现无证据段落，并要求 graph 重写或降级置信度。
+  - 写入前必须通过 Swift Permission Dock。
+  - sidecar 不直接写 `related_work.md`。
+
+---
+
+### [P35.3] Research gap / task planning workflow production
+
+- 将 P34 的 gap planning beta graph 升级为 production graph。
+- 节点：
+
+```text
+load_project_context
+load_core_papers
+load_existing_tasks
+retrieve_gap_evidence
+synthesize_research_gaps
+propose_hypotheses
+propose_experiments
+generate_todo_drafts
+critic_check_actionability
+approval
+```
+
+- 草稿产物：
+
+```text
+projects/{project-id}/wiki/research_plan.md
+todo drafts
+```
+
+- 输出结构：
+
+```text
+# Research Plan
+
+## Current Context
+## Candidate Gaps
+## Hypotheses
+## Proposed Experiments
+## Milestones
+## Todo Drafts
+## Evidence
+```
+
+- 验收：
+  - gap 必须区分 evidence-backed gap、inferred gap、user-assumption。
+  - todo draft 必须含 priority、related paper/project、reason、optional due date。
+  - 不自动创建 todo，必须经 Swift approval。
+  - 如果现有 tasks 已有相同目标，必须提示可能重复。
+
+---
+
+### [P35.4] Citation Critic / Evidence Critic
+
+新增通用 critic 子图：
+
+```text
+input: draft_artifact + evidence_table
+output: critic_report + revised_draft 或 approval_blocker
+```
+
+检查项：
+
+1. 每个科研 claim 是否有 evidence。
+2. evidence 是否来自允许 source。
+3. evidence line range 是否存在。
+4. source_hash 是否与当前文件一致。
+5. quote 是否过长。
+6. claim 是否过度推断。
+7. 同一 evidence 是否被滥用支持多个不相关 claim。
+8. 是否存在 unsupported superlative，如 “best”、“significantly”、“state-of-the-art”。
+
+输出：
+
+```json
+{
+  "unsupported_claims": [],
+  "stale_evidence": [],
+  "weak_evidence": [],
+  "overclaims": [],
+  "required_revisions": [],
+  "can_request_approval": true
+}
+```
+
+验收：
+
+- 如果 artifact 中存在无 evidence 的核心 claim，不能直接进入 final approval。
+- 用户可以选择“仍然保存为 low confidence draft”，但 UI 必须显示 warning。
+- critic report 写入 run directory。
+
+---
+
+### [P35.5] Embedding retrieval V1，可选启用
+
+在 FTS V1 基础上新增 embedding 检索，但必须保留 FTS-only fallback。
+
+支持配置：
+
+```text
+embedding.enabled
+embedding.provider
+embedding.model
+embedding.dimension
+embedding.store = sqlite-vec | lancedb | qdrant-local
+```
+
+MVP 推荐：
+
+```text
+sqlite-vec 或 LanceDB local
+```
+
+边界：
+
+- embedding API key 仍由 Swift Keychain / LLMProxy 管理。
+- sidecar 不持有 embedding API key。
+- embedding request 走 Swift `embedding.respond` 或 `embedding.embed` proxy。
+- embedding index 只索引 Swift 授权快照。
+- 未配置 embedding 时 workflow 继续使用 FTS。
+
+混合检索策略：
+
+```text
+candidate = FTS topK + embedding topK
+rerank by metadata/project/paper/core tags
+dedupe by chunk_id
+return evidence refs
+```
+
+验收：
+
+- FTS-only 与 embedding-enabled 两种路径均通过测试。
+- embedding index schema version 可迁移。
+- source_hash 变化后 embedding chunk 标记 stale 或重建。
+
+---
+
+### [P35.6] Evidence UI 与 source jump
+
+增强 AI Lab / Wiki / artifact preview：
+
+- Artifact draft 中 evidenceRefs 可展开。
+- 点击 evidence 跳转到：
+  - paper.md line range；
+  - wiki page line range；
+  - annotations.md；
+  - 如果源是 PDF 且有页码映射，则跳转 PDF Reader 页。
+- 显示：
+  - source title；
+  - relative path；
+  - heading；
+  - line range；
+  - confidence；
+  - stale / missing warning。
+- Wiki citation block 可折叠。
+- 保存 artifact 后保留 evidence metadata。
+
+验收：
+
+- 单篇论文精读 artifact 中点击 evidence 可定位到源文本。
+- source_hash 变化后 UI 显示 stale evidence。
+- 不存在的 source 显示 missing source warning，而不是崩溃。
+
+---
+
+### [P35.7] Sidecar run replay 与 debug bundle
+
+新增 run replay 能力：
+
+```text
+.sci-station/agent/runs/{run_id}/
+├── replay.json
+├── critic_report.json
+├── retrieval_trace.json
+└── debug_bundle.zip 可选生成
+```
+
+要求：
+
+- 默认不保存 prompt/response 明文。
+- 用户显式开启 debug 后保存 redacted prompt/response。
+- debug bundle 不包含 API key、private path、`.env`、Keychain 内容。
+- run replay 可重新渲染 timeline，不一定重新调用模型。
+
+验收：
+
+- 已完成 run 可在 AI Lab 重新打开并重放 timeline。
+- sidecar crash 后可查看最后成功 checkpoint。
+- debug bundle 生成前显示包含文件清单与隐私提示。
+
+---
+
+### [P35.8] Sidecar Runtime UI 产品化
+
+新增或增强 Settings / AI Lab runtime panel：
+
+- Runtime selector：
+  - Swift Loop
+  - LangGraph Sidecar
+  - Auto fallback
+- Health status：
+  - Python version
+  - sidecar version
+  - protocol/schema version
+  - dependency check
+  - last crash
+  - fallback reason
+- Controls：
+  - Restart sidecar
+  - Open run directory
+  - Export debug bundle
+  - Disable sidecar for this workspace
+
+验收：
+
+- sidecar unavailable 时用户能看到明确原因。
+- fallback 到 Legacy Swift runtime 时 UI 明确提示，不静默降级。
+- runtime selector 不影响已完成 run 的回放。
+
+---
+
+### [P35.9] Tests
+
+#### Swift CoreTestRunner
+
+新增：
+
+```text
+paperReadingWorkflowProducesEvidenceBackedDraft
+relatedWorkWorkflowClustersByTheme
+gapPlanningWorkflowGeneratesTodoDraftsWithoutWriting
+citationCriticBlocksUnsupportedClaims
+evidenceRefsJumpToSourceLineRange
+sidecarRuntimeSelectorPersistsAndFallbacks
+runReplayLoadsTimelineFromRunDirectory
+embeddingFallbackUsesFTSWhenDisabled
+```
+
+#### Python tests
+
+新增：
+
+```text
+test_paper_reading_graph_evidence_minimums
+test_related_work_theme_clustering
+test_gap_planning_todo_schema
+test_citation_critic_blocks_unsupported_claim
+test_hybrid_retriever_dedupes_chunk_ids
+test_stale_evidence_detection
+test_run_replay_redaction
+```
+
+#### Fixture tests
+
+- 使用 P34 fake sidecar fixtures。
+- 新增 sample workspace：
+  - 3 篇 paper.md；
+  - 1 个 project；
+  - project core papers；
+  - wiki/project overview；
+  - existing todos。
+
+---
+
+### [P35.10] 验证与交付记录
+
+必须运行：
+
+```bash
+swift run SciStationCoreTestRunner
+python -m pytest AgentRuntime/tests
+xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
+```
+
+手动验证：
+
+1. 单篇论文精读生成 evidence-backed note。
+2. Related work 生成主题聚类草稿。
+3. Gap planning 生成 research plan 与 todo drafts。
+4. Citation critic 能阻断无证据 claim。
+5. Evidence UI 可以跳转源文本。
+6. Sidecar crash 后可 fallback 或恢复。
+7. Debug bundle 不含敏感信息。
+
+---
+
+## 4. 非目标
+
+- 不做 shell/python/code execution sandbox。
+- 不让 sidecar 获得 workspace 写权限。
+- 不让 sidecar 直接读取 Keychain 或持有 API key。
+- 不发布 plugin marketplace。
+- 不要求 embedding 默认开启。
+- 不做完整多 agent 自主协作。
+- 不做远程 MCP OAuth。
+- 不做云端同步。
+
+---
+
+## 5. 验收标准
+
+1. 单篇论文精读 workflow 达到 production 质量，生成结构化 note、evidenceRefs、todo drafts，并通过 citation critic。
+2. Related work workflow 能基于 project core papers 生成主题化 related work 草稿，并包含 evidence matrix。
+3. Gap planning workflow 能生成 evidence-backed gaps、hypotheses、experiment proposals 与 todo drafts。
+4. Citation critic 能阻断或标记 unsupported / stale / weak evidence claims。
+5. Embedding retrieval V1 可选启用；未启用时 FTS-only fallback 正常。
+6. Evidence UI 能从 artifact draft 跳转到源文件 line range。
+7. Sidecar run replay 可重放 timeline。
+8. Sidecar runtime panel 能显示 health、fallback reason、restart/export controls。
+9. 所有 workspace 写入仍必须经 Swift Permission Dock，由 Swift ToolHost/Repository 执行。
+10. SwiftPM、Python tests、Xcode build 均通过。
+
+---
+
+## 6. 建议执行顺序
+
+```text
+P35-A: Citation Critic / Evidence Critic
+P35-B: Paper Reading workflow 产品化
+P35-C: Evidence UI/source jump
+P35-D: Related Work production graph
+P35-E: Gap Planning production graph
+P35-F: Run replay/debug bundle
+P35-G: Runtime UI 产品化
+P35-H: Embedding retrieval V1
+```
+
+其中 P35-A 到 P35-C 是最优先的，因为它们直接提升 P34 的单篇论文精读质量。Embedding 可以靠后，不要阻塞 workflow production。
+
+---
+
+# 三、最终建议
+
+我建议你对 P34 做一次小修改后就进入执行：
+
+```text
+1. 把 P34 明确改成执行型任务书：P33 gate 已通过，不再讨论兼容 P32 legacy。
+2. 强化 fake sidecar golden fixtures。
+3. 明确 JSON-RPC correlation、notification/request-response 语义。
+4. 增加 SidecarProcessSupervisor。
+5. 为 resources/read 增加读取限额与截断策略。
+6. 为 AgentEvidenceRef 增加稳定 id 与 stale 判断。
+7. 为单篇论文精读增加 paper.md 缺失/过短降级路径。
+8. 将验收拆成强制 MVP 与 beta 项。
+```
+
+P35 则建议定位为：
+
+> **把 P34 的 sidecar MVP 变成真正可用于科研写作与项目规划的 production agent workflow：citation critic、related work、gap planning、evidence UI、run replay、runtime panel 与可选 embedding。**

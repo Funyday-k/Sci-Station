@@ -77,6 +77,16 @@ private struct CoreVerificationSuite {
         try await agentLoopRunnerStopsAtContextBudget()
         try await externalAgentRuntimeStreamsLegacyLoopEvents()
         try await fakeExternalRuntimeDrivesAITimelineEvents()
+        try await langGraphRuntimePerformsInitializeHandshake()
+        try await langGraphRuntimeReplaysGoldenFixtureRunSuccess()
+        try await langGraphRuntimeReplaysGoldenFixtureApprovalResume()
+        try await langGraphRuntimeRejectsInvalidFixtureSchemaVersion()
+        try await langGraphRuntimeCanonicalizesSidecarLocalSequence()
+        try await langGraphRuntimeFallsBackWhenInitializeTimesOut()
+        try await langGraphRuntimeDoesNotLoseApprovalWhenSidecarCrashes()
+        try await sidecarLLMProxyDisablesProviderNativeToolCalling()
+        try await authorizedResourceProviderListsAndReadsDocuments()
+        try agentEvidenceRefStableIDMarksStale()
         try await runtimeEventEnvelopeSequencesAreStableAndDeduplicated()
         try agentHumanDecisionActionDecodesLegacyAliases()
         try agentToolRiskUnknownValueDecodesAsExternalSideEffect()
@@ -2412,6 +2422,196 @@ private struct CoreVerificationSuite {
         try expect(events.contains { if case .finalResponse = $0 { return true }; return false }, "Fake runtime should be able to drive final response timeline state.")
     }
 
+    private func langGraphRuntimePerformsInitializeHandshake() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphHandshakeWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = sidecarRuntime(fixtureName: "run_success_paper_reading.jsonl")
+        let request = sidecarRuntimeRequest(runID: "langgraph-handshake-run", fixture: fixture)
+        let stream = try await runtime.startRun(request)
+        var events: [AgentRuntimeEvent] = []
+        for try await envelope in stream {
+            events.append(envelope.event)
+        }
+
+        try expect(events.count >= 4, "LangGraph sidecar handshake should allow the run to emit lifecycle and runtime events.")
+        try expect(events.contains { if case .sidecarStarting = $0 { return true }; return false }, "LangGraph runtime should emit sidecarStarting before initialize.")
+        try expect(events.contains { if case .sidecarReady = $0 { return true }; return false }, "LangGraph runtime should emit sidecarReady after initialize/health.")
+    }
+
+    private func langGraphRuntimeReplaysGoldenFixtureRunSuccess() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphGoldenSuccessWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = sidecarRuntime(fixtureName: "run_success_paper_reading.jsonl")
+        let stream = try await runtime.startRun(sidecarRuntimeRequest(runID: "langgraph-success-run", goal: "精读 demo paper", fixture: fixture))
+        var events: [AgentRuntimeEvent] = []
+        for try await envelope in stream {
+            events.append(envelope.event)
+        }
+        let persisted = try await AgentRunDirectoryStore().eventEnvelopes(runID: "langgraph-success-run", in: fixture.root)
+
+        try expect(events.contains { if case .runStarted = $0 { return true }; return false }, "Golden fixture should replay runStarted.")
+        try expect(events.contains { if case .toolCallRequested = $0 { return true }; return false }, "Golden fixture should replay tool_call_requested.")
+        try expect(events.contains { if case .artifactDraft = $0 { return true }; return false }, "Golden fixture should replay artifact_draft. Saw: \(events.map(runtimeEventLabel).joined(separator: ", "))")
+        try expect(events.contains { if case .finalResponse = $0 { return true }; return false }, "Golden fixture should replay final_response.")
+        try expect(persisted.map(\.sequence) == Array(1...persisted.count), "LangGraph runtime should persist host-canonical sequences for golden fixture replay.")
+    }
+
+    private func langGraphRuntimeReplaysGoldenFixtureApprovalResume() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphApprovalResumeWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let definition = loopToolDefinition(name: "write_markdown_plan", risk: .writesWorkspace)
+        let tool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "write_markdown_plan", succeeded: true, message: "Swift wrote the paper note once.", modifiedPaths: ["wiki/papers/demo-paper.md"])
+        ])
+        let runtime = sidecarRuntime(fixtureName: "run_approval_then_resume.jsonl")
+        let request = sidecarRuntimeRequest(
+            runID: "langgraph-approval-run",
+            fixture: fixture,
+            definitions: [definition],
+            registry: AgentToolRegistry(tools: [tool])
+        )
+        let stream = try await runtime.startRun(request)
+        var startEvents: [AgentRuntimeEvent] = []
+        for try await envelope in stream {
+            startEvents.append(envelope.event)
+        }
+
+        let pending = try await AgentRunDirectoryStore().pending(runID: "langgraph-approval-run", in: fixture.root)
+        try expect(startEvents.contains { if case .approvalRequired = $0 { return true }; return false }, "Approval fixture should pause with approvalRequired. Saw: \(startEvents.map(runtimeEventLabel).joined(separator: ", "))")
+        try expect(pending?.approvalRequest.id == "approval-demo-write", "LangGraph runtime should persist sidecar approval as a run-directory checkpoint.")
+
+        try await runtime.resumeRun(runID: "langgraph-approval-run", decision: AgentHumanDecision(action: .allowOnce))
+        let invocationCount = await tool.invocationCount()
+        let records = try await AgentRunDirectoryStore().toolCallRecords(runID: "langgraph-approval-run", in: fixture.root)
+        let persisted = try await AgentRunDirectoryStore().eventEnvelopes(runID: "langgraph-approval-run", in: fixture.root)
+
+        try expect(invocationCount == 1, "Allow once should execute the Swift-owned write exactly once.")
+        try expect(records.contains { $0.status == .completed && $0.toolCallID == "call-write-note" }, "Approved sidecar write should be recorded in the persistent ledger.")
+        try expect(persisted.contains { if case .finalResponse = $0.event { return true }; return false }, "agent.resume should persist the fixture final response.")
+        try expect(persisted.map(\.sequence) == Array(1...persisted.count), "Approval/resume fixture should keep host-canonical sequences after resume.")
+    }
+
+    private func langGraphRuntimeRejectsInvalidFixtureSchemaVersion() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphInvalidSchemaWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = sidecarRuntime(fixtureName: "invalid_schema_version.jsonl")
+        let stream = try await runtime.startRun(sidecarRuntimeRequest(runID: "langgraph-invalid-schema-run", fixture: fixture))
+        do {
+            for try await _ in stream {}
+            throw ValidationError(message: "Invalid sidecar event schema version should fail the runtime stream.")
+        } catch let error as SidecarJSONRPCError {
+            try expect(error.message.contains("schema version"), "Invalid schema version should report a schema error.")
+        }
+    }
+
+    private func langGraphRuntimeCanonicalizesSidecarLocalSequence() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphSequenceWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = sidecarRuntime(fixtureName: "run_success_paper_reading.jsonl")
+        let stream = try await runtime.startRun(sidecarRuntimeRequest(runID: "langgraph-sequence-run", fixture: fixture))
+        for try await _ in stream {}
+        let persisted = try await AgentRunDirectoryStore().eventEnvelopes(runID: "langgraph-sequence-run", in: fixture.root)
+        let eventIDs = persisted.map(\.id)
+
+        try expect(eventIDs.contains("evt-fixture-success-node-load"), "Sequence test should include fixture events with intentionally shuffled local sequences.")
+        try expect(persisted.map(\.sequence) == Array(1...persisted.count), "Swift host should canonicalize sidecar local sequences to a stable per-run sequence.")
+    }
+
+    private func langGraphRuntimeFallsBackWhenInitializeTimesOut() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphTimeoutWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = sidecarRuntime(fixtureName: "handshake_timeout.jsonl", handshakeTimeout: 0.2)
+        let stream = try await runtime.startRun(sidecarRuntimeRequest(runID: "langgraph-timeout-run", fixture: fixture))
+        var events: [AgentRuntimeEvent] = []
+        for try await envelope in stream {
+            events.append(envelope.event)
+        }
+
+        try expect(events.count == 3, "Handshake timeout without fallback runtime should emit only fixed lifecycle fallback events.")
+        try expect(events[0].isSidecarStarting, "Handshake timeout should start with sidecarStarting.")
+        try expect(events[1].isSidecarUnavailable, "Handshake timeout should emit sidecarUnavailable.")
+        try expect(events[2].isFallbackToLegacyRuntime, "Handshake timeout should emit fallbackToLegacyRuntime.")
+    }
+
+    private func langGraphRuntimeDoesNotLoseApprovalWhenSidecarCrashes() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LangGraphCrashApprovalWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = sidecarRuntime(fixtureName: "sidecar_crash_after_approval.jsonl")
+        let stream = try await runtime.startRun(sidecarRuntimeRequest(runID: "langgraph-crash-run", fixture: fixture))
+        for try await _ in stream {}
+        let pending = try await AgentRunDirectoryStore().pending(runID: "langgraph-crash-run", in: fixture.root)
+        let persisted = try await AgentRunDirectoryStore().eventEnvelopes(runID: "langgraph-crash-run", in: fixture.root)
+
+        try expect(pending?.approvalRequest.id == "approval-crash-write", "Sidecar crash after approval should not lose the pending approval checkpoint.")
+        try expect(persisted.contains { if case .checkpointSaved = $0.event { return true }; return false }, "Crash fixture should persist checkpointSaved before the crash.")
+    }
+
+    private func sidecarLLMProxyDisablesProviderNativeToolCalling() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "SidecarLLMProxyWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "LLM proxy response."))
+        ])
+        let request = AgentRuntimeRequest(
+            runID: "llm-proxy-run",
+            goal: "LLM proxy",
+            initialMessages: [],
+            provider: provider,
+            toolDefinitions: [],
+            toolRegistry: AgentToolRegistry(tools: []),
+            toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key"
+        )
+        let sidecarRequest = SidecarLLMRespondRequest(
+            messages: [LLMChatMessage(role: .user, content: "Summarize.")],
+            tools: [LLMToolSpecification(name: "read_note", description: "Read", inputSchemaJSON: "{}")],
+            toolCallPolicy: .disabled,
+            modelOptions: ["temperature": .number("0.1")]
+        )
+        _ = try await SidecarLLMProxy().respond(params: try SidecarJSONCodec.jsonValue(from: sidecarRequest), runtimeRequest: request)
+        let recorded = await provider.recordedRequests()
+
+        try expect(recorded.count == 1, "LLMProxy should call the Swift provider once.")
+        try expect(recorded.first?.tools.isEmpty == true, "toolCallPolicy disabled should strip provider-native tool specifications.")
+    }
+
+    private func authorizedResourceProviderListsAndReadsDocuments() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "AuthorizedResourcesWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let paperURL = fixture.root.fileURL(for: "library/papers/demo-paper/paper.md")
+        try FileManager.default.createDirectory(at: paperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Intro\nThis paper studies evaporation rate evidence.\n# Method\nThe method is line anchored.\n".write(to: paperURL, atomically: true, encoding: .utf8)
+        let provider = AgentAuthorizedResourceProvider()
+        let documents = try await provider.listIndexableDocuments(in: fixture.root)
+        let snapshot = try require(documents.first(where: { $0.relativePath == "library/papers/demo-paper/paper.md" }), "Authorized resources should include converted paper.md.")
+        let response = try await provider.read(AuthorizedResourceReadRequest(resourceID: snapshot.resourceID, maxBytes: 1_048_576, maxCharacters: 24), in: fixture.root)
+
+        try expect(snapshot.sourceType == "paper", "paper.md should be classified as paper source type.")
+        try expect(response.contentHash == snapshot.contentHash, "resources/read should return the snapshot content hash.")
+        try expect(response.truncated, "resources/read should mark content truncated when maxCharacters is exceeded.")
+    }
+
+    private func agentEvidenceRefStableIDMarksStale() throws {
+        let first = AgentEvidenceRef(sourceType: "paper", sourceID: "p1", relativePath: "library/papers/p1/paper.md", startLine: 1, endLine: 12, sourceHash: "sha256:a")
+        let second = AgentEvidenceRef(sourceType: "paper", sourceID: "p1", relativePath: "library/papers/p1/paper.md", startLine: 1, endLine: 12, sourceHash: "sha256:a")
+        let changed = AgentEvidenceRef(sourceType: "paper", sourceID: "p1", relativePath: "library/papers/p1/paper.md", startLine: 1, endLine: 12, sourceHash: "sha256:b")
+
+        try expect(first.id == second.id, "AgentEvidenceRef should generate stable ids for the same source line range and hash.")
+        try expect(first.id != changed.id, "Changing source_hash should change the stable evidence id.")
+        try expect(first.isStale(currentSourceHash: "sha256:b"), "Evidence should be stale when current source hash changes.")
+    }
+
     private func runtimeEventEnvelopeSequencesAreStableAndDeduplicated() async throws {
         let fixture = try await loopWorkspaceFixture(named: "RuntimeEventDedupeWorkspace")
         defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -3968,6 +4168,54 @@ private struct CoreVerificationSuite {
         )
     }
 
+    private func sidecarRuntime(
+        fixtureName: String,
+        handshakeTimeout: TimeInterval = 5
+    ) -> LangGraphAgentRuntime {
+        let repositoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let runtimeURL = repositoryURL.appendingPathComponent("AgentRuntime", isDirectory: true)
+        let fixtureURL = runtimeURL.appendingPathComponent("tests/fixtures/\(fixtureName)", isDirectory: false)
+        let configuration = SidecarLaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: ["python3", "-m", "sci_station_agent.main", "--fixture", fixtureURL.path],
+            environment: [
+                "PYTHONPATH": runtimeURL.path,
+                "PYTHONUNBUFFERED": "1"
+            ],
+            workingDirectoryURL: repositoryURL,
+            handshakeTimeout: handshakeTimeout,
+            requestTimeout: 5
+        )
+        return LangGraphAgentRuntime(
+            supervisor: SidecarProcessSupervisor(configuration: configuration),
+            fallbackRuntime: nil
+        )
+    }
+
+    private func sidecarRuntimeRequest(
+        runID: String,
+        goal: String = "P34 sidecar fixture run",
+        fixture: LoopWorkspaceFixture,
+        definitions: [AgentToolDefinition] = [],
+        registry: AgentToolRegistry = AgentToolRegistry(tools: [])
+    ) -> AgentRuntimeRequest {
+        AgentRuntimeRequest(
+            runID: runID,
+            threadID: "thread-\(runID)",
+            goal: goal,
+            initialMessages: [LLMChatMessage(role: .user, content: goal)],
+            provider: ScriptedChatProvider(responses: [
+                LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Sidecar provider response."))
+            ]),
+            toolDefinitions: definitions,
+            toolRegistry: registry,
+            toolContext: AgentToolContext(workspace: fixture.workspace, selectedPaperID: "demo-paper", researchRoot: fixture.root, currentProjectID: "demo-project"),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key"
+        )
+    }
+
     private func samplePaper(id: String) -> Paper {
         Paper(
             id: id,
@@ -4115,6 +4363,28 @@ private struct CoreVerificationSuite {
         }
         return value
     }
+
+    private func runtimeEventLabel(_ event: AgentRuntimeEvent) -> String {
+        switch event {
+        case .runStarted: return "runStarted"
+        case .nodeStarted: return "nodeStarted"
+        case .assistantDelta: return "assistantDelta"
+        case .assistantMessage: return "assistantMessage"
+        case .toolCallRequested: return "toolCallRequested"
+        case .toolCallCompleted: return "toolCallCompleted"
+        case .approvalRequired: return "approvalRequired"
+        case .artifactDraft: return "artifactDraft"
+        case .checkpointSaved: return "checkpointSaved"
+        case .finalResponse: return "finalResponse"
+        case .runCancelled: return "runCancelled"
+        case .runFailed: return "runFailed"
+        case .sidecarStarting: return "sidecarStarting"
+        case .sidecarReady: return "sidecarReady"
+        case .sidecarUnavailable: return "sidecarUnavailable"
+        case .sidecarCrashed: return "sidecarCrashed"
+        case .fallbackToLegacyRuntime: return "fallbackToLegacyRuntime"
+        }
+    }
 }
 
 private struct ValidationError: LocalizedError {
@@ -4122,6 +4392,23 @@ private struct ValidationError: LocalizedError {
 
     var errorDescription: String? {
         message
+    }
+}
+
+private extension AgentRuntimeEvent {
+    var isSidecarStarting: Bool {
+        if case .sidecarStarting = self { return true }
+        return false
+    }
+
+    var isSidecarUnavailable: Bool {
+        if case .sidecarUnavailable = self { return true }
+        return false
+    }
+
+    var isFallbackToLegacyRuntime: Bool {
+        if case .fallbackToLegacyRuntime = self { return true }
+        return false
     }
 }
 

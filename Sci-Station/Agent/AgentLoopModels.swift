@@ -193,35 +193,115 @@ public nonisolated struct AgentRollbackHint: Codable, Hashable, Sendable {
 
 public nonisolated struct AgentEvidenceRef: Codable, Hashable, Sendable, Identifiable {
     public var id: String
+    public var sourceType: String?
+    public var sourceID: String?
     public var relativePath: String?
     public var lines: [Int]
     public var sourceHash: String?
     public var chunkID: String?
     public var retrievedAt: Date?
+    public var heading: String?
+    public var quote: String?
+    public var confidence: Double?
 
     public nonisolated init(
         id: String = "evidence-\(UUID().uuidString.lowercased())",
+        sourceType: String? = nil,
+        sourceID: String? = nil,
         relativePath: String? = nil,
         lines: [Int] = [],
         sourceHash: String? = nil,
         chunkID: String? = nil,
-        retrievedAt: Date? = nil
+        retrievedAt: Date? = nil,
+        heading: String? = nil,
+        quote: String? = nil,
+        confidence: Double? = nil
     ) {
         self.id = id
+        self.sourceType = sourceType
+        self.sourceID = sourceID
         self.relativePath = relativePath
         self.lines = lines
         self.sourceHash = sourceHash
         self.chunkID = chunkID
         self.retrievedAt = retrievedAt
+        self.heading = heading
+        self.quote = quote
+        self.confidence = confidence
+    }
+
+    public nonisolated init(
+        sourceType: String,
+        sourceID: String? = nil,
+        relativePath: String,
+        startLine: Int,
+        endLine: Int,
+        sourceHash: String,
+        chunkID: String? = nil,
+        retrievedAt: Date? = Date(),
+        heading: String? = nil,
+        quote: String? = nil,
+        confidence: Double? = nil
+    ) {
+        self.init(
+            id: Self.stableID(
+                sourceType: sourceType,
+                sourceID: sourceID,
+                relativePath: relativePath,
+                startLine: startLine,
+                endLine: endLine,
+                sourceHash: sourceHash
+            ),
+            sourceType: sourceType,
+            sourceID: sourceID,
+            relativePath: relativePath,
+            lines: [startLine, endLine],
+            sourceHash: sourceHash,
+            chunkID: chunkID,
+            retrievedAt: retrievedAt,
+            heading: heading,
+            quote: quote,
+            confidence: confidence
+        )
+    }
+
+    public nonisolated static func stableID(
+        sourceType: String,
+        sourceID: String? = nil,
+        relativePath: String,
+        startLine: Int,
+        endLine: Int,
+        sourceHash: String
+    ) -> String {
+        AgentToolCallFingerprint.stableHash([
+            sourceType,
+            sourceID ?? "",
+            relativePath,
+            String(startLine),
+            String(endLine),
+            sourceHash
+        ].joined(separator: "\u{1f}"))
+    }
+
+    public nonisolated func isStale(currentSourceHash: String?) -> Bool {
+        guard let sourceHash, let currentSourceHash else {
+            return false
+        }
+        return sourceHash != currentSourceHash
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case sourceType = "source_type"
+        case sourceID = "source_id"
         case relativePath = "relative_path"
         case lines
         case sourceHash = "source_hash"
         case chunkID = "chunk_id"
         case retrievedAt = "retrieved_at"
+        case heading
+        case quote
+        case confidence
     }
 }
 
