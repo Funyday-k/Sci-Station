@@ -75,6 +75,23 @@ private struct CoreVerificationSuite {
         try await agentLoopRunnerSafetyDenyIsFatal()
         try await agentLoopRunnerCachesRepeatedReadOnlyToolCall()
         try await agentLoopRunnerStopsAtContextBudget()
+        try await externalAgentRuntimeStreamsLegacyLoopEvents()
+        try await fakeExternalRuntimeDrivesAITimelineEvents()
+        try await runtimeEventEnvelopeSequencesAreStableAndDeduplicated()
+        try agentHumanDecisionActionDecodesLegacyAliases()
+        try agentToolRiskUnknownValueDecodesAsExternalSideEffect()
+        try runtimeEventEnvelopeUsesExternalTaggedUnion()
+        try stableToolResultV1MapsToToolCallCompletedEvent()
+        try await mcpGatewayListsAndCallsReadOnlySciStationTools()
+        try await mcpGatewayRequiresApprovalForWorkspaceWrites()
+        try await p32LegacyPendingCheckpointMigratesToRunDirectory()
+        try await persistentLedgerPreventsDuplicateApprovedWriteAfterRestart()
+        try await approvalRequestPersistsFingerprintForLedgerResume()
+        try await toolHostBuildApprovalRequestHasNoSideEffects()
+        try await readOnlyToolNotPausedByGenericPreToolUseReminder()
+        try await deterministicSafetyPolicyBlocksSecretPromptBeforeLLM()
+        try await hookDenyBlocksSensitivePathWrite()
+        try await agentSkillLoaderProgressivelyLoadsMatchingSkill()
         try openAIProviderPayloadIncludesToolChoiceAuto()
         try await agentRunLoggerSkipsDamagedHistoryLines()
         try await agentRunLoggerFiltersProjectConversations()
@@ -2320,6 +2337,466 @@ private struct CoreVerificationSuite {
                 try expect(result.pauseReason?.kind == .contextLimitExceeded, "Loop should stop when accumulated tool result budget is exceeded.")
             }
 
+    private func externalAgentRuntimeStreamsLegacyLoopEvents() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LegacyRuntimeEventWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let call = AgentToolCall(id: "call-runtime-read", toolName: "read_note", argumentsJSON: #"{"path":"paper.md"}"#)
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Runtime final."))
+        ])
+        let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+        let registry = AgentToolRegistry(tools: [
+            RecordingAgentTool(definition: definition, results: [
+                AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "Runtime evidence")
+            ])
+        ])
+        let runtime = LegacySwiftAgentRuntime()
+        let stream = try await runtime.startRun(AgentRuntimeRequest(
+            runID: "legacy-runtime-run",
+            goal: "Runtime test goal",
+            initialMessages: [LLMChatMessage(role: .user, content: "Read context")],
+            provider: provider,
+            toolDefinitions: [definition],
+            toolRegistry: registry,
+            toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key"
+        ))
+
+        var envelopes: [AgentRuntimeEventEnvelope] = []
+        for try await envelope in stream {
+            envelopes.append(envelope)
+        }
+        let persisted = try await AgentRunDirectoryStore().eventEnvelopes(runID: "legacy-runtime-run", in: fixture.root)
+
+        try expect(envelopes.contains { if case .runStarted = $0.event { return true }; return false }, "Legacy runtime should stream runStarted.")
+        try expect(envelopes.contains { if case .toolCallRequested = $0.event { return true }; return false }, "Legacy runtime should map loop tool calls to runtime events.")
+        try expect(envelopes.contains { if case .toolCallCompleted = $0.event { return true }; return false }, "Legacy runtime should map stable tool results to runtime events.")
+        try expect(envelopes.contains { if case .finalResponse = $0.event { return true }; return false }, "Legacy runtime should stream finalResponse.")
+        try expect(persisted.map(\.sequence) == Array(1...persisted.count), "Persisted runtime events should use stable per-run host sequence.")
+    }
+
+    private func fakeExternalRuntimeDrivesAITimelineEvents() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "FakeRuntimeTimelineWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let runtime = FakeExternalAgentRuntime(scriptedEvents: [
+            .runStarted(AgentRunStarted(goal: "Fake timeline")),
+            .approvalRequired(AgentApprovalRequest(runID: "fake-runtime-run", toolCallID: "fake-write", toolName: "write_markdown_plan", permissionKey: AgentToolRisk.writesWorkspace.defaultPermissionKey, risk: .writesWorkspace, argumentsJSON: "{}", targetPaths: ["wiki/plans/fake.md"])),
+            .finalResponse(AgentFinalResponse(markdown: "Fake done."))
+        ])
+        let provider = ScriptedChatProvider(responses: [])
+        let request = AgentRuntimeRequest(
+            runID: "fake-runtime-run",
+            goal: "Fake timeline",
+            initialMessages: [],
+            provider: provider,
+            toolDefinitions: [],
+            toolRegistry: AgentToolRegistry(tools: []),
+            toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key"
+        )
+
+        let stream = try await runtime.startRun(request)
+        var events: [AgentRuntimeEvent] = []
+        for try await envelope in stream {
+            events.append(envelope.event)
+        }
+
+        try expect(events.contains { if case .approvalRequired = $0 { return true }; return false }, "Fake runtime should be able to drive approval timeline state.")
+        try expect(events.contains { if case .finalResponse = $0 { return true }; return false }, "Fake runtime should be able to drive final response timeline state.")
+    }
+
+    private func runtimeEventEnvelopeSequencesAreStableAndDeduplicated() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "RuntimeEventDedupeWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let store = AgentRunDirectoryStore()
+        let first = AgentRuntimeEventEnvelope(id: "evt-dedupe", runID: "dedupe-run", sequence: 1, event: .runStarted(AgentRunStarted(goal: "Deduplicate")))
+        let duplicate = AgentRuntimeEventEnvelope(id: "evt-dedupe", runID: "dedupe-run", sequence: 99, event: .runStarted(AgentRunStarted(goal: "Duplicate")))
+        let second = AgentRuntimeEventEnvelope(id: "evt-dedupe-2", runID: "dedupe-run", sequence: 2, event: .finalResponse(AgentFinalResponse(markdown: "Done")))
+
+        try await store.appendEvent(first, in: fixture.root)
+        try await store.appendEvent(duplicate, in: fixture.root)
+        try await store.appendEvent(second, in: fixture.root)
+        let events = try await store.eventEnvelopes(runID: "dedupe-run", in: fixture.root)
+        let nextSequence = try await store.nextSequence(runID: "dedupe-run", in: fixture.root)
+
+        try expect(events.map(\.id) == ["evt-dedupe", "evt-dedupe-2"], "Run directory should ignore duplicate runtime event ids.")
+        try expect(events.map(\.sequence) == [1, 2], "Deduplicated events should preserve committed host sequence.")
+        try expect(nextSequence == 3, "nextSequence should continue after the latest committed event.")
+    }
+
+    private func agentHumanDecisionActionDecodesLegacyAliases() throws {
+        let decoder = JSONDecoder()
+        let deny = try decoder.decode(AgentHumanDecisionAction.self, from: Data(#""deny""#.utf8))
+        let revise = try decoder.decode(AgentHumanDecisionAction.self, from: Data(#""askAgentToRevise""#.utf8))
+
+        try expect(deny == .denyAndStop, "Legacy deny action should decode to denyAndStop.")
+        try expect(revise == .reviseWithFeedback, "Legacy askAgentToRevise action should decode to reviseWithFeedback.")
+    }
+
+    private func agentToolRiskUnknownValueDecodesAsExternalSideEffect() throws {
+        let decoded = try JSONDecoder().decode(AgentToolRisk.self, from: Data(#""unknownFutureRisk""#.utf8))
+
+        try expect(decoded == .externalSideEffect, "Unknown tool risk values should decode to externalSideEffect.")
+    }
+
+    private func runtimeEventEnvelopeUsesExternalTaggedUnion() throws {
+        let result = AgentToolResult(callID: "call-runtime", toolName: "read_note", succeeded: true, message: "Runtime evidence")
+        let wireResult = AgentToolResultWireFormat(result: result, toolCallID: "call-runtime")
+        let envelope = AgentRuntimeEventEnvelope(
+            id: "evt-runtime",
+            runID: "run-runtime",
+            sequence: 7,
+            timestamp: Date(timeIntervalSince1970: 0),
+            event: .toolCallCompleted(AgentToolCallCompleted(tool: "read_note", toolCallID: "call-runtime", result: wireResult))
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(envelope)
+        let encoded = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try AgentRunDirectoryStore.decoder().decode(AgentRuntimeEventEnvelope.self, from: data)
+
+        try expect(encoded.contains(#""type":"tool_call_completed""#), "Runtime events should encode as event.type.")
+        try expect(encoded.contains(#""payload""#), "Runtime events should encode payload alongside type.")
+        if case let .toolCallCompleted(payload) = decoded.event {
+            try expect(payload.result.schemaVersion == 1, "Decoded tool completion event should preserve the V1 tool result.")
+        } else {
+            throw ValidationError(message: "Decoded runtime event should be toolCallCompleted.")
+        }
+    }
+
+    private func stableToolResultV1MapsToToolCallCompletedEvent() throws {
+        let result = AgentToolResult(
+            callID: "call-stable",
+            toolName: "write_note",
+            succeeded: true,
+            message: "Created a note for audit.",
+            modifiedPaths: ["wiki/notes/audit.md"]
+        )
+        let wireResult = AgentToolResultWireFormat(result: result, toolCallID: "call-stable")
+        let json = try wireResult.stableJSON()
+        let decoded = try AgentRunDirectoryStore.decoder().decode(AgentToolResultWireFormat.self, from: Data(json.utf8))
+        let completed = AgentToolCallCompleted(tool: "write_note", toolCallID: "call-stable", result: wireResult)
+
+        try expect(json.contains(#""schema_version":1"#), "Stable tool result JSON should include schema_version 1.")
+        try expect(decoded.modifiedPaths == ["wiki/notes/audit.md"], "Stable tool result JSON should preserve modified paths.")
+        try expect(completed.result.agentToolResult().modifiedPaths == ["wiki/notes/audit.md"], "Runtime tool completion should embed the stable tool result V1 payload.")
+    }
+
+    private func mcpGatewayListsAndCallsReadOnlySciStationTools() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "MCPReadOnlyWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+        let tool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "MCP evidence")
+        ])
+        let registry = AgentToolRegistry(tools: [tool])
+        let gateway = AgentMCPGateway(toolHost: SciStationToolHost(legacyRegistry: registry))
+        let context = AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root)
+
+        let listResponse = await gateway.handle(AgentMCPEnvelope(id: "mcp-list", method: "tools/list"), context: context)
+        let listResult = try jsonObject(listResponse.result, "tools/list should return a JSON object.")
+        let tools = try jsonArray(listResult["tools"], "tools/list should return tools array.")
+        let toolObjects = try tools.map { try jsonObject($0, "Each listed MCP tool should be an object.") }
+
+        let readOnlyTool = try require(
+            toolObjects.first { object in
+                object["name"]?.stringValue == "read_note"
+                    && object["risk"]?.stringValue == AgentToolRisk.readOnly.rawValue
+            },
+            "MCP tools/list should expose the read_note tool."
+        )
+        let annotations = try jsonObject(readOnlyTool["annotations"], "MCP tool annotations should be an object.")
+        try expect(annotations["readOnly"] == .bool(true), "MCP tools/list should expose read-only annotations.")
+
+        let callResponse = await gateway.handle(
+            AgentMCPEnvelope(
+                id: "mcp-call-read",
+                method: "tools/call",
+                params: .object([
+                    "name": .string("read_note"),
+                    "arguments": .object(["path": .string("paper.md")])
+                ])
+            ),
+            context: context
+        )
+        let callResult = try jsonObject(callResponse.result, "Read-only tools/call should return a JSON object.")
+        let invocationCount = await tool.invocationCount()
+
+        try expect(callResponse.error == nil, "Read-only MCP tool call should not return JSON-RPC error.")
+        try expect(callResult["structuredContent"] != nil, "Read-only MCP tool call should return structuredContent.")
+        try expect(callResult["content"] != nil, "Read-only MCP tool call should return content array.")
+        try expect(invocationCount == 1, "Read-only MCP tool call should invoke the tool once.")
+    }
+
+    private func mcpGatewayRequiresApprovalForWorkspaceWrites() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "MCPWriteApprovalWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+        let tool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Should wait for approval")
+        ])
+        let registry = AgentToolRegistry(tools: [tool])
+        let gateway = AgentMCPGateway(toolHost: SciStationToolHost(legacyRegistry: registry))
+        let context = AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root)
+
+        let response = await gateway.handle(
+            AgentMCPEnvelope(
+                id: "mcp-call-write",
+                method: "tools/call",
+                params: .object([
+                    "name": .string("create_todo"),
+                    "arguments": .object(["title": .string("Review gateway approval")])
+                ])
+            ),
+            context: context,
+            runID: "mcp-write-run"
+        )
+        let result = try jsonObject(response.result, "Write tools/call should return a JSON object.")
+        let approval = try jsonObject(result["approvalRequest"], "Approval-required MCP response should include approvalRequest.")
+        let targetPaths = try jsonArray(approval["target_paths"], "Approval request should include target paths.").compactMap(\.stringValue)
+        let invocationCount = await tool.invocationCount()
+
+        try expect(response.error == nil, "Approval-required MCP tool call should be a normal result, not JSON-RPC error.")
+        try expect(result["status"]?.stringValue == "approval_required", "Write MCP tool call should return approval_required status.")
+        try expect(approval["fingerprint"]?.stringValue?.hasPrefix("sha256:") == true, "Approval request should carry an idempotency fingerprint.")
+        try expect(targetPaths == ["tasks/todos.yaml"], "ToolHost should preview create_todo target path for MCP approval.")
+        try expect(invocationCount == 0, "Write MCP tool call must not invoke the tool before approval.")
+    }
+
+    private func p32LegacyPendingCheckpointMigratesToRunDirectory() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "LegacyPendingMigrationWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let call = AgentToolCall(id: "legacy-call", toolName: "write_note", argumentsJSON: #"{"path":"wiki/legacy.md"}"#)
+        let approval = AgentApprovalRequest(
+            runID: "legacy-run",
+            toolCallID: call.id,
+            toolName: call.toolName,
+            permissionKey: AgentToolRisk.writesWorkspace.defaultPermissionKey,
+            risk: .writesWorkspace,
+            argumentsJSON: call.argumentsJSON,
+            targetPaths: ["wiki/legacy.md"]
+        )
+        let pending = AgentPendingToolCall(
+            runID: "legacy-run",
+            stepIndex: 3,
+            toolCall: call,
+            approvalRequest: approval,
+            messagesBeforePause: [LLMChatMessage(role: .user, content: "Legacy pending")]
+        )
+        let checkpointStore = AgentLoopCheckpointStore()
+        try await checkpointStore.saveLegacyFallback(pending, in: fixture.root)
+
+        let migrated = try await checkpointStore.pending(runID: "legacy-run", in: fixture.root)
+        let runDirectoryPending = try await AgentRunDirectoryStore().pending(runID: "legacy-run", in: fixture.root)
+
+        try expect(migrated?.toolCall.id == "legacy-call", "Legacy pending call should remain readable.")
+        try expect(runDirectoryPending?.toolCall.id == "legacy-call", "Reading legacy pending call should migrate it into the run directory checkpoint.")
+    }
+
+    private func persistentLedgerPreventsDuplicateApprovedWriteAfterRestart() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "PersistentLedgerWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let call = AgentToolCall(id: "call-ledger-write", toolName: "create_todo", argumentsJSON: #"{"title":"Ledger once"}"#)
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Created once."))
+        ])
+        let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+        let firstTool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Created once", modifiedPaths: ["tasks/todos.yaml"])
+        ])
+        let firstRegistry = AgentToolRegistry(tools: [firstTool])
+        let firstRunner = AgentLoopRunner()
+        let paused = try await firstRunner.run(loopRequest(runID: "ledger-run", provider: provider, definitions: [definition], registry: firstRegistry, fixture: fixture))
+        let pending = try require(paused.pendingToolCall, "Expected ledger write to pause for approval.")
+
+        _ = try await firstRunner.resume(loopResumeRequest(pending: pending, action: .allowOnce, provider: provider, definitions: [definition], registry: firstRegistry, fixture: fixture))
+        let firstInvocationCount = await firstTool.invocationCount()
+
+        let secondTool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Should not run", modifiedPaths: ["tasks/todos.yaml"])
+        ])
+        let secondProvider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Loaded from ledger."))
+        ])
+        let secondRunner = AgentLoopRunner()
+        _ = try await secondRunner.resume(loopResumeRequest(pending: pending, action: .allowOnce, provider: secondProvider, definitions: [definition], registry: AgentToolRegistry(tools: [secondTool]), fixture: fixture))
+        let secondInvocationCount = await secondTool.invocationCount()
+        let records = try await AgentRunDirectoryStore().toolCallRecords(runID: "ledger-run", in: fixture.root)
+
+        try expect(firstInvocationCount == 1, "First approved write should execute once.")
+        try expect(secondInvocationCount == 0, "A restarted runner should reuse the persistent ledger result instead of re-invoking the approved write.")
+        try expect(records.contains(where: { $0.status == .completed && $0.toolCallID == "call-ledger-write" }), "Persistent ledger should record the completed write call.")
+    }
+
+    private func approvalRequestPersistsFingerprintForLedgerResume() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "ApprovalFingerprintWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let call = AgentToolCall(id: "call-approval-fingerprint", toolName: "create_todo", argumentsJSON: #"{"title":"Fingerprint"}"#)
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+        ])
+        let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+        let tool = RecordingAgentTool(definition: definition, results: [])
+        let runner = AgentLoopRunner()
+
+        let result = try await runner.run(loopRequest(runID: "approval-fingerprint-run", provider: provider, definitions: [definition], registry: AgentToolRegistry(tools: [tool]), fixture: fixture))
+        let pending = try require(result.pendingToolCall, "Expected write call to pause for approval.")
+        let storedPending = try await AgentRunDirectoryStore().pending(runID: "approval-fingerprint-run", in: fixture.root)
+        let checkpointURL = fixture.root.fileURL(for: AgentRunDirectoryStore.runsRelativePath + "/approval-fingerprint-run/checkpoint.json")
+        let checkpointText = try String(contentsOf: checkpointURL, encoding: .utf8)
+
+        try expect(pending.approvalRequest.fingerprint.hasPrefix("sha256:"), "Approval request should include a stable fingerprint.")
+        try expect(storedPending?.approvalRequest.fingerprint == pending.approvalRequest.fingerprint, "Run directory checkpoint should persist the approval fingerprint.")
+        try expect(checkpointText.contains(pending.approvalRequest.fingerprint), "Checkpoint JSON should contain the approval fingerprint for resume/ledger use.")
+    }
+
+    private func toolHostBuildApprovalRequestHasNoSideEffects() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "ToolHostPreviewWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let definition = loopToolDefinition(name: "create_todo", risk: .writesWorkspace)
+        let tool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "create_todo", succeeded: true, message: "Should not run")
+        ])
+        let host = SciStationToolHost(legacyRegistry: AgentToolRegistry(tools: [tool]))
+        let approval = try await host.buildApprovalRequest(
+            for: AgentToolCall(id: "call-preview", toolName: "create_todo", argumentsJSON: #"{"title":"Preview only"}"#),
+            runID: "preview-run",
+            context: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root)
+        )
+        let invocationCount = await tool.invocationCount()
+
+        try expect(invocationCount == 0, "Building a ToolHost approval preview must not invoke the tool.")
+        try expect(approval.targetPaths == ["tasks/todos.yaml"], "ToolHost approval preview should include expected target paths.")
+        try expect(approval.diffPreview?.contains("Preview only") == true, "ToolHost approval preview should include a human-readable diff summary.")
+        try expect(approval.rollbackHint?.targetPaths == ["tasks/todos.yaml"], "ToolHost approval preview should include rollback targets.")
+    }
+
+    private func readOnlyToolNotPausedByGenericPreToolUseReminder() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "ReadOnlyHookReminderWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let call = AgentToolCall(id: "call-read-reminder", toolName: "read_note", argumentsJSON: #"{"path":"paper.md"}"#)
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Read with reminder."))
+        ])
+        let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+        let tool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "Reminder did not pause")
+        ])
+        let hookEngine = AgentHookEngine(hooks: [
+            AgentHookDefinition(id: "pre-tool-reminder", eventName: .preToolUse, matcher: "*", message: "Audit read-only tool output.")
+        ])
+        let runner = AgentLoopRunner()
+
+        let result = try await runner.run(loopRequest(runID: "read-reminder-run", provider: provider, definitions: [definition], registry: AgentToolRegistry(tools: [tool]), fixture: fixture, hookEngine: hookEngine))
+        let invocationCount = await tool.invocationCount()
+
+        try expect(result.pauseReason == nil, "Generic PreToolUse reminders without deny should not pause read-only tools.")
+        try expect(result.finalResponseMarkdown == "Read with reminder.", "Loop should continue to final response after read-only tool reminder.")
+        try expect(invocationCount == 1, "Read-only tool should still execute once with a reminder hook.")
+    }
+
+    private func deterministicSafetyPolicyBlocksSecretPromptBeforeLLM() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "SecretPromptBlockWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Should not be called"))
+        ])
+        let runner = AgentLoopRunner()
+
+        do {
+            _ = try await runner.run(loopRequest(
+                runID: "secret-prompt-run",
+                goal: "Please use sk-1234567890abcdef for this request.",
+                provider: provider,
+                definitions: [definition],
+                registry: AgentToolRegistry(tools: []),
+                fixture: fixture
+            ))
+            throw ValidationError(message: "Secret-looking prompt should be blocked before model submission.")
+        } catch AgentError.invalidArguments(let message) {
+            try expect(message.contains("secret"), "Secret prompt denial should explain that a secret was detected.")
+        }
+
+        let requests = await provider.recordedRequests()
+        try expect(requests.isEmpty, "Prompt safety block should happen before any LLM request is sent.")
+    }
+
+    private func hookDenyBlocksSensitivePathWrite() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "HookSensitivePathWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let call = AgentToolCall(id: "call-hook-deny", toolName: "write_note", argumentsJSON: #"{"path":"workspace/secrets.txt"}"#)
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])
+        ])
+        let definition = loopToolDefinition(name: "write_note", risk: .writesWorkspace)
+        let tool = RecordingAgentTool(definition: definition, results: [
+            AgentToolResult(callID: "", toolName: "write_note", succeeded: true, message: "Should not run")
+        ])
+        let hookEngine = AgentHookEngine(hooks: [
+            AgentHookDefinition(id: "deny-secrets-path", eventName: .preToolUse, matcher: "secrets", permissionDecision: .deny, message: "blocked by hook")
+        ])
+        let runner = AgentLoopRunner()
+
+        let result = try await runner.run(loopRequest(runID: "hook-deny-run", provider: provider, definitions: [definition], registry: AgentToolRegistry(tools: [tool]), fixture: fixture, hookEngine: hookEngine))
+        let invocationCount = await tool.invocationCount()
+
+        try expect(result.pauseReason?.kind == .safetyPolicyBlocked, "PreToolUse deny hook should block sensitive path writes.")
+        try expect(result.pauseReason?.message.contains("blocked by hook") == true, "Hook denial message should be surfaced in the pause reason.")
+        try expect(invocationCount == 0, "Hook-denied write tools should not execute.")
+    }
+
+    private func agentSkillLoaderProgressivelyLoadsMatchingSkill() async throws {
+        let rootURL = temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let skillDirectory = rootURL.appendingPathComponent(".claude/skills/paper-reading", isDirectory: true)
+        try FileManager.default.createDirectory(at: skillDirectory.appendingPathComponent("references", isDirectory: true), withIntermediateDirectories: true)
+        try "Checklist".write(to: skillDirectory.appendingPathComponent("references/checklist.md"), atomically: true, encoding: .utf8)
+        try """
+        ---
+        name: paper-reading
+        description: Paper evidence review
+        version: 1.0.0
+        author: Sci-Station
+        capabilities: [paper, evidence]
+        risk: readOnly
+        allowed_tools: [read_paper, search_wiki]
+        ---
+
+        Use evidence before drafting conclusions.
+        """.write(to: skillDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let loader = AgentSkillLoader()
+        let metadata = try await loader.loadMetadata(searchRoots: [rootURL.appendingPathComponent(".claude/skills", isDirectory: true)])
+        let selected = try await loader.selectSkills(for: "Please do paper evidence review", from: metadata)
+
+        try expect(metadata.first?.trustLevel == .untrusted, "Workspace skill metadata should default to untrusted.")
+        try expect(metadata.first?.allowedTools == ["read_paper", "search_wiki"], "Skill metadata should expose allowed tools without loading the body.")
+        try expect(selected.first?.body?.contains("Use evidence") == true, "Matching skills should load the body on selection.")
+        try expect(selected.first?.resources == ["references/checklist.md"], "Matching skills should disclose adjacent resources on selection.")
+    }
+
             private func openAIProviderPayloadIncludesToolChoiceAuto() throws {
                 let provider = OpenAICompatibleProvider()
                 let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
@@ -3432,16 +3909,18 @@ private struct CoreVerificationSuite {
 
     private func loopRequest(
         runID: String,
+        goal: String = "Loop test goal",
         provider: any LLMChatProvider,
         definitions: [AgentToolDefinition],
         registry: AgentToolRegistry,
         fixture: LoopWorkspaceFixture,
         options: AgentLoopOptions = AgentLoopOptions(),
+        hookEngine: AgentHookEngine = AgentHookEngine(hooks: []),
         permissionEvaluator: AgentPermissionEvaluator = AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
     ) -> AgentLoopRequest {
         AgentLoopRequest(
             runID: runID,
-            goal: "Loop test goal",
+            goal: goal,
             initialMessages: [
                 LLMChatMessage(role: .system, content: "Use tools when useful."),
                 LLMChatMessage(role: .user, content: "Please inspect the selected context.")
@@ -3454,7 +3933,7 @@ private struct CoreVerificationSuite {
             configuration: LLMConfiguration(),
             apiKey: "test-key",
             options: options,
-            hookEngine: AgentHookEngine(hooks: []),
+            hookEngine: hookEngine,
             permissionEvaluator: permissionEvaluator
         )
     }
@@ -3468,7 +3947,8 @@ private struct CoreVerificationSuite {
         definitions: [AgentToolDefinition],
         registry: AgentToolRegistry,
         fixture: LoopWorkspaceFixture,
-        options: AgentLoopOptions = AgentLoopOptions()
+        options: AgentLoopOptions = AgentLoopOptions(),
+        hookEngine: AgentHookEngine = AgentHookEngine(hooks: [])
     ) -> AgentLoopResumeRequest {
         AgentLoopResumeRequest(
             pending: pending,
@@ -3483,7 +3963,7 @@ private struct CoreVerificationSuite {
             configuration: LLMConfiguration(),
             apiKey: "test-key",
             options: options,
-            hookEngine: AgentHookEngine(hooks: []),
+            hookEngine: hookEngine,
             permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
         )
     }
@@ -3613,6 +4093,20 @@ private struct CoreVerificationSuite {
         guard condition() else {
             throw ValidationError(message: message)
         }
+    }
+
+    private func jsonObject(_ value: JSONValue?, _ message: String) throws -> [String: JSONValue] {
+        guard case let .object(object)? = value else {
+            throw ValidationError(message: message)
+        }
+        return object
+    }
+
+    private func jsonArray(_ value: JSONValue?, _ message: String) throws -> [JSONValue] {
+        guard case let .array(array)? = value else {
+            throw ValidationError(message: message)
+        }
+        return array
     }
 
     private func require<T>(_ value: T?, _ message: String) throws -> T {

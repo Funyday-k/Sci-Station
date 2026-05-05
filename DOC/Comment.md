@@ -1,810 +1,545 @@
-可以。我先说明边界：我不能在这里把整个 Xcode 工程像本地 IDE 一样完整编译、逐行调试；但我已经基于你提供的 README/仓库上下文，以及 Agent 目录中可见的核心代码结构，做了架构判断。我的结论是：
+下面是我对你**已修改后的 P33 / P34 任务书**的再次审核，以及对任务书末尾 Questions 的明确回答。
 
-**不要在 Swift 里继续自研完整 agent 框架。建议保留 Sci-Station 现有 Swift App、权限 UI、本地文件系统与 Repository 层，把成熟 agent runtime 作为本地 sidecar 嵌入。首选方案是：LangGraph Python 作为主 agent 编排框架 + MCP 作为工具/知识接口标准 + 可选 OpenAI Agents SDK Sandbox 处理代码执行/长任务。**
+## 总体结论
 
----
+这版修改是正确的，已经从“未来架构设计”变成了“承接 P32 已落地实现的协议迁移与 sidecar 落地计划”。
 
-## 1. 你现在的 Agent 能力大致处于什么阶段
+尤其是 P33 现在已经明确把第一优先级放在 **P32 provisional schema migration**，包括迁移 P32 的 approval、human decision、pending tool call、fingerprint、pause reason、stable tool result 与 legacy pending checkpoint，而不是并行再造一套新协议 [1]。这点非常关键。
 
-从项目描述看，Sci-Station 已经有很好的“科研工作台底座”：本地 Research Root、论文库、Wiki、Materials、Tasks、PDF Reader、项目视图、AI Lab、权限面板、hook、session event、run log 等都已经搭起来了，而且数据原则是本地优先，核心数据落在用户可见目录中 [1]。LLM API Key 也已经通过 Keychain 保存，settings 只保存非敏感配置 [1]。
+P34 也已经从“直接上 LangGraph + 三个 workflow”改为 **Fake Sidecar First**，并设置了 P33 dependency gate，明确 P34 不再理解 P32 legacy pending checkpoint，必须依赖 P33 的 run directory、persistent ledger、ToolHost、MCP Gateway 与 runtime envelope [2]。这个边界是对的。
 
-但目前 Agent 本身更像是一个 **plan-and-execute 原型**，不是成熟的长期运行 agent：
+我的判断是：
 
-- 有 `AgentPlanner`：让 LLM 生成一个结构化 plan。
-- 有 `AgentToolRegistry` / `AgentToolExecutor`：注册和执行工具。
-- 有基础工具：列论文、读论文、搜索论文、创建 todo、更新论文分类、写 markdown plan。
-- 有审批：写入工具需要用户确认。
-- 有 JSONL run log、thread、draft、session events。
-- 有 hooks、permission dock、MCP UI 的雏形，但 README 也明确说当前阶段“不启动 MCP server”，外部 side-effect MCP tools 仍需进入 permission layer [1]。
-
-这说明你现在强的是 **产品壳、知识库结构、权限与本地文件模型**，弱的是：
-
-1. 没有真正的多轮 agent loop。  
-2. 没有 durable checkpoint / resume。  
-3. 没有工具调用后的反思、重试、分支、子任务分解。  
-4. 没有成熟的 RAG / citation / evidence pipeline。  
-5. MCP 还只是 UI/配置边界，没有成为真正的工具协议层。  
-6. 代码执行、文件编辑、实验复现等能力还没有沙箱化。  
-7. 当前工具数量少，且工具语义仍是 app 内部函数，不是可扩展插件系统。  
-
-所以正确方向不是“把现在的 Swift Agent 继续堆复杂”，而是把它改造成 **Sci-Station Agent Host**，让成熟 runtime 来做循环、状态机、human-in-the-loop、checkpoint、多 agent 协作。
+> **P33 / P34 现在可以进入执行。P33 按 migration → runtime façade → run directory/ledger → ToolHost adapter → MCP Gateway 的顺序做；P34 按 fake sidecar → real sidecar handshake → read-only tools → FTS evidence → 单篇论文精读的顺序做。**
 
 ---
 
-## 2. 推荐总架构
+# 一、对 P33 修改版的审核
 
-我建议的目标架构：
+## 1. P33 的定位已经正确
 
-```text
-Sci-Station.app  SwiftUI / macOS
-│
-├─ AI Lab UI
-│  ├─ Chat / thread
-│  ├─ Plan viewer
-│  ├─ Permission Dock
-│  ├─ Event timeline
-│  └─ Diff / approval / resume UI
-│
-├─ Swift Domain Layer
-│  ├─ PaperRepository
-│  ├─ MarkdownRepository
-│  ├─ TodoRepository
-│  ├─ ProjectPaperLinkRepository
-│  ├─ Workspace / Materials / PDF services
-│  └─ Keychain / settings / security-scoped bookmark
-│
-├─ SciStationAgentBridge
-│  ├─ start_run
-│  ├─ stream_events
-│  ├─ approve_tool_call
-│  ├─ deny_tool_call
-│  ├─ cancel_run
-│  └─ get_checkpoint
-│
-└─ Local Agent Runtime Sidecar  Python
-   │
-   ├─ LangGraph Orchestrator
-   │  ├─ graph state
-   │  ├─ checkpoint
-   │  ├─ human interrupt
-   │  ├─ subgraphs
-   │  └─ streaming events
-   │
-   ├─ MCP Client
-   │  └─ connects to Sci-Station MCP Server
-   │
-   ├─ Optional RAG Layer
-   │  ├─ SQLite FTS
-   │  ├─ sqlite-vec / Qdrant / LanceDB
-   │  └─ local index metadata
-   │
-   └─ Optional Code Sandbox
-      ├─ OpenAI Agents SDK sandbox
-      ├─ local .venv runner
-      └─ restricted filesystem mount
-```
+P33 新标题改成：
 
-其中：
+> P32 Agent Protocol Migration、Runtime Façade 与 MCP Gateway
 
-- **Swift App 继续负责产品体验、文件系统、权限、Keychain、本地数据。**
-- **LangGraph 负责 agent 状态机、循环、checkpoint、human-in-the-loop。**
-- **MCP 负责把 Sci-Station 的知识库能力暴露成标准工具。**
-- **OpenAI Agents SDK Sandbox 可作为“代码执行/长任务 worker”，不是主编排框架。**
+这个比之前更准确。因为 P32 已经完成了 Swift-native loop，并且实施记录明确指出 P32 的 `AgentApprovalRequest`、`AgentHumanDecisionAction`、checkpoint shape 仍是 provisional，write ledger 还是内存态，stable JSON tool result 的 evidence 仍为空数组 [3]。
+
+所以 P33 现在不应该只是“新增 façade”，而应该先做协议迁移。新版已经体现了这一点。
+
+## 2. P33 的关键修改是必要的
+
+新版 P33 已经补上了几条非常重要的内容：
+
+1. **P32 provisional protocol migration**  
+   迁移 P32 的 approval、human decision、pending tool call、fingerprint、pause reason、legacy pending checkpoint 和 stable tool result [1]。
+
+2. **AgentToolArguments 兼容层**  
+   保留 `AgentToolCall.argumentsJSON`，同时新增 `AgentToolArguments.rawJSON / canonicalJSON / value`，避免一次性重写 P32 loop、旧 run log、tool registry 和 planner path [1]。
+
+3. **AgentRunDirectoryStore**  
+   把长期 run 目录定义为：
+
+   ```text
+   .sci-station/agent/runs/{run_id}/
+   ├── checkpoint.json
+   ├── events.jsonl
+   ├── tool_calls.jsonl
+   ├── approvals.jsonl
+   └── tool_results/
+   ```
+
+   并规定 P32 的 `pending_tool_calls.jsonl` 只作为 legacy fallback 读取 [1]。
+
+4. **Persistent execution ledger**  
+   把 P32 的内存 write ledger 升级为持久 `tool_calls.jsonl`，防止 App 重启、sidecar resume 或重复 Allow once 后重复执行写入 [1]。
+
+5. **ToolHost adapter-first**  
+   第一版 `SciStationToolHost` 包装现有 `AgentToolRegistry`，不重写所有工具 [1]。这个非常实际，能降低 P33 的迁移风险。
+
+6. **Hook ask/deny 语义与 P32 对齐**  
+   明确 deterministic safety policy 是不可绕过阻断层；hook `.ask` 不直接等价于 `approvalRequired`；generic `PreToolUse` reminder 不得暂停 read-only tool [1]。
+
+这些修改都应保留。
 
 ---
 
-## 3. 为什么首选 LangGraph，而不是 CrewAI / AutoGen / Semantic Kernel / 纯 OpenAI Agents SDK
+# 二、P33 还建议微调的地方
 
-### 首选：LangGraph
+P33 目前已经很完整，但我建议再补 5 个很小但重要的点。
 
-你的场景非常适合 LangGraph，因为 Sci-Station 不是简单聊天机器人，而是：
+## P33 建议 1：把 `AgentHumanDecisionAction` 的枚举值统一掉
 
-- 长任务：读几十篇论文、归纳 gap、写 proposal。
-- 有状态：项目、论文、Wiki、任务、材料、运行记录。
-- 需要暂停审批：写文件、改元数据、创建任务、运行代码。
-- 需要可恢复：agent 可能跑一半等待用户批准。
-- 需要多角色：文献管家、论文阅读器、Wiki 作者、实验助手、项目经理。
-
-LangGraph 的核心价值正好是：**stateful、durable、human-in-the-loop、streaming、multi-step orchestration**。
-
-### OpenAI Agents SDK：适合作为可选执行层
-
-OpenAI Agents SDK 现在对 OpenAI 模型、tool calling、sandbox、文件/命令执行支持越来越好。如果你未来明确绑定 OpenAI 模型，它可以做主框架。但你的 README 里写的是 OpenAI-compatible API 设置 [1]，说明你可能希望兼容不同 provider。那 LangGraph 更灵活。
-
-我的建议是：
-
-- **主控：LangGraph**
-- **代码执行/文件操作 sandbox：可选接 OpenAI Agents SDK Sandbox**
-- **模型调用：仍保留 OpenAI-compatible provider 配置**
-
-### LlamaIndex：适合做知识/RAG，不适合做主编排
-
-LlamaIndex 在论文、文档、索引、query engine、citation retrieval 方面很强。你可以把它作为：
-
-- paper.md / wiki / materials 的索引层
-- semantic search
-- evidence retrieval
-- citation-aware synthesis
-
-但主 agent 状态机还是 LangGraph 更合适。
-
-### CrewAI：适合快速多角色 demo，不建议做你的底座
-
-CrewAI 对“多个角色协作”上手快，但你的核心需求是本地知识库、严格审批、可恢复状态机、工具安全、复杂工作流。CrewAI 的抽象偏高，后期反而可能卡住。
-
-### Microsoft Agent Framework / Semantic Kernel
-
-如果你是 .NET / Azure / enterprise stack，它很强。但你的项目是 Swift macOS 本地优先工具，直接嵌入 Microsoft Agent Framework 会引入过重生态依赖，不是最自然。
-
----
-
-## 4. 关键设计：把 Sci-Station 做成 MCP Server
-
-你现在已有很多 Swift Repository 和 Service。不要让 Python sidecar 直接乱读 Research Root 文件，也不要重写一套 Python Repository。更好的做法是：
-
-**由 Sci-Station 暴露一个本地 MCP Server，把内部能力包装成标准 tools/resources/prompts。**
-
-### 4.1 MCP Tools 设计
-
-先分三类。
-
-#### A. Read-only tools，默认自动允许
-
-```text
-list_projects
-get_project_overview
-list_papers
-search_papers
-read_paper_metadata
-read_paper_markdown
-read_paper_section
-search_wiki
-read_wiki_page
-list_materials
-read_material
-list_tasks
-get_backlinks
-get_related_papers
-```
-
-这些工具不修改 workspace，可以默认 allow，但仍记录 session events。
-
-#### B. Workspace write tools，必须审批
-
-```text
-create_wiki_page
-patch_wiki_page
-replace_wiki_page
-create_todo
-update_todo
-update_paper_metadata
-link_paper_to_project
-set_core_paper
-add_tags_to_paper
-import_identifier
-move_material
-create_project_note
-```
-
-这些工具必须在 Swift UI 的 Permission Dock 里展示：
-
-- 工具名
-- 参数
-- 影响路径
-- diff
-- 风险等级
-- allow once / deny / edit arguments / ask agent to revise
-
-#### C. High-risk tools，默认禁止或沙箱
-
-```text
-run_python
-run_shell
-install_package
-open_external_url
-call_external_api
-write_code_file
-delete_file
-bulk_modify_files
-```
-
-这些需要更严格策略：
-
-- 默认 deny 或 ask。
-- 只允许在 workspace `.venv` 或 sandbox 里执行。
-- 文件写入只允许进入 `.sci-station/agent/runs/{run_id}/artifacts/`，再由用户批准合并。
-
----
-
-## 5. 推荐的 LangGraph 状态机
-
-你可以把科研 agent 分成几个子图。
-
-### 5.1 顶层 Router Graph
-
-```text
-User Input
-   ↓
-Intent Router
-   ↓
-┌───────────────────────────────┐
-│ literature_review_graph        │
-│ paper_reading_graph            │
-│ wiki_writing_graph             │
-│ project_planning_graph         │
-│ task_management_graph          │
-│ experiment_code_graph          │
-│ import_and_triage_graph        │
-└───────────────────────────────┘
-   ↓
-Final Response + Artifacts
-```
-
-### 5.2 文献综述 Graph
-
-```text
-clarify_scope
-   ↓
-retrieve_candidate_papers
-   ↓
-read_key_papers
-   ↓
-extract_claims_methods_gaps
-   ↓
-build_evidence_table
-   ↓
-draft_related_work
-   ↓
-critic_check_citations
-   ↓
-approval_before_write
-   ↓
-write_wiki_or_project_doc
-```
-
-产物：
-
-```text
-projects/{project-id}/wiki/literature_review.md
-wiki/gaps/{topic}.md
-wiki/methods/{method}.md
-.sci-station/agent/runs/{run-id}/evidence.json
-```
-
-### 5.3 单篇论文精读 Graph
-
-```text
-load_paper_metadata
-   ↓
-read_abstract_intro
-   ↓
-read_method
-   ↓
-read_experiments
-   ↓
-extract_contributions
-   ↓
-extract_limitations
-   ↓
-generate_structured_note
-   ↓
-approval_before_write
-   ↓
-update paper.md / annotations.md / wiki/papers/{citekey}.md
-```
-
-### 5.4 项目规划 Graph
-
-```text
-load_project_context
-   ↓
-load_core_papers
-   ↓
-analyze_current_tasks
-   ↓
-propose_milestones
-   ↓
-generate_todos
-   ↓
-approval_before_task_creation
-   ↓
-write_project_plan
-```
-
-### 5.5 代码/实验 Graph
-
-```text
-inspect_code_materials
-   ↓
-plan_experiment
-   ↓
-approval_before_execution
-   ↓
-run_in_sandbox
-   ↓
-collect_outputs
-   ↓
-summarize_results
-   ↓
-approval_before_commit
-   ↓
-write_report / update figures / create tasks
-```
-
----
-
-## 6. 你现有 Swift Agent 层应该怎么改
-
-不要全删。建议改造成 façade。
-
-### 6.1 保留的部分
-
-保留：
-
-- `SciStationAgentService` 对 UI 的接口。
-- `AgentRunLogger`
-- `AgentSessionEventLogger`
-- `AgentThreadRepository`
-- `AgentPromptDraftRepository`
-- `AgentPermissionEvaluator`
-- Permission Dock UI
-- Hook Activity UI
-- Preset Manager UI
-- LLM Settings / Keychain / provider config
-
-这些是产品资产。
-
-### 6.2 替换的部分
-
-逐步弱化或替换：
-
-- `AgentPlanner`：不再让 Swift 自己 prompt LLM 生成 JSON plan。
-- `AgentPlanParser`：只作为 legacy fallback。
-- `AgentToolExecutor`：不再直接执行全部工具，改成 MCP tool gateway。
-- Built-in tools：迁移为 MCP tools，或通过 `SciStationToolHost` 统一暴露。
-
-### 6.3 新增一个 Agent Runtime Adapter
-
-Swift 侧定义协议：
+P32 中 provisional enum 是：
 
 ```swift
-public protocol ExternalAgentRuntime: Sendable {
-    func startRun(_ request: AgentRunRequest) async throws -> AsyncThrowingStream<AgentRuntimeEvent, Error>
-    func resumeRun(runID: String, decision: AgentHumanDecision) async throws
-    func cancelRun(runID: String) async throws
-    func loadCheckpoint(runID: String) async throws -> AgentCheckpoint?
+allowOnce
+denyAndContinue
+denyAndStop
+reviseWithFeedback
+editArguments
+```
+
+而 P33 迁移段里写了：
+
+```text
+allowOnce、deny、editArguments、askAgentToRevise
+```
+
+这里出现了命名不一致。建议 P33 最终固定为：
+
+```swift
+public enum AgentHumanDecisionAction: String, Codable, Sendable {
+    case allowOnce
+    case denyAndContinue
+    case denyAndStop
+    case reviseWithFeedback
+    case editArguments
 }
 ```
 
-然后实现：
+然后做 legacy alias：
+
+```text
+deny -> denyAndStop
+askAgentToRevise -> reviseWithFeedback
+```
+
+这样和 P32 已实现 runner 行为一致，也避免 UI / sidecar / Permission Dock 出现三套命名。
+
+## P33 建议 2：`AgentApprovalRequest` 加入 fingerprint 字段
+
+P33 验收标准已经要求 Permission Dock pending item 包含 idempotency fingerprint [1]，但 `AgentApprovalRequest` struct 里还没有显式字段。
+
+建议加入：
 
 ```swift
-public actor LangGraphAgentRuntime: ExternalAgentRuntime {
-    private let transport: AgentRuntimeTransport
+public var fingerprint: String
+```
 
-    public func startRun(_ request: AgentRunRequest) async throws -> AsyncThrowingStream<AgentRuntimeEvent, Error> {
-        try await transport.stream(method: "agent.start", payload: request)
-    }
+或者：
 
-    public func resumeRun(runID: String, decision: AgentHumanDecision) async throws {
-        try await transport.call(method: "agent.resume", payload: [
-            "run_id": runID,
-            "decision": decision
-        ])
-    }
+```swift
+public var idempotencyKey: String
+```
 
-    public func cancelRun(runID: String) async throws {
-        try await transport.call(method: "agent.cancel", payload: [
-            "run_id": runID
-        ])
-    }
+否则 Permission Dock、ledger、resume 三方会各自重新计算，容易不一致。
+
+推荐：
+
+```swift
+public struct AgentApprovalRequest: Codable, Sendable, Identifiable {
+    public var id: String
+    public var runID: String
+    public var toolCallID: String
+    public var tool: String
+    public var risk: AgentToolRisk
+    public var permissionKey: String
+    public var arguments: AgentToolArguments
+    public var targetPaths: [String]
+    public var fingerprint: String
+    public var diffPreview: String?
+    public var summaryPreview: String?
+    public var reason: String
+    public var rollbackHint: AgentRollbackHint?
+    public var expiresAt: Date?
+    public var suggestedDecisions: [AgentHumanDecisionAction]
 }
 ```
 
-Transport 可以先用：
+## P33 建议 3：run directory 需要补 `events.jsonl` 的所有权
 
-1. `Process` + stdio JSON-RPC  
-2. 后续再换 localhost HTTP / WebSocket  
-3. 正式发布时可 bundle 一个 helper  
+P33 的 run directory 示例包含 `events.jsonl`，但实施任务里对 events 的 owner 描述还可以更硬一点。
+
+建议补一句：
+
+```text
+events.jsonl 由 Swift Host 作为最终 owner 写入；LegacySwiftAgentRuntime 直接写 host sequence，LangGraph sidecar event 经 Swift canonicalize 后再写入。
+```
+
+这和 P33 已定义的 sequence owner 规则一致 [1]。
+
+## P33 建议 4：ToolHost adapter 要定义“禁止 side effect 的 dry-run/diff 阶段”
+
+P33 要求写 Markdown/Todo/Paper metadata 工具尽量生成 diff/summary 后再请求审批 [1]。但为了实现这个能力，ToolHost 需要区分：
+
+```text
+previewApproval / buildApprovalRequest
+execute
+```
+
+建议新增 ToolHost 方法：
+
+```swift
+public func buildApprovalRequest(
+    for call: AgentToolCall,
+    context: AgentToolContext
+) async throws -> AgentApprovalRequest
+```
+
+并规定：
+
+```text
+buildApprovalRequest 不得产生 workspace side effect，只能做 schema validation、target path extraction、diff/summary preview、fingerprint 计算。
+```
+
+否则“生成 diff”本身可能误触写入。
+
+## P33 建议 5：Skill 可降为 P33-G，不阻塞主线
+
+新版 P33 已经写了执行顺序，P33-A 到 P33-D 是 P34 硬依赖，Skill 排在最后 [1]。这个安排正确。
+
+我建议在 P33 验收/交付里再明确：
+
+```text
+若 P33 runtime/schema/ledger/ToolHost 主线完成但 Skill 三级披露未完全产品化，可以作为 P33-G 延后，不阻塞 P34 fake sidecar。
+```
+
+这样可以避免 P34 被 Skill loader 的 UI/metadata 细节卡住。
 
 ---
 
-## 7. Python sidecar 的结构
+# 三、对 P34 修改版的审核
 
-建议仓库新增：
+## 1. P34 的新定位非常正确
+
+P34 标题改成：
+
+> Fake Sidecar First、LangGraph Sidecar、Local RAG 与科研 Workflow MVP
+
+这是非常好的修改。P34 现在明确要求先用 fake sidecar 验证协议与恢复路径，再接真实 LangGraph graph [2]。这能有效隔离问题来源：
 
 ```text
-AgentRuntime/
-├── pyproject.toml
-├── sci_station_agent/
-│   ├── main.py
-│   ├── server.py
-│   ├── graph/
-│   │   ├── state.py
-│   │   ├── router.py
-│   │   ├── literature_review.py
-│   │   ├── paper_reading.py
-│   │   ├── wiki_writing.py
-│   │   ├── project_planning.py
-│   │   └── experiment_code.py
-│   ├── mcp_client/
-│   │   ├── client.py
-│   │   └── tools.py
-│   ├── rag/
-│   │   ├── indexer.py
-│   │   ├── retriever.py
-│   │   └── citations.py
-│   ├── safety/
-│   │   ├── policy.py
-│   │   └── approvals.py
-│   └── storage/
-│       ├── checkpoints.py
-│       └── events.py
-└── tests/
+先验证:
+Swift Process 管理
+stdio JSON-RPC 双向调用
+event envelope parsing
+sequence canonicalization
+approval resume
+fallback
+
+再验证:
+LangGraph state
+workflow routing
+FTS evidence
+LLMProxy
 ```
 
-LangGraph State 示例：
+这个顺序是工程上最稳的。
 
-```python
-from typing import TypedDict, Annotated, Literal
-from langgraph.graph.message import add_messages
+## 2. P34 的 dependency gate 是必要的
 
-class SciStationAgentState(TypedDict):
-    run_id: str
-    thread_id: str | None
-    project_id: str | None
-    selected_paper_id: str | None
-    user_goal: str
-    messages: Annotated[list, add_messages]
-    intent: str | None
-    plan: dict | None
-    evidence: list[dict]
-    draft_artifacts: list[dict]
-    pending_approval: dict | None
-    approved_actions: list[dict]
-    denied_actions: list[dict]
-    final_response: str | None
-```
+P34 现在明确规定开始前必须满足：
 
-approval node：
+- P33 `AgentRuntimeEventEnvelope` 已落地。
+- P32 provisional approval / pending checkpoint / stable tool result 已迁移。
+- `LegacySwiftAgentRuntime` 可包装 P32 `AgentLoopRunner`。
+- `SciStationToolHost` 已成为唯一工具入口。
+- MCP Gateway V1 可 `tools/list` / `tools/call`。
+- run directory / checkpoint / approvals / persistent tool ledger 已可读写 [2]。
 
-```python
-def approval_gate(state: SciStationAgentState):
-    risky_actions = [
-        a for a in state.get("draft_artifacts", [])
-        if a.get("risk") in {"writes_workspace", "runs_code", "external_side_effect"}
-    ]
+并且明确：
 
-    if not risky_actions:
-        return {"pending_approval": None}
+> 若 dependency gate 未通过，P34 只能做 fake sidecar 协议测试，不得让 Python sidecar 兼容 P32 legacy pending 文件 [2]。
 
-    return interrupt({
-        "type": "approval_required",
-        "actions": risky_actions,
-        "message": "这些操作需要用户确认后才能执行。"
-    })
-```
+这是非常正确的边界。
+
+## 3. P34 对三个 workflow 的范围收缩合理
+
+P34 现在规定：
+
+- 单篇论文精读是 MVP 的真实 workflow。
+- related work 和 gap planning 第一轮可以作为 sample/fake/beta graph，不阻塞 MVP 完成 [2]。
+
+这个比之前“一口气做三个 production graph”合理很多。因为 P34 同时涉及 sidecar、JSON-RPC、LLMProxy、FTS、evidence、approval/resume，如果三个 workflow 都要求生产级，会导致范围过大。
 
 ---
 
-## 8. RAG / 知识索引建议
+# 四、P34 还建议微调的地方
 
-你的项目已经有：
+P34 也已经很完整，我只建议补 5 个小点。
 
-- `library/papers/{paper-id}/paper.md`
-- `meta.yaml`
-- `annotations.md`
-- `wiki/`
-- `projects/{project-id}/wiki/`
-- `materials`
-- `tasks`
-- `shared_research.md`
+## P34 建议 1：fake sidecar 应该有独立 fixture 文件
 
-建议建立一个本地索引：
+P34 现在要求 fake sidecar 覆盖 initialize、health、agent.start、approval_required、agent.resume、final_response、run_failed [2]。
+
+建议补充：
 
 ```text
-.sci-station/index/
-├── chunks.sqlite
-├── embeddings.sqlite
-├── paper_chunks.jsonl
-├── wiki_chunks.jsonl
-└── material_chunks.jsonl
+fake sidecar 的事件序列使用 JSON fixture 文件驱动，避免测试逻辑写死在 Python 代码里。
 ```
 
-### 8.1 第一阶段：SQLite FTS
+例如：
 
-先不要急着上向量库。第一版用：
+```text
+AgentRuntime/tests/fixtures/
+├── run_success_paper_reading.jsonl
+├── run_approval_then_resume.jsonl
+├── run_failed.jsonl
+├── sidecar_crash_after_approval.jsonl
+└── handshake_timeout.jsonl
+```
 
-- SQLite FTS5
-- title / abstract / author / tag / citekey / BibTeX / wiki links
-- chunk path + line range
-- updated_at 增量更新
+这样 Swift CoreTestRunner 可以复用 fixture，后续真实 sidecar 的回归也能复用。
 
-这样与你的本地优先原则一致。
+## P34 建议 2：`llm.respond` 默认禁用 tool calling，但要有显式字段
 
-### 8.2 第二阶段：Embedding
+P34 已经规定 `llm.respond` 默认禁用 provider-native free tool calling，只有专门的 ToolCallingNode 才允许返回 tool calls [2]。
 
-再支持：
-
-- sqlite-vec
-- LanceDB
-- Qdrant local
-- 或者可选 OpenAI-compatible embedding API
-
-### 8.3 Agent 必须输出 evidence
-
-所有严肃科研回答都要求：
+建议在 JSON-RPC request 里显式加入：
 
 ```json
 {
-  "claim": "某方法在小样本设置下更稳定",
-  "evidence": [
-    {
-      "source_type": "paper",
-      "paper_id": "smith2024...",
-      "path": "library/papers/.../paper.md",
-      "lines": [120, 148],
-      "quote": "短摘录",
-      "confidence": 0.78
-    }
-  ]
+  "allowToolCalls": false
 }
 ```
 
-这样 Wiki 写入时可以生成可追踪的科研笔记，而不是普通聊天总结。
-
----
-
-## 9. 最小可行迁移路线
-
-### Phase 0：冻结现有 Swift Agent API
-
-目标：不要继续让 UI 直接依赖 `AgentPlanner` / `AgentToolExecutor`。
-
-做：
-
-- 定义 `ExternalAgentRuntime`
-- 当前 Swift 内置 agent 包一层 `LegacySwiftAgentRuntime`
-- AI Lab UI 只依赖 runtime protocol
-
-收益：以后可以平滑切 LangGraph。
-
----
-
-### Phase 1：做 Sci-Station MCP Server
-
-先实现 stdio MCP server，暴露只读工具：
-
-```text
-list_papers
-read_paper_markdown
-search_papers
-read_wiki_page
-search_wiki
-list_tasks
-```
-
-Swift 实现方式有两种：
-
-#### 方案 A：Swift 原生 MCP Server
-
-优点：直接复用 Repository。  
-缺点：你要自己实现 MCP JSON-RPC 细节。
-
-#### 方案 B：Python MCP Server + Swift CLI bridge
-
-优点：MCP SDK 生态成熟，上手快。  
-缺点：Python 需要调用 Swift CLI 或直接读文件，可能重复逻辑。
-
-我建议：
-
-- 短期用 Python MCP server 直接读 Research Root 文件。
-- 中期把关键写入能力切回 Swift service，避免 Python 破坏数据一致性。
-- 长期做 Swift 原生 MCP host。
-
----
-
-### Phase 2：接入 LangGraph sidecar
-
-实现三个 API：
-
-```text
-agent.start
-agent.resume
-agent.cancel
-```
-
-事件流统一成：
-
-```json
-{"type":"run_started","run_id":"..."}
-{"type":"node_started","node":"retrieve_papers"}
-{"type":"tool_call_requested","tool":"search_papers","args":{...}}
-{"type":"tool_call_completed","tool":"search_papers","result_summary":"..."}
-{"type":"approval_required","actions":[...]}
-{"type":"artifact_draft","path":"wiki/plans/xxx.md","diff":"..."}
-{"type":"final_response","content":"..."}
-```
-
-Swift AI Lab 直接把这些映射到现有 session timeline。
-
----
-
-### Phase 3：先做 3 个高价值 workflow
-
-不要一开始做“万能科研 agent”。先做最能体现 Sci-Station 价值的三个：
-
-#### Workflow 1：单篇论文精读
-
-用户说：
-
-> 帮我精读当前 PDF，生成结构化笔记和待办。
-
-Agent 做：
-
-1. 读取 meta.yaml。
-2. 读取 paper.md。
-3. 提取贡献、方法、实验、局限。
-4. 生成 `wiki/papers/{citekey}.md` 草稿。
-5. 生成相关 todo 草稿。
-6. 请求用户审批。
-7. 写入文件和 tasks。
-
-#### Workflow 2：项目 related work 草稿
-
-用户说：
-
-> 基于当前项目核心论文，写一版 related work。
-
-Agent 做：
-
-1. 获取 project core papers。
-2. 检索 paper.md。
-3. 生成 evidence table。
-4. 按主题聚类。
-5. 写 `projects/{project-id}/wiki/related_work.md` 草稿。
-6. 用户审批后保存。
-
-#### Workflow 3：研究计划 / gap 分析
-
-用户说：
-
-> 分析这个项目还有哪些 research gaps，拆成任务。
-
-Agent 做：
-
-1. 读 project overview。
-2. 读 core papers。
-3. 读 existing tasks。
-4. 生成 gaps、hypotheses、next experiments。
-5. 创建 todo 和 project plan 草稿。
-6. 审批后写入。
-
-这三个做好，你的知识平台 agent 就已经明显超越普通 PDF chat。
-
----
-
-## 10. 权限系统要继续由 Swift 掌控
-
-不要把审批逻辑完全交给 LangGraph。正确边界是：
-
-```text
-LangGraph 决定“想做什么”
-Swift Permission Layer 决定“能不能做”
-Sci-Station Repository 执行“怎么安全地做”
-```
-
-审批对象不要只是“工具名”，而应该是：
+或者：
 
 ```json
 {
-  "tool": "patch_wiki_page",
-  "risk": "writes_workspace",
-  "permission_key": "wiki.write",
-  "target_path": "projects/demo/wiki/related_work.md",
-  "diff": "...",
-  "reason": "根据 8 篇核心论文生成 related work 草稿",
-  "rollback": {
-    "backup_path": ".sci-station/agent/backups/..."
-  }
+  "toolCallPolicy": "disabled"
 }
 ```
 
-UI 给用户四个按钮：
+可选值：
 
 ```text
-Allow once
-Deny
-Edit arguments
-Ask agent to revise
+disabled
+structured_only
+tool_calling_node_only
 ```
 
-你 README 中已经有 Permission Dock、allow once、deny、correction feedback 等概念 [1]，所以这是顺着现有设计往成熟化推进。
+MVP 用：
+
+```text
+disabled
+```
+
+这样 Python sidecar 和 Swift LLMProxy 都不会误解 `tools: []` 与 `tools: non-empty` 的语义。
+
+## P34 建议 3：`IndexableDocumentSnapshot` 应避免传真实 file URL
+
+P34 里 `IndexableDocumentSnapshot` 包含 `allowed_read_url` 或等价 file handle/path [2]。考虑 macOS security-scoped bookmark 和 workspace 安全边界，建议优先传：
+
+```text
+relative_path + resource_id
+```
+
+然后 Python 通过：
+
+```text
+resources/read
+```
+
+向 Swift 请求内容。
+
+也就是说，MVP 最安全路径是：
+
+```text
+Python 不直接 open 文件。
+Python 调 resources/list_indexable_documents 得到 snapshot。
+Python 调 resources/read(relative_path/resource_id) 读取内容。
+```
+
+如果为了性能允许 Python 直接读文件，也建议只在 development mode 或明确授权模式启用。
+
+## P34 建议 4：FTS owner 最好明确为“sidecar 维护，Swift 授权输入”
+
+P34 已经说第一版可由 Python 建索引，但文件发现优先使用 Swift 授权快照 [2]。建议再明确一句：
+
+```text
+P34 MVP 中 chunks.sqlite 的 writer 是 sidecar；Swift 是授权文档清单与写入锁协调者。后续可迁移为 Swift-owned index service。
+```
+
+否则后面可能出现 Swift 和 Python 都尝试写 `.sci-station/index/chunks.sqlite`。
+
+## P34 建议 5：单篇论文精读 workflow 的最低 evidence 要求再具体一点
+
+建议给 Workflow 1 加上最低验收：
+
+```text
+单篇论文精读至少生成:
+- contributions: >= 3 条，均有 evidenceRefs
+- methods: >= 2 条，均有 evidenceRefs
+- limitations: >= 2 条，允许标记 low confidence
+- todo drafts: 可选，但如生成必须引用对应 paper id
+```
+
+这样“生成 artifact draft + evidence”不会变成只有一段泛泛总结。
 
 ---
 
-## 11. 代码执行建议：必须沙箱化
+# 五、对 P33 Questions 的回答
 
-科研工作台迟早会需要：
+## Q1：P33 第一优先级是否确认按 `P32 migration -> runtime façade -> run directory/ledger -> ToolHost adapter -> MCP Gateway` 执行？
 
-- 运行 Python 脚本
-- 分析 CSV
-- 生成图表
-- 调 notebook
-- 安装依赖
-- 调外部 API
+**确认。**
 
-但这也是最大风险。
-
-建议策略：
+我建议更精确地排成：
 
 ```text
-默认：禁止 agent 直接运行 shell
-低风险：只读查看代码文件
-中风险：在 workspace .venv 中运行指定 Python 文件
-高风险：安装包、联网、写代码、删除文件，必须二次审批
+1. P33.0  P32 provisional schema migration
+2. P33.0a AgentRunDirectoryStore
+3. P33.0b Persistent execution ledger
+4. P33.0c AgentToolResult wire-format V1
+5. P33.1  AgentRuntimeEventEnvelope / protocol model
+6. P33.2  LegacySwiftAgentRuntime
+7. P33.3  AI Lab dependency inversion + FakeExternalAgentRuntime
+8. P33.4  SciStationToolHost adapter
+9. P33.5  MCP Gateway V1
+10. P33.7 deterministic safety policy / hooks
+11. P33.6 Skill 三级披露
+12. P33.8 Permission Dock richer schema UI
 ```
 
-运行目录：
+也就是说，我会把 `run directory / ledger / tool result V1` 放在 `LegacySwiftAgentRuntime` 真正稳定前一起完成，因为 runtime resume 和 event replay 依赖它们。
+
+## Q2：Skill 三级披露、安全 hooks、richer approval request 是否都放进 P33 同一轮完成？
+
+**可以放在 P33，但要切片，不要阻塞主线。**
+
+建议优先级：
 
 ```text
-.sci-station/agent/runs/{run-id}/sandbox/
-├── input/
-├── work/
-├── output/
-├── stdout.log
-├── stderr.log
-└── manifest.json
+必须完成:
+- richer approval schema
+- deterministic safety policy
+- secret/path blocking
+- hook deny blocks prompt/tool call
+
+可以延后:
+- Skill 三级披露完整 UI
+- workspace skill trust prompt 的产品化细节
+- Tier 3 references/scripts 资源浏览体验
 ```
 
-最终产物不要自动覆盖用户文件，而是生成 diff：
+P33 的硬依赖应该是 protocol、runtime、run directory、ledger、ToolHost、MCP Gateway。Skill 是重要能力，但不应阻塞 P34 fake sidecar。
+
+## Q3：P34 的 LangGraph sidecar 是否应在 P33 完成后立刻推进？
+
+**可以推进，但只推进 fake sidecar 和协议 harness；真实 LangGraph 要等 P33 dependency gate 通过。**
+
+也就是说：
 
 ```text
-outputs/report.md
-figures/result.png
-code/analysis_generated.py
+P33 未完全完成前:
+可以做 fake sidecar fixture、stdio JSON-RPC harness、Python package skeleton。
+
+P33 dependency gate 通过后:
+再接真实 LangGraph graph、LLMProxy、FTS、workflow。
 ```
 
-用户确认后再合并。
+这样不会让 Python sidecar 被迫兼容 P32 legacy checkpoint，也不会提前把协议债带进 P34。
 
 ---
 
-## 12. 你可以保留的产品化优势
+# 六、对 P34 Questions 的回答
 
-和很多 agent 框架相比，Sci-Station 已经有几个非常好的差异化点：
+## Q1：P34 是否确认按 `fake sidecar -> real sidecar handshake -> read-only tools -> FTS evidence -> 单篇论文精读` 顺序推进？
 
-1. **本地 Research Root**：科研数据不是被上传到某个 SaaS。  
-2. **论文库 + Wiki + Tasks + Materials 一体化**：比普通 ChatPDF 强。  
-3. **macOS 原生体验**：PDF Reader、Finder、VS Code、Reminders 都有潜力。  
-4. **权限 UI 已经开始设计**：这对真正可用的 agent 很关键。  
-5. **可版本化 preset 与本机 local config 分层**：`.sci-ai/sci-station/` 和 `.sci-ai/workspace.local/` 的边界设计是对的 [1]。  
+**确认。**
 
-所以成熟 agent 框架不应该替代 Sci-Station，而应该成为它的“推理和工作流引擎”。
+推荐执行顺序：
+
+```text
+P34-M1: fake sidecar + LangGraphAgentRuntime 协议
+P34-M2: real sidecar initialize / health / lifecycle events
+P34-M3: Swift LLMProxy + read-only Gateway tools
+P34-M4: FTS index + AgentEvidenceRef bridge
+P34-M5: 单篇论文精读真实 workflow
+P34-M6: related work beta
+P34-M7: gap planning beta
+```
+
+不要先写 LangGraph 复杂 graph。先确保 sidecar 生命周期、event envelope、approval/resume 和 fallback 能稳定跑通。
+
+## Q2：Related work 与 gap planning 在 P34 第一轮是否接受 sample/fake/beta graph？
+
+**接受，而且建议这样做。**
+
+P34 MVP 的 production workflow 只要求单篇论文精读即可。related work 和 gap planning 更依赖：
+
+- 更好的 retrieval。
+- citation critic。
+- project context quality。
+- core paper clustering。
+- evidence table 稳定性。
+- task generation 的审批体验。
+
+这些可以先用 sample/fake/beta graph 验证 runtime 协议，不要强行在 P34 第一轮做成 production 质量。
+
+## Q3：FTS 第一版是否优先由 Swift 提供 `resources/list_indexable_documents`？
+
+**推荐优先做 Swift 授权快照。**
+
+理由是 Sci-Station 已经有本地 Research Root、Materials 扫描规则、隐藏目录规则、工作区结构和 security-scoped bookmark 访问边界。让 Python 直接 walk workspace 容易重复实现规则，也容易越界。
+
+推荐读取路径：
+
+```text
+Python -> resources/list_indexable_documents
+       -> 得到 IndexableDocumentSnapshot
+       -> Python -> resources/read
+       -> Swift 返回授权内容
+       -> Python 写 FTS index
+```
+
+如果为了开发效率保留 Python walk fallback，也应限制为：
+
+```text
+development mode only
+allowedRoots only
+ignoredGlobs enforced
+no hidden/system dirs
+```
 
 ---
 
-## 13. 最终推荐方案一句话版
+# 七、最终建议
 
-**把 Sci-Station 定位为“本地科研知识平台 + Agent Host”，不要把它做成纯聊天工具。具体实现上：Swift App 保留 UI、Repository、权限和本地数据；新增本地 Python LangGraph sidecar 负责 agent loop、checkpoint、human-in-the-loop 和多 agent 工作流；通过 MCP 暴露论文、Wiki、项目、任务、材料、代码执行等能力；RAG 用本地 SQLite/FTS 起步，后续加 embedding；高风险执行通过沙箱和 Swift Permission Dock 审批。**
+我建议你只再做下面这些小修，然后就可以开工。
+
+## P33 最后补 5 条
+
+```text
+1. 统一 AgentHumanDecisionAction 命名:
+   allowOnce / denyAndContinue / denyAndStop / reviseWithFeedback / editArguments。
+
+2. AgentApprovalRequest 增加 fingerprint 或 idempotencyKey 字段。
+
+3. 明确 events.jsonl 由 Swift Host 作为最终 owner 写入。
+
+4. ToolHost 增加 buildApprovalRequest / previewApproval 阶段,且该阶段不得产生 side effect。
+
+5. Skill 三级披露可作为 P33-G,不阻塞 P34 dependency gate。
+```
+
+## P34 最后补 5 条
+
+```text
+1. fake sidecar 使用 JSON fixture 驱动事件序列。
+
+2. llm.respond request 增加 allowToolCalls 或 toolCallPolicy 字段。
+
+3. IndexableDocumentSnapshot 优先返回 resource id / relative path,Python 通过 resources/read 读内容,避免默认直接 file URL。
+
+4. 明确 chunks.sqlite 在 P34 MVP 中由 sidecar 写入,Swift 提供授权快照与锁协调。
+
+5. 单篇论文精读 workflow 增加最低 evidence 验收要求。
+```
 
 ---
 
-## 14. 推荐优先级
+## 最终判断
 
-我会这样排：
+**P33 / P34 当前版本已经足够成熟，可以进入开发。**
 
-1. **LangGraph sidecar + Sci-Station MCP Server**：主线。
-2. **本地 FTS/RAG index**：让 agent 真正懂你的知识库。
-3. **三个核心科研 workflow**：论文精读、related work、gap/task planning。
-4. **权限 diff / approval / resume**：让 agent 可控。
-5. **代码执行 sandbox**：后续增强。
-6. **OpenAI Agents SDK Sandbox**：作为高级 code worker，可选接入。
-7. **LlamaIndex**：作为 RAG/文档处理增强，而非主 orchestrator。
-8. **CrewAI / Microsoft Agent Framework**：暂不作为核心底座。
+P33 的主线是：
 
-参考框架资料：  
-- OpenAI Agents SDK: https://developers.openai.com/api/docs/guides/agents  
-- LangGraph: https://docs.langchain.com/oss/python/langgraph/overview  
-- LlamaIndex Agents: https://developers.llamaindex.ai/python/framework/module_guides/deploying/agents/  
-- Model Context Protocol: https://modelcontextprotocol.io/specification/2024-11-05/index  
-- Microsoft Agent Framework: https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/
+> 把 P32 已实现的 Swift loop 临时协议迁移成长期协议，并建立 runtime façade、run directory、persistent ledger、ToolHost 和 MCP Gateway。
+
+P34 的主线是：
+
+> 先用 fake sidecar 验证协议，再接真实 LangGraph；MVP 只强制完成单篇论文精读，related work / gap planning 先 beta 化。
+
+这套顺序风险最低，也最符合你现在 Sci-Station 的实际源码状态。

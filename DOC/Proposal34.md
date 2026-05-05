@@ -1,8 +1,8 @@
-# 任务书 34：LangGraph Sidecar、Local RAG 与科研 Workflow MVP
+# 任务书 34：Fake Sidecar First、LangGraph Sidecar、Local RAG 与科研 Workflow MVP
 
 更新时间：2026-05-05
 
-> 本任务书承接任务书 32/33，并真正开始落地 `DOC/Comment.md` 的推荐主架构：Sci-Station 保留 Swift App、Repository、Permission Dock 与本地数据模型；新增本地 Python LangGraph sidecar 负责 durable agent 编排、checkpoint、human-in-the-loop 与科研 workflow；通过任务书 33 的 runtime façade / MCP Gateway 调用 Sci-Station 能力。
+> 本任务书承接任务书 32/33，并真正开始落地 `DOC/Comment.md` 的推荐主架构：Sci-Station 保留 Swift App、Repository、Permission Dock 与本地数据模型；新增本地 Python LangGraph sidecar 负责 durable agent 编排、checkpoint、human-in-the-loop 与科研 workflow；通过任务书 33 的 runtime façade / ToolHost / MCP Gateway 调用 Sci-Station 能力。本轮必须先用 fake sidecar 验证协议与恢复路径，再接真实 LangGraph graph。
 
 ## 1. 背景
 
@@ -17,22 +17,41 @@ AI Lab UI
   -> Swift Permission Layer
 ```
 
-本轮不要追求“万能科研 agent”。先做一个可恢复、可审计、能输出 evidence 的 sidecar MVP，并实现三个高价值 workflow：
+本轮不要追求“万能科研 agent”，也不要一开始把 sidecar、双向 JSON-RPC、LLMProxy、FTS、approval/resume 与三个完整 graph 全压到同一个 MVP。先做一个可恢复、可审计、能输出 evidence 的 sidecar MVP，并按分层目标推进三个高价值 workflow：
 
-1. 单篇论文精读。
-2. 项目 related work 草稿。
-3. research gap / task planning。
+1. 单篇论文精读：P34 MVP 的真实 workflow。
+2. 项目 related work 草稿：第一轮可用 sample/fake graph 或 beta graph 验证协议。
+3. research gap / task planning：第一轮可用 sample/fake graph 或 beta graph 验证协议。
 
 ## 2. 本轮目标
 
-1. 新增 `AgentRuntime/` Python 包，启动本地 LangGraph sidecar。
-2. Swift 侧新增 `LangGraphAgentRuntime`，通过 stdio JSON-RPC 或 localhost HTTP 与 sidecar 通讯。
-3. sidecar 通过任务书 33 的 MCP Gateway 调用 Sci-Station read tools；写入请求必须回到 Swift approval。
-4. 建立本地 SQLite FTS evidence index 第一版，不急着上 embedding。
-5. 落地三个 workflow 的最小可用 graph，并把产物写成草稿/approval request。
-6. MVP 中 sidecar 不持有 API key、不直接请求模型、不直接写 workspace；LLM、tools、approval、log event 都通过 Swift 代理或 ToolHost。
+1. 以已通过的 P33 dependency gate 为基础推进：event envelope、P32 schema migration、Legacy runtime wrapper、ToolHost、MCP Gateway、run directory、persistent ledger 已可用。
+2. 在不引入 LangGraph 的情况下先实现 fake sidecar protocol harness，覆盖 initialize、health、agent.start、approval_required、agent.resume、final_response、run_failed。
+3. 新增 `AgentRuntime/` Python 包，启动本地 LangGraph sidecar，并让 Swift 侧 `LangGraphAgentRuntime` 复用同一协议。
+4. sidecar 通过任务书 33 的 MCP Gateway / `SciStationGatewayClient` 调用 Sci-Station read tools；写入请求必须回到 Swift approval。
+5. `llm.respond` request 显式携带 `toolCallPolicy`，MVP 默认禁用 provider-native free tool calling；graph 需要工具时显式走 Gateway，避免 Python graph tool loop 与 provider-native tool loop 双重循环。
+6. 建立本地 SQLite FTS evidence index 第一版，不急着上 embedding；文件发现优先使用 Swift 授权的 `IndexableDocumentSnapshot`。
+7. P34 MVP 强制落地单篇论文精读 workflow；related work / gap planning 先作为 sample/fake 或 beta workflow 分阶段验收。
+8. MVP 中 sidecar 不持有 API key、不直接请求模型、不直接写 workspace；LLM、tools、approval、log event 都通过 Swift 代理或 ToolHost。
 
 ## 3. 实施任务
+
+- [x] [P34.0] P33 dependency gate。
+  - P34 开始前必须满足：P33 `AgentRuntimeEventEnvelope` 已落地。
+  - P32 provisional `AgentApprovalRequest` / pending checkpoint / stable tool result 已迁移到 P33 schema。
+  - `LegacySwiftAgentRuntime` 可包装 P32 `AgentLoopRunner`。
+  - `SciStationToolHost` 已成为唯一工具入口。
+  - MCP Gateway V1 可列 `tools/list`、调用 `tools/call`，并对写入返回 `result.status == approval_required`。
+  - run directory / checkpoint / approvals / persistent tool ledger 已可读写。
+  - Gate 已由任务书 33 完成记录确认：`swift run SciStationCoreTestRunner` 与 `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build` 均通过；P34 不需要兼容 P32 legacy pending 文件。
+
+- [ ] [P34.0a] Fake sidecar protocol harness。
+  - 在不引入真实 LangGraph 的情况下，实现 fake sidecar 进程。
+  - 覆盖 `sidecar.initialize`、`sidecar.health`、`agent.start`、`runtime.event`、`approval_required`、`agent.resume`、`final_response`、`run_failed`。
+  - Fake sidecar 的事件序列必须使用 JSON fixture 文件驱动，避免测试逻辑写死在 Python 代码里。
+  - 第一批 fixture：`run_success_paper_reading.jsonl`、`run_approval_then_resume.jsonl`、`run_failed.jsonl`、`sidecar_crash_after_approval.jsonl`、`handshake_timeout.jsonl`。
+  - Swift `LangGraphAgentRuntime` 先只对接 fake sidecar；fake sidecar 通过后再接真实 LangGraph graph。
+  - 用 fake sidecar 先验证 Swift `Process` 管理、stdio JSON-RPC 双向调用、event envelope parsing、sequence canonicalization、approval resume、fallback。
 
 - [ ] [P34.1] 新增 Python sidecar 目录。
   - 建议结构：
@@ -64,6 +83,12 @@ AgentRuntime/
 │       ├── checkpoints.py
 │       └── events.py
 └── tests/
+    └── fixtures/
+        ├── run_success_paper_reading.jsonl
+        ├── run_approval_then_resume.jsonl
+        ├── run_failed.jsonl
+        ├── sidecar_crash_after_approval.jsonl
+        └── handshake_timeout.jsonl
 ```
 
 - [ ] [P34.2] Python runtime 基础协议。
@@ -71,6 +96,7 @@ AgentRuntime/
   - 启动后必须先完成 capability handshake，校验 `protocolVersion`、`schemaVersion`、capabilities、Python dependencies、workspace allowed roots；版本不兼容或 5 秒内未响应时 Swift 回退 Legacy runtime。
   - 事件流对齐任务书 33 的 `AgentRuntimeEventEnvelope`：`run_started`、`node_started`、`tool_call_requested`、`tool_call_completed`、`approval_required`、`artifact_draft`、`checkpoint_saved`、`final_response`、`run_failed`。
   - checkpoint 落到统一 run 目录，sidecar 崩溃后可恢复。
+  - Sidecar 不理解 P32 legacy checkpoint；所有 checkpoint / approvals / tool calls 都通过 P33 run directory schema。
   - stdio JSON-RPC 必须支持双向调用：Swift -> Sidecar 为 `sidecar.initialize/health` 与 `agent.start/resume/cancel/checkpoint`；Sidecar -> Swift 为 `runtime.event/tools.list/tools.call/resources.list/resources.read/approval.request/llm.respond/llm.stream/log.event`。
 
 - [ ] [P34.3] Swift `LangGraphAgentRuntime`。
@@ -79,10 +105,14 @@ AgentRuntime/
   - 复用 `ExternalAgentRuntime`，让 AI Lab 可在设置中切换 `Swift Loop` / `LangGraph Sidecar`。
   - P34 MVP 中，sidecar 不直接读取 Keychain、不持有 API key、不直接请求模型；所有 LLM 调用通过 Swift `LLMProxy` 完成，Swift 继续使用现有 provider / Keychain。
   - 新增 sidecar lifecycle events：`sidecarStarting`、`sidecarReady`、`sidecarUnavailable`、`sidecarCrashed`、`fallbackToLegacyRuntime`。
+  - 正常启动、handshake 失败、运行中崩溃、用户选择恢复都必须有固定事件顺序，供 UI 与 tests 断言。
 
 - [ ] [P34.4] MCP Gateway client。
   - Python sidecar 只通过 `SciStationGatewayClient.call_tool()` 访问 Sci-Station tools。
   - Read-only tools 可自动调用。
+  - P34 MVP 中 `llm.respond` request 必须显式携带 `toolCallPolicy: "disabled"`，默认不开放 provider-native free tool calling；graph 需要工具时显式调用 Gateway。
+  - `toolCallPolicy` 可选值为 `disabled`、`structured_only`、`tool_calling_node_only`；MVP 默认 `disabled`。
+  - 只有专门的 ToolCallingNode 可使用 `tool_calling_node_only` 并允许 `llm.respond(tools:)` 返回 toolCalls；返回后也必须重新路由到 `SciStationGatewayClient`，不能由 Python 私有执行。
   - 写入工具返回 `approval_required` 后，sidecar graph interrupt，等待 Swift 携带 decision / writeResult 调用 `agent.resume`。
   - sidecar 不直接调用 `write_file`、`patch_file`、`create_todo`、`update_metadata`；workflow 只生成 `AgentArtifactDraft`，真正写入必须由 Swift ToolHost/Repository 在 approval 后执行。
   - 对 draft artifact 的最终写入，用户 Allow once 后由 Swift ToolHost/Repository 立即执行，并把 `AgentToolResult` / `writeResult` 随 `agent.resume` 回传 sidecar；sidecar 不二次发起同一写入 call。
@@ -92,25 +122,34 @@ AgentRuntime/
   - 索引内容：`paper.md`、`annotations.md`、`wiki/**/*.md`、`projects/**/wiki/**/*.md`、可见 `materials` Markdown/Text。
   - chunk 字段：`schema_version`、`source_type`、`source_id`、`relative_path`、`heading`、`start_line`、`end_line`、`text`、`content_hash`、`updated_at`。
   - 先用 FTS5 + metadata filter；embedding 留到后续任务。
-  - 第一版可由 Python 建索引，但文件发现、workspace root、allowed roots、ignored globs 必须由 Swift 传入；Python 只能读取 Swift 明确授权的路径。
+  - P34 MVP 中 `.sci-station/index/chunks.sqlite` 的 writer 是 sidecar；Swift 是授权文档清单与写入锁协调者，后续可迁移为 Swift-owned index service。
+  - 文件发现、workspace root、allowed roots、ignored globs 必须由 Swift 传入；Python 只能读取 Swift 明确授权的资源。
+  - 优先使用 Swift `resources/list_indexable_documents` 提供的 `IndexableDocumentSnapshot`：`resource_id`、`relative_path`、`source_type`、`source_id`、`updated_at`、`content_hash`、`parser_hint`。
+  - Python 读取内容时优先调用 `resources/read(resource_id 或 relative_path)`，不默认接收真实 file URL，也不直接 open workspace 文件。
+  - Python sidecar 不直接 walk 整个 workspace；只有 development mode fallback 才按 allowed roots + ignored globs walk 文件，且必须继续禁止 hidden/system dirs。
   - 索引更新必须使用 write lock，避免 Swift 正在写文件时 Python 同时重建；文件修改后按 `relative_path + updated_at/content_hash` 增量失效；`schema_version` 不匹配时删除并重建。
 
 - [ ] [P34.6] Evidence 输出契约。
   - 所有科研 synthesize 节点必须输出 evidence table。
   - 每条 claim 至少包含：claim、source_type、paper_id/path、line range、short quote、confidence、source_hash、chunk_id、retrieved_at。
   - 写入 Wiki/plan 时保留 citation block，避免普通聊天式无来源总结。
+  - read tools / FTS retriever 返回 `AgentEvidenceRef`，并填充 P32/P33 stable tool result JSON 的 `evidence` 字段。
+  - `AgentArtifactDraft.evidenceRefs` 引用 evidence table 中的 id；最终 Wiki citation block 从 `evidenceRefs` 生成。
 
 - [ ] [P34.7] Workflow 1：单篇论文精读。
   - 触发：当前选中论文 + 用户说「精读/结构化笔记/生成待办」。
   - 节点：load metadata -> read abstract/intro -> read method -> read experiments -> extract contributions/limitations -> draft note -> approval。
   - 草稿产物：`wiki/papers/{citekey}.md`、todo drafts。
+  - 最低 evidence 验收：`contributions` 至少 3 条且均有 `evidenceRefs`；`methods` 至少 2 条且均有 `evidenceRefs`；`limitations` 至少 2 条，允许标记 low confidence 但必须说明来源；todo drafts 可选，如生成必须引用对应 paper id 与 evidence。
 
 - [ ] [P34.8] Workflow 2：项目 related work。
+  - P34 第一轮可作为 sample/fake graph 或 beta graph，不阻塞 MVP 完成。
   - 触发：当前 project + 用户说「related work/综述/相关工作」。
   - 节点：load project overview -> list core papers -> retrieve evidence -> cluster by theme -> draft related_work -> citation critic -> approval。
   - 草稿产物：`projects/{project-id}/wiki/related_work.md`、`.sci-station/agent/runs/{run_id}/evidence.json`。
 
 - [ ] [P34.9] Workflow 3：research gap / task planning。
+  - P34 第一轮可作为 sample/fake graph 或 beta graph，不阻塞 MVP 完成。
   - 触发：当前 project + 用户说「research gaps/下一步/拆任务」。
   - 节点：load project context -> load core papers -> load existing tasks -> synthesize gaps -> propose hypotheses -> generate todos -> approval。
   - 草稿产物：`projects/{project-id}/wiki/research_plan.md`、todo drafts。
@@ -118,22 +157,48 @@ AgentRuntime/
 - [ ] [P34.10] Approval/resume。
   - LangGraph 节点中遇到写入请求时使用 interrupt。
   - Swift Permission Dock 展示 `AgentApprovalRequest`。
-  - 用户 Allow once 后，Swift ToolHost/Repository 执行真实写入，并将 `AgentToolResult` / `writeResult` 随 `agent.resume(runID, decision, writeResult)` 回传 sidecar；sidecar 将 writeResult 写入 graph state 后继续生成 `final_response`，不再二次发起同一写入 call。
+  - 用户 Allow once 后，Swift 按 `approvalID + toolCallID + fingerprint` 检查 P33 persistent ledger。
+  - 未执行过：Swift 先写 pending/executing ledger，再由 ToolHost/Repository 执行真实写入，成功后写 completed ledger。
+  - 已执行过：Swift 读取 prior `AgentToolResult` / `writeResult`，不得重新调用真实写入工具。
+  - Swift 将 `AgentToolResult` / `writeResult` 随 `agent.resume(runID, decision, writeResult)` 回传 sidecar；sidecar 将 writeResult 写入 graph state 后继续生成 `final_response`，不再二次发起同一写入 call。
   - 用户 Deny/Ask revise 后，sidecar 将反馈加入 graph state，重新生成草稿或结束。
   - approval 必须引用 P33 的 `AgentApprovalRequest.id/runID/toolCallID`；resume 时按 sequence 去重，避免 sidecar 崩溃恢复后重复写入。
+
+- [ ] [P34.10a] Sidecar crash/resume event order。
+  - 正常启动：`sidecarStarting -> sidecarReady -> runStarted -> ...`。
+  - handshake 失败：`sidecarStarting -> sidecarUnavailable -> fallbackToLegacyRuntime`。
+  - 运行中崩溃：`sidecarCrashed -> checkpointSaved` 或 `checkpointLoadFailed` -> `fallbackToLegacyRuntime` 或 `waitingForUserRecovery`。
+  - 用户选择恢复：`sidecarStarting -> sidecarReady -> checkpointLoaded -> runResumed`。
 
 - [ ] [P34.11] 测试。
   - Python tests：router 选择 workflow、FTS chunking、evidence schema、approval interrupt。
   - Swift CoreTestRunner：`langGraphRuntimeParsesRuntimeEvents`、`langGraphRuntimeMapsApprovalRequired`、`agentRuntimeSelectionKeepsLegacyFallback`。
   - 增加 `langGraphRuntimePerformsInitializeHandshake`、`langGraphRuntimeExecutesApprovedWriteInSwiftOnce`、`ftsIndexRebuildsOnSchemaMismatch`。
   - 必须提供 fake sidecar 进程，覆盖 `agent.start`、`approval_required`、`agent.resume`、`final_response`、`run_failed` 事件回放，避免 Swift 协议测试依赖真实 LangGraph。
+  - Fake sidecar tests 必须从 `AgentRuntime/tests/fixtures/*.jsonl` 回放事件，确保 fixture 可被后续真实 sidecar 回归复用。
+  - 增加 `langGraphRuntimeFallsBackWhenInitializeTimesOut`、`langGraphRuntimeDoesNotLoseApprovalWhenSidecarCrashes`、`langGraphRuntimeReloadsCheckpointAfterRestart`。
   - 真实 LangGraph workflow tests 作为 Python tests 单独运行。
 
 - [ ] [P34.12] 验证与交付记录。
   - 跑 `swift run SciStationCoreTestRunner`。
   - 跑 Python sidecar test（建议 `python -m pytest AgentRuntime/tests` 或项目选定命令）。
   - 跑 `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build`。
-  - 手动验证三个 workflow 至少各跑一次 fake/sample workspace。
+  - 手动验证 fake sidecar、真实 sidecar initialize/health、sidecar read-only tools、FTS 检索、单篇论文精读 workflow。
+  - related work / gap planning 可先用 sample/fake graph 验证，不要求 P34 MVP 全量真实可用。
+
+### 3.1 分层验收顺序
+
+```text
+P34-M1: fake sidecar + LangGraphAgentRuntime 协议
+P34-M2: real sidecar initialize / health / lifecycle events
+P34-M3: Swift LLMProxy + read-only Gateway tools
+P34-M4: FTS index + AgentEvidenceRef bridge
+P34-M5: Workflow 1 单篇论文精读
+P34-M6: Workflow 2 related work beta
+P34-M7: Workflow 3 gap planning beta
+```
+
+P34 第一轮强制验收：fake sidecar 通过；real sidecar initialize/health 通过；sidecar read-only tools 可调用；FTS 能检索 paper/wiki chunks；单篇论文精读能生成 artifact draft + evidence。related work / gap planning 可以先用 sample graph、fake graph 或 beta graph 验证 runtime 协议。
 
 ## 4. Sidecar 边界与打包策略
 
@@ -193,12 +258,17 @@ P34 MVP 中，sidecar 只负责编排，不直接持有 API key，也不直接�
   "params": {
     "messages": [],
     "tools": [],
+    "toolCallPolicy": "disabled",
     "modelOptions": {}
   }
 }
 ```
 
 Swift 收到后使用现有 `OpenAICompatibleProvider` / Keychain / settings 执行，并把 redacted response 回给 sidecar。
+
+P34 MVP 中，`llm.respond` 默认禁用 provider-native free tool calling。LangGraph 节点需要工具时，应显式调用 `SciStationGatewayClient.call_tool()`；只有专门的 ToolCallingNode 才允许 `llm.respond(tools:)` 返回 tool calls，且返回的 tool calls 必须重新路由到 `SciStationGatewayClient`，不能由 Python 私有执行。
+
+`toolCallPolicy` 语义固定为：`disabled` 表示禁止 provider-native tool calls；`structured_only` 表示允许结构化 JSON 输出但不允许 tool calls；`tool_calling_node_only` 只允许专门 ToolCallingNode 使用。MVP 所有普通 `llm.respond` request 必须传 `disabled`。
 
 `llm.respond` 返回结构必须对齐 P32/P33 provider response，支持普通文本、structured JSON、tool calls、usage 与 finish reason：
 
@@ -242,7 +312,27 @@ Python sidecar 只能读取 Swift 授权路径：
 
 写入 workspace 的最终动作必须由 Swift ToolHost/Repository 执行。Sidecar 只能生成 `AgentArtifactDraft` 与 `AgentApprovalRequest`。
 
+FTS 与 read resources 优先使用 Swift 授权快照，而不是让 Python 重新实现完整文件发现逻辑。MVP 默认不把真实 file URL 交给 Python；Python 通过 `resources/read` 请求 Swift 返回授权内容：
+
+```json
+{
+  "resource_id": "paper:demo:paper.md",
+  "relative_path": "library/papers/demo/paper.md",
+  "source_type": "paper",
+  "source_id": "demo",
+  "updated_at": "2026-05-05T12:00:00Z",
+  "content_hash": "sha256:...",
+  "parser_hint": "markdown"
+}
+```
+
+Swift 应提供 `resources/list_indexable_documents` 或等价方法；Python 优先消费 `IndexableDocumentSnapshot`，再调用 `resources/read(resource_id 或 relative_path)` 获取内容。只有 development mode fallback 才允许 Python 按 `allowedRoots + ignoredGlobs` walk 文件，且不得读取 hidden/system dirs。
+
+P34 MVP 中 `chunks.sqlite` 的 writer 是 sidecar；Swift 提供授权文档清单、资源读取与 write lock 协调。Swift 不同时写同一个 FTS index，避免双 writer 造成锁与 schema 漂移。
+
 ### 4.4 Run 目录
+
+Run 目录由 P33 `AgentRunDirectoryStore` 定义，P34 sidecar 只能按该 schema 读写，不再兼容 P32 legacy pending 文件。
 
 ```text
 .sci-station/agent/runs/{run_id}/
@@ -261,7 +351,11 @@ Python sidecar 只能读取 Swift 授权路径：
     └── redaction_failures.jsonl
 ```
 
+`tool_calls.jsonl` 是 Swift-owned persistent execution ledger；写入类工具必须先查 ledger，再决定执行真实写入还是读取 prior result。Sidecar 不拥有写入重试权。
+
 `debug/` 默认关闭，不写 prompts/responses。只有开发模式或用户显式开启后才创建 `enabled.flag` 并保存 redacted prompts/responses；redaction 失败时不得写盘，只记录不含原文的 `redaction_failures.jsonl` 元数据。
+
+P34 debug redaction 必须复用 P33 `AgentRedactionPolicy`。`runtime.event`、`llm.respond` request/response、tool result、approval request、artifact draft 落盘前都必须经过同一 redaction policy，避免 Python debug 已脱敏但 Swift events/session log 泄露敏感内容。
 
 ### 4.5 Python 打包
 
@@ -384,16 +478,20 @@ flowchart TD
 
 ## 9. 验收标准
 
-1. AI Lab 可以切换到 LangGraph sidecar runtime，并收到结构化 runtime events。
-2. Sidecar 不直接持有 API key；所有 LLM 调用通过 Swift LLMProxy 完成。
-3. Sidecar 能通过 Sci-Station Gateway 调用 read-only paper/wiki/task/material tools。
-4. Sidecar 不直接写 workspace；三个 workflow 只生成草稿 artifact，最终写入由 Swift ToolHost/Repository 在 approval 后执行。
-5. 写入 workspace 前必须在 Swift Permission Dock 暂停审批，approval/resume 能按 id/runID/toolCallID 精确恢复。
-6. FTS index 能检索 paper/wiki chunks，并返回 line range、source hash、chunk id。
-7. FTS index 带 `schema_version`、`content_hash`、write lock 与增量失效策略；schema 不兼容时可重建。
-8. Debug prompts/responses 默认不写盘；显式开启后也只能保存 redacted 数据，redaction 失败不得落盘。
-9. Fake sidecar integration test 必须通过；真实 LangGraph tests 与 Swift 协议测试解耦。
-10. Sidecar 启动失败、handshake 失败或崩溃时，AI Lab 自动回退 Legacy Swift runtime。
+1. P33 dependency gate 通过：event envelope、P32 schema migration、Legacy runtime wrapper、ToolHost、MCP Gateway、run directory 与 persistent ledger 已可用。
+2. Fake sidecar integration test 先通过；真实 LangGraph tests 与 Swift 协议测试解耦。
+3. AI Lab 可以切换到 LangGraph sidecar runtime，并收到结构化 runtime events。
+4. Sidecar 不直接持有 API key；所有 LLM 调用通过 Swift LLMProxy 完成。
+5. `llm.respond` request 显式携带 `toolCallPolicy`；默认 `disabled`，如专门 ToolCallingNode 返回 toolCalls，也必须由 sidecar 显式路由到 `SciStationGatewayClient`。
+6. Sidecar 能通过 Sci-Station Gateway 调用 read-only paper/wiki/task/material tools。
+7. Sidecar 不直接写 workspace；workflow 只生成草稿 artifact，最终写入由 Swift ToolHost/Repository 在 approval 后执行。
+8. 写入 workspace 前必须在 Swift Permission Dock 暂停审批，approval/resume 能按 id/runID/toolCallID/fingerprint 精确恢复，并复用 P33 persistent ledger 避免重复写入。
+9. FTS index 能检索 paper/wiki chunks，并返回 line range、source hash、chunk id；文件发现优先使用 Swift `IndexableDocumentSnapshot`，内容读取优先通过 `resources/read`，不默认传真实 file URL。
+10. FTS index 带 `schema_version`、`content_hash`、write lock 与增量失效策略；schema 不兼容时可重建。
+11. Stable tool result JSON、FTS retriever、artifact draft 与 final Wiki citation block 通过同一 `AgentEvidenceRef` 串联。
+12. Debug prompts/responses 默认不写盘；显式开启后也只能保存 redacted 数据，redaction 失败不得落盘，并复用 P33 `AgentRedactionPolicy`。
+13. Sidecar 启动失败、handshake 失败或崩溃时，AI Lab 按固定 lifecycle event order 自动回退 Legacy Swift runtime 或等待用户恢复。
+14. P34 MVP 的真实 workflow 至少完成单篇论文精读；单篇精读产物必须满足最低 evidence 验收；related work / gap planning 可先用 sample/fake/beta graph 验证。
 
 ## 10. 非目标
 
@@ -403,6 +501,9 @@ flowchart TD
 - 不做 shell/python 执行 workflow。
 - 不发布 plugin marketplace。
 - 不在 P34 MVP 中让 Python sidecar 直接读取 Keychain 或持有 API key。
+- 不要求 P34 MVP 同时完成 related work 与 gap planning 的 production graph。
+- 不让 Python sidecar 兼容 P32 legacy pending checkpoint；该迁移属于 P33。
+- 不在默认 graph 中开放 provider-native free tool calling。
 
 ## 11. 后续任务候选
 
@@ -410,3 +511,34 @@ flowchart TD
 2. Code sandbox：`.sci-station/agent/runs/{run_id}/sandbox/`。
 3. Plugin package：`.codex-plugin` / `.claude-plugin` / Sci-Station preset importer。
 4. Multi-agent：research-explorer、citation-critic、experiment-planner。
+
+## 12. P34 启动记录（P33 完成后）
+
+任务书 33 已完成 P34 dependency gate：P33 runtime event envelope、schema migration、run directory、persistent execution ledger、ToolHost、MCP Gateway、deterministic safety policy 与 Skill loader core 均已落地并通过验证。
+
+已验证状态：
+
+- `swift run SciStationCoreTestRunner`：通过。
+- `xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build`：通过。
+- 已覆盖 fake/legacy runtime event stream、event dedupe、MCP read/write approval、legacy pending migration、persistent ledger、approval fingerprint、Skill progressive loading、prompt secret block 与 hook deny。
+
+下一轮剩余风险：
+
+- P34 不应把 fake sidecar、真实 sidecar、FTS、LLMProxy 与三个 workflow 一次性强耦合；必须按 M1-M5 分层验收。
+- Python sidecar 不得直接持有 API key、直接写 workspace 或兼容 P32 legacy checkpoint。
+- Skill trust prompt、Tier 3 resource browser、sidecar UI runtime selector 等产品化细节可以随 P34 UI 接入推进，但不应阻塞 fake sidecar protocol harness。
+- Xcode build 仍有既有 `ChatMarkdownWebView` WebKit actor-isolation warnings；不属于 P34 gate，但后续可单独清理。
+
+P34 第一批建议执行顺序：
+
+1. 完成 fake sidecar fixture 与 stdio JSON-RPC harness。
+2. 新增 Swift `LangGraphAgentRuntime`，先只对接 fake sidecar。
+3. 新增 `AgentRuntime/` Python package skeleton 与 initialize/health。
+4. 接入 Swift-owned LLMProxy 与 MCP Gateway read-only tools。
+5. 建立 FTS evidence index V1 与单篇论文精读 artifact draft。
+
+## 13. Questions
+
+1. P34 是否确认按 `fake sidecar -> real sidecar handshake -> read-only tools -> FTS evidence -> 单篇论文精读` 顺序推进？当前建议为确认，先隔离协议问题再接 LangGraph 复杂度。
+2. Related work 与 gap planning 在 P34 第一轮是否接受 sample/fake/beta graph？当前建议为接受，把 production 质量放到后续 retrieval、citation critic 与 project context 任务。
+3. FTS 第一版是否优先由 Swift 提供 `resources/list_indexable_documents` + `resources/read`？当前建议为优先做授权快照与 Swift 资源读取，只有 development mode 保留 Python walk fallback。

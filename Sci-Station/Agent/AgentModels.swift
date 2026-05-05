@@ -10,12 +10,26 @@ public nonisolated enum AgentToolRisk: String, Codable, Sendable {
     case network
     case writesWorkspace
     case externalSideEffect
+    case modifiesMetadata
+    case runsCode
+    case destructive
+    case credentialAccess
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = AgentToolRisk(rawValue: rawValue) ?? .externalSideEffect
+    }
+
+    public nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 
     public nonisolated var defaultRequiresConfirmation: Bool {
         switch self {
         case .readOnly:
             return false
-        case .network, .writesWorkspace, .externalSideEffect:
+        case .network, .writesWorkspace, .externalSideEffect, .modifiesMetadata, .runsCode, .destructive, .credentialAccess:
             return true
         }
     }
@@ -30,6 +44,14 @@ public nonisolated enum AgentToolRisk: String, Codable, Sendable {
             return "tool.write_workspace"
         case .externalSideEffect:
             return "tool.external_side_effect"
+        case .modifiesMetadata:
+            return "tool.modify_metadata"
+        case .runsCode:
+            return "tool.run_code"
+        case .destructive:
+            return "tool.destructive"
+        case .credentialAccess:
+            return "tool.credential_access"
         }
     }
 }
@@ -68,6 +90,7 @@ public nonisolated struct AgentToolDefinition: Codable, Hashable, Sendable {
     public var permissionKey: String
     public var outputPolicy: AgentToolOutputPolicy
     public var examples: [String]
+    public var source: String
 
     public nonisolated init(
         identifier: String? = nil,
@@ -80,7 +103,8 @@ public nonisolated struct AgentToolDefinition: Codable, Hashable, Sendable {
         requiresConfirmation: Bool? = nil,
         permissionKey: String? = nil,
         outputPolicy: AgentToolOutputPolicy = AgentToolOutputPolicy(),
-        examples: [String] = []
+        examples: [String] = [],
+        source: String = "sci-station"
     ) {
         self.identifier = identifier ?? name
         self.name = name
@@ -93,6 +117,7 @@ public nonisolated struct AgentToolDefinition: Codable, Hashable, Sendable {
         self.permissionKey = permissionKey ?? risk.defaultPermissionKey
         self.outputPolicy = outputPolicy
         self.examples = examples
+        self.source = source
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -107,6 +132,7 @@ public nonisolated struct AgentToolDefinition: Codable, Hashable, Sendable {
         case permissionKey = "permission_key"
         case outputPolicy = "output_policy"
         case examples
+        case source
     }
 
     public nonisolated init(from decoder: Decoder) throws {
@@ -125,6 +151,7 @@ public nonisolated struct AgentToolDefinition: Codable, Hashable, Sendable {
         self.permissionKey = try container.decodeIfPresent(String.self, forKey: .permissionKey) ?? risk.defaultPermissionKey
         self.outputPolicy = try container.decodeIfPresent(AgentToolOutputPolicy.self, forKey: .outputPolicy) ?? AgentToolOutputPolicy()
         self.examples = try container.decodeIfPresent([String].self, forKey: .examples) ?? []
+        self.source = try container.decodeIfPresent(String.self, forKey: .source) ?? "sci-station"
     }
 }
 
@@ -413,8 +440,33 @@ public nonisolated enum AgentHookEventName: String, Codable, CaseIterable, Senda
     case userPromptSubmit = "UserPromptSubmit"
     case preToolUse = "PreToolUse"
     case postToolUse = "PostToolUse"
+    case notification = "Notification"
+    case preCompact = "PreCompact"
     case stop = "Stop"
     case subagentStop = "SubagentStop"
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        switch rawValue {
+        case "Notify", "notification":
+            self = .notification
+        case "PreCompaction", "preCompact", "precompact":
+            self = .preCompact
+        default:
+            guard let eventName = AgentHookEventName(rawValue: rawValue) else {
+                throw DecodingError.dataCorruptedError(
+                    in: try decoder.singleValueContainer(),
+                    debugDescription: "Unsupported hook event name: \(rawValue)"
+                )
+            }
+            self = eventName
+        }
+    }
+
+    public nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public nonisolated struct AgentHookEvent: Codable, Hashable, Sendable {
@@ -612,6 +664,13 @@ public nonisolated struct AgentSafetyPreset: Sendable {
                 message: "Sensitive-looking path requires review."
             ),
             AgentPermissionRule(
+                id: "deny-credential-path-write",
+                description: "Block agent writes to credential directories and dotenv files.",
+                action: .deny,
+                pathPattern: #"(^|/)(\.ssh|\.aws)(/|$)|(^|/)\.env(\.|$)|keychain|credential"#,
+                message: "Credential paths cannot be modified by the agent."
+            ),
+            AgentPermissionRule(
                 id: "ask-external-side-effect",
                 description: "Review external side effects.",
                 action: .ask,
@@ -629,11 +688,18 @@ public nonisolated struct AgentSafetyPreset: Sendable {
                 additionalContext: "Use Sci-Station's Swift-native agent core, keep secrets out of workspace files, and preserve existing agent history."
             ),
             AgentHookDefinition(
-                id: "pre-tool-permission-reminder",
+                id: "user-prompt-secret-block",
+                eventName: .userPromptSubmit,
+                matcher: #"(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}|-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----)"#,
+                permissionDecision: .deny,
+                message: "Prompt appears to contain a secret or private key and was blocked before model submission."
+            ),
+            AgentHookDefinition(
+                id: "pre-tool-sensitive-path-block",
                 eventName: .preToolUse,
-                matcher: #".+"#,
-                permissionDecision: .ask,
-                message: "Tool use is routed through the permission layer before workspace writes or external side effects."
+                matcher: #"(^|/)(\.ssh|\.aws)(/|$)|(^|/)\.env(\.|$)|keychain|credential"#,
+                permissionDecision: .deny,
+                message: "Writes to credential or dotenv paths are blocked."
             ),
             AgentHookDefinition(
                 id: "post-tool-audit-reminder",

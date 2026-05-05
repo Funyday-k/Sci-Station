@@ -443,6 +443,169 @@ public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
     }
 }
 
+public nonisolated struct SearchWikiAgentTool: AgentTool {
+    private let markdownRepository: MarkdownRepository
+
+    public nonisolated init(markdownRepository: MarkdownRepository) {
+        self.markdownRepository = markdownRepository
+    }
+
+    public nonisolated var definition: AgentToolDefinition {
+        AgentToolDefinition(
+            name: "search_wiki",
+            displayName: "Search Wiki",
+            summary: "Search workspace wiki Markdown pages by title, path, or body text.",
+            inputSchema: #"{"query":"string","limit":20}"#,
+            risk: .readOnly,
+            requiresConfirmation: false,
+            permissionKey: "wiki.read",
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: 16_000),
+            examples: [#"{"query":"related work","limit":10}"#]
+        )
+    }
+
+    public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        let arguments = try decodeArguments(SearchWikiArguments.self, from: argumentsJSON)
+        let query = arguments.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            throw AgentError.invalidArguments("query is required")
+        }
+        let documents = try await markdownRepository.loadDocuments(in: context.workspace)
+        let limit = min(max(arguments.limit ?? 20, 1), 50)
+        let matches = documents.compactMap { document -> String? in
+            let haystack = [document.relativePath, document.title, document.body].joined(separator: "\n")
+            guard haystack.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil else {
+                return nil
+            }
+            let snippet = wikiSnippet(from: document.body, query: query)
+            return "- path: \(document.relativePath)\n  title: \(document.title)\n  snippet: \(snippet)"
+        }.prefix(limit)
+        let message = matches.isEmpty
+            ? "No wiki matches for \"\(query)\"."
+            : (["Found \(matches.count) wiki page(s) for \"\(query)\"."] + matches).joined(separator: "\n")
+        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+    }
+}
+
+public nonisolated struct ReadWikiPageAgentTool: AgentTool {
+    private let markdownRepository: MarkdownRepository
+
+    public nonisolated init(markdownRepository: MarkdownRepository) {
+        self.markdownRepository = markdownRepository
+    }
+
+    public nonisolated var definition: AgentToolDefinition {
+        AgentToolDefinition(
+            name: "read_wiki_page",
+            displayName: "Read Wiki Page",
+            summary: "Read a workspace wiki page by relative path or title.",
+            inputSchema: #"{"relative_path":"wiki/... optional","title":"string optional","max_characters":12000}"#,
+            risk: .readOnly,
+            requiresConfirmation: false,
+            permissionKey: "wiki.read",
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: 16_000),
+            examples: [#"{"relative_path":"wiki/projects/project_overview.md"}"#]
+        )
+    }
+
+    public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        let arguments = try decodeArguments(ReadWikiPageArguments.self, from: argumentsJSON)
+        let documents = try await markdownRepository.loadDocuments(in: context.workspace)
+        let requestedPath = arguments.relativePath ?? arguments.relative_path
+        let requestedTitle = arguments.title
+        guard let document = documents.first(where: { document in
+            if let requestedPath, !requestedPath.isEmpty {
+                return document.relativePath == requestedPath
+            }
+            if let requestedTitle, !requestedTitle.isEmpty {
+                return document.title.localizedCaseInsensitiveCompare(requestedTitle) == .orderedSame
+                    || document.pageKeys.contains(WikiLink.normalizePageKey(requestedTitle))
+            }
+            return false
+        }) else {
+            throw AgentError.invalidArguments("wiki page was not found")
+        }
+        let maxCharacters = min(max(arguments.maxCharacters ?? arguments.max_characters ?? 12_000, 1_000), 20_000)
+        let limited = limitedToolOutput(document.rawContents, maximumCharacters: maxCharacters)
+        let message = """
+        path: \(document.relativePath)
+        title: \(document.title)
+
+        \(limited.text)\(limited.wasTruncated ? "\n[Wiki page truncated by Sci-Station.]" : "")
+        """
+        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+    }
+}
+
+public nonisolated struct ListTasksAgentTool: AgentTool {
+    private let todoRepository: TodoRepository
+
+    public nonisolated init(todoRepository: TodoRepository) {
+        self.todoRepository = todoRepository
+    }
+
+    public nonisolated var definition: AgentToolDefinition {
+        AgentToolDefinition(
+            name: "list_tasks",
+            displayName: "List Tasks",
+            summary: "List workspace task items with status, priority, due date, tags, and related papers.",
+            inputSchema: #"{"status":"open|done optional","limit":50}"#,
+            risk: .readOnly,
+            requiresConfirmation: false,
+            permissionKey: "task.read",
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: 12_000),
+            examples: [#"{"status":"open","limit":20}"#]
+        )
+    }
+
+    public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        let arguments = try decodeArguments(ListTasksArguments.self, from: argumentsJSON)
+        var todos = try await todoRepository.loadTodos(in: context.workspace)
+        if let status = arguments.status.flatMap(TodoStatus.init(rawValue:)) {
+            todos = todos.filter { $0.status == status }
+        }
+        let limit = min(max(arguments.limit ?? 50, 1), 100)
+        let lines = todos.prefix(limit).map { todo in
+            "- id: \(todo.id)\n  title: \(todo.title)\n  status: \(todo.status.rawValue)\n  priority: \(todo.priority.rawValue)\n  tags: \(todo.tags.joined(separator: ", ").nilIfEmpty ?? "-")"
+        }
+        let message = lines.isEmpty ? "No tasks found." : (["Found \(lines.count) task(s)."] + lines).joined(separator: "\n")
+        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+    }
+}
+
+public nonisolated struct ListMaterialsAgentTool: AgentTool {
+    private let materialRepository: WorkspaceMaterialRepository
+
+    public nonisolated init(materialRepository: WorkspaceMaterialRepository = WorkspaceMaterialRepository()) {
+        self.materialRepository = materialRepository
+    }
+
+    public nonisolated var definition: AgentToolDefinition {
+        AgentToolDefinition(
+            name: "list_materials",
+            displayName: "List Materials",
+            summary: "List visible user workspace materials such as code, data, figures, outputs, scripts, prompts, and shared research notes.",
+            inputSchema: #"{"limit":50}"#,
+            risk: .readOnly,
+            requiresConfirmation: false,
+            permissionKey: "material.read",
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: 12_000),
+            examples: [#"{"limit":30}"#]
+        )
+    }
+
+    public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        let arguments = try decodeArguments(ListMaterialsArguments.self, from: argumentsJSON)
+        let materials = try await materialRepository.loadMaterials(in: context.workspace)
+        let limit = min(max(arguments.limit ?? 50, 1), 100)
+        let lines = materials.prefix(limit).map { material in
+            "- path: \(material.relativePath)\n  kind: \(material.kind.rawValue)\n  bytes: \(material.byteCount)"
+        }
+        let message = lines.isEmpty ? "No visible materials found." : (["Found \(lines.count) material(s)."] + lines).joined(separator: "\n")
+        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+    }
+}
+
 private struct CreateTodoArguments: Decodable {
     var title: String
     var dueDate: String?
@@ -497,6 +660,36 @@ private struct WriteMarkdownPlanArguments: Decodable {
         case body
         case relativePath = "relative_path"
     }
+}
+
+private nonisolated struct SearchWikiArguments: Decodable {
+    var query: String
+    var limit: Int?
+}
+
+private nonisolated struct ReadWikiPageArguments: Decodable {
+    var relativePath: String?
+    var relative_path: String?
+    var title: String?
+    var maxCharacters: Int?
+    var max_characters: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case relativePath
+        case relative_path
+        case title
+        case maxCharacters
+        case max_characters
+    }
+}
+
+private nonisolated struct ListTasksArguments: Decodable {
+    var status: String?
+    var limit: Int?
+}
+
+private nonisolated struct ListMaterialsArguments: Decodable {
+    var limit: Int?
 }
 
 private nonisolated struct ListPapersArguments: Decodable {
@@ -821,6 +1014,20 @@ private func searchMarkdown(
         }
     }
     return matches
+}
+
+private func wikiSnippet(from body: String, query: String) -> String {
+    let lines = body.components(separatedBy: .newlines)
+    guard let matchIndex = lines.firstIndex(where: { line in
+        line.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }) else {
+        return body.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+    }
+    let lowerBound = max(matchIndex - 1, 0)
+    let upperBound = min(matchIndex + 1, lines.count - 1)
+    return lines[lowerBound...upperBound]
+        .joined(separator: " / ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private func parsedHeading(_ line: String) -> (level: Int, title: String)? {

@@ -756,7 +756,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentPlatformSummary: String {
-        "Swift-native Agent Platform V1 core"
+        "ExternalAgentRuntime + Swift ToolHost/MCP gateway core"
     }
 
     var agentPresetSummary: String {
@@ -785,7 +785,7 @@ final class AppViewModel: ObservableObject {
     var agentMCPStatusSummary: String {
         let productCount = agentProductMCPServerStatuses.count
         let localCount = agentLocalMCPServerStatuses.count
-        return ".sci-ai/sci-station: \(productCount) templates; .sci-ai/workspace.local: \(localCount) local configs; side-effect tools require permissions"
+        return ".sci-ai/sci-station: \(productCount) templates; .sci-ai/workspace.local: \(localCount) local configs; local gateway tools/list+tools/call; side-effect tools require permissions"
     }
 
     var agentMCPServerStatuses: [AgentMCPServerStatus] {

@@ -7,6 +7,7 @@ public struct AgentLoopRequest: Sendable {
     public var provider: any LLMChatProvider
     public var toolDefinitions: [AgentToolDefinition]
     public var toolRegistry: AgentToolRegistry
+    public var toolHost: SciStationToolHost
     public var toolContext: AgentToolContext
     public var root: ResearchRoot
     public var configuration: LLMConfiguration
@@ -16,13 +17,14 @@ public struct AgentLoopRequest: Sendable {
     public var permissionEvaluator: AgentPermissionEvaluator
     public var responseDeltaHandler: (@Sendable (String) async -> Void)?
 
-    public init(
+    public nonisolated init(
         runID: String = "agent-run-\(UUID().uuidString.lowercased())",
         goal: String,
         initialMessages: [LLMChatMessage],
         provider: any LLMChatProvider,
         toolDefinitions: [AgentToolDefinition],
         toolRegistry: AgentToolRegistry,
+        toolHost: SciStationToolHost? = nil,
         toolContext: AgentToolContext,
         root: ResearchRoot,
         configuration: LLMConfiguration,
@@ -38,6 +40,7 @@ public struct AgentLoopRequest: Sendable {
         self.provider = provider
         self.toolDefinitions = toolDefinitions
         self.toolRegistry = toolRegistry
+        self.toolHost = toolHost ?? SciStationToolHost(legacyRegistry: toolRegistry)
         self.toolContext = toolContext
         self.root = root
         self.configuration = configuration
@@ -57,6 +60,7 @@ public struct AgentLoopResumeRequest: Sendable {
     public var provider: any LLMChatProvider
     public var toolDefinitions: [AgentToolDefinition]
     public var toolRegistry: AgentToolRegistry
+    public var toolHost: SciStationToolHost
     public var toolContext: AgentToolContext
     public var root: ResearchRoot
     public var configuration: LLMConfiguration
@@ -66,7 +70,7 @@ public struct AgentLoopResumeRequest: Sendable {
     public var permissionEvaluator: AgentPermissionEvaluator
     public var responseDeltaHandler: (@Sendable (String) async -> Void)?
 
-    public init(
+    public nonisolated init(
         pending: AgentPendingToolCall,
         action: AgentHumanDecisionAction,
         feedback: String? = nil,
@@ -74,6 +78,7 @@ public struct AgentLoopResumeRequest: Sendable {
         provider: any LLMChatProvider,
         toolDefinitions: [AgentToolDefinition],
         toolRegistry: AgentToolRegistry,
+        toolHost: SciStationToolHost? = nil,
         toolContext: AgentToolContext,
         root: ResearchRoot,
         configuration: LLMConfiguration,
@@ -90,6 +95,7 @@ public struct AgentLoopResumeRequest: Sendable {
         self.provider = provider
         self.toolDefinitions = toolDefinitions
         self.toolRegistry = toolRegistry
+        self.toolHost = toolHost ?? SciStationToolHost(legacyRegistry: toolRegistry)
         self.toolContext = toolContext
         self.root = root
         self.configuration = configuration
@@ -105,12 +111,18 @@ public actor AgentLoopCheckpointStore {
     public static let relativePath = ".sci-station/agent/pending_tool_calls.jsonl"
 
     private let fileManager: FileManager
+    private let runDirectoryStore: AgentRunDirectoryStore
 
-    public init(fileManager: FileManager = .default) {
+    public init(fileManager: FileManager = .default, runDirectoryStore: AgentRunDirectoryStore = AgentRunDirectoryStore()) {
         self.fileManager = fileManager
+        self.runDirectoryStore = runDirectoryStore
     }
 
-    public func save(_ pending: AgentPendingToolCall, in root: ResearchRoot) throws {
+    public func save(_ pending: AgentPendingToolCall, in root: ResearchRoot) async throws {
+        try await runDirectoryStore.saveCheckpoint(pending, in: root)
+    }
+
+    public func saveLegacyFallback(_ pending: AgentPendingToolCall, in root: ResearchRoot) throws {
         let logURL = root.fileURL(for: Self.relativePath)
         try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
@@ -132,16 +144,30 @@ public actor AgentLoopCheckpointStore {
         }
     }
 
-    public func pending(runID: String, in root: ResearchRoot) throws -> AgentPendingToolCall? {
-        try pendingCalls(in: root).last { pending in
-            pending.runID == runID && !pending.isExpired
+    public func pending(runID: String, in root: ResearchRoot) async throws -> AgentPendingToolCall? {
+        if let migratedPending = try await runDirectoryStore.pending(runID: runID, in: root) {
+            return migratedPending
         }
+        if let legacyPending = try pendingCalls(in: root).last(where: { pending in
+            pending.runID == runID && !pending.isExpired
+        }) {
+            try await runDirectoryStore.saveCheckpoint(legacyPending, in: root)
+            return legacyPending
+        }
+        return nil
     }
 
-    public func pending(callID: String, in root: ResearchRoot) throws -> AgentPendingToolCall? {
-        try pendingCalls(in: root).last { pending in
-            pending.toolCall.id == callID && !pending.isExpired
+    public func pending(callID: String, in root: ResearchRoot) async throws -> AgentPendingToolCall? {
+        if let migratedPending = try await runDirectoryStore.pending(callID: callID, in: root) {
+            return migratedPending
         }
+        if let legacyPending = try pendingCalls(in: root).last(where: { pending in
+            pending.toolCall.id == callID && !pending.isExpired
+        }) {
+            try await runDirectoryStore.saveCheckpoint(legacyPending, in: root)
+            return legacyPending
+        }
+        return nil
     }
 
     private func pendingCalls(in root: ResearchRoot) throws -> [AgentPendingToolCall] {
@@ -164,21 +190,30 @@ public actor AgentLoopCheckpointStore {
 public actor AgentLoopRunner {
     private let sessionEventLogger: AgentSessionEventLogger
     private let checkpointStore: AgentLoopCheckpointStore
+    private let runDirectoryStore: AgentRunDirectoryStore
+    private let executionLedger: AgentToolExecutionLedger
     private var readOnlyCacheByRunID: [String: [AgentToolCallFingerprint: AgentToolResult]] = [:]
     private var executedWriteResultsByRunID: [String: [AgentToolCallFingerprint: AgentToolResult]] = [:]
 
     public init(
         sessionEventLogger: AgentSessionEventLogger = AgentSessionEventLogger(),
-        checkpointStore: AgentLoopCheckpointStore = AgentLoopCheckpointStore()
+        checkpointStore: AgentLoopCheckpointStore = AgentLoopCheckpointStore(),
+        runDirectoryStore: AgentRunDirectoryStore = AgentRunDirectoryStore(),
+        executionLedger: AgentToolExecutionLedger = AgentToolExecutionLedger()
     ) {
         self.sessionEventLogger = sessionEventLogger
         self.checkpointStore = checkpointStore
+        self.runDirectoryStore = runDirectoryStore
+        self.executionLedger = executionLedger
     }
 
     public func run(_ request: AgentLoopRequest) async throws -> AgentLoopResult {
         let trimmedGoal = request.goal.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedGoal.isEmpty else {
             throw AgentError.emptyGoal
+        }
+        if let denial = AgentDeterministicSafetyPolicy().evaluatePrompt(trimmedGoal), denial.action == .deny {
+            throw AgentError.invalidArguments(denial.message ?? "Prompt was blocked by the deterministic safety policy.")
         }
 
         try await appendEvent(
@@ -198,6 +233,7 @@ public actor AgentLoopRunner {
             provider: request.provider,
             toolDefinitions: request.toolDefinitions,
             toolRegistry: request.toolRegistry,
+            toolHost: request.toolHost,
             toolContext: request.toolContext,
             root: request.root,
             configuration: request.configuration,
@@ -255,6 +291,7 @@ public actor AgentLoopRunner {
                 provider: request.provider,
                 toolDefinitions: request.toolDefinitions,
                 toolRegistry: request.toolRegistry,
+                toolHost: request.toolHost,
                 toolContext: request.toolContext,
                 root: request.root,
                 configuration: request.configuration,
@@ -278,6 +315,7 @@ public actor AgentLoopRunner {
                 provider: request.provider,
                 toolDefinitions: request.toolDefinitions,
                 toolRegistry: request.toolRegistry,
+                toolHost: request.toolHost,
                 toolContext: request.toolContext,
                 root: request.root,
                 configuration: request.configuration,
@@ -299,7 +337,7 @@ public actor AgentLoopRunner {
             )
             let rebuiltPending = request.pending.replacing(
                 toolCall: rebuiltCall,
-                approvalRequest: approvalRequest(for: rebuiltCall, definitions: request.toolDefinitions, message: "Edited arguments require a fresh permission pass.")
+                approvalRequest: approvalRequest(for: rebuiltCall, runID: request.pending.runID, definitions: request.toolDefinitions, message: "Edited arguments require a fresh permission pass.")
             )
             return try await resumeValidatedAllowOnce(
                 pending: rebuiltPending,
@@ -346,6 +384,7 @@ public actor AgentLoopRunner {
         if mustPauseIfPermissionAsks, evaluation.decision.action == .ask {
             let refreshedApproval = approvalRequest(
                 for: pending.toolCall,
+                runID: pending.runID,
                 definitions: request.toolDefinitions,
                 message: evaluation.decision.message ?? pending.approvalRequest.reason
             )
@@ -381,10 +420,12 @@ public actor AgentLoopRunner {
             runID: pending.runID,
             toolDefinitions: request.toolDefinitions,
             toolRegistry: request.toolRegistry,
+            toolHost: request.toolHost,
             toolContext: request.toolContext,
             root: request.root,
             options: request.options,
             hookEngine: request.hookEngine,
+            approvalID: pending.approvalRequest.id,
             forceWriteExecution: true
         )
         messages.append(execution.message)
@@ -395,6 +436,7 @@ public actor AgentLoopRunner {
             provider: request.provider,
             toolDefinitions: request.toolDefinitions,
             toolRegistry: request.toolRegistry,
+            toolHost: request.toolHost,
             toolContext: request.toolContext,
             root: request.root,
             configuration: request.configuration,
@@ -416,6 +458,7 @@ public actor AgentLoopRunner {
         provider: any LLMChatProvider,
         toolDefinitions: [AgentToolDefinition],
         toolRegistry: AgentToolRegistry,
+        toolHost: SciStationToolHost,
         toolContext: AgentToolContext,
         root: ResearchRoot,
         configuration: LLMConfiguration,
@@ -479,6 +522,18 @@ public actor AgentLoopRunner {
                 }
 
                 try validateArgumentsJSON(call.argumentsJSON)
+                let definition = definitionsByName[call.toolName]
+                if let safetyDecision = AgentDeterministicSafetyPolicy().evaluateToolCall(call, definition: definition), safetyDecision.action == .deny {
+                    let pause = AgentLoopPauseReason(
+                        kind: .safetyPolicyBlocked,
+                        message: safetyDecision.message ?? "Tool call was blocked by deterministic safety policy.",
+                        toolCallID: call.id,
+                        approvalRequest: approvalRequest(for: call, runID: runID, definitions: toolDefinitions, message: safetyDecision.message)
+                    )
+                    steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage, toolCalls: response.toolCalls, toolResults: stepToolResults, cachedToolCallIDs: cachedToolCallIDs, pauseReason: pause))
+                    try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
+                    return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
+                }
                 let hookResults = hookEngine.evaluate(
                     AgentHookEvent(
                         name: .preToolUse,
@@ -493,7 +548,7 @@ public actor AgentLoopRunner {
                         kind: .safetyPolicyBlocked,
                         message: deny.message ?? "PreToolUse hook denied \(call.toolName).",
                         toolCallID: call.id,
-                        approvalRequest: approvalRequest(for: call, definitions: toolDefinitions, message: deny.message)
+                        approvalRequest: approvalRequest(for: call, runID: runID, definitions: toolDefinitions, message: deny.message)
                     )
                     steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage, toolCalls: response.toolCalls, toolResults: stepToolResults, cachedToolCallIDs: cachedToolCallIDs, pauseReason: pause))
                     try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
@@ -506,7 +561,7 @@ public actor AgentLoopRunner {
                         kind: .safetyPolicyBlocked,
                         message: evaluation.decision.message ?? "Tool call was denied by deterministic safety policy.",
                         toolCallID: call.id,
-                        approvalRequest: approvalRequest(for: call, definitions: toolDefinitions, message: evaluation.decision.message)
+                        approvalRequest: approvalRequest(for: call, runID: runID, definitions: toolDefinitions, message: evaluation.decision.message)
                     )
                     steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage, toolCalls: response.toolCalls, toolResults: stepToolResults, cachedToolCallIDs: cachedToolCallIDs, pauseReason: pause))
                     try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
@@ -514,7 +569,7 @@ public actor AgentLoopRunner {
                 }
 
                 if evaluation.decision.action == .ask {
-                    let approval = approvalRequest(for: call, definitions: toolDefinitions, message: evaluation.decision.message)
+                    let approval = approvalRequest(for: call, runID: runID, definitions: toolDefinitions, message: evaluation.decision.message)
                     let pending = AgentPendingToolCall(
                         runID: runID,
                         stepIndex: stepIndex,
@@ -543,7 +598,6 @@ public actor AgentLoopRunner {
                 }
 
                 let fingerprint = AgentToolCallFingerprint(call: call, targetPaths: evaluation.argumentInspection.paths)
-                let definition = definitionsByName[call.toolName]
                 if definition?.risk == .readOnly,
                    let cached = readOnlyCacheByRunID[runID]?[fingerprint] {
                     let message = try stableToolMessage(for: cached, callID: call.id, definition: definition, options: options)
@@ -560,10 +614,12 @@ public actor AgentLoopRunner {
                     runID: runID,
                     toolDefinitions: toolDefinitions,
                     toolRegistry: toolRegistry,
+                    toolHost: toolHost,
                     toolContext: toolContext,
                     root: root,
                     options: options,
                     hookEngine: hookEngine,
+                    approvalID: nil,
                     forceWriteExecution: false
                 )
                 messages.append(execution.message)
@@ -586,15 +642,29 @@ public actor AgentLoopRunner {
         runID: String,
         toolDefinitions: [AgentToolDefinition],
         toolRegistry: AgentToolRegistry,
+        toolHost: SciStationToolHost,
         toolContext: AgentToolContext,
         root: ResearchRoot,
         options: AgentLoopOptions,
         hookEngine: AgentHookEngine,
+        approvalID: String?,
         forceWriteExecution: Bool
     ) async throws -> (result: AgentToolResult, message: LLMChatMessage) {
         let definition = definition(for: call, in: toolDefinitions)
-        let argumentInspection = AgentLoopArgumentInspection(argumentsJSON: call.argumentsJSON)
+        let argumentInspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
         let fingerprint = AgentToolCallFingerprint(call: call, targetPaths: argumentInspection.paths)
+        let ledgerApprovalID = approvalID ?? "auto-\(fingerprint.idempotencyFingerprint)"
+
+        if definition?.risk != .readOnly,
+           let priorResult = try await executionLedger.completedResult(
+            runID: runID,
+            approvalID: ledgerApprovalID,
+            toolCallID: call.id,
+            fingerprint: fingerprint.idempotencyFingerprint,
+            in: root
+           ) {
+            return (priorResult, try stableToolMessage(for: priorResult, callID: call.id, definition: definition, options: options))
+        }
 
         if definition?.risk != .readOnly,
            let priorResult = executedWriteResultsByRunID[runID]?[fingerprint] {
@@ -613,7 +683,7 @@ public actor AgentLoopRunner {
 
         let result: AgentToolResult
         do {
-            var invoked = try await toolRegistry.invoke(call, context: toolContext)
+            var invoked = try await toolHost.invoke(call, context: toolContext)
             if invoked.callID.isEmpty {
                 invoked.callID = call.id
             }
@@ -655,6 +725,15 @@ public actor AgentLoopRunner {
             var ledger = executedWriteResultsByRunID[runID] ?? [:]
             ledger[fingerprint] = result
             executedWriteResultsByRunID[runID] = ledger
+            try await executionLedger.record(
+                result: result,
+                runID: runID,
+                approvalID: ledgerApprovalID,
+                fingerprint: fingerprint.idempotencyFingerprint,
+                risk: definition?.risk ?? .externalSideEffect,
+                targetPaths: argumentInspection.paths,
+                in: root
+            )
         }
 
         return (result, try stableToolMessage(for: result, callID: call.id, definition: definition, options: options))
@@ -708,10 +787,10 @@ public actor AgentLoopRunner {
         call: AgentToolCall,
         definitions: [AgentToolDefinition],
         evaluator: AgentPermissionEvaluator
-    ) -> (decision: AgentPermissionDecision, argumentInspection: AgentLoopArgumentInspection) {
+    ) -> (decision: AgentPermissionDecision, argumentInspection: AgentToolArgumentInspection) {
         let definition = definition(for: call, in: definitions)
         let risk = definition?.risk ?? .externalSideEffect
-        let inspection = AgentLoopArgumentInspection(argumentsJSON: call.argumentsJSON)
+        let inspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
         let decision = evaluator.evaluate(
             AgentPermissionRequest(
                 toolName: call.toolName,
@@ -724,15 +803,22 @@ public actor AgentLoopRunner {
         return (decision, inspection)
     }
 
-    private func approvalRequest(for call: AgentToolCall, definitions: [AgentToolDefinition], message: String?) -> AgentApprovalRequest {
+    private func approvalRequest(for call: AgentToolCall, runID: String, definitions: [AgentToolDefinition], message: String?) -> AgentApprovalRequest {
         let definition = definition(for: call, in: definitions)
         let risk = definition?.risk ?? .externalSideEffect
+        let inspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
         return AgentApprovalRequest(
+            runID: runID,
+            toolCallID: call.id,
             toolName: call.toolName,
             permissionKey: definition?.permissionKey ?? risk.defaultPermissionKey,
             risk: risk,
             argumentsJSON: call.argumentsJSON,
-            reason: message
+            targetPaths: inspection.paths,
+            diffPreview: risk == .readOnly ? nil : "Tool may modify: \(inspection.paths.joined(separator: ", ").nilIfEmpty ?? "workspace")",
+            summaryPreview: "\(call.toolName) (\(risk.rawValue))",
+            reason: message,
+            rollbackHint: risk == .readOnly ? nil : AgentRollbackHint(summary: "Review or revert modified paths if the approved result is wrong.", targetPaths: inspection.paths)
         )
     }
 
@@ -761,19 +847,11 @@ public actor AgentLoopRunner {
         options: AgentLoopOptions
     ) throws -> String {
         let limited = limitedResult(result, definition: definition, options: options)
-        let payload: [String: Any] = [
-            "schema_version": 1,
-            "tool_name": limited.toolName,
-            "tool_call_id": callID,
-            "succeeded": limited.succeeded,
-            "content": limited.message,
-            "summary": summary(for: limited.message),
-            "modified_paths": limited.modifiedPaths,
-            "evidence": [],
-            "error": limited.errorMessage ?? NSNull()
-        ]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        return String(data: data, encoding: .utf8) ?? "{}"
+        return try AgentToolResultWireFormat(
+            result: limited,
+            toolCallID: callID,
+            summary: summary(for: limited.message)
+        ).stableJSON()
     }
 
     private func limitedResult(_ result: AgentToolResult, definition: AgentToolDefinition?, options: AgentLoopOptions) -> AgentToolResult {
@@ -853,68 +931,10 @@ public actor AgentLoopRunner {
     }
 }
 
-private nonisolated struct AgentLoopArgumentInspection: Hashable, Sendable {
-    var paths: [String]
-    var command: String?
-
-    init(argumentsJSON: String) {
-        guard let data = argumentsJSON.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) else {
-            self.paths = []
-            self.command = nil
-            return
-        }
-
-        var pathValues: [String] = []
-        var commandValue: String?
-        Self.collect(from: root, keyPath: [], paths: &pathValues, command: &commandValue)
-        self.paths = uniqueOrdered(pathValues).prefix(6).map { $0 }
-        self.command = commandValue
-    }
-
-    private static func collect(from value: Any, keyPath: [String], paths: inout [String], command: inout String?) {
-        if let dictionary = value as? [String: Any] {
-            for key in dictionary.keys.sorted() {
-                collect(from: dictionary[key] as Any, keyPath: keyPath + [key], paths: &paths, command: &command)
-            }
-            return
-        }
-
-        if let array = value as? [Any] {
-            for item in array {
-                collect(from: item, keyPath: keyPath, paths: &paths, command: &command)
-            }
-            return
-        }
-
-        guard let string = value as? String, !string.isEmpty else {
-            return
-        }
-
-        let joinedKey = keyPath.joined(separator: ".").lowercased()
-        if command == nil, joinedKey.contains("command") || joinedKey == "cmd" || joinedKey.contains("shell") {
-            command = string
-        }
-        if joinedKey.contains("path") || joinedKey.contains("file") || joinedKey.contains("folder") || joinedKey.contains("directory") {
-            paths.append(string)
-        }
-    }
-}
-
 private extension AgentPendingToolCall {
     nonisolated var isExpired: Bool {
         expiresAt.map { $0 < Date() } ?? false
     }
-}
-
-private nonisolated func uniqueOrdered<T: Hashable>(_ values: [T]) -> [T] {
-    var seen: Set<T> = []
-    var result: [T] = []
-    for value in values where !seen.contains(value) {
-        seen.insert(value)
-        result.append(value)
-    }
-    return result
 }
 
 private extension String {

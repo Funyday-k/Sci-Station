@@ -97,11 +97,18 @@ public nonisolated struct AgentPermissionDockState: Codable, Hashable, Sendable 
 
 public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Sendable {
     public var id: String
+    public var runID: String
+    public var toolCallID: String
     public var toolName: String
     public var displayName: String
     public var summary: String
     public var permissionKey: String
     public var risk: AgentToolRisk
+    public var targetPaths: [String]
+    public var fingerprint: String
+    public var diffPreview: String?
+    public var summaryPreview: String?
+    public var rollbackHint: AgentRollbackHint?
     public var decision: AgentPermissionDecision
     public var matchedPolicyDescription: String
     public var approvalState: AgentPermissionDockApprovalState
@@ -124,6 +131,15 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
             let argumentInspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
             let risk = definition?.risk ?? .externalSideEffect
             let permissionKey = definition?.permissionKey ?? risk.defaultPermissionKey
+            let targetPaths = result?.modifiedPaths.nilIfEmpty ?? argumentInspection.paths
+            let approvalArguments = (try? AgentToolArguments(rawJSON: call.argumentsJSON)) ?? .emptyObject
+            let fingerprint = AgentApprovalRequest.fingerprint(
+                tool: call.toolName,
+                risk: risk,
+                permissionKey: permissionKey,
+                canonicalArgumentsJSON: approvalArguments.canonicalJSON,
+                targetPaths: targetPaths
+            )
             let decision = evaluator.evaluate(
                 AgentPermissionRequest(
                     toolName: call.toolName,
@@ -140,19 +156,25 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
                 result: result,
                 state: state
             )
-            let pathPreview = result?.modifiedPaths.nilIfEmpty ?? argumentInspection.paths
 
             return AgentPermissionDockItem(
                 id: call.id,
+                runID: run.id,
+                toolCallID: call.id,
                 toolName: call.toolName,
                 displayName: definition?.displayName ?? call.toolName,
                 summary: definition?.summary ?? "Tool definition is not registered for this runtime.",
                 permissionKey: permissionKey,
                 risk: risk,
+                targetPaths: targetPaths,
+                fingerprint: fingerprint,
+                diffPreview: risk == .readOnly ? nil : "Tool may modify: \(targetPaths.joined(separator: ", ").nilIfEmpty ?? "workspace")",
+                summaryPreview: "\(call.toolName) (\(risk.rawValue))",
+                rollbackHint: risk == .readOnly ? nil : AgentRollbackHint(summary: "Review or revert target paths if the approved operation is wrong.", targetPaths: targetPaths),
                 decision: decision,
                 matchedPolicyDescription: policyDescription,
                 approvalState: approvalState,
-                pathPreview: pathPreview,
+                pathPreview: targetPaths,
                 argumentsPreview: call.argumentsJSON,
                 correctionFeedback: state.correctionFeedbackByCallID[call.id]?.nilIfEmpty,
                 sideEffectsRequirePermission: risk != .readOnly
@@ -533,59 +555,6 @@ public struct AgentRuntimeConfigurationLoader {
 
     private nonisolated static func stringArray(_ value: Any?) -> [String]? {
         value as? [String]
-    }
-}
-
-private nonisolated struct AgentToolArgumentInspection: Hashable, Sendable {
-    var paths: [String]
-    var command: String?
-
-    init(argumentsJSON: String) {
-        guard let data = argumentsJSON.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) else {
-            self.paths = []
-            self.command = nil
-            return
-        }
-
-        var pathValues: [String] = []
-        var commandValue: String?
-        Self.collect(from: root, keyPath: [], paths: &pathValues, command: &commandValue)
-        self.paths = uniqueOrdered(pathValues).prefix(6).map { $0 }
-        self.command = commandValue
-    }
-
-    private static func collect(
-        from value: Any,
-        keyPath: [String],
-        paths: inout [String],
-        command: inout String?
-    ) {
-        if let dictionary = value as? [String: Any] {
-            for key in dictionary.keys.sorted() {
-                collect(from: dictionary[key] as Any, keyPath: keyPath + [key], paths: &paths, command: &command)
-            }
-            return
-        }
-
-        if let array = value as? [Any] {
-            for item in array {
-                collect(from: item, keyPath: keyPath, paths: &paths, command: &command)
-            }
-            return
-        }
-
-        guard let string = value as? String, !string.isEmpty else {
-            return
-        }
-
-        let joinedKey = keyPath.joined(separator: ".").lowercased()
-        if command == nil, joinedKey.contains("command") || joinedKey == "cmd" || joinedKey.contains("shell") {
-            command = string
-        }
-        if joinedKey.contains("path") || joinedKey.contains("file") || joinedKey.contains("folder") || joinedKey.contains("directory") {
-            paths.append(string)
-        }
     }
 }
 

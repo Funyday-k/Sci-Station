@@ -1574,6 +1574,7 @@ struct AgentMCPServerStatusView: View {
             VStack(alignment: .leading, spacing: 12) {
                 WorkspacePathRow(label: "Product Templates", value: ".sci-ai/sci-station/ tracked, no raw secrets")
                 WorkspacePathRow(label: "Local Config", value: ".sci-ai/workspace.local/ local-only, ignored by git")
+                WorkspacePathRow(label: "Local Gateway", value: "Swift ToolHost exposes tools/list and tools/call; write calls return approval_required")
 
                 statusSection(title: "Product Preset", statuses: appModel.agentProductMCPServerStatuses, emptyText: "No product MCP template is available in this root.")
                 statusSection(title: "Local Workspace", statuses: appModel.agentLocalMCPServerStatuses, emptyText: "No local workspace MCP config is present.")

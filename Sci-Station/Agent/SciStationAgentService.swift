@@ -5,11 +5,13 @@ public actor SciStationAgentService {
     private let contextBuilder: AgentWorkspaceContextBuilder
     private let planner: AgentPlanner
     private let toolRegistry: AgentToolRegistry
+    private let toolHost: SciStationToolHost
     private let toolExecutor: AgentToolExecutor
     private let runLogger: AgentRunLogger
     private let sessionEventLogger: AgentSessionEventLogger
     private let loopRunner: AgentLoopRunner
     private let loopCheckpointStore: AgentLoopCheckpointStore
+    private let legacyRuntime: LegacySwiftAgentRuntime
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
@@ -37,21 +39,29 @@ public actor SciStationAgentService {
             ReadPaperAgentTool(paperRepository: paperRepository),
             ReadPaperSectionAgentTool(paperRepository: paperRepository),
             SearchPapersAgentTool(paperRepository: paperRepository),
+            SearchWikiAgentTool(markdownRepository: markdownRepository),
+            ReadWikiPageAgentTool(markdownRepository: markdownRepository),
+            ListTasksAgentTool(todoRepository: todoRepository),
+            ListMaterialsAgentTool(),
             CreateTodoAgentTool(todoRepository: todoRepository),
             UpdatePaperClassificationAgentTool(paperRepository: paperRepository),
             WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository)
         ])
         let resolvedLoopCheckpointStore = AgentLoopCheckpointStore()
+        let resolvedToolHost = SciStationToolHost(legacyRegistry: resolvedToolRegistry)
+        let resolvedLoopRunner = AgentLoopRunner(sessionEventLogger: sessionEventLogger, checkpointStore: resolvedLoopCheckpointStore)
 
         self.provider = provider
         self.contextBuilder = resolvedContextBuilder
         self.planner = AgentPlanner(provider: provider)
         self.toolRegistry = resolvedToolRegistry
+        self.toolHost = resolvedToolHost
         self.toolExecutor = toolExecutor ?? AgentToolExecutor(registry: resolvedToolRegistry)
         self.runLogger = runLogger
         self.sessionEventLogger = sessionEventLogger
         self.loopCheckpointStore = resolvedLoopCheckpointStore
-        self.loopRunner = AgentLoopRunner(sessionEventLogger: sessionEventLogger, checkpointStore: resolvedLoopCheckpointStore)
+        self.loopRunner = resolvedLoopRunner
+        self.legacyRuntime = LegacySwiftAgentRuntime(loopRunner: resolvedLoopRunner)
         self.threadRepository = threadRepository
         self.draftRepository = draftRepository
         self.hookDefinitions = hookDefinitions
@@ -78,7 +88,7 @@ public actor SciStationAgentService {
     }
 
     public func toolDefinitions() async -> [AgentToolDefinition] {
-        await toolRegistry.definitions()
+        await toolHost.definitions()
     }
 
     public func run(
@@ -97,6 +107,9 @@ public actor SciStationAgentService {
     ) async throws -> AgentRun {
         let createdAt = Date()
         let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
+        if let denial = AgentDeterministicSafetyPolicy().evaluatePrompt(goal), denial.action == .deny {
+            throw AgentError.invalidArguments(denial.message ?? "Prompt was blocked by the deterministic safety policy.")
+        }
         let hookEngine = hookEngine(disabledHookIDs: options.disabledHookIDs)
         var hookResults = hookEngine.evaluate(
             AgentHookEvent(name: .sessionStart, prompt: goal)
@@ -104,6 +117,9 @@ public actor SciStationAgentService {
         hookResults.append(contentsOf: hookEngine.evaluate(
             AgentHookEvent(name: .userPromptSubmit, prompt: goal)
         ))
+        if let deniedHook = hookResults.first(where: { $0.permissionDecision == .deny }) {
+            throw AgentError.invalidArguments(deniedHook.message ?? "Prompt was blocked by an agent hook.")
+        }
         let snapshot = try await contextBuilder.snapshot(
             in: workspace,
             root: resolvedRoot,
@@ -131,24 +147,28 @@ public actor SciStationAgentService {
                 tools: toolDefinitions,
                 conversationHistory: conversationHistory
             )
-            let loopResult = try await loopRunner.run(
-                AgentLoopRequest(
-                    runID: runID,
-                    goal: goal,
-                    initialMessages: messages,
-                    provider: chatProvider,
-                    toolDefinitions: toolDefinitions,
-                    toolRegistry: toolRegistry,
-                    toolContext: context,
-                    root: resolvedRoot,
-                    configuration: configuration,
-                    apiKey: apiKey,
-                    options: AgentLoopOptions(),
-                    hookEngine: hookEngine,
-                    permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
-                    responseDeltaHandler: responseDeltaHandler
-                )
+            let runtimeRequest = AgentRuntimeRequest(
+                runID: runID,
+                goal: goal,
+                initialMessages: messages,
+                provider: chatProvider,
+                toolDefinitions: toolDefinitions,
+                toolRegistry: toolRegistry,
+                toolHost: toolHost,
+                toolContext: context,
+                root: resolvedRoot,
+                configuration: configuration,
+                apiKey: apiKey,
+                options: AgentLoopOptions(),
+                hookEngine: hookEngine,
+                permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
+                responseDeltaHandler: responseDeltaHandler
             )
+            let stream = try await legacyRuntime.startRun(runtimeRequest)
+            for try await _ in stream {}
+            guard let loopResult = await legacyRuntime.completedLoopResult(runID: runID) else {
+                throw AgentError.invalidArguments("Legacy Swift runtime completed without a loop result.")
+            }
             let run = run(from: loopResult, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
             try await runLogger.append(run, in: resolvedRoot)
             return run
@@ -254,6 +274,7 @@ public actor SciStationAgentService {
                 provider: chatProvider,
                 toolDefinitions: toolDefinitions,
                 toolRegistry: toolRegistry,
+                toolHost: toolHost,
                 toolContext: context,
                 root: resolvedRoot,
                 configuration: configuration,
@@ -599,7 +620,7 @@ public actor SciStationAgentService {
     }
 
     private func filteredToolDefinitions(allowedToolNames: Set<String>?) async -> [AgentToolDefinition] {
-        let definitions = await toolRegistry.definitions()
+        let definitions = await toolHost.definitions()
         guard let allowedToolNames else {
             return definitions
         }
