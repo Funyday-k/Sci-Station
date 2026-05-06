@@ -491,7 +491,27 @@ public actor AgentLoopRunner {
                 messages: messages,
                 tools: options.allowProviderNativeTools ? toolDefinitions.map(LLMToolSpecification.init(agentTool:)) : []
             )
-            let response = try await provider.respond(to: request, configuration: configuration, apiKey: apiKey)
+            let response: LLMProviderResponse
+            do {
+                response = try await provider.respond(to: request, configuration: configuration, apiKey: apiKey)
+            } catch {
+                if let fallback = try await visibleProviderFailureResult(
+                    errorMessage: error.localizedDescription,
+                    runID: runID,
+                    goal: goal,
+                    messages: messages,
+                    steps: steps,
+                    toolResults: toolResults,
+                    root: root,
+                    configuration: configuration,
+                    hookEngine: hookEngine,
+                    responseDeltaHandler: responseDeltaHandler,
+                    stepIndex: stepIndex
+                ) {
+                    return fallback
+                }
+                throw error
+            }
             let assistantMessage = LLMChatMessage(
                 role: .assistant,
                 content: response.message.content,
@@ -501,8 +521,26 @@ public actor AgentLoopRunner {
             try await appendAssistantEvent(assistantMessage, sessionID: runID, root: root)
 
             if response.toolCalls.isEmpty {
-                let finalMarkdown = response.message.content
-                if let responseDeltaHandler, !finalMarkdown.isEmpty {
+                let finalMarkdown = response.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if finalMarkdown.isEmpty {
+                    if let fallback = try await visibleProviderFailureResult(
+                        errorMessage: LLMProviderError.emptyResponse.localizedDescription,
+                        runID: runID,
+                        goal: goal,
+                        messages: Array(messages.dropLast()),
+                        steps: steps,
+                        toolResults: toolResults,
+                        root: root,
+                        configuration: configuration,
+                        hookEngine: hookEngine,
+                        responseDeltaHandler: responseDeltaHandler,
+                        stepIndex: stepIndex
+                    ) {
+                        return fallback
+                    }
+                    throw LLMProviderError.emptyResponse
+                }
+                if let responseDeltaHandler {
                     await responseDeltaHandler(finalMarkdown)
                 }
                 steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage))
@@ -637,6 +675,87 @@ public actor AgentLoopRunner {
         return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
     }
 
+    private func visibleProviderFailureResult(
+        errorMessage: String,
+        runID: String,
+        goal: String,
+        messages: [LLMChatMessage],
+        steps: [AgentLoopStep],
+        toolResults: [AgentToolResult],
+        root: ResearchRoot,
+        configuration: LLMConfiguration,
+        hookEngine: AgentHookEngine,
+        responseDeltaHandler: (@Sendable (String) async -> Void)?,
+        stepIndex: Int
+    ) async throws -> AgentLoopResult? {
+        guard !toolResults.isEmpty else {
+            return nil
+        }
+
+        let finalMarkdown = providerFailureMarkdown(
+            errorMessage: errorMessage,
+            goal: goal,
+            model: configuration.model,
+            toolResults: toolResults
+        )
+        let assistantMessage = LLMChatMessage(role: .assistant, content: finalMarkdown)
+        var updatedMessages = messages
+        updatedMessages.append(assistantMessage)
+        var updatedSteps = steps
+        let pause = AgentLoopPauseReason(kind: .providerUnavailable, message: errorMessage)
+        updatedSteps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage, pauseReason: pause))
+        try await appendAssistantEvent(assistantMessage, sessionID: runID, root: root)
+        if let responseDeltaHandler {
+            await responseDeltaHandler(finalMarkdown)
+        }
+        try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
+        return AgentLoopResult(
+            runID: runID,
+            finalResponseMarkdown: finalMarkdown,
+            messages: updatedMessages,
+            toolResults: toolResults,
+            pauseReason: pause,
+            steps: updatedSteps
+        )
+    }
+
+    private nonisolated func providerFailureMarkdown(
+        errorMessage: String,
+        goal: String,
+        model: String,
+        toolResults: [AgentToolResult]
+    ) -> String {
+        let wantsChinese = goal.range(of: #"\p{Han}"#, options: .regularExpression) != nil
+        let usedTools = distinctToolNames(from: toolResults).joined(separator: ", ")
+        let lastResult = toolResults.last
+        let lastSummary = lastResult.map { summary(for: $0.message) } ?? ""
+        if wantsChinese {
+            return """
+            模型没有返回最终回复，但本次工具读取已经完成。
+
+            - 模型：\(model)
+            - 失败原因：\(errorMessage)
+            - 已使用工具：\(usedTools)
+
+            最后一个工具结果摘要：\(lastSummary)
+
+            可以直接重试本问题，或把问题缩小到上面工具结果中的论文、章节、公式关键词。
+            """
+        }
+
+        return """
+        The model did not return a final response, but the tool reads completed.
+
+        - Model: \(model)
+        - Failure: \(errorMessage)
+        - Tools used: \(usedTools)
+
+        Last tool result summary: \(lastSummary)
+
+        Retry the question, or narrow it to the paper, section, or formula keyword shown in the tool result above.
+        """
+    }
+
     private func executeAllowedToolCall(
         _ call: AgentToolCall,
         runID: String,
@@ -711,7 +830,7 @@ public actor AgentLoopRunner {
             AgentSessionEvent(
                 sessionID: runID,
                 kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
-                summary: result.message,
+                summary: toolEventSummary(for: result),
                 payloadJSON: try stableToolResultJSON(for: result, callID: call.id, definition: definition, options: options)
             ),
             in: root
@@ -868,7 +987,7 @@ public actor AgentLoopRunner {
         )
     }
 
-    private func limited(_ text: String, maxCharacters: Int) -> String {
+    private nonisolated func limited(_ text: String, maxCharacters: Int) -> String {
         guard text.count > maxCharacters else {
             return text
         }
@@ -876,12 +995,29 @@ public actor AgentLoopRunner {
         return String(text[..<endIndex]) + "\n[Tool output truncated by Sci-Station.]"
     }
 
-    private func summary(for text: String) -> String {
+    private nonisolated func summary(for text: String) -> String {
         let firstLine = text
             .split(whereSeparator: \.isNewline)
             .first
             .map(String.init) ?? text
         return limited(firstLine.trimmingCharacters(in: .whitespacesAndNewlines), maxCharacters: 240)
+    }
+
+    private nonisolated func toolEventSummary(for result: AgentToolResult) -> String {
+        if result.succeeded {
+            return "已使用工具：\(result.toolName)"
+        }
+        return "工具 \(result.toolName) 失败：\(summary(for: result.errorMessage ?? result.message))"
+    }
+
+    private nonisolated func distinctToolNames(from results: [AgentToolResult]) -> [String] {
+        var seen: Set<String> = []
+        var names: [String] = []
+        for result in results where !seen.contains(result.toolName) {
+            seen.insert(result.toolName)
+            names.append(result.toolName)
+        }
+        return names
     }
 
     private func normalizedEditedArguments(_ value: String?) throws -> String {

@@ -173,6 +173,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentSessionEvents: [AgentSessionEvent] = []
     @Published private(set) var agentThreads: [AgentThread] = []
     @Published private(set) var allAgentThreads: [AgentThread] = []
+    @Published private(set) var agentNextRunContextScope: AgentContextScope = .project
+    @Published private(set) var agentNextRunProjectID: ResearchProject.ID?
     @Published var isAgentThreadWorkspaceFilterEnabled = false {
         didSet { applyAgentThreadFilterForCurrentScope() }
     }
@@ -251,6 +253,7 @@ final class AppViewModel: ObservableObject {
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
     private var agentPlanningTask: Task<Void, Never>?
+    private var agentRetrySourceRunID: String?
     private var agentStreamingRenderTask: Task<Void, Never>?
     private var agentStreamingRenderGeneration = 0
     private var agentStreamingResponseCommitScheduled = false
@@ -576,6 +579,7 @@ final class AppViewModel: ObservableObject {
         }
         return AgentSessionTimelineItem.items(
             from: agentSessionEvents,
+            runs: agentConversationRuns + [agentCurrentRun].compactMap { $0 },
             sessionIDs: sessionIDs
         )
     }
@@ -626,15 +630,63 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentConversationTitle: String {
-        guard let agentConversationProjectID else {
-            return "全局"
+        agentThreadContextTitle
+    }
+
+    var agentThreadContextTitle: String {
+        if let thread = pendingAgentThread ?? activeAgentThread {
+            return agentContextTitle(scope: thread.contextScope ?? AgentContextScope.inferred(projectID: thread.projectID), projectID: thread.projectID)
         }
 
-        return projectName(for: agentConversationProjectID)
+        return agentNextRunContextTitle
+    }
+
+    var agentNextRunContextTitle: String {
+        agentContextTitle(scope: agentNextRunContextScope, projectID: agentConversationProjectID)
+    }
+
+    var agentContextSelectionToken: String {
+        agentConversationProjectID ?? "__workspace__"
     }
 
     var agentConversationProjectID: ResearchProject.ID? {
-        currentProjectID
+        if agentNextRunContextScope == .workspace {
+            return nil
+        }
+        return agentNextRunProjectID
+            ?? pendingAgentThread?.projectID
+            ?? activeAgentThread?.projectID
+            ?? currentProjectID
+    }
+
+    func setAgentContextSelectionToken(_ token: String) {
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+        if token == "__workspace__" {
+            agentNextRunContextScope = .workspace
+            agentNextRunProjectID = nil
+        } else {
+            agentNextRunContextScope = .project
+            agentNextRunProjectID = token
+        }
+
+        if activeAgentThread == nil, pendingAgentThread == nil {
+            activeAgentThreadID = preferredAgentThreadID(projectID: agentConversationProjectID)
+            agentGoal = agentGoalDrafts[agentDraftKey(projectID: agentConversationProjectID, threadID: activeAgentThreadID)] ?? ""
+            restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
+        }
+
+        restoreAgentToolStateForCurrentScope()
+        refreshAgentContext()
+    }
+
+    private func agentContextTitle(scope: AgentContextScope, projectID: ResearchProject.ID?) -> String {
+        switch scope {
+        case .workspace:
+            return "全工作区"
+        case .project:
+            return projectID.map(projectName(for:)) ?? "全工作区"
+        }
     }
 
     var currentResearchProject: ResearchProject? {
@@ -832,8 +884,7 @@ final class AppViewModel: ObservableObject {
         let writingTools = agentToolDefinitions.filter(\.requiresConfirmation).count
         let dockItems = agentCurrentRun.map { agentPermissionDockItems(for: $0) } ?? []
         let waitingCount = dockItems.filter { $0.approvalState == .waitingForApproval }.count
-        let autoAllowedCount = dockItems.filter { $0.approvalState == .autoAllowed }.count
-        return "allow / ask / deny rules active; \(writingTools) tools require approval; \(waitingCount) waiting; \(agentToolApprovals.count) allow once; \(agentToolDenials.count) denied; \(autoAllowedCount) auto-allowed"
+        return "allow / ask / deny rules active; \(writingTools) tools require approval; \(waitingCount) waiting; \(agentToolApprovals.count) allow once; \(agentToolDenials.count) denied; read-only tools auto-run"
     }
 
     var agentHookSummary: String {
@@ -917,7 +968,7 @@ final class AppViewModel: ObservableObject {
 
     func agentPermissionDockItems(for run: AgentRun) -> [AgentPermissionDockItem] {
         var filteredRun = run
-        if let allowedToolNames = effectiveAgentAllowedToolNames {
+        if let allowedToolNames = run.enabledToolNames.map({ Set($0) }) ?? effectiveAgentAllowedToolNames {
             filteredRun.plan.toolCalls = filteredRun.plan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
         }
 
@@ -937,7 +988,14 @@ final class AppViewModel: ObservableObject {
                 in: workspaceModuleConfiguration
             )
         }
-        return items
+        return items.filter { item in
+            switch item.approvalState {
+            case .waitingForApproval, .allowedOnce, .denied, .deniedByPolicy, .sessionApprovalDraft:
+                return item.sideEffectsRequirePermission || item.decision.action != .allow
+            case .autoAllowed, .completed, .failed:
+                return false
+            }
+        }
     }
 
     var selectedPaperPDFURL: URL? {
@@ -2421,6 +2479,11 @@ final class AppViewModel: ObservableObject {
         persistAgentToolStateForCurrentScope()
     }
 
+    func setAllAgentTools(isEnabled: Bool) {
+        agentDisabledToolNames = isEnabled ? [] : Set(agentToolDefinitions.map(\.name))
+        persistAgentToolStateForCurrentScope()
+    }
+
     func updateMinerUCommand(_ command: String) {
         updateWorkspacePreferences { preferences in
             let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2667,13 +2730,35 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        let prompt = agentPendingUserPrompt
+        let partialResponse = agentStreamingResponseText
+        let runContextProjectID = agentConversationProjectID
+        let runtimeSelector = workspacePreferences.agentRuntimeSelection.rawValue
+        let enabledToolNamesSnapshot = effectiveAgentAllowedToolNames?.sorted() ?? agentEnabledToolNames.sorted()
+        let retryOfRunID = agentRetrySourceRunID
         agentPlanningTask?.cancel()
         agentPlanningTask = nil
+        agentRetrySourceRunID = nil
         isPlanningAgentRun = false
         agentPendingUserPrompt = nil
         publishAgentStreamingResponseNow()
         agentStatusMessage = "已停止 AI 输出。"
         agentErrorMessage = nil
+
+        if let prompt, let currentWorkspace {
+            Task {
+                await recordAgentCancelledRun(
+                    prompt: prompt,
+                    message: "用户已停止本次 AI 输出。",
+                    partialAssistantResponse: partialResponse,
+                    in: currentWorkspace,
+                    currentProjectID: runContextProjectID,
+                    runtimeSelector: runtimeSelector,
+                    enabledToolNames: enabledToolNamesSnapshot,
+                    retryOfRunID: retryOfRunID
+                )
+            }
+        }
     }
 
     func convertSelectedAgentKnowledgePapersToMarkdown() {
@@ -2929,21 +3014,89 @@ final class AppViewModel: ObservableObject {
         agentToolCorrectionFeedback = [:]
     }
 
+    private func recordAgentInlineFailure(
+        prompt: String,
+        message: String,
+        partialAssistantResponse: String?,
+        in workspace: ResearchWorkspace,
+        currentProjectID: ResearchProject.ID?,
+        runtimeSelector: String?,
+        enabledToolNames: [String],
+        failureCategory: AgentRunFailureCategory = .unknown,
+        retryOfRunID: String? = nil
+    ) async {
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+        do {
+            let failedRun = try await agentService.recordFailedRun(
+                goal: prompt,
+                message: message,
+                partialAssistantResponse: partialAssistantResponse,
+                in: root,
+                currentProjectID: currentProjectID,
+                runtimeSelector: runtimeSelector,
+                enabledToolNames: enabledToolNames,
+                failureCategory: failureCategory,
+                retryOfRunID: retryOfRunID
+            )
+            agentCurrentRun = failedRun
+            try await attachRunToActiveThread(failedRun, in: workspace)
+            resetAgentPermissionDockState()
+            await refreshAgentState(in: workspace)
+        } catch {
+            agentErrorMessage = "\(message) 保存错误状态失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func recordAgentCancelledRun(
+        prompt: String,
+        message: String,
+        partialAssistantResponse: String?,
+        in workspace: ResearchWorkspace,
+        currentProjectID: ResearchProject.ID?,
+        runtimeSelector: String?,
+        enabledToolNames: [String],
+        retryOfRunID: String? = nil
+    ) async {
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+        do {
+            let cancelledRun = try await agentService.recordCancelledRun(
+                goal: prompt,
+                message: message,
+                partialAssistantResponse: partialAssistantResponse,
+                in: root,
+                currentProjectID: currentProjectID,
+                runtimeSelector: runtimeSelector,
+                enabledToolNames: enabledToolNames,
+                retryOfRunID: retryOfRunID
+            )
+            agentCurrentRun = cancelledRun
+            try await attachRunToActiveThread(cancelledRun, in: workspace)
+            resetAgentPermissionDockState()
+            await refreshAgentState(in: workspace)
+        } catch {
+            agentErrorMessage = "\(message) 保存停止状态失败：\(error.localizedDescription)"
+        }
+    }
+
     func startNewAgentConversation() {
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
         let now = Date()
+        let contextProjectID = agentConversationProjectID
         let thread = AgentThread(
             id: "agent-thread-\(UUID().uuidString.lowercased())",
-            projectID: agentConversationProjectID,
+            projectID: contextProjectID,
+            contextScope: agentNextRunContextScope,
             workspaceID: currentAgentWorkspaceID,
             workspaceName: currentAgentWorkspaceName,
+            runtimeSelector: workspacePreferences.agentRuntimeSelection.rawValue,
+            createdFromRoute: "ai_lab",
             title: "New Chat",
             createdAt: now,
             updatedAt: now
         )
         pendingAgentThread = thread
-        pendingAgentThreadsByProject[agentProjectDraftKey(agentConversationProjectID)] = thread
+        pendingAgentThreadsByProject[agentProjectDraftKey(contextProjectID)] = thread
         activeAgentThreadID = thread.id
         agentGoal = ""
         agentCurrentRun = nil
@@ -2951,7 +3104,7 @@ final class AppViewModel: ObservableObject {
         resetAgentPermissionDockState()
         rebuildAgentHookActivitySummary()
         restoreAgentToolStateForCurrentScope()
-        agentStatusMessage = "已开始新的 \(agentConversationTitle) 对话。"
+        agentStatusMessage = "已开始新的 \(agentNextRunContextTitle) 对话。"
         agentErrorMessage = nil
     }
 
@@ -2985,6 +3138,8 @@ final class AppViewModel: ObservableObject {
         persistAgentDraftForCurrentConversation()
         activeAgentThreadID = thread.id
         pendingAgentThread = nil
+        agentNextRunContextScope = thread.contextScope ?? AgentContextScope.inferred(projectID: thread.projectID)
+        agentNextRunProjectID = thread.projectID
         let runsByID = Dictionary(uniqueKeysWithValues: agentRunHistory.map { ($0.id, $0) })
         agentCurrentRun = thread.runIDs.reversed().compactMap { runsByID[$0] }.first
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: thread.projectID, threadID: thread.id)] ?? ""
@@ -3001,9 +3156,8 @@ final class AppViewModel: ObservableObject {
     func openAgentRun(_ run: AgentRun) {
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
-        if let projectID = run.currentProjectID {
-            focusResearchProject(projectID)
-        }
+        agentNextRunContextScope = run.contextScope ?? AgentContextScope.inferred(projectID: run.projectID ?? run.currentProjectID)
+        agentNextRunProjectID = run.projectID ?? run.currentProjectID
         activeAgentThreadID = allAgentThreads.first { $0.runIDs.contains(run.id) }?.id
         pendingAgentThread = nil
         agentCurrentRun = run
@@ -3091,8 +3245,11 @@ final class AppViewModel: ObservableObject {
         let thread = AgentThread(
             id: "agent-thread-\(UUID().uuidString.lowercased())",
             projectID: run.currentProjectID,
+            contextScope: run.contextScope ?? AgentContextScope.inferred(projectID: run.currentProjectID),
             workspaceID: currentAgentWorkspaceID,
             workspaceName: currentAgentWorkspaceName,
+            runtimeSelector: run.runtimeSelector,
+            createdFromRoute: run.createdFromRoute ?? "ai_lab",
             title: Self.agentThreadTitle(for: run),
             runIDs: [run.id],
             createdAt: now,
@@ -3150,6 +3307,33 @@ final class AppViewModel: ObservableObject {
         agentStatusMessage = "Copied the previous prompt into a new chat."
     }
 
+    func retryAgentRun(_ run: AgentRun) {
+        guard run.isRetryable else {
+            agentErrorMessage = "这个 run 当前不是可重试状态。"
+            return
+        }
+        guard !isPlanningAgentRun else {
+            agentErrorMessage = "当前 AI 正在运行，请先停止或等待完成。"
+            return
+        }
+
+        saveAgentDraftForCurrentConversation()
+        persistAgentDraftForCurrentConversation()
+        agentNextRunContextScope = run.contextScope ?? AgentContextScope.inferred(projectID: run.projectID ?? run.currentProjectID)
+        agentNextRunProjectID = run.projectID ?? run.currentProjectID
+        if let thread = allAgentThreads.first(where: { $0.runIDs.contains(run.id) && !$0.isArchived }) {
+            activeAgentThreadID = thread.id
+            pendingAgentThread = nil
+        }
+        agentGoal = run.goal
+        agentRetrySourceRunID = run.id
+        resetAgentStreamingPreview()
+        resetAgentPermissionDockState()
+        agentStatusMessage = "正在重试上一条失败请求。"
+        agentErrorMessage = nil
+        generateAgentPlan()
+    }
+
     func duplicateAgentThreadPromptToNewChat(_ thread: AgentThread) {
         guard let runID = thread.runIDs.last,
               let run = agentRunHistory.first(where: { $0.id == runID }) else {
@@ -3161,10 +3345,15 @@ final class AppViewModel: ObservableObject {
     }
 
     private func resetAgentDraftIfConversationChanged(to projectID: ResearchProject.ID?) {
+        guard activeAgentThread == nil, pendingAgentThread == nil else {
+            return
+        }
         guard agentCurrentRun?.currentProjectID != projectID else {
             return
         }
 
+        agentNextRunContextScope = projectID == nil ? .workspace : .project
+        agentNextRunProjectID = projectID
         if let pendingThread = pendingAgentThreadsByProject[agentProjectDraftKey(projectID)] {
             pendingAgentThread = pendingThread
             activeAgentThreadID = pendingThread.id
@@ -3204,16 +3393,22 @@ final class AppViewModel: ObservableObject {
         let conversationHistory = agentConversationMessagesForPrompt()
         let allowedToolNames = effectiveAgentAllowedToolNames
         let interactionMode = agentInteractionMode
+        let runContextProjectID = agentConversationProjectID
+        let runtimeSelection = workspacePreferences.agentRuntimeSelection
+        let enabledToolNamesSnapshot = allowedToolNames?.sorted() ?? agentEnabledToolNames.sorted()
+        let retryOfRunID = agentRetrySourceRunID
+        agentRetrySourceRunID = nil
         let executionOptions = AgentExecutionOptions(
             mode: .planOnly,
             loopPolicy: interactionMode == .conversation ? .readOnlyAutoApproveWritesRequireApproval : .manualApprovalOnly,
-            runtimeSelection: workspacePreferences.agentRuntimeSelection,
+            runtimeSelection: runtimeSelection,
             isSidecarDisabledForWorkspace: workspacePreferences.isSidecarDisabledForWorkspace,
             disabledHookIDs: agentDisabledHookIDs,
             plannerInstructions: interactionMode.plannerInstructions,
             allowedToolNames: allowedToolNames,
             enabledWorkflowIDs: enabledAgentWorkflowIDs,
-            allowsPlainTextResponse: interactionMode.allowsPlainTextResponse
+            allowsPlainTextResponse: interactionMode.allowsPlainTextResponse,
+            retryOfRunID: retryOfRunID
         )
         let responseDeltaHandler = interactionMode == .conversation ? makeAgentStreamingDeltaHandler() : nil
 
@@ -3246,7 +3441,7 @@ final class AppViewModel: ObservableObject {
                     in: currentWorkspace,
                     root: currentResearchRoot,
                     projects: researchProjects,
-                    currentProjectID: agentConversationProjectID,
+                    currentProjectID: runContextProjectID,
                     selectedPaperID: selectedPaperID,
                     includedPaperIDs: agentKnowledgePaperIDsForContext,
                     conversationHistory: conversationHistory,
@@ -3271,7 +3466,19 @@ final class AppViewModel: ObservableObject {
                 agentStatusMessage = "已停止 AI 输出。"
                 agentErrorMessage = nil
             } catch {
-                agentErrorMessage = error.localizedDescription
+                let message = error.localizedDescription
+                agentErrorMessage = message
+                await recordAgentInlineFailure(
+                    prompt: trimmedGoal,
+                    message: message,
+                    partialAssistantResponse: agentStreamingResponseText,
+                    in: currentWorkspace,
+                    currentProjectID: runContextProjectID,
+                    runtimeSelector: runtimeSelection.rawValue,
+                    enabledToolNames: enabledToolNamesSnapshot,
+                    failureCategory: .providerError,
+                    retryOfRunID: retryOfRunID
+                )
             }
         }
     }
@@ -3291,6 +3498,7 @@ final class AppViewModel: ObservableObject {
         }
 
         let goal = agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? currentRun.goal : agentGoal
+        let runContextProjectID = currentRun.projectID ?? currentRun.currentProjectID ?? agentConversationProjectID
         isExecutingAgentTools = true
         agentErrorMessage = nil
         agentStatusMessage = nil
@@ -3324,7 +3532,7 @@ final class AppViewModel: ObservableObject {
                         feedback: agentToolCorrectionFeedback[selectedCall.id],
                         in: currentWorkspace,
                         root: currentResearchRoot,
-                        currentProjectID: agentConversationProjectID,
+                        currentProjectID: runContextProjectID,
                         selectedPaperID: selectedPaperID,
                         includedPaperIDs: agentKnowledgePaperIDsForContext,
                         allowedToolNames: effectiveAgentAllowedToolNames,
@@ -3350,7 +3558,7 @@ final class AppViewModel: ObservableObject {
                     plan: currentRun.plan,
                     in: currentWorkspace,
                     root: currentResearchRoot,
-                    currentProjectID: agentConversationProjectID,
+                    currentProjectID: runContextProjectID,
                     selectedPaperID: selectedPaperID,
                     includedPaperIDs: agentKnowledgePaperIDsForContext,
                     allowedToolNames: effectiveAgentAllowedToolNames,
@@ -4483,8 +4691,11 @@ final class AppViewModel: ObservableObject {
         var thread = reusableThread ?? AgentThread(
             id: "agent-thread-\(UUID().uuidString.lowercased())",
             projectID: run.currentProjectID,
+            contextScope: run.contextScope ?? AgentContextScope.inferred(projectID: run.currentProjectID),
             workspaceID: workspaceID,
             workspaceName: workspaceName,
+            runtimeSelector: run.runtimeSelector,
+            createdFromRoute: run.createdFromRoute ?? "ai_lab",
             title: Self.agentThreadTitle(for: run),
             createdAt: now,
             updatedAt: now
@@ -4554,8 +4765,12 @@ final class AppViewModel: ObservableObject {
             ?? agentThreads.first?.id
     }
 
+    private var agentDraftProjectIDForCurrentConversation: ResearchProject.ID? {
+        pendingAgentThread?.projectID ?? activeAgentThread?.projectID ?? agentConversationProjectID
+    }
+
     private func saveAgentDraftForCurrentConversation() {
-        agentGoalDrafts[agentDraftKey(projectID: agentConversationProjectID, threadID: activeAgentThreadID)] = agentGoal
+        agentGoalDrafts[agentDraftKey(projectID: agentDraftProjectIDForCurrentConversation, threadID: activeAgentThreadID)] = agentGoal
     }
 
     private func appendAgentStreamingResponseDelta(_ delta: String) {
@@ -4688,7 +4903,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func persistAgentDraftForCurrentConversation() {
-        persistAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID, text: agentGoal)
+        persistAgentDraft(projectID: agentDraftProjectIDForCurrentConversation, threadID: activeAgentThreadID, text: agentGoal)
     }
 
     private func persistAgentDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?, text: String) {
@@ -4704,7 +4919,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func scheduleAgentDraftPersistence() {
-        let projectID = agentConversationProjectID
+        let projectID = agentDraftProjectIDForCurrentConversation
         let threadID = activeAgentThreadID
         let text = agentGoal
 

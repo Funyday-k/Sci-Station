@@ -55,6 +55,7 @@ private struct CoreVerificationSuite {
         try agentPlanParserExtractsJSONFromMarkdownFence()
         try agentVisibleResponseExtractorHidesJSONEnvelope()
         try await agentPlannerAcceptsPlainTextConversationResponse()
+        try await agentPlannerAcceptsPlainTextAssistantFallback()
         try await agentToolExecutorRequiresApprovalForTodoWrites()
         try await agentPaperClassificationToolUpdatesMetadata()
         try await agentPaperReadToolsReturnSectionsAndSearchMatches()
@@ -64,8 +65,12 @@ private struct CoreVerificationSuite {
         try agentPromptBuilderDirectsPaperToolsForMetadataOnlyContext()
         try await agentRunLoggerWritesWorkspaceFiles()
         try await agentServicePlanOnlyRunLogsCurrentProjectAndReadsHistory()
+        try await agentServiceRecordFailedRunPersistsInlineTimeline()
+        try await agentServiceRecordCancelledRunPersistsLifecycle()
         try await agentServiceExecutesApprovedPlan()
         try await agentLoopRunnerCallsReadOnlyToolThenContinues()
+        try await agentLoopRunnerReturnsVisibleFallbackAfterToolThenEmptyProvider()
+        try await agentLoopRunnerPaperFormulaFlowUsesListSearchReadBeforeFinal()
         try await agentLoopRunnerPausesForWorkspaceWrite()
         try await agentLoopRunnerStopsAtMaxSteps()
         try await agentLoopRunnerInjectsToolResultMessages()
@@ -120,6 +125,7 @@ private struct CoreVerificationSuite {
         try await hookDenyBlocksSensitivePathWrite()
         try await agentSkillLoaderProgressivelyLoadsMatchingSkill()
         try openAIProviderPayloadIncludesToolChoiceAuto()
+        try openAIProviderNormalizesLegacyToolSchemas()
         try await agentRunLoggerSkipsDamagedHistoryLines()
         try await agentRunLoggerFiltersProjectConversations()
         try await agentThreadRepositoryGlobalStoreFiltersByWorkspaceID()
@@ -134,6 +140,8 @@ private struct CoreVerificationSuite {
         try sciAIConfigurationBoundaryValidates()
         try await agentSessionEventLoggerAppendsAndReplaysEvents()
         try agentSessionTimelineItemsFilterCurrentSessions()
+        try agentSessionTimelineProjectsLegacyRuns()
+        try agentRunRetryMetadataRoundTrips()
         try agentPermissionDockSummarizesPolicies()
         try agentHookActivitySummaryReflectsTogglesAndResults()
         try agentMCPServerStatusSummaryParsesProductAndLocal()
@@ -1569,6 +1577,31 @@ private struct CoreVerificationSuite {
                 try expect(plan.finalResponseDraft?.contains("Markdown") == true, "Plain text conversation fallback should preserve the assistant response.")
             }
 
+            private func agentPlannerAcceptsPlainTextAssistantFallback() async throws {
+                let provider = StaticLLMProvider(response: "当前项目共有 3 篇论文。")
+                let planner = AgentPlanner(provider: provider)
+                let plan = try await planner.plan(
+                    goal: "项目里都有什么文章？列一下",
+                    workspaceSnapshot: AgentWorkspaceSnapshot(
+                        workspaceName: "Test_Workspace",
+                        selectedPaper: nil,
+                        recentPapers: [],
+                        openTodos: [],
+                        paperCount: 3,
+                        todoCount: 0
+                    ),
+                    tools: [],
+                    configuration: LLMConfiguration(),
+                    apiKey: "test-key",
+                    modeInstructions: AgentInteractionMode.assistant.plannerInstructions,
+                    allowsPlainTextResponse: false
+                )
+
+                try expect(plan.toolCalls.isEmpty, "Assistant fallback should not invent tool calls from plain text.")
+                try expect(plan.finalResponseDraft == "当前项目共有 3 篇论文。", "Assistant fallback should preserve readable non-JSON replies.")
+                try expect(plan.title == "AI 回复", "Assistant fallback should mark the run as a visible AI reply.")
+            }
+
             private func agentToolExecutorRequiresApprovalForTodoWrites() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -1889,6 +1922,7 @@ private struct CoreVerificationSuite {
                 )
                 let paperRepository = PaperRepository()
                 let tools = [
+                    ListPapersAgentTool(paperRepository: paperRepository).definition,
                     SearchPapersAgentTool(paperRepository: paperRepository).definition,
                     ReadPaperSectionAgentTool(paperRepository: paperRepository).definition,
                     ReadPaperAgentTool(paperRepository: paperRepository).definition
@@ -1903,6 +1937,16 @@ private struct CoreVerificationSuite {
                 try expect(prompt.contains("plan paper tool calls before answering"), "Prompt should direct the model to call paper tools before detailed answers.")
                 try expect(prompt.contains("Prefer `search_papers`"), "Prompt should guide search_papers usage.")
                 try expect(prompt.contains("Prefer `read_paper_section`"), "Prompt should guide read_paper_section usage.")
+                try expect(prompt.contains("list_papers -> search_papers -> read_paper_section"), "Prompt should force first-paper formula flows through list/search/read tools.")
+
+                let toolLoopMessages = try AgentPromptBuilder().buildToolLoopChatMessages(
+                    goal: "第一篇论文里的 evaporation rate 公式是什么？",
+                    workspaceSnapshot: snapshot,
+                    tools: tools
+                )
+                let toolLoopSystemPrompt = try require(toolLoopMessages.first?.content, "Tool-loop prompt should contain a system message.")
+                try expect(toolLoopSystemPrompt.contains("call `list_papers` first"), "Tool-loop prompt should resolve ordinal paper references with list_papers first.")
+                try expect(toolLoopSystemPrompt.contains("Final answers to paper formula questions must include the formula"), "Tool-loop prompt should require formula, context, and source in final answers.")
             }
 
             private func agentRunLoggerWritesWorkspaceFiles() async throws {
@@ -1988,12 +2032,88 @@ private struct CoreVerificationSuite {
 
                 try expect(run.mode == .planOnly, "Agent service should support plan-only runs.")
                 try expect(run.currentProjectID == project.id, "Plan-only run should record the current project id.")
+                try expect(run.contextScope == .project, "Plan-only run should record project context scope.")
+                try expect(run.projectID == project.id, "Plan-only run should persist the project_id metadata alias.")
+                try expect(run.runtimeSelector == AgentRuntimeSelection.swiftLoop.rawValue, "Plan-only run should persist runtime selector metadata.")
+                try expect(run.createdFromRoute == "ai_lab", "Plan-only run should record the originating AI Lab route.")
+                try expect(run.enabledToolNames?.contains("create_todo") == true, "Plan-only run should snapshot enabled tools for replay.")
                 try expect(run.plan.title == "Todo plan", "Agent plan should decode the optional title field.")
                 try expect(run.plan.steps.count == 2, "Agent plan should decode ordered steps.")
                 try expect(history.first?.id == run.id, "Agent service should read recent run history with newest entries first.")
                 try expect(logContents.contains(project.id), "Agent run log should include current_project_id.")
+                try expect(logContents.contains("\"context_scope\":\"project\""), "Agent run log should include context_scope metadata.")
+                try expect(logContents.contains("\"project_id\":\"") && logContents.contains("\"runtime_selector\":\"swift_loop\""), "Agent run log should include project_id and runtime_selector metadata.")
                 let sessionEvents = try await service.sessionEvents(in: root, sessionID: run.id)
                 try expect(sessionEvents.map(\.kind).contains(.permissionRequested), "Plan-only runs should append permission request session events for requested tools.")
+            }
+
+            private func agentServiceRecordFailedRunPersistsInlineTimeline() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentFailedRunWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let service = SciStationAgentService(provider: StaticLLMProvider(response: "{}"))
+                let run = try await service.recordFailedRun(
+                    goal: "请生成一个阅读本项目论文的计划",
+                    message: "Model unavailable.",
+                    partialAssistantResponse: "已读取项目上下文，但模型不可用。",
+                    in: root,
+                    currentProjectID: "project-alpha",
+                    runtimeSelector: AgentRuntimeSelection.autoFallback.rawValue,
+                    enabledToolNames: ["list_papers", "read_paper"]
+                )
+                let history = try await service.recentRuns(in: root, limit: 5)
+                let events = try await service.sessionEvents(in: root, sessionID: run.id)
+
+                try expect(history.first?.id == run.id, "Failed runs should be durable in run history.")
+                try expect(run.plan.risk == "Model unavailable.", "Failed runs should preserve an inline failure reason.")
+                try expect(run.projectID == "project-alpha", "Failed runs should preserve project affinity metadata.")
+                try expect(run.runtimeSelector == AgentRuntimeSelection.autoFallback.rawValue, "Failed runs should preserve runtime selector metadata.")
+                try expect(run.enabledToolNames == ["list_papers", "read_paper"], "Failed runs should preserve tool selection metadata.")
+                try expect(events.map(\.kind) == [.userMessage, .toolCallFailed], "Failed runs should leave a user message and inline failure event in the timeline.")
+                try expect(events.last?.summary == "Model unavailable.", "Inline failure event should carry the visible failure reason.")
+            }
+
+            private func agentServiceRecordCancelledRunPersistsLifecycle() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentCancelledRunWorkspace", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let service = SciStationAgentService(provider: StaticLLMProvider(response: "{}"))
+                let run = try await service.recordCancelledRun(
+                    goal: "请总结第一篇文章",
+                    message: "用户已停止本次 AI 输出。",
+                    partialAssistantResponse: "已读取论文，正在整理回答。",
+                    in: root,
+                    currentProjectID: "project-alpha",
+                    runtimeSelector: AgentRuntimeSelection.swiftLoop.rawValue,
+                    enabledToolNames: ["list_papers"],
+                    retryOfRunID: "agent-run-previous"
+                )
+                let events = try await service.sessionEvents(in: root, sessionID: run.id)
+
+                try expect(run.lifecycleState == .cancelled, "Cancelled runs should persist a cancelled lifecycle state.")
+                try expect(run.failureCategory == .cancelledByUser, "Cancelled runs should preserve a user-cancelled failure category.")
+                try expect(run.retryOfRunID == "agent-run-previous", "Cancelled retry attempts should keep retry source metadata.")
+                try expect(events.map(\.kind) == [.userMessage, .assistantMessage, .runCancelled], "Cancelled runs should replay as user, partial assistant, and cancelled events.")
             }
 
             private func agentServiceExecutesApprovedPlan() async throws {
@@ -2096,6 +2216,92 @@ private struct CoreVerificationSuite {
                 try expect(invocationCount == 1, "Read-only tool should execute once.")
                 try expect(events.map(\.kind).contains(.toolCallStarted), "Loop should append tool start events.")
                 try expect(events.map(\.kind).contains(.toolCallCompleted), "Loop should append tool completion events.")
+            }
+
+            private func agentLoopRunnerReturnsVisibleFallbackAfterToolThenEmptyProvider() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopEmptyProviderAfterToolWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-read-section", toolName: "read_paper_section", argumentsJSON: #"{"paper_id":"paper-1","heading":"Evaporation Rate"}"#)
+                let provider = ScriptedFailingChatProvider(steps: [
+                    .success(LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call])),
+                    .failure(.emptyResponse)
+                ])
+                let definition = loopToolDefinition(name: "read_paper_section", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_paper_section", succeeded: true, message: "Evaporation Rate marker: E_sun_section_marker and formula context.")
+                ])
+                let logger = AgentSessionEventLogger()
+                let runner = AgentLoopRunner(sessionEventLogger: logger)
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-empty-provider-after-tool",
+                    goal: "第一篇论文的 evaporation rate 公式是什么？",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture
+                ))
+                let events = try await logger.events(in: fixture.root, sessionID: "loop-empty-provider-after-tool")
+
+                try expect(result.pauseReason?.kind == .providerUnavailable, "Empty provider response after tool results should be represented as providerUnavailable.")
+                try expect(result.finalResponseMarkdown?.contains("模型没有返回最终回复") == true, "Empty provider response after tool results should produce a visible Chinese fallback.")
+                try expect(result.finalResponseMarkdown?.contains("E_sun_section_marker") == true, "Fallback should include the last tool result summary.")
+                try expect(result.toolResults.first?.toolName == "read_paper_section", "Fallback should preserve the successful tool result.")
+                try expect(events.contains { $0.kind == .toolCallCompleted && $0.summary == "已使用工具：read_paper_section" }, "Tool completion timeline should use a compact used-tool summary.")
+                try expect(events.contains { $0.kind == .assistantMessage && $0.summary.contains("最后一个工具结果摘要") }, "Fallback should be appended as an assistant timeline event.")
+            }
+
+            private func agentLoopRunnerPaperFormulaFlowUsesListSearchReadBeforeFinal() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopPaperFormulaFlowWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let listCall = AgentToolCall(id: "call-list", toolName: "list_papers", argumentsJSON: "{}")
+                let searchCall = AgentToolCall(id: "call-search", toolName: "search_papers", argumentsJSON: #"{"query":"evaporation rate formula"}"#)
+                let readCall = AgentToolCall(id: "call-read", toolName: "read_paper_section", argumentsJSON: #"{"paper_id":"paper-1","heading":"Evaporation Rate"}"#)
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [listCall]), toolCalls: [listCall]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [searchCall]), toolCalls: [searchCall]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [readCall]), toolCalls: [readCall]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "公式为 $E_{\\odot}=k A (p_s-p_a)$，来源：Demo Paper (paper-1), papers/demo/paper.md。"))
+                ])
+                let listDefinition = loopToolDefinition(name: "list_papers", risk: .readOnly)
+                let searchDefinition = loopToolDefinition(name: "search_papers", risk: .readOnly)
+                let readDefinition = loopToolDefinition(name: "read_paper_section", risk: .readOnly)
+                let listTool = RecordingAgentTool(definition: listDefinition, results: [
+                    AgentToolResult(callID: "", toolName: "list_papers", succeeded: true, message: "1. Demo Paper (paper-1) path: papers/demo/paper.md")
+                ])
+                let searchTool = RecordingAgentTool(definition: searchDefinition, results: [
+                    AgentToolResult(callID: "", toolName: "search_papers", succeeded: true, message: "Matched Demo Paper section Evaporation Rate.")
+                ])
+                let readTool = RecordingAgentTool(definition: readDefinition, results: [
+                    AgentToolResult(callID: "", toolName: "read_paper_section", succeeded: true, message: "## Evaporation Rate\n$E_{\\odot}=k A (p_s-p_a)$ with local symbol context.")
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-paper-formula-flow",
+                    goal: "第一篇论文里的 evaporation rate 公式是什么？",
+                    provider: provider,
+                    definitions: [listDefinition, searchDefinition, readDefinition],
+                    registry: AgentToolRegistry(tools: [listTool, searchTool, readTool]),
+                    fixture: fixture,
+                    options: AgentLoopOptions(maxSteps: 5)
+                ))
+                let requests = await provider.recordedRequests()
+                let listInvocationCount = await listTool.invocationCount()
+                let searchInvocationCount = await searchTool.invocationCount()
+                let readInvocationCount = await readTool.invocationCount()
+
+                try expect(result.finalResponseMarkdown?.contains("$E_{\\odot}") == true, "Paper formula flow should finish with a Markdown math formula.")
+                try expect(result.finalResponseMarkdown?.contains("papers/demo/paper.md") == true, "Paper formula final answer should include a source path.")
+                try expect(result.toolResults.map(\.toolName) == ["list_papers", "search_papers", "read_paper_section"], "Paper formula flow should preserve list/search/read tool order.")
+                try expect(listInvocationCount == 1, "list_papers should run once.")
+                try expect(searchInvocationCount == 1, "search_papers should run once.")
+                try expect(readInvocationCount == 1, "read_paper_section should run once.")
+                try expect(requests.count == 4, "Paper formula flow should make a final model request after the three read-only tools.")
+                let finalRequest = try require(requests.last, "Expected the final provider request.")
+                try expect(finalRequest.messages.filter { $0.role == .tool }.count == 3, "Final request should include all three tool result messages.")
             }
 
             private func agentLoopRunnerPausesForWorkspaceWrite() async throws {
@@ -3440,6 +3646,39 @@ private struct CoreVerificationSuite {
                 try expect(body.contains("tool_call_id"), "Tool result messages should serialize tool_call_id.")
             }
 
+            private func openAIProviderNormalizesLegacyToolSchemas() throws {
+                let provider = OpenAICompatibleProvider()
+                let definition = AgentToolDefinition(
+                    name: "create_todo",
+                    summary: "Create a todo.",
+                    inputSchema: #"{"title":"string","priority":"low|medium|high|urgent optional","tags":["string"]}"#,
+                    risk: .writesWorkspace
+                )
+                let chatRequest = try provider.buildChatRequest(
+                    configuration: LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "test-model"),
+                    apiKey: "secret-key",
+                    providerRequest: LLMProviderRequest(
+                        messages: [LLMChatMessage(role: .user, content: "Create a todo")],
+                        tools: [LLMToolSpecification(agentTool: definition)]
+                    )
+                )
+                let bodyData = try require(chatRequest.httpBody, "Expected chat body data.")
+                let root = try require(try JSONSerialization.jsonObject(with: bodyData) as? [String: Any], "Expected JSON request object.")
+                let tools = try require(root["tools"] as? [[String: Any]], "Expected tools array.")
+                let function = try require(tools.first?["function"] as? [String: Any], "Expected function tool payload.")
+                let parameters = try require(function["parameters"] as? [String: Any], "Expected tool parameters schema.")
+                let properties = try require(parameters["properties"] as? [String: Any], "Expected schema properties.")
+                let title = try require(properties["title"] as? [String: Any], "Expected title property schema.")
+                let priority = try require(properties["priority"] as? [String: Any], "Expected priority property schema.")
+                let tags = try require(properties["tags"] as? [String: Any], "Expected tags property schema.")
+
+                try expect(parameters["type"] as? String == "object", "Provider should send a JSON Schema object for tool parameters.")
+                try expect(title["type"] as? String == "string", "Legacy string shorthand should become a string property schema.")
+                try expect((priority["enum"] as? [String]) == ["low", "medium", "high", "urgent"], "Pipe-delimited shorthand should become enum values.")
+                try expect(tags["type"] as? String == "array", "Legacy array shorthand should become an array property schema.")
+                try expect((parameters["required"] as? [String])?.contains("title") == true, "Non-optional legacy fields should be marked required.")
+            }
+
             private func agentRunLoggerSkipsDamagedHistoryLines() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -3568,6 +3807,9 @@ private struct CoreVerificationSuite {
                 var thread = AgentThread(
                     id: "agent-thread-alpha",
                     projectID: "project-alpha",
+                    contextScope: .project,
+                    runtimeSelector: AgentRuntimeSelection.swiftLoop.rawValue,
+                    createdFromRoute: "ai_lab",
                     title: "Alpha analysis",
                     runIDs: ["run-1"],
                     createdAt: firstDate,
@@ -3611,6 +3853,9 @@ private struct CoreVerificationSuite {
 
                 try expect(projectThreads.map(\.id) == ["agent-thread-alpha"], "Project thread history should be filtered by project id.")
                 try expect(projectThreads.first?.runIDs == ["run-1", "run-2"], "Upserting a thread should preserve ordered run ids.")
+                try expect(projectThreads.first?.contextScope == .project, "Thread history should preserve project affinity scope metadata.")
+                try expect(projectThreads.first?.runtimeSelector == AgentRuntimeSelection.swiftLoop.rawValue, "Thread history should preserve runtime selector metadata.")
+                try expect(projectThreads.first?.createdFromRoute == "ai_lab", "Thread history should preserve route origin metadata.")
                 try expect(globalThreads.map(\.id) == ["agent-thread-global"], "Global thread history should include only global threads.")
                 try expect(currentWorkspaceThreads.map(\.id) == ["agent-thread-beta"], "Thread repository should filter the global store by workspace id.")
                 try expect(projectThreads.first?.workspaceID == AgentThreadRepository.workspaceID(for: root), "Upserted threads should be tagged with their workspace id.")
@@ -4035,6 +4280,66 @@ private struct CoreVerificationSuite {
                 try expect(items.last?.payloadPreview?.contains("Follow up") == true, "Timeline items should preserve payload previews for audit.")
             }
 
+            private func agentSessionTimelineProjectsLegacyRuns() throws {
+                let failedRun = AgentRun(
+                    id: "legacy-failed-run",
+                    goal: "Read the first paper.",
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    completedAt: Date(timeIntervalSince1970: 101),
+                    mode: .planOnly,
+                    plan: AgentPlan(
+                        title: "运行失败",
+                        summary: "Provider failed.",
+                        risk: "Provider returned an empty response.",
+                        steps: [],
+                        toolCalls: [],
+                        finalResponseDraft: nil
+                    ),
+                    toolResults: [],
+                    lifecycleState: .failed,
+                    failureCategory: .emptyResponse
+                )
+                let completedRun = AgentRun(
+                    id: "legacy-completed-run",
+                    goal: "Hello.",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    completedAt: Date(timeIntervalSince1970: 201),
+                    mode: .planOnly,
+                    plan: AgentPlan(summary: "你好！", toolCalls: [], finalResponseDraft: "你好！"),
+                    toolResults: []
+                )
+
+                let failedItems = AgentSessionTimelineItem.items(from: [], runs: [failedRun], sessionIDs: Set(["legacy-failed-run"]))
+                let completedItems = AgentSessionTimelineItem.items(from: [], runs: [completedRun], sessionIDs: Set(["legacy-completed-run"]))
+
+                try expect(failedItems.map(\.kind) == [.userMessage, .toolCallFailed], "Legacy failed runs should project to user and inline failure timeline items.")
+                try expect(failedItems.last?.detail == "Provider returned an empty response.", "Projected failures should use the visible risk/failure text.")
+                try expect(completedItems.map(\.kind) == [.userMessage, .assistantMessage], "Legacy completed runs should project to user and assistant timeline items.")
+                try expect(completedItems.last?.detail == "你好！", "Projected completed runs should preserve final response text.")
+            }
+
+            private func agentRunRetryMetadataRoundTrips() throws {
+                let run = AgentRun(
+                    id: "retry-run",
+                    goal: "Retry this.",
+                    createdAt: Date(timeIntervalSince1970: 300),
+                    completedAt: Date(timeIntervalSince1970: 301),
+                    mode: .planOnly,
+                    plan: AgentPlan(summary: "Failed.", toolCalls: []),
+                    toolResults: [],
+                    lifecycleState: .failed,
+                    failureCategory: .providerUnavailable,
+                    retryOfRunID: "original-run"
+                )
+                let data = try JSONEncoder().encode(run)
+                let decoded = try JSONDecoder().decode(AgentRun.self, from: data)
+
+                try expect(decoded.lifecycleState == .failed, "AgentRun should round-trip lifecycle_state.")
+                try expect(decoded.failureCategory == .providerUnavailable, "AgentRun should round-trip failure_category.")
+                try expect(decoded.retryOfRunID == "original-run", "AgentRun should round-trip retry_of_run_id.")
+                try expect(decoded.isRetryable, "Failed runs should be retryable.")
+            }
+
             private func agentPermissionDockSummarizesPolicies() throws {
                 let writeDefinition = AgentToolDefinition(
                     name: "write_note",
@@ -4081,7 +4386,9 @@ private struct CoreVerificationSuite {
                 try expect(writeItem.matchedPolicyDescription.contains("ask-sensitive-path"), "Permission dock should report matched policy rules.")
                 try expect(writeItem.pathPreview == ["settings/token.yaml"], "Permission dock should extract path previews from structured arguments.")
                 try expect(writeItem.correctionFeedback == "Use a safer path.", "Permission dock should preserve correction feedback.")
+                try expect(writeItem.sideEffectsRequirePermission, "Workspace-writing tools should be marked as requiring Permission Dock approval.")
                 try expect(readItem.approvalState == .autoAllowed, "Read-only tools should display auto-allow state.")
+                try expect(!readItem.sideEffectsRequirePermission, "Read-only tools should be classified as auto-allowed without Permission Dock approval.")
             }
 
             private func agentHookActivitySummaryReflectsTogglesAndResults() throws {
@@ -4896,6 +5203,45 @@ private actor ScriptedChatProvider: LLMProvider, LLMChatProvider {
             return response
         }
         return LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: ""))
+    }
+
+    func recordedRequests() -> [LLMProviderRequest] {
+        requests
+    }
+}
+
+private actor ScriptedFailingChatProvider: LLMProvider, LLMChatProvider {
+    private var steps: [Result<LLMProviderResponse, LLMProviderError>]
+    private var requests: [LLMProviderRequest] = []
+
+    init(steps: [Result<LLMProviderResponse, LLMProviderError>]) {
+        self.steps = steps
+    }
+
+    func complete(prompt: String, configuration: LLMConfiguration, apiKey: String) async throws -> String {
+        guard let first = steps.first else {
+            return ""
+        }
+        switch first {
+        case let .success(response):
+            return response.message.content
+        case let .failure(error):
+            throw error
+        }
+    }
+
+    func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse {
+        requests.append(request)
+        guard !steps.isEmpty else {
+            return LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: ""))
+        }
+        let step = steps.removeFirst()
+        switch step {
+        case let .success(response):
+            return response
+        case let .failure(error):
+            throw error
+        }
     }
 
     func recordedRequests() -> [LLMProviderRequest] {

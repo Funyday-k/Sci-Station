@@ -74,6 +74,8 @@ public nonisolated struct AgentPromptBuilder {
       Operating rules:
       - Answer using only workspace_context, conversation history, and tool results returned in this loop.
       - Use provider-native tool calls when paper body details, equations, methods, claims, section summaries, quotations, or exact evidence are needed.
+      - If the user refers to "the first paper", "第一篇", or an ordinal paper without a stable paper id, call `list_papers` first to resolve the target paper before reading body content.
+      - For equation/formula questions, especially evaporation-rate questions, follow `list_papers -> search_papers -> read_paper_section -> final answer` unless a stable paper id and exact section are already known.
       - Prefer `search_papers` for keywords, symbols, formula names, or concepts; then use `read_paper_section` when a focused section is needed.
       - Prefer `read_paper_section` when the user names a section or heading. Use `read_paper` only for overview/page-based reading or when the target section is unknown.
       - Read-only tools may run automatically. Workspace writes, network actions, and external side effects require approval and may pause the loop.
@@ -83,6 +85,7 @@ public nonisolated struct AgentPromptBuilder {
       - Return final user-facing content as natural GitHub-flavored Markdown, not JSON.
       - Render inline math as `$...$` and display math as `$$...$$`. Never wrap math in backticks.
       - When citing a paper or section, include the paper title, paper id, or relative file path so the user can re-locate it.
+      - Final answers to paper formula questions must include the formula, the local context explaining what the symbols mean when available, and the source paper title/id/path. If no formula is found, say which tools and queries were used and which papers or sections did not match.
 
       workspace_context:
       \(snapshotJSON)
@@ -157,12 +160,15 @@ public nonisolated struct AgentPromptBuilder {
         - Use conversation history to preserve context, but let the latest user_goal take priority.
         - Paper snapshots are metadata-first. Treat `source_excerpt` as paper body content only when it is present; otherwise use metadata only for identification and routing.
         - When the user asks for paper body content such as equations, methods, claims, comparisons, section summaries, quotations, or detailed evidence, plan paper tool calls before answering.
+        - If the user refers to "the first paper", "第一篇", or an ordinal paper without a stable paper id, plan `list_papers` first to resolve the target paper before reading body content.
+        - For equation/formula questions, especially evaporation-rate questions, plan `list_papers -> search_papers -> read_paper_section -> final_response_draft` unless a stable paper id and exact section are already known.
         - Prefer `search_papers` when the user gives keywords, symbols, formula names, or concepts; then use `read_paper_section` with the matched heading/path when a focused section is needed.
         - Prefer `read_paper_section` when the user names a section or heading. Use `read_paper` only for overview/page-based reading or when the target section is unknown.
         - Always pass a stable `paper_id` or relative path from workspace_context into paper tools, and cite the resulting paper id/title/path in user-facing text.
         - Return only one JSON object. Do not wrap it in Markdown.
         - In Conversation mode, `tool_calls` must be empty. `final_response_draft` may contain Markdown for readable answers.
         - When `final_response_draft` is populated, format it as GitHub-flavored Markdown with blank-line paragraph breaks, bullet/numbered lists when helpful, and math written as `$...$` (inline) or `$$...$$` (display). Never wrap math in backticks.
+        - Final answers to paper formula questions must include the formula, the local context explaining what the symbols mean when available, and the source paper title/id/path. If no formula is found, state the search path and misses.
 
         Output JSON schema:
         {

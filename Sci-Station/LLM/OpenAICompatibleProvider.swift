@@ -265,12 +265,129 @@ public actor OpenAICompatibleProvider: LLMProvider {
         ]
     }
 
-    private nonisolated static func schemaObject(from schemaJSON: String) -> Any {
+    private nonisolated static func schemaObject(from schemaJSON: String) -> [String: Any] {
+        let fallback: [String: Any] = [
+            "type": "object",
+            "properties": [:]
+        ]
         guard let data = schemaJSON.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) else {
-            return ["type": "object"]
+            return fallback
         }
-        return object
+        guard let dictionary = object as? [String: Any] else {
+            return fallback
+        }
+        return normalizedObjectSchema(from: dictionary)
+    }
+
+    private nonisolated static func normalizedObjectSchema(from dictionary: [String: Any]) -> [String: Any] {
+        if (dictionary["type"] as? String) == "object" {
+            var schema = dictionary
+            if schema["properties"] == nil {
+                schema["properties"] = [:]
+            }
+            return schema
+        }
+
+        if dictionary["properties"] != nil {
+            var schema = dictionary
+            schema["type"] = "object"
+            return schema
+        }
+
+        var properties: [String: Any] = [:]
+        var required: [String] = []
+        for key in dictionary.keys.sorted() {
+            guard let value = dictionary[key] else {
+                continue
+            }
+            properties[key] = inferredSchemaProperty(from: value)
+            if isRequiredShorthandValue(value) {
+                required.append(key)
+            }
+        }
+
+        var schema: [String: Any] = [
+            "type": "object",
+            "properties": properties
+        ]
+        if !required.isEmpty {
+            schema["required"] = required
+        }
+        return schema
+    }
+
+    private nonisolated static func inferredSchemaProperty(from value: Any) -> [String: Any] {
+        if let nested = value as? [String: Any] {
+            if nested["type"] != nil || nested["properties"] != nil {
+                return normalizedObjectSchema(from: nested)
+            }
+            return normalizedObjectSchema(from: nested)
+        }
+
+        if let array = value as? [Any] {
+            let itemSchema = array.first.map { inferredSchemaProperty(from: $0) } ?? ["type": "string"]
+            return [
+                "type": "array",
+                "items": itemSchema
+            ]
+        }
+
+        if let string = value as? String {
+            return inferredSchemaProperty(fromDescription: string)
+        }
+
+        if value is Bool {
+            return ["type": "boolean"]
+        }
+        if value is Int {
+            return ["type": "integer"]
+        }
+        if value is Double || value is Float {
+            return ["type": "number"]
+        }
+
+        return ["type": "string"]
+    }
+
+    private nonisolated static func inferredSchemaProperty(fromDescription description: String) -> [String: Any] {
+        let lowercased = description.lowercased()
+        var schema: [String: Any]
+
+        if lowercased.contains("bool") || lowercased.contains("true") || lowercased.contains("false") {
+            schema = ["type": "boolean"]
+        } else if lowercased.contains("integer") || lowercased.contains("int") {
+            schema = ["type": "integer"]
+        } else if lowercased.contains("number") || lowercased.contains("float") || lowercased.contains("double") {
+            schema = ["type": "number"]
+        } else {
+            schema = ["type": "string"]
+        }
+
+        if lowercased.contains("yyyy") || lowercased.contains("date") {
+            schema["format"] = "date"
+        }
+        if description.contains("|") {
+            let values = description
+                .replacingOccurrences(of: " optional", with: "", options: [.caseInsensitive])
+                .split(separator: "|")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && !$0.contains(" ") }
+            if !values.isEmpty {
+                schema["enum"] = values
+            }
+        }
+        if lowercased.contains("optional") || lowercased != "string" {
+            schema["description"] = description
+        }
+        return schema
+    }
+
+    private nonisolated static func isRequiredShorthandValue(_ value: Any) -> Bool {
+        guard let string = value as? String else {
+            return !(value is NSNull)
+        }
+        return !string.lowercased().contains("optional")
     }
 
     private nonisolated static func agentToolCall(from payload: [String: Any]) -> AgentToolCall? {

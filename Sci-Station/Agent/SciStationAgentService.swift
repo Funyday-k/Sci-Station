@@ -182,11 +182,27 @@ public actor SciStationAgentService {
                 runtimeEvents.append(envelope)
             }
             if let loopResult = await legacyRuntime.completedLoopResult(runID: runID) {
-                let run = run(from: loopResult, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
+                let run = run(
+                    from: loopResult,
+                    goal: goal,
+                    createdAt: createdAt,
+                    currentProjectID: currentProjectID,
+                    runtimeSelector: options.runtimeSelection.rawValue,
+                    enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+                    retryOfRunID: options.retryOfRunID
+                )
                 try await runLogger.append(run, in: resolvedRoot)
                 return run
             }
-            let run = run(from: runtimeEvents, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
+            let run = run(
+                from: runtimeEvents,
+                goal: goal,
+                createdAt: createdAt,
+                currentProjectID: currentProjectID,
+                runtimeSelector: options.runtimeSelection.rawValue,
+                enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+                retryOfRunID: options.retryOfRunID
+            )
             try await runLogger.append(run, in: resolvedRoot)
             try await appendRuntimeSessionEvents(for: runtimeEvents, run: run, in: resolvedRoot)
             return run
@@ -245,7 +261,13 @@ public actor SciStationAgentService {
             mode: options.mode,
             plan: plan,
             toolResults: toolResults,
-            currentProjectID: currentProjectID
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: options.runtimeSelection.rawValue,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            retryOfRunID: options.retryOfRunID
         )
         try await runLogger.append(run, in: resolvedRoot)
         try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: hookResults, in: resolvedRoot)
@@ -303,7 +325,14 @@ public actor SciStationAgentService {
                 responseDeltaHandler: responseDeltaHandler
             )
         )
-        let run = run(from: loopResult, goal: "Resume pending tool call", createdAt: Date(), currentProjectID: currentProjectID)
+        let run = run(
+            from: loopResult,
+            goal: "Resume pending tool call",
+            createdAt: Date(),
+            currentProjectID: currentProjectID,
+            runtimeSelector: nil,
+            enabledToolNames: enabledToolNamesSnapshot(allowedToolNames, toolDefinitions: toolDefinitions)
+        )
         try await runLogger.append(run, in: resolvedRoot)
         return run
     }
@@ -378,7 +407,11 @@ public actor SciStationAgentService {
             mode: .executeApproved,
             plan: executablePlan,
             toolResults: toolResults,
-            currentProjectID: currentProjectID
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: allowedToolNames?.sorted()
         )
         try await runLogger.append(run, in: resolvedRoot)
         try await appendExecutionEvents(
@@ -426,6 +459,138 @@ public actor SciStationAgentService {
 
     public func removeDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?, in root: ResearchRoot) async throws {
         try await draftRepository.removeDraft(projectID: projectID, threadID: threadID, in: root)
+    }
+
+    public func recordFailedRun(
+        goal: String,
+        message: String,
+        partialAssistantResponse: String? = nil,
+        in root: ResearchRoot,
+        currentProjectID: ResearchProject.ID? = nil,
+        runtimeSelector: String? = nil,
+        enabledToolNames: [String]? = nil,
+        failureCategory: AgentRunFailureCategory = .unknown,
+        retryOfRunID: String? = nil
+    ) async throws -> AgentRun {
+        let createdAt = Date()
+        let trimmedPartial = partialAssistantResponse?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let summary = trimmedPartial ?? "Run failed: \(message)"
+        let run = AgentRun(
+            id: "agent-run-\(UUID().uuidString.lowercased())",
+            goal: goal,
+            createdAt: createdAt,
+            completedAt: Date(),
+            mode: .planOnly,
+            plan: AgentPlan(
+                title: "运行失败",
+                summary: summary,
+                risk: message,
+                steps: ["Inline failure: \(message)"],
+                toolCalls: [],
+                finalResponseDraft: trimmedPartial
+            ),
+            toolResults: [],
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: runtimeSelector,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNames,
+            lifecycleState: .failed,
+            failureCategory: failureCategory,
+            retryOfRunID: retryOfRunID
+        )
+        try await runLogger.append(run, in: root)
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: createdAt,
+                kind: .userMessage,
+                summary: goal
+            ),
+            in: root
+        )
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: createdAt.addingTimeInterval(0.001),
+                kind: .toolCallFailed,
+                summary: message,
+                payloadJSON: trimmedPartial
+            ),
+            in: root
+        )
+        return run
+    }
+
+    public func recordCancelledRun(
+        goal: String,
+        message: String,
+        partialAssistantResponse: String? = nil,
+        in root: ResearchRoot,
+        currentProjectID: ResearchProject.ID? = nil,
+        runtimeSelector: String? = nil,
+        enabledToolNames: [String]? = nil,
+        retryOfRunID: String? = nil
+    ) async throws -> AgentRun {
+        let createdAt = Date()
+        let trimmedPartial = partialAssistantResponse?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let run = AgentRun(
+            id: "agent-run-\(UUID().uuidString.lowercased())",
+            goal: goal,
+            createdAt: createdAt,
+            completedAt: Date(),
+            mode: .planOnly,
+            plan: AgentPlan(
+                title: "已停止",
+                summary: trimmedPartial ?? message,
+                risk: message,
+                steps: ["Cancelled: \(message)"],
+                toolCalls: [],
+                finalResponseDraft: trimmedPartial
+            ),
+            toolResults: [],
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: runtimeSelector,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNames,
+            lifecycleState: .cancelled,
+            failureCategory: .cancelledByUser,
+            retryOfRunID: retryOfRunID
+        )
+        try await runLogger.append(run, in: root)
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: createdAt,
+                kind: .userMessage,
+                summary: goal
+            ),
+            in: root
+        )
+        if let trimmedPartial {
+            try await sessionEventLogger.append(
+                AgentSessionEvent(
+                    sessionID: run.id,
+                    createdAt: createdAt.addingTimeInterval(0.001),
+                    kind: .assistantMessage,
+                    summary: trimmedPartial
+                ),
+                in: root
+            )
+        }
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: createdAt.addingTimeInterval(0.002),
+                kind: .runCancelled,
+                summary: message
+            ),
+            in: root
+        )
+        return run
     }
 
     public func sessionEvents(in root: ResearchRoot, sessionID: String? = nil, limit: Int = 100) async throws -> [AgentSessionEvent] {
@@ -483,11 +648,14 @@ public actor SciStationAgentService {
                     risk: risk
                 )
             )
+            guard decision.action != .allow else {
+                continue
+            }
             let eventKind: AgentSessionEventKind = decision.action == .ask ? .permissionRequested : .permissionResolved
             let decisionSummary: String
             switch decision.action {
             case .allow:
-                decisionSummary = "Tool call \(call.toolName) is auto-allowed by \(decision.ruleID ?? "default policy")."
+                continue
             case .ask:
                 decisionSummary = "Tool call \(call.toolName) is waiting for explicit approval."
             case .deny:
@@ -646,13 +814,21 @@ public actor SciStationAgentService {
         return definitions.filter { allowedToolNames.contains($0.name) }
     }
 
+    private nonisolated func enabledToolNamesSnapshot(_ allowedToolNames: Set<String>?, toolDefinitions: [AgentToolDefinition]) -> [String] {
+        let names = allowedToolNames ?? Set(toolDefinitions.map(\.name))
+        return names.sorted()
+    }
+
     private func run(
         from loopResult: AgentLoopResult,
         goal: String,
         createdAt: Date,
-        currentProjectID: ResearchProject.ID?
+        currentProjectID: ResearchProject.ID?,
+        runtimeSelector: String?,
+        enabledToolNames: [String]?,
+        retryOfRunID: String? = nil
     ) -> AgentRun {
-        let toolCalls = loopResult.pendingToolCall.map { [$0.toolCall] } ?? []
+        let toolCalls = loopResult.steps.flatMap(\.toolCalls)
         let finalResponse = loopResult.finalResponseMarkdown?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let pauseSummary = loopResult.pauseReason?.message.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let summary = finalResponse ?? pauseSummary ?? "Agent loop completed without a visible response."
@@ -665,14 +841,34 @@ public actor SciStationAgentService {
             }
             return "Step \(step.stepIndex): tools \(step.toolCalls.map(\.toolName).joined(separator: ", "))"
         }
+        let title: String
+        if loopResult.pauseReason?.kind == .approvalRequired {
+            title = "等待工具审批"
+        } else if loopResult.pauseReason != nil && finalResponse == nil {
+            title = "运行失败"
+        } else {
+            title = "对话回复"
+        }
+        let lifecycleState: AgentRunState
+        let failureCategory: AgentRunFailureCategory?
+        if loopResult.pauseReason?.kind == .approvalRequired {
+            lifecycleState = .waitingForApproval
+            failureCategory = nil
+        } else if let pause = loopResult.pauseReason, finalResponse == nil {
+            lifecycleState = .failed
+            failureCategory = self.failureCategory(for: pause)
+        } else {
+            lifecycleState = .completed
+            failureCategory = nil
+        }
         return AgentRun(
             id: loopResult.runID,
             goal: goal,
             createdAt: createdAt,
-            completedAt: loopResult.pauseReason == nil ? Date() : nil,
+            completedAt: loopResult.pauseReason?.kind == .approvalRequired ? nil : Date(),
             mode: .planOnly,
             plan: AgentPlan(
-                title: loopResult.pauseReason == nil ? "对话回复" : "等待工具审批",
+                title: title,
                 summary: summary,
                 risk: pauseSummary,
                 steps: steps,
@@ -680,7 +876,15 @@ public actor SciStationAgentService {
                 finalResponseDraft: finalResponse
             ),
             toolResults: loopResult.toolResults,
-            currentProjectID: currentProjectID
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: runtimeSelector,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNames,
+            lifecycleState: lifecycleState,
+            failureCategory: failureCategory,
+            retryOfRunID: retryOfRunID
         )
     }
 
@@ -688,7 +892,10 @@ public actor SciStationAgentService {
         from envelopes: [AgentRuntimeEventEnvelope],
         goal: String,
         createdAt: Date,
-        currentProjectID: ResearchProject.ID?
+        currentProjectID: ResearchProject.ID?,
+        runtimeSelector: String?,
+        enabledToolNames: [String]?,
+        retryOfRunID: String? = nil
     ) -> AgentRun {
         let events = envelopes.map(\.event)
         let toolCalls = events.compactMap { event -> AgentToolCall? in
@@ -733,6 +940,18 @@ public actor SciStationAgentService {
             ?? pendingApproval.map { "Waiting for approval: \($0.tool)." }
             ?? failure.map { "Runtime fallback/error: \($0.message)" }
             ?? (artifactCount > 0 ? "Sidecar produced \(artifactCount) artifact draft(s)." : "Sidecar run completed without a visible response.")
+        let lifecycleState: AgentRunState
+        let failureCategory: AgentRunFailureCategory?
+        if pendingApproval != nil {
+            lifecycleState = .waitingForApproval
+            failureCategory = nil
+        } else if let failure, finalResponse == nil {
+            lifecycleState = .failed
+            failureCategory = self.failureCategory(for: failure)
+        } else {
+            lifecycleState = .completed
+            failureCategory = nil
+        }
 
         return AgentRun(
             id: envelopes.first?.runID ?? "agent-run-\(UUID().uuidString.lowercased())",
@@ -749,8 +968,50 @@ public actor SciStationAgentService {
                 finalResponseDraft: finalResponse
             ),
             toolResults: toolResults,
-            currentProjectID: currentProjectID
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: runtimeSelector,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNames,
+            lifecycleState: lifecycleState,
+            failureCategory: failureCategory,
+            retryOfRunID: retryOfRunID
         )
+    }
+
+    private nonisolated func failureCategory(for pause: AgentLoopPauseReason) -> AgentRunFailureCategory {
+        switch pause.kind {
+        case .approvalRequired:
+            return .approvalRequired
+        case .providerUnavailable:
+            return .providerUnavailable
+        case .safetyPolicyBlocked:
+            return .safetyBlocked
+        case .deniedAndStopped:
+            return .toolFailure
+        case .contextLimitExceeded, .maxStepsExceeded, .maxToolCallsExceeded:
+            return .providerError
+        }
+    }
+
+    private nonisolated func failureCategory(for error: AgentRuntimeError) -> AgentRunFailureCategory {
+        switch error.code {
+        case .approvalRequired:
+            return .approvalRequired
+        case .providerUnavailable:
+            return .providerUnavailable
+        case .sidecarUnavailable, .sidecarCrashed:
+            return .runtimeUnavailable
+        case .toolNotFound, .toolSchemaInvalid, .permissionDenied, .checkpointNotFound:
+            return .toolFailure
+        case .safetyPolicyBlocked:
+            return .safetyBlocked
+        case .maxStepsExceeded, .maxToolCallsExceeded, .contextLimitExceeded:
+            return .providerError
+        case .invalidRequest, .internalError:
+            return .providerError
+        }
     }
 
     private func appendRuntimeSessionEvents(
@@ -812,7 +1073,7 @@ public actor SciStationAgentService {
                         sessionID: run.id,
                         createdAt: envelope.timestamp,
                         kind: call.result.succeeded ? .toolCallCompleted : .toolCallFailed,
-                        summary: call.result.summary,
+                        summary: runtimeToolEventSummary(tool: call.tool, result: call.result),
                         payloadJSON: call.result.content
                     ),
                     in: root
@@ -874,6 +1135,13 @@ public actor SciStationAgentService {
         case let .sidecarCrashed(payload): return "sidecar crashed: \(payload.message)"
         case let .fallbackToLegacyRuntime(payload): return "fallback to Swift Loop: \(payload.message)"
         }
+    }
+
+    private nonisolated func runtimeToolEventSummary(tool: String, result: AgentToolResultWireFormat) -> String {
+        if result.succeeded {
+            return "已使用工具：\(tool)"
+        }
+        return "工具 \(tool) 失败：\(result.error ?? result.summary)"
     }
 }
 

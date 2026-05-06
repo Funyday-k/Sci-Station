@@ -73,7 +73,7 @@ public actor SidecarRuntimeCoordinator {
         return SidecarRuntimeDecision(
             selection: selection,
             effectiveRuntime: effective,
-            shouldAttemptSidecar: selection == .langGraphSidecar || effective == .langGraphSidecar,
+            shouldAttemptSidecar: effective == .langGraphSidecar,
             health: healthWithSessionState(health),
             fallbackReason: reason ?? fallbackReason
         )

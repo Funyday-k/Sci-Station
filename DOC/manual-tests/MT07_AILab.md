@@ -50,6 +50,29 @@ MT07-12
 MT07-13
 ```
 
+## P39.5 Stabilization Scope
+
+P39.5 重点覆盖 AI Lab 的 thread/project affinity、消息持久化、错误恢复、中文输入、工具多选、审批策略和复制体验。
+
+```text
+MT07-P39.5-01: New Chat 未发送前不写历史，发送后 thread metadata 保存 context_scope/project_id
+MT07-P39.5-02: 在已有 thread 中切换 project context 不串项目，不自动创建新对话
+MT07-P39.5-03: project A 输入 draft，切到 project B 再切回 A，draft 和 context 不混淆
+MT07-P39.5-04: 生成阅读计划失败时保留 user message、inline error、retry action
+MT07-P39.5-05: Stop/Pause 后未发送文本回填 composer，已发送文本保留在历史
+MT07-P39.5-06: 归档当前对话后自动跳转 New Chat 或最近 active thread
+MT07-P39.5-07: 无 active thread 时点击 AI Lab 进入 New Chat 页面
+MT07-P39.5-08: 中文输入法 composition 中 Enter 不发送，composition 结束后 Enter 才发送
+MT07-P39.5-09: Tool picker checkbox 多选、Select All、Clear，单项点击不收起菜单
+MT07-P39.5-10: 阅读论文 / 检索上下文 read-only 工具不触发审批
+MT07-P39.5-11: 写 wiki workflow 先展示草稿，再对写入请求 Permission Dock 审批
+MT07-P39.5-12: Permission Dock 点击 Run/Approve 后 run 继续或显示 inline failure reason
+MT07-P39.5-13: Assistant message copy button 复制 Markdown/plain text
+MT07-P39.5-14: 改变 tool selection 或 runtime selector 后打开旧 run，replay 仍按旧 metadata 展示
+```
+
+P39.5 手动报告路径：`DOC/manual-tests/runs/2026-05-06_P39.5_AILabStabilization.md`。
+
 ## 阻塞问题
 
 ```text

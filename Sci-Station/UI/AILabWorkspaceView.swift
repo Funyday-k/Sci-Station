@@ -27,6 +27,7 @@ struct AILabWorkspaceView: View {
 
 private struct AILabCompactHeaderView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @State private var isShowingToolPicker = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -61,30 +62,18 @@ private struct AILabCompactHeaderView: View {
             .controlSize(.small)
             .help("AI 知识库")
 
-            Menu {
-                if appModel.agentToolDefinitions.isEmpty {
-                    Text("未加载工具")
-                } else {
-                    ForEach(appModel.agentToolDefinitions, id: \.identifier) { tool in
-                        Toggle(isOn: Binding(
-                            get: { appModel.agentEnabledToolNames.contains(tool.name) },
-                            set: { appModel.setAgentTool(tool.name, isEnabled: $0) }
-                        )) {
-                            VStack(alignment: .leading) {
-                                Text(tool.name)
-                                Text(tool.summary)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
+            Button {
+                isShowingToolPicker.toggle()
             } label: {
                 Label(appModel.agentEnabledToolSummary, systemImage: "wrench.and.screwdriver")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help("选择当前模式边界内可用的 AI Lab 工具")
+            .popover(isPresented: $isShowingToolPicker, arrowEdge: .bottom) {
+                AgentToolPickerPopover()
+                    .environmentObject(appModel)
+            }
 
             HStack(spacing: 6) {
                 Menu {
@@ -120,6 +109,75 @@ private struct AILabCompactHeaderView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+private struct AgentToolPickerPopover: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Label("工具", systemImage: "wrench.and.screwdriver")
+                    .font(.headline)
+                Spacer(minLength: 0)
+                Button("全选") {
+                    appModel.setAllAgentTools(isEnabled: true)
+                }
+                Button("清空") {
+                    appModel.setAllAgentTools(isEnabled: false)
+                }
+            }
+
+            if appModel.agentToolDefinitions.isEmpty {
+                Text("未加载工具")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(appModel.agentToolDefinitions, id: \.identifier) { tool in
+                            Toggle(isOn: Binding(
+                                get: { appModel.agentEnabledToolNames.contains(tool.name) },
+                                set: { appModel.setAgentTool(tool.name, isEnabled: $0) }
+                            )) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 6) {
+                                        Text(tool.displayName)
+                                            .font(.caption.weight(.semibold))
+                                        Text(toolRiskLabel(tool.risk))
+                                            .font(.caption2)
+                                            .foregroundStyle(tool.risk == .readOnly ? Color.green : Color.orange)
+                                        Text(tool.source)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(tool.summary)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+                .frame(width: 360, height: 320)
+            }
+        }
+        .padding(14)
+        .frame(width: 390)
+    }
+
+    private func toolRiskLabel(_ risk: AgentToolRisk) -> String {
+        switch risk {
+        case .readOnly:
+            return "read-only"
+        case .writesWorkspace, .modifiesMetadata:
+            return "write"
+        case .network, .externalSideEffect, .runsCode, .destructive, .credentialAccess:
+            return "risky"
         }
     }
 }
@@ -348,6 +406,83 @@ private struct AILabDockTray<Content: View>: View {
     }
 }
 
+private struct AgentComposerTextView: NSViewRepresentable {
+    @Binding var text: String
+    let fontSize: Double
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .noBorder
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.font = .systemFont(ofSize: CGFloat(fontSize))
+        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.string = text
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return
+        }
+        if textView.string != text {
+            textView.string = text
+        }
+        textView.font = .systemFont(ofSize: CGFloat(fontSize))
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: AgentComposerTextView
+
+        init(parent: AgentComposerTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+            parent.text = textView.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                guard !textView.hasMarkedText() else {
+                    return false
+                }
+                parent.onSubmit()
+                return true
+            }
+
+            if commandSelector == #selector(NSResponder.insertLineBreak(_:)) {
+                return false
+            }
+
+            return false
+        }
+    }
+}
+
 private struct AgentPanelView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -383,6 +518,8 @@ private struct AgentPanelView: View {
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                    pendingInteractionDock
+
                     Color.clear
                         .frame(height: 1)
                         .id(timelineBottomID)
@@ -394,7 +531,6 @@ private struct AgentPanelView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            pendingInteractionDock
             composerDock
         }
         .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
@@ -405,23 +541,26 @@ private struct AgentPanelView: View {
 
     private var sessionHeader: some View {
         HStack(spacing: 12) {
-            Label("计划模式：\(appModel.agentInteractionMode.title)", systemImage: "switch.2")
+            Label("模式：\(appModel.agentInteractionMode.title)", systemImage: "switch.2")
                 .font(.caption.weight(.semibold))
 
-            if !appModel.activeResearchProjects.isEmpty {
-                Picker("项目", selection: projectSelection) {
+            Picker("运行范围", selection: contextSelection) {
+                Text("全工作区").tag("__workspace__")
+                if !appModel.activeResearchProjects.isEmpty {
                     ForEach(appModel.activeResearchProjects) { project in
                         Text(project.name).tag(project.id)
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 220)
-            } else {
-                Text("项目：全局")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: 220)
+            .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
+
+            Label(appModel.agentThreadContextTitle, systemImage: "tag")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help("当前对话归属")
 
             Spacer(minLength: 0)
 
@@ -432,10 +571,10 @@ private struct AgentPanelView: View {
         .background(Color.secondary.opacity(0.04))
     }
 
-    private var projectSelection: Binding<ResearchProject.ID> {
+    private var contextSelection: Binding<String> {
         Binding(
-            get: { appModel.currentResearchProject?.id ?? appModel.activeResearchProjects.first?.id ?? "" },
-            set: { appModel.focusResearchProject($0) }
+            get: { appModel.agentContextSelectionToken },
+            set: { appModel.setAgentContextSelectionToken($0) }
         )
     }
 
@@ -592,18 +731,13 @@ private struct AgentPanelView: View {
             AILabDockShell {
                 HStack(alignment: .bottom, spacing: 10) {
                     ZStack(alignment: .topLeading) {
-                        TextEditor(text: $appModel.agentGoal)
-                            .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
+                        AgentComposerTextView(
+                            text: $appModel.agentGoal,
+                            fontSize: appModel.workspacePreferences.agentChatFontSize,
+                            onSubmit: submitComposer
+                        )
                             .frame(minHeight: 54, maxHeight: 92)
                             .padding(4)
-                            .onKeyPress(keys: [.return]) { keyPress in
-                                if keyPress.modifiers.contains(.shift) {
-                                    return .ignored
-                                }
-
-                                submitComposer()
-                                return .handled
-                            }
 
                         if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
@@ -739,6 +873,8 @@ private struct AgentThreadRenameSheet: View {
 }
 
 private struct AgentConversationTimelineView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let thread: AgentThread?
     let runs: [AgentRun]
     let currentRun: AgentRun?
@@ -782,7 +918,10 @@ private struct AgentConversationTimelineView: View {
                 .frame(maxWidth: .infinity, minHeight: 260)
             } else if !visibleEvents.isEmpty {
                 ForEach(visibleEvents) { item in
-                    AgentSessionEventRowView(item: item)
+                    AgentSessionEventRowView(
+                        item: item,
+                        retryAction: retryAction(for: item)
+                    )
                 }
             } else {
                 ForEach(visibleRuns, id: \.id) { run in
@@ -818,6 +957,15 @@ private struct AgentConversationTimelineView: View {
             }
         }
     }
+
+    private func retryAction(for item: AgentSessionTimelineItem) -> (() -> Void)? {
+        guard item.kind == .toolCallFailed || item.kind == .runCancelled,
+              let run = runs.first(where: { $0.id == item.sessionID }) ?? (currentRun?.id == item.sessionID ? currentRun : nil),
+              run.isRetryable else {
+            return nil
+        }
+        return { appModel.retryAgentRun(run) }
+    }
 }
 
 private struct AgentThinkingBubbleView: View {
@@ -849,50 +997,64 @@ private struct AgentThinkingBubbleView: View {
 
 private struct AgentSessionEventRowView: View {
     let item: AgentSessionTimelineItem
+    let retryAction: (() -> Void)?
 
     @ViewBuilder
     var body: some View {
-        switch item.kind {
-        case .userMessage:
-            AgentTurnBubbleView(
-                title: item.title,
-                iconName: iconName,
-                detail: item.detail,
-                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
-                payloadPreview: item.payloadPreview,
-                isUser: true,
-                isError: false
-            )
-        case .assistantMessage:
-            AgentTurnBubbleView(
-                title: item.title,
-                iconName: iconName,
-                detail: item.detail,
-                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
-                payloadPreview: item.payloadPreview,
-                isUser: false,
-                isError: false
-            )
-        case .reasoningSummary:
-            AgentRuntimeEventRow(
-                title: item.title,
-                iconName: iconName,
-                iconColor: iconColor,
-                detail: item.detail,
-                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
-                payloadPreview: item.payloadPreview,
-                isError: false
-            )
-        default:
-            AgentRuntimeEventRow(
-                title: item.title,
-                iconName: iconName,
-                iconColor: iconColor,
-                detail: item.detail,
-                metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
-                payloadPreview: item.payloadPreview,
-                isError: item.kind == .toolCallFailed
-            )
+        VStack(alignment: .leading, spacing: 6) {
+            switch item.kind {
+            case .userMessage:
+                AgentTurnBubbleView(
+                    title: item.title,
+                    iconName: iconName,
+                    detail: item.detail,
+                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    payloadPreview: item.payloadPreview,
+                    isUser: true,
+                    isError: false
+                )
+            case .assistantMessage:
+                AgentTurnBubbleView(
+                    title: item.title,
+                    iconName: iconName,
+                    detail: item.detail,
+                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    payloadPreview: item.payloadPreview,
+                    isUser: false,
+                    isError: false
+                )
+            case .reasoningSummary:
+                AgentRuntimeEventRow(
+                    title: item.title,
+                    iconName: iconName,
+                    iconColor: iconColor,
+                    detail: item.detail,
+                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    payloadPreview: item.payloadPreview,
+                    isError: false
+                )
+            default:
+                AgentRuntimeEventRow(
+                    title: item.title,
+                    iconName: iconName,
+                    iconColor: iconColor,
+                    detail: item.detail,
+                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    payloadPreview: item.payloadPreview,
+                    isError: item.kind == .toolCallFailed
+                )
+            }
+
+            if let retryAction {
+                Button {
+                    retryAction()
+                } label: {
+                    Label("重试这条消息", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.leading, 34)
+            }
         }
     }
 
@@ -904,6 +1066,8 @@ private struct AgentSessionEventRowView: View {
             return "sparkles"
         case .reasoningSummary:
             return "brain.head.profile"
+        case .runCancelled:
+            return "stop.circle"
         case .permissionRequested:
             return "questionmark.shield"
         case .permissionResolved:
@@ -933,6 +1097,8 @@ private struct AgentSessionEventRowView: View {
             return .purple
         case .reasoningSummary:
             return .blue
+        case .runCancelled:
+            return .orange
         default:
             return .secondary
         }
@@ -947,6 +1113,13 @@ private struct AgentTurnBubbleView: View {
     let payloadPreview: String?
     let isUser: Bool
     let isError: Bool
+
+    @State private var copyState: CopyState?
+
+    private enum CopyState {
+        case copied
+        case failed
+    }
 
     private var alignment: HorizontalAlignment {
         isUser ? .trailing : .leading
@@ -976,10 +1149,12 @@ private struct AgentTurnBubbleView: View {
             }
 
             VStack(alignment: alignment, spacing: 5) {
-                Label(title, systemImage: iconName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
+                HStack(spacing: 6) {
+                    Label(title, systemImage: iconName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                }
 
                 VStack(alignment: alignment, spacing: 6) {
                     AgentMarkdownBubbleText(markdown: detail, isError: isError)
@@ -1002,9 +1177,28 @@ private struct AgentTurnBubbleView: View {
                         .stroke(Color.secondary.opacity(isUser ? 0.08 : 0.12))
                 }
 
-                Text(metadata)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if isUser {
+                    Text(metadata)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        Text(metadata)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button {
+                            copyMessageText()
+                        } label: {
+                            Label(copyButtonLabel, systemImage: copyButtonIcon)
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .help("复制 AI 回复")
+                    }
+                    .frame(width: bubbleWidth, alignment: .leading)
+                }
             }
 
             if !isUser {
@@ -1012,6 +1206,44 @@ private struct AgentTurnBubbleView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+
+    private var copyButtonLabel: String {
+        switch copyState {
+        case .copied:
+            return "已复制"
+        case .failed:
+            return "复制失败"
+        case nil:
+            return "复制"
+        }
+    }
+
+    private var copyButtonIcon: String {
+        switch copyState {
+        case .copied:
+            return "checkmark"
+        case .failed:
+            return "exclamationmark.triangle"
+        case nil:
+            return "doc.on.doc"
+        }
+    }
+
+    private var copyText: String {
+        [detail, payloadPreview]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    private func copyMessageText() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let didCopy = pasteboard.setString(copyText, forType: .string)
+        copyState = didCopy ? .copied : .failed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            copyState = nil
+        }
     }
 }
 

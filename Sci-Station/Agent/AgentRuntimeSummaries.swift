@@ -21,6 +21,25 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         self.payloadPreview = event.payloadJSON?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
+    private nonisolated init(
+        id: String,
+        sessionID: String,
+        createdAt: Date,
+        kind: AgentSessionEventKind,
+        title: String? = nil,
+        detail: String,
+        payloadPreview: String? = nil
+    ) {
+        self.id = id
+        self.eventID = id
+        self.sessionID = sessionID
+        self.createdAt = createdAt
+        self.kind = kind
+        self.title = title ?? Self.title(for: kind)
+        self.detail = detail
+        self.payloadPreview = payloadPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
     public nonisolated static func items(
         from events: [AgentSessionEvent],
         sessionIDs: Set<String>? = nil,
@@ -39,6 +58,109 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         return Array(filteredEvents.suffix(max(0, limit))).map(AgentSessionTimelineItem.init(event:))
     }
 
+    public nonisolated static func items(
+        from events: [AgentSessionEvent],
+        runs: [AgentRun],
+        sessionIDs: Set<String>? = nil,
+        limit: Int = 120
+    ) -> [AgentSessionTimelineItem] {
+        let filteredEvents = events.filter { event in
+            sessionIDs.map { $0.contains(event.sessionID) } ?? true
+        }
+        let eventItems = filteredEvents.map(AgentSessionTimelineItem.init(event:))
+        let eventSessionIDs = Set(filteredEvents.map(\.sessionID))
+        var projectedRunIDs = Set<String>()
+        let projectedTimelineItems = runs
+            .filter { projectedRunIDs.insert($0.id).inserted }
+            .filter { run in
+                sessionIDs.map { $0.contains(run.id) } ?? true
+            }
+            .filter { !eventSessionIDs.contains($0.id) }
+            .flatMap { projectedItems(from: $0) }
+
+        let combined = (eventItems + projectedTimelineItems).sorted { first, second in
+            if first.createdAt == second.createdAt {
+                return first.id.localizedStandardCompare(second.id) == .orderedAscending
+            }
+            return first.createdAt < second.createdAt
+        }
+
+        return Array(combined.suffix(max(0, limit)))
+    }
+
+    private nonisolated static func projectedItems(from run: AgentRun) -> [AgentSessionTimelineItem] {
+        var items: [AgentSessionTimelineItem] = [
+            AgentSessionTimelineItem(
+                id: "projection-\(run.id)-user",
+                sessionID: run.id,
+                createdAt: run.createdAt,
+                kind: .userMessage,
+                detail: run.goal
+            )
+        ]
+
+        for (index, result) in run.toolResults.enumerated() {
+            items.append(AgentSessionTimelineItem(
+                id: "projection-\(run.id)-tool-\(index)",
+                sessionID: run.id,
+                createdAt: run.createdAt.addingTimeInterval(0.01 + Double(index) * 0.001),
+                kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
+                detail: result.succeeded ? "已使用工具：\(result.toolName)" : "工具 \(result.toolName) 失败：\(result.errorMessage ?? result.message)",
+                payloadPreview: result.message
+            ))
+        }
+
+        let response = run.plan.finalResponseDraft?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        switch run.lifecycleState {
+        case .cancelled:
+            items.append(AgentSessionTimelineItem(
+                id: "projection-\(run.id)-cancelled",
+                sessionID: run.id,
+                createdAt: (run.completedAt ?? run.createdAt).addingTimeInterval(0.02),
+                kind: .runCancelled,
+                detail: response ?? run.plan.risk ?? "用户已停止本次 AI 输出。"
+            ))
+        case .failed:
+            if let response {
+                items.append(AgentSessionTimelineItem(
+                    id: "projection-\(run.id)-partial",
+                    sessionID: run.id,
+                    createdAt: run.createdAt.addingTimeInterval(0.02),
+                    kind: .assistantMessage,
+                    detail: response
+                ))
+            }
+            items.append(AgentSessionTimelineItem(
+                id: "projection-\(run.id)-failed",
+                sessionID: run.id,
+                createdAt: (run.completedAt ?? run.createdAt).addingTimeInterval(0.03),
+                kind: .toolCallFailed,
+                detail: run.plan.risk ?? run.plan.summary
+            ))
+        case .waitingForApproval:
+            items.append(AgentSessionTimelineItem(
+                id: "projection-\(run.id)-approval",
+                sessionID: run.id,
+                createdAt: run.createdAt.addingTimeInterval(0.02),
+                kind: .permissionRequested,
+                detail: run.plan.risk ?? run.plan.summary
+            ))
+        case .created, .running, .resuming, .completed:
+            let detail = response ?? run.plan.summary.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            if let detail {
+                items.append(AgentSessionTimelineItem(
+                    id: "projection-\(run.id)-assistant",
+                    sessionID: run.id,
+                    createdAt: (run.completedAt ?? run.createdAt).addingTimeInterval(0.02),
+                    kind: .assistantMessage,
+                    detail: detail
+                ))
+            }
+        }
+
+        return items
+    }
+
     private nonisolated static func title(for kind: AgentSessionEventKind) -> String {
         switch kind {
         case .userMessage:
@@ -47,6 +169,8 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
             return "AI 回复"
         case .reasoningSummary:
             return "思考摘要"
+        case .runCancelled:
+            return "已停止"
         case .permissionRequested:
             return "请求审批"
         case .permissionResolved:

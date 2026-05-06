@@ -170,7 +170,8 @@ public actor LegacySwiftAgentRuntime: ExternalAgentRuntime {
         }
         if let finalResponse = result.finalResponseMarkdown {
             events.append(.finalResponse(AgentFinalResponse(markdown: finalResponse)))
-        } else if let pauseReason = result.pauseReason, pauseReason.kind != .approvalRequired {
+        }
+        if let pauseReason = result.pauseReason, pauseReason.kind != .approvalRequired {
             events.append(.runFailed(AgentRunFailed(error: AgentRuntimeError(code: errorCode(for: pauseReason.kind), message: pauseReason.message))))
         }
         return events

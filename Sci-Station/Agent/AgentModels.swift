@@ -5,6 +5,15 @@ public nonisolated enum AgentRunMode: String, Codable, Sendable {
     case executeApproved
 }
 
+public nonisolated enum AgentContextScope: String, Codable, Hashable, Sendable {
+    case workspace
+    case project
+
+    public nonisolated static func inferred(projectID: String?) -> AgentContextScope {
+        projectID == nil ? .workspace : .project
+    }
+}
+
 public nonisolated enum AgentToolRisk: String, Codable, Sendable {
     case readOnly
     case network
@@ -974,6 +983,7 @@ public nonisolated enum AgentSessionEventKind: String, Codable, Sendable {
     case userMessage = "user_message"
     case assistantMessage = "assistant_message"
     case reasoningSummary = "reasoning_summary"
+    case runCancelled = "run_cancelled"
     case toolCallStarted = "tool_call_started"
     case toolCallCompleted = "tool_call_completed"
     case toolCallFailed = "tool_call_failed"
@@ -1121,12 +1131,33 @@ public nonisolated struct AgentToolResult: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated enum AgentRunFailureCategory: String, Codable, Sendable {
+    case providerUnavailable = "provider_unavailable"
+    case providerError = "provider_error"
+    case emptyResponse = "empty_response"
+    case malformedResponse = "malformed_response"
+    case runtimeUnavailable = "runtime_unavailable"
+    case toolFailure = "tool_failure"
+    case approvalRequired = "approval_required"
+    case safetyBlocked = "safety_blocked"
+    case cancelledByUser = "cancelled_by_user"
+    case unknown
+}
+
 public nonisolated struct AgentRun: Codable, Hashable, Sendable {
     public var id: String
     public var goal: String
     public var createdAt: Date
     public var completedAt: Date?
+    public var lifecycleState: AgentRunState
+    public var failureCategory: AgentRunFailureCategory?
+    public var retryOfRunID: String?
     public var currentProjectID: String?
+    public var contextScope: AgentContextScope?
+    public var projectID: String?
+    public var runtimeSelector: String?
+    public var createdFromRoute: String?
+    public var enabledToolNames: [String]?
     public var mode: AgentRunMode
     public var plan: AgentPlan
     public var toolResults: [AgentToolResult]
@@ -1139,13 +1170,29 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         mode: AgentRunMode,
         plan: AgentPlan,
         toolResults: [AgentToolResult],
-        currentProjectID: String? = nil
+        currentProjectID: String? = nil,
+        contextScope: AgentContextScope? = nil,
+        projectID: String? = nil,
+        runtimeSelector: String? = nil,
+        createdFromRoute: String? = nil,
+        enabledToolNames: [String]? = nil,
+        lifecycleState: AgentRunState? = nil,
+        failureCategory: AgentRunFailureCategory? = nil,
+        retryOfRunID: String? = nil
     ) {
         self.id = id
         self.goal = goal
         self.createdAt = createdAt
         self.completedAt = completedAt
+        self.lifecycleState = lifecycleState ?? Self.inferredLifecycleState(completedAt: completedAt, plan: plan, failureCategory: failureCategory)
+        self.failureCategory = failureCategory
+        self.retryOfRunID = retryOfRunID
         self.currentProjectID = currentProjectID
+        self.contextScope = contextScope ?? AgentContextScope.inferred(projectID: projectID ?? currentProjectID)
+        self.projectID = projectID ?? currentProjectID
+        self.runtimeSelector = runtimeSelector
+        self.createdFromRoute = createdFromRoute
+        self.enabledToolNames = enabledToolNames
         self.mode = mode
         self.plan = plan
         self.toolResults = toolResults
@@ -1156,18 +1203,82 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         case goal
         case createdAt = "created_at"
         case completedAt = "completed_at"
+        case lifecycleState = "lifecycle_state"
+        case failureCategory = "failure_category"
+        case retryOfRunID = "retry_of_run_id"
         case currentProjectID = "current_project_id"
+        case contextScope = "context_scope"
+        case projectID = "project_id"
+        case runtimeSelector = "runtime_selector"
+        case createdFromRoute = "created_from_route"
+        case enabledToolNames = "enabled_tool_names"
         case mode
         case plan
         case toolResults = "tool_results"
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.goal = try container.decode(String.self, forKey: .goal)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        self.failureCategory = try container.decodeIfPresent(AgentRunFailureCategory.self, forKey: .failureCategory)
+        self.retryOfRunID = try container.decodeIfPresent(String.self, forKey: .retryOfRunID)
+        let decodedCurrentProjectID = try container.decodeIfPresent(String.self, forKey: .currentProjectID)
+        let decodedProjectID = try container.decodeIfPresent(String.self, forKey: .projectID)
+        self.currentProjectID = decodedCurrentProjectID ?? decodedProjectID
+        self.projectID = decodedProjectID ?? decodedCurrentProjectID
+        self.contextScope = try container.decodeIfPresent(AgentContextScope.self, forKey: .contextScope)
+            ?? AgentContextScope.inferred(projectID: decodedProjectID ?? decodedCurrentProjectID)
+        self.runtimeSelector = try container.decodeIfPresent(String.self, forKey: .runtimeSelector)
+        self.createdFromRoute = try container.decodeIfPresent(String.self, forKey: .createdFromRoute)
+        self.enabledToolNames = try container.decodeIfPresent([String].self, forKey: .enabledToolNames)
+        self.mode = try container.decode(AgentRunMode.self, forKey: .mode)
+        self.plan = try container.decode(AgentPlan.self, forKey: .plan)
+        self.toolResults = try container.decode([AgentToolResult].self, forKey: .toolResults)
+        self.lifecycleState = try container.decodeIfPresent(AgentRunState.self, forKey: .lifecycleState)
+            ?? Self.inferredLifecycleState(completedAt: completedAt, plan: plan, failureCategory: failureCategory)
+    }
+
+    public nonisolated var isRetryable: Bool {
+        switch lifecycleState {
+        case .failed, .cancelled:
+            return true
+        case .created, .running, .waitingForApproval, .resuming, .completed:
+            return false
+        }
+    }
+
+    private nonisolated static func inferredLifecycleState(
+        completedAt: Date?,
+        plan: AgentPlan,
+        failureCategory: AgentRunFailureCategory?
+    ) -> AgentRunState {
+        if failureCategory == .cancelledByUser {
+            return .cancelled
+        }
+        if failureCategory != nil {
+            return .failed
+        }
+        if completedAt == nil, !plan.toolCalls.isEmpty {
+            return .waitingForApproval
+        }
+        if completedAt == nil {
+            return .running
+        }
+        return .completed
     }
 }
 
 public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable {
     public var id: String
     public var projectID: String?
+    public var contextScope: AgentContextScope?
     public var workspaceID: String?
     public var workspaceName: String?
+    public var runtimeSelector: String?
+    public var createdFromRoute: String?
     public var title: String
     public var runIDs: [String]
     public var createdAt: Date
@@ -1177,8 +1288,11 @@ public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable
     public nonisolated init(
         id: String,
         projectID: String? = nil,
+        contextScope: AgentContextScope? = nil,
         workspaceID: String? = nil,
         workspaceName: String? = nil,
+        runtimeSelector: String? = nil,
+        createdFromRoute: String? = nil,
         title: String,
         runIDs: [String] = [],
         createdAt: Date,
@@ -1187,8 +1301,11 @@ public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable
     ) {
         self.id = id
         self.projectID = projectID
+        self.contextScope = contextScope ?? AgentContextScope.inferred(projectID: projectID)
         self.workspaceID = workspaceID
         self.workspaceName = workspaceName
+        self.runtimeSelector = runtimeSelector
+        self.createdFromRoute = createdFromRoute
         self.title = title
         self.runIDs = runIDs
         self.createdAt = createdAt
@@ -1237,8 +1354,11 @@ public nonisolated struct AgentThread: Identifiable, Codable, Hashable, Sendable
     private enum CodingKeys: String, CodingKey {
         case id
         case projectID = "project_id"
+        case contextScope = "context_scope"
         case workspaceID = "workspace_id"
         case workspaceName = "workspace_name"
+        case runtimeSelector = "runtime_selector"
+        case createdFromRoute = "created_from_route"
         case title
         case runIDs = "run_ids"
         case createdAt = "created_at"
@@ -1378,6 +1498,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
     public var allowedToolNames: Set<String>?
     public var enabledWorkflowIDs: Set<String>?
     public var allowsPlainTextResponse: Bool
+    public var retryOfRunID: String?
 
     public nonisolated init(
         mode: AgentRunMode = .planOnly,
@@ -1389,7 +1510,8 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         plannerInstructions: String? = nil,
         allowedToolNames: Set<String>? = nil,
         enabledWorkflowIDs: Set<String>? = nil,
-        allowsPlainTextResponse: Bool = false
+        allowsPlainTextResponse: Bool = false,
+        retryOfRunID: String? = nil
     ) {
         self.mode = mode
         self.approvedToolCallIDs = approvedToolCallIDs
@@ -1401,6 +1523,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         self.allowedToolNames = allowedToolNames
         self.enabledWorkflowIDs = enabledWorkflowIDs
         self.allowsPlainTextResponse = allowsPlainTextResponse
+        self.retryOfRunID = retryOfRunID
     }
 }
 

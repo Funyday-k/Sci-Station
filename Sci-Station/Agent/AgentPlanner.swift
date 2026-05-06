@@ -99,7 +99,7 @@ public actor AgentPlanner {
     private func parsedPlan(from response: String, allowsPlainTextResponse: Bool) throws -> AgentPlan {
         do {
             return try planParser.parse(response)
-        } catch let error as AgentPlanParserError where allowsPlainTextResponse {
+        } catch let error as AgentPlanParserError {
             let visibleResponse = AgentVisibleResponseExtractor.visibleText(from: response)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !visibleResponse.isEmpty else {
@@ -107,7 +107,7 @@ public actor AgentPlanner {
             }
 
             return AgentPlan(
-                title: "对话回复",
+                title: allowsPlainTextResponse ? "对话回复" : "AI 回复",
                 summary: visibleResponse,
                 risk: nil,
                 steps: [],
