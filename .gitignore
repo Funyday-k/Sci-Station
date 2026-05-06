@@ -84,6 +84,7 @@ release/
 /*.sqlite
 /*.sqlite-shm
 /*.sqlite-wal
+/DOC/
 
 # Reference open-source repos
 /claude-code-main/
