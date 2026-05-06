@@ -111,6 +111,7 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
     public var rollbackHint: AgentRollbackHint?
     public var decision: AgentPermissionDecision
     public var matchedPolicyDescription: String
+    public var moduleScopeDescription: String?
     public var approvalState: AgentPermissionDockApprovalState
     public var pathPreview: [String]
     public var argumentsPreview: String
@@ -173,6 +174,7 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
                 rollbackHint: risk == .readOnly ? nil : AgentRollbackHint(summary: "Review or revert target paths if the approved operation is wrong.", targetPaths: targetPaths),
                 decision: decision,
                 matchedPolicyDescription: policyDescription,
+                moduleScopeDescription: nil,
                 approvalState: approvalState,
                 pathPreview: targetPaths,
                 argumentsPreview: call.argumentsJSON,

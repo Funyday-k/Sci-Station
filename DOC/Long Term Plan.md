@@ -1,11 +1,16 @@
-下面我建议把后续规划拆成 **8 个大方向**，并按照工作量大小分配不同数量的任务书。整体思路是：
+# Sci-Station 长期规划
 
-1. **先把 P35/P36 的 Agent 与 Evidence 主链路打稳**；
-2. **再引入自定义工作区与模块化架构**；
-3. **然后做图谱、推荐、日历这些高价值研究工作流**；
-4. **最后发展理论、代码、写作、实验等特化模块**。
+更新时间：2026-05-06
 
-目前 Sci-Station 已经是一个 macOS 本地优先科研工作站，核心数据落在用户选择的 Research Root 中，并已经包含论文库、项目 Wiki、材料、任务、日历、PDF 阅读和 AI Lab 等模块 [3]。P35 已经完成 citation/evidence critic、paper reading、related work、gap planning、run replay、runtime selector UI、evidence source jump 等 Production V1 能力 [1]。P36 原草案的核心目标是把这些 UI/contract 接入真实 live runtime，包括 runtime selector、sidecar supervisor、agent.start、embedding persistent store、evidence navigation 和 debug zip [2]。
+下面我建议把后续规划拆成 **9 个大方向**，并按照工作量大小分配不同数量的任务书。整体思路是：
+
+1. **以 P35-P37 的 Agent、Retrieval、Evidence 主链路为已完成底座**；
+2. **优先完成 P38 的 Artifact / Evidence / Approval 生命周期**；
+3. **再引入自定义工作区与模块化架构**；
+4. **然后做图谱、推荐、日历这些高价值研究工作流**；
+5. **最后发展理论、代码、写作、实验等特化模块，并补齐产品化与分发准备**。
+
+目前 Sci-Station 已经是一个 macOS 本地优先科研工作站，核心数据落在用户选择的 Research Root 中，并已经包含论文库、项目 Wiki、材料、任务、日历、PDF 阅读和 AI Lab 等模块 [3]。P35 已经完成 citation/evidence critic、paper reading、related work、gap planning、run replay、runtime selector UI、evidence source jump 等 Production V1 能力 [1]。P36 已完成 live runtime wiring、sidecar coordinator、`agent.start` production workflows、debug bundle zip 与 WorkspaceTemplate / WorkspaceModule schema V0。P37 已完成 embedding persistent store 基础、deterministic fallback、Swift embedding proxy、source_hash stale detection、hybrid retrieval trace 与 retrieval/index status；sqlite-vec native path、真实 provider call 和交互式 UI 点击仍保留为后续手动补测风险。
 
 ---
 
@@ -36,7 +41,7 @@
 
 ---
 
-# 二、总体路线图：8 个大方向，建议拆成 18 份任务书
+# 二、总体路线图：9 个大方向，建议拆成 25 份任务书
 
 ## 总览表
 
@@ -44,12 +49,13 @@
 |---|---:|---|---|
 | A. Live Runtime 与 Agent 基础设施 | L | P36–P37 | 让 P35 的 workflow 真正进入 sidecar/live runtime |
 | B. Artifact / Evidence / Approval 生命周期 | M | P38 | 统一 AI 产物、证据、审查、审批、写入 |
-| C. 自定义工作区与模块系统 | L | P39–P41 | 支持创建工作区时选择模板和模块 |
+| C. 自定义工作区与模块系统 | L | P39–P41 | 支持模块声明 UI、目录、workflow、artifact 类型和权限范围 |
 | D. Project-centered 信息架构与 UI 重构 | M | P42–P43 | 从功能列表转向项目驾驶舱 |
 | E. 论文图谱与引用关系谱 | XL | P44–P47 | Citation Graph、Semantic Graph、Research Graph |
 | F. 每日推荐论文 / Research Queue | L | P48–P50 | 推荐论文、解释推荐原因、反馈闭环 |
 | G. Calendar / Research Timeline | L | P51–P53 | 把任务、论文阅读、milestone、deadline 串起来 |
 | H. 特化研究模块 | XL | P54–P57 | 理论研究、代码研究、写作、实验模块 |
+| I. Release Readiness 与产品化打磨 | M | P58–P60 | 外部试用、分发准备、隐私保护反馈闭环 |
 
 ---
 
@@ -61,11 +67,13 @@
 
 ## A. Live Runtime 与 Agent 基础设施
 
-这一部分承接 P35/P36，优先级最高。因为如果 runtime、sidecar、evidence、debug、approval 这些底座不稳，后面的图谱、推荐、模块化都会建立在不可靠基础上。
+这一部分承接 P35/P36，是后续路线的底座。P36/P37 已经把 live runtime、sidecar、evidence、debug、retrieval trace 和 embedding fallback 推进到可继续迭代的状态；后面的图谱、推荐、模块化都应建立在这个完成态之上。
 
 ---
 
 ## P36：Live Sidecar Wiring 与 Workspace Template Foundation
+
+状态：已完成，作为后续任务的 live runtime 基线。
 
 > 这是对现有 P36 的重起草版本。保留原 P36 的 live runtime 目标，但加入自定义工作区的基础 schema。
 
@@ -124,6 +132,8 @@ settings/workspace_modules.yaml
 
 ## P37：Embedding Persistent Store 与 Retrieval Runtime
 
+状态：已完成，CONDITIONAL PASS。P38 不依赖 sqlite-vec native path 或 provider-backed real embedding call，可使用 P37 deterministic fallback 与 retrieval trace v2 作为测试基础。
+
 > 原 P36 中 embedding persistent store 任务较重，建议单独拆出一轮。
 
 ### 目标
@@ -160,60 +170,110 @@ P35 已经要求 embedding retrieval 可选启用，并且必须保留 FTS-only 
 
 ---
 
-## P38：Artifact Lifecycle、Draft Inbox 与 Evidence Inspector
+## P38：Artifact Lifecycle、Draft Inbox、Evidence Inspector 与 Permission Dock V2
+
+状态：建议立即执行。P38 应优先于 Workspace Module Registry，因为后续模块产生的 graph insight、recommendation note、experiment plan、writing revision 都需要统一的审阅、审批、保存和追溯机制。
 
 ### 为什么要单独做？
 
-现在 P35 已经有 paper note、related work、research plan、todo draft、critic report 等不同 artifact [1]。但产品层面需要统一它们的生命周期，否则以后推荐论文、图谱洞察、实验计划、写作建议都会各自为政。
+P35-P37 已经让 AI workflow 能生成 paper note、related work、research plan、todo draft、critic report、evidence 和 retrieval trace。但产品层面仍需要统一 AI 产物生命周期，否则以后推荐论文、图谱洞察、实验计划、写作建议都会各自为政。P38 要解决的核心问题是：AI 生成的东西如何安全进入用户工作区，并且不破坏信任。
 
 ### 目标
 
 建立统一 AI 产物生命周期：
 
 ```text
-Draft
--> Evidence Attached
--> Critic Checked
--> Needs Revision
--> Awaiting Approval
--> Approved
--> Written
--> Replayed
--> Stale
+retrieval
+-> evidence
+-> artifact draft
+-> critic / evidence health
+-> Draft Inbox
+-> review / edit
+-> Permission Dock approval
+-> saving
+-> saved
+-> lineage / replay
 ```
+
+### 状态机与保存约束
+
+```text
+ArtifactStatus:
+- draft
+- needsReview
+- approved
+- saving
+- saved
+- rejected
+- archived
+- stale
+- error
+```
+
+关键规则：
+
+```text
+Approve & Save 必须先进入 saving，写入成功后才能标记 saved。
+保存失败不得丢失 draft，不得错误标记 saved。
+Draft 与 saved ArtifactRecord 必须通过 artifact_id / saved_record_id / run_id 双向关联。
+Rejected draft 默认从 Inbox 隐藏，但 run artifacts 保留。
+Archived draft 可从 Archived filter 找回。
+用户可 Edit before save；编辑后更新 content_hash，并在 approval history 中记录 edited_before_save。
+```
+
+### 保存目标
+
+P38 保存目标限定为三类：
+
+```text
+Wiki:
+- create new page
+- append section
+- replace section with artifact marker
+
+Paper note:
+- append AI note section
+- update generated section only
+- never overwrite user-written whole paper.md without explicit confirmation
+
+Todo:
+- create tasks after approval
+- batch approve/reject
+- duplicate detection
+```
+
+P38 不做通用任意文件写入。复杂 Markdown semantic diff、code/data/output 写入和跨文件 conflict resolver 推迟到后续特化模块。
+
+### Evidence Health
+
+```text
+ArtifactEvidenceHealth:
+- total_evidence_count
+- fresh_count
+- stale_count
+- missing_count
+- unsupported_claim_count
+- weak_evidence_count
+- retrieval_trace_available
+- source_jump_available_count
+- overall_status: healthy / warning / blocked
+```
+
+`unsupported core claim` 或 `missing core evidence` 默认阻止直接 Approve & Save，除非用户明确选择 low-confidence save path；stale evidence 显示 warning，但不一定阻止保存。
 
 ### 实施任务
 
 ```text
-[P38.1] Artifact domain model
-[P38.2] Artifact status machine
-[P38.3] Draft Inbox UI
-[P38.4] Evidence Inspector UI
-[P38.5] Critic report unified rendering
-[P38.6] Permission Dock V2 integration
-[P38.7] Low-confidence save path
-[P38.8] Artifact replay integration
-[P38.9] Tests
-```
-
-### 关键数据结构建议
-
-```text
-Artifact
-- id
-- type
-- project_id
-- title
-- target_path
-- draft_markdown
-- evidence_refs
-- critic_report_id
-- confidence
-- status
-- run_id
-- created_at
-- updated_at
-- source_hashes
+[P38.1] ArtifactDraft / ArtifactRecord / ArtifactApproval schema
+[P38.2] Artifact status machine and transition validation
+[P38.3] Draft Inbox store and recovery from run artifacts
+[P38.4] Draft Inbox UI with Review / Edit / Approve & Save / Reject / Archive
+[P38.5] Save preview, line-based diff, overwrite warning and save mode policy
+[P38.6] Evidence Inspector and Evidence Health computation
+[P38.7] Permission Dock V2 integration and partial failure handling
+[P38.8] Saved artifact lineage and source run replay bridge
+[P38.9] Low-confidence save path and rejected/archive semantics
+[P38.10] Tests, privacy scan and manual report
 ```
 
 ### Artifact 类型
@@ -227,15 +287,20 @@ recommendation_note
 graph_insight
 experiment_plan
 writing_revision
+weekly_review
 ```
 
 ### 验收标准
 
 1. 所有 AI workflow 产物都进入 Draft Inbox；
-2. 用户可以查看 target path、diff、evidence coverage、critic status；
-3. unsupported claim 会阻止直接 approval；
-4. 用户可选择保存为 low confidence draft，但 UI 必须警告；
-5. 保存后 artifact metadata 能保留 evidenceRefs 和 run_id。
+2. 用户可以查看 target path、save mode、diff、evidence health、critic status；
+3. unsupported core claim 或 missing core evidence 默认阻止直接 approval，或要求 low-confidence confirmation；
+4. 用户可在保存前编辑 draft，保存后 lineage 记录 edited_before_save；
+5. 保存后 artifact metadata 能保留 evidenceRefs、run_id、approval history 和 retrieval_trace_hash；
+6. Draft Inbox index 损坏时，不影响 App 启动，并可从 run artifacts 尝试恢复；
+7. Approve & Save 写入失败时，draft 保持可审阅状态，不丢失内容；
+8. rejected 与 archived 状态语义区分清楚，默认 Inbox 不显示 rejected/archived；
+9. saved wiki / paper note / todo 能回到 source run、Evidence Inspector 和 approval history。
 
 ---
 
@@ -245,24 +310,25 @@ writing_revision
 
 ---
 
-## P39：Workspace Module Registry V1
+## P39：Workspace Module Registry V1 与内置模块声明系统
 
 ### 目标
 
-让系统知道“一个工作区启用了哪些模块”。
+让系统知道“一个工作区启用了哪些模块”，并让模块能声明自己贡献的 UI route、目录、workflow、artifact kind 和 approval scope。P39 不做第三方插件市场，也不做完整模块定制 UI；它是 P40 Workspace Creation Wizard 和 P41 Module Customization Settings 的数据底座。
 
 ### 实施任务
 
 ```text
-[P39.1] WorkspaceModule model
+[P39.1] WorkspaceModule model and module id validation
 [P39.2] Built-in module registry
 [P39.3] Module dependency declaration
-[P39.4] Module-provided routes
-[P39.5] Module-provided directories
+[P39.4] Module-provided routes and project tabs
+[P39.5] Module-provided directories and repair metadata
 [P39.6] Module-provided workflows
-[P39.7] Module permission scope
-[P39.8] Module settings persistence
-[P39.9] Tests
+[P39.7] Module-provided artifact kinds
+[P39.8] Module permission and approval scopes
+[P39.9] Module settings persistence and legacy workspace migration
+[P39.10] Tests and manual validation
 ```
 
 ### 内置模块建议
@@ -293,22 +359,41 @@ title: Code Research
 version: 1
 enabled: true
 
+dependencies:
+  - projects
+  - wiki
+  - ai-lab
+
 directories:
-  - code/
-  - data/
-  - outputs/
   - projects/*/code/
   - projects/*/data/
+  - projects/*/experiments/
+  - projects/*/outputs/
 
 routes:
   - /code
   - /experiments
   - /datasets
 
+project_tabs:
+  - Code
+  - Data
+  - Experiments
+
 workflows:
   - experiment_planning
   - run_log_summary
   - paper_to_code_checklist
+
+artifact_kinds:
+  - experiment_plan
+  - experiment_report
+  - run_log_summary
+
+approval_scopes:
+  - wiki_write
+  - todo_create
+  - artifact_save
 
 permissions:
   write_paths:
@@ -320,10 +405,12 @@ permissions:
 ### 验收标准
 
 1. workspace 可读取 `settings/workspace_modules.yaml`；
-2. 未启用模块不显示对应 UI 入口；
-3. 模块可声明目录、路由、workflow、权限范围；
+2. 未启用模块不显示对应 UI 入口、project tab 或 workflow entry；
+3. 模块可声明目录、路由、workflow、artifact kind、approval scope 和权限范围；
 4. 旧 workspace 打开后自动迁移到默认模块配置；
-5. 不做第三方插件，只做内置 registry。
+5. 模块 dependency 缺失时显示 warning，不删除用户数据；
+6. P39 不做第三方插件，只做内置 registry；
+7. P38 的 Draft Inbox、Permission Dock V2 和 saved artifact lineage 能读取 module 声明用于过滤与权限提示。
 
 ---
 
@@ -534,6 +621,8 @@ evidence
 task
 artifact
 calendar_event
+run
+approval
 ```
 
 ### 边
@@ -548,6 +637,7 @@ uses
 belongs_to
 related_to
 generated_by
+approved_by
 scheduled_for
 ```
 
@@ -615,6 +705,7 @@ Paper Neighborhood
 Project Citation Graph
 Theme Cluster Graph
 Evidence Support Graph
+Artifact Lineage Graph
 ```
 
 ### 节点操作
@@ -658,6 +749,8 @@ Detect stale citations
 Build evidence matrix from graph
 Explain paper cluster
 Find method lineage
+Find unsupported artifact claims
+Find stale saved artifacts
 ```
 
 ### 实施任务
@@ -699,6 +792,7 @@ Project core papers
 Recently read papers
 Open research gaps
 Stale evidence warnings
+Saved artifact unsupported claims
 User-added keywords
 Manual watchlist
 ```
@@ -744,6 +838,7 @@ Because it is cited by a core paper
 Because it matches current project keywords
 Because it fills an identified research gap
 Because it updates stale evidence
+Because it supports an unsupported claim
 Because it is semantically similar to recently read papers
 ```
 
@@ -788,6 +883,8 @@ Because it is semantically similar to recently read papers
 [P50.7] Tests
 ```
 
+Weekly Review Artifact 应进入 Draft Inbox 或 saved artifact lineage，避免推荐系统绕过 P38 建立的审批与追溯机制。
+
 ---
 
 # 九、G. Calendar / Research Timeline
@@ -814,6 +911,7 @@ advisor_meeting
 submission_deadline
 artifact_due
 weekly_review
+draft_review_due
 ```
 
 ### 实施任务
@@ -836,6 +934,8 @@ weekly_review
 把 P35 的 gap planning todo drafts 接入 timeline，但继续保持审批机制。
 
 P35 已经要求 gap planning 生成 milestones 和 todo drafts，但不能自动创建 todo，必须经过 Swift approval [1]。
+
+AI-generated timeline draft 也应进入 Draft Inbox，并通过 Permission Dock 审批后再写入 timeline / calendar。
 
 ### 实施任务
 
@@ -864,7 +964,8 @@ P35 已经要求 gap planning 生成 milestones 和 todo drafts，但不能自�
 [P53.3] Due time and reminder alert
 [P53.4] Calendar event import
 [P53.5] Project calendar filter
-[P53.6] Tests
+[P53.6] Draft review reminder
+[P53.7] Tests
 ```
 
 ---
@@ -1103,15 +1204,80 @@ Safety note
 
 ---
 
-# 十一、按优先级重新排序
+# 十一、I. Release Readiness 与产品化打磨
+
+当前 README 仍将 Sci-Station 定位为 trial/development build，而不是 notarized public release。P58-P60 不是功能炫技，而是让更多用户安全试用本地优先科研工作站所需要的产品化收尾。
+
+---
+
+## P58：Local-first Release Hardening
+
+### 目标
+
+让软件具备更稳定的外部试用条件。
+
+### 核心交付
+
+```text
+Workspace backup / restore guidance
+First-run onboarding polish
+Crash-safe workspace open
+Privacy scan checklist
+Debug bundle UX
+Sample workspace
+Manual regression suite
+Known limitations page
+```
+
+---
+
+## P59：Distribution / Notarization Preparation
+
+### 目标
+
+准备 macOS 分发。
+
+### 核心交付
+
+```text
+App signing preparation
+Notarization checklist
+Entitlements review
+Keychain usage review
+Security-scoped bookmark review
+Release build script
+DMG packaging draft
+```
+
+---
+
+## P60：User Feedback / Telemetry-free Feedback Loop
+
+### 目标
+
+在不默认上传用户数据的前提下收集试用反馈。
+
+### 核心交付
+
+```text
+Local feedback export
+Redacted diagnostic export
+Manual issue template
+Feature request template
+Privacy-preserving bug report
+```
+
+---
+
+# 十二、按优先级重新排序
 
 如果从现在开始推进，我建议顺序是：
 
 ```text
-第一阶段：把 P35/P36 主链路打稳
-P36 Live Sidecar Wiring + Template Foundation
-P37 Embedding Persistent Store
-P38 Artifact Lifecycle / Draft Inbox
+第一阶段：Agent / Retrieval / Artifact 主链路
+P36 Live Sidecar Wiring + Template Foundation 已完成
+P37 Embedding Persistent Store 已完成
+P38 Artifact Lifecycle / Draft Inbox / Evidence Inspector
 
 第二阶段：建立可自定义科研工作区
 P39 Workspace Module Registry
@@ -1143,13 +1309,18 @@ P54 Theory Research Module
 P55 Code / Experiment Research Module
 P56 Writing Module
 P57 Experimental / Lab Module
+
+第八阶段：产品化与分发准备
+P58 Local-first Release Hardening
+P59 Distribution / Notarization Preparation
+P60 Privacy-preserving Feedback Loop
 ```
 
 ---
 
-# 十二、近期 4 份任务书建议细化到可执行版本
+# 十三、近期 4 份任务书建议细化到可执行版本
 
-我建议你接下来先只正式起草 P36–P39。后面的 P40–P57 可以暂时作为 roadmap，不需要马上写得太死。
+我建议你接下来先只正式起草 P36–P39。后面的 P40–P60 可以暂时作为 roadmap，不需要马上写得太死。
 
 ---
 
@@ -1229,13 +1400,14 @@ Workspace Module Registry V1 与内置模块声明系统
 3. Module routes
 4. Module directories
 5. Module workflows
-6. Module permission scopes
-7. Legacy workspace migration
+6. Module artifact kinds
+7. Module permission / approval scopes
+8. Legacy workspace migration
 ```
 
 ---
 
-# 十三、最重要的产品判断
+# 十四、最重要的产品判断
 
 我建议你把后续任务的中心思想定成：
 
@@ -1267,7 +1439,7 @@ Sci-Station 不是一个固定功能集合，
 
 ---
 
-# 十四、最终建议
+# 十五、最终建议
 
 我建议下一步不要直接开做图谱或推荐，而是先完成这 4 个任务书：
 
@@ -1298,6 +1470,7 @@ P44–P47 论文图谱和引用图谱
 P48–P50 每日推荐论文 / Research Queue
 P51–P53 Research Timeline
 P54–P57 特化研究模块
+P58–P60 产品化与分发准备
 ```
 
 这样路线会比较稳，不会因为过早做上层炫酷功能而导致底层抽象反复返工。

@@ -14,6 +14,7 @@ public nonisolated struct SidecarAgentStartRequest: Codable, Hashable, Sendable 
     public var projectID: String?
     public var workspaceRoot: String
     public var toolCallPolicy: SidecarToolCallPolicy
+    public var enabledWorkflowIDs: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case runID
@@ -23,6 +24,7 @@ public nonisolated struct SidecarAgentStartRequest: Codable, Hashable, Sendable 
         case projectID
         case workspaceRoot
         case toolCallPolicy
+        case enabledWorkflowIDs
     }
 }
 
@@ -98,7 +100,10 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
             },
             terminationHandler: { [weak self] exitCode in
                 guard let self else { return }
-                await self.recordSidecarCrash(exitCode: exitCode, for: request)
+                if exitCode != 0 {
+                    await self.recordSidecarCrash(exitCode: exitCode, for: request, continuation: nil)
+                }
+                await terminal.finish()
             }
         )
         let writeResult = try await executeApprovedWriteIfNeeded(runID: runID, decision: decision, request: request)
@@ -146,7 +151,8 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
                 selectedPaperID: request.toolContext.selectedPaperID,
                 projectID: request.toolContext.currentProjectID,
                 workspaceRoot: request.root.rootURL.path,
-                toolCallPolicy: .disabled
+                toolCallPolicy: .disabled,
+                enabledWorkflowIDs: request.enabledWorkflowIDs?.sorted()
             )
             _ = try await connection.sendRequest(
                 method: "agent.start",
@@ -192,7 +198,10 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
             },
             terminationHandler: { [weak self] exitCode in
                 guard let self else { return }
-                await self.recordSidecarCrash(exitCode: exitCode, for: request)
+                if exitCode != 0 {
+                    await self.recordSidecarCrash(exitCode: exitCode, for: request, continuation: continuation)
+                }
+                await terminal?.finish()
             }
         )
         connectionsByRunID[request.runID] = connection
@@ -316,10 +325,14 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
         }
     }
 
-    private func recordSidecarCrash(exitCode: Int32, for request: AgentRuntimeRequest) async {
+    private func recordSidecarCrash(
+        exitCode: Int32,
+        for request: AgentRuntimeRequest,
+        continuation: AsyncThrowingStream<AgentRuntimeEventEnvelope, Error>.Continuation?
+    ) async {
         let error = AgentRuntimeError(code: .sidecarCrashed, message: "Sidecar process exited with status \(exitCode).")
         await healthCoordinator?.recordCrash(error.message)
-        _ = try? await appendRuntimeEvent(.sidecarCrashed(error), for: request, continuation: nil)
+        _ = try? await appendRuntimeEvent(.sidecarCrashed(error), for: request, continuation: continuation)
     }
 }
 

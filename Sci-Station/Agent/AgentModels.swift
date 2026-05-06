@@ -1376,6 +1376,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
     public var disabledHookIDs: Set<String>
     public var plannerInstructions: String?
     public var allowedToolNames: Set<String>?
+    public var enabledWorkflowIDs: Set<String>?
     public var allowsPlainTextResponse: Bool
 
     public nonisolated init(
@@ -1387,6 +1388,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         disabledHookIDs: Set<String> = [],
         plannerInstructions: String? = nil,
         allowedToolNames: Set<String>? = nil,
+        enabledWorkflowIDs: Set<String>? = nil,
         allowsPlainTextResponse: Bool = false
     ) {
         self.mode = mode
@@ -1397,6 +1399,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         self.disabledHookIDs = disabledHookIDs
         self.plannerInstructions = plannerInstructions
         self.allowedToolNames = allowedToolNames
+        self.enabledWorkflowIDs = enabledWorkflowIDs
         self.allowsPlainTextResponse = allowsPlainTextResponse
     }
 }

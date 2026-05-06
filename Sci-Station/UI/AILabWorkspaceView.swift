@@ -624,7 +624,7 @@ private struct AgentPanelView: View {
                         if appModel.isPlanningAgentRun {
                             appModel.cancelAgentGeneration()
                         } else {
-                            appModel.generateAgentPlan()
+                            submitComposer()
                         }
                     } label: {
                         Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
@@ -1023,12 +1023,7 @@ private struct AgentMarkdownBubbleText: View {
 
     var body: some View {
         let fontSize = appModel.workspacePreferences.agentChatFontSize
-        if ChatMarkdownResources.isAvailable {
-            ChatMarkdownWebView(markdown: markdown, fontSize: fontSize, isError: isError)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            AgentMarkdownLegacyText(markdown: markdown, fontSize: fontSize, isError: isError)
-        }
+        AgentMarkdownLegacyText(markdown: markdown, fontSize: fontSize, isError: isError)
     }
 }
 
@@ -1102,8 +1097,13 @@ private struct AgentRuntimeEventRow: View {
                                 .padding(8)
                                 .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
 
-                            if let artifact = AgentArtifactDraftPreview(payloadPreview), !artifact.evidenceRefs.isEmpty {
-                                AgentEvidenceRefListView(evidenceRefs: artifact.evidenceRefs)
+                            if let artifact = AgentArtifactDraftPreview(payloadPreview) {
+                                if let descriptor = appModel.workspaceArtifactKindDescriptor(for: artifact.kind) {
+                                    AgentArtifactKindSummaryView(artifact: artifact, descriptor: descriptor)
+                                }
+                                if !artifact.evidenceRefs.isEmpty {
+                                    AgentEvidenceRefListView(evidenceRefs: artifact.evidenceRefs)
+                                }
                             }
                         }
                     } label: {
@@ -1119,6 +1119,38 @@ private struct AgentRuntimeEventRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(9)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct AgentArtifactKindSummaryView: View {
+    let artifact: AgentArtifactDraftPreview
+    let descriptor: WorkspaceModuleArtifactKindDescriptor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Label(descriptor.title, systemImage: descriptor.isKnown ? "shippingbox" : "questionmark.app")
+                    .font(.caption.weight(.semibold))
+                Text(descriptor.moduleTitle ?? "Unknown Module")
+                    .font(.caption2)
+                    .foregroundStyle(descriptor.isKnown ? Color.secondary : Color.orange)
+            }
+            if let title = artifact.title?.nilIfEmpty {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if let proposedPath = artifact.proposedPath?.nilIfEmpty {
+                Text(proposedPath)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(7)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -1211,6 +1243,9 @@ private struct AgentEvidenceRefListView: View {
 }
 
 private struct AgentArtifactDraftPreview: Decodable {
+    var kind: String?
+    var title: String?
+    var proposedPath: String?
     var evidenceRefs: [AgentEvidenceRef]
 
     init?(_ rawJSON: String) {
@@ -1220,7 +1255,18 @@ private struct AgentArtifactDraftPreview: Decodable {
         self = decoded
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        proposedPath = try container.decodeIfPresent(String.self, forKey: .proposedPath)
+        evidenceRefs = try container.decodeIfPresent([AgentEvidenceRef].self, forKey: .evidenceRefs) ?? []
+    }
+
     private enum CodingKeys: String, CodingKey {
+        case kind
+        case title
+        case proposedPath = "proposed_path"
         case evidenceRefs = "evidence_refs"
     }
 }
@@ -1449,6 +1495,11 @@ private struct AgentPermissionDockRow: View {
                     Text(item.matchedPolicyDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let moduleScopeDescription = item.moduleScopeDescription {
+                        Text("Module scope: \(moduleScopeDescription)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(item.argumentsPreview)
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)

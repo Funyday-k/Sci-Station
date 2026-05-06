@@ -83,6 +83,9 @@ struct DeepSeekModelOption: Identifiable, Hashable {
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
     @Published private(set) var currentResearchRoot: ResearchRoot?
+    @Published private(set) var workspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+    @Published private(set) var workspaceModuleWarnings: [WorkspaceModuleWarning] = []
+    @Published private(set) var workspaceModuleDirectoryStatuses: [WorkspaceModuleDirectoryStatus] = []
     @Published private(set) var researchProjects: [ResearchProject] = []
     @Published private(set) var currentProjectID: ResearchProject.ID?
     @Published private(set) var isViewingGlobalTodos = false
@@ -248,6 +251,10 @@ final class AppViewModel: ObservableObject {
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
     private var agentPlanningTask: Task<Void, Never>?
+    private var agentStreamingRenderTask: Task<Void, Never>?
+    private var agentStreamingRenderGeneration = 0
+    private var agentStreamingResponseCommitScheduled = false
+    private var agentStreamingPendingResponseText: String?
     private var agentStreamingRawResponseText = ""
 
     var identifierImportInputs: [String] {
@@ -285,6 +292,44 @@ final class AppViewModel: ObservableObject {
 
     var workspaceTemplateOptions: [WorkspaceTemplate] {
         WorkspaceTemplateRegistry.builtInTemplates
+    }
+
+    var visibleWorkspaceSidebarSections: [WorkspaceSection] {
+        WorkspaceSection.sidebarSections.filter(isWorkspaceSectionAvailable)
+    }
+
+    var visibleProjectSidebarSections: [WorkspaceSection] {
+        WorkspaceSection.projectSidebarSections.filter(isWorkspaceProjectTabAvailable)
+    }
+
+    var enabledAgentWorkflowIDs: Set<String> {
+        Set(WorkspaceModuleRegistry.availableWorkflows(in: workspaceModuleConfiguration))
+    }
+
+    var workspaceModuleStatusSummary: String {
+        let enabledCount = workspaceModuleConfiguration.modules.filter(\.enabled).count
+        return "\(enabledCount)/\(workspaceModuleConfiguration.modules.count) modules enabled; \(enabledAgentWorkflowIDs.count) workflows available"
+    }
+
+    func isWorkspaceSectionAvailable(_ section: WorkspaceSection) -> Bool {
+        guard let routeID = section.moduleRouteID else {
+            return true
+        }
+        return WorkspaceModuleRegistry.availableRoutes(in: workspaceModuleConfiguration).contains { $0.id == routeID }
+    }
+
+    func isWorkspaceProjectTabAvailable(_ section: WorkspaceSection) -> Bool {
+        guard let tabID = section.moduleProjectTabID else {
+            return true
+        }
+        return WorkspaceModuleRegistry.availableProjectTabs(in: workspaceModuleConfiguration).contains { $0.id == tabID }
+    }
+
+    func workspaceArtifactKindDescriptor(for kind: String?) -> WorkspaceModuleArtifactKindDescriptor? {
+        guard let kind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            return nil
+        }
+        return WorkspaceModuleRegistry.artifactKindDescriptor(for: kind, in: workspaceModuleConfiguration)
     }
 
     var markdownOverwriteConfirmationTitle: String {
@@ -876,7 +921,7 @@ final class AppViewModel: ObservableObject {
             filteredRun.plan.toolCalls = filteredRun.plan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
         }
 
-        return AgentPermissionDockItem.items(
+        var items = AgentPermissionDockItem.items(
             for: filteredRun,
             toolDefinitions: agentToolDefinitions,
             state: AgentPermissionDockState(
@@ -886,6 +931,13 @@ final class AppViewModel: ObservableObject {
                 correctionFeedbackByCallID: agentToolCorrectionFeedback
             )
         )
+        for index in items.indices {
+            items[index].moduleScopeDescription = WorkspaceModuleRegistry.moduleScopeDescription(
+                for: items[index].targetPaths,
+                in: workspaceModuleConfiguration
+            )
+        }
+        return items
     }
 
     var selectedPaperPDFURL: URL? {
@@ -969,12 +1021,13 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectSection(_ section: WorkspaceSection) {
-        selectedSection = section
+        let targetSection = isWorkspaceSectionAvailable(section) ? section : fallbackWorkspaceSection()
+        selectedSection = targetSection
         isViewingGlobalTodos = false
         updateWorkspacePreferences { preferences in
-            preferences.recentSection = section.rawValue
+            preferences.recentSection = targetSection.rawValue
         }
-        if section == .library {
+        if targetSection == .library {
             selectedLibraryProjectID = nil
             selectedCollectionPath = nil
             selectedTagName = nil
@@ -987,6 +1040,10 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectLibraryScope() {
+        guard isWorkspaceSectionAvailable(.library) else {
+            selectSection(fallbackWorkspaceSection())
+            return
+        }
         selectedSection = .library
         isViewingGlobalTodos = false
         selectedLibraryProjectID = nil
@@ -995,6 +1052,10 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectCollection(_ relativePath: String) {
+        guard isWorkspaceSectionAvailable(.library) else {
+            selectSection(fallbackWorkspaceSection())
+            return
+        }
         selectedSection = .library
         isViewingGlobalTodos = false
         selectedLibraryProjectID = nil
@@ -1003,6 +1064,10 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectTag(_ name: String) {
+        guard isWorkspaceSectionAvailable(.library) else {
+            selectSection(fallbackWorkspaceSection())
+            return
+        }
         selectedSection = .library
         isViewingGlobalTodos = false
         selectedLibraryProjectID = nil
@@ -1023,6 +1088,9 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        guard isWorkspaceSectionAvailable(.library) else {
+            return
+        }
         selectedSection = .library
         librarySearchFocusRequest += 1
     }
@@ -1098,25 +1166,26 @@ final class AppViewModel: ObservableObject {
     func selectResearchProject(_ projectID: ResearchProject.ID, section: WorkspaceSection = .projects) {
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
+        let targetSection = isWorkspaceProjectTabAvailable(section) ? section : fallbackProjectSection()
         currentProjectID = projectID
         resetAgentDraftIfConversationChanged(to: projectID)
         isViewingGlobalTodos = false
-        if section == .library {
+        if targetSection == .library {
             selectedSection = .library
             selectedLibraryProjectID = projectID
             selectedCollectionPath = nil
             selectedTagName = nil
             updateWorkspacePreferences { preferences in
-                preferences.recentSection = section.rawValue
+                preferences.recentSection = targetSection.rawValue
             }
         } else {
-            selectSection(section)
+            selectSection(targetSection)
         }
 
         persistLastOpenedProject(projectID)
         refreshAgentContext()
 
-        if section == .wiki, let currentWorkspace {
+        if targetSection == .wiki, let currentWorkspace {
             Task {
                 do {
                     try await loadMarkdownDocuments(in: currentWorkspace, selecting: nil)
@@ -1137,6 +1206,10 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectGlobalTodos() {
+        guard isWorkspaceSectionAvailable(.tasks) else {
+            selectSection(fallbackWorkspaceSection())
+            return
+        }
         selectedSection = .tasks
         isViewingGlobalTodos = true
         selectedLibraryProjectID = nil
@@ -2598,6 +2671,7 @@ final class AppViewModel: ObservableObject {
         agentPlanningTask = nil
         isPlanningAgentRun = false
         agentPendingUserPrompt = nil
+        publishAgentStreamingResponseNow()
         agentStatusMessage = "已停止 AI 输出。"
         agentErrorMessage = nil
     }
@@ -2873,8 +2947,7 @@ final class AppViewModel: ObservableObject {
         activeAgentThreadID = thread.id
         agentGoal = ""
         agentCurrentRun = nil
-        agentStreamingResponseText = nil
-        agentStreamingRawResponseText = ""
+        resetAgentStreamingPreview()
         resetAgentPermissionDockState()
         rebuildAgentHookActivitySummary()
         restoreAgentToolStateForCurrentScope()
@@ -2916,7 +2989,7 @@ final class AppViewModel: ObservableObject {
         agentCurrentRun = thread.runIDs.reversed().compactMap { runsByID[$0] }.first
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: thread.projectID, threadID: thread.id)] ?? ""
         restorePersistedAgentDraft(projectID: thread.projectID, threadID: thread.id)
-        agentStreamingResponseText = nil
+        resetAgentStreamingPreview()
         resetAgentPermissionDockState()
         rebuildAgentHookActivitySummary()
         restoreAgentToolStateForCurrentScope()
@@ -2935,7 +3008,7 @@ final class AppViewModel: ObservableObject {
         pendingAgentThread = nil
         agentCurrentRun = run
         agentGoal = run.goal
-        agentStreamingResponseText = nil
+        resetAgentStreamingPreview()
         resetAgentPermissionDockState()
         rebuildAgentHookActivitySummary()
         agentStatusMessage = "Opened a previous \(agentConversationTitle) run."
@@ -3102,7 +3175,7 @@ final class AppViewModel: ObservableObject {
         agentGoal = agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: activeAgentThreadID)] ?? ""
         restorePersistedAgentDraft(projectID: projectID, threadID: activeAgentThreadID)
         agentCurrentRun = nil
-        agentStreamingResponseText = nil
+        resetAgentStreamingPreview()
         resetAgentPermissionDockState()
         rebuildAgentHookActivitySummary()
         restorePinnedAgentThreadsForCurrentProject()
@@ -3139,14 +3212,14 @@ final class AppViewModel: ObservableObject {
             disabledHookIDs: agentDisabledHookIDs,
             plannerInstructions: interactionMode.plannerInstructions,
             allowedToolNames: allowedToolNames,
+            enabledWorkflowIDs: enabledAgentWorkflowIDs,
             allowsPlainTextResponse: interactionMode.allowsPlainTextResponse
         )
         let responseDeltaHandler = interactionMode == .conversation ? makeAgentStreamingDeltaHandler() : nil
 
         isPlanningAgentRun = true
         agentPendingUserPrompt = trimmedGoal
-        agentStreamingResponseText = nil
-        agentStreamingRawResponseText = ""
+        resetAgentStreamingPreview()
         agentGoal = ""
         persistAgentDraftForCurrentConversation()
         agentErrorMessage = nil
@@ -3184,7 +3257,7 @@ final class AppViewModel: ObservableObject {
                 )
                 try Task.checkCancellation()
                 agentCurrentRun = run
-                agentStreamingResponseText = nil
+                resetAgentStreamingPreview()
                 try await attachRunToActiveThread(run, in: currentWorkspace)
                 resetAgentPermissionDockState()
                 let isWaitingForApproval = interactionMode == .conversation && run.completedAt == nil && !run.plan.toolCalls.isEmpty
@@ -4112,6 +4185,12 @@ final class AppViewModel: ObservableObject {
         let root = ResearchRoot(rootURL: workspace.rootURL)
         currentResearchRoot = root
 
+        let moduleConfiguration = try WorkspaceTemplateRepository().loadConfiguration(in: root)
+        workspaceModuleConfiguration = moduleConfiguration
+        workspaceModuleWarnings = WorkspaceModuleRegistry.warnings(for: moduleConfiguration)
+        workspaceModuleDirectoryStatuses = WorkspaceModuleRegistry.directoryStatuses(for: moduleConfiguration, in: root)
+        normalizeSelectedSectionForModuleAvailability()
+
         let registry = try await projectRegistryRepository.load(in: root)
         researchProjects = registry.projects
         currentProjectID = registry.lastOpenedProjectID ?? registry.projects.first?.id
@@ -4145,8 +4224,31 @@ final class AppViewModel: ObservableObject {
     private func loadWorkspacePreferences(in workspace: ResearchWorkspace) async throws {
         workspacePreferences = try await workspacePreferencesRepository.load(in: workspace)
         addTodosToAppleReminders = workspacePreferences.syncTodosToAppleReminders
+        normalizeSelectedSectionForModuleAvailability()
         restorePinnedAgentThreadsForCurrentProject()
         restoreAgentToolStateForCurrentScope()
+    }
+
+    private func fallbackWorkspaceSection() -> WorkspaceSection {
+        visibleWorkspaceSidebarSections.first ?? .dashboard
+    }
+
+    private func fallbackProjectSection() -> WorkspaceSection {
+        visibleProjectSidebarSections.first ?? fallbackWorkspaceSection()
+    }
+
+    private func normalizeSelectedSectionForModuleAvailability() {
+        if let selectedSection, !isWorkspaceSectionAvailable(selectedSection) {
+            self.selectedSection = fallbackWorkspaceSection()
+        }
+        if isViewingGlobalTodos && !isWorkspaceSectionAvailable(.tasks) {
+            isViewingGlobalTodos = false
+        }
+        if !isWorkspaceSectionAvailable(.library) {
+            selectedLibraryProjectID = nil
+            selectedCollectionPath = nil
+            selectedTagName = nil
+        }
     }
 
     private func reconcileAgentKnowledgeSelectionWithLoadedPapers() {
@@ -4461,8 +4563,76 @@ final class AppViewModel: ObservableObject {
             return
         }
         agentStreamingRawResponseText += delta
+        scheduleAgentStreamingResponseRender()
+    }
+
+    private func resetAgentStreamingPreview() {
+        agentStreamingRenderGeneration += 1
+        agentStreamingRenderTask?.cancel()
+        agentStreamingRenderTask = nil
+        agentStreamingRawResponseText = ""
+        enqueueAgentStreamingResponseText(nil)
+    }
+
+    private func scheduleAgentStreamingResponseRender() {
+        guard agentStreamingRenderTask == nil else {
+            return
+        }
+
+        let generation = agentStreamingRenderGeneration
+        agentStreamingRenderTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 33_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.agentStreamingRenderGeneration == generation else {
+                        return
+                    }
+                    self.agentStreamingRenderTask = nil
+                    self.publishAgentStreamingResponseNow(invalidatingPendingRender: false)
+                }
+            }
+        }
+    }
+
+    private func publishAgentStreamingResponseNow(invalidatingPendingRender: Bool = true) {
+        if invalidatingPendingRender {
+            agentStreamingRenderGeneration += 1
+        }
+        agentStreamingRenderTask?.cancel()
+        agentStreamingRenderTask = nil
         let visibleText = AgentVisibleResponseExtractor.visibleText(from: agentStreamingRawResponseText)
-        agentStreamingResponseText = visibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : visibleText
+        enqueueAgentStreamingResponseText(visibleText)
+    }
+
+    private func enqueueAgentStreamingResponseText(_ text: String?) {
+        let normalizedText = text?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        agentStreamingPendingResponseText = normalizedText
+
+        guard !agentStreamingResponseCommitScheduled else {
+            return
+        }
+
+        agentStreamingResponseCommitScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                self.agentStreamingResponseCommitScheduled = false
+                let nextText = self.agentStreamingPendingResponseText
+                self.agentStreamingPendingResponseText = nil
+                guard self.agentStreamingResponseText != nextText else {
+                    return
+                }
+                self.agentStreamingResponseText = nextText
+            }
+        }
     }
 
     private func makeAgentStreamingDeltaHandler() -> (@Sendable (String) async -> Void) {

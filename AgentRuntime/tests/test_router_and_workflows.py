@@ -75,6 +75,40 @@ def test_agent_start_routes_to_production_workflows(tmp_path, goal, selected_pap
     assert not (tmp_path / target_path).exists()
 
 
+def test_agent_start_respects_enabled_workflow_ids(tmp_path) -> None:
+    server = SidecarServer()
+    server.handle({
+        "jsonrpc": "2.0",
+        "id": "init",
+        "method": "sidecar.initialize",
+        "params": {"protocolVersion": "1.0", "schemaVersion": 1, "workspaceRoot": str(tmp_path)},
+    })
+
+    response = server.handle({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "agent.start",
+        "params": {
+            "runID": "run-disabled-paper-reading",
+            "goal": "Please create a paper note",
+            "selectedPaperID": "p1",
+            "workspaceRoot": str(tmp_path),
+            "enabledWorkflowIDs": ["related_work", "gap_planning"],
+        },
+    })
+
+    assert response and response["result"]["accepted"]
+    events = [action["envelope"] for action in server.pending_actions if action.get("kind") == "event"]
+    event_types = [event["event"]["type"] for event in events]
+    final_payload = events[-1]["event"]["payload"]
+
+    assert event_types == ["run_started", "node_started", "final_response"]
+    assert all(event["event"]["type"] != "artifact_draft" for event in events)
+    assert final_payload["workflow"] == "paper_reading"
+    assert "No artifact" in final_payload["markdown"]
+    assert not (tmp_path / ".sci-station" / "agent" / "runs" / "run-disabled-paper-reading").exists()
+
+
 def test_evidence_id_is_stable_and_stale_detection_is_hash_based() -> None:
     first = stable_evidence_id("paper", "p1", "library/papers/p1/paper.md", 1, 12, "sha256:a")
     second = stable_evidence_id("paper", "p1", "library/papers/p1/paper.md", 1, 12, "sha256:a")

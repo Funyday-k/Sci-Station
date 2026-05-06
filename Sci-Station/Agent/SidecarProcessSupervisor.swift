@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(Darwin)
+import Darwin
+#endif
+
 public nonisolated struct SidecarJSONRPCError: Codable, Hashable, Sendable, LocalizedError {
     public var code: Int
     public var message: String
@@ -201,6 +205,14 @@ public nonisolated enum SidecarJSONCodec {
     }()
 }
 
+private nonisolated enum SidecarPipeSignalPolicy {
+    static func ignoreBrokenPipeTermination() {
+        #if canImport(Darwin)
+        _ = Darwin.signal(Darwin.SIGPIPE, Darwin.SIG_IGN)
+        #endif
+    }
+}
+
 public actor SidecarConnection {
     public typealias HostRequestHandler = @Sendable (String, JSONValue?) async throws -> JSONValue
     public typealias NotificationHandler = @Sendable (String, JSONValue?) async -> Void
@@ -290,7 +302,7 @@ public actor SidecarConnection {
             continuation.resume(throwing: SidecarJSONRPCError(code: -32001, message: "Sidecar process exited with status \(exitCode)."))
         }
         pendingResponses.removeAll()
-        if exitCode != 0, let terminationHandler {
+        if let terminationHandler {
             await terminationHandler(exitCode)
         }
     }
@@ -428,12 +440,20 @@ public actor SidecarConnection {
     }
 
     private func writeMessage(_ message: SidecarJSONRPCMessage) throws {
+        SidecarPipeSignalPolicy.ignoreBrokenPipeTermination()
+        guard process.isRunning else {
+            throw SidecarJSONRPCError(code: -32001, message: "Sidecar process is not running.")
+        }
         let data = try SidecarJSONCodec.encoder.encode(message)
         guard var line = String(data: data, encoding: .utf8) else {
             throw SidecarJSONRPCError(code: -32603, message: "Could not encode JSON-RPC message.")
         }
         line.append("\n")
-        try inputHandle.write(contentsOf: Data(line.utf8))
+        do {
+            try inputHandle.write(contentsOf: Data(line.utf8))
+        } catch {
+            throw SidecarJSONRPCError(code: -32001, message: "Failed to write JSON-RPC message to sidecar stdin: \(error.localizedDescription)")
+        }
     }
 }
 

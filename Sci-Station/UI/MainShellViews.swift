@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum SidebarMotion {
+    static let selection = Animation.easeOut(duration: 0.14)
+    static let expansion = Animation.easeInOut(duration: 0.18)
+}
+
 struct SidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
     let workspace: ResearchWorkspace?
@@ -18,14 +23,16 @@ struct SidebarView: View {
                 }
                 .help("Home")
 
-                SidebarIconButton(
-                    systemImage: WorkspaceSection.tasks.systemImage,
-                    isSelected: appModel.selectedSection == .tasks && appModel.isViewingGlobalTodos,
-                    accessibilityLabel: "All Todos"
-                ) {
-                    appModel.selectGlobalTodos()
+                if appModel.isWorkspaceSectionAvailable(.tasks) {
+                    SidebarIconButton(
+                        systemImage: WorkspaceSection.tasks.systemImage,
+                        isSelected: appModel.selectedSection == .tasks && appModel.isViewingGlobalTodos,
+                        accessibilityLabel: "All Todos"
+                    ) {
+                        appModel.selectGlobalTodos()
+                    }
+                    .help("All Todos")
                 }
-                .help("All Todos")
 
                 Spacer(minLength: 0)
 
@@ -75,16 +82,20 @@ struct SidebarView: View {
                             }
                         }
 
-                        SidebarAILabGroup(isExpanded: $isAILabExpanded)
+                        if appModel.isWorkspaceSectionAvailable(.llmLab) {
+                            SidebarAILabGroup(isExpanded: $isAILabExpanded)
+                        }
                     }
 
-                    if workspace != nil {
+                    if workspace != nil, appModel.isWorkspaceSectionAvailable(.library) {
                         SidebarSectionLabel(title: "Library")
 
                         VStack(spacing: 2) {
                             HStack(spacing: 6) {
                                 Button {
-                                    isAllPapersExpanded.toggle()
+                                    withAnimation(SidebarMotion.expansion) {
+                                        isAllPapersExpanded.toggle()
+                                    }
                                 } label: {
                                     Image(systemName: isAllPapersExpanded ? "chevron.down" : "chevron.right")
                                         .font(.caption)
@@ -118,6 +129,7 @@ struct SidebarView: View {
                                         level: 0
                                     )
                                 }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
 
@@ -193,7 +205,9 @@ private struct SidebarAILabGroup: View {
         VStack(spacing: 2) {
             HStack(spacing: 6) {
                 Button {
-                    isExpanded.toggle()
+                    withAnimation(SidebarMotion.expansion) {
+                        isExpanded.toggle()
+                    }
                 } label: {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption)
@@ -215,7 +229,23 @@ private struct SidebarAILabGroup: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button {
-                        appModel.selectSection(.llmLab)
+                        withAnimation(SidebarMotion.selection) {
+                            appModel.startNewAgentConversation()
+                            appModel.selectSection(.llmLab)
+                            isExpanded = true
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("New Chat")
+                    Button {
+                        withAnimation(SidebarMotion.selection) {
+                            appModel.selectSection(.llmLab)
+                        }
                     } label: {
                         Image(systemName: "arrow.up.right")
                             .font(.caption)
@@ -229,7 +259,12 @@ private struct SidebarAILabGroup: View {
                 .background(appModel.selectedSection == .llmLab ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    isExpanded.toggle()
+                    withAnimation(SidebarMotion.selection) {
+                        appModel.selectSection(.llmLab)
+                        if !isExpanded {
+                            isExpanded = true
+                        }
+                    }
                 }
                 .help("Open the global AI Lab")
                 .contextMenu {
@@ -308,8 +343,12 @@ private struct SidebarAILabGroup: View {
                     }
                 }
                 .padding(.leading, 28)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .animation(SidebarMotion.expansion, value: isExpanded)
+        .animation(SidebarMotion.selection, value: appModel.activeAgentThreadID)
+        .animation(SidebarMotion.selection, value: appModel.pendingAgentThread?.id)
         .confirmationDialog(
             "归档这个对话？",
             isPresented: $appModel.isShowingAgentThreadArchiveConfirmation,
@@ -375,6 +414,9 @@ private struct AgentSidebarThreadRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: openAction)
         .onHover { isHovering = $0 }
+        .animation(SidebarMotion.selection, value: isHovering)
+        .animation(SidebarMotion.selection, value: isActive)
+        .animation(SidebarMotion.selection, value: isPinned)
     }
 }
 
@@ -401,7 +443,9 @@ private struct SidebarCollectionTree: View {
                         .frame(width: 14, height: 20)
                 } else {
                     Button {
-                        appModel.toggleCollectionCollapse(collection.relativePath)
+                        withAnimation(SidebarMotion.expansion) {
+                            appModel.toggleCollectionCollapse(collection.relativePath)
+                        }
                     } label: {
                         Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                             .font(.caption)
@@ -415,9 +459,13 @@ private struct SidebarCollectionTree: View {
 
                 Button {
                     if children.isEmpty {
-                        appModel.selectCollection(collection.relativePath)
+                        withAnimation(SidebarMotion.selection) {
+                            appModel.selectCollection(collection.relativePath)
+                        }
                     } else {
-                        appModel.toggleCollectionCollapse(collection.relativePath)
+                        withAnimation(SidebarMotion.expansion) {
+                            appModel.toggleCollectionCollapse(collection.relativePath)
+                        }
                     }
                 } label: {
                     HStack(spacing: 8) {
@@ -453,8 +501,10 @@ private struct SidebarCollectionTree: View {
                 ForEach(children) { child in
                     SidebarCollectionTree(collection: child, allCollections: allCollections, level: level + 1)
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .animation(SidebarMotion.expansion, value: isCollapsed)
     }
 }
 
@@ -471,7 +521,9 @@ private struct SidebarProjectGroup: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Button {
-                    appModel.toggleResearchProjectCollapse(project.id)
+                    withAnimation(SidebarMotion.expansion) {
+                        appModel.toggleResearchProjectCollapse(project.id)
+                    }
                 } label: {
                     Image(systemName: project.isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.caption)
@@ -501,18 +553,26 @@ private struct SidebarProjectGroup: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    appModel.toggleResearchProjectCollapse(project.id)
+                    withAnimation(SidebarMotion.expansion) {
+                        appModel.toggleResearchProjectCollapse(project.id)
+                    }
                 }
                 .onTapGesture(count: 2) {
-                    appModel.selectResearchProject(project.id, section: .projects)
+                    withAnimation(SidebarMotion.selection) {
+                        appModel.selectResearchProject(project.id, section: .projects)
+                    }
                 }
             }
             .contextMenu {
                 Button("Open Project") {
-                    appModel.selectResearchProject(project.id, section: .projects)
+                    withAnimation(SidebarMotion.selection) {
+                        appModel.selectResearchProject(project.id, section: .projects)
+                    }
                 }
                 Button(project.isCollapsed ? "Expand" : "Collapse") {
-                    appModel.toggleResearchProjectCollapse(project.id)
+                    withAnimation(SidebarMotion.expansion) {
+                        appModel.toggleResearchProjectCollapse(project.id)
+                    }
                 }
                 Divider()
                 Button("Edit Project Info") {
@@ -522,7 +582,7 @@ private struct SidebarProjectGroup: View {
 
             if !project.isCollapsed {
                 VStack(spacing: 1) {
-                    ForEach(WorkspaceSection.projectSidebarSections) { section in
+                    ForEach(appModel.visibleProjectSidebarSections) { section in
                         SidebarActionRow(
                             title: section == .projects ? "Overview" : section.title,
                             systemImage: section.systemImage,
@@ -534,8 +594,10 @@ private struct SidebarProjectGroup: View {
                         .padding(.leading, 20)
                     }
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .animation(SidebarMotion.expansion, value: project.isCollapsed)
     }
 
     private var projectBackground: Color {
@@ -593,15 +655,32 @@ private struct SidebarIconButton: View {
     let accessibilityLabel: String
     let action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 17, weight: .semibold))
-            .frame(width: 34, height: 30)
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .background(isSelected ? Color.accentColor.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
+        Button {
+            withAnimation(SidebarMotion.selection) {
+                action()
+            }
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 34, height: 30)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .background(iconBackground, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(SidebarMotion.selection, value: isSelected)
+        .animation(SidebarMotion.selection, value: isHovering)
             .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var iconBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.14)
+        }
+        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
     }
 }
 
@@ -610,16 +689,34 @@ private struct SidebarTagRow: View {
     let isSelected: Bool
     let action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
-        HStack(spacing: 8) {
-            TagChipView(tag: tag)
-            Spacer(minLength: 0)
+        Button {
+            withAnimation(SidebarMotion.selection) {
+                action()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                TagChipView(tag: tag)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
         }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 8)
-        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(SidebarMotion.selection, value: isSelected)
+        .animation(SidebarMotion.selection, value: isHovering)
+    }
+
+    private var rowBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.12)
+        }
+        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
     }
 }
 
@@ -676,27 +773,45 @@ private struct SidebarActionRow: View {
     var badgeText: String? = nil
     let action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .frame(width: 16)
-                .foregroundStyle(.secondary)
-            Text(title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 8)
-            if let badgeText {
-                Text(badgeText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        Button {
+            withAnimation(SidebarMotion.selection) {
+                action()
             }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: 16)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                if let badgeText {
+                    Text(badgeText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(SidebarMotion.selection, value: isSelected)
+        .animation(SidebarMotion.selection, value: isHovering)
+    }
+
+    private var rowBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.12)
+        }
+        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
     }
 }
 

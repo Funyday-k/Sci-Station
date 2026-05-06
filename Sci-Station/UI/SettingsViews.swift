@@ -103,6 +103,65 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+
+                GroupBox("Workspace Modules") {
+                    let availableModuleIDs = Set(WorkspaceModuleRegistry.availableModules(in: appModel.workspaceModuleConfiguration).map(\.id))
+                    VStack(alignment: .leading, spacing: 12) {
+                        WorkspacePathRow(label: "Registry", value: appModel.workspaceModuleStatusSummary)
+                        WorkspacePathRow(label: "Config", value: WorkspaceTemplateRepository.modulesRelativePath)
+                        WorkspacePathRow(label: "Workflows", value: appModel.enabledAgentWorkflowIDs.isEmpty ? "none" : appModel.enabledAgentWorkflowIDs.sorted().joined(separator: ", "))
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 10)], alignment: .leading, spacing: 8) {
+                            ForEach(appModel.workspaceModuleConfiguration.modules) { module in
+                                HStack(spacing: 8) {
+                                    Image(systemName: module.enabled ? (availableModuleIDs.contains(module.id) ? "checkmark.circle" : "exclamationmark.triangle") : "circle")
+                                        .foregroundStyle(module.enabled ? (availableModuleIDs.contains(module.id) ? Color.green : Color.orange) : Color.secondary)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(module.title)
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                            .lineLimit(1)
+                                        Text(module.enabled ? (availableModuleIDs.contains(module.id) ? "enabled" : "dependency hidden") : "disabled")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !appModel.workspaceModuleWarnings.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Warnings")
+                                    .font(.caption.weight(.semibold))
+                                ForEach(appModel.workspaceModuleWarnings.prefix(6)) { warning in
+                                    Label(warning.message, systemImage: warning.severity == .error ? "xmark.octagon" : "exclamationmark.triangle")
+                                        .font(.caption)
+                                        .foregroundStyle(warning.severity == .error ? .red : .orange)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+
+                        if !appModel.workspaceModuleDirectoryStatuses.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Module Paths")
+                                    .font(.caption.weight(.semibold))
+                                ForEach(Array(appModel.workspaceModuleDirectoryStatuses.prefix(8))) { status in
+                                    HStack(spacing: 8) {
+                                        Image(systemName: status.exists ? "folder" : (status.required ? "folder.badge.questionmark" : "folder"))
+                                            .foregroundStyle(status.exists || !status.required ? Color.secondary : Color.orange)
+                                        Text("\(status.moduleTitle): \(status.path)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 }
 
                 if appModel.selectedSettingsCategory == .projects {

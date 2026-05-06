@@ -134,6 +134,10 @@ class SidecarServer:
             "selected_paper_id": params.get("selectedPaperID") or params.get("selected_paper_id"),
             "project_id": params.get("projectID") or params.get("project_id"),
         })
+        enabled_workflow_ids = self._enabled_workflow_ids(params)
+        if enabled_workflow_ids is not None and intent in {"paper_reading", "related_work", "gap_planning"} and intent not in enabled_workflow_ids:
+            self.pending_actions = self._workflow_disabled_actions(params, intent, enabled_workflow_ids)
+            return
         self.pending_actions = self._build_production_actions(params, intent)
 
     def _resume(self, params: JsonDict) -> None:
@@ -204,6 +208,30 @@ class SidecarServer:
         self._write_workflow_files(run_directory, critic_report, retrieval_trace, evidence, extra)
         final = f"LangGraph sidecar completed {intent} and produced an approval-ready artifact draft."
         return self._workflow_events(run_id, goal, intent, artifact, final)
+
+    def _enabled_workflow_ids(self, params: JsonDict) -> set[str] | None:
+        raw = params.get("enabledWorkflowIDs")
+        if raw is None:
+            raw = params.get("enabled_workflow_ids")
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            return {item.strip() for item in raw.split(",") if item.strip()}
+        if isinstance(raw, (list, tuple, set)):
+            return {str(item) for item in raw if str(item)}
+        return set()
+
+    def _workflow_disabled_actions(self, params: JsonDict, intent: str, enabled_workflow_ids: set[str]) -> list[JsonDict]:
+        run_id = str(params.get("runID") or params.get("run_id") or "agent-run")
+        goal = str(params.get("goal", ""))
+        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        enabled_summary = ", ".join(sorted(enabled_workflow_ids)) or "none"
+        final = f"Workflow '{intent}' is disabled by the workspace module registry. Enabled workflows: {enabled_summary}. No artifact was generated."
+        return [
+            {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-start", run_id, 10, timestamp, "run_started", {"goal": goal})},
+            {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-router", run_id, 20, timestamp, "node_started", {"name": f"router:{intent}:disabled"})},
+            {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-final", run_id, 30, timestamp, "final_response", {"markdown": final, "workflow": intent, "enabled_workflows": sorted(enabled_workflow_ids)})},
+        ]
 
     def _write_workflow_files(self, run_directory: Path, critic_report: JsonDict, retrieval_trace: JsonDict, evidence: list[JsonDict], extra: JsonDict) -> None:
         run_directory.mkdir(parents=True, exist_ok=True)

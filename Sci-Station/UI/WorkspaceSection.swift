@@ -29,6 +29,62 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
         [.projects, .library, .wiki, .tasks, .materials]
     }
 
+    var moduleRouteID: String? {
+        switch self {
+        case .dashboard, .settings:
+            return nil
+        case .inbox:
+            return "draft-inbox"
+        case .papers:
+            return "papers"
+        case .concepts:
+            return "concepts"
+        case .methods:
+            return "methods"
+        case .gaps:
+            return "gaps"
+        case .library:
+            return "library"
+        case .pdfReader:
+            return "pdf-reader"
+        case .wiki:
+            return "wiki"
+        case .projects:
+            return "projects"
+        case .materials:
+            return "materials"
+        case .graph:
+            return "graph"
+        case .llmLab:
+            return "ai-lab"
+        case .tasks:
+            return "tasks"
+        }
+    }
+
+    var moduleProjectTabID: String? {
+        switch self {
+        case .dashboard, .settings, .inbox, .papers, .concepts, .methods, .gaps:
+            return nil
+        case .projects:
+            return "overview"
+        case .library:
+            return "papers"
+        case .pdfReader:
+            return "pdf-reader"
+        case .wiki:
+            return "wiki"
+        case .materials:
+            return "materials"
+        case .graph:
+            return "graph"
+        case .llmLab:
+            return "ai-drafts"
+        case .tasks:
+            return "tasks"
+        }
+    }
+
     var title: String {
         switch self {
         case .dashboard:

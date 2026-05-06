@@ -84,6 +84,7 @@ private struct CoreVerificationSuite {
         try await langGraphRuntimeCanonicalizesSidecarLocalSequence()
         try await langGraphRuntimeFallsBackWhenInitializeTimesOut()
         try await langGraphRuntimeDoesNotLoseApprovalWhenSidecarCrashes()
+        try await sidecarConnectionBrokenPipeThrowsInsteadOfTerminatingHost()
         try await sidecarLLMProxyDisablesProviderNativeToolCalling()
         try await sidecarEmbeddingProxyRejectsSensitiveConfigAndReturnsVectors()
         try await authorizedResourceProviderListsAndReadsDocuments()
@@ -102,6 +103,7 @@ private struct CoreVerificationSuite {
         try agentEvidenceRefStableIDMarksStale()
         try await evidenceSourceJumpMapsPDFPageWhenAvailable()
         try await workspaceTemplateModuleConfigWritesAndLegacyMigration()
+        try workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts()
         try await runtimeEventEnvelopeSequencesAreStableAndDeduplicated()
         try agentHumanDecisionActionDecodesLegacyAliases()
         try agentToolRiskUnknownValueDecodesAsExternalSideEffect()
@@ -2568,6 +2570,46 @@ private struct CoreVerificationSuite {
         try expect(persisted.contains { if case .checkpointSaved = $0.event { return true }; return false }, "Crash fixture should persist checkpointSaved before the crash.")
     }
 
+    private func sidecarConnectionBrokenPipeThrowsInsteadOfTerminatingHost() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "exec 0<&-; sleep 2"]
+
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        let connection = SidecarConnection(
+            process: process,
+            inputHandle: inputPipe.fileHandleForWriting,
+            outputHandle: outputPipe.fileHandleForReading,
+            errorHandle: errorPipe.fileHandleForReading
+        )
+
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+            try? inputPipe.fileHandleForWriting.close()
+            try? outputPipe.fileHandleForReading.close()
+            try? errorPipe.fileHandleForReading.close()
+        }
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        do {
+            _ = try await connection.sendRequest(method: "sidecar.initialize", params: .object([:]), timeout: 1)
+            throw ValidationError(message: "Broken sidecar stdin should throw instead of returning a response.")
+        } catch let error as SidecarJSONRPCError {
+            try expect(error.code == -32001, "Broken sidecar stdin should surface as a sidecar process error, got \(error.code): \(error.message)")
+        }
+    }
+
     private func sidecarLLMProxyDisablesProviderNativeToolCalling() async throws {
         let fixture = try await loopWorkspaceFixture(named: "SidecarLLMProxyWorkspace")
         defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -2895,19 +2937,97 @@ private struct CoreVerificationSuite {
         let minimalWorkspace = try await service.createWorkspace(at: minimalURL, template: WorkspaceTemplateRegistry.minimal)
         let minimalTemplate = try String(contentsOf: minimalWorkspace.fileURL(for: WorkspaceTemplateRepository.templateRelativePath), encoding: .utf8)
         let minimalModules = try String(contentsOf: minimalWorkspace.fileURL(for: WorkspaceTemplateRepository.modulesRelativePath), encoding: .utf8)
+                let repository = WorkspaceTemplateRepository()
+                let minimalConfiguration = WorkspaceModuleRegistry.mergedConfiguration(from: try repository.decodeConfiguration(minimalModules))
 
         try expect(minimalTemplate.contains(#"id: "minimal-workspace""#), "Minimal workspace should write workspace_template.yaml.")
+                try expect(minimalModules.contains("schema_version: 1"), "Workspace module config should write schema_version 1.")
         try expect(minimalModules.contains(#"id: "paper-library""#), "Workspace module config should include built-in paper-library declaration.")
         try expect(minimalModules.contains(#"enabled: false"#), "Minimal template should keep disabled built-in modules declared without deleting data.")
+                try expect(minimalConfiguration.modules.count == 15, "V1 module registry should declare the deterministic built-in module set.")
+                try expect(minimalConfiguration.module(id: "code")?.enabled == false, "Future modules should be present but disabled by default.")
+                try expect(WorkspaceModuleRegistry.availableRoutes(in: minimalConfiguration).contains { $0.id == "ai-lab" }, "Enabled AI Lab module should expose its route.")
 
         try FileManager.default.createDirectory(at: legacyURL.appendingPathComponent("raw/papers", isDirectory: true), withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(at: legacyURL.appendingPathComponent("settings", isDirectory: true), withIntermediateDirectories: true)
+                try """
+                schema_version: 0
+                modules:
+                    - id: "projects"
+                        title: "Projects"
+                        version: "0.1.0"
+                        enabled: true
+                        directories:
+                            - "projects"
+                        routes:
+                            - "/projects"
+                        workflows:
+                            - "gap_planning"
+                        permission_scope:
+                            write_paths:
+                                - "projects/*/wiki/"
+                """.write(to: legacyURL.appendingPathComponent(WorkspaceTemplateRepository.modulesRelativePath, isDirectory: false), atomically: true, encoding: .utf8)
         _ = try await service.openWorkspace(at: legacyURL)
         let legacyTemplateURL = legacyURL.appendingPathComponent(WorkspaceTemplateRepository.templateRelativePath, isDirectory: false)
         let legacyModulesURL = legacyURL.appendingPathComponent(WorkspaceTemplateRepository.modulesRelativePath, isDirectory: false)
+                let migratedModules = try String(contentsOf: legacyModulesURL, encoding: .utf8)
         try expect(FileManager.default.fileExists(atPath: legacyTemplateURL.path), "Opening legacy workspace should backfill workspace_template.yaml.")
         try expect(FileManager.default.fileExists(atPath: legacyModulesURL.path), "Opening legacy workspace should backfill workspace_modules.yaml.")
+                try expect(migratedModules.contains("schema_version: 1"), "Opening legacy module config should migrate it to schema_version 1.")
         try expect(FileManager.default.fileExists(atPath: legacyURL.appendingPathComponent("raw/papers", isDirectory: true).path), "Legacy migration should not delete existing user data.")
     }
+
+        private func workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts() throws {
+                let defaultConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+                let defaultRoutes = Set(WorkspaceModuleRegistry.availableRoutes(in: defaultConfiguration).map(\.id))
+                let defaultProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: defaultConfiguration).map(\.id))
+                let defaultWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: defaultConfiguration))
+
+                try expect(defaultConfiguration.modules.map(\.id) == [
+                        "projects",
+                        "paper-library",
+                        "wiki",
+                        "materials",
+                        "tasks",
+                        "calendar",
+                        "pdf-reader",
+                        "ai-lab",
+                        "code",
+                        "datasets",
+                        "experiments",
+                        "citation-graph",
+                        "recommendation",
+                        "writing",
+                        "theory-notes"
+                ], "Built-in module registry order should be deterministic.")
+                try expect(defaultRoutes.contains("projects") && defaultRoutes.contains("library") && defaultRoutes.contains("ai-lab"), "Default modules should expose core routes.")
+                try expect(!defaultRoutes.contains("code") && !defaultRoutes.contains("experiments"), "Future modules should stay hidden until enabled.")
+                try expect(defaultProjectTabs.contains("overview") && defaultProjectTabs.contains("papers") && defaultProjectTabs.contains("tasks"), "Default project tabs should be registry-driven.")
+                try expect(defaultWorkflows.contains("paper_reading") && defaultWorkflows.contains("related_work") && defaultWorkflows.contains("gap_planning"), "Default AI workflows should be available when required modules are enabled.")
+
+                let noLibraryConfiguration = WorkspaceModuleRegistry.defaultConfiguration(
+                        enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["paper-library"])
+                )
+                let noLibraryRoutes = Set(WorkspaceModuleRegistry.availableRoutes(in: noLibraryConfiguration).map(\.id))
+                let noLibraryWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: noLibraryConfiguration))
+                try expect(!noLibraryRoutes.contains("library"), "Disabled paper-library module should hide the Library route.")
+                try expect(!noLibraryRoutes.contains("pdf-reader"), "Modules with disabled dependencies should hide their routes.")
+                try expect(!noLibraryWorkflows.contains("paper_reading"), "Workflow requirements should hide paper_reading when paper-library is disabled.")
+                try expect(!noLibraryWorkflows.contains("related_work"), "Workflow requirements should hide related_work when paper-library is disabled.")
+                try expect(noLibraryWorkflows.contains("gap_planning"), "Unrelated enabled workflow should remain available.")
+
+                let descriptor = WorkspaceModuleRegistry.artifactKindDescriptor(for: "paper_reading_note", in: defaultConfiguration)
+                let unknownDescriptor = WorkspaceModuleRegistry.artifactKindDescriptor(for: "future_artifact", in: defaultConfiguration)
+                try expect(descriptor.isKnown && descriptor.moduleID == "paper-library", "Known artifact kinds should resolve to their declaring module.")
+                try expect(!unknownDescriptor.isKnown && unknownDescriptor.title == "Future Artifact", "Unknown artifact kinds should fall back to a readable descriptor.")
+
+                let codeWithoutAILab = WorkspaceModuleRegistry.defaultConfiguration(enabledModuleIDs: ["projects", "wiki", "code"])
+                let warnings = WorkspaceModuleRegistry.warnings(for: codeWithoutAILab)
+                try expect(warnings.contains { $0.id == "disabled-dependency:code:ai-lab" }, "Enabled modules with disabled dependencies should produce registry warnings.")
+
+                let scopeDescription = WorkspaceModuleRegistry.moduleScopeDescription(for: ["projects/demo/wiki/research_plan.md"], in: defaultConfiguration)
+                try expect(scopeDescription?.contains("Wiki") == true || scopeDescription?.contains("Projects") == true, "Module approval scope should explain matching module write paths.")
+        }
 
     private func runtimeEventEnvelopeSequencesAreStableAndDeduplicated() async throws {
         let fixture = try await loopWorkspaceFixture(named: "RuntimeEventDedupeWorkspace")

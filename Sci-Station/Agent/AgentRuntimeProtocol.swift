@@ -23,6 +23,7 @@ public nonisolated struct AgentRuntimeRequest: Sendable {
     public var options: AgentLoopOptions
     public var hookEngine: AgentHookEngine
     public var permissionEvaluator: AgentPermissionEvaluator
+    public var enabledWorkflowIDs: Set<String>?
     public var responseDeltaHandler: (@Sendable (String) async -> Void)?
 
     public nonisolated init(
@@ -41,6 +42,7 @@ public nonisolated struct AgentRuntimeRequest: Sendable {
         options: AgentLoopOptions = AgentLoopOptions(),
         hookEngine: AgentHookEngine = AgentHookEngine(hooks: AgentSafetyPreset.defaultHooks()),
         permissionEvaluator: AgentPermissionEvaluator = AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
+        enabledWorkflowIDs: Set<String>? = nil,
         responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
     ) {
         self.runID = runID
@@ -58,6 +60,7 @@ public nonisolated struct AgentRuntimeRequest: Sendable {
         self.options = options
         self.hookEngine = hookEngine
         self.permissionEvaluator = permissionEvaluator
+        self.enabledWorkflowIDs = enabledWorkflowIDs
         self.responseDeltaHandler = responseDeltaHandler
     }
 

@@ -165,6 +165,7 @@ public actor SciStationAgentService {
                 options: AgentLoopOptions(),
                 hookEngine: hookEngine,
                 permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
+                enabledWorkflowIDs: options.enabledWorkflowIDs,
                 responseDeltaHandler: responseDeltaHandler
             )
             let decision = await sidecarCoordinator.resolve(
