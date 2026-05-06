@@ -52,12 +52,19 @@ struct SettingsView: View {
                             .help(Text(verbatim: "Rename the current research root folder"))
 
                         HStack(spacing: 10) {
-                            Button {
-                                appModel.createWorkspace()
+                            Menu {
+                                ForEach(appModel.workspaceTemplateOptions) { template in
+                                    Button {
+                                        appModel.createWorkspace(template: template)
+                                    } label: {
+                                        Label(template.title, systemImage: template.id == "minimal-workspace" ? "square.dashed" : "books.vertical")
+                                    }
+                                    .help(Text(verbatim: appModel.workspaceTemplatePreviewSummary(for: template)))
+                                }
                             } label: {
                                 Label("Create Root", systemImage: "plus")
                             }
-                            .help(Text(verbatim: "Create a new research root"))
+                            .help(Text(verbatim: "Create a new research root from a built-in template"))
 
                             Button {
                                 appModel.openWorkspace()

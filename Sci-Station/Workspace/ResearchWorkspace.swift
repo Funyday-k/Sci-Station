@@ -70,7 +70,7 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
         ),
         SeededFile(
             relativePath: "settings/workspace_preferences.yaml",
-            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"projects\"\n  - \"collection\"\nlibrary_sort_field: \"\"\nlibrary_sort_ascending: true\ndefault_collection: \"\"\nrecent_section: \"projects\"\nsync_todos_to_apple_reminders: true\napp_language: \"system\"\nagent_chat_font_size: 14.0\nmineru_command: \"mineru\"\nmineru_api_base_url: \"https://mineru.net\"\nmineru_api_language: \"en\"\nmineru_overwrite_existing_markdown: true\n"
+            contents: "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\n  - \"authors\"\n  - \"year\"\n  - \"tags\"\n  - \"projects\"\n  - \"collection\"\nlibrary_sort_field: \"\"\nlibrary_sort_ascending: true\ndefault_collection: \"\"\nrecent_section: \"projects\"\nsync_todos_to_apple_reminders: true\napp_language: \"system\"\nagent_chat_font_size: 14.0\nagent_runtime_selection: \"auto_fallback\"\nagent_sidecar_disabled_for_workspace: false\nmineru_command: \"mineru\"\nmineru_api_base_url: \"https://mineru.net\"\nmineru_api_language: \"en\"\nmineru_overwrite_existing_markdown: true\n"
         ),
         SeededFile(
             relativePath: "settings/markdown_snippets.yaml",

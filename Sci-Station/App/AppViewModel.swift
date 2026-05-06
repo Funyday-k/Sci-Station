@@ -180,6 +180,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentProductMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
+    @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
     @Published private(set) var agentDisabledHookIDs: Set<String> = []
     @Published var isShowingAgentThreadRename = false
     @Published var isShowingAgentThreadArchiveConfirmation = false
@@ -229,6 +230,7 @@ final class AppViewModel: ObservableObject {
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
     private let agentService: SciStationAgentService
+    private let sidecarCoordinator: SidecarRuntimeCoordinator
     private let pdfImportService: PDFImportService
     private let markdownRepository: MarkdownRepository
     private let markdownSnippetRepository: MarkdownSnippetRepository
@@ -279,6 +281,10 @@ final class AppViewModel: ObservableObject {
         agentInteractionMode.summary
     }
 
+    var workspaceTemplateOptions: [WorkspaceTemplate] {
+        WorkspaceTemplateRegistry.builtInTemplates
+    }
+
     var markdownOverwriteConfirmationTitle: String {
         localized("覆盖已有 Markdown？", "Overwrite existing Markdown?")
     }
@@ -322,6 +328,7 @@ final class AppViewModel: ObservableObject {
         paperSummaryService: PaperSummaryService? = nil,
         llmWritebackService: LLMWritebackService? = nil,
         agentService: SciStationAgentService? = nil,
+        sidecarCoordinator: SidecarRuntimeCoordinator? = nil,
         markdownRepository: MarkdownRepository? = nil,
         markdownSnippetRepository: MarkdownSnippetRepository? = nil,
         pdfOpeningService: (any PDFOpeningService)? = nil
@@ -353,10 +360,12 @@ final class AppViewModel: ObservableObject {
         let resolvedOpenAIProvider = openAIProvider ?? OpenAICompatibleProvider()
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
+        let resolvedSidecarCoordinator = sidecarCoordinator ?? SidecarRuntimeCoordinator()
         let resolvedAgentService = agentService ?? SciStationAgentService(
             provider: resolvedOpenAIProvider,
             paperRepository: resolvedPaperRepository,
-            todoRepository: resolvedTodoRepository
+            todoRepository: resolvedTodoRepository,
+            sidecarCoordinator: resolvedSidecarCoordinator
         )
         let resolvedMarkdownRepository = markdownRepository ?? MarkdownRepository()
         let resolvedMarkdownSnippetRepository = markdownSnippetRepository ?? MarkdownSnippetRepository()
@@ -384,6 +393,7 @@ final class AppViewModel: ObservableObject {
         self.paperSummaryService = resolvedPaperSummaryService
         self.llmWritebackService = resolvedLLMWritebackService
         self.agentService = resolvedAgentService
+        self.sidecarCoordinator = resolvedSidecarCoordinator
         self.pdfImportService = PDFImportService(repository: resolvedPaperRepository)
         self.markdownRepository = resolvedMarkdownRepository
         self.markdownSnippetRepository = resolvedMarkdownSnippetRepository
@@ -803,18 +813,29 @@ final class AppViewModel: ObservableObject {
         if workspacePreferences.isSidecarDisabledForWorkspace {
             return "disabled for workspace"
         }
-        return agentSidecarHealthIsAvailable ? "ready" : "unavailable"
+        let dependencySummary = agentSidecarHealth.dependencies
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key):\($0.value ? "ok" : "missing")" }
+            .joined(separator: ", ")
+        return [
+            agentSidecarHealth.status,
+            agentSidecarHealth.pythonVersion.map { "python \($0)" },
+            agentSidecarHealth.sidecarVersion.map { "sidecar \($0)" },
+            dependencySummary.nilIfEmpty
+        ]
+        .compactMap { $0 }
+        .joined(separator: "; ")
     }
 
     var agentRuntimeFallbackSummary: String {
         workspacePreferences.agentRuntimeSelection.fallbackReason(
             sidecarAvailable: agentSidecarHealthIsAvailable,
             sidecarDisabled: workspacePreferences.isSidecarDisabledForWorkspace
-        ) ?? "No fallback active."
+        ) ?? agentSidecarHealth.fallbackReason ?? agentSidecarHealth.lastCrash ?? "No fallback active."
     }
 
     private var agentSidecarHealthIsAvailable: Bool {
-        false
+        agentSidecarHealth.status == "ready"
     }
 
     var agentMCPServerStatuses: [AgentMCPServerStatus] {
@@ -1017,14 +1038,22 @@ final class AppViewModel: ObservableObject {
     }
 
     func createWorkspace() {
+        createWorkspace(template: WorkspaceTemplateRegistry.literatureReview)
+    }
+
+    func createWorkspace(template: WorkspaceTemplate) {
         guard let destinationURL = Self.selectCreateWorkspaceURL() else {
             return
         }
 
         let compatibility = ResearchRoot.compatibility(at: destinationURL)
         runWorkspaceTask(compatibilityHint: compatibility) {
-            try await self.workspaceService.createWorkspace(at: destinationURL)
+            try await self.workspaceService.createWorkspace(at: destinationURL, template: template)
         }
+    }
+
+    func workspaceTemplatePreviewSummary(for template: WorkspaceTemplate) -> String {
+        WorkspaceTemplateRepository().preview(for: template).joined(separator: ", ")
     }
 
     func openWorkspace() {
@@ -1773,6 +1802,33 @@ final class AppViewModel: ObservableObject {
         selectedSection = .pdfReader
     }
 
+    func openEvidenceSource(_ jump: AgentEvidenceSourceJump) {
+        if let page = jump.pdfPage,
+           let sourceID = jump.sourceID,
+           let paper = papers.first(where: { $0.id == sourceID || $0.paperDirectoryRelativePath.contains(sourceID) }) {
+            selectedLibraryPaperIDs = [paper.id]
+            selectedPaperID = paper.id
+            var draft = paper
+            draft.lastReadPage = page
+            selectedPaperDraft = draft
+            selectedSection = .pdfReader
+            agentStatusMessage = "Opened PDF Reader at page \(page) for \(jump.lineTargetDescription)."
+            return
+        }
+
+        guard let url = jump.sourceURL else {
+            agentErrorMessage = jump.warning ?? "Evidence source is unavailable."
+            return
+        }
+
+        if NSWorkspace.shared.open(url) {
+            agentStatusMessage = "Opened source target: \(jump.lineTargetDescription)."
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            agentStatusMessage = "Could not open the line target directly; revealed source file for \(jump.lineTargetDescription)."
+        }
+    }
+
     func saveSelectedPaperChanges() {
         guard let currentWorkspace, let selectedPaperDraft else {
             return
@@ -2296,7 +2352,16 @@ final class AppViewModel: ObservableObject {
     }
 
     func restartAgentSidecar() {
-        agentStatusMessage = "Sidecar restart will run on the next LangGraph request."
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        Task {
+            agentSidecarHealth = await sidecarCoordinator.restart(for: currentResearchRoot)
+            agentStatusMessage = agentSidecarHealth.status == "ready"
+                ? "Sidecar restarted and health is ready."
+                : "Sidecar restart failed or is unavailable."
+        }
     }
 
     func openAgentRunDirectory() {
@@ -2310,11 +2375,46 @@ final class AppViewModel: ObservableObject {
     }
 
     func exportAgentDebugBundle() {
-        guard agentCurrentRun != nil else {
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        guard let run = agentCurrentRun else {
             agentErrorMessage = "No completed or active run is selected for debug export."
             return
         }
-        agentStatusMessage = "Debug bundle manifest excludes API keys, private paths, .env files, and Keychain data."
+        Task {
+            do {
+                let store = AgentRunDirectoryStore()
+                _ = try await store.saveReplay(runID: run.id, in: currentResearchRoot)
+                let preview = try await store.debugBundlePreview(runID: run.id, in: currentResearchRoot)
+                let confirmed = await MainActor.run { self.confirmAgentDebugBundleExport(preview) }
+                guard confirmed else {
+                    agentStatusMessage = "Debug bundle export cancelled."
+                    return
+                }
+                let bundleURL = try await store.saveDebugBundle(runID: run.id, in: currentResearchRoot)
+                NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
+                agentStatusMessage = "Debug bundle exported: \(bundleURL.lastPathComponent). Manifest excludes API keys, private paths, .env files, and Keychain data."
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func confirmAgentDebugBundleExport(_ preview: AgentDebugBundlePreview) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Export Debug Bundle"
+        alert.informativeText = [
+            "Run ID: \(preview.runID)",
+            "Included files:\n\(preview.includedFiles.isEmpty ? "- none" : preview.includedFiles.map { "- \($0)" }.joined(separator: "\n"))",
+            "Excluded patterns:\n\(preview.excludedPatterns.map { "- \($0)" }.joined(separator: "\n"))",
+            preview.privacyNotice
+        ].joined(separator: "\n\n")
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Export")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func disableSidecarForWorkspace() {
@@ -2942,6 +3042,8 @@ final class AppViewModel: ObservableObject {
         let executionOptions = AgentExecutionOptions(
             mode: .planOnly,
             loopPolicy: interactionMode == .conversation ? .readOnlyAutoApproveWritesRequireApproval : .manualApprovalOnly,
+            runtimeSelection: workspacePreferences.agentRuntimeSelection,
+            isSidecarDisabledForWorkspace: workspacePreferences.isSidecarDisabledForWorkspace,
             disabledHookIDs: agentDisabledHookIDs,
             plannerInstructions: interactionMode.plannerInstructions,
             allowedToolNames: allowedToolNames,
@@ -4144,6 +4246,9 @@ final class AppViewModel: ObservableObject {
             agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
             agentLocalMCPServerStatuses = try runtimeLoader.loadLocalMCPServerStatuses(in: root)
             rebuildAgentHookActivitySummary()
+            agentSidecarHealth = workspacePreferences.isSidecarDisabledForWorkspace
+                ? SidecarHealth(status: "disabled", fallbackReason: "Sidecar disabled for this workspace.")
+                : await sidecarCoordinator.refreshHealth()
         } catch {
             agentErrorMessage = error.localizedDescription
         }

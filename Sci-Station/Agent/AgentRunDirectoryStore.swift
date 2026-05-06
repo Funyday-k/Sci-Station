@@ -114,6 +114,8 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
     public var runID: String
     public var includedFiles: [String]
     public var excludedPatterns: [String]
+    public var redactionPolicy: String
+    public var runMetadata: [String: String]
     public var privacyNotice: String
     public var generatedAt: Date
 
@@ -122,6 +124,8 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         runID: String,
         includedFiles: [String],
         excludedPatterns: [String] = ["*.env", "*key*", "*token*", "Keychain", "private paths"],
+        redactionPolicy: String = "Default bundle includes only run metadata, events, checkpoints, critic reports, retrieval traces, and redacted replay data; prompt/response debug payloads are excluded unless explicitly saved redacted.",
+        runMetadata: [String: String] = [:],
         privacyNotice: String = "Debug bundle excludes API keys, private path inventories, environment files, and Keychain content.",
         generatedAt: Date = Date()
     ) {
@@ -129,6 +133,8 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         self.runID = runID
         self.includedFiles = includedFiles
         self.excludedPatterns = excludedPatterns
+        self.redactionPolicy = redactionPolicy
+        self.runMetadata = runMetadata
         self.privacyNotice = privacyNotice
         self.generatedAt = generatedAt
     }
@@ -138,8 +144,29 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         case runID = "run_id"
         case includedFiles = "included_files"
         case excludedPatterns = "excluded_patterns"
+        case redactionPolicy = "redaction_policy"
+        case runMetadata = "run_metadata"
         case privacyNotice = "privacy_notice"
         case generatedAt = "generated_at"
+    }
+}
+
+public nonisolated struct AgentDebugBundlePreview: Codable, Hashable, Sendable {
+    public var runID: String
+    public var includedFiles: [String]
+    public var excludedPatterns: [String]
+    public var privacyNotice: String
+
+    public nonisolated init(
+        runID: String,
+        includedFiles: [String],
+        excludedPatterns: [String],
+        privacyNotice: String
+    ) {
+        self.runID = runID
+        self.includedFiles = includedFiles
+        self.excludedPatterns = excludedPatterns
+        self.privacyNotice = privacyNotice
     }
 }
 
@@ -292,9 +319,44 @@ public actor AgentRunDirectoryStore {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
         let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json"]
         let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
-        let manifest = AgentDebugBundleManifest(runID: runID, includedFiles: included)
+        let events = try? eventEnvelopes(runID: runID, in: root)
+        let metadata: [String: String] = [
+            "run_id": runID,
+            "event_count": String(events?.count ?? 0),
+            "last_sequence": String(events?.map(\.sequence).max() ?? 0)
+        ]
+        let manifest = AgentDebugBundleManifest(runID: runID, includedFiles: included, runMetadata: metadata)
         try Self.encoder().encode(manifest).write(to: runDirectory.appendingPathComponent("debug_bundle_manifest.json", isDirectory: false), options: .atomic)
         return manifest
+    }
+
+    public func debugBundlePreview(runID: String, in root: ResearchRoot) throws -> AgentDebugBundlePreview {
+        let runDirectory = try ensureRunDirectory(runID: runID, in: root)
+        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "debug_bundle_manifest.json"]
+        let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
+        return AgentDebugBundlePreview(
+            runID: runID,
+            includedFiles: included,
+            excludedPatterns: AgentDebugBundleManifest(runID: runID, includedFiles: included).excludedPatterns,
+            privacyNotice: AgentDebugBundleManifest(runID: runID, includedFiles: included).privacyNotice
+        )
+    }
+
+    public func saveDebugBundle(runID: String, in root: ResearchRoot) throws -> URL {
+        let runDirectory = try ensureRunDirectory(runID: runID, in: root)
+        let manifest = try saveDebugBundleManifest(runID: runID, in: root)
+        var files: [(name: String, data: Data)] = []
+        let manifestURL = runDirectory.appendingPathComponent("debug_bundle_manifest.json", isDirectory: false)
+        files.append(("debug_bundle_manifest.json", try Data(contentsOf: manifestURL)))
+        for name in manifest.includedFiles where isAllowedDebugBundleFile(name) {
+            let url = runDirectory.appendingPathComponent(name, isDirectory: false)
+            guard fileManager.fileExists(atPath: url.path) else { continue }
+            let data = try redactedDebugFileData(at: url)
+            files.append((name, data))
+        }
+        let bundleURL = runDirectory.appendingPathComponent("debug_bundle.zip", isDirectory: false)
+        try SimpleZipWriter.write(files: files, to: bundleURL)
+        return bundleURL
     }
 
     private func appendJSONLine<T: Encodable>(_ value: T, to url: URL, encoder: JSONEncoder) throws {
@@ -359,7 +421,133 @@ public actor AgentRunDirectoryStore {
     private nonisolated static func redactPathLikeText(_ string: String) -> String {
         let homeRedacted = string.replacingOccurrences(of: NSHomeDirectory(), with: "~")
         let pattern = #"(?<![\w:])/(?:[^\s]+/)*[^\s]+"#
-        return homeRedacted.replacingOccurrences(of: pattern, with: "[PATH]", options: .regularExpression)
+        return redactSensitiveText(homeRedacted.replacingOccurrences(of: pattern, with: "[PATH]", options: .regularExpression))
+    }
+
+    private nonisolated static func redactSensitiveText(_ text: String) -> String {
+        var redacted = text.replacingOccurrences(of: #"sk-[A-Za-z0-9_\-]+"#, with: "[REDACTED]", options: .regularExpression)
+        redacted = redacted.replacingOccurrences(of: #"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,}\]]+"#, with: "$1=[REDACTED]", options: .regularExpression)
+        return redacted
+    }
+
+    private nonisolated func isAllowedDebugBundleFile(_ name: String) -> Bool {
+        guard !name.contains(".."), !name.hasPrefix("/"), !name.contains("/") else {
+            return false
+        }
+        let lowered = name.lowercased()
+        if lowered.contains(".env") || lowered.contains("key") || lowered.contains("token") || lowered.contains("secret") {
+            return false
+        }
+        return ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json"].contains(name)
+    }
+
+    private func redactedDebugFileData(at url: URL) throws -> Data {
+        let data = try Data(contentsOf: url)
+        guard let text = String(data: data, encoding: .utf8) else {
+            return data
+        }
+        return Data(Self.redactSensitiveText(text).utf8)
+    }
+}
+
+private nonisolated enum SimpleZipWriter {
+    struct Entry {
+        var name: String
+        var data: Data
+        var crc32: UInt32
+        var localHeaderOffset: UInt32
+    }
+
+    static func write(files: [(name: String, data: Data)], to url: URL) throws {
+        var archive = Data()
+        var entries: [Entry] = []
+        for file in files {
+            let nameData = Data(file.name.utf8)
+            let offset = UInt32(archive.count)
+            let crc = CRC32.checksum(file.data)
+            appendUInt32(0x04034b50, to: &archive)
+            appendUInt16(20, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt32(crc, to: &archive)
+            appendUInt32(UInt32(file.data.count), to: &archive)
+            appendUInt32(UInt32(file.data.count), to: &archive)
+            appendUInt16(UInt16(nameData.count), to: &archive)
+            appendUInt16(0, to: &archive)
+            archive.append(nameData)
+            archive.append(file.data)
+            entries.append(Entry(name: file.name, data: file.data, crc32: crc, localHeaderOffset: offset))
+        }
+
+        let centralDirectoryOffset = UInt32(archive.count)
+        for entry in entries {
+            let nameData = Data(entry.name.utf8)
+            appendUInt32(0x02014b50, to: &archive)
+            appendUInt16(20, to: &archive)
+            appendUInt16(20, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt32(entry.crc32, to: &archive)
+            appendUInt32(UInt32(entry.data.count), to: &archive)
+            appendUInt32(UInt32(entry.data.count), to: &archive)
+            appendUInt16(UInt16(nameData.count), to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt32(0, to: &archive)
+            appendUInt32(entry.localHeaderOffset, to: &archive)
+            archive.append(nameData)
+        }
+        let centralDirectorySize = UInt32(archive.count) - centralDirectoryOffset
+        appendUInt32(0x06054b50, to: &archive)
+        appendUInt16(0, to: &archive)
+        appendUInt16(0, to: &archive)
+        appendUInt16(UInt16(entries.count), to: &archive)
+        appendUInt16(UInt16(entries.count), to: &archive)
+        appendUInt32(centralDirectorySize, to: &archive)
+        appendUInt32(centralDirectoryOffset, to: &archive)
+        appendUInt16(0, to: &archive)
+        try archive.write(to: url, options: .atomic)
+    }
+
+    private static func appendUInt16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(value & 0xff))
+        data.append(UInt8((value >> 8) & 0xff))
+    }
+
+    private static func appendUInt32(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8(value & 0xff))
+        data.append(UInt8((value >> 8) & 0xff))
+        data.append(UInt8((value >> 16) & 0xff))
+        data.append(UInt8((value >> 24) & 0xff))
+    }
+}
+
+private nonisolated enum CRC32 {
+    static let table: [UInt32] = (0..<256).map { index in
+        var crc = UInt32(index)
+        for _ in 0..<8 {
+            if crc & 1 == 1 {
+                crc = 0xedb88320 ^ (crc >> 1)
+            } else {
+                crc >>= 1
+            }
+        }
+        return crc
+    }
+
+    static func checksum(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xffffffff
+        for byte in data {
+            let index = Int((crc ^ UInt32(byte)) & 0xff)
+            crc = table[index] ^ (crc >> 8)
+        }
+        return crc ^ 0xffffffff
     }
 }
 

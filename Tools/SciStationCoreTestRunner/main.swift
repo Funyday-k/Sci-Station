@@ -92,9 +92,13 @@ private struct CoreVerificationSuite {
         try citationCriticBlocksUnsupportedClaims()
         try await evidenceRefsJumpToSourceLineRange()
         try await sidecarRuntimeSelectorPersistsAndFallbacks()
+        try await sidecarRuntimeCoordinatorResolvesHealthAndSelection()
         try await runReplayLoadsTimelineFromRunDirectory()
+        try await debugBundleManifestAndZipExcludeSecrets()
         try embeddingFallbackUsesFTSWhenDisabled()
         try agentEvidenceRefStableIDMarksStale()
+        try await evidenceSourceJumpMapsPDFPageWhenAvailable()
+        try await workspaceTemplateModuleConfigWritesAndLegacyMigration()
         try await runtimeEventEnvelopeSequencesAreStableAndDeduplicated()
         try agentHumanDecisionActionDecodesLegacyAliases()
         try agentToolRiskUnknownValueDecodesAsExternalSideEffect()
@@ -2705,6 +2709,23 @@ private struct CoreVerificationSuite {
         try expect(loaded.agentRuntimeSelection.fallbackReason(sidecarAvailable: false) != nil, "Fallback should explain why Swift Loop is active.")
     }
 
+    private func sidecarRuntimeCoordinatorResolvesHealthAndSelection() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "RuntimeCoordinatorWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let coordinator = sidecarCoordinator(fixtureName: "run_success_paper_reading.jsonl")
+        defer { Task { await coordinator.stop() } }
+
+        let auto = await coordinator.resolve(selection: .autoFallback, sidecarDisabled: false, root: fixture.root)
+        let forcedSwift = await coordinator.resolve(selection: .swiftLoop, sidecarDisabled: false, root: fixture.root)
+        let disabled = await coordinator.resolve(selection: .langGraphSidecar, sidecarDisabled: true, root: fixture.root)
+
+        try expect(auto.health.status == "ready", "Coordinator should start and read sidecar health for auto fallback.")
+        try expect(auto.effectiveRuntime == .langGraphSidecar && auto.shouldAttemptSidecar, "Auto fallback should use sidecar when health is ready.")
+        try expect(forcedSwift.effectiveRuntime == .swiftLoop && !forcedSwift.shouldAttemptSidecar, "Swift Loop selection should not attempt sidecar.")
+        try expect(disabled.effectiveRuntime == .swiftLoop && disabled.fallbackReason != nil, "Workspace sidecar disable should force Swift Loop with a reason.")
+    }
+
     private func runReplayLoadsTimelineFromRunDirectory() async throws {
         let fixture = try await loopWorkspaceFixture(named: "RunReplayWorkspace")
         defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -2731,11 +2752,78 @@ private struct CoreVerificationSuite {
         }
     }
 
+    private func debugBundleManifestAndZipExcludeSecrets() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "DebugBundleWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let store = AgentRunDirectoryStore()
+        try await store.appendEvent(
+            AgentRuntimeEventEnvelope(id: "evt-secret", runID: "debug-run", sequence: 1, event: .finalResponse(AgentFinalResponse(markdown: "Token sk-secret should be redacted."))),
+            in: fixture.root
+        )
+        try await store.saveCriticReport(.object(["api_key": .string("sk-secret")]), runID: "debug-run", in: fixture.root)
+        try await store.saveRetrievalTrace(.object(["source": .string("/private/tmp/source.md")]), runID: "debug-run", in: fixture.root)
+        _ = try await store.saveReplay(runID: "debug-run", in: fixture.root, debugPromptResponse: .object(["token": .string("sk-secret")]))
+        let preview = try await store.debugBundlePreview(runID: "debug-run", in: fixture.root)
+        let zipURL = try await store.saveDebugBundle(runID: "debug-run", in: fixture.root)
+        let zipData = try Data(contentsOf: zipURL)
+        let zipText = String(data: zipData, encoding: .utf8) ?? ""
+        let manifest = try await store.saveDebugBundleManifest(runID: "debug-run", in: fixture.root)
+
+        try expect(preview.includedFiles.contains("events.jsonl"), "Debug preview should list included run files before export.")
+        try expect(manifest.redactionPolicy.contains("prompt/response"), "Debug manifest should record the redaction policy.")
+        try expect(FileManager.default.fileExists(atPath: zipURL.path), "Debug bundle should be a real zip file on disk.")
+        try expect(!zipText.contains("sk-secret"), "Debug bundle zip should not contain raw API keys or tokens.")
+        try expect(!zipText.contains("/private/tmp"), "Debug bundle zip should not contain private path inventory.")
+    }
+
     private func embeddingFallbackUsesFTSWhenDisabled() throws {
         let configuration = AgentEmbeddingRetrievalConfiguration(enabled: false, provider: "swift-proxy", model: "embedding-test", dimension: 3, store: "sqlite-vec")
 
         try expect(configuration.usesFTSFallback, "Embedding retrieval should preserve FTS-only fallback when disabled.")
         try expect(configuration.store == "sqlite-vec", "Embedding retrieval config should preserve local store selection.")
+    }
+
+    private func evidenceSourceJumpMapsPDFPageWhenAvailable() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "EvidencePDFPageWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let paperDirectory = fixture.root.directoryURL(for: "library/papers/p1")
+        try FileManager.default.createDirectory(at: paperDirectory, withIntermediateDirectories: true)
+        try "# Intro\nLine anchored evidence.\n".write(to: paperDirectory.appendingPathComponent("paper.md"), atomically: true, encoding: .utf8)
+        try Data("%PDF-1.4\n".utf8).write(to: paperDirectory.appendingPathComponent("paper.pdf"), options: .atomic)
+        try #"{"mappings":[{"start_line":1,"end_line":5,"page":3}]}"#.write(to: paperDirectory.appendingPathComponent("paper_page_map.json"), atomically: true, encoding: .utf8)
+
+        let evidence = AgentEvidenceRef(sourceType: "paper", sourceID: "p1", relativePath: "library/papers/p1/paper.md", startLine: 1, endLine: 2, sourceHash: "sha256:a")
+        let jump = evidence.sourceJump(in: fixture.root, currentSourceHash: "sha256:a")
+
+        try expect(jump.pdfPage == 3, "Evidence source jump should map paper.md line range to PDF page when page mapping exists.")
+        try expect(jump.pdfRelativePath == "library/papers/p1/paper.pdf", "PDF page target should default to the paper directory PDF.")
+        try expect(jump.lineTargetDescription.contains("lines 1-2"), "Evidence jump should expose a line target descriptor.")
+    }
+
+    private func workspaceTemplateModuleConfigWritesAndLegacyMigration() async throws {
+        let baseURL = FileManager.default.temporaryDirectory.appendingPathComponent("SciStationTemplateTest-\(UUID().uuidString)", isDirectory: true)
+        let minimalURL = baseURL.appendingPathComponent("Minimal", isDirectory: true)
+        let legacyURL = baseURL.appendingPathComponent("Legacy", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: baseURL) }
+
+        let service = WorkspaceService()
+        let minimalWorkspace = try await service.createWorkspace(at: minimalURL, template: WorkspaceTemplateRegistry.minimal)
+        let minimalTemplate = try String(contentsOf: minimalWorkspace.fileURL(for: WorkspaceTemplateRepository.templateRelativePath), encoding: .utf8)
+        let minimalModules = try String(contentsOf: minimalWorkspace.fileURL(for: WorkspaceTemplateRepository.modulesRelativePath), encoding: .utf8)
+
+        try expect(minimalTemplate.contains(#"id: "minimal-workspace""#), "Minimal workspace should write workspace_template.yaml.")
+        try expect(minimalModules.contains(#"id: "paper-library""#), "Workspace module config should include built-in paper-library declaration.")
+        try expect(minimalModules.contains(#"enabled: false"#), "Minimal template should keep disabled built-in modules declared without deleting data.")
+
+        try FileManager.default.createDirectory(at: legacyURL.appendingPathComponent("raw/papers", isDirectory: true), withIntermediateDirectories: true)
+        _ = try await service.openWorkspace(at: legacyURL)
+        let legacyTemplateURL = legacyURL.appendingPathComponent(WorkspaceTemplateRepository.templateRelativePath, isDirectory: false)
+        let legacyModulesURL = legacyURL.appendingPathComponent(WorkspaceTemplateRepository.modulesRelativePath, isDirectory: false)
+        try expect(FileManager.default.fileExists(atPath: legacyTemplateURL.path), "Opening legacy workspace should backfill workspace_template.yaml.")
+        try expect(FileManager.default.fileExists(atPath: legacyModulesURL.path), "Opening legacy workspace should backfill workspace_modules.yaml.")
+        try expect(FileManager.default.fileExists(atPath: legacyURL.appendingPathComponent("raw/papers", isDirectory: true).path), "Legacy migration should not delete existing user data.")
     }
 
     private func runtimeEventEnvelopeSequencesAreStableAndDeduplicated() async throws {
@@ -4316,6 +4404,27 @@ private struct CoreVerificationSuite {
             supervisor: SidecarProcessSupervisor(configuration: configuration),
             fallbackRuntime: nil
         )
+    }
+
+    private func sidecarCoordinator(
+        fixtureName: String,
+        handshakeTimeout: TimeInterval = 5
+    ) -> SidecarRuntimeCoordinator {
+        let repositoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let runtimeURL = repositoryURL.appendingPathComponent("AgentRuntime", isDirectory: true)
+        let fixtureURL = runtimeURL.appendingPathComponent("tests/fixtures/\(fixtureName)", isDirectory: false)
+        let configuration = SidecarLaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: ["python3", "-m", "sci_station_agent.main", "--fixture", fixtureURL.path],
+            environment: [
+                "PYTHONPATH": runtimeURL.path,
+                "PYTHONUNBUFFERED": "1"
+            ],
+            workingDirectoryURL: repositoryURL,
+            handshakeTimeout: handshakeTimeout,
+            requestTimeout: 5
+        )
+        return SidecarRuntimeCoordinator(supervisor: SidecarProcessSupervisor(configuration: configuration))
     }
 
     private func sidecarRuntimeRequest(

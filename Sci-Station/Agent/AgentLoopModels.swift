@@ -294,6 +294,8 @@ public nonisolated struct AgentEvidenceRef: Codable, Hashable, Sendable, Identif
         guard let relativePath, !relativePath.isEmpty else {
             return AgentEvidenceSourceJump(
                 evidenceID: id,
+                sourceType: sourceType,
+                sourceID: sourceID,
                 relativePath: nil,
                 sourceURL: nil,
                 startLine: lines.first,
@@ -317,16 +319,77 @@ public nonisolated struct AgentEvidenceRef: Codable, Hashable, Sendable, Identif
             status = .available
             warning = nil
         }
+        let pdfTarget = Self.pdfPageTarget(for: relativePath, startLine: lines.first, in: root)
 
         return AgentEvidenceSourceJump(
             evidenceID: id,
+            sourceType: sourceType,
+            sourceID: sourceID,
             relativePath: relativePath,
             sourceURL: exists ? url : nil,
             startLine: lines.first,
             endLine: lines.dropFirst().first,
             status: status,
-            warning: warning
+            warning: warning,
+            pdfRelativePath: pdfTarget?.relativePath,
+            pdfURL: pdfTarget?.url,
+            pdfPage: pdfTarget?.page
         )
+    }
+
+    private nonisolated static func pdfPageTarget(for relativePath: String, startLine: Int?, in root: ResearchRoot) -> (relativePath: String, url: URL, page: Int)? {
+        guard let startLine, relativePath.hasSuffix("/paper.md") || relativePath.hasSuffix("/annotations.md") else {
+            return nil
+        }
+        let directoryPath = relativePath.split(separator: "/").dropLast().joined(separator: "/")
+        let mappingNames = ["paper_page_map.json", "page_mapping.json", "markdown_page_map.json"]
+        for mappingName in mappingNames {
+            let mappingRelativePath = directoryPath + "/" + mappingName
+            let mappingURL = root.fileURL(for: mappingRelativePath)
+            guard let data = try? Data(contentsOf: mappingURL),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            if let target = targetFromMappingObject(object, startLine: startLine, directoryPath: directoryPath, root: root) {
+                return target
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func targetFromMappingObject(_ object: [String: Any], startLine: Int, directoryPath: String, root: ResearchRoot) -> (relativePath: String, url: URL, page: Int)? {
+        if let linePages = object["line_pages"] as? [String: Any] {
+            let page = (linePages[String(startLine)] as? NSNumber)?.intValue
+                ?? (linePages[String(startLine)] as? String).flatMap(Int.init)
+            if let page {
+                return pdfTarget(relativePath: object["pdf_relative_path"] as? String, directoryPath: directoryPath, page: page, root: root)
+            }
+        }
+        let candidates = (object["mappings"] as? [[String: Any]]) ?? (object["pages"] as? [[String: Any]]) ?? []
+        for candidate in candidates {
+            let start = intValue(candidate["start_line"]) ?? intValue(candidate["startLine"]) ?? intValue(candidate["line"]) ?? 1
+            let end = intValue(candidate["end_line"]) ?? intValue(candidate["endLine"]) ?? start
+            guard startLine >= start && startLine <= end, let page = intValue(candidate["page"]) else {
+                continue
+            }
+            return pdfTarget(relativePath: candidate["pdf_relative_path"] as? String, directoryPath: directoryPath, page: page, root: root)
+        }
+        return nil
+    }
+
+    private nonisolated static func pdfTarget(relativePath: String?, directoryPath: String, page: Int, root: ResearchRoot) -> (relativePath: String, url: URL, page: Int)? {
+        let resolvedRelativePath = relativePath?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? directoryPath + "/paper.pdf"
+        let url = root.fileURL(for: resolvedRelativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return (resolvedRelativePath, url, max(page, 1))
+    }
+
+    private nonisolated static func intValue(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -352,29 +415,57 @@ public nonisolated enum AgentEvidenceSourceStatus: String, Codable, Hashable, Se
 
 public nonisolated struct AgentEvidenceSourceJump: Codable, Hashable, Sendable {
     public var evidenceID: String
+    public var sourceType: String?
+    public var sourceID: String?
     public var relativePath: String?
     public var sourceURL: URL?
     public var startLine: Int?
     public var endLine: Int?
     public var status: AgentEvidenceSourceStatus
     public var warning: String?
+    public var pdfRelativePath: String?
+    public var pdfURL: URL?
+    public var pdfPage: Int?
 
     public nonisolated init(
         evidenceID: String,
+        sourceType: String? = nil,
+        sourceID: String? = nil,
         relativePath: String?,
         sourceURL: URL?,
         startLine: Int?,
         endLine: Int?,
         status: AgentEvidenceSourceStatus,
-        warning: String? = nil
+        warning: String? = nil,
+        pdfRelativePath: String? = nil,
+        pdfURL: URL? = nil,
+        pdfPage: Int? = nil
     ) {
         self.evidenceID = evidenceID
+        self.sourceType = sourceType
+        self.sourceID = sourceID
         self.relativePath = relativePath
         self.sourceURL = sourceURL
         self.startLine = startLine
         self.endLine = endLine
         self.status = status
         self.warning = warning
+        self.pdfRelativePath = pdfRelativePath
+        self.pdfURL = pdfURL
+        self.pdfPage = pdfPage
+    }
+
+    public nonisolated var lineTargetDescription: String {
+        guard let relativePath else {
+            return warning ?? "Source path is unavailable."
+        }
+        if let startLine, let endLine {
+            return "\(relativePath) lines \(startLine)-\(endLine)"
+        }
+        if let startLine {
+            return "\(relativePath) line \(startLine)"
+        }
+        return relativePath
     }
 }
 

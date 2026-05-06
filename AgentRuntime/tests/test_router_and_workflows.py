@@ -1,3 +1,9 @@
+import json
+from zipfile import ZipFile
+
+import pytest
+
+from sci_station_agent.server import SidecarServer
 from sci_station_agent.graph.paper_reading import draft_paper_reading_note
 from sci_station_agent.graph.related_work import draft_related_work_production
 from sci_station_agent.graph.gap_planning import draft_gap_planning_production
@@ -6,7 +12,7 @@ from sci_station_agent.graph.router import route_intent
 from sci_station_agent.rag.fts_index import ResourceDocument, FTSIndex, content_hash
 from sci_station_agent.rag.evidence import is_stale, stable_evidence_id
 from sci_station_agent.rag.retriever import EmbeddingConfig, FTSRetriever, HybridRetriever, InMemoryEmbeddingIndex
-from sci_station_agent.storage.events import append_event, read_replay, write_replay
+from sci_station_agent.storage.events import append_event, read_replay, write_debug_bundle, write_replay
 
 
 def test_router_selects_scientific_workflows() -> None:
@@ -14,6 +20,54 @@ def test_router_selects_scientific_workflows() -> None:
     assert route_intent({"user_goal": "related work draft", "project_id": "proj"}) == "related_work"
     assert route_intent({"user_goal": "research gaps and next steps", "project_id": "proj"}) == "gap_planning"
     assert route_intent({"user_goal": "hello"}) == "general"
+
+
+@pytest.mark.parametrize(
+    ("goal", "selected_paper_id", "project_id", "workflow", "artifact_kind", "target_path"),
+    [
+        ("请精读这篇论文", "p1", None, "paper_reading", "paper_reading_note", "wiki/papers/p1.md"),
+        ("draft related work", None, "project-alpha", "related_work", "related_work", "projects/project-alpha/wiki/related_work.md"),
+        ("research gaps and next steps", None, "project-alpha", "gap_planning", "research_plan", "projects/project-alpha/wiki/research_plan.md"),
+    ],
+)
+def test_agent_start_routes_to_production_workflows(tmp_path, goal, selected_paper_id, project_id, workflow, artifact_kind, target_path) -> None:
+    server = SidecarServer()
+    init_response = server.handle({
+        "jsonrpc": "2.0",
+        "id": "init",
+        "method": "sidecar.initialize",
+        "params": {"protocolVersion": "1.0", "schemaVersion": 1, "workspaceRoot": str(tmp_path)},
+    })
+    assert init_response and init_response["result"]["workspaceAccepted"]
+
+    run_id = f"run-{workflow}"
+    response = server.handle({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "agent.start",
+        "params": {
+            "runID": run_id,
+            "goal": goal,
+            "selectedPaperID": selected_paper_id,
+            "projectID": project_id,
+            "workspaceRoot": str(tmp_path),
+        },
+    })
+
+    assert response and response["result"]["accepted"]
+    events = [action["envelope"] for action in server.pending_actions if action.get("kind") == "event"]
+    event_types = [event["event"]["type"] for event in events]
+    artifact = next(event["event"]["payload"] for event in events if event["event"]["type"] == "artifact_draft")
+    run_directory = tmp_path / ".sci-station" / "agent" / "runs" / run_id
+    trace = json.loads((run_directory / "retrieval_trace.json").read_text(encoding="utf-8"))
+
+    assert event_types == ["run_started", "node_started", "artifact_draft", "final_response"]
+    assert artifact["kind"] == artifact_kind
+    assert artifact["proposed_path"] == target_path
+    assert trace["workflow"] == workflow
+    assert (run_directory / "critic_report.json").exists()
+    assert (run_directory / "evidence.json").exists()
+    assert not (tmp_path / target_path).exists()
 
 
 def test_evidence_id_is_stable_and_stale_detection_is_hash_based() -> None:
@@ -182,6 +236,25 @@ def test_run_replay_redaction(tmp_path) -> None:
     assert replay["debug"]["api_key"] == "[REDACTED]"
     assert str(tmp_path) not in replay["debug"]["prompt"]
     assert loaded["events"][0]["id"] == "evt-1"
+
+
+def test_debug_bundle_zip_redacts_sensitive_content(tmp_path) -> None:
+    run_directory = tmp_path / "run-zip"
+    append_event(run_directory, {"id": "evt-1", "event": {"type": "final_response", "payload": {"markdown": "token sk-secret"}}})
+    (run_directory / "critic_report.json").write_text(json.dumps({"api_key": "sk-secret"}), encoding="utf-8")
+    (run_directory / "retrieval_trace.json").write_text(json.dumps({"path": f"{tmp_path}/paper.md"}), encoding="utf-8")
+    write_replay(run_directory, include_debug_text=True, prompt_response={"token": "sk-secret", "prompt": f"read {tmp_path}/paper.md"})
+    bundle = write_debug_bundle(run_directory)
+
+    with ZipFile(bundle) as archive:
+        names = set(archive.namelist())
+        contents = "\n".join(archive.read(name).decode("utf-8", errors="ignore") for name in names)
+
+    assert "debug_bundle_manifest.json" in names
+    assert "critic_report.json" in names
+    assert "sk-secret" not in contents
+    assert str(tmp_path) not in contents
+    assert ".env" not in names
 
 
 def sample_evidence_table() -> list[dict]:

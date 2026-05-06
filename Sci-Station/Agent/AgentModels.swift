@@ -1371,6 +1371,8 @@ public nonisolated struct AgentExecutionOptions: Sendable {
     public var mode: AgentRunMode
     public var approvedToolCallIDs: Set<String>
     public var loopPolicy: AgentLoopPolicy
+    public var runtimeSelection: AgentRuntimeSelection
+    public var isSidecarDisabledForWorkspace: Bool
     public var disabledHookIDs: Set<String>
     public var plannerInstructions: String?
     public var allowedToolNames: Set<String>?
@@ -1380,6 +1382,8 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         mode: AgentRunMode = .planOnly,
         approvedToolCallIDs: Set<String> = [],
         loopPolicy: AgentLoopPolicy = .manualApprovalOnly,
+        runtimeSelection: AgentRuntimeSelection = .swiftLoop,
+        isSidecarDisabledForWorkspace: Bool = false,
         disabledHookIDs: Set<String> = [],
         plannerInstructions: String? = nil,
         allowedToolNames: Set<String>? = nil,
@@ -1388,6 +1392,8 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         self.mode = mode
         self.approvedToolCallIDs = approvedToolCallIDs
         self.loopPolicy = loopPolicy
+        self.runtimeSelection = runtimeSelection
+        self.isSidecarDisabledForWorkspace = isSidecarDisabledForWorkspace
         self.disabledHookIDs = disabledHookIDs
         self.plannerInstructions = plannerInstructions
         self.allowedToolNames = allowedToolNames

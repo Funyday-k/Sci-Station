@@ -4,20 +4,23 @@ public actor WorkspaceService {
     private let fileManager: FileManager
     private let bookmarkStore: WorkspaceBookmarkStore
     private let projectRegistryRepository: ProjectRegistryRepository
+    private let workspaceTemplateRepository: WorkspaceTemplateRepository
     private var activeSecurityScopedURL: URL?
     private var activeSecurityScopeStarted = false
 
     public init(
         fileManager: FileManager = .default,
         bookmarkStore: WorkspaceBookmarkStore = WorkspaceBookmarkStore(),
-        projectRegistryRepository: ProjectRegistryRepository = ProjectRegistryRepository()
+        projectRegistryRepository: ProjectRegistryRepository = ProjectRegistryRepository(),
+        workspaceTemplateRepository: WorkspaceTemplateRepository = WorkspaceTemplateRepository()
     ) {
         self.fileManager = fileManager
         self.bookmarkStore = bookmarkStore
         self.projectRegistryRepository = projectRegistryRepository
+        self.workspaceTemplateRepository = workspaceTemplateRepository
     }
 
-    public func createWorkspace(at rootURL: URL) async throws -> ResearchWorkspace {
+    public func createWorkspace(at rootURL: URL, template: WorkspaceTemplate = WorkspaceTemplateRegistry.literatureReview) async throws -> ResearchWorkspace {
         guard rootURL.isFileURL else {
             throw WorkspaceError.invalidRootURL
         }
@@ -29,6 +32,7 @@ public actor WorkspaceService {
         let compatibility = ResearchRoot.compatibility(at: rootURL, using: fileManager)
         try ensureWorkspaceStructure(for: workspace)
         try ensureResearchRootStructure(for: researchRoot)
+        try workspaceTemplateRepository.overwriteTemplateConfiguration(template, in: researchRoot)
         try await projectRegistryRepository.ensureDefaultProject(
             in: researchRoot,
             named: rootURL.lastPathComponent,
@@ -56,6 +60,7 @@ public actor WorkspaceService {
 
         try ensureWorkspaceStructure(for: workspace)
         try ensureResearchRootStructure(for: researchRoot)
+        try workspaceTemplateRepository.ensureTemplateConfiguration(WorkspaceTemplateRegistry.literatureReview, in: researchRoot)
         try await projectRegistryRepository.ensureDefaultProject(
             in: researchRoot,
             named: rootURL.lastPathComponent,

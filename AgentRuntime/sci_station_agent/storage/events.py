@@ -44,8 +44,11 @@ def write_debug_bundle(run_directory: Path) -> Path:
     allowed_names = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json"]
     manifest = {
         "schema_version": 1,
+        "run_id": run_directory.name,
         "included_files": [name for name in allowed_names if (run_directory / name).exists()],
         "excluded_patterns": ["*.env", "*key*", "*token*", "private paths", "Keychain"],
+        "redaction_policy": "Default bundle includes only run logs, checkpoints, replay, critic reports, and retrieval traces; explicit debug prompt/response content must be redacted before writing replay.json.",
+        "run_metadata": {"run_directory": run_directory.name},
         "privacy_notice": "Debug bundle excludes API keys, private path inventories, environment files, and Keychain content.",
     }
     (run_directory / "debug_bundle_manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2), encoding="utf-8")
@@ -53,7 +56,7 @@ def write_debug_bundle(run_directory: Path) -> Path:
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as archive:
         archive.write(run_directory / "debug_bundle_manifest.json", "debug_bundle_manifest.json")
         for name in manifest["included_files"]:
-            archive.write(run_directory / name, name)
+            archive.writestr(name, _redacted_text((run_directory / name).read_text(encoding="utf-8")))
     return bundle_path
 
 
@@ -77,3 +80,10 @@ def _redacted_debug(value: dict) -> dict:
         else:
             redacted[key] = item
     return redacted
+
+
+def _redacted_text(value: str) -> str:
+    without_home = value.replace(str(Path.home()), "~")
+    without_paths = re.sub(r"(?<![\w:])/(?:[^\s]+/)*[^\s]+", "[PATH]", without_home)
+    without_tokens = re.sub(r"sk-[A-Za-z0-9_\-]+", "[REDACTED]", without_paths)
+    return re.sub(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,}\]]+", r"\1=[REDACTED]", without_tokens)

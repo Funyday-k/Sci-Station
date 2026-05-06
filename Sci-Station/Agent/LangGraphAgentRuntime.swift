@@ -42,6 +42,7 @@ public nonisolated struct SidecarAgentResumeRequest: Codable, Hashable, Sendable
 public actor LangGraphAgentRuntime: ExternalAgentRuntime {
     private let supervisor: SidecarProcessSupervisor
     private let fallbackRuntime: (any ExternalAgentRuntime)?
+    private let healthCoordinator: SidecarRuntimeCoordinator?
     private let runDirectoryStore: AgentRunDirectoryStore
     private let executionLedger: AgentToolExecutionLedger
     private var requestsByRunID: [String: AgentRuntimeRequest] = [:]
@@ -51,11 +52,13 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
     public init(
         supervisor: SidecarProcessSupervisor,
         fallbackRuntime: (any ExternalAgentRuntime)? = LegacySwiftAgentRuntime(),
+        healthCoordinator: SidecarRuntimeCoordinator? = nil,
         runDirectoryStore: AgentRunDirectoryStore = AgentRunDirectoryStore(),
         executionLedger: AgentToolExecutionLedger? = nil
     ) {
         self.supervisor = supervisor
         self.fallbackRuntime = fallbackRuntime
+        self.healthCoordinator = healthCoordinator
         self.runDirectoryStore = runDirectoryStore
         self.executionLedger = executionLedger ?? AgentToolExecutionLedger(runDirectoryStore: runDirectoryStore)
     }
@@ -154,6 +157,7 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
             await terminal.wait()
         } catch {
             let runtimeError = AgentRuntimeError(code: .sidecarUnavailable, message: error.localizedDescription)
+            await healthCoordinator?.recordFallback(runtimeError.message)
             try await appendRuntimeEvent(.sidecarUnavailable(runtimeError), for: request, continuation: continuation)
             try await appendRuntimeEvent(.fallbackToLegacyRuntime(runtimeError), for: request, continuation: continuation)
             try await streamFallbackIfAvailable(request, continuation: continuation)
@@ -315,6 +319,7 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
 
     private func recordSidecarCrash(exitCode: Int32, for request: AgentRuntimeRequest) async {
         let error = AgentRuntimeError(code: .sidecarCrashed, message: "Sidecar process exited with status \(exitCode).")
+        await healthCoordinator?.recordCrash(error.message)
         _ = try? await appendRuntimeEvent(.sidecarCrashed(error), for: request, continuation: nil)
     }
 }

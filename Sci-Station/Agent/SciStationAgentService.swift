@@ -12,6 +12,7 @@ public actor SciStationAgentService {
     private let loopRunner: AgentLoopRunner
     private let loopCheckpointStore: AgentLoopCheckpointStore
     private let legacyRuntime: LegacySwiftAgentRuntime
+    private let sidecarCoordinator: SidecarRuntimeCoordinator
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
@@ -26,6 +27,7 @@ public actor SciStationAgentService {
         toolExecutor: AgentToolExecutor? = nil,
         runLogger: AgentRunLogger = AgentRunLogger(),
         sessionEventLogger: AgentSessionEventLogger = AgentSessionEventLogger(),
+        sidecarCoordinator: SidecarRuntimeCoordinator = SidecarRuntimeCoordinator(),
         threadRepository: AgentThreadRepository = AgentThreadRepository(),
         draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
         hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks()
@@ -62,6 +64,7 @@ public actor SciStationAgentService {
         self.loopCheckpointStore = resolvedLoopCheckpointStore
         self.loopRunner = resolvedLoopRunner
         self.legacyRuntime = LegacySwiftAgentRuntime(loopRunner: resolvedLoopRunner)
+        self.sidecarCoordinator = sidecarCoordinator
         self.threadRepository = threadRepository
         self.draftRepository = draftRepository
         self.hookDefinitions = hookDefinitions
@@ -164,13 +167,27 @@ public actor SciStationAgentService {
                 permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
                 responseDeltaHandler: responseDeltaHandler
             )
-            let stream = try await legacyRuntime.startRun(runtimeRequest)
-            for try await _ in stream {}
-            guard let loopResult = await legacyRuntime.completedLoopResult(runID: runID) else {
-                throw AgentError.invalidArguments("Legacy Swift runtime completed without a loop result.")
+            let decision = await sidecarCoordinator.resolve(
+                selection: options.runtimeSelection,
+                sidecarDisabled: options.isSidecarDisabledForWorkspace,
+                root: resolvedRoot
+            )
+            let runtime: any ExternalAgentRuntime = decision.shouldAttemptSidecar
+                ? await sidecarCoordinator.langGraphRuntime(fallbackRuntime: legacyRuntime)
+                : legacyRuntime
+            let stream = try await runtime.startRun(runtimeRequest)
+            var runtimeEvents: [AgentRuntimeEventEnvelope] = []
+            for try await envelope in stream {
+                runtimeEvents.append(envelope)
             }
-            let run = run(from: loopResult, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
+            if let loopResult = await legacyRuntime.completedLoopResult(runID: runID) {
+                let run = run(from: loopResult, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
+                try await runLogger.append(run, in: resolvedRoot)
+                return run
+            }
+            let run = run(from: runtimeEvents, goal: goal, createdAt: createdAt, currentProjectID: currentProjectID)
             try await runLogger.append(run, in: resolvedRoot)
+            try await appendRuntimeSessionEvents(for: runtimeEvents, run: run, in: resolvedRoot)
             return run
         }
 
@@ -664,6 +681,198 @@ public actor SciStationAgentService {
             toolResults: loopResult.toolResults,
             currentProjectID: currentProjectID
         )
+    }
+
+    private func run(
+        from envelopes: [AgentRuntimeEventEnvelope],
+        goal: String,
+        createdAt: Date,
+        currentProjectID: ResearchProject.ID?
+    ) -> AgentRun {
+        let events = envelopes.map(\.event)
+        let toolCalls = events.compactMap { event -> AgentToolCall? in
+            if case let .toolCallRequested(payload) = event {
+                return AgentToolCall(id: payload.toolCallID, toolName: payload.tool, argumentsJSON: payload.arguments.canonicalJSON)
+            }
+            if case let .approvalRequired(payload) = event {
+                return AgentToolCall(id: payload.toolCallID, toolName: payload.tool, argumentsJSON: payload.arguments.canonicalJSON)
+            }
+            return nil
+        }
+        let toolResults = events.compactMap { event -> AgentToolResult? in
+            if case let .toolCallCompleted(payload) = event {
+                return payload.result.agentToolResult()
+            }
+            return nil
+        }
+        let finalResponse = events.compactMap { event -> String? in
+            if case let .finalResponse(payload) = event {
+                return payload.markdown.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            }
+            return nil
+        }.last
+        let pendingApproval = events.compactMap { event -> AgentApprovalRequest? in
+            if case let .approvalRequired(payload) = event { return payload }
+            return nil
+        }.last
+        let failure = events.compactMap { event -> AgentRuntimeError? in
+            if case let .runFailed(payload) = event { return payload.error }
+            if case let .sidecarUnavailable(payload) = event { return payload }
+            if case let .sidecarCrashed(payload) = event { return payload }
+            return nil
+        }.last
+        let artifactCount = events.filter { event in
+            if case .artifactDraft = event { return true }
+            return false
+        }.count
+        let steps = envelopes.map { envelope in
+            "#\(envelope.sequence): \(runtimeEventSummary(envelope.event))"
+        }
+        let summary = finalResponse
+            ?? pendingApproval.map { "Waiting for approval: \($0.tool)." }
+            ?? failure.map { "Runtime fallback/error: \($0.message)" }
+            ?? (artifactCount > 0 ? "Sidecar produced \(artifactCount) artifact draft(s)." : "Sidecar run completed without a visible response.")
+
+        return AgentRun(
+            id: envelopes.first?.runID ?? "agent-run-\(UUID().uuidString.lowercased())",
+            goal: goal,
+            createdAt: createdAt,
+            completedAt: pendingApproval == nil && failure?.code != .approvalRequired ? Date() : nil,
+            mode: .planOnly,
+            plan: AgentPlan(
+                title: pendingApproval == nil ? "LangGraph Sidecar" : "等待工具审批",
+                summary: summary,
+                risk: failure?.message,
+                steps: steps,
+                toolCalls: toolCalls,
+                finalResponseDraft: finalResponse
+            ),
+            toolResults: toolResults,
+            currentProjectID: currentProjectID
+        )
+    }
+
+    private func appendRuntimeSessionEvents(
+        for envelopes: [AgentRuntimeEventEnvelope],
+        run: AgentRun,
+        in root: ResearchRoot
+    ) async throws {
+        try await sessionEventLogger.append(
+            AgentSessionEvent(
+                sessionID: run.id,
+                createdAt: run.createdAt,
+                kind: .userMessage,
+                summary: run.goal
+            ),
+            in: root
+        )
+
+        for envelope in envelopes {
+            let event = envelope.event
+            switch event {
+            case let .artifactDraft(artifact):
+                let payloadData = try SidecarJSONCodec.encoder.encode(artifact)
+                let payload = String(data: payloadData, encoding: .utf8) ?? "{}"
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: .reasoningSummary,
+                        summary: "Artifact draft: \(artifact.title)",
+                        payloadJSON: payload
+                    ),
+                    in: root
+                )
+            case let .approvalRequired(approval):
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: .permissionRequested,
+                        summary: "Sidecar requested approval for \(approval.tool).",
+                        payloadJSON: approval.arguments.canonicalJSON
+                    ),
+                    in: root
+                )
+            case let .toolCallRequested(call):
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: .toolCallStarted,
+                        summary: "Sidecar requested \(call.tool).",
+                        payloadJSON: call.arguments.canonicalJSON
+                    ),
+                    in: root
+                )
+            case let .toolCallCompleted(call):
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: call.result.succeeded ? .toolCallCompleted : .toolCallFailed,
+                        summary: call.result.summary,
+                        payloadJSON: call.result.content
+                    ),
+                    in: root
+                )
+            case let .finalResponse(response):
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: .assistantMessage,
+                        summary: response.markdown
+                    ),
+                    in: root
+                )
+            case let .runFailed(failure):
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: .assistantMessage,
+                        summary: "Run failed: \(failure.error.message)"
+                    ),
+                    in: root
+                )
+            case let .sidecarUnavailable(error), let .sidecarCrashed(error), let .fallbackToLegacyRuntime(error):
+                try await sessionEventLogger.append(
+                    AgentSessionEvent(
+                        sessionID: run.id,
+                        createdAt: envelope.timestamp,
+                        kind: .reasoningSummary,
+                        summary: runtimeEventSummary(event),
+                        payloadJSON: error.message
+                    ),
+                    in: root
+                )
+            default:
+                break
+            }
+        }
+    }
+
+    private nonisolated func runtimeEventSummary(_ event: AgentRuntimeEvent) -> String {
+        switch event {
+        case let .runStarted(payload): return "run started: \(payload.goal)"
+        case let .nodeStarted(payload): return "node started: \(payload.name)"
+        case .assistantDelta: return "assistant delta"
+        case let .assistantMessage(payload): return "assistant message: \(payload.content.prefix(80))"
+        case let .toolCallRequested(payload): return "tool requested: \(payload.tool)"
+        case let .toolCallCompleted(payload): return "tool completed: \(payload.tool)"
+        case let .approvalRequired(payload): return "approval required: \(payload.tool)"
+        case let .artifactDraft(payload): return "artifact draft: \(payload.kind)"
+        case let .checkpointSaved(payload): return "checkpoint saved: \(payload.state.rawValue)"
+        case .finalResponse: return "final response"
+        case let .runCancelled(payload): return "run cancelled: \(payload.reason ?? "cancelled")"
+        case let .runFailed(payload): return "run failed: \(payload.error.message)"
+        case .sidecarStarting: return "sidecar starting"
+        case .sidecarReady: return "sidecar ready"
+        case let .sidecarUnavailable(payload): return "sidecar unavailable: \(payload.message)"
+        case let .sidecarCrashed(payload): return "sidecar crashed: \(payload.message)"
+        case let .fallbackToLegacyRuntime(payload): return "fallback to Swift Loop: \(payload.message)"
+        }
     }
 }
 

@@ -1161,15 +1161,15 @@ private struct AgentEvidenceRefListView: View {
             }
             Spacer(minLength: 0)
             Button {
-                if let url = jump?.sourceURL {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                if let jump {
+                    appModel.openEvidenceSource(jump)
                 }
             } label: {
-                Label("Open Source", systemImage: "arrow.up.right.square")
+                Label("Open Source", systemImage: jump?.pdfPage == nil ? "arrow.up.right.square" : "doc.richtext")
                     .labelStyle(.iconOnly)
             }
             .disabled(jump?.sourceURL == nil)
-            .help("Open source file")
+            .help(Text(verbatim: jump?.lineTargetDescription ?? "Open source file"))
         }
         .padding(7)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
@@ -1183,7 +1183,8 @@ private struct AgentEvidenceRefListView: View {
             lineText = "line range unavailable"
         }
         let confidence = evidence.confidence.map { String(format: "%.2f", $0) }
-        return [lineText, evidence.heading, confidence.map { "confidence \($0)" }].compactMap { $0 }.joined(separator: " · ")
+        let page = jump?.pdfPage.map { "PDF page \($0)" }
+        return [lineText, page, evidence.heading, confidence.map { "confidence \($0)" }].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func iconName(for status: AgentEvidenceSourceStatus?) -> String {

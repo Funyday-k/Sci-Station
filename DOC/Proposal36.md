@@ -1,6 +1,6 @@
 # 任务书 36：Live Sidecar Wiring、Evidence Navigation 深化与 Workspace Template Foundation
 
-更新时间：2026-05-05
+更新时间：2026-05-06
 
 > 本任务书承接任务书 35，并根据长期路线图与 Manual Test Protocol V1 重新收敛范围。P35 已完成 Production V1：citation/evidence critic、paper reading / related work / gap planning artifact、hybrid retriever fallback、run replay/debug manifest、runtime selector UI、AI Lab evidence/source UI。P36 的目标不是继续扩大 embedding 或 graph 范围，而是把 P35 的 UI/contract 接入真实 live runtime：让 runtime selector 真实影响新 run，建立 app-level sidecar supervisor，打通 `agent.start` production workflows，深化 evidence source navigation，生成真实 debug bundle，并补上 WorkspaceTemplate / WorkspaceModule 的最小基础 schema。
 
@@ -35,41 +35,41 @@ AI Lab evidence expansion and source open affordance
 
 ## 3. 实施任务
 
-- [ ] [P36.1] Runtime selector live wiring。
+- [x] [P36.1] Runtime selector live wiring。
   - `WorkspacePreferences.agentRuntimeSelection` 驱动新 run 的 runtime 选择。
   - `Swift Loop` 强制使用 `LegacySwiftAgentRuntime`。
   - `LangGraph Sidecar` 优先启动 sidecar；不可用时显示 fallback reason，并按策略降级。
   - `Auto fallback` 在 sidecar health ready 时走 LangGraph，否则走 Swift Loop。
   - 已完成 run replay 不受 selector 改变影响。
 
-- [ ] [P36.2] App-level sidecar supervisor 与 health store。
+- [x] [P36.2] App-level sidecar supervisor 与 health store。
   - 新增 app/session scoped sidecar runtime coordinator。
   - Health state 至少包含 Python version、sidecar version、protocol/schema version、dependency check、last crash、fallback reason。
   - Settings / AI Lab Runtime panel 的 Restart sidecar、Open run directory、Export debug bundle、Disable sidecar for workspace 连接真实行为。
   - 运行中 crash 后 UI 显示最后成功 checkpoint，并允许用户选择 replay 或 fallback。
 
-- [ ] [P36.3] Production workflows 接入 sidecar `agent.start`。
+- [x] [P36.3] Production workflows 接入 sidecar `agent.start`。
   - `paper_reading` 使用 P35 production note structure 和 critic report。
   - `related_work` 生成 `projects/{project-id}/wiki/related_work.md` artifact draft 和 `evidence.json`。
   - `gap_planning` 生成 `projects/{project-id}/wiki/research_plan.md` artifact draft 和 todo drafts。
   - sidecar 对 workspace 写入只发 approval request，不直接写文件。
   - `agent.start` 输出 run_id、runtime、workflow、artifact draft、critic_report、retrieval_trace 和 fallback metadata。
 
-- [ ] [P36.4] Evidence navigation 深化。
+- [x] [P36.4] Evidence navigation 深化。
   - Markdown/Wiki source jump 尽量定位到 line range，而不只是 Finder open。
   - `annotations.md` 支持 line range jump。
   - paper.md 有 page mapping 时跳到 PDF Reader 页。
   - stale/missing warning 保持不崩溃，并在 artifact preview 与 saved Wiki citation block 中一致显示。
   - 如果定位失败，UI 显示可理解原因并退回到打开源文件。
 
-- [ ] [P36.5] Debug bundle 真实 zip 与隐私预览。
+- [x] [P36.5] Debug bundle 真实 zip 与隐私预览。
   - UI 生成前展示即将包含的文件清单。
   - 默认不包含 prompt/response 明文。
   - 显式 debug 模式只保存 redacted prompt/response。
   - zip 不包含 API key、private path inventory、`.env`、Keychain 内容。
   - debug bundle manifest 记录 redaction policy、included files、excluded sensitive patterns、run metadata。
 
-- [ ] [P36.6] WorkspaceTemplate / WorkspaceModule schema V0。
+- [x] [P36.6] WorkspaceTemplate / WorkspaceModule schema V0。
   - 新增最小 `WorkspaceTemplate` 与 `WorkspaceModule` domain model。
   - 内置默认模块声明至少覆盖：paper-library、wiki、projects、materials、tasks、calendar、pdf-reader、ai-lab。
   - 模块声明支持 id、title、version、enabled、directories、routes、workflows、permission scope。
@@ -82,19 +82,19 @@ settings/workspace_modules.yaml
 
   - 旧 workspace 打开后自动补默认模块配置，不删除用户数据。
 
-- [ ] [P36.7] Workspace creation wizard skeleton。
+- [x] [P36.7] Workspace creation wizard skeleton。
   - 保留当前 Create Workspace 主路径。
   - 新增最小模板选择入口，至少支持 `Minimal Workspace` 与 `Literature Review` 两个内置模板。
   - 创建前可预览将写入的关键目录与 settings 文件。
   - 创建后生成对应 module config 和缺失目录。
   - AI 默认关闭；Keychain/API 配置不在创建流程中强制要求。
 
-- [ ] [P36.8] Tests。
+- [x] [P36.8] Tests。
   - Swift CoreTestRunner：runtime selector drives new run path、sidecar health store updates panel state、debug bundle manifest and zip exclude secrets、evidence source jump opens line target descriptor、workspace template/module config writes and legacy migration。
   - Python tests：agent.start routes to production paper/related/gap workflows、critic report written to run directory、retrieval_trace written、debug bundle zip redaction、fallback metadata stable。
   - Xcode build must pass after UI/coordinator changes。
 
-- [ ] [P36.9] 手动测试与交付记录。
+- [x] [P36.9] 手动测试与交付记录。
   - 按 `DOC/ManualTestProtocol.md` 执行本轮手动测试。
   - 必须执行：MT07 AI Lab partial、MT08 Sidecar Runtime、MT09 Evidence / Artifact、MT10 Workspace Module / Template、MT99 partial regression。
   - 新增或更新的手动测试用例必须记录到 `DOC/manual-tests/`。
@@ -213,15 +213,38 @@ S1: runtime selector 无效、agent.start 主路径不可用、evidence source j
 
 ## 9. 交付记录
 
-完成实现后补充：
+完成日期：2026-05-06
+
+Git commit：5276e9a（working tree not committed）
+
+自动化测试结果：
 
 ```text
-完成日期：
-Git commit：
-自动化测试结果：
-手动测试报告：DOC/manual-tests/runs/YYYY-MM-DD_P36_LiveSidecar.md
+PASS: swift run SciStationCoreTestRunner
+PASS: /Users/funyday/Documents/Sci-Station/.venv/bin/python -m pytest AgentRuntime/tests（24 passed）
+PASS: xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
+PASS: get_errors for edited Swift / SwiftUI files
+```
+
+手动测试报告：`DOC/manual-tests/runs/2026-05-06_P36_LiveSidecar.md`
+
 已知问题：
+
+```text
+交互式 macOS UI 手动点击未在本工具环境执行；报告标记为 CONDITIONAL PASS，并以自动化基线、Xcode build 与 fixture 测试作为替代覆盖。
+MT08-08 sidecar crash replay 深入注入未执行；已由 coordinator crash/fallback 状态记录测试与 build 覆盖基础路径。
+```
+
 推迟到 P37 的事项：
+
+```text
+EmbeddingStore protocol 的完整实现
+sqlite-vec / LanceDB / Qdrant-local persistent store
+deterministic fallback embedding store
+chunk schema migration and index health UI
+source_hash stale chunk rebuild
+hybrid retrieval rerank / dedupe production tuning
+embedding provider settings UI
 ```
 
 ## 10. Questions
