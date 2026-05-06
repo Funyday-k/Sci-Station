@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 public nonisolated enum SidecarToolCallPolicy: String, Codable, Sendable {
@@ -364,6 +363,7 @@ private nonisolated struct SidecarHostBridge: Sendable {
     let runtimeRequest: AgentRuntimeRequest
     let resourceProvider = AgentAuthorizedResourceProvider()
     let llmProxy = SidecarLLMProxy()
+    let embeddingProxy = SidecarEmbeddingProxy()
 
     func handle(method: String, params: JSONValue?) async throws -> JSONValue {
         switch method {
@@ -380,6 +380,8 @@ private nonisolated struct SidecarHostBridge: Sendable {
             return try SidecarJSONCodec.jsonValue(from: response)
         case "llm.respond":
             return try await llmProxy.respond(params: params, runtimeRequest: runtimeRequest)
+        case "embedding.embed", "embedding.respond":
+            return try await embeddingProxy.embed(params: params, runtimeRequest: runtimeRequest)
         case "log.event":
             return .object(["accepted": .bool(true)])
         default:
@@ -696,7 +698,7 @@ public actor AgentAuthorizedResourceProvider {
             return nil
         }
         let data = try Data(contentsOf: fileURL)
-        guard String(data: data, encoding: .utf8) != nil else {
+        guard let content = String(data: data, encoding: .utf8) else {
             return nil
         }
         let classification = classify(relativePath: normalized)
@@ -706,7 +708,7 @@ public actor AgentAuthorizedResourceProvider {
             sourceType: classification.sourceType,
             sourceID: classification.sourceID,
             updatedAt: (attributes[.modificationDate] as? Date) ?? Date(),
-            contentHash: stableHash(data),
+            contentHash: AgentEmbeddingHashing.sha256(content),
             parserHint: normalized.hasSuffix(".txt") ? "text" : "markdown"
         )
     }
@@ -768,8 +770,4 @@ public actor AgentAuthorizedResourceProvider {
         return trimmed.split(separator: "/").map(String.init).joined(separator: "/")
     }
 
-    private func stableHash(_ data: Data) -> String {
-        let digest = SHA256.hash(data: data)
-        return "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
-    }
 }

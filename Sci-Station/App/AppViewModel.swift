@@ -181,6 +181,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
+    @Published private(set) var agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot.disabled()
     @Published private(set) var agentDisabledHookIDs: Set<String> = []
     @Published var isShowingAgentThreadRename = false
     @Published var isShowingAgentThreadArchiveConfirmation = false
@@ -231,6 +232,7 @@ final class AppViewModel: ObservableObject {
     private let llmWritebackService: LLMWritebackService
     private let agentService: SciStationAgentService
     private let sidecarCoordinator: SidecarRuntimeCoordinator
+    private let agentEmbeddingIndexController: AgentEmbeddingIndexController
     private let pdfImportService: PDFImportService
     private let markdownRepository: MarkdownRepository
     private let markdownSnippetRepository: MarkdownSnippetRepository
@@ -329,6 +331,7 @@ final class AppViewModel: ObservableObject {
         llmWritebackService: LLMWritebackService? = nil,
         agentService: SciStationAgentService? = nil,
         sidecarCoordinator: SidecarRuntimeCoordinator? = nil,
+        agentEmbeddingIndexController: AgentEmbeddingIndexController? = nil,
         markdownRepository: MarkdownRepository? = nil,
         markdownSnippetRepository: MarkdownSnippetRepository? = nil,
         pdfOpeningService: (any PDFOpeningService)? = nil
@@ -361,6 +364,7 @@ final class AppViewModel: ObservableObject {
         let resolvedPaperSummaryService = paperSummaryService ?? PaperSummaryService(provider: resolvedOpenAIProvider)
         let resolvedLLMWritebackService = llmWritebackService ?? LLMWritebackService()
         let resolvedSidecarCoordinator = sidecarCoordinator ?? SidecarRuntimeCoordinator()
+        let resolvedAgentEmbeddingIndexController = agentEmbeddingIndexController ?? AgentEmbeddingIndexController()
         let resolvedAgentService = agentService ?? SciStationAgentService(
             provider: resolvedOpenAIProvider,
             paperRepository: resolvedPaperRepository,
@@ -394,6 +398,7 @@ final class AppViewModel: ObservableObject {
         self.llmWritebackService = resolvedLLMWritebackService
         self.agentService = resolvedAgentService
         self.sidecarCoordinator = resolvedSidecarCoordinator
+        self.agentEmbeddingIndexController = resolvedAgentEmbeddingIndexController
         self.pdfImportService = PDFImportService(repository: resolvedPaperRepository)
         self.markdownRepository = resolvedMarkdownRepository
         self.markdownSnippetRepository = resolvedMarkdownSnippetRepository
@@ -832,6 +837,29 @@ final class AppViewModel: ObservableObject {
             sidecarAvailable: agentSidecarHealthIsAvailable,
             sidecarDisabled: workspacePreferences.isSidecarDisabledForWorkspace
         ) ?? agentSidecarHealth.fallbackReason ?? agentSidecarHealth.lastCrash ?? "No fallback active."
+    }
+
+    var agentRetrievalIndexSummary: String {
+        let status = agentRetrievalIndexStatus.status.uiStatus.rawValue
+        return "\(status); \(agentRetrievalIndexStatus.chunkCount) chunks; \(agentRetrievalIndexStatus.staleCount) stale"
+    }
+
+    var agentRetrievalStoreSummary: String {
+        [
+            agentRetrievalIndexStatus.store,
+            agentRetrievalIndexStatus.fallbackReason.map { "fallback: \($0)" },
+            agentRetrievalIndexStatus.errorMessage.map { "error: \($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: "; ")
+    }
+
+    var agentRetrievalModelSummary: String {
+        "\(agentRetrievalIndexStatus.provider) / \(agentRetrievalIndexStatus.modelID) / dim \(agentRetrievalIndexStatus.dimension)"
+    }
+
+    var agentRetrievalDiagnosticSummary: String {
+        agentRetrievalIndexStatus.diagnosticText
     }
 
     private var agentSidecarHealthIsAvailable: Bool {
@@ -2415,6 +2443,70 @@ final class AppViewModel: ObservableObject {
         alert.addButton(withTitle: "Export")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    func refreshAgentRetrievalIndexStatus() {
+        guard let currentResearchRoot else {
+            agentRetrievalIndexStatus = .disabled()
+            return
+        }
+        Task {
+            agentRetrievalIndexStatus = await agentEmbeddingIndexController.status(in: currentResearchRoot)
+        }
+    }
+
+    func rebuildAgentRetrievalCurrentProject() {
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot(status: .indexing, store: agentRetrievalIndexStatus.store)
+        Task {
+            agentRetrievalIndexStatus = await agentEmbeddingIndexController.rebuildCurrentProject(in: currentResearchRoot, projectID: currentProjectID)
+            agentStatusMessage = "Retrieval index rebuild finished: \(agentRetrievalIndexSummary)."
+        }
+    }
+
+    func rebuildAgentRetrievalSelectedSource() {
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        guard let relativePath = selectedAgentRetrievalSourcePath() else {
+            agentErrorMessage = "No selected paper or wiki source is available for retrieval rebuild."
+            return
+        }
+        agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot(status: .indexing, store: agentRetrievalIndexStatus.store)
+        Task {
+            agentRetrievalIndexStatus = await agentEmbeddingIndexController.rebuildSelectedSource(relativePath, in: currentResearchRoot)
+            agentStatusMessage = "Retrieval source rebuild finished for \(relativePath)."
+        }
+    }
+
+    func openAgentRetrievalIndexDirectory() {
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        let url = currentResearchRoot.directoryURL(for: AgentEmbeddingIndexController.indexRelativePath)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func copyAgentRetrievalDiagnostic() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(agentRetrievalDiagnosticSummary, forType: .string)
+        agentStatusMessage = "Retrieval diagnostic copied."
+    }
+
+    private func selectedAgentRetrievalSourcePath() -> String? {
+        if let selectedPaperDraft {
+            return selectedPaperDraft.paperDirectoryRelativePath + "/paper.md"
+        }
+        if let selectedMarkdownDraft {
+            return selectedMarkdownDraft.relativePath
+        }
+        return nil
     }
 
     func disableSidecarForWorkspace() {
@@ -4029,6 +4121,7 @@ final class AppViewModel: ObservableObject {
         } else {
             rootCompatibilityMessage = nil
         }
+        agentRetrievalIndexStatus = await agentEmbeddingIndexController.status(in: root)
     }
 
     private func loadLibrary(in workspace: ResearchWorkspace, selecting paperID: Paper.ID?) async throws {

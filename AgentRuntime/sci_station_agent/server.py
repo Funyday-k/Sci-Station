@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import platform
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -16,6 +16,8 @@ from .graph.paper_reading import build_sample_paper_reading_events, draft_paper_
 from .graph.related_work import draft_related_work_production
 from .graph.router import route_intent
 from .rag.evidence import stable_evidence_id
+from .rag.fts_index import content_hash
+from .rag.retriever import build_retrieval_trace
 from .transport.schemas import JsonDict, load_fixture
 from .transport.stdio_jsonrpc import StdioJsonRpcTransport
 
@@ -163,7 +165,7 @@ class SidecarServer:
         if intent == "paper_reading":
             relative_path = f"library/papers/{selected_paper_id}/paper.md"
             paper_text = self._read_workspace_text(workspace_root, relative_path) or self._synthetic_paper_text(selected_paper_id)
-            source_hash = "sha256:" + hashlib.sha256(paper_text.encode("utf-8")).hexdigest()
+            source_hash = content_hash(paper_text)
             draft = draft_paper_reading_note(run_id, selected_paper_id, paper_text, relative_path, source_hash)
             artifact = draft.artifact
             evidence = draft.evidence
@@ -184,15 +186,21 @@ class SidecarServer:
         else:
             return build_sample_paper_reading_events(run_id=run_id, goal=goal, intent=intent)
 
-        retrieval_trace = {
-            "schema_version": 1,
+        retrieval_trace = build_retrieval_trace(
+            query=goal,
+            retrieval_mode="fts_only" if intent == "paper_reading" else "synthetic_fixture",
+            embedding_store="fts_only",
+            fallback_reason="embedding disabled or unavailable; production workflow used FTS/synthetic evidence",
+            candidates=[self._trace_candidate_from_evidence(row) for row in evidence],
+        )
+        retrieval_trace.update({
             "run_id": run_id,
             "runtime": "langgraph_sidecar",
             "workflow": intent,
             "retriever": "fts_or_synthetic_fixture",
             "evidence_count": len(evidence),
             "fallback_metadata": {"used_synthetic_evidence": intent in {"related_work", "gap_planning"}},
-        }
+        })
         self._write_workflow_files(run_directory, critic_report, retrieval_trace, evidence, extra)
         final = f"LangGraph sidecar completed {intent} and produced an approval-ready artifact draft."
         return self._workflow_events(run_id, goal, intent, artifact, final)
@@ -257,6 +265,22 @@ class SidecarServer:
             })
         return rows
 
+    def _trace_candidate_from_evidence(self, evidence: JsonDict) -> JsonDict:
+        lines = evidence.get("lines") if isinstance(evidence.get("lines"), list) else [None, None]
+        return {
+            "source_path": evidence.get("relative_path"),
+            "chunk_id": evidence.get("chunk_id"),
+            "fts_score": evidence.get("confidence", 0.7),
+            "embedding_score": None,
+            "rerank_score": evidence.get("confidence", 0.7),
+            "rerank_reason": "keyword/source evidence fallback",
+            "dedupe_reason": None,
+            "source_hash_status": "fresh",
+            "line_start": lines[0] if len(lines) > 0 else None,
+            "line_end": lines[1] if len(lines) > 1 else None,
+            "pdf_page": evidence.get("pdf_page"),
+        }
+
     def _envelope(self, event_id: str, run_id: str, sequence: int, timestamp: str, event_type: str, payload: JsonDict) -> JsonDict:
         return {
             "id": event_id,
@@ -310,10 +334,22 @@ class SidecarServer:
             langgraph_available = True
         except Exception:
             langgraph_available = False
+        sqlite_vec_available = False
+        try:
+            connection = sqlite3.connect(":memory:")
+            try:
+                connection.enable_load_extension(True)
+                connection.load_extension("sqlite_vec")
+                sqlite_vec_available = True
+            finally:
+                connection.close()
+        except Exception:
+            sqlite_vec_available = False
         return {
             "python": True,
             "langgraph": langgraph_available,
             "sqlite3": True,
+            "sqlite_vec": sqlite_vec_available,
         }
 
     def _response(self, request_id: object, result: JsonDict) -> JsonDict:

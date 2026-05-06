@@ -84,7 +84,8 @@ public nonisolated struct SidecarInitializationRequest: Codable, Hashable, Senda
             "llmProxy": true,
             "mcpGateway": true,
             "approvalResume": true,
-            "ftsIndex": true
+            "ftsIndex": true,
+            "embeddingProxy": true
         ]
     ) {
         self.protocolVersion = protocolVersion

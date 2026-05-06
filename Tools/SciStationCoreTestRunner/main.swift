@@ -85,7 +85,9 @@ private struct CoreVerificationSuite {
         try await langGraphRuntimeFallsBackWhenInitializeTimesOut()
         try await langGraphRuntimeDoesNotLoseApprovalWhenSidecarCrashes()
         try await sidecarLLMProxyDisablesProviderNativeToolCalling()
+        try await sidecarEmbeddingProxyRejectsSensitiveConfigAndReturnsVectors()
         try await authorizedResourceProviderListsAndReadsDocuments()
+        try await embeddingIndexControllerRebuildsSelectedSource()
         try paperReadingWorkflowProducesEvidenceBackedDraft()
         try relatedWorkWorkflowClustersByTheme()
         try await gapPlanningWorkflowGeneratesTodoDraftsWithoutWriting()
@@ -96,6 +98,7 @@ private struct CoreVerificationSuite {
         try await runReplayLoadsTimelineFromRunDirectory()
         try await debugBundleManifestAndZipExcludeSecrets()
         try embeddingFallbackUsesFTSWhenDisabled()
+        try await embeddingStorePersistsAndMarksMigrationRequired()
         try agentEvidenceRefStableIDMarksStale()
         try await evidenceSourceJumpMapsPDFPageWhenAvailable()
         try await workspaceTemplateModuleConfigWritesAndLegacyMigration()
@@ -2597,6 +2600,39 @@ private struct CoreVerificationSuite {
         try expect(recorded.first?.tools.isEmpty == true, "toolCallPolicy disabled should strip provider-native tool specifications.")
     }
 
+    private func sidecarEmbeddingProxyRejectsSensitiveConfigAndReturnsVectors() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "SidecarEmbeddingProxyWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let request = AgentRuntimeRequest(
+            runID: "embedding-proxy-run",
+            goal: "Embedding proxy",
+            initialMessages: [],
+            provider: ScriptedChatProvider(responses: []),
+            toolDefinitions: [],
+            toolRegistry: AgentToolRegistry(tools: []),
+            toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key"
+        )
+        let embeddingRequest = SidecarEmbeddingRequest(texts: ["retrieval evidence chunk"], modelRequestID: "req-1")
+        let responseValue = try await SidecarEmbeddingProxy().embed(params: try SidecarJSONCodec.jsonValue(from: embeddingRequest), runtimeRequest: request)
+        let responseObject = try jsonObject(responseValue, "Embedding proxy should return an object response.")
+        let vectors = try jsonArray(responseObject["vectors"], "Embedding proxy should return vectors.")
+        let metadata = try jsonObject(responseObject["redacted_metadata"], "Embedding proxy should return redacted metadata.")
+
+        try expect(vectors.count == 1, "Embedding proxy should return one vector per input text.")
+        try expect(metadata["redacted"] == .string("true"), "Embedding proxy metadata should be explicitly redacted.")
+        do {
+            let unsafeRequest = SidecarEmbeddingRequest(texts: ["secret-free text"], modelOptions: ["apiKey": .string("sk-secret")])
+            _ = try await SidecarEmbeddingProxy().embed(params: try SidecarJSONCodec.jsonValue(from: unsafeRequest), runtimeRequest: request)
+            throw ValidationError(message: "Embedding proxy should reject sensitive provider config keys.")
+        } catch let error as SidecarJSONRPCError {
+            try expect(error.message.contains("sensitive key"), "Sensitive embedding config should be rejected by contract.")
+        }
+    }
+
     private func authorizedResourceProviderListsAndReadsDocuments() async throws {
         let fixture = try await loopWorkspaceFixture(named: "AuthorizedResourcesWorkspace")
         defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -2612,6 +2648,22 @@ private struct CoreVerificationSuite {
         try expect(snapshot.sourceType == "paper", "paper.md should be classified as paper source type.")
         try expect(response.contentHash == snapshot.contentHash, "resources/read should return the snapshot content hash.")
         try expect(response.truncated, "resources/read should mark content truncated when maxCharacters is exceeded.")
+    }
+
+    private func embeddingIndexControllerRebuildsSelectedSource() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "EmbeddingIndexControllerWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let paperURL = fixture.root.fileURL(for: "library/papers/p37/paper.md")
+        try FileManager.default.createDirectory(at: paperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Retrieval\nPersistent local embedding retrieval evidence.\n".write(to: paperURL, atomically: true, encoding: .utf8)
+        let controller = AgentEmbeddingIndexController()
+        let status = await controller.rebuildSelectedSource("library/papers/p37/paper.md", in: fixture.root)
+        let indexURL = fixture.root.directoryURL(for: AgentEmbeddingIndexController.indexRelativePath).appendingPathComponent("deterministic_fallback_chunks.json", isDirectory: false)
+
+        try expect(status.status.uiStatus == .fallback, "Selected source rebuild should use deterministic fallback when sqlite-vec is unavailable.")
+        try expect(status.chunkCount > 0, "Selected source rebuild should write chunks to the local index.")
+        try expect(FileManager.default.fileExists(atPath: indexURL.path), "Embedding fallback index should be persisted under .sci-station/index/embeddings.")
     }
 
     private func agentEvidenceRefStableIDMarksStale() throws {
@@ -2772,6 +2824,7 @@ private struct CoreVerificationSuite {
 
         try expect(preview.includedFiles.contains("events.jsonl"), "Debug preview should list included run files before export.")
         try expect(manifest.redactionPolicy.contains("prompt/response"), "Debug manifest should record the redaction policy.")
+        try expect(manifest.excludedPatterns.contains(".sci-station/index/embeddings/**"), "Debug manifest should exclude embedding index files by default.")
         try expect(FileManager.default.fileExists(atPath: zipURL.path), "Debug bundle should be a real zip file on disk.")
         try expect(!zipText.contains("sk-secret"), "Debug bundle zip should not contain raw API keys or tokens.")
         try expect(!zipText.contains("/private/tmp"), "Debug bundle zip should not contain private path inventory.")
@@ -2782,6 +2835,36 @@ private struct CoreVerificationSuite {
 
         try expect(configuration.usesFTSFallback, "Embedding retrieval should preserve FTS-only fallback when disabled.")
         try expect(configuration.store == "sqlite-vec", "Embedding retrieval config should preserve local store selection.")
+    }
+
+    private func embeddingStorePersistsAndMarksMigrationRequired() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "EmbeddingStoreWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let content = "# Retrieval\nPersistent embedding chunks should be stale after source changes.\n"
+        let snapshot = IndexableDocumentSnapshot(
+            resourceID: "paper:p37:library/papers/p37/paper.md",
+            relativePath: "library/papers/p37/paper.md",
+            sourceType: "paper",
+            sourceID: "p37",
+            updatedAt: Date(),
+            contentHash: AgentEmbeddingHashing.sha256(content)
+        )
+        let modelA = AgentEmbeddingModelIdentity(modelID: "model-a", dimension: 32)
+        let modelB = AgentEmbeddingModelIdentity(modelID: "model-b", dimension: 32)
+        let store = AgentDeterministicEmbeddingStore(indexDirectoryURL: fixture.root.directoryURL(for: AgentEmbeddingIndexController.indexRelativePath), fallbackReason: "test fallback")
+        try await store.open()
+        try await store.beginTransaction()
+        try await store.upsertChunks(AgentEmbeddingChunker.chunks(from: snapshot, content: content, model: modelA))
+        try await store.commitTransaction()
+        let fresh = await store.query("persistent embedding", limit: 3, currentSourceHashes: [snapshot.relativePath: snapshot.contentHash])
+        let stale = await store.query("persistent embedding", limit: 3, currentSourceHashes: [snapshot.relativePath: "sha256:changed"])
+        let health = await store.healthCheck(model: modelB, schemaVersion: AgentEmbeddingChunker.chunkSchemaVersion)
+
+        try expect(fresh.first?.sourceHashStatus == .fresh, "Embedding store should mark matching source hashes fresh.")
+        try expect(stale.first?.sourceHashStatus == .stale, "Embedding store should mark changed source hashes stale.")
+        try expect(health.status == .migrationRequired, "Embedding model_id changes should require rebuild/migration.")
+        try expect(health.staleCount == 1, "Model mismatch should report stale chunk count.")
     }
 
     private func evidenceSourceJumpMapsPDFPageWhenAvailable() async throws {

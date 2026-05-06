@@ -1268,6 +1268,8 @@ private struct AgentPlatformStatusView: View {
                 WorkspacePathRow(label: "Fallback", value: appModel.agentRuntimeFallbackSummary)
                 WorkspacePathRow(label: "Provider", value: appModel.agentProviderSummary)
                 WorkspacePathRow(label: "Provider V2", value: appModel.agentProviderV2Summary)
+                WorkspacePathRow(label: "Retrieval", value: appModel.agentRetrievalIndexSummary)
+                WorkspacePathRow(label: "Index Store", value: appModel.agentRetrievalStoreSummary)
                 WorkspacePathRow(label: "Presets", value: appModel.agentPresetSummary)
                 WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
                 WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
@@ -1287,6 +1289,25 @@ private struct AgentPlatformStatusView: View {
                         appModel.exportAgentDebugBundle()
                     } label: {
                         Label("Debug", systemImage: "shippingbox")
+                    }
+                    Button {
+                        appModel.rebuildAgentRetrievalSelectedSource()
+                    } label: {
+                        Label("Source", systemImage: "doc.badge.gearshape")
+                    }
+                    Button {
+                        appModel.rebuildAgentRetrievalCurrentProject()
+                    } label: {
+                        Label("Index", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Button {
+                        appModel.copyAgentRetrievalDiagnostic()
+                    } label: {
+                        Label("Diag", systemImage: "doc.on.doc")
+                    }
+                    if appModel.agentRetrievalIndexStatus.status == .indexing {
+                        ProgressView()
+                            .controlSize(.small)
                     }
                 }
                 .buttonStyle(.bordered)

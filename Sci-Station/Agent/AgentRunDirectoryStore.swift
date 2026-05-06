@@ -123,10 +123,10 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         schemaVersion: Int = 1,
         runID: String,
         includedFiles: [String],
-        excludedPatterns: [String] = ["*.env", "*key*", "*token*", "Keychain", "private paths"],
-        redactionPolicy: String = "Default bundle includes only run metadata, events, checkpoints, critic reports, retrieval traces, and redacted replay data; prompt/response debug payloads are excluded unless explicitly saved redacted.",
+        excludedPatterns: [String] = ["*.env", "*key*", "*token*", "Keychain", "private paths", ".sci-station/index/embeddings/**", "prompt/response plaintext"],
+        redactionPolicy: String = "Default bundle includes only run metadata, events, checkpoints, critic reports, retrieval traces, and redacted replay data; embedding index files and prompt/response plaintext are excluded unless explicitly saved redacted.",
         runMetadata: [String: String] = [:],
-        privacyNotice: String = "Debug bundle excludes API keys, private path inventories, environment files, and Keychain content.",
+        privacyNotice: String = "Debug bundle excludes API keys, private path inventories, environment files, Keychain content, embedding index files, and prompt/response plaintext.",
         generatedAt: Date = Date()
     ) {
         self.schemaVersion = schemaVersion

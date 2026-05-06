@@ -22,7 +22,12 @@ class ResourceDocument:
 
 
 def content_hash(content: str) -> str:
-    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return "sha256:" + hashlib.sha256(normalize_content(content).encode("utf-8")).hexdigest()
+
+
+def normalize_content(content: str) -> str:
+    lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n".join(line.rstrip() for line in lines).strip()
 
 
 class FTSIndex:
@@ -110,29 +115,34 @@ def chunk_markdown(document: ResourceDocument, max_lines: int = 80) -> list[dict
     lines = document.content.splitlines()
     chunks: list[dict] = []
     heading = ""
+    heading_path: list[str] = []
     start = 1
     buffer: list[str] = []
     for index, line in enumerate(lines, start=1):
         if line.startswith("#"):
             if buffer:
-                chunks.append(_chunk(document, heading, start, index - 1, buffer))
+                chunks.append(_chunk(document, heading, heading_path, start, index - 1, buffer))
                 buffer = []
+            level = len(line) - len(line.lstrip("#"))
             heading = line.lstrip("#").strip() or heading
+            if heading:
+                heading_path = heading_path[: max(level - 1, 0)] + [heading]
             start = index
         buffer.append(line)
         if len(buffer) >= max_lines:
-            chunks.append(_chunk(document, heading, start, index, buffer))
+            chunks.append(_chunk(document, heading, heading_path, start, index, buffer))
             buffer = []
             start = index + 1
     if buffer:
-        chunks.append(_chunk(document, heading, start, len(lines), buffer))
+        chunks.append(_chunk(document, heading, heading_path, start, len(lines), buffer))
     return chunks
 
 
-def _chunk(document: ResourceDocument, heading: str, start_line: int, end_line: int, lines: list[str]) -> dict:
+def _chunk(document: ResourceDocument, heading: str, heading_path: list[str], start_line: int, end_line: int, lines: list[str]) -> dict:
     return {
         "chunk_id": f"{document.resource_id}:{start_line}-{end_line}",
         "heading": heading,
+        "heading_path": heading_path,
         "start_line": start_line,
         "end_line": end_line,
         "text": "\n".join(lines).strip(),

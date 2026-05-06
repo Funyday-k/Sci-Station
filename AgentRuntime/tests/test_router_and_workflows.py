@@ -11,6 +11,7 @@ from sci_station_agent.graph.citation_critic import critic_check_evidence
 from sci_station_agent.graph.router import route_intent
 from sci_station_agent.rag.fts_index import ResourceDocument, FTSIndex, content_hash
 from sci_station_agent.rag.evidence import is_stale, stable_evidence_id
+from sci_station_agent.rag.embedding_store import DeterministicFallbackEmbeddingStore, EmbeddingModelIdentity, chunks_from_resource_document, open_preferred_embedding_store
 from sci_station_agent.rag.retriever import EmbeddingConfig, FTSRetriever, HybridRetriever, InMemoryEmbeddingIndex
 from sci_station_agent.storage.events import append_event, read_replay, write_debug_bundle, write_replay
 
@@ -65,6 +66,10 @@ def test_agent_start_routes_to_production_workflows(tmp_path, goal, selected_pap
     assert artifact["kind"] == artifact_kind
     assert artifact["proposed_path"] == target_path
     assert trace["workflow"] == workflow
+    assert trace["schema_version"] == 2
+    assert trace["query"]["redacted"] is True
+    assert "hash" in trace["query"]
+    assert "candidates" in trace
     assert (run_directory / "critic_report.json").exists()
     assert (run_directory / "evidence.json").exists()
     assert not (tmp_path / target_path).exists()
@@ -217,6 +222,69 @@ def test_embedding_fallback_uses_fts_when_disabled(tmp_path) -> None:
     assert results[0]["source_id"] == "p2"
 
 
+def test_deterministic_embedding_store_persists_and_marks_model_mismatch(tmp_path) -> None:
+    content = "# Retrieval\nPersistent embedding retrieval evidence."
+    document = ResourceDocument(
+        resource_id="paper:p37:paper.md",
+        relative_path="library/papers/p37/paper.md",
+        source_type="paper",
+        source_id="p37",
+        content=content,
+        content_hash=content_hash(content),
+    )
+    store = DeterministicFallbackEmbeddingStore(tmp_path / ".sci-station/index/embeddings", fallback_reason="test fallback")
+    store.open()
+    store.begin_transaction()
+    store.upsert_chunks(chunks_from_resource_document(document, EmbeddingModelIdentity(model_id="model-a", dimension=32)))
+    store.commit()
+    results = store.query("embedding retrieval", limit=3, current_source_hashes={document.relative_path: document.content_hash})
+    mismatch = store.health_check(EmbeddingModelIdentity(model_id="model-b", dimension=32))
+
+    assert results
+    assert results[0].source_hash_status == "fresh"
+    assert mismatch.status == "stale"
+    assert mismatch.stale_count == 1
+    assert (tmp_path / ".sci-station/index/embeddings/deterministic_fallback_chunks.json").exists()
+
+
+def test_preferred_embedding_store_falls_back_when_sqlite_vec_unavailable(tmp_path) -> None:
+    store = open_preferred_embedding_store(tmp_path, prefer_sqlite_vec=True)
+    stats = store.stats()
+
+    assert stats.store in {"sqlite_vec", "deterministic_fallback"}
+    if stats.store == "deterministic_fallback":
+        assert stats.fallback_reason
+
+
+def test_hybrid_retriever_trace_records_scores_and_redacts_query(tmp_path) -> None:
+    content = "# Retrieval\nHybrid retrieval trace evidence."
+    database = tmp_path / "chunks.sqlite"
+    document = ResourceDocument(
+        resource_id="paper:p37:paper.md",
+        relative_path="library/papers/p37/paper.md",
+        source_type="paper",
+        source_id="p37",
+        content=content,
+        content_hash=content_hash(content),
+    )
+    index = FTSIndex(database)
+    index.index_documents([document])
+    store = DeterministicFallbackEmbeddingStore(tmp_path / ".sci-station/index/embeddings", fallback_reason="sqlite-vec unavailable in test")
+    store.open()
+    store.upsert_chunks(chunks_from_resource_document(document))
+    hybrid = HybridRetriever(FTSRetriever(index), store, EmbeddingConfig(enabled=True, store="sqlite-vec"))
+    results, trace = hybrid.retrieve_with_trace("Hybrid retrieval trace evidence", limit=5, current_source_hashes={document.relative_path: document.content_hash})
+
+    assert results
+    assert trace["schema_version"] == 2
+    assert trace["query"]["redacted"] is True
+    assert "Hybrid retrieval" not in json.dumps(trace)
+    assert trace["embedding_store"] == "deterministic_fallback"
+    assert trace["fallback_reason"]
+    assert trace["candidates"][0]["fts_score"] is not None
+    assert trace["candidates"][0]["rerank_reason"]
+
+
 def test_stale_evidence_detection() -> None:
     evidence = sample_evidence_table()[0]
     report = critic_check_evidence(
@@ -254,6 +322,7 @@ def test_debug_bundle_zip_redacts_sensitive_content(tmp_path) -> None:
     assert "critic_report.json" in names
     assert "sk-secret" not in contents
     assert str(tmp_path) not in contents
+    assert "prompt response plaintext" not in contents
     assert ".env" not in names
 
 

@@ -354,6 +354,7 @@ public nonisolated struct AgentEmbeddingRetrievalConfiguration: Codable, Hashabl
     public var enabled: Bool
     public var provider: String
     public var model: String
+    public var modelVersion: String?
     public var dimension: Int
     public var store: String
 
@@ -361,14 +362,20 @@ public nonisolated struct AgentEmbeddingRetrievalConfiguration: Codable, Hashabl
         enabled: Bool = false,
         provider: String = "swift-proxy",
         model: String = "",
+        modelVersion: String? = nil,
         dimension: Int = 0,
         store: String = "sqlite-vec"
     ) {
         self.enabled = enabled
         self.provider = provider
         self.model = model
+        self.modelVersion = modelVersion
         self.dimension = dimension
         self.store = store
+    }
+
+    public nonisolated var modelID: String {
+        model
     }
 
     public nonisolated var usesFTSFallback: Bool {

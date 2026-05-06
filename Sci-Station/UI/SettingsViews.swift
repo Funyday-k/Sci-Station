@@ -369,6 +369,45 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                GroupBox("Retrieval Index") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        WorkspacePathRow(label: "Status", value: appModel.agentRetrievalIndexSummary)
+                        WorkspacePathRow(label: "Store", value: appModel.agentRetrievalStoreSummary)
+                        WorkspacePathRow(label: "Model", value: appModel.agentRetrievalModelSummary)
+                        WorkspacePathRow(label: "Index", value: appModel.agentRetrievalIndexStatus.indexRelativePath)
+
+                        HStack(spacing: 8) {
+                            Button {
+                                appModel.rebuildAgentRetrievalSelectedSource()
+                            } label: {
+                                Label("Rebuild Source", systemImage: "doc.badge.gearshape")
+                            }
+                            Button {
+                                appModel.rebuildAgentRetrievalCurrentProject()
+                            } label: {
+                                Label("Rebuild Project", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            Button {
+                                appModel.openAgentRetrievalIndexDirectory()
+                            } label: {
+                                Label("Open Index", systemImage: "folder")
+                            }
+                            Button {
+                                appModel.copyAgentRetrievalDiagnostic()
+                            } label: {
+                                Label("Copy Diagnostic", systemImage: "doc.on.doc")
+                            }
+                            if appModel.agentRetrievalIndexStatus.status == .indexing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox(appModel.localized("AI Lab 显示", "AI Lab Display")) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
