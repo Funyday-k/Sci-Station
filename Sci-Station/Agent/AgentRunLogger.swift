@@ -137,3 +137,80 @@ public actor AgentSessionEventLogger {
         return Array(validEvents.suffix(limit))
     }
 }
+
+public nonisolated struct AppDebugEvent: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var timestamp: Date
+    public var event: String
+    public var workspaceID: String?
+    public var projectID: String?
+    public var threadID: String?
+    public var runID: String?
+    public var payload: JSONValue
+
+    public init(
+        id: String = "debug-event-\(UUID().uuidString.lowercased())",
+        timestamp: Date = Date(),
+        event: String,
+        workspaceID: String? = nil,
+        projectID: String? = nil,
+        threadID: String? = nil,
+        runID: String? = nil,
+        payload: JSONValue = .object([:])
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.event = event
+        self.workspaceID = workspaceID
+        self.projectID = projectID
+        self.threadID = threadID
+        self.runID = runID
+        self.payload = AgentRunDirectoryStore.redactedDebugPayload(payload)
+    }
+}
+
+public actor AppDebugEventLogger {
+    public static let relativePath = ".sci-station/debug/app_events.jsonl"
+
+    private let fileManager: FileManager
+
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    public func append(_ event: AppDebugEvent, in root: ResearchRoot) throws {
+        let logURL = root.fileURL(for: Self.relativePath)
+        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let encoder = AgentRunDirectoryStore.encoder()
+        let data = try encoder.encode(event)
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        if fileManager.fileExists(atPath: logURL.path) {
+            let handle = try FileHandle(forWritingTo: logURL)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data((line + "\n").utf8))
+        } else {
+            try (line + "\n").write(to: logURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    public func events(in root: ResearchRoot, limit: Int = 200) throws -> [AppDebugEvent] {
+        guard limit > 0 else {
+            return []
+        }
+        let logURL = root.fileURL(for: Self.relativePath)
+        guard fileManager.fileExists(atPath: logURL.path) else {
+            return []
+        }
+        let contents = try String(contentsOf: logURL, encoding: .utf8)
+        let decoder = AgentRunDirectoryStore.decoder()
+        let events = contents
+            .split(whereSeparator: \.isNewline)
+            .compactMap { try? decoder.decode(AppDebugEvent.self, from: Data($0.utf8)) }
+        return Array(events.suffix(limit))
+    }
+}

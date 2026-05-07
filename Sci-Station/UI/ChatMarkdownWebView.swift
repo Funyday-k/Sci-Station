@@ -221,6 +221,10 @@ enum ChatMarkdownResources {
         bundleURL?.appendingPathComponent("index.html")
     }()
 
+    static let docPreviewURL: URL? = {
+        bundleURL?.appendingPathComponent("doc-preview.html")
+    }()
+
     /// True when the renderer assets are present in the running bundle.
     /// SwiftUI views can fall back to the legacy `AttributedString` renderer
     /// when this is false (e.g. in unit-test hosts that strip resources).

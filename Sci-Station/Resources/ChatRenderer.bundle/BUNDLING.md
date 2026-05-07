@@ -1,6 +1,7 @@
 # Chat Renderer Bundle
 
-This `.bundle` ships the KaTeX + marked.js assets used by `ChatMarkdownWebView`.
+This `.bundle` ships the KaTeX + marked.js assets used by `ChatMarkdownWebView`
+and `MarkdownPreviewView`.
 
 The directory uses the `.bundle` extension on purpose: Xcode's synchronized
 root group treats `.bundle` as a single opaque resource and copies its
@@ -12,11 +13,17 @@ post-processing.
 ## Contents
 
 - `index.html` — Chat renderer page; defines `window.setChatState`.
+- `doc-preview.html` — Wiki/Library document preview page; defines
+  `window.setMarkdownPreviewState` and reuses the same local assets.
 - `katex.min.css` / `katex.min.js` — KaTeX 0.16.11.
 - `auto-render.min.js` — KaTeX `renderMathInElement` extension.
 - `marked.min.js` — marked 14.1.3 (GFM Markdown parser).
 - `fonts/*.woff2` — KaTeX woff2 fonts (only woff2 is shipped to keep size
   down; modern WebKit reads woff2 fine).
+
+`MarkdownPreviewView` must not reference CDN URLs. If sanitizer support is
+added later, ship the pinned `dompurify.min.js` file in this bundle and load it
+from `doc-preview.html` with a relative `<script>` tag.
 
 ## Updating
 

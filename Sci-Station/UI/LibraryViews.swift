@@ -1445,6 +1445,51 @@ struct PaperInspectorView: View {
                         .padding(.vertical, 4)
                     }
 
+                    GroupBox("paper.md Health") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            WorkspacePathRow(label: "Status", value: appModel.paperMarkdownQualitySummary)
+                            if !appModel.paperMarkdownQualityIssueLines.isEmpty {
+                                ForEach(appModel.paperMarkdownQualityIssueLines.prefix(3), id: \.self) { issue in
+                                    Label(issue, systemImage: "exclamationmark.triangle")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+
+                            HStack(spacing: 8) {
+                                Button {
+                                    appModel.checkSelectedPaperMarkdownQuality()
+                                } label: {
+                                    Label(appModel.isCheckingPaperMarkdownQuality ? "Checking" : "Check", systemImage: "checklist")
+                                }
+                                .disabled(appModel.isCheckingPaperMarkdownQuality)
+
+                                Button {
+                                    appModel.openPaperMarkdown(paper)
+                                } label: {
+                                    Label("Open", systemImage: "doc.text")
+                                }
+
+                                Button {
+                                    appModel.convertPaperToMarkdown(paper)
+                                } label: {
+                                    Label("Convert with MinerU", systemImage: "doc.richtext")
+                                }
+                                .disabled(appModel.paperMarkdownConversionState(for: paper) == .converting)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            if let message = appModel.paperMarkdownConversionMessage(for: paper) {
+                                Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
                     GroupBox("Organization") {
                         VStack(alignment: .leading, spacing: 12) {
                             PaperProjectRelationshipEditor(paper: paper)

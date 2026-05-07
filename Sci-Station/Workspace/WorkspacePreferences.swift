@@ -1,9 +1,10 @@
 import Foundation
 
 public struct WorkspacePreferences: Hashable, Sendable {
-    public nonisolated static let currentSchemaVersion = 1
+    public nonisolated static let currentSchemaVersion = 2
     public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
     public nonisolated static let defaultAgentChatFontSize = 14.0
+    public nonisolated static let defaultAgentLoopBudget = AgentLoopOptions()
 
     public var schemaVersion: Int
     public var libraryVisibleColumns: [String]
@@ -15,6 +16,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var agentChatFontSize: Double
     public var agentRuntimeSelection: AgentRuntimeSelection
     public var isSidecarDisabledForWorkspace: Bool
+    public var agentDebugLoggingEnabled: Bool
+    public var agentLoopBudget: AgentLoopOptions
     public var agentKnowledgePaperIDs: [String]?
     public var agentDisabledToolNamesByScope: [String: [String]]
     public var pinnedAgentThreadIDsByProject: [String: [String]]
@@ -34,6 +37,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
         agentChatFontSize: Double = Self.defaultAgentChatFontSize,
         agentRuntimeSelection: AgentRuntimeSelection = .autoFallback,
         isSidecarDisabledForWorkspace: Bool = false,
+        agentDebugLoggingEnabled: Bool = false,
+        agentLoopBudget: AgentLoopOptions = Self.defaultAgentLoopBudget,
         agentKnowledgePaperIDs: [String]? = nil,
         agentDisabledToolNamesByScope: [String: [String]] = [:],
         pinnedAgentThreadIDsByProject: [String: [String]] = [:],
@@ -53,6 +58,8 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.agentChatFontSize = min(max(normalizedFontSize, 11), 22)
         self.agentRuntimeSelection = agentRuntimeSelection
         self.isSidecarDisabledForWorkspace = isSidecarDisabledForWorkspace
+        self.agentDebugLoggingEnabled = agentDebugLoggingEnabled
+        self.agentLoopBudget = agentLoopBudget
         self.agentKnowledgePaperIDs = agentKnowledgePaperIDs
         self.agentDisabledToolNamesByScope = agentDisabledToolNamesByScope
         self.pinnedAgentThreadIDsByProject = pinnedAgentThreadIDsByProject

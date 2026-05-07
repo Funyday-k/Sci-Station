@@ -233,7 +233,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 10) {
-                                Label("Legacy raw/papers", systemImage: appModel.legacyPaperMigrationPlan.hasLegacyPapers ? "externaldrive.badge.exclamationmark" : "checkmark.circle")
+                                Label(appModel.localized("Legacy raw/papers 迁移", "Legacy raw/papers"), systemImage: appModel.legacyPaperMigrationPlan.hasLegacyPapers ? "externaldrive.badge.exclamationmark" : "checkmark.circle")
                                     .fontWeight(.medium)
                                 Spacer(minLength: 0)
                                 if appModel.isLoadingLegacyPaperMigrationPlan {
@@ -243,35 +243,35 @@ struct SettingsView: View {
                                 Button {
                                     appModel.refreshLegacyPaperMigrationPlan()
                                 } label: {
-                                    Label("Refresh", systemImage: "arrow.clockwise")
+                                    Label(appModel.localized("刷新", "Refresh"), systemImage: "arrow.clockwise")
                                 }
                                 .controlSize(.small)
-                                .help(Text(verbatim: "Refresh the legacy paper scan"))
+                                .help(Text(verbatim: appModel.localized("刷新 legacy 论文扫描", "Refresh the legacy paper scan")))
 
                                 Button {
                                     isShowingLegacyMigrationConfirmation = true
                                 } label: {
-                                    Label("Copy Ready", systemImage: "doc.on.doc")
+                                    Label(appModel.localized("复制可迁移项", "Copy Ready"), systemImage: "doc.on.doc")
                                 }
                                 .controlSize(.small)
                                 .disabled(appModel.legacyPaperMigrationPlan.readyCount == 0 || appModel.isRunningLegacyPaperMigration)
-                                .help(Text(verbatim: "Copy ready legacy papers to library/papers and write a migration report"))
+                                .help(Text(verbatim: appModel.localized("把可迁移 legacy 论文复制到 library/papers，并写入迁移报告", "Copy ready legacy papers to library/papers and write a migration report")))
                             }
 
                             if appModel.isRunningLegacyPaperMigration {
-                                ProgressView("Copying legacy papers…")
+                                ProgressView(appModel.localized("正在复制 legacy 论文...", "Copying legacy papers..."))
                                     .controlSize(.small)
                             }
 
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 12) {
-                                WorkspacePathRow(label: "Legacy Papers", value: "\(appModel.legacyPaperMigrationPlan.legacyPaperCount)")
-                                WorkspacePathRow(label: "Ready", value: "\(appModel.legacyPaperMigrationPlan.readyCount)")
-                                WorkspacePathRow(label: "Conflicts", value: "\(appModel.legacyPaperMigrationPlan.conflictCount)")
-                                WorkspacePathRow(label: "Target", value: Paper.globalLibraryRootRelativePath)
+                                WorkspacePathRow(label: appModel.localized("Legacy 论文", "Legacy Papers"), value: "\(appModel.legacyPaperMigrationPlan.legacyPaperCount)")
+                                WorkspacePathRow(label: appModel.localized("可复制", "Ready"), value: "\(appModel.legacyPaperMigrationPlan.readyCount)")
+                                WorkspacePathRow(label: appModel.localized("冲突", "Conflicts"), value: "\(appModel.legacyPaperMigrationPlan.conflictCount)")
+                                WorkspacePathRow(label: appModel.localized("目标", "Target"), value: Paper.globalLibraryRootRelativePath)
                             }
 
                             if appModel.legacyPaperMigrationPlan.items.isEmpty {
-                                Label("No legacy raw/papers items detected.", systemImage: "checkmark.circle")
+                                Label(appModel.localized("未检测到 legacy raw/papers 项。", "No legacy raw/papers items detected."), systemImage: "checkmark.circle")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             } else {
@@ -281,7 +281,7 @@ struct SettingsView: View {
                                     }
 
                                     if appModel.legacyPaperMigrationPlan.items.count > 5 {
-                                        Text("+\(appModel.legacyPaperMigrationPlan.items.count - 5) more")
+                                        Text(appModel.localized("+\(appModel.legacyPaperMigrationPlan.items.count - 5) 项更多", "+\(appModel.legacyPaperMigrationPlan.items.count - 5) more"))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -289,7 +289,7 @@ struct SettingsView: View {
                             }
 
                             if let report = appModel.legacyPaperMigrationReport {
-                                Label("Last report: copied \(report.copiedCount), skipped \(report.skippedCount), failed \(report.failedCount). \(report.reportRelativePath ?? "")", systemImage: "doc.text")
+                                Label(appModel.localized("上次报告：复制 \(report.copiedCount)，跳过 \(report.skippedCount)，失败 \(report.failedCount)。\(report.reportRelativePath ?? "")", "Last report: copied \(report.copiedCount), skipped \(report.skippedCount), failed \(report.failedCount). \(report.reportRelativePath ?? "")"), systemImage: "doc.text")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -399,6 +399,14 @@ struct SettingsView: View {
                         WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
                         WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
                         WorkspacePathRow(label: "MCP", value: appModel.agentMCPStatusSummary)
+                        WorkspacePathRow(label: "Debug Logging", value: appModel.agentDebugLoggingSummary)
+
+                        Toggle("Debug mode", isOn: Binding(
+                            get: { appModel.workspacePreferences.agentDebugLoggingEnabled },
+                            set: { appModel.setAgentDebugLoggingEnabled($0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
 
                         HStack(spacing: 8) {
                             Button {
@@ -416,6 +424,11 @@ struct SettingsView: View {
                             } label: {
                                 Label("Debug", systemImage: "shippingbox")
                             }
+                            Button {
+                                appModel.openAgentDebugLogDirectory()
+                            } label: {
+                                Label("Logs", systemImage: "doc.text.magnifyingglass")
+                            }
                             Button(role: .destructive) {
                                 appModel.disableSidecarForWorkspace()
                             } label: {
@@ -428,35 +441,132 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Retrieval Index") {
+                GroupBox("AI Lab Tool Budget") {
                     VStack(alignment: .leading, spacing: 10) {
-                        WorkspacePathRow(label: "Status", value: appModel.agentRetrievalIndexSummary)
-                        WorkspacePathRow(label: "Store", value: appModel.agentRetrievalStoreSummary)
-                        WorkspacePathRow(label: "Model", value: appModel.agentRetrievalModelSummary)
-                        WorkspacePathRow(label: "Index", value: appModel.agentRetrievalIndexStatus.indexRelativePath)
+                        Grid(horizontalSpacing: 12, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Max Steps").frame(width: 170, alignment: .leading)
+                                TextField("Max Steps", value: agentLoopBudgetBinding(
+                                    get: { $0.maxSteps },
+                                    set: { budget, value in budget.maxSteps = max(1, value) }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+
+                                Text("Max Tool Calls").frame(width: 170, alignment: .leading)
+                                TextField("Max Tool Calls", value: agentLoopBudgetBinding(
+                                    get: { $0.maxToolCalls },
+                                    set: { budget, value in budget.maxToolCalls = max(1, value) }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                            }
+
+                            GridRow {
+                                Text("Context Characters").frame(width: 170, alignment: .leading)
+                                TextField("Context Characters", value: agentLoopBudgetBinding(
+                                    get: { $0.maxContextCharacters },
+                                    set: { budget, value in budget.maxContextCharacters = max(1_000, value) }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+
+                                Text("Accumulated Tool Text").frame(width: 170, alignment: .leading)
+                                TextField("Accumulated Tool Text", value: agentLoopBudgetBinding(
+                                    get: { $0.maxAccumulatedToolResultCharacters },
+                                    set: { budget, value in budget.maxAccumulatedToolResultCharacters = max(1_000, value) }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                            }
+
+                            GridRow {
+                                Text("Per Tool Output").frame(width: 170, alignment: .leading)
+                                TextField("Per Tool Output", value: agentLoopBudgetBinding(
+                                    get: { $0.maxToolResultCharactersPerCall },
+                                    set: { budget, value in budget.maxToolResultCharactersPerCall = max(1_000, value) }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+
+                                Toggle("Native Tools", isOn: agentLoopBudgetBoolBinding(
+                                    get: { $0.allowProviderNativeTools },
+                                    set: { budget, value in budget.allowProviderNativeTools = value }
+                                ))
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            Toggle("Auto-approve read-only tools", isOn: agentLoopBudgetBoolBinding(
+                                get: { $0.autoApproveReadOnly },
+                                set: { budget, value in budget.autoApproveReadOnly = value }
+                            ))
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+
+                            Button {
+                                appModel.resetAgentLoopBudget()
+                            } label: {
+                                Label("Reset", systemImage: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox(appModel.localized("检索索引", "Retrieval Index")) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        WorkspacePathRow(label: appModel.localized("状态", "Status"), value: appModel.agentRetrievalIndexSummary)
+                        WorkspacePathRow(label: appModel.localized("存储", "Store"), value: appModel.agentRetrievalStoreSummary)
+                        WorkspacePathRow(label: appModel.localized("模型", "Model"), value: appModel.agentRetrievalModelSummary)
+                        WorkspacePathRow(label: appModel.localized("索引", "Index"), value: appModel.agentRetrievalIndexStatus.indexRelativePath)
+
+                        if let hint = appModel.agentRetrievalZeroChunkHint {
+                            Text(hint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        WorkspacePathRow(label: appModel.localized("paper.md 检查", "paper.md Check"), value: appModel.paperMarkdownQualitySummary)
+                        ForEach(appModel.paperMarkdownQualityIssueLines.prefix(4), id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
                         HStack(spacing: 8) {
                             Button {
                                 appModel.rebuildAgentRetrievalSelectedSource()
                             } label: {
-                                Label("Rebuild Source", systemImage: "doc.badge.gearshape")
+                                Label(appModel.localized("重建来源", "Rebuild Source"), systemImage: "doc.badge.gearshape")
                             }
                             Button {
                                 appModel.rebuildAgentRetrievalCurrentProject()
                             } label: {
-                                Label("Rebuild Project", systemImage: "arrow.triangle.2.circlepath")
+                                Label(appModel.localized("重建项目", "Rebuild Project"), systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            Button {
+                                appModel.checkSelectedPaperMarkdownQuality()
+                            } label: {
+                                Label(appModel.localized("检查 paper.md", "Check paper.md"), systemImage: "checklist")
                             }
                             Button {
                                 appModel.openAgentRetrievalIndexDirectory()
                             } label: {
-                                Label("Open Index", systemImage: "folder")
+                                Label(appModel.localized("打开索引", "Open Index"), systemImage: "folder")
                             }
                             Button {
                                 appModel.copyAgentRetrievalDiagnostic()
                             } label: {
-                                Label("Copy Diagnostic", systemImage: "doc.on.doc")
+                                Label(appModel.localized("复制诊断", "Copy Diagnostic"), systemImage: "doc.on.doc")
                             }
-                            if appModel.agentRetrievalIndexStatus.status == .indexing {
+                            if appModel.agentRetrievalIndexStatus.status == .indexing || appModel.isCheckingPaperMarkdownQuality {
                                 ProgressView()
                                     .controlSize(.small)
                             }
@@ -670,16 +780,16 @@ struct SettingsView: View {
             syncDrafts()
         }
         .confirmationDialog(
-            "Copy ready legacy papers to library/papers?",
+            appModel.localized("复制可迁移 legacy 论文到 library/papers？", "Copy ready legacy papers to library/papers?"),
             isPresented: $isShowingLegacyMigrationConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Copy Ready Papers") {
+            Button(appModel.localized("复制可迁移论文", "Copy Ready Papers")) {
                 appModel.copyReadyLegacyPapers()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(appModel.localized("取消", "Cancel"), role: .cancel) {}
         } message: {
-            Text("Sci-Station will copy ready raw/papers items into library/papers, skip conflicts, keep the original raw/papers files in place, and write a JSON migration report.")
+            Text(appModel.localized("Sci-Station 会把可迁移 raw/papers 项复制到 library/papers，跳过冲突，保留原始 raw/papers 文件，并写入 JSON 迁移报告。", "Sci-Station will copy ready raw/papers items into library/papers, skip conflicts, keep the original raw/papers files in place, and write a JSON migration report."))
         }
     }
 
@@ -713,6 +823,34 @@ struct SettingsView: View {
             set: { newValue in
                 appModel.updateLLMConfiguration { configuration in
                     set(&configuration, newValue)
+                }
+            }
+        )
+    }
+
+    private func agentLoopBudgetBinding(
+        get: @escaping (AgentLoopOptions) -> Int,
+        set: @escaping (inout AgentLoopOptions, Int) -> Void
+    ) -> Binding<Int> {
+        Binding(
+            get: { get(appModel.workspacePreferences.agentLoopBudget) },
+            set: { newValue in
+                appModel.updateAgentLoopBudget { budget in
+                    set(&budget, newValue)
+                }
+            }
+        )
+    }
+
+    private func agentLoopBudgetBoolBinding(
+        get: @escaping (AgentLoopOptions) -> Bool,
+        set: @escaping (inout AgentLoopOptions, Bool) -> Void
+    ) -> Binding<Bool> {
+        Binding(
+            get: { get(appModel.workspacePreferences.agentLoopBudget) },
+            set: { newValue in
+                appModel.updateAgentLoopBudget { budget in
+                    set(&budget, newValue)
                 }
             }
         )
@@ -821,6 +959,7 @@ private struct SettingsCategorySidebar: View {
 }
 
 private struct LegacyMigrationPlanRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
     let item: LegacyPaperMigrationItem
 
     var body: some View {
@@ -835,7 +974,7 @@ private struct LegacyMigrationPlanRow: View {
                         .font(.caption)
                         .fontWeight(.medium)
                         .lineLimit(1)
-                    Text(item.status.label)
+                    Text(statusLabel)
                         .font(.caption2)
                         .foregroundStyle(item.hasConflicts ? Color.orange : Color.secondary)
                 }
@@ -844,11 +983,31 @@ private struct LegacyMigrationPlanRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 if !item.conflicts.isEmpty {
-                    Text(item.conflicts.map(\.label).joined(separator: ", "))
+                    Text(item.conflicts.map(conflictLabel).joined(separator: ", "))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    private var statusLabel: String {
+        switch item.status {
+        case .readyToCopy:
+            return appModel.localized("可复制", "Ready to copy")
+        case .conflict:
+            return appModel.localized("冲突", "Conflict")
+        }
+    }
+
+    private func conflictLabel(_ conflict: LegacyPaperMigrationConflict) -> String {
+        switch conflict {
+        case .targetDirectoryExists:
+            return appModel.localized("目标已存在", "Target exists")
+        case .duplicatePaperIDInGlobalLibrary:
+            return appModel.localized("全局库重复", "Global duplicate")
+        case .duplicatePaperIDInLegacyLibrary:
+            return appModel.localized("Legacy 库重复", "Legacy duplicate")
         }
     }
 }

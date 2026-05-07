@@ -62,6 +62,29 @@ private struct PaperMarkdownConversionMetadata {
     var fallbackReason: String?
 }
 
+private struct AgentRetrievalSelectedSourceFileStatus {
+    var relativePath: String
+    var exists: Bool
+    var isDirectory: Bool
+    var byteCount: Int
+    var lineCount: Int?
+
+    var isReadableMarkdown: Bool {
+        exists && !isDirectory && byteCount > 0 && lineCount != nil
+    }
+
+    var diagnosticText: String {
+        [
+            "selected_source_exists=\(exists)",
+            "selected_source_is_directory=\(isDirectory)",
+            "selected_source_bytes=\(byteCount)",
+            lineCount.map { "selected_source_lines=\($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+    }
+}
+
 struct DeepSeekModelOption: Identifiable, Hashable {
     let id: String
     let title: String
@@ -187,6 +210,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
     @Published private(set) var agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot.disabled()
+    @Published private(set) var paperMarkdownQualityReport: PaperMarkdownQualityReport?
+    @Published private(set) var isCheckingPaperMarkdownQuality = false
     @Published private(set) var agentDisabledHookIDs: Set<String> = []
     @Published var isShowingAgentThreadRename = false
     @Published var isShowingAgentThreadArchiveConfirmation = false
@@ -236,8 +261,10 @@ final class AppViewModel: ObservableObject {
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
     private let agentService: SciStationAgentService
+    private let appDebugEventLogger = AppDebugEventLogger()
     private let sidecarCoordinator: SidecarRuntimeCoordinator
     private let agentEmbeddingIndexController: AgentEmbeddingIndexController
+    private let paperMarkdownQualityInspector = PaperMarkdownQualityInspector()
     private let pdfImportService: PDFImportService
     private let markdownRepository: MarkdownRepository
     private let markdownSnippetRepository: MarkdownSnippetRepository
@@ -565,7 +592,7 @@ final class AppViewModel: ObservableObject {
 
     var agentConversationRuns: [AgentRun] {
         guard let thread = activeAgentThread else {
-            return agentRunHistory.filter { $0.currentProjectID == agentConversationProjectID }
+            return agentOrphanRuns
         }
 
         let runsByID = Dictionary(uniqueKeysWithValues: agentRunHistory.map { ($0.id, $0) })
@@ -662,6 +689,10 @@ final class AppViewModel: ObservableObject {
     func setAgentContextSelectionToken(_ token: String) {
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
+        recordAppDebugEvent("agent.context_changed", payload: .object([
+            "token": .string(token),
+            "previous_project_id": .string(agentConversationProjectID ?? "")
+        ]))
         if token == "__workspace__" {
             agentNextRunContextScope = .workspace
             agentNextRunProjectID = nil
@@ -935,9 +966,14 @@ final class AppViewModel: ObservableObject {
         ) ?? agentSidecarHealth.fallbackReason ?? agentSidecarHealth.lastCrash ?? "No fallback active."
     }
 
+    var agentDebugLoggingSummary: String {
+        workspacePreferences.agentDebugLoggingEnabled
+            ? "enabled; .sci-station/debug/app_events.jsonl"
+            : "disabled"
+    }
+
     var agentRetrievalIndexSummary: String {
-        let status = agentRetrievalIndexStatus.status.uiStatus.rawValue
-        return "\(status); \(agentRetrievalIndexStatus.chunkCount) chunks; \(agentRetrievalIndexStatus.staleCount) stale"
+        "\(agentRetrievalStatusLabel); chunks=\(agentRetrievalIndexStatus.chunkCount); stale=\(agentRetrievalIndexStatus.staleCount)"
     }
 
     var agentRetrievalStoreSummary: String {
@@ -955,7 +991,127 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentRetrievalDiagnosticSummary: String {
-        agentRetrievalIndexStatus.diagnosticText
+        var sections = [agentRetrievalIndexStatus.diagnosticText]
+        sections.append("runtime_selection=\(agentRuntimeSelectionSummary)")
+        sections.append("runtime_effective=\(agentRuntimeEffectiveSummary)")
+        sections.append("sidecar_health=\(agentSidecarHealthSummary)")
+        sections.append("sidecar_fallback=\(agentRuntimeFallbackSummary)")
+        sections.append("selected_source=\(selectedAgentRetrievalSourcePath() ?? "none")")
+        if let selectedSourceStatus = selectedAgentRetrievalSourceFileStatus() {
+            sections.append(selectedSourceStatus.diagnosticText)
+        }
+        sections.append("last_provider_failure=\(agentLastProviderFailureSummary)")
+        if let agentRetrievalZeroChunkHint {
+            sections.append("hint=\(agentRetrievalZeroChunkHint)")
+        }
+        if let paperMarkdownQualityReport {
+            sections.append([
+                "paper_md_status=\(paperMarkdownQualityReport.status.rawValue)",
+                "paper_md_path=\(paperMarkdownQualityReport.markdownRelativePath)",
+                "paper_md_engine=\(paperMarkdownQualityReport.extractionEngine ?? "unknown")",
+                "paper_md_abstract=\(paperMarkdownQualityReport.hasAbstractHeading)",
+                "paper_md_figures=\(paperMarkdownQualityReport.figureAssetCount)",
+                "paper_md_display_math=\(paperMarkdownQualityReport.hasDisplayMath)",
+                "paper_md_issues=\(paperMarkdownQualityReport.issues.map(\.code.rawValue).joined(separator: ","))"
+            ].joined(separator: "\n"))
+        }
+        return sections.joined(separator: "\n")
+    }
+
+    var redactedAgentRetrievalDiagnosticSummary: String {
+        AgentDiagnosticRedactor.redacted(agentRetrievalDiagnosticSummary)
+    }
+
+    var agentRetrievalSourceHealthSummary: String {
+        let source = selectedAgentRetrievalSourcePath() ?? localized("未选择 source", "No source selected")
+        let paperHealth = paperMarkdownQualityReport.map { report in
+            report.summary(usesEnglishInterface: usesEnglishInterface)
+        } ?? localized("paper.md 尚未检查", "paper.md not checked")
+        return "\(source); \(agentRetrievalIndexSummary); \(paperHealth)"
+    }
+
+    var agentRetrievalSourceHealthIssueLines: [String] {
+        var lines: [String] = []
+        if let agentRetrievalZeroChunkHint {
+            lines.append(agentRetrievalZeroChunkHint)
+        }
+        lines.append(contentsOf: paperMarkdownQualityIssueLines.prefix(3))
+        return lines
+    }
+
+    var agentLastProviderFailureSummary: String {
+        let latestFailedRun = ([agentCurrentRun].compactMap { $0 } + agentRunHistory)
+            .filter { $0.failureCategory == .providerError || $0.lifecycleState == .failed }
+            .sorted { ($0.completedAt ?? $0.createdAt) > ($1.completedAt ?? $1.createdAt) }
+            .first
+        guard let latestFailedRun else {
+            return "none"
+        }
+        return [
+            latestFailedRun.failureCategory?.rawValue ?? latestFailedRun.lifecycleState.rawValue,
+            latestFailedRun.plan.risk?.nilIfBlank ?? latestFailedRun.plan.summary.nilIfBlank
+        ]
+        .compactMap { $0 }
+        .joined(separator: ": ")
+    }
+
+    var agentRetrievalStatusLabel: String {
+        switch agentRetrievalIndexStatus.status.uiStatus {
+        case .ready:
+            return localized("Ready / 已就绪", "Ready")
+        case .fallback:
+            return localized("Fallback deterministic retrieval / 确定性检索 fallback", "Fallback deterministic retrieval")
+        case .error:
+            if agentRetrievalIndexStatus.errorMessage?.localizedCaseInsensitiveContains("not indexable") == true {
+                return localized("Error not indexable / 不可索引", "Error not indexable")
+            }
+            return localized("Error / 错误", "Error")
+        case .disabled:
+            return localized("Disabled FTS-only / 已禁用，仅 FTS", "Disabled FTS-only")
+        case .indexing:
+            return localized("Indexing / 正在索引", "Indexing")
+        case .stale, .migrationRequired:
+            return localized("Stale / 需要重建", "Stale")
+        }
+    }
+
+    var agentRetrievalZeroChunkHint: String? {
+        guard agentRetrievalIndexStatus.status.uiStatus != .indexing,
+              agentRetrievalIndexStatus.chunkCount == 0 else {
+            return nil
+        }
+        if agentRetrievalIndexStatus.status.uiStatus == .disabled {
+            return localized("检索索引已禁用；当前只使用 FTS 文本检索。", "Retrieval indexing is disabled; workflows are using FTS-only text retrieval.")
+        }
+        if agentRetrievalIndexStatus.errorMessage?.localizedCaseInsensitiveContains("not indexable") == true {
+            return localized("chunks=0：选中的 source 不可索引。请确认路径是 paper.md、annotations.md、wiki 或 materials，legacy raw/papers 可直接重建或先迁移。", "chunks=0: the selected source is not indexable. Confirm the path is paper.md, annotations.md, wiki, or materials; legacy raw/papers can be rebuilt directly or migrated first.")
+        }
+        if let selectedSourceStatus = selectedAgentRetrievalSourceFileStatus() {
+            if !selectedSourceStatus.exists {
+                return localized("chunks=0：选中的 source 文件不存在，请重新选择论文或重新生成 paper.md。", "chunks=0: the selected source file does not exist; select the paper again or regenerate paper.md.")
+            }
+            if selectedSourceStatus.isDirectory {
+                return localized("chunks=0：选中的 source 是文件夹，不是可索引的 Markdown 文件。", "chunks=0: the selected source is a folder, not an indexable Markdown file.")
+            }
+            if selectedSourceStatus.byteCount == 0 {
+                return localized("chunks=0：选中的 paper.md 存在但为空，请重新转换或修复内容后再 Rebuild Source。", "chunks=0: the selected paper.md exists but is empty; reconvert or fix it before running Rebuild Source.")
+            }
+            if let lineCount = selectedSourceStatus.lineCount {
+                return localized("chunks=0：选中的 paper.md 已存在且非空（\(selectedSourceStatus.byteCount) bytes，\(lineCount) lines），请点击 Rebuild Source 生成本地 fallback chunks。", "chunks=0: the selected paper.md exists and is non-empty (\(selectedSourceStatus.byteCount) bytes, \(lineCount) lines); run Rebuild Source to generate local fallback chunks.")
+            }
+        }
+        return localized("chunks=0：请确认 paper.md 存在且非空，然后运行 Rebuild Source；若是 PDFKit fallback，请用 Check paper.md 查看可读性限制。", "chunks=0: confirm paper.md exists and is not empty, then run Rebuild Source; if it is a PDFKit fallback, use Check paper.md to review readability limits.")
+    }
+
+    var paperMarkdownQualitySummary: String {
+        guard let paperMarkdownQualityReport else {
+            return localized("尚未检查", "Not checked")
+        }
+        return paperMarkdownQualityReport.summary(usesEnglishInterface: usesEnglishInterface)
+    }
+
+    var paperMarkdownQualityIssueLines: [String] {
+        paperMarkdownQualityReport?.issueLines(usesEnglishInterface: usesEnglishInterface) ?? []
     }
 
     private var agentSidecarHealthIsAvailable: Bool {
@@ -1632,9 +1788,15 @@ final class AppViewModel: ObservableObject {
             do {
                 try await loadLegacyPaperMigrationPlan(in: currentWorkspace)
                 if legacyPaperMigrationPlan.hasLegacyPapers {
-                    workspaceSettingsStatusMessage = "Legacy scan found \(legacyPaperMigrationPlan.legacyPaperCount) raw/papers items."
+                    workspaceSettingsStatusMessage = localized(
+                        "Legacy 扫描发现 \(legacyPaperMigrationPlan.legacyPaperCount) 个 raw/papers 项。",
+                        "Legacy scan found \(legacyPaperMigrationPlan.legacyPaperCount) raw/papers items."
+                    )
                 } else {
-                    workspaceSettingsStatusMessage = "No legacy raw/papers items found."
+                    workspaceSettingsStatusMessage = localized(
+                        "未发现 legacy raw/papers 项。",
+                        "No legacy raw/papers items found."
+                    )
                 }
             } catch {
                 present(error)
@@ -1661,7 +1823,10 @@ final class AppViewModel: ObservableObject {
                     selectingPaper: selectedPaperID,
                     selectingMarkdown: selectedMarkdownID
                 )
-                workspaceSettingsStatusMessage = "Copied \(report.copiedCount) legacy papers. Skipped \(report.skippedCount), failed \(report.failedCount). Report: \(report.reportRelativePath ?? "not written")."
+                workspaceSettingsStatusMessage = localized(
+                    "已复制 \(report.copiedCount) 篇 legacy 论文；跳过 \(report.skippedCount)，失败 \(report.failedCount)。报告：\(report.reportRelativePath ?? "未写入")。",
+                    "Copied \(report.copiedCount) legacy papers. Skipped \(report.skippedCount), failed \(report.failedCount). Report: \(report.reportRelativePath ?? "not written")."
+                )
             } catch {
                 present(error)
             }
@@ -1889,6 +2054,7 @@ final class AppViewModel: ObservableObject {
             selectedPaperID = nil
             selectedPaperDraft = nil
             selectedPaperAnnotationsDraft = ""
+            paperMarkdownQualityReport = nil
         }
     }
 
@@ -1917,6 +2083,7 @@ final class AppViewModel: ObservableObject {
     private func applySelectedPaper(id: Paper.ID?) {
         selectedPaperID = id
         selectedPaperDraft = papers.first(where: { $0.id == id })
+        paperMarkdownQualityReport = nil
         guard let currentWorkspace else {
             selectedPaperAnnotationsDraft = ""
             return
@@ -2341,7 +2508,7 @@ final class AppViewModel: ObservableObject {
             configuration.baseURLString = "https://api.deepseek.com"
             configuration.model = model
             configuration.temperature = 0.2
-            configuration.maxTokens = 1500
+            configuration.maxTokens = 384_000
         }
     }
 
@@ -2505,6 +2672,19 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func updateAgentLoopBudget(_ mutate: (inout AgentLoopOptions) -> Void) {
+        updateWorkspacePreferences { preferences in
+            mutate(&preferences.agentLoopBudget)
+        }
+    }
+
+    func resetAgentLoopBudget() {
+        updateWorkspacePreferences { preferences in
+            preferences.agentLoopBudget = WorkspacePreferences.defaultAgentLoopBudget
+        }
+        agentStatusMessage = "AI Lab tool budget reset to defaults."
+    }
+
     func updateAgentRuntimeSelection(_ selection: AgentRuntimeSelection) {
         updateWorkspacePreferences { preferences in
             preferences.agentRuntimeSelection = selection
@@ -2512,7 +2692,22 @@ final class AppViewModel: ObservableObject {
                 preferences.isSidecarDisabledForWorkspace = false
             }
         }
+        recordAppDebugEvent("agent.runtime_selection_changed", payload: .object([
+            "selection": .string(selection.rawValue)
+        ]))
         agentStatusMessage = "AI Lab runtime set to \(selection.label)."
+    }
+
+    func setAgentDebugLoggingEnabled(_ isEnabled: Bool) {
+        updateWorkspacePreferences { preferences in
+            preferences.agentDebugLoggingEnabled = isEnabled
+        }
+        recordAppDebugEvent("debug_mode_changed", payload: .object([
+            "enabled": .bool(isEnabled)
+        ]), force: true)
+        agentStatusMessage = isEnabled
+            ? "Debug mode enabled. App input, output, and AI Lab operations will be logged locally."
+            : "Debug mode disabled. Existing local debug logs were kept."
     }
 
     func restartAgentSidecar() {
@@ -2536,6 +2731,17 @@ final class AppViewModel: ObservableObject {
         let runID = agentCurrentRun?.id
         let relativePath = [AgentRunDirectoryStore.runsRelativePath, runID].compactMap { $0 }.joined(separator: "/")
         NSWorkspace.shared.activateFileViewerSelecting([currentResearchRoot.directoryURL(for: relativePath)])
+    }
+
+    func openAgentDebugLogDirectory() {
+        guard let currentResearchRoot else {
+            agentErrorMessage = "No workspace root is open."
+            return
+        }
+        let directory = currentResearchRoot.directoryURL(for: ".sci-station/debug")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        recordAppDebugEvent("debug_log_opened")
+        NSWorkspace.shared.activateFileViewerSelecting([directory])
     }
 
     func exportAgentDebugBundle() {
@@ -2615,7 +2821,32 @@ final class AppViewModel: ObservableObject {
         agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot(status: .indexing, store: agentRetrievalIndexStatus.store)
         Task {
             agentRetrievalIndexStatus = await agentEmbeddingIndexController.rebuildSelectedSource(relativePath, in: currentResearchRoot)
-            agentStatusMessage = "Retrieval source rebuild finished for \(relativePath)."
+            let suffix = agentRetrievalIndexStatus.zeroChunkGuidance.map { " \($0)" } ?? ""
+            agentStatusMessage = "Retrieval source rebuild finished for \(relativePath): \(agentRetrievalIndexSummary).\(suffix)"
+        }
+    }
+
+    func checkSelectedPaperMarkdownQuality() {
+        guard let currentWorkspace else {
+            agentErrorMessage = localized("没有打开的工作区。", "No workspace is open.")
+            return
+        }
+        guard let paper = selectedPaperDraft else {
+            agentErrorMessage = localized("请先选择一篇论文，再检查 paper.md。", "Select a paper before checking paper.md.")
+            return
+        }
+
+        isCheckingPaperMarkdownQuality = true
+        Task {
+            defer {
+                isCheckingPaperMarkdownQuality = false
+            }
+            let report = paperMarkdownQualityInspector.inspect(paper, in: currentWorkspace)
+            paperMarkdownQualityReport = report
+            agentStatusMessage = localized(
+                "paper.md 检查完成：\(report.summary(usesEnglishInterface: false))",
+                "paper.md check finished: \(report.summary(usesEnglishInterface: true))"
+            )
         }
     }
 
@@ -2631,8 +2862,25 @@ final class AppViewModel: ObservableObject {
 
     func copyAgentRetrievalDiagnostic() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(agentRetrievalDiagnosticSummary, forType: .string)
-        agentStatusMessage = "Retrieval diagnostic copied."
+        NSPasteboard.general.setString(redactedAgentRetrievalDiagnosticSummary, forType: .string)
+        agentStatusMessage = "Redacted retrieval diagnostic copied."
+    }
+
+    func openSelectedPaperMarkdown() {
+        guard let selectedPaperDraft else {
+            agentErrorMessage = localized("请先选择一篇论文。", "Select a paper first.")
+            return
+        }
+        openPaperMarkdown(selectedPaperDraft)
+    }
+
+    func openLegacyPaperMigrationReport() {
+        guard let currentWorkspace,
+              let relativePath = legacyPaperMigrationReport?.reportRelativePath?.nilIfBlank else {
+            agentErrorMessage = localized("当前没有可打开的迁移报告。", "No migration report is available to open.")
+            return
+        }
+        NSWorkspace.shared.open(currentWorkspace.fileURL(for: relativePath))
     }
 
     private func selectedAgentRetrievalSourcePath() -> String? {
@@ -2744,6 +2992,11 @@ final class AppViewModel: ObservableObject {
         publishAgentStreamingResponseNow()
         agentStatusMessage = "已停止 AI 输出。"
         agentErrorMessage = nil
+        recordAppDebugEvent("agent.stop_requested", payload: .object([
+            "prompt": .string(prompt ?? ""),
+            "partial_assistant_response": .string(partialResponse ?? ""),
+            "retry_of_run_id": .string(retryOfRunID ?? "")
+        ]))
 
         if let prompt, let currentWorkspace {
             Task {
@@ -3106,6 +3359,11 @@ final class AppViewModel: ObservableObject {
         restoreAgentToolStateForCurrentScope()
         agentStatusMessage = "已开始新的 \(agentNextRunContextTitle) 对话。"
         agentErrorMessage = nil
+        recordAppDebugEvent("agent.thread_started", payload: .object([
+            "thread_id": .string(thread.id),
+            "project_id": .string(contextProjectID ?? ""),
+            "scope": .string(agentNextRunContextScope.rawValue)
+        ]), threadID: thread.id)
     }
 
     func discardPendingAgentThread() {
@@ -3124,6 +3382,10 @@ final class AppViewModel: ObservableObject {
         rebuildAgentHookActivitySummary()
         agentStatusMessage = "Discarded the empty draft chat."
         agentErrorMessage = nil
+        recordAppDebugEvent("agent.thread_draft_discarded", payload: .object([
+            "thread_id": .string(pendingAgentThread.id),
+            "project_id": .string(projectID ?? "")
+        ]), threadID: pendingAgentThread.id)
 
         if let currentWorkspace {
             let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
@@ -3134,6 +3396,16 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectAgentThread(_ thread: AgentThread) {
+        guard !thread.isArchived else {
+            agentStatusMessage = "该对话已归档，不能作为当前对话打开。"
+            activeAgentThreadID = preferredAgentThreadID(projectID: thread.projectID)
+            pendingAgentThread = nil
+            recordAppDebugEvent("agent.archived_thread_selection_blocked", payload: .object([
+                "thread_id": .string(thread.id),
+                "title": .string(thread.title)
+            ]), threadID: thread.id)
+            return
+        }
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
         activeAgentThreadID = thread.id
@@ -3151,6 +3423,12 @@ final class AppViewModel: ObservableObject {
         let workspaceSuffix = thread.workspaceName.map { "（\($0)）" } ?? ""
         agentStatusMessage = "已打开 \(thread.title)\(workspaceSuffix)。"
         agentErrorMessage = nil
+        recordAppDebugEvent("agent.thread_selected", payload: .object([
+            "thread_id": .string(thread.id),
+            "title": .string(thread.title),
+            "project_id": .string(thread.projectID ?? ""),
+            "run_ids": jsonStringArray(thread.runIDs)
+        ]), threadID: thread.id)
     }
 
     func openAgentRun(_ run: AgentRun) {
@@ -3158,7 +3436,7 @@ final class AppViewModel: ObservableObject {
         persistAgentDraftForCurrentConversation()
         agentNextRunContextScope = run.contextScope ?? AgentContextScope.inferred(projectID: run.projectID ?? run.currentProjectID)
         agentNextRunProjectID = run.projectID ?? run.currentProjectID
-        activeAgentThreadID = allAgentThreads.first { $0.runIDs.contains(run.id) }?.id
+        activeAgentThreadID = allAgentThreads.first { !$0.isArchived && $0.runIDs.contains(run.id) }?.id
         pendingAgentThread = nil
         agentCurrentRun = run
         agentGoal = run.goal
@@ -3167,6 +3445,11 @@ final class AppViewModel: ObservableObject {
         rebuildAgentHookActivitySummary()
         agentStatusMessage = "Opened a previous \(agentConversationTitle) run."
         agentErrorMessage = nil
+        recordAppDebugEvent("agent.run_opened", payload: .object([
+            "run_id": .string(run.id),
+            "goal": .string(run.goal),
+            "bound_thread_id": .string(activeAgentThreadID ?? "")
+        ]), runID: run.id)
         refreshAgentContext()
     }
 
@@ -3221,6 +3504,11 @@ final class AppViewModel: ObservableObject {
                     agentGoal = ""
                 }
                 agentStatusMessage = "Archived \(thread.title)."
+                recordAppDebugEvent("agent.thread_archived", payload: .object([
+                    "thread_id": .string(thread.id),
+                    "title": .string(thread.title),
+                    "run_ids": jsonStringArray(thread.runIDs)
+                ]), threadID: thread.id)
                 await refreshAgentState(in: currentWorkspace)
             } catch {
                 agentErrorMessage = error.localizedDescription
@@ -3408,12 +3696,23 @@ final class AppViewModel: ObservableObject {
             allowedToolNames: allowedToolNames,
             enabledWorkflowIDs: enabledAgentWorkflowIDs,
             allowsPlainTextResponse: interactionMode.allowsPlainTextResponse,
+            loopOptions: workspacePreferences.agentLoopBudget,
             retryOfRunID: retryOfRunID
         )
         let responseDeltaHandler = interactionMode == .conversation ? makeAgentStreamingDeltaHandler() : nil
 
         isPlanningAgentRun = true
         agentPendingUserPrompt = trimmedGoal
+        recordAppDebugEvent("agent.prompt_submitted", payload: .object([
+            "prompt": .string(trimmedGoal),
+            "interaction_mode": .string(interactionMode.rawValue),
+            "runtime_selection": .string(runtimeSelection.rawValue),
+            "project_id": .string(runContextProjectID ?? ""),
+            "selected_paper_id": .string(selectedPaperID ?? ""),
+            "allowed_tool_names": jsonStringArray(allowedToolNames?.sorted() ?? []),
+            "enabled_tool_names": jsonStringArray(enabledToolNamesSnapshot),
+            "conversation_history_messages": .number(String(conversationHistory.count))
+        ]))
         resetAgentStreamingPreview()
         agentGoal = ""
         persistAgentDraftForCurrentConversation()
@@ -3461,13 +3760,23 @@ final class AppViewModel: ObservableObject {
                     : (interactionMode == .conversation
                         ? "已根据所选 AI 知识库生成回复。"
                         : "计划已生成。运行前请审查允许写入工作区的工具。")
+                recordAgentRunDebugOutput(run, event: "agent.run_completed")
                 await refreshAgentState(in: currentWorkspace)
             } catch is CancellationError {
                 agentStatusMessage = "已停止 AI 输出。"
                 agentErrorMessage = nil
+                recordAppDebugEvent("agent.run_cancelled", payload: .object([
+                    "prompt": .string(trimmedGoal),
+                    "partial_assistant_response": .string(agentStreamingResponseText ?? "")
+                ]))
             } catch {
                 let message = error.localizedDescription
                 agentErrorMessage = message
+                recordAppDebugEvent("agent.run_failed", payload: .object([
+                    "prompt": .string(trimmedGoal),
+                    "error": .string(message),
+                    "partial_assistant_response": .string(agentStreamingResponseText ?? "")
+                ]))
                 await recordAgentInlineFailure(
                     prompt: trimmedGoal,
                     message: message,
@@ -3502,6 +3811,12 @@ final class AppViewModel: ObservableObject {
         isExecutingAgentTools = true
         agentErrorMessage = nil
         agentStatusMessage = nil
+        recordAppDebugEvent("agent.tools_execution_started", payload: .object([
+            "run_id": .string(currentRun.id),
+            "goal": .string(goal),
+            "approved_tool_call_ids": jsonStringArray(Array(agentToolApprovals).sorted()),
+            "denied_tool_call_ids": jsonStringArray(Array(agentToolDenials).sorted())
+        ]), runID: currentRun.id)
 
         Task {
             defer {
@@ -3537,6 +3852,7 @@ final class AppViewModel: ObservableObject {
                         includedPaperIDs: agentKnowledgePaperIDsForContext,
                         allowedToolNames: effectiveAgentAllowedToolNames,
                         disabledHookIDs: agentDisabledHookIDs,
+                        loopOptions: workspacePreferences.agentLoopBudget,
                         configuration: llmConfiguration,
                         apiKey: try await resolvedLLMAPIKey(for: currentWorkspace),
                         responseDeltaHandler: makeAgentStreamingDeltaHandler()
@@ -3550,6 +3866,7 @@ final class AppViewModel: ObservableObject {
                         selectingPaper: selectedPaperID,
                         selectingMarkdown: selectedMarkdownID
                     )
+                    recordAgentRunDebugOutput(resumedRun, event: "agent.tools_resume_completed")
                     return
                 }
 
@@ -3570,6 +3887,7 @@ final class AppViewModel: ObservableObject {
                 agentCurrentRun = executedRun
                 try await attachRunToActiveThread(executedRun, in: currentWorkspace)
                 agentStatusMessage = "Approved tools finished. Workspace data has been refreshed."
+                recordAgentRunDebugOutput(executedRun, event: "agent.tools_execution_completed")
                 try await loadWorkspaceData(
                     in: currentWorkspace,
                     selectingPaper: selectedPaperID,
@@ -3577,6 +3895,10 @@ final class AppViewModel: ObservableObject {
                 )
             } catch {
                 agentErrorMessage = error.localizedDescription
+                recordAppDebugEvent("agent.tools_execution_failed", payload: .object([
+                    "run_id": .string(currentRun.id),
+                    "error": .string(error.localizedDescription)
+                ]), runID: currentRun.id)
             }
         }
     }
@@ -4594,6 +4916,75 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    private func recordAppDebugEvent(
+        _ event: String,
+        payload: JSONValue = .object([:]),
+        runID: String? = nil,
+        threadID: String? = nil,
+        force: Bool = false
+    ) {
+        guard force || workspacePreferences.agentDebugLoggingEnabled else {
+            return
+        }
+        guard let currentWorkspace else {
+            return
+        }
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        let debugEvent = AppDebugEvent(
+            event: event,
+            workspaceID: currentAgentWorkspaceID,
+            projectID: agentConversationProjectID,
+            threadID: threadID ?? activeAgentThreadID,
+            runID: runID ?? agentCurrentRun?.id,
+            payload: payload
+        )
+
+        Task {
+            try? await appDebugEventLogger.append(debugEvent, in: root)
+        }
+    }
+
+    private func recordAgentRunDebugOutput(_ run: AgentRun, event: String) {
+        var payload: [String: JSONValue] = [
+            "run_id": .string(run.id),
+            "goal": .string(run.goal),
+            "mode": .string(run.mode.rawValue),
+            "summary": .string(run.plan.summary),
+            "tool_results": .array(run.toolResults.map { result in
+                var fields: [String: JSONValue] = [
+                    "call_id": .string(result.callID),
+                    "tool_name": .string(result.toolName),
+                    "succeeded": .bool(result.succeeded),
+                    "requires_confirmation": .bool(result.requiresConfirmation),
+                    "message": .string(result.message),
+                    "modified_paths": jsonStringArray(result.modifiedPaths)
+                ]
+                if let errorMessage = result.errorMessage {
+                    fields["error_message"] = .string(errorMessage)
+                }
+                if let payload = result.payload {
+                    fields["payload"] = payload
+                }
+                return .object(fields)
+            })
+        ]
+        if let finalResponseDraft = run.plan.finalResponseDraft {
+            payload["final_response"] = .string(finalResponseDraft)
+        }
+        if let runtimeSelector = run.runtimeSelector {
+            payload["runtime_selector"] = .string(runtimeSelector)
+        }
+        if let enabledToolNames = run.enabledToolNames {
+            payload["enabled_tool_names"] = jsonStringArray(enabledToolNames)
+        }
+        recordAppDebugEvent(event, payload: .object(payload), runID: run.id)
+    }
+
+    private func jsonStringArray(_ values: [String]) -> JSONValue {
+        .array(values.map { .string($0) })
+    }
+
     private func systemScheduleRange(around referenceDate: Date) -> (start: Date, end: Date) {
         let calendar = Calendar.current
         guard let monthInterval = calendar.dateInterval(of: .month, for: referenceDate) else {
@@ -4887,7 +5278,9 @@ final class AppViewModel: ObservableObject {
 
     private func restorePinnedAgentThreadsForCurrentProject() {
         let projectKey = agentProjectPreferenceKey(agentConversationProjectID)
+        let visibleThreadIDs = Set(agentThreads.map(\.id))
         pinnedAgentThreadIDs = Set(workspacePreferences.pinnedAgentThreadIDsByProject[projectKey] ?? [])
+            .intersection(visibleThreadIDs)
     }
 
     private func agentToolPreferenceScopeKey(projectID: ResearchProject.ID?, threadID: AgentThread.ID?) -> String {
@@ -4936,6 +5329,10 @@ final class AppViewModel: ObservableObject {
     }
 
     private func restorePersistedAgentDraft(projectID: ResearchProject.ID?, threadID: AgentThread.ID?) {
+        if let threadID,
+           allAgentThreads.contains(where: { $0.id == threadID && $0.isArchived }) {
+            return
+        }
         let key = agentDraftKey(projectID: projectID, threadID: threadID)
         if let draft = agentGoalDrafts[key] {
             agentGoal = draft
@@ -5023,13 +5420,45 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadMarkdownDocuments(in workspace: ResearchWorkspace, selecting markdownID: String?) async throws {
-        let loadedDocuments = try await markdownRepository.loadDocuments(in: workspace, project: currentResearchProject)
+        var loadedDocuments = try await markdownRepository.loadDocuments(in: workspace, project: currentResearchProject)
+        if let markdownID,
+           !loadedDocuments.contains(where: { $0.id == markdownID }),
+           let externalDocument = try? await markdownRepository.loadDocument(relativePath: markdownID, in: workspace) {
+            loadedDocuments.append(externalDocument)
+        }
         markdownDocuments = loadedDocuments
         backlinkIndex = BacklinkIndex(documents: loadedDocuments)
 
         let nextSelectionID = markdownID ?? selectedMarkdownID ?? loadedDocuments.first?.id
         selectedMarkdownID = nextSelectionID
         selectedMarkdownDraft = loadedDocuments.first(where: { $0.id == nextSelectionID })
+    }
+
+    private func selectedAgentRetrievalSourceFileStatus() -> AgentRetrievalSelectedSourceFileStatus? {
+        guard let currentResearchRoot, let relativePath = selectedAgentRetrievalSourcePath() else {
+            return nil
+        }
+        let fileURL = currentResearchRoot.fileURL(for: relativePath)
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory)
+        guard exists else {
+            return AgentRetrievalSelectedSourceFileStatus(relativePath: relativePath, exists: false, isDirectory: false, byteCount: 0, lineCount: nil)
+        }
+        let attributes = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)) ?? [:]
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        let lineCount: Int?
+        if !isDirectory.boolValue, let contents = try? String(contentsOf: fileURL, encoding: .utf8) {
+            lineCount = contents.components(separatedBy: .newlines).count
+        } else {
+            lineCount = nil
+        }
+        return AgentRetrievalSelectedSourceFileStatus(
+            relativePath: relativePath,
+            exists: true,
+            isDirectory: isDirectory.boolValue,
+            byteCount: byteCount,
+            lineCount: lineCount
+        )
     }
 
     func paperHasWikiPage(_ paper: Paper, in workspace: ResearchWorkspace) -> Bool {
@@ -5123,5 +5552,10 @@ final class AppViewModel: ObservableObject {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

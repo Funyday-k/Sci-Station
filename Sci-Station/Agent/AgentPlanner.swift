@@ -51,11 +51,11 @@ public actor AgentPlanner {
                     apiKey: apiKey,
                     responseDeltaHandler: responseDeltaHandler
                 )
-                return try parsedPlan(from: streamedContent, allowsPlainTextResponse: allowsPlainTextResponse)
+                return try parsedPlan(from: streamedContent, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
             }
 
             let response = try await chatProvider.respond(to: request, configuration: configuration, apiKey: apiKey)
-            return try parsedPlan(from: response.message.content, allowsPlainTextResponse: allowsPlainTextResponse)
+            return try parsedPlan(from: response.message.content, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
         }
 
         let prompt = try promptBuilder.buildPrompt(
@@ -67,7 +67,7 @@ public actor AgentPlanner {
             allowsPlainTextResponse: allowsPlainTextResponse
         )
         let response = try await provider.complete(prompt: prompt, configuration: configuration, apiKey: apiKey)
-        return try parsedPlan(from: response, allowsPlainTextResponse: allowsPlainTextResponse)
+        return try parsedPlan(from: response, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
     }
 
     private func streamedResponse(
@@ -96,10 +96,13 @@ public actor AgentPlanner {
         return completedContent ?? accumulated
     }
 
-    private func parsedPlan(from response: String, allowsPlainTextResponse: Bool) throws -> AgentPlan {
+    private func parsedPlan(from response: String, goal: String, allowsPlainTextResponse: Bool) throws -> AgentPlan {
         do {
             return try planParser.parse(response)
         } catch let error as AgentPlanParserError {
+            if let fallbackPlan = planParser.writebackFallbackPlan(response: response, goal: goal) {
+                return fallbackPlan
+            }
             let visibleResponse = AgentVisibleResponseExtractor.visibleText(from: response)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !visibleResponse.isEmpty else {

@@ -45,6 +45,18 @@ public actor MarkdownRepository {
         }
     }
 
+    public func loadDocument(relativePath: String, in workspace: ResearchWorkspace) throws -> MarkdownDocument {
+        let fileURL = workspace.fileURL(for: relativePath)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: fileURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        guard fileURL.pathExtension.lowercased() == "md" else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        return try loadDocument(at: fileURL, in: workspace)
+    }
+
     public func saveContents(
         _ contents: String,
         relativePath: String,

@@ -18,7 +18,7 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         self.kind = event.kind
         self.title = Self.title(for: event.kind)
         self.detail = event.summary
-        self.payloadPreview = event.payloadJSON?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.payloadPreview = Self.payloadPreview(for: event)
     }
 
     private nonisolated init(
@@ -38,6 +38,15 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         self.title = title ?? Self.title(for: kind)
         self.detail = detail
         self.payloadPreview = payloadPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private nonisolated static func payloadPreview(for event: AgentSessionEvent) -> String? {
+        switch event.kind {
+        case .userMessage, .assistantMessage:
+            return nil
+        default:
+            return event.payloadJSON?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }
     }
 
     public nonisolated static func items(
@@ -681,6 +690,28 @@ public struct AgentRuntimeConfigurationLoader {
 
     private nonisolated static func stringArray(_ value: Any?) -> [String]? {
         value as? [String]
+    }
+}
+
+public nonisolated enum AgentDiagnosticRedactor {
+    public static func redacted(_ value: String, homeDirectory: String = NSHomeDirectory()) -> String {
+        var output = value
+        if !homeDirectory.isEmpty {
+            output = output.replacingOccurrences(of: homeDirectory, with: "~")
+        }
+        output = replacing(pattern: #"/Users/[^/\s]+"#, in: output, with: "~")
+        output = replacing(pattern: #"(?i)(bearer\s+)[A-Za-z0-9._\-+/=]{12,}"#, in: output, with: "$1[redacted]")
+        output = replacing(pattern: #"(?i)(api[_-]?key|token|secret|password)(\s*[:=]\s*)[^\s;&]+"#, in: output, with: "$1$2[redacted]")
+        output = replacing(pattern: #"sk-[A-Za-z0-9._\-]{12,}"#, in: output, with: "sk-[redacted]")
+        return output
+    }
+
+    private static func replacing(pattern: String, in value: String, with replacement: String) -> String {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return value
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return expression.stringByReplacingMatches(in: value, range: range, withTemplate: replacement)
     }
 }
 

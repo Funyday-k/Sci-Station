@@ -41,6 +41,15 @@ public actor WorkspacePreferencesRepository {
         lines.append("agent_chat_font_size: \(preferences.agentChatFontSize)")
         lines.append("agent_runtime_selection: \(quoted(preferences.agentRuntimeSelection.rawValue))")
         lines.append("agent_sidecar_disabled_for_workspace: \(preferences.isSidecarDisabledForWorkspace)")
+        lines.append("agent_debug_logging_enabled: \(preferences.agentDebugLoggingEnabled)")
+        lines.append("agent_loop_budget:")
+        lines.append("  max_steps: \(preferences.agentLoopBudget.maxSteps)")
+        lines.append("  max_tool_calls: \(preferences.agentLoopBudget.maxToolCalls)")
+        lines.append("  max_context_characters: \(preferences.agentLoopBudget.maxContextCharacters)")
+        lines.append("  max_tool_result_characters_per_call: \(preferences.agentLoopBudget.maxToolResultCharactersPerCall)")
+        lines.append("  max_accumulated_tool_result_characters: \(preferences.agentLoopBudget.maxAccumulatedToolResultCharacters)")
+        lines.append("  auto_approve_read_only: \(preferences.agentLoopBudget.autoApproveReadOnly)")
+        lines.append("  allow_provider_native_tools: \(preferences.agentLoopBudget.allowProviderNativeTools)")
         lines.append("mineru_command: \(quoted(preferences.minerUCommand))")
         lines.append("mineru_api_base_url: \(quoted(preferences.minerUAPIBaseURLString))")
         lines.append("mineru_api_language: \(quoted(preferences.minerUAPILanguage))")
@@ -67,6 +76,8 @@ public actor WorkspacePreferencesRepository {
         var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
         var agentRuntimeSelection = AgentRuntimeSelection.autoFallback
         var isSidecarDisabledForWorkspace = false
+        var agentDebugLoggingEnabled = false
+        var agentLoopBudget = WorkspacePreferences.defaultAgentLoopBudget
         var agentKnowledgePaperIDs: [String]?
         var agentDisabledToolNamesByScope: [String: [String]] = [:]
         var pinnedAgentThreadIDsByProject: [String: [String]] = [:]
@@ -110,6 +121,13 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("agent_sidecar_disabled_for_workspace:") {
                 let value = trimmed.replacingOccurrences(of: "agent_sidecar_disabled_for_workspace:", with: "").trimmingCharacters(in: .whitespaces)
                 isSidecarDisabledForWorkspace = Bool(value) ?? false
+            } else if trimmed.hasPrefix("agent_debug_logging_enabled:") {
+                let value = trimmed.replacingOccurrences(of: "agent_debug_logging_enabled:", with: "").trimmingCharacters(in: .whitespaces)
+                agentDebugLoggingEnabled = Bool(value) ?? false
+            } else if trimmed == "agent_loop_budget:" {
+                let result = parseAgentLoopBudget(from: lines, start: cursor + 1)
+                agentLoopBudget = result.value
+                cursor = result.nextIndex - 1
             } else if trimmed.hasPrefix("mineru_command:") {
                 minerUCommand = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "mineru_command:", with: "").trimmingCharacters(in: .whitespaces))) ?? "mineru"
             } else if trimmed.hasPrefix("mineru_api_base_url:") {
@@ -146,6 +164,8 @@ public actor WorkspacePreferencesRepository {
             agentChatFontSize: agentChatFontSize,
             agentRuntimeSelection: agentRuntimeSelection,
             isSidecarDisabledForWorkspace: isSidecarDisabledForWorkspace,
+            agentDebugLoggingEnabled: agentDebugLoggingEnabled,
+            agentLoopBudget: agentLoopBudget,
             agentKnowledgePaperIDs: agentKnowledgePaperIDs,
             agentDisabledToolNamesByScope: agentDisabledToolNamesByScope,
             pinnedAgentThreadIDsByProject: pinnedAgentThreadIDsByProject,
@@ -216,6 +236,42 @@ public actor WorkspacePreferencesRepository {
         }
 
         return (values, cursor)
+    }
+
+    private nonisolated func parseAgentLoopBudget(from lines: [String], start: Int) -> (value: AgentLoopOptions, nextIndex: Int) {
+        var budget = WorkspacePreferences.defaultAgentLoopBudget
+        var cursor = start
+
+        while cursor < lines.count, lines[cursor].hasPrefix("  ") {
+            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+            let parts = trimmed.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                break
+            }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "max_steps":
+                budget.maxSteps = max(1, Int(value) ?? budget.maxSteps)
+            case "max_tool_calls":
+                budget.maxToolCalls = max(1, Int(value) ?? budget.maxToolCalls)
+            case "max_context_characters":
+                budget.maxContextCharacters = max(1_000, Int(value) ?? budget.maxContextCharacters)
+            case "max_tool_result_characters_per_call":
+                budget.maxToolResultCharactersPerCall = max(1_000, Int(value) ?? budget.maxToolResultCharactersPerCall)
+            case "max_accumulated_tool_result_characters":
+                budget.maxAccumulatedToolResultCharacters = max(1_000, Int(value) ?? budget.maxAccumulatedToolResultCharacters)
+            case "auto_approve_read_only":
+                budget.autoApproveReadOnly = Bool(value) ?? budget.autoApproveReadOnly
+            case "allow_provider_native_tools":
+                budget.allowProviderNativeTools = Bool(value) ?? budget.allowProviderNativeTools
+            default:
+                break
+            }
+            cursor += 1
+        }
+
+        return (budget, cursor)
     }
 
     private nonisolated func quoted(_ value: String) -> String {

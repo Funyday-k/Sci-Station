@@ -23,6 +23,8 @@ private struct CoreVerificationSuite {
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try agentLoopBudgetDefaultsAreExpanded()
+        try await appDebugEventLoggerPersistsRedactedEvents()
         try librarySortStateSortsPapers()
         try await libraryBulkEditServiceUpdatesSelectedPapers()
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
@@ -50,14 +52,19 @@ private struct CoreVerificationSuite {
         try inspireMetadataMapperExtractsMetadataDraft()
         try llmRequestBuildsExpectedPayload()
         try openAIProviderPreservesReasoningContent()
+        try openAIProviderRejectsThinkingModeToolReplayWithoutReasoning()
+        try openAIProviderTreatsDeepSeekV4FlashAsThinkingMode()
         try paperSummaryPromptBuilderIncludesContext()
         try await llmConfigurationStorePersistsWithoutAPIKey()
         try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
         try agentPlanParserExtractsJSONFromMarkdownFence()
+        try agentPlanParserExtractsBalancedJSONBeforeTrailingText()
         try agentVisibleResponseExtractorHidesJSONEnvelope()
+        try agentPlanParserWritebackFallbackKeepsMarkdownDraft()
         try await agentPlannerAcceptsPlainTextConversationResponse()
         try await agentPlannerAcceptsPlainTextAssistantFallback()
         try await agentToolExecutorRequiresApprovalForTodoWrites()
+        try await writeWikiMarkdownAgentToolValidatesWhitelist()
         try await agentPaperClassificationToolUpdatesMetadata()
         try await agentPaperReadToolsReturnSectionsAndSearchMatches()
         try await agentWorkspaceSnapshotIncludesProjectContext()
@@ -69,9 +76,16 @@ private struct CoreVerificationSuite {
         try await agentServiceRecordFailedRunPersistsInlineTimeline()
         try await agentServiceRecordCancelledRunPersistsLifecycle()
         try await agentServiceExecutesApprovedPlan()
+        try agentPaperIntentRouterMapsAbstractToAbstractSection()
         try await agentLoopRunnerCallsReadOnlyToolThenContinues()
         try await agentLoopRunnerReturnsVisibleFallbackAfterToolThenEmptyProvider()
+        try await agentLoopRunnerEmptyResponseWithoutToolsKeepsContextFallback()
+        try await agentLoopRunnerReturnsVisibleProviderFailureAfterPreflightTools()
         try await agentLoopRunnerPaperFormulaFlowUsesListSearchReadBeforeFinal()
+        try await agentLoopRunnerFallsBackToReadPaperWhenSearchHasNoMatch()
+        try await agentLoopRunnerPreflightEvidenceIsInjectedAsUserContext()
+        try await agentLoopRunnerThinkingModePayloadHasNoAssistantToolCallWithoutReasoning()
+        try await agentLoopRunnerPreservesReasoningContentForNativeToolCalls()
         try agentAnswerQualityEvaluatorChecksFormulaSources()
         try await agentLoopRunnerPausesForWorkspaceWrite()
         try await agentLoopRunnerStopsAtMaxSteps()
@@ -95,7 +109,11 @@ private struct CoreVerificationSuite {
         try await sidecarLLMProxyDisablesProviderNativeToolCalling()
         try await sidecarEmbeddingProxyRejectsSensitiveConfigAndReturnsVectors()
         try await authorizedResourceProviderListsAndReadsDocuments()
+        try await authorizedResourceProviderIndexesLegacyRawPaperMarkdown()
         try await embeddingIndexControllerRebuildsSelectedSource()
+        try await embeddingIndexControllerRebuildsLegacyRawPaperSource()
+        try await listPapersPayloadIncludesAbstract()
+        try await paperMarkdownQualityInspectorDetectsPDFKitFallback()
         try paperReadingWorkflowProducesEvidenceBackedDraft()
         try relatedWorkWorkflowClustersByTheme()
         try await gapPlanningWorkflowGeneratesTodoDraftsWithoutWriting()
@@ -105,6 +123,7 @@ private struct CoreVerificationSuite {
         try await sidecarRuntimeCoordinatorResolvesHealthAndSelection()
         try await runReplayLoadsTimelineFromRunDirectory()
         try await debugBundleManifestAndZipExcludeSecrets()
+        try agentDiagnosticRedactorRedactsSecretsAndHomePaths()
         try embeddingFallbackUsesFTSWhenDisabled()
         try await embeddingStorePersistsAndMarksMigrationRequired()
         try agentEvidenceRefStableIDMarksStale()
@@ -134,6 +153,7 @@ private struct CoreVerificationSuite {
         try await agentThreadRepositoryMigratesPerWorkspaceLegacy()
         try await agentThreadRepositoryArchivesAndReadsLegacyThreads()
         try await agentPromptDraftRepositoryPersistsDrafts()
+        try agentPaperIntentRouterMapsThirdPaperOrdinal()
         try agentToolDefinitionsExposePlatformMetadata()
         try agentPermissionRulesEvaluateSafetyDecisions()
         try agentHookEngineEvaluatesLifecycleResults()
@@ -391,6 +411,16 @@ private struct CoreVerificationSuite {
         preferences.updateLibraryVisibleColumns(from: "title,authors,bibtex")
         preferences.appLanguage = .simplifiedChinese
         preferences.agentChatFontSize = 17
+        preferences.agentDebugLoggingEnabled = true
+        preferences.agentLoopBudget = AgentLoopOptions(
+            maxSteps: 13,
+            maxToolCalls: 34,
+            maxContextCharacters: 222_000,
+            maxToolResultCharactersPerCall: 55_000,
+            maxAccumulatedToolResultCharacters: 333_000,
+            autoApproveReadOnly: false,
+            allowProviderNativeTools: false
+        )
         preferences.minerUCommand = "mineru"
         preferences.minerUAPIBaseURLString = "https://mineru.example.com"
         preferences.minerUAPILanguage = "zh"
@@ -411,12 +441,51 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
         try expect(loadedPreferences.appLanguage == .simplifiedChinese, "Workspace preferences should preserve app language.")
         try expect(loadedPreferences.agentChatFontSize == 17, "Workspace preferences should preserve AI Lab chat font size.")
+        try expect(loadedPreferences.agentLoopBudget == preferences.agentLoopBudget, "Workspace preferences should preserve AI Lab loop budget.")
+        try expect(loadedPreferences.agentDebugLoggingEnabled == true, "Workspace preferences should preserve debug logging mode.")
         try expect(loadedPreferences.minerUCommand == "mineru", "Workspace preferences should preserve MinerU command.")
         try expect(loadedPreferences.minerUAPIBaseURLString == "https://mineru.example.com", "Workspace preferences should preserve MinerU API base URL.")
         try expect(loadedPreferences.minerUAPILanguage == "zh", "Workspace preferences should preserve MinerU API language.")
         try expect(loadedPreferences.minerUOverwriteExistingMarkdown == false, "Workspace preferences should preserve MinerU overwrite behavior.")
         try expect(loadedPreferences.agentDisabledToolNamesByScope["project:test-workspace|thread:agent-thread-1"] == ["create_todo", "write_markdown_plan"], "Workspace preferences should preserve scoped disabled tools.")
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
+    }
+
+    private func agentLoopBudgetDefaultsAreExpanded() throws {
+        let options = AgentLoopOptions()
+        try expect(options.maxSteps == 20, "Agent loop should default to 20 model steps.")
+        try expect(options.maxToolCalls == 80, "Agent loop should default to a larger tool-call budget.")
+        try expect(options.maxContextCharacters == 1_000_000, "Agent loop should default to a 1M context character budget.")
+        try expect(options.maxToolResultCharactersPerCall == 384_000, "Agent loop should default to a 384K per-tool output budget.")
+        try expect(options.maxAccumulatedToolResultCharacters == 1_000_000, "Agent loop should default to a 1M accumulated tool-result budget.")
+        try expect(LLMConfiguration().maxTokens == 384_000, "LLM output should default to 384K max tokens for DeepSeek-class models.")
+    }
+
+    private func appDebugEventLoggerPersistsRedactedEvents() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("AppDebugEventWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+        let logger = AppDebugEventLogger()
+        try await logger.append(AppDebugEvent(
+            event: "agent.prompt_submitted",
+            workspaceID: "workspace-1",
+            projectID: "project-1",
+            threadID: "thread-1",
+            runID: "run-1",
+            payload: .object([
+                "api_key": .string("sk-secret"),
+                "prompt": .string("read /private/tmp/paper.md")
+            ])
+        ), in: root)
+
+        let events = try await logger.events(in: root)
+        let firstPayload = try require(events.first?.payload.objectValue, "Debug event should persist a structured payload.")
+        try expect(events.count == 1, "Debug event logger should replay persisted events.")
+        try expect(firstPayload["api_key"] == .string("[REDACTED]"), "Debug event logger should redact API keys.")
+        try expect(firstPayload["prompt"] == .string("read [PATH]"), "Debug event logger should redact private paths.")
+        try expect(FileManager.default.fileExists(atPath: root.fileURL(for: AppDebugEventLogger.relativePath).path), "Debug event logger should write a workspace-local JSONL file.")
     }
 
     private func libraryBulkEditServiceUpdatesSelectedPapers() async throws {
@@ -1458,6 +1527,38 @@ private struct CoreVerificationSuite {
                                 try expect(messages.first?["reasoning_content"] as? String == parsed.reasoningContent, "Provider should pass assistant reasoning_content back in the next request.")
                         }
 
+            private func openAIProviderRejectsThinkingModeToolReplayWithoutReasoning() throws {
+                let provider = OpenAICompatibleProvider()
+                let call = AgentToolCall(id: "call-missing-reasoning", toolName: "read_note", argumentsJSON: #"{"path":"paper.md"}"#)
+                let request = LLMProviderRequest(messages: [
+                    LLMChatMessage(role: .assistant, content: "", toolCalls: [call])
+                ])
+
+                do {
+                    _ = try provider.buildChatRequest(
+                        configuration: LLMConfiguration(baseURLString: "https://api.deepseek.com", model: "deepseek-reasoner"),
+                        apiKey: "secret-key",
+                        providerRequest: request
+                    )
+                    throw ValidationError(message: "Thinking-mode request should reject assistant tool calls without reasoning_content.")
+                } catch let error as LLMProviderRequestSanitizer.Failure {
+                    try expect(error.localizedDescription.contains("reasoning_content"), "Sanitizer error should explain the missing reasoning_content replay requirement.")
+                }
+            }
+
+            private func openAIProviderTreatsDeepSeekV4FlashAsThinkingMode() throws {
+                let call = AgentToolCall(id: "call-deepseek-v4", toolName: "read_note", argumentsJSON: #"{"path":"paper.md"}"#)
+                let request = LLMProviderRequest(messages: [
+                    LLMChatMessage(role: .assistant, content: "", toolCalls: [call])
+                ])
+                let configuration = LLMConfiguration(baseURLString: "https://api.deepseek.com/v1", model: "deepseek-v4-flash")
+
+                try expect(
+                    LLMProviderRequestSanitizer.requiresReasoningContentForToolReplay(request: request, configuration: configuration),
+                    "DeepSeek v4 flash should use thinking-mode replay validation when assistant tool calls are present."
+                )
+            }
+
             private func llmConfigurationStorePersistsWithoutAPIKey() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -1578,6 +1679,17 @@ private struct CoreVerificationSuite {
                 try expect(plan.toolCalls.first?.argumentsJSON.contains("Read the selected paper") == true, "Agent plan parser should preserve encoded tool arguments.")
             }
 
+            private func agentPlanParserExtractsBalancedJSONBeforeTrailingText() throws {
+                let response = """
+                {"summary":"写入 wiki","tool_calls":[],"final_response_draft":"正文里可以包含 {braces}。"}
+
+                额外说明：已准备写入。
+                """
+
+                let plan = try AgentPlanParser().parse(response)
+                try expect(plan.finalResponseDraft == "正文里可以包含 {braces}。", "Plan parser should use the first balanced JSON object and ignore trailing prose.")
+            }
+
             private func agentVisibleResponseExtractorHidesJSONEnvelope() throws {
                 let jsonResponse = """
                 {
@@ -1594,6 +1706,22 @@ private struct CoreVerificationSuite {
                 try expect(visibleText == "只显示这一段。", "Visible response extractor should return final_response_draft from JSON envelopes.")
                 try expect(AgentVisibleResponseExtractor.visibleText(from: partialJSON).isEmpty, "Visible response extractor should hide partial JSON while it is still streaming.")
                 try expect(AgentVisibleResponseExtractor.visibleText(from: plainText) == plainText, "Visible response extractor should preserve plain text responses.")
+            }
+
+            private func agentPlanParserWritebackFallbackKeepsMarkdownDraft() throws {
+                let response = """
+                ## AI Summary
+
+                这是一段准备写进 wiki 的 Markdown 草稿，包含公式 $E_\\odot$。
+                """
+                let plan = try require(
+                    AgentPlanParser().writebackFallbackPlan(response: response, goal: "把这篇文章总结一下写进 wiki 里"),
+                    "Writeback fallback should produce a draft plan for non-JSON Markdown."
+                )
+
+                try expect(plan.title == "未确认的写回草稿", "Writeback fallback should use the explicit draft title.")
+                try expect(plan.toolCalls.isEmpty, "Writeback fallback should not execute a workspace write without approval.")
+                try expect(plan.finalResponseDraft?.contains("E_\\odot") == true, "Writeback fallback should preserve the original Markdown draft.")
             }
 
             private func agentPlannerAcceptsPlainTextConversationResponse() async throws {
@@ -1687,6 +1815,33 @@ private struct CoreVerificationSuite {
                 try expect(todosAfterApproval.first?.projectIDs == ["project-alpha"], "Todo tool should default to the current project when project_ids are omitted.")
             }
 
+            private func writeWikiMarkdownAgentToolValidatesWhitelist() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "WriteWikiMarkdownToolWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let paperRepository = PaperRepository()
+                _ = try await paperRepository.save(samplePaper(id: "paper-valid"), in: fixture.workspace)
+                let tool = WriteMarkdownPlanAgentTool(markdownRepository: MarkdownRepository(), paperRepository: paperRepository)
+                let context = AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root)
+
+                let paperResult = try await tool.invoke(
+                    argumentsJSON: "{\"title\":\"Paper Summary\",\"body\":\"## AI Summary\\n\\nFormula $E$.\",\"relative_path\":\"wiki/papers/paper-valid.md\"}",
+                    context: context
+                )
+                try expect(paperResult.modifiedPaths == ["wiki/papers/paper-valid.md"], "Wiki paper writeback should allow existing paper ids.")
+                try expect(FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: "wiki/papers/paper-valid.md").path), "Wiki paper writeback should create the target file.")
+
+                let noteResult = try await tool.invoke(
+                    argumentsJSON: #"{"title":"Free Note","body":"Body","relative_path":"wiki/notes/free-note.md"}"#,
+                    context: context
+                )
+                try expect(noteResult.modifiedPaths == ["wiki/notes/free-note.md"], "Wiki notes writeback should be allowed.")
+
+                try await expectWikiWriteRejected(tool, context: context, path: "wiki/../etc.md")
+                try await expectWikiWriteRejected(tool, context: context, path: "/tmp/etc.md")
+                try await expectWikiWriteRejected(tool, context: context, path: "wiki/papers/missing-paper.md")
+            }
+
             private func agentPaperClassificationToolUpdatesMetadata() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -1764,6 +1919,12 @@ private struct CoreVerificationSuite {
                 E_{\\odot} = \\sum_i \\int s(r) n_\\chi(r) 4\\pi r^2 dr
                 $$
 
+                ![](figures/mineru/images/figure-2-a.jpg)
+
+                ![](figures/mineru/images/figure-2-b.jpg)
+
+                Figure 2. DM temperature as a function of the DM mass.
+
                 ## Appendix
 
                 Extra material.
@@ -1793,6 +1954,16 @@ private struct CoreVerificationSuite {
                             id: "call-list",
                             toolName: "list_papers",
                             argumentsJSON: "{\"query\":\"Evaporation\"}"
+                        ),
+                        AgentToolCall(
+                            id: "call-figure",
+                            toolName: "read_paper_section",
+                            argumentsJSON: "{\"paper_id\":\"\(savedPaper.id)\",\"heading\":\"Figure 2\"}"
+                        ),
+                        AgentToolCall(
+                            id: "call-heading-with-lines",
+                            toolName: "read_paper_section",
+                            argumentsJSON: "{\"paper_id\":\"\(savedPaper.id)\",\"heading\":\"5 Evaporation Rate\",\"start_line\":1,\"end_line\":3}"
                         )
                     ]
                 )
@@ -1811,6 +1982,9 @@ private struct CoreVerificationSuite {
                 try expect(results.first(where: { $0.callID == "call-section" })?.message.contains("E_sun_section_marker") == true, "read_paper_section should return the requested heading content.")
                 try expect(results.first(where: { $0.callID == "call-search" })?.message.contains("#L") == true, "search_papers should return line-anchored matches.")
                 try expect(results.first(where: { $0.callID == "call-list" })?.message.contains(savedPaper.id) == true, "list_papers should expose matching paper ids.")
+                try expect(results.first(where: { $0.callID == "call-figure" })?.message.contains("figure-2-a.jpg") == true, "read_paper_section should return local image references for figure captions.")
+                try expect(results.first(where: { $0.callID == "call-figure" })?.message.contains("DM temperature") == true, "read_paper_section should match figure captions by figure number.")
+                try expect(results.first(where: { $0.callID == "call-heading-with-lines" })?.message.contains("E_sun_section_marker") == true, "read_paper_section should prefer heading over incidental line ranges.")
                 try expect(results.first(where: { $0.callID == "call-section" })?.payload?.objectValue?["kind"]?.stringValue == "paper_section", "read_paper_section should expose a structured payload.")
                 try expect(results.first(where: { $0.callID == "call-search" })?.payload?.objectValue?["matches"]?.arrayValue?.isEmpty == false, "search_papers should expose structured matches.")
                 try expect(results.first(where: { $0.callID == "call-list" })?.payload?.objectValue?["papers"]?.arrayValue?.first?.objectValue?["paper_id"]?.stringValue == savedPaper.id, "list_papers should expose structured paper ids.")
@@ -2264,6 +2438,38 @@ private struct CoreVerificationSuite {
                 try expect(events.map(\.kind).contains(.toolCallCompleted), "Loop should append tool completion events.")
             }
 
+            private func agentPaperIntentRouterMapsAbstractToAbstractSection() throws {
+                let router = AgentPaperIntentRouter()
+                let chineseIntent = router.classify("第一篇论文摘要是什么？")
+                let englishIntent = router.classify("What is the abstract of the first paper?")
+                let argumentsJSON = router.searchArgumentsJSON(for: chineseIntent, paperID: "paper-1")
+
+                try expect(chineseIntent.kind == .sectionSummary, "Chinese abstract questions should be routed as section summaries.")
+                try expect(chineseIntent.ordinalIndex == 0, "Chinese first-paper abstract questions should preserve ordinal selection.")
+                try expect(chineseIntent.sectionHint == "Abstract", "Chinese 摘要 should map to the Abstract section hint.")
+                try expect(chineseIntent.query?.contains("摘要") == true, "Chinese abstract queries should keep a bilingual retrieval query.")
+                try expect(englishIntent.kind == .sectionSummary, "English abstract questions should be routed as section summaries.")
+                try expect(englishIntent.ordinalIndex == 0, "English first-paper abstract questions should preserve ordinal selection.")
+                try expect(englishIntent.sectionHint == "Abstract", "English abstract should map to the Abstract section hint.")
+                try expect(argumentsJSON.contains("Abstract 摘要 summary"), "Search arguments should use a bilingual abstract retrieval query.")
+            }
+
+            private func agentPaperIntentRouterMapsThirdPaperOrdinal() throws {
+                let router = AgentPaperIntentRouter()
+                let chineseIntent = router.classify("第三篇文章的摘要是什么？")
+                let digitIntent = router.classify("第 3 篇论文的蒸发率公式是什么？")
+                let englishIntent = router.classify("What is the abstract of the third paper?")
+                let argumentsJSON = router.searchArgumentsJSON(for: digitIntent, paperID: "garani-paper")
+
+                try expect(chineseIntent.kind == .sectionSummary, "Chinese third-paper abstract questions should be routed as section summaries.")
+                try expect(chineseIntent.ordinalIndex == 2, "Chinese third-paper references should map to ordinal index 2.")
+                try expect(digitIntent.kind == .formula, "Digit third-paper formula questions should route to formula evidence.")
+                try expect(digitIntent.ordinalIndex == 2, "Digit third-paper references should map to ordinal index 2.")
+                try expect(englishIntent.ordinalIndex == 2, "English third-paper references should map to ordinal index 2.")
+                try expect(argumentsJSON.contains("garani-paper"), "Third-paper search arguments should be restricted to the resolved paper id.")
+                try expect(!argumentsJSON.contains("第 3 篇"), "Ordinal phrases should be removed from retrieval queries.")
+            }
+
             private func agentLoopRunnerReturnsVisibleFallbackAfterToolThenEmptyProvider() async throws {
                 let fixture = try await loopWorkspaceFixture(named: "AgentLoopEmptyProviderAfterToolWorkspace")
                 defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -2296,6 +2502,76 @@ private struct CoreVerificationSuite {
                 try expect(result.toolResults.first?.toolName == "read_paper_section", "Fallback should preserve the successful tool result.")
                 try expect(events.contains { $0.kind == .toolCallCompleted && $0.summary == "已使用工具：read_paper_section" }, "Tool completion timeline should use a compact used-tool summary.")
                 try expect(events.contains { $0.kind == .assistantMessage && $0.summary.contains("最后一个工具结果摘要") }, "Fallback should be appended as an assistant timeline event.")
+            }
+
+            private func agentLoopRunnerEmptyResponseWithoutToolsKeepsContextFallback() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopEmptyProviderNoToolWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: ""))
+                ])
+                let logger = AgentSessionEventLogger()
+                let runner = AgentLoopRunner(sessionEventLogger: logger)
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-empty-provider-no-tool",
+                    goal: "继续总结这篇论文并保留草稿",
+                    provider: provider,
+                    definitions: [],
+                    registry: AgentToolRegistry(tools: []),
+                    fixture: fixture
+                ))
+                let events = try await logger.events(in: fixture.root, sessionID: "loop-empty-provider-no-tool")
+
+                try expect(result.pauseReason?.kind == .providerUnavailable, "Empty provider response without tools should become providerUnavailable instead of throwing.")
+                try expect(result.finalResponseMarkdown?.contains("上下文已保留") == true, "Empty provider response without tools should preserve context in a visible fallback.")
+                try expect(result.toolResults.isEmpty, "No-tool fallback should not invent tool results.")
+                try expect(events.contains { $0.kind == .assistantMessage && $0.summary.contains("上下文已保留") }, "No-tool fallback should be appended as an assistant event.")
+            }
+
+            private func agentLoopRunnerReturnsVisibleProviderFailureAfterPreflightTools() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopPreflightProviderFailureWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let provider = ScriptedFailingChatProvider(steps: [
+                    .failure(.httpError(statusCode: 400, message: "The reasoning_content in the thinking mode must be passed back to the API."))
+                ])
+                let listDefinition = loopToolDefinition(name: "list_papers", risk: .readOnly)
+                let listTool = RecordingAgentTool(definition: listDefinition, results: [
+                    AgentToolResult(
+                        callID: "",
+                        toolName: "list_papers",
+                        succeeded: true,
+                        message: "paper_id: paper-1\ntitle: Demo Paper",
+                        payload: .object([
+                            "kind": .string("paper_list"),
+                            "papers": .array([.object([
+                                "paper_id": .string("paper-1"),
+                                "title": .string("Demo Paper")
+                            ])])
+                        ])
+                    )
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-preflight-provider-failure",
+                    goal: "请列出当前论文。",
+                    provider: provider,
+                    definitions: [listDefinition],
+                    registry: AgentToolRegistry(tools: [listTool]),
+                    fixture: fixture
+                ))
+                let requests = await provider.recordedRequests()
+
+                try expect(result.pauseReason?.kind == .providerUnavailable, "Provider failure after deterministic preflight should become a visible providerUnavailable fallback.")
+                try expect(result.finalResponseMarkdown?.contains("模型没有返回最终回复") == true, "Preflight provider failure should produce a visible Chinese fallback.")
+                try expect(result.finalResponseMarkdown?.contains("复制脱敏诊断") == true, "Fallback should expose a copy-diagnostics action.")
+                try expect(result.finalResponseMarkdown?.contains("paper-1") == true, "Fallback should summarize the already-read preflight tool result.")
+                try expect(result.toolResults.map(\.toolName) == ["list_papers"], "Preflight tool result should be preserved when provider fails.")
+                try expect(requests.count == 1, "Preflight failure should happen after one provider request with evidence context.")
+                try expect(requests.first?.messages.contains { $0.role == .user && $0.content.contains("deterministic preflight evidence") } == true, "Provider request should include preflight evidence as user context.")
             }
 
             private func agentLoopRunnerPaperFormulaFlowUsesListSearchReadBeforeFinal() async throws {
@@ -2379,7 +2655,159 @@ private struct CoreVerificationSuite {
                 try expect(readInvocationCount == 1, "read_paper_section should run once.")
                 try expect(requests.count == 1, "Paper formula preflight should make one model request after deterministic read-only tools.")
                 let finalRequest = try require(requests.last, "Expected the final provider request.")
-                try expect(finalRequest.messages.filter { $0.role == .tool }.count == 3, "Final request should include all three tool result messages.")
+                try expect(finalRequest.messages.filter { $0.role == .tool }.isEmpty, "Preflight evidence should not be sent as provider-native tool result messages.")
+                try expect(!finalRequest.messages.contains { $0.role == .assistant && !$0.toolCalls.isEmpty }, "Preflight should not emit synthetic assistant tool-call messages.")
+                let evidenceMessage = try require(finalRequest.messages.last(where: { $0.role == .user && $0.content.contains("deterministic preflight evidence") }), "Final request should include deterministic evidence as user context.")
+                try expect(evidenceMessage.content.contains("preflight-list-papers"), "Evidence context should include the list_papers preflight call.")
+                try expect(evidenceMessage.content.contains("preflight-search-papers"), "Evidence context should include the search_papers preflight call.")
+                try expect(evidenceMessage.content.contains("preflight-read-paper-section"), "Evidence context should include the read_paper_section preflight call.")
+            }
+
+            private func agentLoopRunnerFallsBackToReadPaperWhenSearchHasNoMatch() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopSearchEmptyFallbackWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Fallback answer from page 1 evidence."))
+                ])
+                let listDefinition = loopToolDefinition(name: "list_papers", risk: .readOnly)
+                let searchDefinition = loopToolDefinition(name: "search_papers", risk: .readOnly)
+                let readSectionDefinition = loopToolDefinition(name: "read_paper_section", risk: .readOnly)
+                let readPaperDefinition = loopToolDefinition(name: "read_paper", risk: .readOnly)
+                let listTool = RecordingAgentTool(definition: listDefinition, results: [
+                    AgentToolResult(
+                        callID: "",
+                        toolName: "list_papers",
+                        succeeded: true,
+                        message: "paper_id: paper-1\ntitle: Demo Paper\npath: papers/demo",
+                        payload: .object([
+                            "kind": .string("paper_list"),
+                            "papers": .array([.object([
+                                "paper_id": .string("paper-1"),
+                                "title": .string("Demo Paper"),
+                                "path": .string("papers/demo"),
+                                "raw_markdown_path": .string("papers/demo/paper.md")
+                            ])])
+                        ])
+                    )
+                ])
+                let searchTool = RecordingAgentTool(definition: searchDefinition, results: [
+                    AgentToolResult(
+                        callID: "",
+                        toolName: "search_papers",
+                        succeeded: true,
+                        message: "No matches for \"missing_marker\" in converted paper.md files.",
+                        payload: .object([
+                            "kind": .string("paper_search"),
+                            "status": .string("empty_search"),
+                            "matches": .array([])
+                        ])
+                    )
+                ])
+                let readSectionTool = RecordingAgentTool(definition: readSectionDefinition, results: [
+                    AgentToolResult(callID: "", toolName: "read_paper_section", succeeded: true, message: "This should not run without a heading or line match.")
+                ])
+                let readPaperTool = RecordingAgentTool(definition: readPaperDefinition, results: [
+                    AgentToolResult(callID: "", toolName: "read_paper", succeeded: true, message: "paper_id: paper-1\nsource: papers/demo/paper.md\nrange: page 1\n\nPage 1 fallback body evidence.")
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-search-empty-fallback",
+                    goal: "第一篇论文正文里 missing_marker 是什么？",
+                    provider: provider,
+                    definitions: [listDefinition, searchDefinition, readSectionDefinition, readPaperDefinition],
+                    registry: AgentToolRegistry(tools: [listTool, searchTool, readSectionTool, readPaperTool]),
+                    fixture: fixture,
+                    options: AgentLoopOptions(maxSteps: 5)
+                ))
+                let requests = await provider.recordedRequests()
+                let readSectionInvocationCount = await readSectionTool.invocationCount()
+                let readPaperInvocationCount = await readPaperTool.invocationCount()
+
+                try expect(result.finalResponseMarkdown == "Fallback answer from page 1 evidence.", "Loop should continue after page 1 fallback evidence.")
+                try expect(result.toolResults.map(\.toolName) == ["list_papers", "search_papers", "read_paper"], "Empty search should fall back to read_paper instead of stopping after search.")
+                try expect(readSectionInvocationCount == 0, "read_paper_section should not run when search produced no heading or line match.")
+                try expect(readPaperInvocationCount == 1, "read_paper should run once as the page 1 fallback.")
+                let evidenceMessage = try require(requests.first?.messages.last(where: { $0.role == .user && $0.content.contains("deterministic preflight evidence") }), "Fallback request should include deterministic preflight evidence.")
+                try expect(evidenceMessage.content.contains("preflight-read-paper"), "Evidence context should include the read_paper fallback call.")
+            }
+
+            private func agentLoopRunnerPreflightEvidenceIsInjectedAsUserContext() async throws {
+                try await agentLoopRunnerPaperFormulaFlowUsesListSearchReadBeforeFinal()
+            }
+
+            private func agentLoopRunnerThinkingModePayloadHasNoAssistantToolCallWithoutReasoning() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopThinkingModeMissingReasoningWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-read", toolName: "read_note", argumentsJSON: #"{"path":"paper.md"}"#)
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]), toolCalls: [call]),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "This should not be reached."))
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "Tool evidence before sanitizer block.")
+                ])
+                let runner = AgentLoopRunner()
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-thinking-mode-missing-reasoning",
+                    goal: "请读取论文证据。",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture,
+                    configuration: LLMConfiguration(baseURLString: "https://api.deepseek.com", model: "deepseek-reasoner")
+                ))
+                let requests = await provider.recordedRequests()
+
+                try expect(result.pauseReason?.kind == .providerUnavailable, "Missing thinking-mode reasoning_content should be blocked before a bad replay request reaches the provider.")
+                try expect(result.finalResponseMarkdown?.contains("reasoning_content") == true, "Visible fallback should include the sanitizer reason.")
+                try expect(requests.count == 1, "Provider should not receive a second request containing assistant tool calls without reasoning_content.")
+            }
+
+            private func agentLoopRunnerPreservesReasoningContentForNativeToolCalls() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "AgentLoopPreserveReasoningWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let call = AgentToolCall(id: "call-read", toolName: "read_note", argumentsJSON: #"{"path":"paper.md"}"#)
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(
+                        message: LLMChatMessage(
+                            role: .assistant,
+                            content: "",
+                            reasoningContent: "thinking-mode tool replay token",
+                            toolCalls: [call]
+                        ),
+                        toolCalls: [call]
+                    ),
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "Final answer after preserved reasoning."))
+                ])
+                let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
+                let tool = RecordingAgentTool(definition: definition, results: [
+                    AgentToolResult(callID: "", toolName: "read_note", succeeded: true, message: "Reasoned tool evidence.")
+                ])
+                let logger = AgentSessionEventLogger()
+                let runner = AgentLoopRunner(sessionEventLogger: logger)
+
+                let result = try await runner.run(loopRequest(
+                    runID: "loop-preserve-reasoning",
+                    provider: provider,
+                    definitions: [definition],
+                    registry: AgentToolRegistry(tools: [tool]),
+                    fixture: fixture,
+                    configuration: LLMConfiguration(baseURLString: "https://api.deepseek.com", model: "deepseek-reasoner")
+                ))
+                let requests = await provider.recordedRequests()
+                let secondRequest = try require(requests.dropFirst().first, "Reasoning-preserving provider should receive the replay request.")
+                let assistantReplay = try require(secondRequest.messages.first { $0.role == .assistant && !$0.toolCalls.isEmpty }, "Replay request should include the provider-native assistant tool call.")
+                let events = try await logger.events(in: fixture.root, sessionID: "loop-preserve-reasoning")
+
+                try expect(result.finalResponseMarkdown == "Final answer after preserved reasoning.", "Loop should complete when provider-native tool calls include reasoning_content.")
+                try expect(assistantReplay.reasoningContent == "thinking-mode tool replay token", "Provider-native tool replay should preserve assistant reasoning_content.")
+                try expect(events.contains { $0.kind == .assistantMessage && ($0.payloadJSON?.contains("reasoning_content") ?? false) }, "Assistant session event payload should persist reasoning_content.")
             }
 
             private func agentAnswerQualityEvaluatorChecksFormulaSources() throws {
@@ -2686,6 +3114,22 @@ private struct CoreVerificationSuite {
                 ))
 
                 try expect(result.pauseReason?.kind == .contextLimitExceeded, "Loop should stop when accumulated tool result budget is exceeded.")
+                try expect(result.finalResponseMarkdown?.contains("context or tool result budget") == true, "Context budget stops should still produce a visible fallback reply when tool evidence exists.")
+            }
+
+            private func agentDiagnosticRedactorRedactsSecretsAndHomePaths() throws {
+                let raw = """
+                root=/Users/alice/Documents/ResearchWorkspace
+                Authorization: Bearer sk-live-super-secret-token
+                api_key=sk-another-secret-token
+                token: plain-token-value
+                """
+
+                let redacted = AgentDiagnosticRedactor.redacted(raw, homeDirectory: "/Users/alice")
+                try expect(!redacted.contains("/Users/alice"), "Diagnostic redaction should remove absolute home paths.")
+                try expect(!redacted.contains("super-secret-token"), "Diagnostic redaction should remove bearer token bodies.")
+                try expect(!redacted.contains("another-secret-token"), "Diagnostic redaction should remove API key bodies.")
+                try expect(redacted.contains("~"), "Diagnostic redaction should preserve useful relative path context.")
             }
 
     private func externalAgentRuntimeStreamsLegacyLoopEvents() async throws {
@@ -3016,6 +3460,27 @@ private struct CoreVerificationSuite {
         try expect(response.truncated, "resources/read should mark content truncated when maxCharacters is exceeded.")
     }
 
+    private func authorizedResourceProviderIndexesLegacyRawPaperMarkdown() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "AuthorizedLegacyRawResourcesWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let paperURL = fixture.root.fileURL(for: "raw/papers/Legacy/demo-paper/paper.md")
+        let annotationsURL = fixture.root.fileURL(for: "raw/papers/Legacy/demo-paper/annotations.md")
+        try FileManager.default.createDirectory(at: paperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Abstract\nLegacy raw paper abstract evidence.\n".write(to: paperURL, atomically: true, encoding: .utf8)
+        try "# Notes\nLegacy annotations evidence.\n".write(to: annotationsURL, atomically: true, encoding: .utf8)
+        let provider = AgentAuthorizedResourceProvider()
+        let documents = try await provider.listIndexableDocuments(in: fixture.root)
+        let paperSnapshot = try require(documents.first(where: { $0.relativePath == "raw/papers/Legacy/demo-paper/paper.md" }), "Authorized resources should include legacy raw/papers paper.md.")
+        let annotationsSnapshot = try require(documents.first(where: { $0.relativePath == "raw/papers/Legacy/demo-paper/annotations.md" }), "Authorized resources should include legacy raw/papers annotations.md.")
+        let response = try await provider.read(AuthorizedResourceReadRequest(relativePath: "raw/papers/Legacy/demo-paper/paper.md", maxCharacters: 120), in: fixture.root)
+
+        try expect(AgentAuthorizedResourceProvider.defaultAllowedRoots.contains("raw/papers"), "Default allowed roots should include legacy raw/papers.")
+        try expect(paperSnapshot.sourceType == "paper", "Legacy raw/papers paper.md should be classified as paper source type.")
+        try expect(annotationsSnapshot.sourceType == "paper_annotations", "Legacy raw/papers annotations.md should be classified as paper annotations.")
+        try expect(response.content.contains("Legacy raw paper abstract evidence"), "resources/read should read legacy raw/papers paper.md content.")
+    }
+
     private func embeddingIndexControllerRebuildsSelectedSource() async throws {
         let fixture = try await loopWorkspaceFixture(named: "EmbeddingIndexControllerWorkspace")
         defer { cleanupLoopWorkspaceFixture(fixture) }
@@ -3030,6 +3495,97 @@ private struct CoreVerificationSuite {
         try expect(status.status.uiStatus == .fallback, "Selected source rebuild should use deterministic fallback when sqlite-vec is unavailable.")
         try expect(status.chunkCount > 0, "Selected source rebuild should write chunks to the local index.")
         try expect(FileManager.default.fileExists(atPath: indexURL.path), "Embedding fallback index should be persisted under .sci-station/index/embeddings.")
+    }
+
+    private func embeddingIndexControllerRebuildsLegacyRawPaperSource() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "EmbeddingLegacyRawIndexControllerWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let paperURL = fixture.root.fileURL(for: "raw/papers/Legacy/p39/paper.md")
+        try FileManager.default.createDirectory(at: paperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Abstract\nLegacy raw retrieval evidence should become chunks.\n".write(to: paperURL, atomically: true, encoding: .utf8)
+        let controller = AgentEmbeddingIndexController()
+        let status = await controller.rebuildSelectedSource("raw/papers/Legacy/p39/paper.md", in: fixture.root)
+
+        try expect(status.status.uiStatus == .fallback, "Legacy raw source rebuild should use deterministic fallback when sqlite-vec is unavailable.")
+        try expect(status.chunkCount > 0, "Legacy raw paper.md rebuild should produce chunks.")
+        try expect(status.diagnosticText.contains("Fallback deterministic retrieval"), "Diagnostics should explain deterministic fallback retrieval.")
+    }
+
+    private func listPapersPayloadIncludesAbstract() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let paperRepository = PaperRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("ListPapersAbstractPayloadWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var paper = samplePaper(id: "abstract-payload-paper")
+        paper.abstract = "This metadata abstract should be available before body reads."
+        let savedPaper = try await paperRepository.save(paper, in: workspace)
+        let result = try await ListPapersAgentTool(paperRepository: paperRepository).invoke(
+            argumentsJSON: "{\"paper_id\":\"\(savedPaper.id)\"}",
+            context: AgentToolContext(workspace: workspace, selectedPaperID: savedPaper.id)
+        )
+        let papersPayload = try require(result.payload?.objectValue?["papers"]?.arrayValue, "list_papers should return a papers payload.")
+        let firstPaperPayload = try require(papersPayload.first?.objectValue, "list_papers should return object paper payloads.")
+
+        try expect(firstPaperPayload["abstract"]?.stringValue == paper.abstract, "list_papers paper payload should include metadata abstract.")
+    }
+
+    private func paperMarkdownQualityInspectorDetectsPDFKitFallback() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let paperRepository = PaperRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("PaperMarkdownQualityWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await paperRepository.save(samplePaper(id: "pdfkit-quality-paper"), in: workspace)
+        let markdown = """
+        ---
+        extraction_engine: pdfkit_fallback
+        fallback_reason: "MinerU API token is missing."
+        ---
+
+        # Demo Paper
+
+        ## 摘要
+
+        这是一段中文摘要。
+
+        ![Figure](figures/missing-chart.png)
+
+        $$
+        E = mc^2
+        $$
+        """
+        try markdown.write(to: paper.rawMarkdownURL(in: workspace), atomically: true, encoding: .utf8)
+
+        let report = PaperMarkdownQualityInspector().inspect(paper, in: workspace)
+        let issueCodes = Set(report.issues.map(\.code))
+
+        try expect(report.status == .warning, "PDFKit fallback reports should warn rather than fail when paper.md is readable.")
+        try expect(report.extractionEngine == "pdfkit_fallback", "Quality inspector should expose extraction engine metadata.")
+        try expect(report.hasAbstractHeading, "Quality inspector should recognize Chinese 摘要 headings as Abstract.")
+        try expect(report.hasDisplayMath, "Quality inspector should detect display math blocks.")
+        try expect(report.hasFigureReferences, "Quality inspector should detect figure references.")
+        try expect(issueCodes.contains(.pdfKitFallback), "Quality inspector should warn about PDFKit fallback limitations.")
+        try expect(issueCodes.contains(.missingFigureAsset), "Quality inspector should warn about missing local figure assets.")
+        try expect(report.issueLines(usesEnglishInterface: false).contains { $0.contains("PDFKit fallback 可读性有限") }, "Quality issue lines should include Chinese copy.")
+        try expect(report.issueLines(usesEnglishInterface: true).contains { $0.contains("PDFKit fallback has limited readability") }, "Quality issue lines should include English copy.")
     }
 
     private func agentEvidenceRefStableIDMarksStale() throws {
@@ -3133,15 +3689,20 @@ private struct CoreVerificationSuite {
 
         let coordinator = sidecarCoordinator(fixtureName: "run_success_paper_reading.jsonl")
         defer { Task { await coordinator.stop() } }
+        let unavailableCoordinator = sidecarCoordinator(fixtureName: "handshake_timeout.jsonl", handshakeTimeout: 0.2)
+        defer { Task { await unavailableCoordinator.stop() } }
 
         let auto = await coordinator.resolve(selection: .autoFallback, sidecarDisabled: false, root: fixture.root)
         let forcedSwift = await coordinator.resolve(selection: .swiftLoop, sidecarDisabled: false, root: fixture.root)
         let disabled = await coordinator.resolve(selection: .langGraphSidecar, sidecarDisabled: true, root: fixture.root)
+        let unavailable = await unavailableCoordinator.resolve(selection: .autoFallback, sidecarDisabled: false, root: fixture.root)
 
         try expect(auto.health.status == "ready", "Coordinator should start and read sidecar health for auto fallback.")
         try expect(auto.effectiveRuntime == .langGraphSidecar && auto.shouldAttemptSidecar, "Auto fallback should use sidecar when health is ready.")
         try expect(forcedSwift.effectiveRuntime == .swiftLoop && !forcedSwift.shouldAttemptSidecar, "Swift Loop selection should not attempt sidecar.")
         try expect(disabled.effectiveRuntime == .swiftLoop && disabled.fallbackReason != nil, "Workspace sidecar disable should force Swift Loop with a reason.")
+        try expect(unavailable.effectiveRuntime == .swiftLoop && !unavailable.shouldAttemptSidecar, "Unavailable sidecar should not block Swift Loop fallback.")
+        try expect(unavailable.fallbackReason?.contains("Swift Loop") == true || unavailable.health.fallbackReason != nil, "Unavailable sidecar fallback should be visible in diagnostics.")
     }
 
     private func runReplayLoadsTimelineFromRunDirectory() async throws {
@@ -4372,14 +4933,16 @@ private struct CoreVerificationSuite {
                         sessionID: "run-current",
                         createdAt: Date(timeIntervalSince1970: 10),
                         kind: .userMessage,
-                        summary: "Review current papers."
+                        summary: "Review current papers.",
+                        payloadJSON: "{\"content\":\"Review current papers.\"}"
                     ),
                     AgentSessionEvent(
                         id: "timeline-2",
                         sessionID: "run-other",
                         createdAt: Date(timeIntervalSince1970: 11),
                         kind: .assistantMessage,
-                        summary: "Other run summary."
+                        summary: "Other run summary.",
+                        payloadJSON: "{\"content\":\"Other run summary.\"}"
                     ),
                     AgentSessionEvent(
                         id: "timeline-3",
@@ -4394,6 +4957,7 @@ private struct CoreVerificationSuite {
                 let items = AgentSessionTimelineItem.items(from: events, sessionIDs: Set(["run-current"]))
 
                 try expect(items.map(\.eventID) == ["timeline-1", "timeline-3"], "Timeline items should filter to the current run/session ids.")
+                try expect(items.first?.payloadPreview == nil, "Timeline chat bubbles should not render raw user or assistant payload JSON as message content.")
                 try expect(items.last?.title == "请求审批", "Timeline items should label permission request events.")
                 try expect(items.last?.payloadPreview?.contains("Follow up") == true, "Timeline items should preserve payload previews for audit.")
             }
@@ -4905,6 +5469,23 @@ private struct CoreVerificationSuite {
 
         let loadedDocuments = try await repository.loadDocuments(in: workspace)
         try expect(loadedDocuments.contains(where: { $0.relativePath == pageRelativePath }), "MarkdownRepository should scan wiki/ for markdown files.")
+
+        let paperMarkdownPath = "library/papers/Uncategorized/demo-paper/paper.md"
+        let paperMarkdownURL = workspace.fileURL(for: paperMarkdownPath)
+        try FileManager.default.createDirectory(at: paperMarkdownURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        ---
+        title: "Converted Demo Paper"
+        ---
+
+        # Converted Demo Paper
+
+        This file lives outside wiki/ but should still be viewable from the Markdown editor.
+        """.write(to: paperMarkdownURL, atomically: true, encoding: .utf8)
+        let paperDocument = try await repository.loadDocument(relativePath: paperMarkdownPath, in: workspace)
+
+        try expect(paperDocument.relativePath == paperMarkdownPath, "MarkdownRepository should load a specific converted paper.md outside wiki/ for preview/editing.")
+        try expect(paperDocument.title == "Converted Demo Paper", "MarkdownRepository should parse frontmatter for external Markdown documents.")
     }
 
     private struct LoopWorkspaceFixture {
@@ -4956,6 +5537,7 @@ private struct CoreVerificationSuite {
         definitions: [AgentToolDefinition],
         registry: AgentToolRegistry,
         fixture: LoopWorkspaceFixture,
+        configuration: LLMConfiguration = LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "test-model"),
         options: AgentLoopOptions = AgentLoopOptions(),
         hookEngine: AgentHookEngine = AgentHookEngine(hooks: []),
         permissionEvaluator: AgentPermissionEvaluator = AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
@@ -4972,7 +5554,7 @@ private struct CoreVerificationSuite {
             toolRegistry: registry,
             toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
             root: fixture.root,
-            configuration: LLMConfiguration(),
+            configuration: configuration,
             apiKey: "test-key",
             options: options,
             hookEngine: hookEngine,
@@ -5002,7 +5584,7 @@ private struct CoreVerificationSuite {
             toolRegistry: registry,
             toolContext: AgentToolContext(workspace: fixture.workspace, researchRoot: fixture.root),
             root: fixture.root,
-            configuration: LLMConfiguration(),
+            configuration: LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "test-model"),
             apiKey: "test-key",
             options: options,
             hookEngine: hookEngine,
@@ -5221,6 +5803,19 @@ private struct CoreVerificationSuite {
         guard condition() else {
             throw ValidationError(message: message)
         }
+    }
+
+    private func expectWikiWriteRejected(_ tool: WriteMarkdownPlanAgentTool, context: AgentToolContext, path: String) async throws {
+        var didReject = false
+        do {
+            _ = try await tool.invoke(
+                argumentsJSON: "{\"title\":\"Rejected\",\"body\":\"Body\",\"relative_path\":\"\(path)\"}",
+                context: context
+            )
+        } catch {
+            didReject = true
+        }
+        try expect(didReject, "Wiki writeback should reject invalid path: \(path)")
     }
 
     private func jsonObject(_ value: JSONValue?, _ message: String) throws -> [String: JSONValue] {

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Markdown Preview</title>
+    <base id="contentBase" href="">
+    <link rel="stylesheet" href="katex.min.css">
+    <style>
+        :root {
+            color-scheme: light dark;
+            --doc-fg: #202124;
+            --doc-secondary: #5f6368;
+            --doc-border: rgba(127, 127, 127, 0.24);
+            --doc-code-bg: rgba(127, 127, 127, 0.12);
+            --doc-link: #0a66d9;
+            --doc-error: #d2393b;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --doc-fg: #eceff4;
+                --doc-secondary: #b8bec8;
+                --doc-border: rgba(255, 255, 255, 0.18);
+                --doc-code-bg: rgba(255, 255, 255, 0.10);
+                --doc-link: #7eb6ff;
+                --doc-error: #ff6b6e;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 20px 22px 40px;
+            color: var(--doc-fg);
+            font: -apple-system-body;
+            line-height: 1.55;
+            background: transparent;
+            -webkit-font-smoothing: antialiased;
+            -webkit-user-select: text;
+        }
+        #content { max-width: 900px; word-wrap: break-word; overflow-wrap: anywhere; }
+        h1, h2, h3, h4 { line-height: 1.2; margin: 1.15em 0 0.45em; }
+        h1:first-child, h2:first-child { margin-top: 0; }
+        p, ul, ol, blockquote, table, pre { margin: 0.75em 0; }
+        a { color: var(--doc-link); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code {
+            padding: 0.12em 0.34em;
+            border-radius: 5px;
+            background: var(--doc-code-bg);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.92em;
+        }
+        pre {
+            padding: 13px 14px;
+            border-radius: 8px;
+            overflow: auto;
+            background: var(--doc-code-bg);
+            border: 1px solid var(--doc-border);
+        }
+        pre code { padding: 0; background: transparent; }
+        blockquote {
+            padding: 0.1em 0 0.1em 1em;
+            color: var(--doc-secondary);
+            border-left: 3px solid var(--doc-border);
+        }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid var(--doc-border); padding: 6px 8px; }
+        th { background: var(--doc-code-bg); }
+        img { max-width: 100%; height: auto; border-radius: 6px; }
+        .fallback {
+            white-space: pre-wrap;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+        .katex-display {
+            margin: 0.8em 0 !important;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        .math-error {
+            color: var(--doc-error);
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            font-size: 0.92em;
+        }
+    </style>
+</head>
+<body>
+<main id="content"></main>
+<script src="marked.min.js"></script>
+<script src="katex.min.js"></script>
+<script src="auto-render.min.js"></script>
+<script>
+(function () {
+    "use strict";
+
+    var contentEl = document.getElementById("content");
+    var baseEl = document.getElementById("contentBase");
+
+    if (window.marked && typeof window.marked.use === "function") {
+        window.marked.use({ gfm: true, breaks: true });
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    var MATH_TOKEN_PREFIX = "@@SCISTATIONMATH";
+    var MATH_TOKEN_SUFFIX = "@@";
+
+    // Protect math segments from marked so that line breaks inside
+    // $$...$$ / \[...\] / $...$ are not converted to <br> (which would
+    // split text nodes and prevent KaTeX auto-render from matching).
+    function protectMath(markdown) {
+        var stash = [];
+        function take(match) {
+            var token = MATH_TOKEN_PREFIX + stash.length + MATH_TOKEN_SUFFIX;
+            stash.push(match);
+            return token;
+        }
+        var src = markdown;
+        src = src.replace(/\\\[[\s\S]+?\\\]/g, take);
+        src = src.replace(/\$\$[\s\S]+?\$\$/g, take);
+        src = src.replace(/\\\([\s\S]+?\\\)/g, take);
+        src = src.replace(/(^|[^\\$])\$([^\n$]+?)\$(?!\d)/g, function (_m, pre, body) {
+            return pre + take("$" + body + "$");
+        });
+        return { src: src, stash: stash };
+    }
+
+    function restoreMath(html, stash) {
+        var pattern = new RegExp(MATH_TOKEN_PREFIX + "(\\d+)" + MATH_TOKEN_SUFFIX, "g");
+        return html.replace(pattern, function (_m, idx) {
+            return escapeHtml(stash[parseInt(idx, 10)] || "");
+        });
+    }
+
+    function renderMath() {
+        if (typeof window.renderMathInElement !== "function") {
+            return;
+        }
+        try {
+            window.renderMathInElement(contentEl, {
+                delimiters: [
+                    { left: "$$", right: "$$", display: true },
+                    { left: "$", right: "$", display: false },
+                    { left: "\\[", right: "\\]", display: true },
+                    { left: "\\(", right: "\\)", display: false }
+                ],
+                ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+                throwOnError: false,
+                errorColor: "var(--doc-error)"
+            });
+        } catch (_) { }
+    }
+
+    function applyState(state) {
+        var markdown = (state && typeof state.markdown === "string") ? state.markdown : "";
+        var baseURL = (state && typeof state.baseURL === "string") ? state.baseURL : "";
+        if (baseEl) {
+            baseEl.setAttribute("href", baseURL || "");
+        }
+
+        if (window.marked && typeof window.marked.parse === "function") {
+            try {
+                var protectedSrc = protectMath(markdown);
+                var html = window.marked.parse(protectedSrc.src);
+                contentEl.innerHTML = restoreMath(html, protectedSrc.stash);
+            } catch (_) {
+                contentEl.innerHTML = '<pre class="fallback">' + escapeHtml(markdown) + '</pre>';
+            }
+        } else {
+            contentEl.innerHTML = '<pre class="fallback">' + escapeHtml(markdown) + '</pre>';
+        }
+        renderMath();
+    }
+
+    window.setMarkdownPreviewState = function (state) {
+        try {
+            applyState(state || {});
+        } catch (_) {
+            contentEl.textContent = state && state.markdown ? state.markdown : "";
+        }
+    };
+})();
+</script>
+</body>
+</html>

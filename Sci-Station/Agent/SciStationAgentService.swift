@@ -47,7 +47,8 @@ public actor SciStationAgentService {
             ListMaterialsAgentTool(),
             CreateTodoAgentTool(todoRepository: todoRepository),
             UpdatePaperClassificationAgentTool(paperRepository: paperRepository),
-            WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository)
+            WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository, paperRepository: paperRepository),
+            WriteWikiMarkdownAgentTool(markdownRepository: markdownRepository, paperRepository: paperRepository)
         ])
         let resolvedLoopCheckpointStore = AgentLoopCheckpointStore()
         let resolvedToolHost = SciStationToolHost(legacyRegistry: resolvedToolRegistry)
@@ -162,7 +163,7 @@ public actor SciStationAgentService {
                 root: resolvedRoot,
                 configuration: configuration,
                 apiKey: apiKey,
-                options: AgentLoopOptions(),
+                options: options.loopOptions,
                 hookEngine: hookEngine,
                 permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
                 enabledWorkflowIDs: options.enabledWorkflowIDs,
@@ -182,6 +183,7 @@ public actor SciStationAgentService {
                 runtimeEvents.append(envelope)
             }
             if let loopResult = await legacyRuntime.completedLoopResult(runID: runID) {
+                try await persistFallbackDraftIfNeeded(loopResult, projectID: currentProjectID, in: resolvedRoot)
                 let run = run(
                     from: loopResult,
                     goal: goal,
@@ -280,6 +282,14 @@ public actor SciStationAgentService {
         return run
     }
 
+    private func persistFallbackDraftIfNeeded(_ loopResult: AgentLoopResult, projectID: ResearchProject.ID?, in root: ResearchRoot) async throws {
+        guard loopResult.pauseReason?.kind == .providerUnavailable,
+              let text = loopResult.finalResponseMarkdown?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            return
+        }
+        try await draftRepository.saveDraft(text, projectID: projectID, threadID: nil, in: root)
+    }
+
     public func resumePendingToolCall(
         runID: String,
         action: AgentHumanDecisionAction,
@@ -292,6 +302,7 @@ public actor SciStationAgentService {
         includedPaperIDs: Set<String>? = nil,
         allowedToolNames: Set<String>? = nil,
         disabledHookIDs: Set<String> = [],
+        loopOptions: AgentLoopOptions = AgentLoopOptions(),
         configuration: LLMConfiguration,
         apiKey: String,
         responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
@@ -325,12 +336,13 @@ public actor SciStationAgentService {
                 root: resolvedRoot,
                 configuration: configuration,
                 apiKey: apiKey,
-                options: AgentLoopOptions(),
+                options: loopOptions,
                 hookEngine: hookEngine(disabledHookIDs: disabledHookIDs),
                 permissionEvaluator: AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules()),
                 responseDeltaHandler: responseDeltaHandler
             )
         )
+        try await persistFallbackDraftIfNeeded(loopResult, projectID: currentProjectID, in: resolvedRoot)
         let run = run(
             from: loopResult,
             goal: "Resume pending tool call",

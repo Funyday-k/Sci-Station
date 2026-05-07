@@ -172,6 +172,42 @@
         });
     }
 
+    var MATH_TOKEN_PREFIX = "@@SCISTATIONMATH";
+    var MATH_TOKEN_SUFFIX = "@@";
+
+    // Protect math segments from marked so that line breaks inside
+    // $$...$$ / \[...\] / $...$ are not converted to <br> (which would
+    // split text nodes and prevent KaTeX auto-render from matching).
+    function protectMath(markdown) {
+        var stash = [];
+        function take(match) {
+            var token = MATH_TOKEN_PREFIX + stash.length + MATH_TOKEN_SUFFIX;
+            stash.push(match);
+            return token;
+        }
+        var src = markdown;
+        src = src.replace(/\\\[[\s\S]+?\\\]/g, take);
+        src = src.replace(/\$\$[\s\S]+?\$\$/g, take);
+        src = src.replace(/\\\([\s\S]+?\\\)/g, take);
+        src = src.replace(/(^|[^\\$])\$([^\n$]+?)\$(?!\d)/g, function (_m, pre, body) {
+            return pre + take("$" + body + "$");
+        });
+        return { src: src, stash: stash };
+    }
+
+    function escapeHtmlPlain(text) {
+        var div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function restoreMath(html, stash) {
+        var pattern = new RegExp(MATH_TOKEN_PREFIX + "(\\d+)" + MATH_TOKEN_SUFFIX, "g");
+        return html.replace(pattern, function (_m, idx) {
+            return escapeHtmlPlain(stash[parseInt(idx, 10)] || "");
+        });
+    }
+
     function reportHeight() {
         var height = Math.max(
             document.body.scrollHeight,
@@ -223,7 +259,8 @@
         var html;
         if (window.marked && typeof window.marked.parse === "function") {
             try {
-                html = window.marked.parse(markdown);
+                var protectedSrc = protectMath(markdown);
+                html = restoreMath(window.marked.parse(protectedSrc.src), protectedSrc.stash);
             } catch (e) {
                 html = escapeHtml(markdown);
             }

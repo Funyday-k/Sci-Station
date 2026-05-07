@@ -16,7 +16,7 @@ public struct LLMConfiguration: Codable, Hashable, Sendable {
         baseURLString: String = "https://api.deepseek.com",
         model: String = "deepseek-v4-flash",
         temperature: Double = 0.2,
-        maxTokens: Int? = 1500
+        maxTokens: Int? = 384_000
     ) {
         self.provider = provider
         self.baseURLString = baseURLString

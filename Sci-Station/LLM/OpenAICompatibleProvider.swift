@@ -128,6 +128,7 @@ public actor OpenAICompatibleProvider: LLMProvider {
         providerRequest: LLMProviderRequest,
         stream: Bool = false
     ) throws -> URLRequest {
+        let providerRequest = try LLMProviderRequestSanitizer.sanitized(providerRequest, configuration: configuration)
         let trimmedBaseURL = configuration.baseURLString
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))

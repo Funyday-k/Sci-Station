@@ -181,7 +181,7 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
         let connection = try await supervisor.start(
             initialization: SidecarInitializationRequest(
                 workspaceRoot: request.root.rootURL.path,
-                allowedRoots: ["library/papers", "wiki", "projects", "materials", "data", "code", "figures", "outputs", "shared_research.md"]
+                allowedRoots: AgentAuthorizedResourceProvider.defaultAllowedRoots
             ),
             hostRequestHandler: { method, params in try await bridge.handle(method: method, params: params) },
             notificationHandler: { [weak self] method, params in
@@ -615,7 +615,7 @@ public nonisolated struct AuthorizedResourceReadResponse: Codable, Hashable, Sen
 }
 
 public actor AgentAuthorizedResourceProvider {
-    public static let defaultAllowedRoots: [String] = ["library/papers", "wiki", "projects", "materials", "data", "code", "figures", "outputs", "shared_research.md"]
+    public static let defaultAllowedRoots: [String] = ["library/papers", "raw/papers", "wiki", "projects", "materials", "data", "code", "figures", "outputs", "shared_research.md"]
     private let fileManager: FileManager
     private let maximumIndexedBytes: Int
 
@@ -734,7 +734,7 @@ public actor AgentAuthorizedResourceProvider {
         guard relativePath.hasSuffix(".md") || relativePath.hasSuffix(".txt") else {
             return false
         }
-        if relativePath.hasPrefix("library/papers/") {
+        if relativePath.hasPrefix("library/papers/") || relativePath.hasPrefix("raw/papers/") {
             return relativePath.hasSuffix("/paper.md") || relativePath.hasSuffix("/annotations.md")
         }
         if relativePath.hasPrefix("wiki/") {
@@ -753,7 +753,9 @@ public actor AgentAuthorizedResourceProvider {
 
     private func classify(relativePath: String) -> (sourceType: String, sourceID: String?) {
         let components = relativePath.split(separator: "/").map(String.init)
-        if components.count >= 4, components[0] == "library", components[1] == "papers" {
+        if components.count >= 4,
+           (components[0] == "library" || components[0] == "raw"),
+           components[1] == "papers" {
             return (relativePath.hasSuffix("annotations.md") ? "paper_annotations" : "paper", components[2])
         }
         if components.count >= 3, components[0] == "projects" {

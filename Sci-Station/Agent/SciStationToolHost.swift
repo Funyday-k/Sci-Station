@@ -145,7 +145,7 @@ public actor SciStationToolHost {
                 return ["library/papers/\(paperID)/meta.yaml"]
             }
             return ["library/papers/*/meta.yaml"]
-        case "write_markdown_plan":
+        case "write_markdown_plan", "write_wiki_markdown":
             if let path = stringArgument("relative_path", in: call.argumentsJSON) {
                 return [path]
             }
@@ -163,7 +163,7 @@ public actor SciStationToolHost {
         switch call.toolName {
         case "create_todo":
             return "+ todo: \(stringArgument("title", in: call.argumentsJSON) ?? "Untitled todo")\n# target: \(pathText)"
-        case "write_markdown_plan":
+        case "write_markdown_plan", "write_wiki_markdown":
             return "+ markdown document\n# target: \(pathText)"
         case "update_paper_classification":
             return "~ paper metadata\n# target: \(pathText)"

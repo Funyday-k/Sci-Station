@@ -311,7 +311,9 @@ public nonisolated struct ReadPaperSectionAgentTool: AgentTool {
         let maxCharacters = min(max(arguments.maxCharacters ?? arguments.max_characters ?? 12_000, 1_000), 20_000)
 
         let section: PaperSectionSlice
-        if let startLine = arguments.startLine ?? arguments.start_line,
+        if let heading = arguments.heading?.trimmingCharacters(in: .whitespacesAndNewlines), !heading.isEmpty {
+            section = try markdownSection(resolved.contents, heading: heading, maxCharacters: maxCharacters)
+        } else if let startLine = arguments.startLine ?? arguments.start_line,
            let endLine = arguments.endLine ?? arguments.end_line {
             let slice = lineSlice(resolved.contents, startLine: startLine, endLine: endLine)
             section = PaperSectionSlice(
@@ -321,8 +323,6 @@ public nonisolated struct ReadPaperSectionAgentTool: AgentTool {
                 text: limitedToolOutput(slice.text, maximumCharacters: maxCharacters).text,
                 wasTruncated: slice.text.count > maxCharacters
             )
-        } else if let heading = arguments.heading?.trimmingCharacters(in: .whitespacesAndNewlines), !heading.isEmpty {
-            section = try markdownSection(resolved.contents, heading: heading, maxCharacters: maxCharacters)
         } else {
             throw AgentError.invalidArguments("heading or start_line/end_line is required")
         }
@@ -438,21 +438,35 @@ public nonisolated struct SearchPapersAgentTool: AgentTool {
     }
 }
 
-public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
+public nonisolated struct WriteWikiMarkdownAgentTool: AgentTool {
     private let markdownRepository: MarkdownRepository
+    private let paperRepository: PaperRepository
+    private let toolName: String
 
-    public nonisolated init(markdownRepository: MarkdownRepository) {
+    public nonisolated init(
+        markdownRepository: MarkdownRepository,
+        paperRepository: PaperRepository = PaperRepository(),
+        toolName: String = "write_wiki_markdown"
+    ) {
         self.markdownRepository = markdownRepository
+        self.paperRepository = paperRepository
+        self.toolName = toolName
     }
 
     public nonisolated var definition: AgentToolDefinition {
         AgentToolDefinition(
-            name: "write_markdown_plan",
-            summary: "Create or replace a Markdown planning document under wiki/plans.",
-            inputSchema: "{\"title\":\"string\",\"body\":\"markdown string\",\"relative_path\":\"wiki/plans/name.md optional\"}",
+            name: toolName,
+            displayName: "Write Wiki Markdown",
+            summary: "Create or replace an approved Markdown document under wiki/plans, wiki/papers, wiki/notes, or wiki/projects.",
+            inputSchema: "{\"title\":\"string\",\"body\":\"markdown string\",\"relative_path\":\"wiki/plans/name.md, wiki/papers/<paper_id>.md, wiki/notes/name.md, or wiki/projects/name.md optional\"}",
             risk: .writesWorkspace,
             requiresConfirmation: true,
-            examples: ["{\"title\":\"Paper reading plan\",\"body\":\"# Plan\\n\\n- Read selected papers\"}"]
+            permissionKey: "wiki.write",
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: 384_000),
+            examples: [
+                "{\"title\":\"Paper reading plan\",\"body\":\"# Plan\\n\\n- Read selected papers\"}",
+                "{\"title\":\"Garani 2017 Summary\",\"relative_path\":\"wiki/papers/garani2017-dark-matter-sun.md\",\"body\":\"## AI Summary\\n\\n...\"}"
+            ]
         )
     }
 
@@ -467,7 +481,7 @@ public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
             throw AgentError.invalidArguments("body is required")
         }
 
-        let relativePath = try resolvedPlanPath(title: title, proposedPath: arguments.relativePath)
+        let relativePath = try await resolvedWikiPath(title: title, proposedPath: arguments.relativePath, context: context)
         let contents = body.hasPrefix("# ") ? body + "\n" : "# \(title)\n\n\(body)\n"
         let document = try await markdownRepository.saveContents(contents, relativePath: relativePath, in: context.workspace)
 
@@ -475,10 +489,10 @@ public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
             callID: "",
             toolName: definition.name,
             succeeded: true,
-            message: "Saved Markdown plan: \(document.title)",
+            message: "Saved Wiki Markdown: \(document.relativePath)",
             payload: .object([
                 "schema_version": .number("1"),
-                "kind": .string("markdown_write"),
+                "kind": .string("wiki_markdown_write"),
                 "title": .string(document.title),
                 "target_path": .string(document.relativePath),
                 "write_mode": .string("create_or_replace"),
@@ -489,19 +503,45 @@ public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
         )
     }
 
-    private nonisolated func resolvedPlanPath(title: String, proposedPath: String?) throws -> String {
+    private func resolvedWikiPath(title: String, proposedPath: String?, context: AgentToolContext) async throws -> String {
         if let proposedPath = proposedPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !proposedPath.isEmpty {
-            guard proposedPath.hasPrefix("wiki/plans/"),
-                  proposedPath.hasSuffix(".md"),
-                  !proposedPath.contains(".."),
-                  !proposedPath.hasPrefix("/") else {
-                throw AgentError.invalidArguments("relative_path must be under wiki/plans and end with .md")
+            let normalizedPath = proposedPath.replacingOccurrences(of: "\\", with: "/")
+            try validateWikiPath(normalizedPath)
+            if normalizedPath.hasPrefix("wiki/papers/") {
+                try await validatePaperWikiPath(normalizedPath, context: context)
             }
-            return proposedPath
+            return normalizedPath
         }
 
         return "wiki/plans/\(slug(from: title)).md"
+    }
+
+    private nonisolated func validateWikiPath(_ path: String) throws {
+        let allowedPrefixes = ["wiki/plans/", "wiki/papers/", "wiki/notes/", "wiki/projects/"]
+        let hasEmptyComponent = path.split(separator: "/", omittingEmptySubsequences: false).contains { $0.isEmpty }
+        guard path.hasSuffix(".md"),
+              !path.hasPrefix("/"),
+              !path.contains(".."),
+              !hasEmptyComponent,
+              allowedPrefixes.contains(where: { path.hasPrefix($0) }) else {
+            throw AgentError.invalidArguments("relative_path must be a Markdown file under wiki/plans, wiki/papers, wiki/notes, or wiki/projects")
+        }
+    }
+
+    private func validatePaperWikiPath(_ path: String, context: AgentToolContext) async throws {
+        let prefix = "wiki/papers/"
+        let suffix = ".md"
+        let paperIDStart = path.index(path.startIndex, offsetBy: prefix.count)
+        let paperIDEnd = path.index(path.endIndex, offsetBy: -suffix.count)
+        let paperID = String(path[paperIDStart..<paperIDEnd])
+        guard !paperID.isEmpty, !paperID.contains("/") else {
+            throw AgentError.invalidArguments("wiki/papers relative_path must be wiki/papers/<paper_id>.md")
+        }
+        let papers = try await paperRepository.loadPapers(in: context.workspace)
+        guard papers.contains(where: { $0.id == paperID }) else {
+            throw AgentError.invalidArguments("paper_id '\(paperID)' does not exist in library/paper_index.yaml")
+        }
     }
 
     private nonisolated func slug(from title: String) -> String {
@@ -522,6 +562,26 @@ public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
 
         let slug = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? "plan-\(UUID().uuidString.lowercased())" : slug
+    }
+}
+
+public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
+    private let writer: WriteWikiMarkdownAgentTool
+
+    public nonisolated init(markdownRepository: MarkdownRepository, paperRepository: PaperRepository = PaperRepository()) {
+        self.writer = WriteWikiMarkdownAgentTool(
+            markdownRepository: markdownRepository,
+            paperRepository: paperRepository,
+            toolName: "write_markdown_plan"
+        )
+    }
+
+    public nonisolated var definition: AgentToolDefinition {
+        writer.definition
+    }
+
+    public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
+        try await writer.invoke(argumentsJSON: argumentsJSON, context: context)
     }
 }
 
@@ -1057,7 +1117,7 @@ private func markdownSection(_ contents: String, heading: String, maxCharacters:
         }
         headingStack.append(parsed.title)
         let path = headingStack.joined(separator: " / ")
-        if normalizedHeading(parsed.title) == wanted || normalizedHeading(path) == wanted {
+        if headingMatches(wanted: wanted, candidate: parsed.title) || headingMatches(wanted: wanted, candidate: path) {
             matchedStartIndex = index
             matchedLevel = parsed.level
             matchedHeading = path
@@ -1066,6 +1126,9 @@ private func markdownSection(_ contents: String, heading: String, maxCharacters:
     }
 
     guard let startIndex = matchedStartIndex, let level = matchedLevel else {
+        if let figureSlice = figureCaptionSlice(lines: lines, heading: heading, maxCharacters: maxCharacters) {
+            return figureSlice
+        }
         throw AgentError.invalidArguments("No Markdown heading matched \"\(heading)\".")
     }
 
@@ -1088,6 +1151,86 @@ private func markdownSection(_ contents: String, heading: String, maxCharacters:
         text: limited.text,
         wasTruncated: limited.wasTruncated
     )
+}
+
+private func figureCaptionSlice(lines: [String], heading: String, maxCharacters: Int) -> PaperSectionSlice? {
+    let labels = figureSearchLabels(from: heading)
+    guard !labels.isEmpty else {
+        return nil
+    }
+
+    guard let captionIndex = lines.firstIndex(where: { line in
+        guard !isLocalFigureMarkdownLine(line) else {
+            return false
+        }
+        let normalizedLine = normalizedFigureCaption(line)
+        return labels.contains { normalizedLine.contains($0) }
+    }) else {
+        return nil
+    }
+
+    var startIndex = captionIndex
+    while startIndex > 0 {
+        let previous = lines[startIndex - 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        if previous.isEmpty || isLocalFigureMarkdownLine(previous) {
+            startIndex -= 1
+            continue
+        }
+        break
+    }
+
+    var endIndex = captionIndex
+    while endIndex + 1 < lines.count {
+        let next = lines[endIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        if next.isEmpty || isLocalFigureMarkdownLine(next) {
+            endIndex += 1
+            continue
+        }
+        break
+    }
+
+    let text = lines[startIndex...endIndex].joined(separator: "\n")
+    let limited = limitedToolOutput(text, maximumCharacters: maxCharacters)
+    return PaperSectionSlice(
+        heading: "figure caption: \(heading)",
+        startLine: startIndex + 1,
+        endLine: endIndex + 1,
+        text: limited.text,
+        wasTruncated: limited.wasTruncated
+    )
+}
+
+private func isLocalFigureMarkdownLine(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return trimmed.hasPrefix("![](") || trimmed.hasPrefix("![") || trimmed.hasPrefix("<img")
+}
+
+private func figureSearchLabels(from heading: String) -> [String] {
+    let normalized = normalizedFigureCaption(heading)
+    let numberPattern = #"(?:fig|figure|图)\s*\.?\s*(\d+)"#
+    let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+    guard let expression = try? NSRegularExpression(pattern: numberPattern, options: [.caseInsensitive]),
+          let match = expression.firstMatch(in: normalized, range: range),
+          match.numberOfRanges > 1,
+          let numberRange = Range(match.range(at: 1), in: normalized) else {
+        return []
+    }
+
+    let number = String(normalized[numberRange])
+    return [
+        "figure \(number)",
+        "fig \(number)",
+        "图 \(number)"
+    ]
+}
+
+private func normalizedFigureCaption(_ value: String) -> String {
+    let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    let separators = CharacterSet.alphanumerics.inverted
+    return folded
+        .components(separatedBy: separators)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
 }
 
 private func searchMarkdown(
@@ -1135,6 +1278,7 @@ private nonisolated func paperPayload(_ paper: Paper, hasMarkdown: Bool) -> JSON
         "title": .string(paper.displayTitle),
         "authors": .string(paper.authorsDisplay),
         "year": .string(paper.yearText),
+        "abstract": .string(paper.abstract ?? ""),
         "path": .string(paper.paperDirectoryRelativePath),
         "raw_markdown_path": .string(paper.paperDirectoryRelativePath + "/paper.md"),
         "has_paper_md": .bool(hasMarkdown),
@@ -1175,6 +1319,20 @@ private func normalizedHeading(_ value: String) -> String {
         .replacingOccurrences(of: " / ", with: "/")
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+}
+
+private func headingMatches(wanted: String, candidate: String) -> Bool {
+    let normalizedCandidate = normalizedHeading(candidate)
+    if normalizedCandidate == wanted {
+        return true
+    }
+    if wanted == "abstract" {
+        return normalizedCandidate == "摘要"
+    }
+    if wanted == "摘要" {
+        return normalizedCandidate == "abstract"
+    }
+    return false
 }
 
 private func limitedToolOutput(_ value: String, maximumCharacters: Int) -> (text: String, wasTruncated: Bool) {

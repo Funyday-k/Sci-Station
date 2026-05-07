@@ -130,6 +130,62 @@ public nonisolated struct LLMProviderRequest: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated enum LLMProviderRequestSanitizer {
+    public enum Failure: LocalizedError, Sendable {
+        case missingReasoningContentForAssistantToolCall(messageIndex: Int, toolNames: [String])
+
+        public var errorDescription: String? {
+            switch self {
+            case let .missingReasoningContentForAssistantToolCall(messageIndex, toolNames):
+                let names = toolNames.isEmpty ? "unknown" : toolNames.joined(separator: ", ")
+                return "Assistant tool-call message at index \(messageIndex) is missing reasoning_content required by thinking-mode tool replay. Tools: \(names)."
+            }
+        }
+    }
+
+    public static func sanitized(_ request: LLMProviderRequest, configuration: LLMConfiguration) throws -> LLMProviderRequest {
+        try validateThinkingModeToolReplay(request, configuration: configuration)
+        return request
+    }
+
+    public static func validateThinkingModeToolReplay(_ request: LLMProviderRequest, configuration: LLMConfiguration) throws {
+        guard requiresReasoningContentForToolReplay(request: request, configuration: configuration) else {
+            return
+        }
+
+        for (index, message) in request.messages.enumerated() where message.role == .assistant && !message.toolCalls.isEmpty {
+            let reasoning = message.reasoningContent?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if reasoning?.isEmpty != false {
+                throw Failure.missingReasoningContentForAssistantToolCall(
+                    messageIndex: index,
+                    toolNames: message.toolCalls.map(\.toolName)
+                )
+            }
+        }
+    }
+
+    public static func requiresReasoningContentForToolReplay(request: LLMProviderRequest, configuration: LLMConfiguration) -> Bool {
+        let model = (request.options.model ?? configuration.model).lowercased()
+        let baseURL = configuration.baseURLString.lowercased()
+        let optionText = request.options.providerOptions
+            .flatMap { [$0.key.lowercased(), $0.value.lowercased()] }
+            .joined(separator: " ")
+        let haystack = [model, baseURL, optionText].joined(separator: " ")
+        let markers = [
+            "api.deepseek.com",
+            "deepseek-v4",
+            "deepseek-chat",
+            "deepseek-reasoner",
+            "deepseek-r1",
+            "qwen3",
+            "qwq",
+            "thinking",
+            "reasoning"
+        ]
+        return markers.contains { haystack.contains($0) }
+    }
+}
+
 public nonisolated struct LLMProviderV2AdapterFlow: Codable, Hashable, Sendable {
     public var request: LLMProviderRequest
     public var preservesLegacyCompletePath: Bool

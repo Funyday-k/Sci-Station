@@ -484,11 +484,11 @@ public nonisolated struct AgentLoopOptions: Codable, Hashable, Sendable {
     public var allowProviderNativeTools: Bool
 
     public nonisolated init(
-        maxSteps: Int = 8,
-        maxToolCalls: Int = 16,
-        maxContextCharacters: Int = 80_000,
-        maxToolResultCharactersPerCall: Int = 12_000,
-        maxAccumulatedToolResultCharacters: Int = 40_000,
+        maxSteps: Int = 20,
+        maxToolCalls: Int = 80,
+        maxContextCharacters: Int = 1_000_000,
+        maxToolResultCharactersPerCall: Int = 384_000,
+        maxAccumulatedToolResultCharacters: Int = 1_000_000,
         autoApproveReadOnly: Bool = true,
         allowProviderNativeTools: Bool = true
     ) {
@@ -1082,6 +1082,58 @@ public nonisolated struct AgentLoopResult: Codable, Hashable, Sendable {
         case pauseReason = "pause_reason"
         case pendingToolCall = "pending_tool_call"
         case steps
+    }
+}
+
+public nonisolated struct AgentPreflightEvidenceEnvelope: Codable, Hashable, Sendable {
+    public var toolName: String
+    public var toolCallID: String
+    public var argumentsJSON: String
+    public var result: AgentToolResultWireFormat
+
+    public nonisolated init(
+        toolName: String,
+        toolCallID: String,
+        argumentsJSON: String,
+        result: AgentToolResultWireFormat
+    ) {
+        self.toolName = toolName
+        self.toolCallID = toolCallID
+        self.argumentsJSON = argumentsJSON
+        self.result = result
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case toolName = "tool_name"
+        case toolCallID = "tool_call_id"
+        case argumentsJSON = "arguments_json"
+        case result
+    }
+}
+
+public nonisolated struct AgentAssistantMessageEventPayload: Codable, Hashable, Sendable {
+    public var content: String
+    public var reasoningContent: String?
+    public var toolCalls: [AgentToolCall]
+
+    public nonisolated init(content: String, reasoningContent: String?, toolCalls: [AgentToolCall]) {
+        self.content = content
+        self.reasoningContent = reasoningContent
+        self.toolCalls = toolCalls
+    }
+
+    public nonisolated init(message: LLMChatMessage) {
+        self.init(
+            content: message.content,
+            reasoningContent: message.reasoningContent,
+            toolCalls: message.toolCalls
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case content
+        case reasoningContent = "reasoning_content"
+        case toolCalls = "tool_calls"
     }
 }
 

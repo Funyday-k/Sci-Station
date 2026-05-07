@@ -1476,7 +1476,7 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
         case .conversation:
             return nil
         case .plan:
-            return ["write_markdown_plan"]
+            return ["write_markdown_plan", "write_wiki_markdown"]
         case .assistant:
             return nil
         }
@@ -1502,6 +1502,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
     public var allowedToolNames: Set<String>?
     public var enabledWorkflowIDs: Set<String>?
     public var allowsPlainTextResponse: Bool
+    public var loopOptions: AgentLoopOptions
     public var retryOfRunID: String?
 
     public nonisolated init(
@@ -1515,6 +1516,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         allowedToolNames: Set<String>? = nil,
         enabledWorkflowIDs: Set<String>? = nil,
         allowsPlainTextResponse: Bool = false,
+        loopOptions: AgentLoopOptions = AgentLoopOptions(),
         retryOfRunID: String? = nil
     ) {
         self.mode = mode
@@ -1527,6 +1529,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         self.allowedToolNames = allowedToolNames
         self.enabledWorkflowIDs = enabledWorkflowIDs
         self.allowsPlainTextResponse = allowsPlainTextResponse
+        self.loopOptions = loopOptions
         self.retryOfRunID = retryOfRunID
     }
 }

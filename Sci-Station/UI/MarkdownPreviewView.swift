@@ -1,14 +1,16 @@
+import AppKit
+import Foundation
 import SwiftUI
 import WebKit
 
 struct MarkdownPreviewView: NSViewRepresentable {
     let markdown: String
-  let baseURL: URL?
+    let baseURL: URL?
 
-  init(markdown: String, baseURL: URL? = nil) {
-    self.markdown = markdown
-    self.baseURL = baseURL
-  }
+    init(markdown: String, baseURL: URL? = nil) {
+        self.markdown = markdown
+        self.baseURL = baseURL
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -16,140 +18,155 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        configuration.suppressesIncrementalRendering = false
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
-        webView.loadHTMLString(renderedHTML, baseURL: baseURL)
-        context.coordinator.lastHTML = renderedHTML
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.attach(webView: webView, readAccessURL: readAccessURL)
+        context.coordinator.update(markdown: markdown, baseURLString: baseURLString)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let html = renderedHTML
-        guard context.coordinator.lastHTML != html else {
-            return
+        context.coordinator.update(markdown: markdown, baseURLString: baseURLString)
+    }
+
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        nsView.navigationDelegate = nil
+        coordinator.detach()
+    }
+
+    private var baseURLString: String {
+        guard let baseURL else {
+            return ""
+        }
+        let directoryURL = baseURL.hasDirectoryPath ? baseURL : baseURL.deletingLastPathComponent()
+        return directoryURL.absoluteString
+    }
+
+    private var readAccessURL: URL? {
+        guard let bundleURL = ChatMarkdownResources.bundleURL else {
+            return baseURL
+        }
+        guard let baseURL else {
+            return bundleURL
+        }
+        return Self.commonAncestorURL(bundleURL.standardizedFileURL, baseURL.standardizedFileURL)
+    }
+
+    private static func commonAncestorURL(_ first: URL, _ second: URL) -> URL {
+        let firstComponents = first.pathComponents
+        let secondComponents = second.pathComponents
+        var common: [String] = []
+        for (left, right) in zip(firstComponents, secondComponents) {
+            guard left == right else {
+                break
+            }
+            common.append(left)
+        }
+        if common.isEmpty {
+            return URL(fileURLWithPath: "/", isDirectory: true)
+        }
+        let path = NSString.path(withComponents: common)
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private weak var webView: WKWebView?
+        private var pendingState: MarkdownPreviewState?
+        private var lastDeliveredState: MarkdownPreviewState?
+        private var pageDidLoad = false
+        private var usesFallbackHTML = false
+
+        func attach(webView: WKWebView, readAccessURL: URL?) {
+            self.webView = webView
+            guard let pageURL = ChatMarkdownResources.docPreviewURL,
+                  let readAccessURL else {
+                usesFallbackHTML = true
+                pageDidLoad = true
+                return
+            }
+            webView.loadFileURL(pageURL, allowingReadAccessTo: readAccessURL)
         }
 
-        context.coordinator.lastHTML = html
-        webView.loadHTMLString(html, baseURL: baseURL)
+        func detach() {
+            webView = nil
+        }
+
+        func update(markdown: String, baseURLString: String) {
+            let state = MarkdownPreviewState(markdown: markdown, baseURLString: baseURLString)
+            guard state != lastDeliveredState else {
+                return
+            }
+            pendingState = state
+            flushPendingStateIfPossible()
+        }
+
+        nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor [weak self] in
+                self?.pageDidLoad = true
+                self?.flushPendingStateIfPossible()
+            }
+        }
+
+        nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            guard navigationAction.navigationType == .linkActivated,
+                  let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+        }
+
+        private func flushPendingStateIfPossible() {
+            guard pageDidLoad,
+                  let webView,
+                  let state = pendingState else {
+                return
+            }
+            pendingState = nil
+            lastDeliveredState = state
+
+            if usesFallbackHTML {
+                webView.loadHTMLString(Self.fallbackHTML(markdown: state.markdown), baseURL: URL(string: state.baseURLString))
+                return
+            }
+
+            let payload: [String: Any] = [
+                "markdown": state.markdown,
+                "baseURL": state.baseURLString
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                  let json = String(data: data, encoding: .utf8) else {
+                return
+            }
+            webView.evaluateJavaScript("window.setMarkdownPreviewState(\(json));", completionHandler: nil)
+        }
+
+        private static func fallbackHTML(markdown: String) -> String {
+            let escaped = markdown
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+            return """
+            <!doctype html>
+            <html>
+            <head>
+              <meta charset=\"utf-8\">
+              <style>
+                body { margin: 0; padding: 20px 22px 40px; font: -apple-system-body; background: transparent; }
+                pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+              </style>
+            </head>
+            <body><pre>\(escaped)</pre></body>
+            </html>
+            """
+        }
     }
+}
 
-    private var renderedHTML: String {
-        let encodedMarkdown = Data(markdown.utf8).base64EncodedString()
-        return """
-        <!doctype html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css">
-          <style>
-            :root {
-              color-scheme: light dark;
-              --text: #202124;
-              --secondary: #5f6368;
-              --border: rgba(127, 127, 127, 0.24);
-              --code: rgba(127, 127, 127, 0.12);
-              --link: #0a66d9;
-            }
-            @media (prefers-color-scheme: dark) {
-              :root {
-                --text: #eceff4;
-                --secondary: #b8bec8;
-                --border: rgba(255, 255, 255, 0.18);
-                --code: rgba(255, 255, 255, 0.10);
-                --link: #7eb6ff;
-              }
-            }
-            body {
-              margin: 0;
-              padding: 20px 22px 40px;
-              color: var(--text);
-              font: -apple-system-body;
-              line-height: 1.55;
-              background: transparent;
-            }
-            #content { max-width: 900px; }
-            h1, h2, h3, h4 { line-height: 1.2; margin: 1.15em 0 0.45em; }
-            h1:first-child, h2:first-child { margin-top: 0; }
-            p, ul, ol, blockquote, table, pre { margin: 0.75em 0; }
-            a { color: var(--link); text-decoration: none; }
-            a:hover { text-decoration: underline; }
-            code {
-              padding: 0.12em 0.34em;
-              border-radius: 5px;
-              background: var(--code);
-              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-              font-size: 0.92em;
-            }
-            pre {
-              padding: 13px 14px;
-              border-radius: 8px;
-              overflow: auto;
-              background: var(--code);
-              border: 1px solid var(--border);
-            }
-            pre code { padding: 0; background: transparent; }
-            blockquote {
-              padding: 0.1em 0 0.1em 1em;
-              color: var(--secondary);
-              border-left: 3px solid var(--border);
-            }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid var(--border); padding: 6px 8px; }
-            th { background: var(--code); }
-            img { max-width: 100%; height: auto; border-radius: 6px; }
-            .fallback {
-              white-space: pre-wrap;
-              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            }
-          </style>
-        </head>
-        <body>
-          <main id="content"></main>
-          <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-          <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-          <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
-          <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"></script>
-          <script>
-            const encodedMarkdown = "\(encodedMarkdown)";
-            const markdown = new TextDecoder().decode(Uint8Array.from(atob(encodedMarkdown), c => c.charCodeAt(0)));
-            const content = document.getElementById('content');
-
-            function escaped(text) {
-              return text.replace(/[&<>]/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;'}[char]));
-            }
-
-            function renderMarkdown() {
-              if (!window.marked || !window.DOMPurify) {
-                content.innerHTML = '<pre class="fallback">' + escaped(markdown) + '</pre>';
-                return;
-              }
-
-              marked.setOptions({ gfm: true, breaks: true, mangle: false, headerIds: false });
-              content.innerHTML = DOMPurify.sanitize(marked.parse(markdown));
-
-              if (window.renderMathInElement) {
-                renderMathInElement(content, {
-                  delimiters: [
-                    {left: '$$', right: '$$', display: true},
-                    {left: '\\\\[', right: '\\\\]', display: true},
-                    {left: '$', right: '$', display: false},
-                    {left: '\\\\(', right: '\\\\)', display: false}
-                  ],
-                  throwOnError: false
-                });
-              }
-            }
-
-            window.addEventListener('load', renderMarkdown);
-            setTimeout(renderMarkdown, 900);
-          </script>
-        </body>
-        </html>
-        """
-    }
-
-    final class Coordinator {
-        var lastHTML = ""
-    }
+private struct MarkdownPreviewState: Equatable {
+    let markdown: String
+    let baseURLString: String
 }

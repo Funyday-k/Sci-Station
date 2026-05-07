@@ -875,6 +875,8 @@ private struct AgentThreadRenameSheet: View {
 private struct AgentConversationTimelineView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
+    private static let richMarkdownBubbleLimit = 20
+
     let thread: AgentThread?
     let runs: [AgentRun]
     let currentRun: AgentRun?
@@ -894,6 +896,13 @@ private struct AgentConversationTimelineView: View {
         }
 
         return Array(runs.prefix(5))
+    }
+
+    private var richMarkdownEventIDs: Set<AgentSessionTimelineItem.ID> {
+        Set(visibleEvents
+            .filter { $0.kind == .assistantMessage }
+            .suffix(Self.richMarkdownBubbleLimit)
+            .map(\.id))
     }
 
     var body: some View {
@@ -920,7 +929,10 @@ private struct AgentConversationTimelineView: View {
                 ForEach(visibleEvents) { item in
                     AgentSessionEventRowView(
                         item: item,
-                        retryAction: retryAction(for: item)
+                        usesRichMarkdown: richMarkdownEventIDs.contains(item.id),
+                        retryAction: retryAction(for: item),
+                        copyDiagnosticAction: providerFailureAction(for: item),
+                        evidencePreview: toolEvidencePreview(for: item)
                     )
                 }
             } else {
@@ -937,6 +949,7 @@ private struct AgentConversationTimelineView: View {
                     metadata: "发送中",
                     payloadPreview: nil,
                     isUser: true,
+                    usesRichMarkdown: false,
                     isError: false
                 )
             }
@@ -950,6 +963,7 @@ private struct AgentConversationTimelineView: View {
                     metadata: isThinking ? "正在生成" : "已停止",
                     payloadPreview: nil,
                     isUser: false,
+                    usesRichMarkdown: true,
                     isError: false
                 )
             } else if isThinking {
@@ -965,6 +979,40 @@ private struct AgentConversationTimelineView: View {
             return nil
         }
         return { appModel.retryAgentRun(run) }
+    }
+
+    private func providerFailureAction(for item: AgentSessionTimelineItem) -> (() -> Void)? {
+        guard item.kind == .toolCallFailed || item.kind == .runCancelled || item.detail.contains("复制脱敏诊断") else {
+            return nil
+        }
+        return { appModel.copyAgentRetrievalDiagnostic() }
+    }
+
+    private func toolEvidencePreview(for item: AgentSessionTimelineItem) -> String? {
+        guard let run = runs.first(where: { $0.id == item.sessionID }) ?? (currentRun?.id == item.sessionID ? currentRun : nil),
+              !run.toolResults.isEmpty,
+              item.kind == .toolCallFailed || item.kind == .runCancelled || item.detail.contains("工具") || item.detail.contains("tool") else {
+            return nil
+        }
+
+        return run.toolResults.enumerated().map { index, result in
+            let payload = result.payload?.objectValue
+            let source = payload?["source"]?.stringValue
+                ?? payload?["paper"]?.objectValue?["raw_markdown_path"]?.stringValue
+            let heading = payload?["heading"]?.stringValue
+            let startLine = payload?["start_line"].map(numberText)
+            let endLine = payload?["end_line"].map(numberText)
+            let lineRange = [startLine, endLine].compactMap { $0 }.joined(separator: "-").nilIfEmpty
+            let details = [source, heading, lineRange.map { "lines \($0)" }, result.errorMessage]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+                .joined(separator: " · ")
+            return "#\(index + 1) \(result.toolName): \(result.succeeded ? "succeeded" : "failed")\(details.isEmpty ? "" : " · \(details)")"
+        }
+        .joined(separator: "\n")
+    }
+
+    private func numberText(_ value: JSONValue) -> String {
+        value.stringValue ?? value.canonicalJSON
     }
 }
 
@@ -989,6 +1037,7 @@ private struct AgentThinkingBubbleView: View {
                 metadata: thinkingModeTitle,
                 payloadPreview: nil,
                 isUser: false,
+                usesRichMarkdown: false,
                 isError: false
             )
         }
@@ -997,7 +1046,12 @@ private struct AgentThinkingBubbleView: View {
 
 private struct AgentSessionEventRowView: View {
     let item: AgentSessionTimelineItem
+    let usesRichMarkdown: Bool
     let retryAction: (() -> Void)?
+    let copyDiagnosticAction: (() -> Void)?
+    let evidencePreview: String?
+
+    @State private var showsEvidence = false
 
     @ViewBuilder
     var body: some View {
@@ -1011,6 +1065,7 @@ private struct AgentSessionEventRowView: View {
                     metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
                     payloadPreview: item.payloadPreview,
                     isUser: true,
+                    usesRichMarkdown: false,
                     isError: false
                 )
             case .assistantMessage:
@@ -1021,6 +1076,7 @@ private struct AgentSessionEventRowView: View {
                     metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
                     payloadPreview: item.payloadPreview,
                     isUser: false,
+                    usesRichMarkdown: usesRichMarkdown,
                     isError: false
                 )
             case .reasoningSummary:
@@ -1045,15 +1101,44 @@ private struct AgentSessionEventRowView: View {
                 )
             }
 
-            if let retryAction {
-                Button {
-                    retryAction()
-                } label: {
-                    Label("重试这条消息", systemImage: "arrow.clockwise")
+            if retryAction != nil || copyDiagnosticAction != nil || evidencePreview != nil {
+                HStack(spacing: 8) {
+                    if let retryAction {
+                        Button {
+                            retryAction()
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise")
+                        }
+                    }
+
+                    if let copyDiagnosticAction {
+                        Button {
+                            copyDiagnosticAction()
+                        } label: {
+                            Label("复制诊断", systemImage: "doc.on.doc")
+                        }
+                    }
+
+                    if evidencePreview != nil {
+                        Button {
+                            showsEvidence.toggle()
+                        } label: {
+                            Label(showsEvidence ? "隐藏证据" : "工具证据", systemImage: "list.bullet.rectangle")
+                        }
+                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .padding(.leading, 34)
+            }
+
+            if showsEvidence, let evidencePreview {
+                Text(evidencePreview)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 34)
             }
         }
     }
@@ -1112,6 +1197,7 @@ private struct AgentTurnBubbleView: View {
     let metadata: String
     let payloadPreview: String?
     let isUser: Bool
+    let usesRichMarkdown: Bool
     let isError: Bool
 
     @State private var copyState: CopyState?
@@ -1157,7 +1243,7 @@ private struct AgentTurnBubbleView: View {
                 }
 
                 VStack(alignment: alignment, spacing: 6) {
-                    AgentMarkdownBubbleText(markdown: detail, isError: isError)
+                    AgentMarkdownBubbleText(markdown: detail, isError: isError, usesRichMarkdown: usesRichMarkdown)
 
                     if let payloadPreview {
                         Text(payloadPreview)
@@ -1252,10 +1338,15 @@ private struct AgentMarkdownBubbleText: View {
 
     let markdown: String
     let isError: Bool
+    let usesRichMarkdown: Bool
 
     var body: some View {
         let fontSize = appModel.workspacePreferences.agentChatFontSize
-        AgentMarkdownLegacyText(markdown: markdown, fontSize: fontSize, isError: isError)
+        if usesRichMarkdown, ChatMarkdownResources.isAvailable {
+            ChatMarkdownWebView(markdown: markdown, fontSize: fontSize, isError: isError)
+        } else {
+            AgentMarkdownLegacyText(markdown: markdown, fontSize: fontSize, isError: isError)
+        }
     }
 }
 
@@ -1516,6 +1607,7 @@ private struct AgentConversationRunCard: View {
                 metadata: run.createdAt.formatted(date: .abbreviated, time: .shortened),
                 payloadPreview: nil,
                 isUser: true,
+                usesRichMarkdown: false,
                 isError: false
             )
 
@@ -1526,6 +1618,7 @@ private struct AgentConversationRunCard: View {
                 metadata: run.mode.rawValue,
                 payloadPreview: nil,
                 isUser: false,
+                usesRichMarkdown: true,
                 isError: false
             )
         }
@@ -1548,10 +1641,31 @@ private struct AgentPlatformStatusView: View {
                 WorkspacePathRow(label: "Provider V2", value: appModel.agentProviderV2Summary)
                 WorkspacePathRow(label: "Retrieval", value: appModel.agentRetrievalIndexSummary)
                 WorkspacePathRow(label: "Index Store", value: appModel.agentRetrievalStoreSummary)
+                Divider()
+                Label("Source Health", systemImage: "doc.text.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                WorkspacePathRow(label: "Selected Source", value: appModel.agentRetrievalSourceHealthSummary)
+                if !appModel.agentRetrievalSourceHealthIssueLines.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(appModel.agentRetrievalSourceHealthIssueLines, id: \.self) { issue in
+                            Label(issue, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
                 WorkspacePathRow(label: "Presets", value: appModel.agentPresetSummary)
                 WorkspacePathRow(label: "Permissions", value: appModel.agentPermissionSummary)
                 WorkspacePathRow(label: "Hooks", value: appModel.agentHookSummary)
                 WorkspacePathRow(label: "MCP", value: appModel.agentMCPStatusSummary)
+                WorkspacePathRow(label: "Debug", value: appModel.agentDebugLoggingSummary)
+                Toggle("Debug mode", isOn: Binding(
+                    get: { appModel.workspacePreferences.agentDebugLoggingEnabled },
+                    set: { appModel.setAgentDebugLoggingEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
                 HStack(spacing: 8) {
                     Button {
                         appModel.restartAgentSidecar()
@@ -1569,6 +1683,11 @@ private struct AgentPlatformStatusView: View {
                         Label("Debug", systemImage: "shippingbox")
                     }
                     Button {
+                        appModel.openAgentDebugLogDirectory()
+                    } label: {
+                        Label("Logs", systemImage: "doc.text.magnifyingglass")
+                    }
+                    Button {
                         appModel.rebuildAgentRetrievalSelectedSource()
                     } label: {
                         Label("Source", systemImage: "doc.badge.gearshape")
@@ -1583,6 +1702,24 @@ private struct AgentPlatformStatusView: View {
                     } label: {
                         Label("Diag", systemImage: "doc.on.doc")
                     }
+                    Button {
+                        appModel.checkSelectedPaperMarkdownQuality()
+                    } label: {
+                        Label(appModel.isCheckingPaperMarkdownQuality ? "Checking" : "Check paper.md", systemImage: "checklist")
+                    }
+                    .disabled(appModel.selectedPaperDraft == nil || appModel.isCheckingPaperMarkdownQuality)
+                    Button {
+                        appModel.openSelectedPaperMarkdown()
+                    } label: {
+                        Label("Open paper.md", systemImage: "doc.text")
+                    }
+                    .disabled(appModel.selectedPaperDraft == nil)
+                    Button {
+                        appModel.openLegacyPaperMigrationReport()
+                    } label: {
+                        Label("Migration", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .disabled(appModel.legacyPaperMigrationReport?.reportRelativePath == nil)
                     if appModel.agentRetrievalIndexStatus.status == .indexing {
                         ProgressView()
                             .controlSize(.small)

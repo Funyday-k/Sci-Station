@@ -227,15 +227,50 @@ public nonisolated struct AgentEmbeddingIndexStatusSnapshot: Codable, Hashable, 
         AgentEmbeddingIndexStatusSnapshot(status: .disabled, store: "fts_only", fallbackReason: "Embedding is disabled; workflows use FTS-only retrieval.")
     }
 
+    public nonisolated var explanation: String {
+        switch status.uiStatus {
+        case .ready:
+            return "Ready"
+        case .fallback:
+            return "Fallback deterministic retrieval"
+        case .error:
+            if errorMessage?.localizedCaseInsensitiveContains("not indexable") == true {
+                return "Error not indexable"
+            }
+            return "Error"
+        case .disabled:
+            return "Disabled FTS-only"
+        case .indexing:
+            return "Indexing"
+        case .stale, .migrationRequired:
+            return "Stale"
+        }
+    }
+
+    public nonisolated var zeroChunkGuidance: String? {
+        guard status.uiStatus != .indexing, chunkCount == 0 else {
+            return nil
+        }
+        if status.uiStatus == .disabled {
+            return "Embedding index disabled; FTS-only retrieval is active."
+        }
+        if errorMessage?.localizedCaseInsensitiveContains("not indexable") == true {
+            return "chunks=0; selected source is not indexable. Use paper.md, annotations.md, wiki/material paths, or migrate legacy raw/papers if preferred."
+        }
+        return "chunks=0; confirm paper.md exists, is non-empty, and run Rebuild Source. Check paper.md quality if PDFKit fallback was used."
+    }
+
     public nonisolated var diagnosticText: String {
         [
             "status=\(status.uiStatus.rawValue)",
+            "explanation=\(explanation)",
             "store=\(store)",
             "provider=\(provider)",
             "model_id=\(modelID)",
             "dimension=\(dimension)",
             "chunks=\(chunkCount)",
             "stale=\(staleCount)",
+            zeroChunkGuidance.map { "guidance=\($0)" },
             fallbackReason.map { "fallback_reason=\($0)" },
             errorMessage.map { "error=\($0)" },
             "index=\(indexRelativePath)"

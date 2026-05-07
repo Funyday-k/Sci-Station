@@ -290,16 +290,24 @@ public actor AgentLoopRunner {
             return PaperPreflightResult(messages: initialMessages, steps: [], toolResults: [])
         }
 
-        var messages = initialMessages
+        let messages = initialMessages
         var steps: [AgentLoopStep] = []
         var results: [AgentToolResult] = []
+        var evidence: [AgentPreflightEvidenceEnvelope] = []
         var resolvedPaperID = toolContext.selectedPaperID
         var firstSearchMatch: (paperID: String?, heading: String?, line: Int?)?
+        var didReadPaperBody = false
+
+        func preflightResult() throws -> PaperPreflightResult {
+            guard !evidence.isEmpty else {
+                return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
+            }
+            var evidenceMessages = messages
+            evidenceMessages.append(try preflightEvidenceMessage(for: evidence))
+            return PaperPreflightResult(messages: evidenceMessages, steps: steps, toolResults: results)
+        }
 
         func runPreflightCall(_ call: AgentToolCall) async throws -> AgentToolResult {
-            let assistantMessage = LLMChatMessage(role: .assistant, content: "", toolCalls: [call])
-            messages.append(assistantMessage)
-            try await appendAssistantEvent(assistantMessage, sessionID: runID, root: root)
             let execution = try await executeAllowedToolCall(
                 call,
                 runID: runID,
@@ -313,9 +321,18 @@ public actor AgentLoopRunner {
                 approvalID: nil,
                 forceWriteExecution: false
             )
-            messages.append(execution.message)
             results.append(execution.result)
-            steps.append(AgentLoopStep(stepIndex: steps.count + 1, assistantMessage: assistantMessage, toolCalls: [call], toolResults: [execution.result]))
+            evidence.append(AgentPreflightEvidenceEnvelope(
+                toolName: call.toolName,
+                toolCallID: call.id,
+                argumentsJSON: call.argumentsJSON,
+                result: AgentToolResultWireFormat(
+                    result: execution.result,
+                    toolCallID: call.id,
+                    summary: summary(for: execution.result.message)
+                )
+            ))
+            steps.append(AgentLoopStep(stepIndex: steps.count + 1, toolCalls: [call], toolResults: [execution.result]))
             return execution.result
         }
 
@@ -333,7 +350,7 @@ public actor AgentLoopRunner {
         }
 
         guard intent.kind != .paperListing else {
-            return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
+            return try preflightResult()
         }
 
         if availableToolNames.contains("search_papers"), intent.requiresPaperEvidence {
@@ -347,7 +364,7 @@ public actor AgentLoopRunner {
         }
 
         guard intent.requiresPaperEvidence else {
-            return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
+            return try preflightResult()
         }
 
         if availableToolNames.contains("read_paper_section") {
@@ -361,11 +378,12 @@ public actor AgentLoopRunner {
                 if let resolvedPaperID {
                     fields["paper_id"] = .string(resolvedPaperID)
                 }
-                _ = try await runPreflightCall(AgentToolCall(
+                let sectionResult = try await runPreflightCall(AgentToolCall(
                     id: "preflight-read-paper-section",
                     toolName: "read_paper_section",
                     argumentsJSON: JSONValue.object(fields).canonicalJSON
                 ))
+                didReadPaperBody = sectionResult.succeeded || didReadPaperBody
             } else if let line {
                 var fields: [String: JSONValue] = [
                     "start_line": .number(String(max(line - 8, 1))),
@@ -375,13 +393,16 @@ public actor AgentLoopRunner {
                 if let resolvedPaperID {
                     fields["paper_id"] = .string(resolvedPaperID)
                 }
-                _ = try await runPreflightCall(AgentToolCall(
+                let sectionResult = try await runPreflightCall(AgentToolCall(
                     id: "preflight-read-paper-section",
                     toolName: "read_paper_section",
                     argumentsJSON: JSONValue.object(fields).canonicalJSON
                 ))
+                didReadPaperBody = sectionResult.succeeded || didReadPaperBody
             }
-        } else if availableToolNames.contains("read_paper") {
+        }
+
+        if !didReadPaperBody, availableToolNames.contains("read_paper") {
             var fields: [String: JSONValue] = [
                 "page": .number("1"),
                 "page_size": .number("8000")
@@ -394,9 +415,24 @@ public actor AgentLoopRunner {
                 toolName: "read_paper",
                 argumentsJSON: JSONValue.object(fields).canonicalJSON
             ))
+            didReadPaperBody = true
         }
 
-        return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
+        return try preflightResult()
+    }
+
+    private func preflightEvidenceMessage(for evidence: [AgentPreflightEvidenceEnvelope]) throws -> LLMChatMessage {
+        let evidenceJSON = try encoded(evidence) ?? "[]"
+        return LLMChatMessage(
+            role: .user,
+            content: """
+            Sci-Station deterministic preflight evidence has already been read from local read-only tools.
+            Use this evidence to answer the latest user question.
+            Do not treat it as provider-native tool-call transcript.
+
+            \(evidenceJSON)
+            """
+        )
     }
 
     public func resume(_ request: AgentLoopResumeRequest) async throws -> AgentLoopResult {
@@ -633,17 +669,33 @@ public actor AgentLoopRunner {
             guard messageCharacterCount(messages) <= options.maxContextCharacters,
                   accumulatedToolCharacters <= options.maxAccumulatedToolResultCharacters else {
                 let pause = AgentLoopPauseReason(kind: .contextLimitExceeded, message: "Agent loop stopped because context or tool result budget was exceeded.")
+                if let fallback = try await visibleLoopBudgetResult(
+                    pause: pause,
+                    runID: runID,
+                    goal: goal,
+                    messages: messages,
+                    steps: steps,
+                    toolResults: toolResults,
+                    root: root,
+                    configuration: configuration,
+                    hookEngine: hookEngine,
+                    responseDeltaHandler: responseDeltaHandler,
+                    stepIndex: stepIndex
+                ) {
+                    return fallback
+                }
                 steps.append(AgentLoopStep(stepIndex: stepIndex, pauseReason: pause))
                 try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
                 return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
             }
 
-            let request = LLMProviderRequest(
+            let providerRequest = LLMProviderRequest(
                 messages: messages,
                 tools: options.allowProviderNativeTools ? toolDefinitions.map(LLMToolSpecification.init(agentTool:)) : []
             )
             let response: LLMProviderResponse
             do {
+                let request = try LLMProviderRequestSanitizer.sanitized(providerRequest, configuration: configuration)
                 response = try await provider.respond(to: request, configuration: configuration, apiKey: apiKey)
             } catch {
                 if let fallback = try await visibleProviderFailureResult(
@@ -841,6 +893,50 @@ public actor AgentLoopRunner {
         return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
     }
 
+    private func visibleLoopBudgetResult(
+        pause: AgentLoopPauseReason,
+        runID: String,
+        goal: String,
+        messages: [LLMChatMessage],
+        steps: [AgentLoopStep],
+        toolResults: [AgentToolResult],
+        root: ResearchRoot,
+        configuration: LLMConfiguration,
+        hookEngine: AgentHookEngine,
+        responseDeltaHandler: (@Sendable (String) async -> Void)?,
+        stepIndex: Int
+    ) async throws -> AgentLoopResult? {
+        guard !toolResults.isEmpty || messages.contains(where: { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return nil
+        }
+
+        let finalMarkdown = providerFailureMarkdown(
+            errorMessage: pause.message,
+            goal: goal,
+            model: configuration.model,
+            toolResults: toolResults,
+            messages: messages
+        )
+        let assistantMessage = LLMChatMessage(role: .assistant, content: finalMarkdown)
+        var updatedMessages = messages
+        updatedMessages.append(assistantMessage)
+        var updatedSteps = steps
+        updatedSteps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage, pauseReason: pause))
+        try await appendAssistantEvent(assistantMessage, sessionID: runID, root: root)
+        if let responseDeltaHandler {
+            await responseDeltaHandler(finalMarkdown)
+        }
+        try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
+        return AgentLoopResult(
+            runID: runID,
+            finalResponseMarkdown: finalMarkdown,
+            messages: updatedMessages,
+            toolResults: toolResults,
+            pauseReason: pause,
+            steps: updatedSteps
+        )
+    }
+
     private func visibleProviderFailureResult(
         errorMessage: String,
         runID: String,
@@ -854,7 +950,7 @@ public actor AgentLoopRunner {
         responseDeltaHandler: (@Sendable (String) async -> Void)?,
         stepIndex: Int
     ) async throws -> AgentLoopResult? {
-        guard !toolResults.isEmpty else {
+        guard !toolResults.isEmpty || messages.contains(where: { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             return nil
         }
 
@@ -862,7 +958,8 @@ public actor AgentLoopRunner {
             errorMessage: errorMessage,
             goal: goal,
             model: configuration.model,
-            toolResults: toolResults
+            toolResults: toolResults,
+            messages: messages
         )
         let assistantMessage = LLMChatMessage(role: .assistant, content: finalMarkdown)
         var updatedMessages = messages
@@ -889,9 +986,43 @@ public actor AgentLoopRunner {
         errorMessage: String,
         goal: String,
         model: String,
-        toolResults: [AgentToolResult]
+        toolResults: [AgentToolResult],
+        messages: [LLMChatMessage]
     ) -> String {
         let wantsChinese = goal.range(of: #"\p{Han}"#, options: .regularExpression) != nil
+        if toolResults.isEmpty {
+            let contextSummary = latestContextSummary(from: messages)
+            if wantsChinese {
+                return """
+                模型没有返回最终回复，但本次对话上下文已保留。
+
+                - 模型：\(model)
+                - 失败原因：\(errorMessage)
+                - 已读取上下文消息：\(messages.count)
+
+                最近上下文摘要：\(contextSummary)
+
+                - 操作：重试 / 复制脱敏诊断 / 调小问题范围
+
+                可以直接重试；如果这是写回 wiki 的任务，请先复制上面的草稿或补充目标路径后再次提交。
+                """
+            }
+
+            return """
+            The model did not return a final response, but the conversation context was preserved.
+
+            - Model: \(model)
+            - Failure: \(errorMessage)
+            - Context messages read: \(messages.count)
+
+            Latest context summary: \(contextSummary)
+
+            - Actions: retry / copy redacted diagnostics / narrow the question
+
+            Retry directly, or restate the target wiki path if this was a writeback task.
+            """
+        }
+
         let usedTools = distinctToolNames(from: toolResults).joined(separator: ", ")
         let lastResult = toolResults.last
         let lastSummary = lastResult.map { summary(for: $0.message) } ?? ""
@@ -904,6 +1035,8 @@ public actor AgentLoopRunner {
             - 已使用工具：\(usedTools)
 
             最后一个工具结果摘要：\(lastSummary)
+
+            - 操作：重试 / 复制脱敏诊断 / 展开详情
 
             可以直接重试本问题，或把问题缩小到上面工具结果中的论文、章节、公式关键词。
             """
@@ -918,8 +1051,17 @@ public actor AgentLoopRunner {
 
         Last tool result summary: \(lastSummary)
 
+        - Actions: retry / copy redacted diagnostics / expand details
+
         Retry the question, or narrow it to the paper, section, or formula keyword shown in the tool result above.
         """
+    }
+
+    private nonisolated func latestContextSummary(from messages: [LLMChatMessage]) -> String {
+        let latestContent = messages.reversed().compactMap { message in
+            message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }.first ?? "No visible context message was available."
+        return summary(for: latestContent)
     }
 
     private func executeAllowedToolCall(
@@ -1029,13 +1171,12 @@ public actor AgentLoopRunner {
     private func appendAssistantEvent(_ message: LLMChatMessage, sessionID: String, root: ResearchRoot) async throws {
         let summary = message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? (message.toolCalls.isEmpty ? "Assistant response." : "Assistant requested tools: \(message.toolCalls.map(\.toolName).joined(separator: ", ")).")
-        let payload = message.toolCalls.isEmpty ? nil : try encoded(message.toolCalls)
         try await appendEvent(
             AgentSessionEvent(
                 sessionID: sessionID,
                 kind: .assistantMessage,
                 summary: summary,
-                payloadJSON: payload
+                payloadJSON: try encoded(AgentAssistantMessageEventPayload(message: message))
             ),
             in: root
         )
@@ -1117,7 +1258,7 @@ public actor AgentLoopRunner {
         switch call.toolName {
         case "create_todo":
             return ["tasks/todos.yaml"]
-        case "write_markdown_plan":
+        case "write_markdown_plan", "write_wiki_markdown":
             if let path = stringArgument("relative_path", in: call.argumentsJSON)?.nilIfEmpty {
                 return [path]
             }
@@ -1141,7 +1282,7 @@ public actor AgentLoopRunner {
         }
         let pathText = targetPaths.isEmpty ? "workspace" : targetPaths.joined(separator: ", ")
         switch call.toolName {
-        case "write_markdown_plan":
+        case "write_markdown_plan", "write_wiki_markdown":
             let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Untitled"
             let body = stringArgument("body", in: call.argumentsJSON)?.nilIfEmpty ?? ""
             let bodyPreview = limited(body, maxCharacters: 900)
@@ -1163,7 +1304,7 @@ public actor AgentLoopRunner {
 
     private nonisolated func approvalSummaryPreview(for call: AgentToolCall, risk: AgentToolRisk, targetPaths: [String]) -> String {
         let pathText = targetPaths.isEmpty ? "no target path" : targetPaths.joined(separator: ", ")
-        if call.toolName == "write_markdown_plan" {
+        if call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" {
             let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Markdown draft"
             return "Draft Markdown write (\(risk.rawValue)) -> \(pathText): \(title)"
         }

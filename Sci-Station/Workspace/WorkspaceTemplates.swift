@@ -285,6 +285,7 @@ public nonisolated enum WorkspaceModuleRegistry {
         "related_work": ["ai-lab", "paper-library", "wiki"],
         "gap_planning": ["ai-lab", "wiki", "tasks", "projects"],
         "write_markdown_plan": ["wiki"],
+        "write_wiki_markdown": ["wiki"],
         "project_planning": ["projects", "wiki"],
         "material_review": ["materials"],
         "todo_draft": ["tasks", "ai-lab"],
@@ -330,7 +331,7 @@ public nonisolated enum WorkspaceModuleRegistry {
             directories: [directory("wiki"), directory("projects/*/wiki/", required: true)],
             routes: [route("wiki", "/wiki")],
             projectTabs: [tab("wiki", "Wiki")],
-            workflows: ["write_markdown_plan", "related_work", "gap_planning"],
+            workflows: ["write_markdown_plan", "write_wiki_markdown", "related_work", "gap_planning"],
             artifactKinds: ["wiki_note", "related_work", "research_plan"],
             approvalScopes: ["artifact_save", "wiki_write"],
             writePaths: ["wiki/", "projects/*/wiki/"]
