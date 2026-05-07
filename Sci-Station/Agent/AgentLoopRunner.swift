@@ -226,10 +226,23 @@ public actor AgentLoopRunner {
             in: request.root
         )
 
+        let preflight = try await executePaperPreflightIfNeeded(
+            runID: request.runID,
+            goal: trimmedGoal,
+            initialMessages: request.initialMessages,
+            toolDefinitions: request.toolDefinitions,
+            toolRegistry: request.toolRegistry,
+            toolHost: request.toolHost,
+            toolContext: request.toolContext,
+            root: request.root,
+            options: request.options,
+            hookEngine: request.hookEngine
+        )
+
         return try await continueLoop(
             runID: request.runID,
             goal: trimmedGoal,
-            messages: request.initialMessages,
+            messages: preflight.messages,
             provider: request.provider,
             toolDefinitions: request.toolDefinitions,
             toolRegistry: request.toolRegistry,
@@ -242,10 +255,148 @@ public actor AgentLoopRunner {
             hookEngine: request.hookEngine,
             permissionEvaluator: request.permissionEvaluator,
             responseDeltaHandler: request.responseDeltaHandler,
-            startingStepIndex: 1,
-            existingSteps: [],
-            existingToolResults: []
+            startingStepIndex: preflight.nextStepIndex,
+            existingSteps: preflight.steps,
+            existingToolResults: preflight.toolResults
         )
+    }
+
+    private struct PaperPreflightResult {
+        var messages: [LLMChatMessage]
+        var steps: [AgentLoopStep]
+        var toolResults: [AgentToolResult]
+
+        var nextStepIndex: Int {
+            steps.count + 1
+        }
+    }
+
+    private func executePaperPreflightIfNeeded(
+        runID: String,
+        goal: String,
+        initialMessages: [LLMChatMessage],
+        toolDefinitions: [AgentToolDefinition],
+        toolRegistry: AgentToolRegistry,
+        toolHost: SciStationToolHost,
+        toolContext: AgentToolContext,
+        root: ResearchRoot,
+        options: AgentLoopOptions,
+        hookEngine: AgentHookEngine
+    ) async throws -> PaperPreflightResult {
+        let router = AgentPaperIntentRouter()
+        let intent = router.classify(goal)
+        let availableToolNames = Set(toolDefinitions.map(\.name))
+        guard router.shouldPreflight(intent, availableToolNames: availableToolNames) else {
+            return PaperPreflightResult(messages: initialMessages, steps: [], toolResults: [])
+        }
+
+        var messages = initialMessages
+        var steps: [AgentLoopStep] = []
+        var results: [AgentToolResult] = []
+        var resolvedPaperID = toolContext.selectedPaperID
+        var firstSearchMatch: (paperID: String?, heading: String?, line: Int?)?
+
+        func runPreflightCall(_ call: AgentToolCall) async throws -> AgentToolResult {
+            let assistantMessage = LLMChatMessage(role: .assistant, content: "", toolCalls: [call])
+            messages.append(assistantMessage)
+            try await appendAssistantEvent(assistantMessage, sessionID: runID, root: root)
+            let execution = try await executeAllowedToolCall(
+                call,
+                runID: runID,
+                toolDefinitions: toolDefinitions,
+                toolRegistry: toolRegistry,
+                toolHost: toolHost,
+                toolContext: toolContext,
+                root: root,
+                options: options,
+                hookEngine: hookEngine,
+                approvalID: nil,
+                forceWriteExecution: false
+            )
+            messages.append(execution.message)
+            results.append(execution.result)
+            steps.append(AgentLoopStep(stepIndex: steps.count + 1, assistantMessage: assistantMessage, toolCalls: [call], toolResults: [execution.result]))
+            return execution.result
+        }
+
+        if availableToolNames.contains("list_papers"), intent.kind == .paperListing || intent.ordinalIndex != nil || intent.requiresPaperEvidence {
+            let listResult = try await runPreflightCall(AgentToolCall(
+                id: "preflight-list-papers",
+                toolName: "list_papers",
+                argumentsJSON: "{}"
+            ))
+            if let index = intent.ordinalIndex {
+                resolvedPaperID = paperID(at: index, in: listResult) ?? resolvedPaperID
+            } else {
+                resolvedPaperID = resolvedPaperID ?? singlePaperID(in: listResult)
+            }
+        }
+
+        guard intent.kind != .paperListing else {
+            return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
+        }
+
+        if availableToolNames.contains("search_papers"), intent.requiresPaperEvidence {
+            let searchResult = try await runPreflightCall(AgentToolCall(
+                id: "preflight-search-papers",
+                toolName: "search_papers",
+                argumentsJSON: router.searchArgumentsJSON(for: intent, paperID: resolvedPaperID)
+            ))
+            firstSearchMatch = firstMatch(in: searchResult)
+            resolvedPaperID = firstSearchMatch?.paperID ?? resolvedPaperID
+        }
+
+        guard intent.requiresPaperEvidence else {
+            return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
+        }
+
+        if availableToolNames.contains("read_paper_section") {
+            let heading = intent.sectionHint?.nilIfEmpty ?? firstSearchMatch?.heading?.nilIfEmpty
+            let line = firstSearchMatch?.line
+            if let heading, heading != "Document" {
+                var fields: [String: JSONValue] = [
+                    "heading": .string(heading),
+                    "max_characters": .number("12000")
+                ]
+                if let resolvedPaperID {
+                    fields["paper_id"] = .string(resolvedPaperID)
+                }
+                _ = try await runPreflightCall(AgentToolCall(
+                    id: "preflight-read-paper-section",
+                    toolName: "read_paper_section",
+                    argumentsJSON: JSONValue.object(fields).canonicalJSON
+                ))
+            } else if let line {
+                var fields: [String: JSONValue] = [
+                    "start_line": .number(String(max(line - 8, 1))),
+                    "end_line": .number(String(line + 32)),
+                    "max_characters": .number("12000")
+                ]
+                if let resolvedPaperID {
+                    fields["paper_id"] = .string(resolvedPaperID)
+                }
+                _ = try await runPreflightCall(AgentToolCall(
+                    id: "preflight-read-paper-section",
+                    toolName: "read_paper_section",
+                    argumentsJSON: JSONValue.object(fields).canonicalJSON
+                ))
+            }
+        } else if availableToolNames.contains("read_paper") {
+            var fields: [String: JSONValue] = [
+                "page": .number("1"),
+                "page_size": .number("8000")
+            ]
+            if let resolvedPaperID {
+                fields["paper_id"] = .string(resolvedPaperID)
+            }
+            _ = try await runPreflightCall(AgentToolCall(
+                id: "preflight-read-paper",
+                toolName: "read_paper",
+                argumentsJSON: JSONValue.object(fields).canonicalJSON
+            ))
+        }
+
+        return PaperPreflightResult(messages: messages, steps: steps, toolResults: results)
     }
 
     public func resume(_ request: AgentLoopResumeRequest) async throws -> AgentLoopResult {
@@ -515,6 +666,7 @@ public actor AgentLoopRunner {
             let assistantMessage = LLMChatMessage(
                 role: .assistant,
                 content: response.message.content,
+                reasoningContent: response.message.reasoningContent,
                 toolCalls: response.toolCalls
             )
             messages.append(assistantMessage)
@@ -540,12 +692,26 @@ public actor AgentLoopRunner {
                     }
                     throw LLMProviderError.emptyResponse
                 }
-                if let responseDeltaHandler {
-                    await responseDeltaHandler(finalMarkdown)
+                let qualityReport = AgentAnswerQualityEvaluator().evaluate(goal: goal, finalMarkdown: finalMarkdown, toolResults: toolResults)
+                let resolvedFinalMarkdown: String
+                if qualityReport.issues.contains(where: { $0.code == .missingEvidence }) {
+                    resolvedFinalMarkdown = AgentAnswerQualityEvaluator().missingEvidenceMarkdown(goal: goal, toolResults: toolResults)
+                } else {
+                    resolvedFinalMarkdown = finalMarkdown
                 }
-                steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: assistantMessage))
+                let resolvedAssistantMessage = resolvedFinalMarkdown == assistantMessage.content
+                    ? assistantMessage
+                    : LLMChatMessage(role: .assistant, content: resolvedFinalMarkdown)
+                if resolvedFinalMarkdown != assistantMessage.content {
+                    messages[messages.count - 1] = resolvedAssistantMessage
+                    try await appendAssistantEvent(resolvedAssistantMessage, sessionID: runID, root: root)
+                }
+                if let responseDeltaHandler {
+                    await responseDeltaHandler(resolvedFinalMarkdown)
+                }
+                steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: resolvedAssistantMessage))
                 try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
-                return AgentLoopResult(runID: runID, finalResponseMarkdown: finalMarkdown, messages: messages, toolResults: toolResults, steps: steps)
+                return AgentLoopResult(runID: runID, finalResponseMarkdown: resolvedFinalMarkdown, messages: messages, toolResults: toolResults, steps: steps)
             }
 
             var stepToolResults: [AgentToolResult] = []
@@ -808,12 +974,14 @@ public actor AgentLoopRunner {
             }
             result = limitedResult(invoked, definition: definition, options: options)
         } catch {
+            let classification = AgentToolErrorClassifier().classify(error, toolName: call.toolName)
             result = AgentToolResult(
                 callID: call.id,
                 toolName: call.toolName,
                 succeeded: false,
-                message: "Tool failed: \(error.localizedDescription)",
-                errorMessage: error.localizedDescription
+                message: "Tool failed (\(classification.code.rawValue)): \(classification.userMessage)\nSuggestion: \(classification.suggestion)",
+                payload: classification.payload,
+                errorMessage: classification.code.rawValue
             )
         }
 
@@ -926,6 +1094,7 @@ public actor AgentLoopRunner {
         let definition = definition(for: call, in: definitions)
         let risk = definition?.risk ?? .externalSideEffect
         let inspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
+        let targetPaths = approvalTargetPaths(for: call, risk: risk, inspectedPaths: inspection.paths)
         return AgentApprovalRequest(
             runID: runID,
             toolCallID: call.id,
@@ -933,12 +1102,98 @@ public actor AgentLoopRunner {
             permissionKey: definition?.permissionKey ?? risk.defaultPermissionKey,
             risk: risk,
             argumentsJSON: call.argumentsJSON,
-            targetPaths: inspection.paths,
-            diffPreview: risk == .readOnly ? nil : "Tool may modify: \(inspection.paths.joined(separator: ", ").nilIfEmpty ?? "workspace")",
-            summaryPreview: "\(call.toolName) (\(risk.rawValue))",
+            targetPaths: targetPaths,
+            diffPreview: approvalDiffPreview(for: call, risk: risk, targetPaths: targetPaths),
+            summaryPreview: approvalSummaryPreview(for: call, risk: risk, targetPaths: targetPaths),
             reason: message,
-            rollbackHint: risk == .readOnly ? nil : AgentRollbackHint(summary: "Review or revert modified paths if the approved result is wrong.", targetPaths: inspection.paths)
+            rollbackHint: risk == .readOnly ? nil : AgentRollbackHint(summary: "Review or revert the listed workspace files if the approved result is wrong.", targetPaths: targetPaths)
         )
+    }
+
+    private nonisolated func approvalTargetPaths(for call: AgentToolCall, risk: AgentToolRisk, inspectedPaths: [String]) -> [String] {
+        if !inspectedPaths.isEmpty {
+            return inspectedPaths
+        }
+        switch call.toolName {
+        case "create_todo":
+            return ["tasks/todos.yaml"]
+        case "write_markdown_plan":
+            if let path = stringArgument("relative_path", in: call.argumentsJSON)?.nilIfEmpty {
+                return [path]
+            }
+            if let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty {
+                return ["wiki/plans/\(slug(from: title)).md"]
+            }
+            return ["wiki/plans/*.md"]
+        case "update_paper_classification":
+            if let paperID = stringArgument("paper_id", in: call.argumentsJSON)?.nilIfEmpty {
+                return ["library/papers/\(paperID)/meta.yaml"]
+            }
+            return ["library/papers/*/meta.yaml"]
+        default:
+            return risk == .readOnly ? [] : ["workspace"]
+        }
+    }
+
+    private nonisolated func approvalDiffPreview(for call: AgentToolCall, risk: AgentToolRisk, targetPaths: [String]) -> String? {
+        guard risk != .readOnly else {
+            return nil
+        }
+        let pathText = targetPaths.isEmpty ? "workspace" : targetPaths.joined(separator: ", ")
+        switch call.toolName {
+        case "write_markdown_plan":
+            let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Untitled"
+            let body = stringArgument("body", in: call.argumentsJSON)?.nilIfEmpty ?? ""
+            let bodyPreview = limited(body, maxCharacters: 900)
+            return """
+            # target: \(pathText)
+            # mode: create_or_replace
+            # title: \(title)
+
+            \(bodyPreview)
+            """
+        case "create_todo":
+            return "+ todo: \(stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Untitled todo")\n# target: \(pathText)"
+        case "update_paper_classification":
+            return "~ paper metadata\n# target: \(pathText)"
+        default:
+            return "Tool may modify: \(pathText)"
+        }
+    }
+
+    private nonisolated func approvalSummaryPreview(for call: AgentToolCall, risk: AgentToolRisk, targetPaths: [String]) -> String {
+        let pathText = targetPaths.isEmpty ? "no target path" : targetPaths.joined(separator: ", ")
+        if call.toolName == "write_markdown_plan" {
+            let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Markdown draft"
+            return "Draft Markdown write (\(risk.rawValue)) -> \(pathText): \(title)"
+        }
+        return "\(call.toolName) (\(risk.rawValue)) -> \(pathText)"
+    }
+
+    private nonisolated func stringArgument(_ key: String, in rawJSON: String) -> String? {
+        guard let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object[key] as? String
+    }
+
+    private nonisolated func slug(from title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let lowercased = title.lowercased()
+        var output = ""
+        var previousWasDash = false
+        for scalar in lowercased.unicodeScalars {
+            if allowed.contains(scalar) {
+                output.unicodeScalars.append(scalar)
+                previousWasDash = false
+            } else if !previousWasDash {
+                output.append("-")
+                previousWasDash = true
+            }
+        }
+        let slug = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "plan-\(UUID().uuidString.lowercased())" : slug
     }
 
     private func definition(for call: AgentToolCall, in definitions: [AgentToolDefinition]) -> AgentToolDefinition? {
@@ -982,6 +1237,7 @@ public actor AgentLoopRunner {
             succeeded: result.succeeded,
             requiresConfirmation: result.requiresConfirmation,
             message: limitedMessage,
+            payload: result.payload,
             modifiedPaths: result.modifiedPaths,
             errorMessage: result.errorMessage
         )
@@ -1018,6 +1274,67 @@ public actor AgentLoopRunner {
             names.append(result.toolName)
         }
         return names
+    }
+
+    private nonisolated func paperID(at index: Int, in result: AgentToolResult) -> String? {
+        guard let papers = result.payload?.objectValue?["papers"]?.arrayValue,
+              papers.indices.contains(index),
+              let paper = papers[index].objectValue else {
+            return fallbackPaperIDs(in: result).dropFirst(index).first
+        }
+        return paper["paper_id"]?.stringValue?.nilIfEmpty
+    }
+
+    private nonisolated func singlePaperID(in result: AgentToolResult) -> String? {
+        guard let papers = result.payload?.objectValue?["papers"]?.arrayValue else {
+            let fallback = fallbackPaperIDs(in: result)
+            return fallback.count == 1 ? fallback.first : nil
+        }
+        guard papers.count == 1, let paper = papers.first?.objectValue else {
+            return nil
+        }
+        return paper["paper_id"]?.stringValue?.nilIfEmpty
+    }
+
+    private nonisolated func firstMatch(in result: AgentToolResult) -> (paperID: String?, heading: String?, line: Int?)? {
+        guard let matches = result.payload?.objectValue?["matches"]?.arrayValue,
+              let first = matches.first?.objectValue else {
+            return nil
+        }
+        let paperID = first["paper_id"]?.stringValue?.nilIfEmpty
+            ?? first["paper"]?.objectValue?["paper_id"]?.stringValue?.nilIfEmpty
+        let heading = first["heading"]?.stringValue?.nilIfEmpty
+        let line = numberValue(first["line"])
+        return (paperID, heading, line)
+    }
+
+    private nonisolated func numberValue(_ value: JSONValue?) -> Int? {
+        guard let value else {
+            return nil
+        }
+        switch value {
+        case let .number(number):
+            return Int(number)
+        case let .string(string):
+            return Int(string)
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated func fallbackPaperIDs(in result: AgentToolResult) -> [String] {
+        let pattern = #"paper_id:\s*([^\s]+)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let range = NSRange(result.message.startIndex..<result.message.endIndex, in: result.message)
+        return expression.matches(in: result.message, range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let valueRange = Range(match.range(at: 1), in: result.message) else {
+                return nil
+            }
+            return String(result.message[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }
     }
 
     private func normalizedEditedArguments(_ value: String?) throws -> String {

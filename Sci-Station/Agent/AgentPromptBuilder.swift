@@ -86,6 +86,8 @@ public nonisolated struct AgentPromptBuilder {
       - Render inline math as `$...$` and display math as `$$...$$`. Never wrap math in backticks.
       - When citing a paper or section, include the paper title, paper id, or relative file path so the user can re-locate it.
       - Final answers to paper formula questions must include the formula, the local context explaining what the symbols mean when available, and the source paper title/id/path. If no formula is found, say which tools and queries were used and which papers or sections did not match.
+      - Tool results are JSON envelopes with a human summary and optional structured `payload`; use payload fields such as `paper_id`, `source`, `heading`, `line`, `matches`, and `content` as the evidence contract.
+      - For writeback requests such as wiki/todo/artifact writing, first produce a readable draft and target path; workspace write tools will pause for approval and must preserve the draft if approval is denied.
 
       workspace_context:
       \(snapshotJSON)
@@ -169,6 +171,8 @@ public nonisolated struct AgentPromptBuilder {
         - In Conversation mode, `tool_calls` must be empty. `final_response_draft` may contain Markdown for readable answers.
         - When `final_response_draft` is populated, format it as GitHub-flavored Markdown with blank-line paragraph breaks, bullet/numbered lists when helpful, and math written as `$...$` (inline) or `$$...$$` (display). Never wrap math in backticks.
         - Final answers to paper formula questions must include the formula, the local context explaining what the symbols mean when available, and the source paper title/id/path. If no formula is found, state the search path and misses.
+        - Tool results use a stable JSON envelope with optional structured `payload`; cite payload fields such as `paper_id`, `source`, `heading`, `line`, `matches`, and `content` rather than inventing evidence.
+        - For writeback requests, fill `final_response_draft` with the proposed user-readable draft and target path before any write tool is executed. Write tools must remain approval-gated.
 
         Output JSON schema:
         {

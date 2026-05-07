@@ -105,13 +105,15 @@ public actor AgentToolExecutor {
                 }
                 results.append(result)
             } catch {
+                let classification = AgentToolErrorClassifier().classify(error, toolName: call.toolName)
                 results.append(
                     AgentToolResult(
                         callID: call.id,
                         toolName: call.toolName,
                         succeeded: false,
-                        message: "Tool failed.",
-                        errorMessage: error.localizedDescription
+                        message: "Tool failed (\(classification.code.rawValue)): \(classification.userMessage)\nSuggestion: \(classification.suggestion)",
+                        payload: classification.payload,
+                        errorMessage: classification.code.rawValue
                     )
                 )
             }

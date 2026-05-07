@@ -49,6 +49,7 @@ private struct CoreVerificationSuite {
         try arxivEntryParserExtractsMetadataDraft()
         try inspireMetadataMapperExtractsMetadataDraft()
         try llmRequestBuildsExpectedPayload()
+        try openAIProviderPreservesReasoningContent()
         try paperSummaryPromptBuilderIncludesContext()
         try await llmConfigurationStorePersistsWithoutAPIKey()
         try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
@@ -71,6 +72,7 @@ private struct CoreVerificationSuite {
         try await agentLoopRunnerCallsReadOnlyToolThenContinues()
         try await agentLoopRunnerReturnsVisibleFallbackAfterToolThenEmptyProvider()
         try await agentLoopRunnerPaperFormulaFlowUsesListSearchReadBeforeFinal()
+        try agentAnswerQualityEvaluatorChecksFormulaSources()
         try await agentLoopRunnerPausesForWorkspaceWrite()
         try await agentLoopRunnerStopsAtMaxSteps()
         try await agentLoopRunnerInjectsToolResultMessages()
@@ -1415,6 +1417,47 @@ private struct CoreVerificationSuite {
                 try expect(body.contains("Summarize this paper"), "Provider request body should contain the prompt content.")
             }
 
+                        private func openAIProviderPreservesReasoningContent() throws {
+                                let provider = OpenAICompatibleProvider()
+                                let completionJSON = """
+                                {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "role": "assistant",
+                                                "content": "I need a tool.",
+                                                "reasoning_content": "private chain summary required by thinking-mode APIs",
+                                                "tool_calls": [
+                                                    {
+                                                        "id": "call-1",
+                                                        "type": "function",
+                                                        "function": {
+                                                            "name": "read_note",
+                                                            "arguments": "{\\\"path\\\":\\\"paper.md\\\"}"
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                                """
+                                let parsed = try OpenAICompatibleProvider.parseChatCompletionMessage(from: Data(completionJSON.utf8))
+                                try expect(parsed.reasoningContent?.contains("thinking-mode") == true, "Provider should parse reasoning_content from assistant responses.")
+                                try expect(parsed.toolCalls.first?.toolName == "read_note", "Provider should preserve tool calls while parsing reasoning_content.")
+
+                                let request = LLMProviderRequest(messages: [parsed])
+                                let chatRequest = try provider.buildChatRequest(
+                                        configuration: LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "test-model"),
+                                        apiKey: "secret-key",
+                                        providerRequest: request
+                                )
+                                let bodyData = try require(chatRequest.httpBody, "Expected chat body data.")
+                                let root = try require(try JSONSerialization.jsonObject(with: bodyData) as? [String: Any], "Expected JSON request object.")
+                                let messages = try require(root["messages"] as? [[String: Any]], "Expected messages array.")
+                                try expect(messages.first?["reasoning_content"] as? String == parsed.reasoningContent, "Provider should pass assistant reasoning_content back in the next request.")
+                        }
+
             private func llmConfigurationStorePersistsWithoutAPIKey() async throws {
                 let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
                 let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -1768,6 +1811,9 @@ private struct CoreVerificationSuite {
                 try expect(results.first(where: { $0.callID == "call-section" })?.message.contains("E_sun_section_marker") == true, "read_paper_section should return the requested heading content.")
                 try expect(results.first(where: { $0.callID == "call-search" })?.message.contains("#L") == true, "search_papers should return line-anchored matches.")
                 try expect(results.first(where: { $0.callID == "call-list" })?.message.contains(savedPaper.id) == true, "list_papers should expose matching paper ids.")
+                try expect(results.first(where: { $0.callID == "call-section" })?.payload?.objectValue?["kind"]?.stringValue == "paper_section", "read_paper_section should expose a structured payload.")
+                try expect(results.first(where: { $0.callID == "call-search" })?.payload?.objectValue?["matches"]?.arrayValue?.isEmpty == false, "search_papers should expose structured matches.")
+                try expect(results.first(where: { $0.callID == "call-list" })?.payload?.objectValue?["papers"]?.arrayValue?.first?.objectValue?["paper_id"]?.stringValue == savedPaper.id, "list_papers should expose structured paper ids.")
                 try expect(definitionNames.isSuperset(of: ["list_papers", "read_paper", "read_paper_section", "search_papers"]), "Default agent tool registry should expose paper read/search tools.")
             }
 
@@ -2256,23 +2302,55 @@ private struct CoreVerificationSuite {
                 let fixture = try await loopWorkspaceFixture(named: "AgentLoopPaperFormulaFlowWorkspace")
                 defer { cleanupLoopWorkspaceFixture(fixture) }
 
-                let listCall = AgentToolCall(id: "call-list", toolName: "list_papers", argumentsJSON: "{}")
-                let searchCall = AgentToolCall(id: "call-search", toolName: "search_papers", argumentsJSON: #"{"query":"evaporation rate formula"}"#)
-                let readCall = AgentToolCall(id: "call-read", toolName: "read_paper_section", argumentsJSON: #"{"paper_id":"paper-1","heading":"Evaporation Rate"}"#)
                 let provider = ScriptedChatProvider(responses: [
-                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [listCall]), toolCalls: [listCall]),
-                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [searchCall]), toolCalls: [searchCall]),
-                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "", toolCalls: [readCall]), toolCalls: [readCall]),
-                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "公式为 $E_{\\odot}=k A (p_s-p_a)$，来源：Demo Paper (paper-1), papers/demo/paper.md。"))
+                    LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: """
+                    公式为：
+
+                    $$
+                    E_{\\odot}=k A (p_s-p_a)
+                    $$
+
+                    其中 $k$ 为局部系数，$A$ 为有效面积，$p_s-p_a$ 为压差。来源：Demo Paper (paper-1), papers/demo/paper.md。
+                    """))
                 ])
                 let listDefinition = loopToolDefinition(name: "list_papers", risk: .readOnly)
                 let searchDefinition = loopToolDefinition(name: "search_papers", risk: .readOnly)
                 let readDefinition = loopToolDefinition(name: "read_paper_section", risk: .readOnly)
                 let listTool = RecordingAgentTool(definition: listDefinition, results: [
-                    AgentToolResult(callID: "", toolName: "list_papers", succeeded: true, message: "1. Demo Paper (paper-1) path: papers/demo/paper.md")
+                    AgentToolResult(
+                        callID: "",
+                        toolName: "list_papers",
+                        succeeded: true,
+                        message: "paper_id: paper-1\ntitle: Demo Paper\npath: papers/demo",
+                        payload: .object([
+                            "kind": .string("paper_list"),
+                            "papers": .array([.object([
+                                "paper_id": .string("paper-1"),
+                                "title": .string("Demo Paper"),
+                                "path": .string("papers/demo"),
+                                "raw_markdown_path": .string("papers/demo/paper.md")
+                            ])])
+                        ])
+                    )
                 ])
                 let searchTool = RecordingAgentTool(definition: searchDefinition, results: [
-                    AgentToolResult(callID: "", toolName: "search_papers", succeeded: true, message: "Matched Demo Paper section Evaporation Rate.")
+                    AgentToolResult(
+                        callID: "",
+                        toolName: "search_papers",
+                        succeeded: true,
+                        message: "Matched Demo Paper section Evaporation Rate.",
+                        payload: .object([
+                            "kind": .string("paper_search"),
+                            "matches": .array([.object([
+                                "paper_id": .string("paper-1"),
+                                "title": .string("Demo Paper"),
+                                "source": .string("papers/demo/paper.md"),
+                                "heading": .string("Evaporation Rate"),
+                                "line": .number("42"),
+                                "snippet": .string("E_{\\odot}=k A (p_s-p_a)")
+                            ])])
+                        ])
+                    )
                 ])
                 let readTool = RecordingAgentTool(definition: readDefinition, results: [
                     AgentToolResult(callID: "", toolName: "read_paper_section", succeeded: true, message: "## Evaporation Rate\n$E_{\\odot}=k A (p_s-p_a)$ with local symbol context.")
@@ -2293,15 +2371,55 @@ private struct CoreVerificationSuite {
                 let searchInvocationCount = await searchTool.invocationCount()
                 let readInvocationCount = await readTool.invocationCount()
 
-                try expect(result.finalResponseMarkdown?.contains("$E_{\\odot}") == true, "Paper formula flow should finish with a Markdown math formula.")
+                try expect(result.finalResponseMarkdown?.contains("$$") == true, "Paper formula flow should finish with display math.")
                 try expect(result.finalResponseMarkdown?.contains("papers/demo/paper.md") == true, "Paper formula final answer should include a source path.")
                 try expect(result.toolResults.map(\.toolName) == ["list_papers", "search_papers", "read_paper_section"], "Paper formula flow should preserve list/search/read tool order.")
                 try expect(listInvocationCount == 1, "list_papers should run once.")
                 try expect(searchInvocationCount == 1, "search_papers should run once.")
                 try expect(readInvocationCount == 1, "read_paper_section should run once.")
-                try expect(requests.count == 4, "Paper formula flow should make a final model request after the three read-only tools.")
+                try expect(requests.count == 1, "Paper formula preflight should make one model request after deterministic read-only tools.")
                 let finalRequest = try require(requests.last, "Expected the final provider request.")
                 try expect(finalRequest.messages.filter { $0.role == .tool }.count == 3, "Final request should include all three tool result messages.")
+            }
+
+            private func agentAnswerQualityEvaluatorChecksFormulaSources() throws {
+                let evaluator = AgentAnswerQualityEvaluator()
+                let evidence = AgentToolResult(
+                    callID: "call-read",
+                    toolName: "read_paper_section",
+                    succeeded: true,
+                    message: "paper_id: paper-1\nsource: papers/demo/paper.md\n$$E_{\\odot}=kA$$",
+                    payload: .object([
+                        "kind": .string("paper_section"),
+                        "paper": .object([
+                            "paper_id": .string("paper-1"),
+                            "title": .string("Demo Paper"),
+                            "path": .string("papers/demo"),
+                            "raw_markdown_path": .string("papers/demo/paper.md")
+                        ]),
+                        "source": .string("papers/demo/paper.md"),
+                        "content": .string("$$E_{\\odot}=kA$$")
+                    ])
+                )
+                let good = """
+                公式为：
+
+                $$
+                E_{\\odot}=kA
+                $$
+
+                来源：Demo Paper (paper-1), papers/demo/paper.md。
+                """
+                let goodReport = evaluator.evaluate(goal: "第一篇文章的蒸发率公式是什么？", finalMarkdown: good, toolResults: [evidence])
+                try expect(goodReport.passes, "Formula answer with display math and source should pass quality checks.")
+
+                let weakReport = evaluator.evaluate(goal: "第一篇文章的蒸发率公式是什么？", finalMarkdown: "我使用了工具并找到了答案。", toolResults: [evidence])
+                try expect(weakReport.issues.map(\.code).contains(.missingDisplayMath), "Formula answer without display math should be flagged.")
+                try expect(weakReport.issues.map(\.code).contains(.missingSource), "Formula answer without source should be flagged.")
+
+                let missingEvidence = evaluator.evaluate(goal: "第一篇文章的蒸发率公式是什么？", finalMarkdown: "我没有读取到正文或公式证据。", toolResults: [])
+                try expect(missingEvidence.issues.map(\.code).contains(.missingEvidence), "Formula answer without paper evidence should be flagged.")
+                try expect(!missingEvidence.issues.map(\.code).contains(.missingContentExplanation), "Missing evidence explanation should satisfy the explanation check.")
             }
 
             private func agentLoopRunnerPausesForWorkspaceWrite() async throws {

@@ -106,7 +106,7 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                 createdAt: run.createdAt.addingTimeInterval(0.01 + Double(index) * 0.001),
                 kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
                 detail: result.succeeded ? "已使用工具：\(result.toolName)" : "工具 \(result.toolName) 失败：\(result.errorMessage ?? result.message)",
-                payloadPreview: result.message
+                payloadPreview: result.payload?.canonicalJSON ?? result.message
             ))
         }
 

@@ -55,6 +55,13 @@ public nonisolated struct CreateTodoAgentTool: AgentTool {
             toolName: definition.name,
             succeeded: true,
             message: "Created todo: \(todo.title)",
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("todo_created"),
+                "todo_id": .string(todo.id),
+                "title": .string(todo.title),
+                "target_path": .string("tasks/todos.yaml")
+            ]),
             modifiedPaths: ["tasks/todos.yaml"]
         )
     }
@@ -135,6 +142,12 @@ public nonisolated struct UpdatePaperClassificationAgentTool: AgentTool {
             toolName: definition.name,
             succeeded: true,
             message: "Updated classification for \(savedPaper.displayTitle).",
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("paper_classification_updated"),
+                "paper": paperPayload(savedPaper, hasMarkdown: FileManager.default.fileExists(atPath: savedPaper.rawMarkdownURL(in: context.workspace).path)),
+                "target_path": .string(metadataPath)
+            ]),
             modifiedPaths: [metadataPath]
         )
     }
@@ -172,13 +185,27 @@ public nonisolated struct ListPapersAgentTool: AgentTool {
             query: arguments.query,
             limit: arguments.limit
         )
+        let paperPayloads = papers.map { paper in
+            paperPayload(paper, hasMarkdown: FileManager.default.fileExists(atPath: paper.rawMarkdownURL(in: context.workspace).path))
+        }
         let lines = papers.map { paper in
             let hasMarkdown = FileManager.default.fileExists(atPath: paper.rawMarkdownURL(in: context.workspace).path)
             let tags = paper.tags.isEmpty ? "-" : paper.tags.joined(separator: ", ")
             return "- paper_id: \(paper.id)\n  title: \(paper.displayTitle)\n  authors: \(paper.authorsDisplay)\n  year: \(paper.yearText)\n  path: \(paper.paperDirectoryRelativePath)\n  has_paper_md: \(hasMarkdown)\n  tags: \(tags)"
         }
         let message = (["Found \(papers.count) paper(s)."] + lines).joined(separator: "\n")
-        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+        return AgentToolResult(
+            callID: "",
+            toolName: definition.name,
+            succeeded: true,
+            message: message,
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("paper_list"),
+                "count": .number(String(papers.count)),
+                "papers": .array(paperPayloads)
+            ])
+        )
     }
 }
 
@@ -235,7 +262,20 @@ public nonisolated struct ReadPaperAgentTool: AgentTool {
 
         \(content)
         """
-        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+        return AgentToolResult(
+            callID: "",
+            toolName: definition.name,
+            succeeded: true,
+            message: message,
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("paper_read"),
+                "paper": paperPayload(resolved.paper, hasMarkdown: true),
+                "source": .string(resolved.relativePath),
+                "range": .string(rangeLabel),
+                "content": .string(content)
+            ])
+        )
     }
 }
 
@@ -297,7 +337,23 @@ public nonisolated struct ReadPaperSectionAgentTool: AgentTool {
 
         \(section.text)\(truncation)
         """
-        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+        return AgentToolResult(
+            callID: "",
+            toolName: definition.name,
+            succeeded: true,
+            message: message,
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("paper_section"),
+                "paper": paperPayload(resolved.paper, hasMarkdown: true),
+                "source": .string(resolved.relativePath),
+                "heading": .string(section.heading),
+                "start_line": .number(String(section.startLine)),
+                "end_line": .number(String(section.endLine)),
+                "content": .string(section.text),
+                "was_truncated": .bool(section.wasTruncated)
+            ])
+        )
     }
 }
 
@@ -341,10 +397,12 @@ public nonisolated struct SearchPapersAgentTool: AgentTool {
         let searchablePapers = allowedIDs.isEmpty ? papers : papers.filter { allowedIDs.contains($0.id) }
         let limit = min(max(arguments.limit ?? 20, 1), 50)
         let contextLines = min(max(arguments.contextLines ?? arguments.context_lines ?? 2, 0), 5)
-        var matches: [String] = []
+        var matches: [PaperSearchMatch] = []
+        var skippedMissingMarkdown = 0
 
         for paper in searchablePapers where matches.count < limit {
             guard let markdown = try? markdownContents(for: paper, in: context.workspace) else {
+                skippedMissingMarkdown += 1
                 continue
             }
             matches.append(contentsOf: searchMarkdown(
@@ -360,8 +418,23 @@ public nonisolated struct SearchPapersAgentTool: AgentTool {
 
         let message = matches.isEmpty
             ? "No matches for \"\(query)\" in converted paper.md files."
-            : (["Found \(matches.count) match(es) for \"\(query)\"."] + matches).joined(separator: "\n\n")
-        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: message)
+            : (["Found \(matches.count) match(es) for \"\(query)\"."] + matches.map(\.message)).joined(separator: "\n\n")
+        return AgentToolResult(
+            callID: "",
+            toolName: definition.name,
+            succeeded: true,
+            message: message,
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("paper_search"),
+                "query": .string(query),
+                "status": .string(matches.isEmpty ? "empty_search" : "matched"),
+                "count": .number(String(matches.count)),
+                "skipped_missing_markdown": .number(String(skippedMissingMarkdown)),
+                "suggestion": .string(matches.isEmpty ? "Try a narrower keyword, select a paper, or convert/import paper.md for missing papers." : "Use read_paper_section with a matched paper_id and heading or line range."),
+                "matches": .array(matches.map(\.payload))
+            ])
+        )
     }
 }
 
@@ -403,6 +476,15 @@ public nonisolated struct WriteMarkdownPlanAgentTool: AgentTool {
             toolName: definition.name,
             succeeded: true,
             message: "Saved Markdown plan: \(document.title)",
+            payload: .object([
+                "schema_version": .number("1"),
+                "kind": .string("markdown_write"),
+                "title": .string(document.title),
+                "target_path": .string(document.relativePath),
+                "write_mode": .string("create_or_replace"),
+                "rollback_hint": .string("Review or revert \(document.relativePath) if the approved draft is wrong."),
+                "content": .string(contents)
+            ]),
             modifiedPaths: [document.relativePath]
         )
     }
@@ -810,6 +892,38 @@ private nonisolated struct PaperSectionSlice {
     var wasTruncated: Bool
 }
 
+private nonisolated struct PaperSearchMatch {
+    var paper: Paper
+    var relativePath: String
+    var line: Int
+    var heading: String
+    var snippet: String
+
+    var message: String {
+        """
+        paper_id: \(paper.id)
+        title: \(paper.displayTitle)
+        source: \(relativePath)#L\(line)
+        heading: \(heading)
+        ```markdown
+        \(snippet)
+        ```
+        """
+    }
+
+    var payload: JSONValue {
+        .object([
+            "paper": paperPayload(paper, hasMarkdown: true),
+            "paper_id": .string(paper.id),
+            "title": .string(paper.displayTitle),
+            "source": .string(relativePath),
+            "line": .number(String(line)),
+            "heading": .string(heading),
+            "snippet": .string(snippet)
+        ])
+    }
+}
+
 private func filteredPapers(
     repository: PaperRepository,
     context: AgentToolContext,
@@ -984,10 +1098,10 @@ private func searchMarkdown(
     limit: Int,
     contextLines: Int,
     caseSensitive: Bool
-) -> [String] {
+) -> [PaperSearchMatch] {
     let lines = contents.components(separatedBy: .newlines)
     var currentHeading = "Document"
-    var matches: [String] = []
+    var matches: [PaperSearchMatch] = []
     let options: String.CompareOptions = caseSensitive ? [] : [.caseInsensitive, .diacriticInsensitive]
 
     for (index, line) in lines.enumerated() {
@@ -1000,20 +1114,33 @@ private func searchMarkdown(
         let start = max(index - contextLines, 0)
         let end = min(index + contextLines, lines.count - 1)
         let snippet = lines[start...end].joined(separator: "\n")
-        matches.append("""
-        paper_id: \(paper.id)
-        title: \(paper.displayTitle)
-        source: \(relativePath)#L\(index + 1)
-        heading: \(currentHeading)
-        ```markdown
-        \(snippet)
-        ```
-        """)
+        matches.append(PaperSearchMatch(
+            paper: paper,
+            relativePath: relativePath,
+            line: index + 1,
+            heading: currentHeading,
+            snippet: snippet
+        ))
         if matches.count >= limit {
             break
         }
     }
     return matches
+}
+
+private nonisolated func paperPayload(_ paper: Paper, hasMarkdown: Bool) -> JSONValue {
+    .object([
+        "paper_id": .string(paper.id),
+        "citekey": .string(paper.citekey),
+        "title": .string(paper.displayTitle),
+        "authors": .string(paper.authorsDisplay),
+        "year": .string(paper.yearText),
+        "path": .string(paper.paperDirectoryRelativePath),
+        "raw_markdown_path": .string(paper.paperDirectoryRelativePath + "/paper.md"),
+        "has_paper_md": .bool(hasMarkdown),
+        "tags": .array(paper.tags.map { .string($0) }),
+        "categories": .array(paper.categories.map { .string($0) })
+    ])
 }
 
 private func wikiSnippet(from body: String, query: String) -> String {

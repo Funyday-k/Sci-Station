@@ -8,7 +8,22 @@ def route_intent(state: dict) -> Intent:
     selected_paper_id = state.get("selected_paper_id")
     project_id = state.get("project_id")
 
-    if selected_paper_id and any(keyword in goal for keyword in ["精读", "paper note", "structured note", "结构化笔记"]):
+    if selected_paper_id and any(keyword in goal for keyword in [
+        "精读",
+        "paper note",
+        "structured note",
+        "结构化笔记",
+        "formula",
+        "equation",
+        "evaporation rate",
+        "公式",
+        "方程",
+        "蒸发率",
+        "正文",
+        "章节",
+        "引用",
+        "来源",
+    ]):
         return "paper_reading"
     if project_id and any(keyword in goal for keyword in ["related work", "相关工作", "综述"]):
         return "related_work"

@@ -14,6 +14,7 @@ public nonisolated enum LLMChatRole: String, Codable, Sendable {
 public nonisolated struct LLMChatMessage: Codable, Hashable, Sendable {
     public var role: LLMChatRole
     public var content: String
+    public var reasoningContent: String?
     public var name: String?
     public var toolCallID: String?
     public var toolCalls: [AgentToolCall]
@@ -21,12 +22,14 @@ public nonisolated struct LLMChatMessage: Codable, Hashable, Sendable {
     public nonisolated init(
         role: LLMChatRole,
         content: String,
+        reasoningContent: String? = nil,
         name: String? = nil,
         toolCallID: String? = nil,
         toolCalls: [AgentToolCall] = []
     ) {
         self.role = role
         self.content = content
+        self.reasoningContent = reasoningContent
         self.name = name
         self.toolCallID = toolCallID
         self.toolCalls = toolCalls
@@ -35,6 +38,7 @@ public nonisolated struct LLMChatMessage: Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case role
         case content
+        case reasoningContent = "reasoning_content"
         case name
         case toolCallID = "tool_call_id"
         case toolCalls = "tool_calls"
@@ -44,6 +48,7 @@ public nonisolated struct LLMChatMessage: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.role = try container.decode(LLMChatRole.self, forKey: .role)
         self.content = try container.decode(String.self, forKey: .content)
+        self.reasoningContent = try container.decodeIfPresent(String.self, forKey: .reasoningContent)
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
         self.toolCallID = try container.decodeIfPresent(String.self, forKey: .toolCallID)
         self.toolCalls = try container.decodeIfPresent([AgentToolCall].self, forKey: .toolCalls) ?? []

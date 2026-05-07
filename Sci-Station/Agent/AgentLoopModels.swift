@@ -114,6 +114,11 @@ public nonisolated enum JSONValue: Codable, Hashable, Sendable {
         return nil
     }
 
+    public nonisolated var arrayValue: [JSONValue]? {
+        if case let .array(value) = self { return value }
+        return nil
+    }
+
     public nonisolated var stringValue: String? {
         if case let .string(value) = self { return value }
         return nil
@@ -1087,6 +1092,7 @@ public nonisolated struct AgentToolResultWireFormat: Codable, Hashable, Sendable
     public var succeeded: Bool
     public var content: String
     public var summary: String
+    public var payload: JSONValue?
     public var modifiedPaths: [String]
     public var evidence: [AgentEvidenceRef]
     public var error: String?
@@ -1098,6 +1104,7 @@ public nonisolated struct AgentToolResultWireFormat: Codable, Hashable, Sendable
         succeeded: Bool,
         content: String,
         summary: String,
+        payload: JSONValue? = nil,
         modifiedPaths: [String] = [],
         evidence: [AgentEvidenceRef] = [],
         error: String? = nil
@@ -1108,6 +1115,7 @@ public nonisolated struct AgentToolResultWireFormat: Codable, Hashable, Sendable
         self.succeeded = succeeded
         self.content = content
         self.summary = summary
+        self.payload = payload
         self.modifiedPaths = modifiedPaths
         self.evidence = evidence
         self.error = error
@@ -1120,6 +1128,7 @@ public nonisolated struct AgentToolResultWireFormat: Codable, Hashable, Sendable
             succeeded: result.succeeded,
             content: result.message,
             summary: summary ?? Self.summary(for: result.message),
+            payload: result.payload,
             modifiedPaths: result.modifiedPaths,
             evidence: evidence,
             error: result.errorMessage
@@ -1132,6 +1141,7 @@ public nonisolated struct AgentToolResultWireFormat: Codable, Hashable, Sendable
             toolName: toolName,
             succeeded: succeeded,
             message: content,
+            payload: payload,
             modifiedPaths: modifiedPaths,
             errorMessage: error
         )

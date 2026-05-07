@@ -222,6 +222,12 @@ public actor SciStationAgentService {
         if let allowedToolNames = options.allowedToolNames {
             plan.toolCalls = plan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
         }
+        plan = backfilledPaperPlanIfNeeded(
+            plan,
+            goal: goal,
+            snapshot: snapshot,
+            toolDefinitions: toolDefinitions
+        )
         let context = AgentToolContext(
             workspace: workspace,
             selectedPaperID: selectedPaperID,
@@ -733,8 +739,8 @@ public actor SciStationAgentService {
                 AgentSessionEvent(
                     sessionID: run.id,
                     kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
-                    summary: result.message,
-                    payloadJSON: result.modifiedPaths.joined(separator: "\n").nilIfEmpty
+                    summary: result.succeeded ? "已使用工具：\(result.toolName)" : result.message,
+                    payloadJSON: result.payload?.canonicalJSON ?? result.modifiedPaths.joined(separator: "\n").nilIfEmpty
                 ),
                 in: root
             )
@@ -812,6 +818,76 @@ public actor SciStationAgentService {
         }
 
         return definitions.filter { allowedToolNames.contains($0.name) }
+    }
+
+    private nonisolated func backfilledPaperPlanIfNeeded(
+        _ plan: AgentPlan,
+        goal: String,
+        snapshot: AgentWorkspaceSnapshot,
+        toolDefinitions: [AgentToolDefinition]
+    ) -> AgentPlan {
+        let router = AgentPaperIntentRouter()
+        let intent = router.classify(goal)
+        let availableToolNames = Set(toolDefinitions.map(\.name))
+        guard router.shouldPreflight(intent, availableToolNames: availableToolNames) else {
+            return plan
+        }
+        let plannedToolNames = Set(plan.toolCalls.map(\.toolName))
+        let hasPaperReadPlan = !plannedToolNames.intersection(["list_papers", "search_papers", "read_paper", "read_paper_section"]).isEmpty
+        guard !hasPaperReadPlan else {
+            return plan
+        }
+
+        let paperID = paperIDForBackfilledPlan(intent: intent, snapshot: snapshot)
+        var calls: [AgentToolCall] = []
+        if availableToolNames.contains("list_papers") {
+            calls.append(AgentToolCall(id: "paper-route-list", toolName: "list_papers", argumentsJSON: "{}"))
+        }
+        if intent.requiresPaperEvidence, availableToolNames.contains("search_papers") {
+            calls.append(AgentToolCall(
+                id: "paper-route-search",
+                toolName: "search_papers",
+                argumentsJSON: router.searchArgumentsJSON(for: intent, paperID: paperID)
+            ))
+        }
+        if intent.requiresPaperEvidence, availableToolNames.contains("read_paper") {
+            var fields: [String: JSONValue] = [
+                "page": .number("1"),
+                "page_size": .number("8000")
+            ]
+            if let paperID {
+                fields["paper_id"] = .string(paperID)
+            }
+            calls.append(AgentToolCall(
+                id: "paper-route-read",
+                toolName: "read_paper",
+                argumentsJSON: JSONValue.object(fields).canonicalJSON
+            ))
+        }
+        guard !calls.isEmpty else {
+            return plan
+        }
+
+        var updated = plan
+        updated.toolCalls = calls + updated.toolCalls
+        if updated.finalResponseDraft?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty == nil, intent.requiresPaperEvidence {
+            updated.finalResponseDraft = "需要先读取论文正文后再回答。已补充只读 paper tools；运行这些工具后，我会基于返回的来源、公式或章节继续生成答案。"
+        }
+        if updated.steps.isEmpty {
+            updated.steps = ["解析论文目标", "读取论文正文证据", "基于来源生成最终回答"]
+        }
+        return updated
+    }
+
+    private nonisolated func paperIDForBackfilledPlan(intent: AgentPaperIntent, snapshot: AgentWorkspaceSnapshot) -> String? {
+        if let selectedPaper = snapshot.selectedPaper {
+            return selectedPaper.id
+        }
+        let papers = snapshot.projectPapers.isEmpty ? snapshot.recentPapers : snapshot.projectPapers
+        if let index = intent.ordinalIndex, papers.indices.contains(index) {
+            return papers[index].id
+        }
+        return papers.count == 1 ? papers.first?.id : nil
     }
 
     private nonisolated func enabledToolNamesSnapshot(_ allowedToolNames: Set<String>?, toolDefinitions: [AgentToolDefinition]) -> [String] {

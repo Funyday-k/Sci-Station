@@ -1099,6 +1099,7 @@ public nonisolated struct AgentToolResult: Codable, Hashable, Sendable {
     public var succeeded: Bool
     public var requiresConfirmation: Bool
     public var message: String
+    public var payload: JSONValue?
     public var modifiedPaths: [String]
     public var errorMessage: String?
 
@@ -1108,6 +1109,7 @@ public nonisolated struct AgentToolResult: Codable, Hashable, Sendable {
         succeeded: Bool,
         requiresConfirmation: Bool = false,
         message: String,
+        payload: JSONValue? = nil,
         modifiedPaths: [String] = [],
         errorMessage: String? = nil
     ) {
@@ -1116,6 +1118,7 @@ public nonisolated struct AgentToolResult: Codable, Hashable, Sendable {
         self.succeeded = succeeded
         self.requiresConfirmation = requiresConfirmation
         self.message = message
+        self.payload = payload
         self.modifiedPaths = modifiedPaths
         self.errorMessage = errorMessage
     }
@@ -1126,6 +1129,7 @@ public nonisolated struct AgentToolResult: Codable, Hashable, Sendable {
         case succeeded
         case requiresConfirmation = "requires_confirmation"
         case message
+        case payload
         case modifiedPaths = "modified_paths"
         case errorMessage = "error_message"
     }

@@ -18,6 +18,7 @@ from sci_station_agent.storage.events import append_event, read_replay, write_de
 
 def test_router_selects_scientific_workflows() -> None:
     assert route_intent({"user_goal": "Please create a paper note", "selected_paper_id": "p1"}) == "paper_reading"
+    assert route_intent({"user_goal": "第一篇文章的蒸发率公式是什么？", "selected_paper_id": "p1"}) == "paper_reading"
     assert route_intent({"user_goal": "related work draft", "project_id": "proj"}) == "related_work"
     assert route_intent({"user_goal": "research gaps and next steps", "project_id": "proj"}) == "gap_planning"
     assert route_intent({"user_goal": "hello"}) == "general"

@@ -18,6 +18,22 @@ public nonisolated struct OpenAICompatibleStreamDeltaParser: Sendable {
         }
         return nil
     }
+
+    public nonisolated static func reasoningContentDelta(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let firstChoice = choices.first else {
+            return nil
+        }
+
+        if let delta = firstChoice["delta"] as? [String: Any] {
+            return (delta["reasoning_content"] as? String)?.nilIfEmpty
+        }
+        if let message = firstChoice["message"] as? [String: Any] {
+            return (message["reasoning_content"] as? String)?.nilIfEmpty
+        }
+        return nil
+    }
 }
 
 private nonisolated struct OpenAICompatibleStreamingToolCallAccumulator: Sendable {
@@ -189,13 +205,13 @@ public actor OpenAICompatibleProvider: LLMProvider {
             )
         }
 
-        let parsedMessage = try chatCompletionMessage(from: data)
+        let parsedMessage = try Self.parseChatCompletionMessage(from: data)
         guard !parsedMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !parsedMessage.toolCalls.isEmpty else {
             throw LLMProviderError.emptyResponse
         }
 
         return LLMProviderResponse(
-            message: LLMChatMessage(role: .assistant, content: parsedMessage.content, toolCalls: parsedMessage.toolCalls),
+            message: parsedMessage,
             toolCalls: parsedMessage.toolCalls,
             rawResponse: String(data: data, encoding: .utf8)
         )
@@ -211,10 +227,10 @@ public actor OpenAICompatibleProvider: LLMProvider {
     }
 
     private nonisolated func chatCompletionContent(from data: Data) throws -> String? {
-        try chatCompletionMessage(from: data).content.nilIfEmpty
+        try Self.parseChatCompletionMessage(from: data).content.nilIfEmpty
     }
 
-    private nonisolated func chatCompletionMessage(from data: Data) throws -> (content: String, toolCalls: [AgentToolCall]) {
+    public nonisolated static func parseChatCompletionMessage(from data: Data) throws -> LLMChatMessage {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw LLMProviderError.malformedResponse
         }
@@ -222,8 +238,9 @@ public actor OpenAICompatibleProvider: LLMProvider {
         let choices = root["choices"] as? [[String: Any]]
         let message = choices?.first?["message"] as? [String: Any]
         let content = message?["content"] as? String ?? ""
+        let reasoningContent = (message?["reasoning_content"] as? String)?.nilIfEmpty
         let toolCalls = (message?["tool_calls"] as? [[String: Any]])?.compactMap(Self.agentToolCall(from:)) ?? []
-        return (content, toolCalls)
+        return LLMChatMessage(role: .assistant, content: content, reasoningContent: reasoningContent, toolCalls: toolCalls)
     }
 
     private nonisolated static func messagePayload(from message: LLMChatMessage) -> [String: Any] {
@@ -231,6 +248,11 @@ public actor OpenAICompatibleProvider: LLMProvider {
             "role": message.role.rawValue,
             "content": message.content
         ]
+        if message.role == .assistant,
+           let reasoningContent = message.reasoningContent?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !reasoningContent.isEmpty {
+            payload["reasoning_content"] = reasoningContent
+        }
         if let name = message.name {
             payload["name"] = name
         }
@@ -432,6 +454,7 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
                     }
 
                     var accumulated = ""
+                    var accumulatedReasoningContent = ""
                     var toolCallAccumulator = OpenAICompatibleStreamingToolCallAccumulator()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
@@ -446,6 +469,9 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
                             continue
                         }
                         toolCallAccumulator.mergeDelta(from: data)
+                        if let reasoningDelta = OpenAICompatibleStreamDeltaParser.reasoningContentDelta(from: data), !reasoningDelta.isEmpty {
+                            accumulatedReasoningContent += reasoningDelta
+                        }
                         guard let delta = OpenAICompatibleStreamDeltaParser.contentDelta(from: data), !delta.isEmpty else {
                             continue
                         }
@@ -455,7 +481,12 @@ extension OpenAICompatibleProvider: LLMStreamingChatProvider {
 
                     let toolCalls = toolCallAccumulator.toolCalls()
                     continuation.yield(.completed(LLMProviderResponse(
-                        message: LLMChatMessage(role: .assistant, content: accumulated, toolCalls: toolCalls),
+                        message: LLMChatMessage(
+                            role: .assistant,
+                            content: accumulated,
+                            reasoningContent: accumulatedReasoningContent.nilIfEmpty,
+                            toolCalls: toolCalls
+                        ),
                         toolCalls: toolCalls,
                         rawResponse: accumulated
                     )))
