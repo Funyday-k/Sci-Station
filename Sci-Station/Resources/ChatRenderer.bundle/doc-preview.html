@@ -85,6 +85,7 @@
 </head>
 <body>
 <main id="content"></main>
+<script src="dompurify.min.js"></script>
 <script src="marked.min.js"></script>
 <script src="katex.min.js"></script>
 <script src="auto-render.min.js"></script>
@@ -135,6 +136,16 @@
         });
     }
 
+    function sanitizeHtml(html) {
+        if (!window.DOMPurify || typeof window.DOMPurify.sanitize !== "function") {
+            throw new Error("DOMPurify is not available");
+        }
+        return window.DOMPurify.sanitize(html, {
+            USE_PROFILES: { html: true },
+            ADD_ATTR: ["target", "rel"]
+        });
+    }
+
     function renderMath() {
         if (typeof window.renderMathInElement !== "function") {
             return;
@@ -165,7 +176,7 @@
             try {
                 var protectedSrc = protectMath(markdown);
                 var html = window.marked.parse(protectedSrc.src);
-                contentEl.innerHTML = restoreMath(html, protectedSrc.stash);
+                contentEl.innerHTML = sanitizeHtml(restoreMath(html, protectedSrc.stash));
             } catch (_) {
                 contentEl.innerHTML = '<pre class="fallback">' + escapeHtml(markdown) + '</pre>';
             }

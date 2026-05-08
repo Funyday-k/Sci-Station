@@ -1,48 +1,10 @@
 import SwiftUI
 
 struct DashboardView: View {
-    @EnvironmentObject private var appModel: AppViewModel
-
     let workspace: ResearchWorkspace
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Home")
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
-                    Text("Global overview for \(workspace.displayName): papers, projects, tasks, and recent reading activity.")
-                        .foregroundStyle(.secondary)
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                    StatCard(title: "Open Todos", value: "\(appModel.todos.filter { $0.status != .done }.count)", systemImage: "checklist") {
-                        appModel.selectGlobalTodos()
-                    }
-                    StatCard(title: "Due Today", value: "\(appModel.selectedDateTodos.count)", systemImage: "calendar")
-                    StatCard(title: "Papers", value: "\(appModel.papers.count)", systemImage: "books.vertical")
-                }
-
-                ResearchProjectsWidget(workspace: workspace)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                DashboardCalendarView(selectedDate: Binding(
-                    get: { appModel.selectedDashboardDate },
-                    set: { appModel.selectDashboardDate($0) }
-                ))
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                TodoDashboardWidget(scope: .global)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], alignment: .leading, spacing: 16) {
-                    DashboardPaperList(title: "Recently Added", papers: appModel.recentPapers)
-                    DashboardPaperList(title: "Recently Read", papers: appModel.recentlyReadPapers)
-                }
-            }
-            .padding(24)
-        }
+        HomeView(workspace: workspace)
     }
 }
 
@@ -1434,7 +1396,7 @@ private struct CalendarItemPill: View {
     }
 }
 
-private struct DashboardPaperList: View {
+struct DashboardPaperList: View {
     let title: String
     let papers: [Paper]
 

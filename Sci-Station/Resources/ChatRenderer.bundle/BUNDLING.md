@@ -18,12 +18,13 @@ post-processing.
 - `katex.min.css` / `katex.min.js` — KaTeX 0.16.11.
 - `auto-render.min.js` — KaTeX `renderMathInElement` extension.
 - `marked.min.js` — marked 14.1.3 (GFM Markdown parser).
+- `dompurify.min.js` — DOMPurify 3.4.2, used by `doc-preview.html`
+  to sanitize marked HTML before KaTeX rendering.
 - `fonts/*.woff2` — KaTeX woff2 fonts (only woff2 is shipped to keep size
   down; modern WebKit reads woff2 fine).
 
-`MarkdownPreviewView` must not reference CDN URLs. If sanitizer support is
-added later, ship the pinned `dompurify.min.js` file in this bundle and load it
-from `doc-preview.html` with a relative `<script>` tag.
+`MarkdownPreviewView` must not reference CDN URLs. All renderer scripts are
+loaded from this bundle with relative `<script>` tags.
 
 ## Updating
 
@@ -40,6 +41,16 @@ cp /tmp/katex_pull/katex/dist/contrib/auto-render.min.js .
 cp /tmp/katex_pull/marked/marked.min.js .
 rm fonts/*.woff2
 cp /tmp/katex_pull/katex/dist/fonts/*.woff2 fonts/
+```
+
+To update DOMPurify:
+
+```bash
+mkdir -p /tmp/dompurify_pull && cd /tmp/dompurify_pull
+npm pack dompurify@<new-version>
+tar -xzf dompurify-<new-version>.tgz
+cd <repo>/Sci-Station/Resources/ChatRenderer.bundle
+cp /tmp/dompurify_pull/package/dist/purify.min.js dompurify.min.js
 ```
 
 If KaTeX changes its CSS to reference fonts at a different relative path,

@@ -932,7 +932,9 @@ private struct AgentConversationTimelineView: View {
                         usesRichMarkdown: richMarkdownEventIDs.contains(item.id),
                         retryAction: retryAction(for: item),
                         copyDiagnosticAction: providerFailureAction(for: item),
-                        evidencePreview: toolEvidencePreview(for: item)
+                        evidencePreview: toolEvidencePreview(for: item),
+                        targetPath: targetPath(for: item),
+                        openTargetAction: openTargetAction(for: item)
                     )
                 }
             } else {
@@ -1011,6 +1013,43 @@ private struct AgentConversationTimelineView: View {
         .joined(separator: "\n")
     }
 
+    private func targetPath(for item: AgentSessionTimelineItem) -> String? {
+        guard item.kind == .toolCallCompleted || item.kind == .permissionResolved else {
+            return nil
+        }
+        if let path = targetPath(in: item.payloadPreview) {
+            return path
+        }
+        guard let run = runs.first(where: { $0.id == item.sessionID }) ?? (currentRun?.id == item.sessionID ? currentRun : nil) else {
+            return nil
+        }
+        return run.toolResults
+            .reversed()
+            .compactMap { result in
+                result.modifiedPaths.first
+                    ?? result.payload?.objectValue?["target_path"]?.stringValue
+                    ?? result.payload?.objectValue?["draft_path"]?.stringValue
+            }
+            .first
+    }
+
+    private func openTargetAction(for item: AgentSessionTimelineItem) -> (() -> Void)? {
+        guard let path = targetPath(for: item) else {
+            return nil
+        }
+        return { appModel.openWorkspaceRelativePath(path) }
+    }
+
+    private func targetPath(in payloadPreview: String?) -> String? {
+        guard let payloadPreview,
+              let value = try? JSONValue.parse(payloadPreview),
+              case let .object(object) = value else {
+            return nil
+        }
+        return object["target_path"]?.stringValue
+            ?? object["draft_path"]?.stringValue
+    }
+
     private func numberText(_ value: JSONValue) -> String {
         value.stringValue ?? value.canonicalJSON
     }
@@ -1050,6 +1089,8 @@ private struct AgentSessionEventRowView: View {
     let retryAction: (() -> Void)?
     let copyDiagnosticAction: (() -> Void)?
     let evidencePreview: String?
+    let targetPath: String?
+    let openTargetAction: (() -> Void)?
 
     @State private var showsEvidence = false
 
@@ -1101,7 +1142,7 @@ private struct AgentSessionEventRowView: View {
                 )
             }
 
-            if retryAction != nil || copyDiagnosticAction != nil || evidencePreview != nil {
+            if retryAction != nil || copyDiagnosticAction != nil || evidencePreview != nil || openTargetAction != nil {
                 HStack(spacing: 8) {
                     if let retryAction {
                         Button {
@@ -1124,6 +1165,14 @@ private struct AgentSessionEventRowView: View {
                             showsEvidence.toggle()
                         } label: {
                             Label(showsEvidence ? "隐藏证据" : "工具证据", systemImage: "list.bullet.rectangle")
+                        }
+                    }
+
+                    if let openTargetAction, let targetPath {
+                        Button {
+                            openTargetAction()
+                        } label: {
+                            Label("打开 \(targetPath)", systemImage: "arrow.up.forward.app")
                         }
                     }
                 }
@@ -1893,11 +1942,34 @@ private struct AgentPermissionDockRow: View {
                 .padding(.leading, 22)
             }
 
+            if let diffPreview = item.diffPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !diffPreview.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Draft Preview")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text(diffPreview)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(14)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.leading, 22)
+            }
+
             HStack(spacing: 8) {
                 Button {
                     appModel.setAgentToolApproval(callID: item.id, isApproved: true)
                 } label: {
-                    Label("Allow Once", systemImage: "checkmark.shield")
+                    Label("批准并写入", systemImage: "checkmark.shield")
+                }
+                .controlSize(.small)
+                .disabled(item.approvalState == .completed || item.approvalState == .deniedByPolicy)
+
+                Button {
+                    appModel.saveAgentToolCallDraft(callID: item.id)
+                } label: {
+                    Label("仅保存草稿", systemImage: "doc.badge.plus")
                 }
                 .controlSize(.small)
                 .disabled(item.approvalState == .completed || item.approvalState == .deniedByPolicy)
@@ -1905,20 +1977,10 @@ private struct AgentPermissionDockRow: View {
                 Button(role: .destructive) {
                     appModel.setAgentToolDenied(callID: item.id, isDenied: true)
                 } label: {
-                    Label("Deny", systemImage: "xmark.octagon")
+                    Label("拒绝", systemImage: "xmark.octagon")
                 }
                 .controlSize(.small)
                 .disabled(item.approvalState == .completed)
-
-                Toggle(
-                    "Session Draft",
-                    isOn: Binding(
-                        get: { appModel.agentToolSessionApprovalDrafts.contains(item.id) },
-                        set: { appModel.setAgentSessionApprovalDraft(callID: item.id, isEnabled: $0) }
-                    )
-                )
-                .toggleStyle(.checkbox)
-                .controlSize(.small)
 
                 Spacer(minLength: 0)
             }
@@ -1956,7 +2018,7 @@ private struct AgentPermissionDockRow: View {
         case .deniedByPolicy:
             return "Policy deny"
         case .sessionApprovalDraft:
-            return "Session draft"
+            return "Draft saved"
         case .completed:
             return "Completed"
         case .failed:

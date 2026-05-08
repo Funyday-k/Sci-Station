@@ -25,6 +25,17 @@ private struct CoreVerificationSuite {
         try await workspacePreferencesRoundTrip()
         try agentLoopBudgetDefaultsAreExpanded()
         try await appDebugEventLoggerPersistsRedactedEvents()
+        try await homeAggregatorReturnsEmptyDataForBlankWorkspace()
+        try await homeAggregatorRespectsCacheTTL()
+        try await homeAggregatorInvalidatesOnDraftInboxChange()
+        try await homeAggregatorInvalidatesOnTodoChange()
+        try await homeAggregatorErrorRecordsDebugEvent()
+        try projectStageProviderInfersExplorationForBlankProject()
+        try projectStageProviderInfersOnHoldAfter21DaysIdle()
+        try projectStageProviderInfersReviewingWhenUnsupportedClaimPresent()
+        try projectDashboardAggregatorReturnsCorrectStage()
+        try projectDashboardAggregatorOrdersArtifactsByCreatedDesc()
+        try await homeSnapshotEncodesAndDecodesRoundTrip()
         try librarySortStateSortsPapers()
         try await libraryBulkEditServiceUpdatesSelectedPapers()
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
@@ -129,7 +140,19 @@ private struct CoreVerificationSuite {
         try agentEvidenceRefStableIDMarksStale()
         try await evidenceSourceJumpMapsPDFPageWhenAvailable()
         try await workspaceTemplateModuleConfigWritesAndLegacyMigration()
+        try await workspaceCreationWizardPreviewValidationAndSafety()
         try workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts()
+        try moduleSettingsViewModelEnableModuleRequiresDependencies()
+        try moduleSettingsViewModelEnableDependenciesEnablesAllAncestors()
+        try await moduleSettingsViewModelTogglePinPersistsOrder()
+        try moduleSettingsViewModelDisablingDependencyHidesRoutes()
+        try moduleSettingsViewModelOverrideOnlyAffectsTargetProject()
+        try await workspaceModuleDirectoryRepairerSkipsWildcardPaths()
+        try await workspaceModuleDirectoryRepairerRequiresPermissionApproval()
+        try await workspaceModuleConfigurationStoreNotifiesObserversAtomically()
+        try moduleOverrideMergerOnlyMutatesEnabledField()
+        try moduleOverrideMergerLeavesUnknownIDsAsNoOp()
+        try await templateAndSettingsRoundTripsAreIdentical()
         try await runtimeEventEnvelopeSequencesAreStableAndDeduplicated()
         try agentHumanDecisionActionDecodesLegacyAliases()
         try agentToolRiskUnknownValueDecodesAsExternalSideEffect()
@@ -486,6 +509,154 @@ private struct CoreVerificationSuite {
         try expect(firstPayload["api_key"] == .string("[REDACTED]"), "Debug event logger should redact API keys.")
         try expect(firstPayload["prompt"] == .string("read [PATH]"), "Debug event logger should redact private paths.")
         try expect(FileManager.default.fileExists(atPath: root.fileURL(for: AppDebugEventLogger.relativePath).path), "Debug event logger should write a workspace-local JSONL file.")
+    }
+
+    private func homeAggregatorReturnsEmptyDataForBlankWorkspace() async throws {
+        let aggregator = HomeAggregator()
+        let snapshot = try await aggregator.snapshot(input: HomeAggregationInput(workspaceID: "blank-workspace"), now: Date(timeIntervalSince1970: 1_777_600_000))
+
+        try expect(snapshot.today.dueTodos.isEmpty, "Blank workspace should have no due todos.")
+        try expect(snapshot.today.readingQueue.isEmpty, "Blank workspace should have no reading queue.")
+        try expect(snapshot.activeProjects.isEmpty, "Blank workspace should have no active projects.")
+        try expect(snapshot.aiReview.needsApproval.isEmpty, "Blank workspace should have no pending AI drafts.")
+    }
+
+    private func homeAggregatorRespectsCacheTTL() async throws {
+        let aggregator = HomeAggregator(cacheTTL: 60)
+        let input = HomeAggregationInput(workspaceID: "ttl-workspace")
+        let first = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_000))
+        let second = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_010))
+        let third = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_070))
+
+        try expect(first.builtAt == second.builtAt, "HomeAggregator should return cached snapshots inside the TTL.")
+        try expect(third.builtAt != first.builtAt, "HomeAggregator should rebuild snapshots after the TTL expires.")
+    }
+
+    private func homeAggregatorInvalidatesOnDraftInboxChange() async throws {
+        let aggregator = HomeAggregator(cacheTTL: 60)
+        let input = HomeAggregationInput(workspaceID: "draft-invalidation-workspace")
+        let first = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_000))
+        await aggregator.invalidate(reason: "draft_change")
+        let second = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_005))
+
+        try expect(first.builtAt != second.builtAt, "Draft inbox invalidation should force a Home snapshot rebuild inside the TTL.")
+    }
+
+    private func homeAggregatorInvalidatesOnTodoChange() async throws {
+        let aggregator = HomeAggregator(cacheTTL: 60)
+        let input = HomeAggregationInput(workspaceID: "todo-invalidation-workspace")
+        let first = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_000))
+        await aggregator.invalidate(reason: "todo_change")
+        let second = try await aggregator.snapshot(input: input, now: Date(timeIntervalSince1970: 1_777_600_006))
+
+        try expect(first.builtAt != second.builtAt, "Todo invalidation should force a Home snapshot rebuild inside the TTL.")
+    }
+
+    private func homeAggregatorErrorRecordsDebugEvent() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("HomeAggregatorErrorWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+        let logger = AppDebugEventLogger()
+        let aggregator = HomeAggregator(debugLogger: logger, debugRoot: root)
+
+        do {
+            _ = try await aggregator.snapshot(input: HomeAggregationInput(workspaceID: "error-workspace", failureReason: "forced failure"))
+            try expect(false, "HomeAggregator should throw when its input forces a failure.")
+        } catch {
+            let events = try await logger.events(in: root)
+            try expect(events.contains { $0.event == "home.aggregate.error" }, "HomeAggregator should record home.aggregate.error when build fails.")
+        }
+    }
+
+    private func projectStageProviderInfersExplorationForBlankProject() throws {
+        let decision = ProjectStageProvider().stage(for: ProjectStageSignal(projectID: "blank"), today: Date(timeIntervalSince1970: 1_777_600_000))
+        try expect(decision.stage == .exploration, "Blank project should infer exploration stage.")
+    }
+
+    private func projectStageProviderInfersOnHoldAfter21DaysIdle() throws {
+        let today = Date(timeIntervalSince1970: 1_777_600_000)
+        let oldActivity = today.addingTimeInterval(-22 * 86_400)
+        let decision = ProjectStageProvider().stage(for: ProjectStageSignal(projectID: "idle", papersCount: 8, wikiPageCount: 4, lastActivityAt: oldActivity), today: today)
+        try expect(decision.stage == .onHold, "Projects idle for more than 21 days should infer on_hold.")
+    }
+
+    private func projectStageProviderInfersReviewingWhenUnsupportedClaimPresent() throws {
+        let decision = ProjectStageProvider().stage(for: ProjectStageSignal(projectID: "review", papersCount: 8, unsupportedClaimCount: 2), today: Date(timeIntervalSince1970: 1_777_600_000))
+        try expect(decision.stage == .reviewing, "Unsupported claims should infer reviewing stage.")
+    }
+
+    private func projectDashboardAggregatorReturnsCorrectStage() throws {
+        let project = sampleResearchProject(id: "project-stage")
+        let papers = (0..<5).map { index -> Paper in
+            var paper = samplePaper(id: "stage-paper-\(index)")
+            paper.projectIDs = [project.id]
+            paper.coreProjectIDs = index < 2 ? [project.id] : []
+            return paper
+        }
+        let run = sampleAgentRun(
+            id: "stage-run",
+            projectID: project.id,
+            createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+            toolResults: [try artifactToolResult(runID: "stage-run", kind: "research_plan", createdAt: Date(timeIntervalSince1970: 1_777_600_000))]
+        )
+        let input = ProjectDashboardAggregationInput(
+            workspaceID: "project-dashboard-stage",
+            project: project,
+            papers: papers,
+            todos: [],
+            markdownDocuments: [sampleMarkdownDocument(relativePath: "wiki/gaps/project-stage-gap.md", title: "Open Gap")],
+            agentRuns: [run],
+            unsupportedClaims: []
+        )
+
+        let snapshot = try require(ProjectDashboardSnapshotBuilder().build(input: input, now: Date(timeIntervalSince1970: 1_777_600_010)), "Project dashboard snapshot should build for selected project.")
+        try expect(snapshot.stage == .planning, "Project dashboard should infer planning when papers, research plan, and open gaps are present.")
+    }
+
+    private func projectDashboardAggregatorOrdersArtifactsByCreatedDesc() throws {
+        let project = sampleResearchProject(id: "project-artifacts")
+        let olderRun = sampleAgentRun(
+            id: "older-run",
+            projectID: project.id,
+            createdAt: Date(timeIntervalSince1970: 1_777_500_000),
+            toolResults: [try artifactToolResult(runID: "older-run", kind: "research_plan", createdAt: Date(timeIntervalSince1970: 1_777_500_000), title: "Older Artifact")]
+        )
+        let newerRun = sampleAgentRun(
+            id: "newer-run",
+            projectID: project.id,
+            createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+            toolResults: [try artifactToolResult(runID: "newer-run", kind: "related_work", createdAt: Date(timeIntervalSince1970: 1_777_600_000), title: "Newer Artifact")]
+        )
+        let input = ProjectDashboardAggregationInput(
+            workspaceID: "project-dashboard-artifacts",
+            project: project,
+            agentRuns: [olderRun, newerRun]
+        )
+
+        let snapshot = try require(ProjectDashboardSnapshotBuilder().build(input: input, now: Date(timeIntervalSince1970: 1_777_600_010)), "Project dashboard snapshot should build for artifact ordering.")
+        try expect(Array(snapshot.recentArtifacts.map(\.title).prefix(2)) == ["Newer Artifact", "Older Artifact"], "Project dashboard should order recent artifacts newest first.")
+    }
+
+    private func homeSnapshotEncodesAndDecodesRoundTrip() async throws {
+        let project = sampleResearchProject(id: "roundtrip-project")
+        var paper = samplePaper(id: "roundtrip-paper")
+        paper.projectIDs = [project.id]
+        let todo = sampleTodo(id: "roundtrip-todo", title: "Read queue", projectID: project.id, dueDate: Date(timeIntervalSince1970: 1_777_600_000))
+        let run = sampleAgentRun(id: "roundtrip-run", projectID: project.id, createdAt: Date(timeIntervalSince1970: 1_777_599_000), lifecycleState: .waitingForApproval)
+        let snapshot = try await HomeAggregator().snapshot(input: HomeAggregationInput(
+            workspaceID: "roundtrip-workspace",
+            currentProjectID: project.id,
+            projects: [project],
+            papers: [paper],
+            todos: [todo],
+            agentRuns: [run]
+        ), now: Date(timeIntervalSince1970: 1_777_600_000))
+
+        let data = try AgentRunDirectoryStore.encoder().encode(snapshot)
+        let decoded = try AgentRunDirectoryStore.decoder().decode(HomeSnapshot.self, from: data)
+        try expect(decoded == snapshot, "HomeSnapshot should encode and decode without losing panel data.")
     }
 
     private func libraryBulkEditServiceUpdatesSelectedPapers() async throws {
@@ -3862,6 +4033,77 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: legacyURL.appendingPathComponent("raw/papers", isDirectory: true).path), "Legacy migration should not delete existing user data.")
     }
 
+    private func workspaceCreationWizardPreviewValidationAndSafety() async throws {
+        let baseURL = temporaryDirectoryURL().appendingPathComponent("P40Wizard", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: baseURL.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+
+        let minimalDraft = WorkspaceCreationWizard.draft(selecting: WorkspaceTemplateRegistry.minimal)
+        let minimalPreview = WorkspaceCreationWizard.preview(for: minimalDraft)
+        let minimalEnabledIDs = Set(minimalPreview.enabledModules.map(\.id))
+        let minimalRoutes = Set(minimalPreview.routes.map(\.id))
+        let safeDirectories = WorkspaceCreationWizard.safeDirectoryPathsToCreate(for: WorkspaceTemplateRegistry.minimal)
+
+        try expect(minimalPreview.configuration.schemaVersion == 1, "Workspace creation preview should use module schema_version 1.")
+        try expect(minimalEnabledIDs == Set(WorkspaceTemplateRegistry.minimal.enabledModuleIDs), "Wizard preview should derive enabled modules from the selected template.")
+        try expect(minimalRoutes.contains("ai-lab"), "Minimal wizard preview should expose the AI Lab route.")
+        try expect(!minimalRoutes.contains("library"), "Minimal wizard preview should hide Library when paper-library is disabled.")
+        try expect(minimalPreview.directoryItems.contains { $0.path == "projects/*/wiki" && !$0.willCreate && $0.isWildcard }, "Wildcard project directories should be preview-only and not created directly.")
+        try expect(safeDirectories.contains("settings") && safeDirectories.contains(".sci-station/agent"), "Safe directory resolver should include settings and AI Lab agent state directories.")
+        try expect(!safeDirectories.contains { $0.contains("*") || $0.hasSuffix(".yaml") || !WorkspaceModuleSchema.isSafeRelativePathPattern($0) }, "Safe directory resolver should filter wildcard, settings files, and unsafe relative paths.")
+
+        let newRootURL = baseURL.appendingPathComponent("NewRoot", isDirectory: true)
+        let newValidation = WorkspaceCreationWizard.validateTargetURL(newRootURL)
+        try expect(newValidation.canCreate && newValidation.state == .newFolder, "Wizard validation should allow a new folder under an existing parent.")
+
+        let emptyRootURL = baseURL.appendingPathComponent("EmptyRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: emptyRootURL, withIntermediateDirectories: true)
+        let emptyValidation = WorkspaceCreationWizard.validateTargetURL(emptyRootURL)
+        try expect(emptyValidation.canCreate && emptyValidation.state == .emptyFolder, "Wizard validation should allow an empty folder.")
+
+        let fileURL = baseURL.appendingPathComponent("not-a-root.txt", isDirectory: false)
+        try "not a folder".write(to: fileURL, atomically: true, encoding: .utf8)
+        let fileValidation = WorkspaceCreationWizard.validateTargetURL(fileURL)
+        try expect(!fileValidation.canCreate && fileValidation.state == .blockedFile, "Wizard validation should reject file destinations.")
+
+        let nonEmptyURL = baseURL.appendingPathComponent("NonEmpty", isDirectory: true)
+        try FileManager.default.createDirectory(at: nonEmptyURL, withIntermediateDirectories: true)
+        try "user data".write(to: nonEmptyURL.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+        let nonEmptyValidation = WorkspaceCreationWizard.validateTargetURL(nonEmptyURL)
+        try expect(!nonEmptyValidation.canCreate && nonEmptyValidation.state == .blockedNonEmptyFolder, "Wizard validation should block non-empty folders that are not compatible workspaces.")
+
+        let legacyURL = baseURL.appendingPathComponent("Legacy", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyURL.appendingPathComponent("settings", isDirectory: true), withIntermediateDirectories: true)
+        try "schema_version: 1\n".write(to: legacyURL.appendingPathComponent("settings/workspace_preferences.yaml"), atomically: true, encoding: .utf8)
+        let legacyValidation = WorkspaceCreationWizard.validateTargetURL(legacyURL)
+        try expect(legacyValidation.canCreate && legacyValidation.state == .legacyWorkspace, "Wizard validation should allow compatible legacy workspaces.")
+
+        let service = WorkspaceService()
+        let minimalURL = baseURL.appendingPathComponent("ExistingMinimal", isDirectory: true)
+        let workspace = try await service.createWorkspace(at: minimalURL, template: WorkspaceTemplateRegistry.minimal)
+        let moduleConfigURL = workspace.fileURL(for: WorkspaceTemplateRepository.modulesRelativePath)
+        let beforeModules = try String(contentsOf: moduleConfigURL, encoding: .utf8)
+        _ = try await service.createWorkspace(at: minimalURL, template: WorkspaceTemplateRegistry.literatureReview)
+        let afterModules = try String(contentsOf: moduleConfigURL, encoding: .utf8)
+        let repository = WorkspaceTemplateRepository()
+        let afterConfiguration = WorkspaceModuleRegistry.mergedConfiguration(from: try repository.decodeConfiguration(afterModules))
+
+        try expect(beforeModules == afterModules, "Re-running create on an existing Research Root should not overwrite workspace_modules.yaml.")
+        try expect(afterConfiguration.module(id: "paper-library")?.enabled == false, "Existing module choices should be preserved when a compatible root is opened through the wizard path.")
+
+        let generatedSettingsText = [
+            afterModules,
+            try String(contentsOf: workspace.fileURL(for: WorkspaceTemplateRepository.templateRelativePath), encoding: .utf8),
+            try String(contentsOf: workspace.fileURL(for: "settings/llm.yaml"), encoding: .utf8),
+            try String(contentsOf: workspace.fileURL(for: "settings/agent.yaml"), encoding: .utf8)
+        ].joined(separator: "\n")
+        try expect(!generatedSettingsText.localizedCaseInsensitiveContains("api_key"), "Workspace creation should not write API key placeholders into generated settings files.")
+        try expect(!generatedSettingsText.localizedCaseInsensitiveContains("provider_raw_config"), "Workspace creation should not write provider raw config into generated settings files.")
+        try expect(!generatedSettingsText.localizedCaseInsensitiveContains("prompt:"), "Workspace creation should not write prompt plaintext into generated settings files.")
+        try expect(!generatedSettingsText.localizedCaseInsensitiveContains("response:"), "Workspace creation should not write response plaintext into generated settings files.")
+    }
+
         private func workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts() throws {
                 let defaultConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
                 let defaultRoutes = Set(WorkspaceModuleRegistry.availableRoutes(in: defaultConfiguration).map(\.id))
@@ -3913,6 +4155,161 @@ private struct CoreVerificationSuite {
                 let scopeDescription = WorkspaceModuleRegistry.moduleScopeDescription(for: ["projects/demo/wiki/research_plan.md"], in: defaultConfiguration)
                 try expect(scopeDescription?.contains("Wiki") == true || scopeDescription?.contains("Projects") == true, "Module approval scope should explain matching module write paths.")
         }
+
+            private func moduleSettingsViewModelEnableModuleRequiresDependencies() throws {
+                let configuration = WorkspaceModuleRegistry.defaultConfiguration()
+                do {
+                    _ = try WorkspaceModuleSettingsMutation.setModule("recommendation", enabled: true, in: configuration)
+                    try expect(false, "Enabling recommendation should require citation-graph first.")
+                } catch ModuleSettingsError.dependencyMissing(let missing) {
+                    try expect(missing == ["citation-graph"], "Recommendation should report citation-graph as the missing dependency.")
+                } catch {
+                    throw error
+                }
+            }
+
+            private func moduleSettingsViewModelEnableDependenciesEnablesAllAncestors() throws {
+                let configuration = WorkspaceModuleRegistry.defaultConfiguration()
+                let result = try WorkspaceModuleSettingsMutation.enableModuleAndDependencies("recommendation", in: configuration)
+                let enabledIDs = result.configuration.enabledModuleIDs
+
+                try expect(enabledIDs.contains("citation-graph"), "Enable Dependencies should enable recommendation ancestors.")
+                try expect(enabledIDs.contains("recommendation"), "Enable Dependencies should enable the requested module.")
+                try expect(result.enabledChain == ["citation-graph", "recommendation"], "Dependency chain should be deterministic and dependency-first.")
+            }
+
+            private func moduleSettingsViewModelTogglePinPersistsOrder() async throws {
+                let rootURL = temporaryDirectoryURL().appendingPathComponent("ModulePinWorkspace", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+                let root = ResearchRoot(rootURL: rootURL)
+                let repository = WorkspaceTemplateRepository()
+                try repository.overwriteTemplateConfiguration(WorkspaceTemplateRegistry.literatureReview, in: root)
+
+                var configuration = try repository.loadConfiguration(in: root)
+                configuration = try WorkspaceModuleSettingsMutation.togglePin("tasks", in: configuration)
+                configuration = try WorkspaceModuleSettingsMutation.movePin("tasks", newIndex: 0, in: configuration)
+
+                let store = WorkspaceModuleConfigurationStore()
+                try await store.save(configuration, in: root)
+                let reloadedConfiguration = try await store.load(in: root)
+
+                try expect(reloadedConfiguration.module(id: "tasks")?.pinned == true, "Pinned module should persist to workspace_modules.yaml.")
+                try expect(WorkspaceModuleSettingsMutation.pinnedOrder(in: reloadedConfiguration).first == "tasks", "Pinned order should persist through the YAML round trip.")
+            }
+
+            private func moduleSettingsViewModelDisablingDependencyHidesRoutes() throws {
+                let configuration = try WorkspaceModuleSettingsMutation.setModule("wiki", enabled: false, in: WorkspaceModuleRegistry.defaultConfiguration())
+                let routes = Set(WorkspaceModuleRegistry.availableRoutes(in: configuration).map(\.id))
+                let workflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: configuration))
+                let warnings = WorkspaceModuleRegistry.warnings(for: configuration)
+
+                try expect(!routes.contains("wiki"), "Disabling wiki should hide the Wiki route.")
+                try expect(!workflows.contains("related_work"), "Workflows requiring wiki should be hidden.")
+                try expect(warnings.contains { $0.id == "disabled-dependency:ai-lab:projects" } == false, "Unrelated dependency warnings should not be invented.")
+                try expect(warnings.contains { $0.id == "disabled-dependency:code:wiki" } == false, "Disabled modules should not emit dependency-hidden warnings until enabled.")
+            }
+
+            private func moduleSettingsViewModelOverrideOnlyAffectsTargetProject() throws {
+                let workspaceConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+                let override = WorkspaceModuleOverride(
+                    projectID: "project-a",
+                    moduleOverrides: [WorkspaceModuleOverrideEntry(id: "calendar", enabled: false)]
+                )
+                let projectAConfiguration = ModuleOverrideMerger.effectiveConfiguration(workspace: workspaceConfiguration, override: override)
+                let projectBConfiguration = ModuleOverrideMerger.effectiveConfiguration(workspace: workspaceConfiguration, override: nil)
+
+                try expect(projectAConfiguration.module(id: "calendar")?.enabled == false, "Project A override should disable calendar.")
+                try expect(projectBConfiguration.module(id: "calendar")?.enabled == true, "Project B should keep the workspace calendar setting.")
+                try expect(projectAConfiguration.module(id: "calendar")?.title == workspaceConfiguration.module(id: "calendar")?.title, "Override should not replace registry metadata.")
+            }
+
+            private func workspaceModuleDirectoryRepairerSkipsWildcardPaths() async throws {
+                let rootURL = temporaryDirectoryURL().appendingPathComponent("ModuleRepairWildcardWorkspace", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+                let root = ResearchRoot(rootURL: rootURL)
+                let status = WorkspaceModuleDirectoryStatus(moduleID: "wiki", moduleTitle: "Wiki", path: "projects/*/wiki/", required: true, repairable: true, exists: false)
+                let repairer = WorkspaceModuleDirectoryRepairer { _ in
+                    AgentPermissionDecision(action: .allow)
+                }
+                let outcome = await repairer.repair(status, in: root, activeProjects: [])
+
+                try expect(outcome == .skippedWildcard(path: "projects/*/wiki/"), "Wildcard repair should be skipped when no active project instance exists.")
+            }
+
+            private func workspaceModuleDirectoryRepairerRequiresPermissionApproval() async throws {
+                let rootURL = temporaryDirectoryURL().appendingPathComponent("ModuleRepairApprovalWorkspace", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+                let root = ResearchRoot(rootURL: rootURL)
+                let status = WorkspaceModuleDirectoryStatus(moduleID: "tasks", moduleTitle: "Tasks", path: "tasks", required: true, repairable: true, exists: false)
+                let deniedRepairer = WorkspaceModuleDirectoryRepairer { _ in
+                    AgentPermissionDecision(action: .deny, message: "test deny")
+                }
+                let deniedOutcome = await deniedRepairer.repair(status, in: root)
+                try expect(deniedOutcome == .denied(path: "tasks", reason: "test deny"), "Repair should not create directories without approval.")
+                try expect(!FileManager.default.fileExists(atPath: root.directoryURL(for: "tasks").path), "Denied repair should not write the workspace.")
+
+                let approvedRepairer = WorkspaceModuleDirectoryRepairer { _ in
+                    AgentPermissionDecision(action: .allow)
+                }
+                let approvedOutcome = await approvedRepairer.repair(status, in: root)
+                try expect(approvedOutcome == .created(paths: ["tasks"]), "Approved repair should create the missing directory.")
+                try expect(FileManager.default.fileExists(atPath: root.directoryURL(for: "tasks").path), "Approved repair should create tasks/.")
+            }
+
+            private func workspaceModuleConfigurationStoreNotifiesObserversAtomically() async throws {
+                let rootURL = temporaryDirectoryURL().appendingPathComponent("ModuleStoreWatchWorkspace", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+                let root = ResearchRoot(rootURL: rootURL)
+                try WorkspaceTemplateRepository().overwriteTemplateConfiguration(WorkspaceTemplateRegistry.literatureReview, in: root)
+                let store = WorkspaceModuleConfigurationStore()
+                let stream = store.subscribeChanges(in: root)
+
+                async let observedConfiguration: WorkspaceModuleConfiguration = firstModuleConfiguration(from: stream)
+                var configuration = try await store.load(in: root)
+                configuration = try WorkspaceModuleSettingsMutation.setModule("code", enabled: true, in: configuration)
+                try await store.save(configuration, in: root)
+                let observed = try await observedConfiguration
+
+                try expect(observed.module(id: "code")?.enabled == true, "Store watcher should publish the atomically saved module configuration.")
+            }
+
+            private func moduleOverrideMergerOnlyMutatesEnabledField() throws {
+                var workspaceConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+                workspaceConfiguration = try WorkspaceModuleSettingsMutation.togglePin("calendar", in: workspaceConfiguration)
+                let override = WorkspaceModuleOverride(projectID: "project-a", moduleOverrides: [WorkspaceModuleOverrideEntry(id: "calendar", enabled: false)])
+                let effectiveConfiguration = ModuleOverrideMerger.effectiveConfiguration(workspace: workspaceConfiguration, override: override)
+
+                try expect(effectiveConfiguration.module(id: "calendar")?.enabled == false, "Override should update enabled.")
+                try expect(effectiveConfiguration.module(id: "calendar")?.pinned == true, "Override should not mutate pinned.")
+                try expect(effectiveConfiguration.module(id: "calendar")?.routes == workspaceConfiguration.module(id: "calendar")?.routes, "Override should not mutate registry routes.")
+            }
+
+            private func moduleOverrideMergerLeavesUnknownIDsAsNoOp() throws {
+                let workspaceConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+                let override = WorkspaceModuleOverride(projectID: "project-a", moduleOverrides: [WorkspaceModuleOverrideEntry(id: "third-party-module", enabled: true)])
+                let effectiveConfiguration = ModuleOverrideMerger.effectiveConfiguration(workspace: workspaceConfiguration, override: override)
+
+                try expect(effectiveConfiguration == workspaceConfiguration, "Unknown override module ids should be ignored.")
+            }
+
+            private func templateAndSettingsRoundTripsAreIdentical() async throws {
+                let rootURL = temporaryDirectoryURL().appendingPathComponent("ModuleRoundTripWorkspace", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+                let root = ResearchRoot(rootURL: rootURL)
+                let repository = WorkspaceTemplateRepository()
+                try repository.overwriteTemplateConfiguration(WorkspaceTemplateRegistry.minimal, in: root)
+                let originalYAML = try String(contentsOf: root.fileURL(for: WorkspaceTemplateRepository.modulesRelativePath), encoding: .utf8)
+                let loadedConfiguration = try repository.loadConfiguration(in: root)
+                try await WorkspaceModuleConfigurationStore().save(loadedConfiguration, in: root)
+                let savedYAML = try String(contentsOf: root.fileURL(for: WorkspaceTemplateRepository.modulesRelativePath), encoding: .utf8)
+
+                try expect(savedYAML == originalYAML, "Wizard and Module Settings should use identical workspace_modules.yaml serialization.")
+            }
 
     private func runtimeEventEnvelopeSequencesAreStableAndDeduplicated() async throws {
         let fixture = try await loopWorkspaceFixture(named: "RuntimeEventDedupeWorkspace")
@@ -5686,6 +6083,100 @@ private struct CoreVerificationSuite {
         )
     }
 
+    private func sampleResearchProject(id: String) -> ResearchProject {
+        ResearchProject(
+            id: id,
+            name: id.replacingOccurrences(of: "-", with: " ").capitalized,
+            description: "P42 fixture project",
+            colorHex: "#4F7CAC",
+            iconName: "folder",
+            relativePath: "projects/\(id)",
+            createdAt: Date(timeIntervalSince1970: 1_777_500_000),
+            updatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+    }
+
+    private func sampleTodo(id: String, title: String, projectID: String, dueDate: Date?) -> TodoItem {
+        TodoItem(
+            id: id,
+            title: title,
+            status: .open,
+            dueDate: dueDate,
+            priority: .high,
+            projectIDs: [projectID],
+            tags: [],
+            relatedPaperIDs: [],
+            notes: nil,
+            createdAt: Date(timeIntervalSince1970: 1_777_500_000),
+            updatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+    }
+
+    private func sampleMarkdownDocument(relativePath: String, title: String) -> MarkdownDocument {
+        MarkdownDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/\(relativePath)"),
+            relativePath: relativePath,
+            category: "gaps",
+            title: title,
+            frontmatter: [:],
+            body: "# \(title)",
+            rawContents: "# \(title)",
+            outgoingLinks: [],
+            pageKeys: [WikiLink.normalizePageKey(title)]
+        )
+    }
+
+    private func sampleAgentRun(
+        id: String,
+        projectID: String?,
+        createdAt: Date,
+        lifecycleState: AgentRunState = .completed,
+        toolResults: [AgentToolResult] = []
+    ) -> AgentRun {
+        AgentRun(
+            id: id,
+            goal: "P42 fixture run",
+            createdAt: createdAt,
+            completedAt: lifecycleState == .completed ? createdAt.addingTimeInterval(1) : nil,
+            mode: .planOnly,
+            plan: AgentPlan(title: "Fixture Draft", summary: "Fixture Draft", toolCalls: []),
+            toolResults: toolResults,
+            currentProjectID: projectID,
+            lifecycleState: lifecycleState
+        )
+    }
+
+    private func artifactToolResult(
+        runID: String,
+        kind: String,
+        createdAt: Date,
+        title: String? = nil,
+        requiresConfirmation: Bool = false
+    ) throws -> AgentToolResult {
+        let artifact = AgentArtifactDraft(
+            id: "artifact-\(runID)-\(kind)",
+            runID: runID,
+            kind: kind,
+            proposedPath: "wiki/projects/\(kind).md",
+            title: title ?? kind.replacingOccurrences(of: "_", with: " ").capitalized,
+            content: "# Artifact",
+            evidenceRefs: sampleEvidenceRefs(prefix: runID, count: 1)
+        )
+        return AgentToolResult(
+            callID: "call-\(runID)-\(kind)-\(Int(createdAt.timeIntervalSince1970))",
+            toolName: "artifact_draft",
+            succeeded: true,
+            requiresConfirmation: requiresConfirmation,
+            message: artifact.title,
+            payload: try jsonValue(artifact)
+        )
+    }
+
+    private func jsonValue<T: Encodable>(_ value: T) throws -> JSONValue {
+        let data = try AgentRunDirectoryStore.encoder().encode(value)
+        return try AgentRunDirectoryStore.decoder().decode(JSONValue.self, from: data)
+    }
+
     private func sampleEvidenceRefs(prefix: String, count: Int = 6) -> [AgentEvidenceRef] {
         (1...count).map { index in
             AgentEvidenceRef(
@@ -5710,6 +6201,27 @@ private struct CoreVerificationSuite {
         )
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
         return baseURL
+    }
+
+    private func firstModuleConfiguration(from stream: AsyncStream<WorkspaceModuleConfiguration>) async throws -> WorkspaceModuleConfiguration {
+        try await withThrowingTaskGroup(of: WorkspaceModuleConfiguration.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                guard let configuration = await iterator.next() else {
+                    throw ValidationError(message: "Module configuration watch stream ended before publishing a change.")
+                }
+                return configuration
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                throw ValidationError(message: "Timed out waiting for workspace module configuration watcher.")
+            }
+            guard let configuration = try await group.next() else {
+                throw ValidationError(message: "Module configuration watcher did not produce a result.")
+            }
+            group.cancelAll()
+            return configuration
+        }
     }
 
     private func zipData(entries: [(path: String, data: Data)]) throws -> Data {

@@ -582,7 +582,7 @@ private struct SidebarProjectGroup: View {
 
             if !project.isCollapsed {
                 VStack(spacing: 1) {
-                    ForEach(appModel.visibleProjectSidebarSections) { section in
+                    ForEach(appModel.visibleProjectSidebarSections(for: project.id)) { section in
                         SidebarActionRow(
                             title: section == .projects ? "Overview" : section.title,
                             systemImage: section.systemImage,

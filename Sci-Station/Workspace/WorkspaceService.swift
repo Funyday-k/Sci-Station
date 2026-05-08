@@ -27,12 +27,21 @@ public actor WorkspaceService {
 
         activateSecurityScope(for: rootURL)
 
+        let targetValidation = WorkspaceCreationWizard.validateTargetURL(rootURL, using: fileManager)
+        guard targetValidation.canCreate else {
+            throw WorkspaceError.incompatibleCreationTarget(targetValidation.message)
+        }
+
         let workspace = ResearchWorkspace(rootURL: rootURL)
         let researchRoot = ResearchRoot(rootURL: rootURL)
         let compatibility = ResearchRoot.compatibility(at: rootURL, using: fileManager)
         try ensureWorkspaceStructure(for: workspace)
         try ensureResearchRootStructure(for: researchRoot)
-        try workspaceTemplateRepository.overwriteTemplateConfiguration(template, in: researchRoot)
+        if compatibility == .emptyOrNew {
+            try workspaceTemplateRepository.overwriteTemplateConfiguration(template, in: researchRoot)
+        } else {
+            try workspaceTemplateRepository.ensureTemplateConfiguration(template, in: researchRoot)
+        }
         try await projectRegistryRepository.ensureDefaultProject(
             in: researchRoot,
             named: rootURL.lastPathComponent,

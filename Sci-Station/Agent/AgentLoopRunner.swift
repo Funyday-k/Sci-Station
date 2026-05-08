@@ -666,6 +666,7 @@ public actor AgentLoopRunner {
         let definitionsByName = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
 
         for stepIndex in startingStepIndex..<(startingStepIndex + options.maxSteps) {
+            try Task.checkCancellation()
             guard messageCharacterCount(messages) <= options.maxContextCharacters,
                   accumulatedToolCharacters <= options.maxAccumulatedToolResultCharacters else {
                 let pause = AgentLoopPauseReason(kind: .contextLimitExceeded, message: "Agent loop stopped because context or tool result budget was exceeded.")
@@ -697,6 +698,7 @@ public actor AgentLoopRunner {
             do {
                 let request = try LLMProviderRequestSanitizer.sanitized(providerRequest, configuration: configuration)
                 response = try await provider.respond(to: request, configuration: configuration, apiKey: apiKey)
+                try Task.checkCancellation()
             } catch {
                 if let fallback = try await visibleProviderFailureResult(
                     errorMessage: error.localizedDescription,
@@ -769,6 +771,7 @@ public actor AgentLoopRunner {
             var stepToolResults: [AgentToolResult] = []
             var cachedToolCallIDs: [String] = []
             for call in response.toolCalls {
+                try Task.checkCancellation()
                 toolCallCount += 1
                 guard toolCallCount <= options.maxToolCalls else {
                     let pause = AgentLoopPauseReason(kind: .maxToolCallsExceeded, message: "Agent loop stopped after \(options.maxToolCalls) tool calls.", toolCallID: call.id)
@@ -812,6 +815,7 @@ public actor AgentLoopRunner {
                 }
 
                 let evaluation = evaluatePermission(call: call, definitions: toolDefinitions, evaluator: permissionEvaluator)
+                try Task.checkCancellation()
                 if evaluation.decision.action == .deny {
                     let pause = AgentLoopPauseReason(
                         kind: .safetyPolicyBlocked,
@@ -878,6 +882,7 @@ public actor AgentLoopRunner {
                     approvalID: nil,
                     forceWriteExecution: false
                 )
+                try Task.checkCancellation()
                 messages.append(execution.message)
                 stepToolResults.append(execution.result)
                 toolResults.append(execution.result)

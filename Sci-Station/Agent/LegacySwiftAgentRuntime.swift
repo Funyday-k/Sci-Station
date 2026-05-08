@@ -16,13 +16,18 @@ public actor LegacySwiftAgentRuntime: ExternalAgentRuntime {
 
     public func startRun(_ request: AgentRuntimeRequest) async throws -> AsyncThrowingStream<AgentRuntimeEventEnvelope, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     try await self.performStartRun(request, continuation: continuation)
+                    continuation.finish()
+                } catch is CancellationError {
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }
@@ -106,9 +111,12 @@ public actor LegacySwiftAgentRuntime: ExternalAgentRuntime {
         )
         sequence += 1
 
+        try Task.checkCancellation()
         let result = try await loopRunner.run(request.asLoopRequest())
+        try Task.checkCancellation()
         completedResultsByRunID[request.runID] = result
         for event in runtimeEvents(from: result, definitions: request.toolDefinitions) {
+            try Task.checkCancellation()
             try await yield(
                 AgentRuntimeEventEnvelope(
                     runID: request.runID,

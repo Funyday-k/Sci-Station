@@ -40,22 +40,25 @@ public actor AgentPlanner {
                 conversationHistory: conversationHistory,
                 allowsPlainTextResponse: allowsPlainTextResponse
             )
-            let request = LLMProviderRequest(messages: messages)
+            let request = LLMProviderRequest(
+                messages: messages,
+                tools: allowsPlainTextResponse ? [] : tools.map(LLMToolSpecification.init(agentTool:))
+            )
 
             if let streamingProvider = provider as? any LLMStreamingChatProvider,
                let responseDeltaHandler {
-                let streamedContent = try await streamedResponse(
+                let streamedMessage = try await streamedResponse(
                     from: streamingProvider,
                     request: request,
                     configuration: configuration,
                     apiKey: apiKey,
                     responseDeltaHandler: responseDeltaHandler
                 )
-                return try parsedPlan(from: streamedContent, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
+                return try parsedPlan(from: streamedMessage, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
             }
 
             let response = try await chatProvider.respond(to: request, configuration: configuration, apiKey: apiKey)
-            return try parsedPlan(from: response.message.content, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
+            return try parsedPlan(from: response.message, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
         }
 
         let prompt = try promptBuilder.buildPrompt(
@@ -76,9 +79,9 @@ public actor AgentPlanner {
         configuration: LLMConfiguration,
         apiKey: String,
         responseDeltaHandler: @escaping @Sendable (String) async -> Void
-    ) async throws -> String {
+    ) async throws -> LLMChatMessage {
         var accumulated = ""
-        var completedContent: String?
+        var completedMessage: LLMChatMessage?
 
         for try await event in provider.streamResponse(to: request, configuration: configuration, apiKey: apiKey) {
             try Task.checkCancellation()
@@ -89,11 +92,40 @@ public actor AgentPlanner {
             case .toolCallDelta:
                 break
             case let .completed(response):
-                completedContent = response.message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                completedMessage = response.message
             }
         }
 
-        return completedContent ?? accumulated
+        if let completedMessage,
+           !completedMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !completedMessage.toolCalls.isEmpty {
+            return completedMessage
+        }
+        return LLMChatMessage(role: .assistant, content: accumulated)
+    }
+
+    private func parsedPlan(from message: LLMChatMessage, goal: String, allowsPlainTextResponse: Bool) throws -> AgentPlan {
+        let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !message.toolCalls.isEmpty {
+            if var parsed = try? planParser.parse(content), parsed.toolCalls.isEmpty {
+                parsed.toolCalls = message.toolCalls
+                return parsed
+            }
+
+            let visibleResponse = AgentVisibleResponseExtractor.visibleText(from: content)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+            let toolNames = message.toolCalls.map(\.toolName).joined(separator: ", ")
+            return AgentPlan(
+                title: "待审批工具调用",
+                summary: visibleResponse ?? "模型请求工具：\(toolNames)",
+                risk: "工具调用将在用户审批后执行。",
+                steps: ["审查模型请求的工具调用", "批准后由 Sci-Station 执行工具"],
+                toolCalls: message.toolCalls,
+                finalResponseDraft: visibleResponse
+            )
+        }
+
+        return try parsedPlan(from: content, goal: goal, allowsPlainTextResponse: allowsPlainTextResponse)
     }
 
     private func parsedPlan(from response: String, goal: String, allowsPlainTextResponse: Bool) throws -> AgentPlan {

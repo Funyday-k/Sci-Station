@@ -1046,6 +1046,38 @@ public nonisolated struct AgentToolCall: Codable, Hashable, Sendable {
         case id
         case toolName = "tool_name"
         case argumentsJSON = "arguments_json"
+        case toolNameCamel = "toolName"
+        case argumentsJSONCamel = "argumentsJSON"
+        case function
+    }
+
+    private enum FunctionCodingKeys: String, CodingKey {
+        case name
+        case arguments
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? "call-\(UUID().uuidString.lowercased())"
+        if let function = try? container.nestedContainer(keyedBy: FunctionCodingKeys.self, forKey: .function) {
+            self.toolName = try function.decodeIfPresent(String.self, forKey: .name) ?? ""
+            self.argumentsJSON = try function.decodeIfPresent(String.self, forKey: .arguments) ?? "{}"
+        } else {
+            self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+                ?? container.decodeIfPresent(String.self, forKey: .toolNameCamel)
+                ?? ""
+            self.argumentsJSON = try container.decodeIfPresent(String.self, forKey: .argumentsJSON)
+                ?? container.decodeIfPresent(String.self, forKey: .argumentsJSONCamel)
+                ?? "{}"
+        }
+    }
+
+    public nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(toolName, forKey: .toolName)
+        try container.encode(argumentsJSON, forKey: .argumentsJSON)
     }
 }
 
@@ -1080,16 +1112,34 @@ public nonisolated struct AgentPlan: Codable, Hashable, Sendable {
         case steps
         case toolCalls = "tool_calls"
         case finalResponseDraft = "final_response_draft"
+        case toolCallsCamel = "toolCalls"
+        case finalResponseDraftCamel = "finalResponseDraft"
     }
 
     public nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try container.decodeIfPresent(String.self, forKey: .title)
-        self.summary = try container.decode(String.self, forKey: .summary)
         self.risk = try container.decodeIfPresent(String.self, forKey: .risk)
         self.steps = try container.decodeIfPresent([String].self, forKey: .steps) ?? []
-        self.toolCalls = try container.decode([AgentToolCall].self, forKey: .toolCalls)
+        self.toolCalls = try container.decodeIfPresent([AgentToolCall].self, forKey: .toolCalls)
+            ?? container.decodeIfPresent([AgentToolCall].self, forKey: .toolCallsCamel)
+            ?? []
         self.finalResponseDraft = try container.decodeIfPresent(String.self, forKey: .finalResponseDraft)
+            ?? container.decodeIfPresent(String.self, forKey: .finalResponseDraftCamel)
+        self.summary = try container.decodeIfPresent(String.self, forKey: .summary)
+            ?? finalResponseDraft
+            ?? title
+            ?? "AI 回复"
+    }
+
+    public nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encode(summary, forKey: .summary)
+        try container.encodeIfPresent(risk, forKey: .risk)
+        try container.encode(steps, forKey: .steps)
+        try container.encode(toolCalls, forKey: .toolCalls)
+        try container.encodeIfPresent(finalResponseDraft, forKey: .finalResponseDraft)
     }
 }
 

@@ -52,19 +52,12 @@ struct SettingsView: View {
                             .help(Text(verbatim: "Rename the current research root folder"))
 
                         HStack(spacing: 10) {
-                            Menu {
-                                ForEach(appModel.workspaceTemplateOptions) { template in
-                                    Button {
-                                        appModel.createWorkspace(template: template)
-                                    } label: {
-                                        Label(template.title, systemImage: template.id == "minimal-workspace" ? "square.dashed" : "books.vertical")
-                                    }
-                                    .help(Text(verbatim: appModel.workspaceTemplatePreviewSummary(for: template)))
-                                }
+                            Button {
+                                appModel.beginWorkspaceCreation()
                             } label: {
                                 Label("Create Root", systemImage: "plus")
                             }
-                            .help(Text(verbatim: "Create a new research root from a built-in template"))
+                            .help(Text(verbatim: "Open the workspace creation wizard"))
 
                             Button {
                                 appModel.openWorkspace()
@@ -162,6 +155,11 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                }
+
+                if appModel.selectedSettingsCategory == .modules {
+                    ModuleSettingsView(workspace: workspace)
+                        .environmentObject(appModel)
                 }
 
                 if appModel.selectedSettingsCategory == .projects {
@@ -860,6 +858,7 @@ struct SettingsView: View {
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case workspace
+    case modules
     case projects
     case library
     case tasks
@@ -872,6 +871,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .workspace:
             return "Workspace"
+        case .modules:
+            return "Modules"
         case .projects:
             return "Projects"
         case .library:
@@ -889,6 +890,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .workspace:
             return "Manage the research root and workspace identity."
+        case .modules:
+            return "Enable, pin, repair, and override built-in workspace modules."
         case .projects:
             return "Edit project names, descriptions, icons, and colors."
         case .library:
@@ -906,6 +909,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .workspace:
             return "externaldrive"
+        case .modules:
+            return "switch.2"
         case .projects:
             return "folder"
         case .library:
@@ -1016,25 +1021,362 @@ struct SettingsSceneView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
-        if let workspace = appModel.currentWorkspace {
-            SettingsView(workspace: workspace)
-        } else {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Settings")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text("Open or create a research root before editing workspace settings.")
+        Group {
+            if let workspace = appModel.currentWorkspace {
+                SettingsView(workspace: workspace)
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Settings")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Open or create a research root before editing workspace settings.")
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Button("Create Root", action: appModel.createWorkspace)
+                            .buttonStyle(.borderedProminent)
+                        Button("Open Root", action: appModel.openWorkspace)
+                            .buttonStyle(.bordered)
+                    }
+                }
+                .padding(24)
+                .frame(width: 520, alignment: .topLeading)
+            }
+        }
+        .sheet(isPresented: $appModel.isShowingWorkspaceCreationWizard) {
+            WorkspaceCreationWizardView()
+                .environmentObject(appModel)
+        }
+    }
+}
+
+struct WorkspaceCreationWizardView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    private let previewColumns = [GridItem(.adaptive(minimum: 170), spacing: 10)]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    destinationSection
+                    templateSection
+                    previewSection
+                    privacySection
+                }
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+            footer
+        }
+        .frame(minWidth: 840, idealWidth: 920, minHeight: 700, idealHeight: 760)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "folder.badge.plus")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Workspace Creation Wizard")
+                    .font(.title2.weight(.semibold))
+                Text("Choose a template, inspect what will be created, then open the Research Root.")
                     .foregroundStyle(.secondary)
-                HStack(spacing: 12) {
-                    Button("Create Root", action: appModel.createWorkspace)
-                        .buttonStyle(.borderedProminent)
-                    Button("Open Root", action: appModel.openWorkspace)
-                        .buttonStyle(.bordered)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 16)
+    }
+
+    private var destinationSection: some View {
+        let validation = appModel.workspaceCreationTargetValidation
+
+        return GroupBox("Destination") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    TextField(
+                        "Workspace name",
+                        text: Binding(
+                            get: { appModel.workspaceCreationDraft.workspaceName },
+                            set: appModel.updateWorkspaceCreationName
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 260)
+
+                    Button {
+                        appModel.chooseWorkspaceCreationDestination()
+                    } label: {
+                        Label("Choose Folder", systemImage: "folder")
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                WorkspacePathRow(
+                    label: "Target",
+                    value: appModel.workspaceCreationDraft.targetURL?.path ?? "No destination selected"
+                )
+
+                Label(validation.message, systemImage: validation.canCreate ? "checkmark.circle" : "exclamationmark.triangle")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(validation.canCreate ? Color.green : Color.orange)
+
+                if !validation.detail.isEmpty {
+                    Text(validation.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(24)
-            .frame(width: 520, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
         }
+    }
+
+    private var templateSection: some View {
+        GroupBox("Template") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(appModel.workspaceCreationTemplateOptions) { option in
+                    Button {
+                        appModel.updateWorkspaceCreationTemplate(option.id)
+                    } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: templateIcon(for: option))
+                                .frame(width: 18)
+                                .foregroundStyle(templateColor(for: option))
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 8) {
+                                    Text(option.title)
+                                        .fontWeight(appModel.workspaceCreationDraft.templateID == option.id ? .semibold : .regular)
+                                    Text(templateStatusText(for: option))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(option.summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
+                            if appModel.workspaceCreationDraft.templateID == option.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!option.isSelectable)
+                    .opacity(option.isSelectable ? 1.0 : 0.58)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var previewSection: some View {
+        let preview = appModel.workspaceCreationPreview
+
+        return GroupBox("Preview") {
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(columns: previewColumns, alignment: .leading, spacing: 10) {
+                    WorkspaceCreationMetricView(title: "Modules", value: "\(preview.enabledModules.count) enabled")
+                    WorkspaceCreationMetricView(title: "Directories", value: "\(preview.directoryItems.filter(\.willCreate).count) created")
+                    WorkspaceCreationMetricView(title: "Routes", value: "\(preview.routes.count)")
+                    WorkspaceCreationMetricView(title: "Workflows", value: "\(preview.workflows.count)")
+                }
+
+                WorkspaceCreationPreviewList(
+                    title: "Enabled Modules",
+                    systemImage: "checkmark.circle",
+                    items: preview.enabledModules.map(\.title)
+                )
+
+                WorkspaceCreationPreviewList(
+                    title: "Future Modules",
+                    systemImage: "circle.dotted",
+                    items: preview.disabledModules.prefix(7).map { "\($0.title) disabled" }
+                )
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Directories")
+                        .font(.caption.weight(.semibold))
+                    ForEach(preview.directoryItems.prefix(14)) { item in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: directoryIcon(for: item))
+                                .foregroundStyle(item.willCreate ? Color.accentColor : Color.secondary)
+                                .frame(width: 16)
+                            Text(item.path)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            Text(directoryStatusText(for: item))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+
+                WorkspaceCreationPreviewList(
+                    title: "Settings Files",
+                    systemImage: "doc.text",
+                    items: preview.settingsFiles
+                )
+
+                WorkspaceCreationPreviewList(
+                    title: "Routes / Tabs / Workflows",
+                    systemImage: "point.3.connected.trianglepath.dotted",
+                    items: routeSummaryItems(for: preview)
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var privacySection: some View {
+        GroupBox("Privacy And AI Setup") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(WorkspaceCreationWizard.privacyNotes, id: \.self) { note in
+                    Label(note, systemImage: "checkmark.shield")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Toggle(
+                    "I understand that AI Lab visibility does not configure provider credentials or start an AI run.",
+                    isOn: Binding(
+                        get: { appModel.workspaceCreationDraft.privacyAcknowledged },
+                        set: appModel.setWorkspaceCreationPrivacyAcknowledged
+                    )
+                )
+                .toggleStyle(.checkbox)
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            if appModel.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Preparing workspace")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Button("Cancel") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button {
+                appModel.completeWorkspaceCreation()
+            } label: {
+                Label("Create And Open", systemImage: "checkmark")
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!appModel.canCompleteWorkspaceCreation)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+    }
+
+    private func templateIcon(for option: WorkspaceCreationTemplateOption) -> String {
+        if !option.isSelectable { return "clock" }
+        if option.id == WorkspaceTemplateRegistry.minimal.id { return "square.dashed" }
+        return "books.vertical"
+    }
+
+    private func templateColor(for option: WorkspaceCreationTemplateOption) -> Color {
+        option.isSelectable ? Color.accentColor : Color.secondary
+    }
+
+    private func templateStatusText(for option: WorkspaceCreationTemplateOption) -> String {
+        option.isSelectable ? "available" : "coming later"
+    }
+
+    private func directoryIcon(for item: WorkspaceCreationDirectoryPreviewItem) -> String {
+        if item.isWildcard { return "folder.badge.questionmark" }
+        return item.willCreate ? "folder.badge.plus" : "folder"
+    }
+
+    private func directoryStatusText(for item: WorkspaceCreationDirectoryPreviewItem) -> String {
+        if item.isWildcard { return "project instance preview" }
+        if item.required { return item.repairable ? "required, repairable" : "required" }
+        return item.willCreate ? "optional" : "preview only"
+    }
+
+    private func routeSummaryItems(for preview: WorkspaceCreationPreview) -> [String] {
+        [
+            "Routes: " + preview.routes.map(\.id).joined(separator: ", "),
+            "Project tabs: " + preview.projectTabs.map(\.title).joined(separator: ", "),
+            "Workflows: " + preview.workflows.joined(separator: ", ")
+        ]
+    }
+}
+
+private struct WorkspaceCreationMetricView: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct WorkspaceCreationPreviewList: View {
+    let title: String
+    let systemImage: String
+    let items: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+            if items.isEmpty {
+                Text("none")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(items.prefix(8), id: \.self) { item in
+                    Label(item, systemImage: systemImage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

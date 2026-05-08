@@ -265,7 +265,7 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
             let argumentInspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
             let risk = definition?.risk ?? .externalSideEffect
             let permissionKey = definition?.permissionKey ?? risk.defaultPermissionKey
-            let targetPaths = result?.modifiedPaths.nilIfEmpty ?? argumentInspection.paths
+            let targetPaths = result?.modifiedPaths.nilIfEmpty ?? Self.targetPaths(for: call, inspectedPaths: argumentInspection.paths)
             let approvalArguments = (try? AgentToolArguments(rawJSON: call.argumentsJSON)) ?? .emptyObject
             let fingerprint = AgentApprovalRequest.fingerprint(
                 tool: call.toolName,
@@ -302,8 +302,8 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
                 risk: risk,
                 targetPaths: targetPaths,
                 fingerprint: fingerprint,
-                diffPreview: risk == .readOnly ? nil : "Tool may modify: \(targetPaths.joined(separator: ", ").nilIfEmpty ?? "workspace")",
-                summaryPreview: "\(call.toolName) (\(risk.rawValue))",
+                diffPreview: Self.diffPreview(for: call, risk: risk, targetPaths: targetPaths),
+                summaryPreview: Self.summaryPreview(for: call, risk: risk, targetPaths: targetPaths),
                 rollbackHint: risk == .readOnly ? nil : AgentRollbackHint(summary: "Review or revert target paths if the approved operation is wrong.", targetPaths: targetPaths),
                 decision: decision,
                 matchedPolicyDescription: policyDescription,
@@ -315,6 +315,83 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
                 sideEffectsRequirePermission: risk != .readOnly
             )
         }
+    }
+
+    private nonisolated static func targetPaths(for call: AgentToolCall, inspectedPaths: [String]) -> [String] {
+        if !inspectedPaths.isEmpty {
+            return inspectedPaths
+        }
+        guard call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" else {
+            return []
+        }
+        if let relativePath = stringArgument("relative_path", in: call.argumentsJSON)?.nilIfEmpty {
+            return [relativePath]
+        }
+        if let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty {
+            return ["wiki/plans/\(slug(from: title)).md"]
+        }
+        return ["wiki/plans/*.md"]
+    }
+
+    private nonisolated static func diffPreview(for call: AgentToolCall, risk: AgentToolRisk, targetPaths: [String]) -> String? {
+        guard risk != .readOnly else {
+            return nil
+        }
+        let pathText = targetPaths.joined(separator: ", ").nilIfEmpty ?? "workspace"
+        guard call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" else {
+            return "Tool may modify: \(pathText)"
+        }
+        let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Markdown draft"
+        let body = stringArgument("body", in: call.argumentsJSON)?.nilIfEmpty ?? ""
+        return """
+        # target: \(pathText)
+        # mode: create_or_replace
+        # title: \(title)
+
+        \(limited(body, maxCharacters: 1_200))
+        """
+    }
+
+    private nonisolated static func summaryPreview(for call: AgentToolCall, risk: AgentToolRisk, targetPaths: [String]) -> String {
+        let pathText = targetPaths.joined(separator: ", ").nilIfEmpty ?? "workspace"
+        if call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" {
+            let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Markdown draft"
+            return "Draft Markdown write (\(risk.rawValue)) -> \(pathText): \(title)"
+        }
+        return "\(call.toolName) (\(risk.rawValue)) -> \(pathText)"
+    }
+
+    private nonisolated static func stringArgument(_ key: String, in rawJSON: String) -> String? {
+        guard let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object[key] as? String
+    }
+
+    private nonisolated static func slug(from title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let lowercased = title.lowercased()
+        var output = ""
+        var previousWasDash = false
+        for scalar in lowercased.unicodeScalars {
+            if allowed.contains(scalar) {
+                output.unicodeScalars.append(scalar)
+                previousWasDash = false
+            } else if !previousWasDash {
+                output.append("-")
+                previousWasDash = true
+            }
+        }
+        let slug = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "markdown-draft" : slug
+    }
+
+    private nonisolated static func limited(_ text: String, maxCharacters: Int) -> String {
+        guard text.count > maxCharacters else {
+            return text
+        }
+        return String(text.prefix(maxCharacters)) + "\n..."
     }
 
     private nonisolated static func policyDescription(

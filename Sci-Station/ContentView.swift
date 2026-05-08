@@ -153,6 +153,10 @@ struct ContentView: View {
             ResearchProjectEditorView()
                 .environmentObject(appModel)
         }
+        .sheet(isPresented: $appModel.isShowingWorkspaceCreationWizard) {
+            WorkspaceCreationWizardView()
+                .environmentObject(appModel)
+        }
     }
 }
 

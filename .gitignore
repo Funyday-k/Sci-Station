@@ -85,6 +85,7 @@ release/
 /*.sqlite-shm
 /*.sqlite-wal
 /DOC/
+/awesome-design-md-main/
 
 # Reference open-source repos
 /claude-code-main/

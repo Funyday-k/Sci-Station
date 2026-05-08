@@ -8,6 +8,7 @@ public nonisolated enum AgentPaperIntentKind: String, Codable, Sendable {
     case sectionSummary = "section_summary"
     case citationLookup = "citation_lookup"
     case writeback = "writeback"
+    case continuation
 }
 
 public nonisolated struct AgentPaperIntent: Codable, Hashable, Sendable {
@@ -32,7 +33,7 @@ public nonisolated struct AgentPaperIntent: Codable, Hashable, Sendable {
         switch kind {
         case .paperBodyQA, .formula, .sectionSummary, .citationLookup, .writeback:
             return true
-        case .paperListing, .none:
+        case .paperListing, .continuation, .none:
             return false
         }
     }
@@ -55,6 +56,9 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
         let mentionsWrite = containsAny(lowercased, ["write", "save", "append", "写入", "写进", "写到", "放进", "保存", "生成 wiki", "写到 wiki", "todo", "artifact"])
         let mentionsListing = containsAny(lowercased, ["list", "show", "what papers", "列", "都有什么", "有哪些"])
 
+        if isContinuation(lowercased) {
+            return AgentPaperIntent(kind: .continuation, ordinalIndex: nil, query: nil, sectionHint: nil)
+        }
         if mentionsWrite && mentionsPaper {
             return AgentPaperIntent(kind: .writeback, ordinalIndex: ordinalIndex, query: searchQuery(from: trimmed, formula: mentionsFormula), sectionHint: sectionHint(in: trimmed))
         }
@@ -78,6 +82,9 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
 
     public nonisolated func shouldPreflight(_ intent: AgentPaperIntent, availableToolNames: Set<String>) -> Bool {
         guard intent.kind != .none else {
+            return false
+        }
+        if intent.kind == .continuation {
             return false
         }
         if intent.kind == .paperListing {
@@ -108,7 +115,7 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
             return "citation source quote"
         case .writeback, .paperBodyQA:
             return intent.query?.nilIfEmpty ?? "method result conclusion"
-        case .paperListing, .none:
+        case .paperListing, .continuation, .none:
             return intent.query?.nilIfEmpty ?? "paper"
         }
     }
@@ -165,6 +172,21 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
 
     private nonisolated func containsAny(_ value: String, _ needles: [String]) -> Bool {
         needles.contains { value.contains($0.lowercased()) }
+    }
+
+    private nonisolated func isContinuation(_ lowercased: String) -> Bool {
+        let compact = lowercased
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return [
+            "继续",
+            "接着",
+            "继续说",
+            "继续写",
+            "go on",
+            "continue",
+            "keep going"
+        ].contains { compact == $0 || compact.hasPrefix($0 + " ") }
     }
 
     private nonisolated static func ordinalIndex(in lowercased: String) -> Int? {

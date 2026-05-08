@@ -1,5 +1,8 @@
 import Foundation
 
+/// Workspace module registry and schema-version-1 YAML helpers.
+/// Proposal41 adds Settings-driven editing but keeps this repository as the shared serializer for wizard and settings writes.
+
 public nonisolated enum WorkspaceModuleSchema {
     public static let currentVersion = 1
 
@@ -268,6 +271,405 @@ public nonisolated struct WorkspaceTemplate: Codable, Hashable, Sendable, Identi
     }
 }
 
+public nonisolated enum WorkspaceCreationTemplateAvailability: String, Codable, Sendable {
+    case available
+    case comingLater = "coming_later"
+
+    public var isSelectable: Bool {
+        self == .available
+    }
+}
+
+public nonisolated struct WorkspaceCreationTemplateOption: Hashable, Sendable, Identifiable {
+    public var id: String
+    public var title: String
+    public var summary: String
+    public var availability: WorkspaceCreationTemplateAvailability
+    public var template: WorkspaceTemplate?
+
+    public nonisolated init(
+        id: String,
+        title: String,
+        summary: String,
+        availability: WorkspaceCreationTemplateAvailability = .available,
+        template: WorkspaceTemplate? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.summary = summary
+        self.availability = availability
+        self.template = template
+    }
+
+    public nonisolated var isSelectable: Bool {
+        availability.isSelectable && template != nil
+    }
+}
+
+public nonisolated struct WorkspaceCreationDraft: Hashable, Sendable {
+    public var targetURL: URL?
+    public var workspaceName: String
+    public var templateID: String
+    public var enabledModuleIDs: Set<String>
+    public var privacyAcknowledged: Bool
+
+    public nonisolated init(
+        targetURL: URL? = nil,
+        workspaceName: String = "ResearchWorkspace",
+        templateID: String = WorkspaceTemplateRegistry.literatureReview.id,
+        enabledModuleIDs: Set<String> = Set(WorkspaceTemplateRegistry.literatureReview.enabledModuleIDs),
+        privacyAcknowledged: Bool = false
+    ) {
+        self.targetURL = targetURL
+        self.workspaceName = workspaceName
+        self.templateID = templateID
+        self.enabledModuleIDs = enabledModuleIDs
+        self.privacyAcknowledged = privacyAcknowledged
+    }
+}
+
+public nonisolated struct WorkspaceCreationDirectoryPreviewItem: Hashable, Sendable, Identifiable {
+    public var id: String { path }
+    public var path: String
+    public var required: Bool
+    public var repairable: Bool
+    public var willCreate: Bool
+    public var isWildcard: Bool
+    public var moduleTitles: [String]
+
+    public nonisolated init(
+        path: String,
+        required: Bool,
+        repairable: Bool,
+        willCreate: Bool,
+        isWildcard: Bool,
+        moduleTitles: [String] = []
+    ) {
+        self.path = path
+        self.required = required
+        self.repairable = repairable
+        self.willCreate = willCreate
+        self.isWildcard = isWildcard
+        self.moduleTitles = moduleTitles
+    }
+}
+
+public nonisolated struct WorkspaceCreationPreview: Hashable, Sendable {
+    public var template: WorkspaceTemplate
+    public var configuration: WorkspaceModuleConfiguration
+    public var enabledModules: [WorkspaceModule]
+    public var disabledModules: [WorkspaceModule]
+    public var directoryItems: [WorkspaceCreationDirectoryPreviewItem]
+    public var settingsFiles: [String]
+    public var routes: [WorkspaceModuleRoute]
+    public var projectTabs: [WorkspaceModuleProjectTab]
+    public var workflows: [String]
+    public var warnings: [WorkspaceModuleWarning]
+
+    public nonisolated init(
+        template: WorkspaceTemplate,
+        configuration: WorkspaceModuleConfiguration,
+        enabledModules: [WorkspaceModule],
+        disabledModules: [WorkspaceModule],
+        directoryItems: [WorkspaceCreationDirectoryPreviewItem],
+        settingsFiles: [String],
+        routes: [WorkspaceModuleRoute],
+        projectTabs: [WorkspaceModuleProjectTab],
+        workflows: [String],
+        warnings: [WorkspaceModuleWarning]
+    ) {
+        self.template = template
+        self.configuration = configuration
+        self.enabledModules = enabledModules
+        self.disabledModules = disabledModules
+        self.directoryItems = directoryItems
+        self.settingsFiles = settingsFiles
+        self.routes = routes
+        self.projectTabs = projectTabs
+        self.workflows = workflows
+        self.warnings = warnings
+    }
+}
+
+public nonisolated enum WorkspaceCreationTargetState: String, Codable, Sendable {
+    case missing
+    case newFolder = "new_folder"
+    case emptyFolder = "empty_folder"
+    case existingResearchRoot = "existing_research_root"
+    case legacyWorkspace = "legacy_workspace"
+    case blockedFile = "blocked_file"
+    case blockedNonEmptyFolder = "blocked_non_empty_folder"
+    case blockedParent = "blocked_parent"
+}
+
+public nonisolated struct WorkspaceCreationTargetValidation: Hashable, Sendable {
+    public var state: WorkspaceCreationTargetState
+    public var canCreate: Bool
+    public var compatibility: ResearchRootCompatibility?
+    public var message: String
+    public var detail: String
+
+    public nonisolated init(
+        state: WorkspaceCreationTargetState,
+        canCreate: Bool,
+        compatibility: ResearchRootCompatibility? = nil,
+        message: String,
+        detail: String = ""
+    ) {
+        self.state = state
+        self.canCreate = canCreate
+        self.compatibility = compatibility
+        self.message = message
+        self.detail = detail
+    }
+}
+
+public nonisolated enum WorkspaceCreationWizard {
+    public static let privacyNotes = [
+        "No API key is written to workspace files or Keychain during creation.",
+        "Provider raw config, prompts, and responses are not written by the wizard.",
+        "Enabling AI Lab only exposes routes and workflows; model credentials and sidecar readiness are configured later."
+    ]
+
+    public static let templateOptions: [WorkspaceCreationTemplateOption] = [
+        WorkspaceCreationTemplateOption(
+            id: WorkspaceTemplateRegistry.minimal.id,
+            title: WorkspaceTemplateRegistry.minimal.title,
+            summary: "Projects, Wiki, Tasks, Calendar, and AI Lab routes for a lightweight research root.",
+            template: WorkspaceTemplateRegistry.minimal
+        ),
+        WorkspaceCreationTemplateOption(
+            id: WorkspaceTemplateRegistry.literatureReview.id,
+            title: WorkspaceTemplateRegistry.literatureReview.title,
+            summary: "Paper Library, PDF Reader, Materials, Tasks, Calendar, Wiki, Projects, and AI Lab.",
+            template: WorkspaceTemplateRegistry.literatureReview
+        ),
+        WorkspaceCreationTemplateOption(
+            id: "code-research",
+            title: "Code Research",
+            summary: "Reserved for code, dataset, and experiment-heavy workspaces.",
+            availability: .comingLater
+        ),
+        WorkspaceCreationTemplateOption(
+            id: "theory-notes",
+            title: "Theory Notes",
+            summary: "Reserved for definitions, theorem maps, and theory project tabs.",
+            availability: .comingLater
+        ),
+        WorkspaceCreationTemplateOption(
+            id: "writing-desk",
+            title: "Writing Desk",
+            summary: "Reserved for manuscript drafting and citation checking workflows.",
+            availability: .comingLater
+        )
+    ]
+
+    public static func templateOption(id: String) -> WorkspaceCreationTemplateOption {
+        templateOptions.first { $0.id == id && $0.isSelectable }
+            ?? templateOptions.first { $0.id == WorkspaceTemplateRegistry.literatureReview.id }
+            ?? WorkspaceCreationTemplateOption(
+                id: WorkspaceTemplateRegistry.literatureReview.id,
+                title: WorkspaceTemplateRegistry.literatureReview.title,
+                summary: "Literature review workspace.",
+                template: WorkspaceTemplateRegistry.literatureReview
+            )
+    }
+
+    public static func template(for draft: WorkspaceCreationDraft) -> WorkspaceTemplate {
+        templateOption(id: draft.templateID).template ?? WorkspaceTemplateRegistry.literatureReview
+    }
+
+    public static func draft(selecting template: WorkspaceTemplate, targetURL: URL? = nil, workspaceName: String = "ResearchWorkspace") -> WorkspaceCreationDraft {
+        WorkspaceCreationDraft(
+            targetURL: targetURL,
+            workspaceName: workspaceName,
+            templateID: template.id,
+            enabledModuleIDs: Set(template.enabledModuleIDs),
+            privacyAcknowledged: false
+        )
+    }
+
+    public static func preview(for draft: WorkspaceCreationDraft) -> WorkspaceCreationPreview {
+        preview(for: template(for: draft))
+    }
+
+    public static func preview(for template: WorkspaceTemplate) -> WorkspaceCreationPreview {
+        let configuration = WorkspaceModuleRegistry.configuration(for: template)
+        let enabledModules = configuration.modules.filter(\.enabled)
+        let disabledModules = configuration.modules.filter { !$0.enabled }
+        return WorkspaceCreationPreview(
+            template: template,
+            configuration: configuration,
+            enabledModules: enabledModules,
+            disabledModules: disabledModules,
+            directoryItems: directoryItems(for: template, configuration: configuration),
+            settingsFiles: template.settingsFiles.sorted(),
+            routes: WorkspaceModuleRegistry.availableRoutes(in: configuration),
+            projectTabs: WorkspaceModuleRegistry.availableProjectTabs(in: configuration),
+            workflows: WorkspaceModuleRegistry.availableWorkflows(in: configuration),
+            warnings: WorkspaceModuleRegistry.warnings(for: configuration)
+        )
+    }
+
+    public static func safeDirectoryPathsToCreate(for template: WorkspaceTemplate) -> [String] {
+        preview(for: template).directoryItems
+            .filter(\.willCreate)
+            .map(\.path)
+            .sorted()
+    }
+
+    public static func validateTargetURL(_ targetURL: URL?, using fileManager: FileManager = .default) -> WorkspaceCreationTargetValidation {
+        guard let targetURL else {
+            return WorkspaceCreationTargetValidation(
+                state: .missing,
+                canCreate: false,
+                message: "Choose a local destination.",
+                detail: "The wizard needs a Research Root folder before it can create files."
+            )
+        }
+
+        guard targetURL.isFileURL else {
+            return WorkspaceCreationTargetValidation(
+                state: .blockedParent,
+                canCreate: false,
+                message: "Choose a local folder.",
+                detail: "Network URLs and virtual locations are not supported for Research Roots."
+            )
+        }
+
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: targetURL.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                return WorkspaceCreationTargetValidation(
+                    state: .blockedFile,
+                    canCreate: false,
+                    message: "Destination is a file.",
+                    detail: "Choose a folder location so Sci-Station can create workspace directories safely."
+                )
+            }
+
+            let compatibility = ResearchRoot.compatibility(at: targetURL, using: fileManager)
+            if compatibility == .researchRoot {
+                return WorkspaceCreationTargetValidation(
+                    state: .existingResearchRoot,
+                    canCreate: true,
+                    compatibility: compatibility,
+                    message: "Existing Research Root will be opened.",
+                    detail: "The wizard will backfill missing settings without deleting user files or replacing current module choices."
+                )
+            }
+
+            if compatibility == .legacyWorkspace {
+                return WorkspaceCreationTargetValidation(
+                    state: .legacyWorkspace,
+                    canCreate: true,
+                    compatibility: compatibility,
+                    message: "Legacy workspace will be opened safely.",
+                    detail: "Sci-Station will add Research Root scaffolding while leaving existing legacy files in place."
+                )
+            }
+
+            let contents = (try? fileManager.contentsOfDirectory(atPath: targetURL.path)) ?? []
+            if contents.isEmpty {
+                return WorkspaceCreationTargetValidation(
+                    state: .emptyFolder,
+                    canCreate: true,
+                    compatibility: compatibility,
+                    message: "Empty folder is ready.",
+                    detail: "Sci-Station will create the selected template inside this folder."
+                )
+            }
+
+            return WorkspaceCreationTargetValidation(
+                state: .blockedNonEmptyFolder,
+                canCreate: false,
+                compatibility: compatibility,
+                message: "Choose an empty folder or existing Research Root.",
+                detail: "This folder has files but does not look like a Sci-Station workspace, so creation is blocked to avoid mixing data."
+            )
+        }
+
+        let parentURL = targetURL.deletingLastPathComponent()
+        guard existingDirectoryAncestor(for: parentURL, using: fileManager) != nil else {
+            return WorkspaceCreationTargetValidation(
+                state: .blockedParent,
+                canCreate: false,
+                message: "Parent folder does not exist.",
+                detail: "Create the parent folder first or choose a different destination."
+            )
+        }
+
+        return WorkspaceCreationTargetValidation(
+            state: .newFolder,
+            canCreate: true,
+            compatibility: .emptyOrNew,
+            message: "New Research Root will be created.",
+            detail: "Sci-Station will create the folder and write deterministic template settings."
+        )
+    }
+
+    private static func directoryItems(for template: WorkspaceTemplate, configuration: WorkspaceModuleConfiguration) -> [WorkspaceCreationDirectoryPreviewItem] {
+        let enabledModules = WorkspaceModuleRegistry.availableModules(in: configuration)
+        var records: [String: (required: Bool, repairable: Bool, moduleTitles: Set<String>)] = [:]
+
+        for path in template.previewDirectories {
+            let normalizedPath = normalizedDirectoryPath(path)
+            guard !normalizedPath.isEmpty else { continue }
+            records[normalizedPath] = records[normalizedPath] ?? (required: false, repairable: true, moduleTitles: [])
+        }
+
+        for module in enabledModules {
+            for directory in module.directories {
+                let normalizedPath = normalizedDirectoryPath(directory.path)
+                guard !normalizedPath.isEmpty else { continue }
+                var record = records[normalizedPath] ?? (required: false, repairable: false, moduleTitles: [])
+                record.required = record.required || directory.required
+                record.repairable = record.repairable || directory.repairable
+                record.moduleTitles.insert(module.title)
+                records[normalizedPath] = record
+            }
+        }
+
+        return records.map { path, record in
+            let isWildcard = path.contains("*")
+            let isSettingsFile = path.hasSuffix(".yaml")
+            let isSafe = WorkspaceModuleSchema.isSafeRelativePathPattern(path)
+            return WorkspaceCreationDirectoryPreviewItem(
+                path: path,
+                required: record.required,
+                repairable: record.repairable,
+                willCreate: isSafe && !isWildcard && !isSettingsFile,
+                isWildcard: isWildcard,
+                moduleTitles: record.moduleTitles.sorted()
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.required != rhs.required { return lhs.required && !rhs.required }
+            return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
+        }
+    }
+
+    private static func normalizedDirectoryPath(_ path: String) -> String {
+        path.trimmingCharacters(in: CharacterSet(charactersIn: "/ \n\t"))
+    }
+
+    private static func existingDirectoryAncestor(for url: URL, using fileManager: FileManager) -> URL? {
+        var candidate = url
+        while true {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                return candidate
+            }
+
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path {
+                return nil
+            }
+            candidate = parent
+        }
+    }
+}
+
 public nonisolated enum WorkspaceModuleRegistry {
     public static let defaultEnabledModuleIDs: Set<String> = [
         "projects",
@@ -513,14 +915,17 @@ public nonisolated enum WorkspaceModuleRegistry {
 
     public static func mergedConfiguration(from storedConfiguration: WorkspaceModuleConfiguration) -> WorkspaceModuleConfiguration {
         let storedModulesByID = Dictionary(uniqueKeysWithValues: storedConfiguration.modules.map { ($0.id, $0) })
-        let mergedModules = builtInModules.map { builtInModule in
+        let mergedModulesByID = Dictionary(uniqueKeysWithValues: builtInModules.map { builtInModule in
             var module = builtInModule
             if let storedModule = storedModulesByID[builtInModule.id] {
                 module.enabled = storedModule.enabled
                 module.pinned = storedModule.pinned
             }
-            return module
-        }
+            return (module.id, module)
+        })
+        let storedKnownOrder = storedConfiguration.modules.map(\.id).filter { mergedModulesByID[$0] != nil }
+        let missingBuiltInOrder = builtInModules.map(\.id).filter { !storedKnownOrder.contains($0) }
+        let mergedModules = (storedKnownOrder + missingBuiltInOrder).compactMap { mergedModulesByID[$0] }
         return WorkspaceModuleConfiguration(schemaVersion: WorkspaceModuleSchema.currentVersion, modules: mergedModules)
     }
 
@@ -810,12 +1215,63 @@ public nonisolated struct WorkspaceTemplateRepository {
         return WorkspaceModuleRegistry.mergedConfiguration(from: try decodeConfiguration(contents))
     }
 
+    public func loadTemplate(in root: ResearchRoot) throws -> WorkspaceTemplate {
+        let fileURL = root.fileURL(for: Self.templateRelativePath)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return WorkspaceTemplateRegistry.literatureReview
+        }
+
+        let lines = try String(contentsOf: fileURL, encoding: .utf8).components(separatedBy: .newlines)
+        var id = WorkspaceTemplateRegistry.literatureReview.id
+        var title = WorkspaceTemplateRegistry.literatureReview.title
+        var version = WorkspaceTemplateRegistry.literatureReview.version
+        var enabledModuleIDs: [String] = []
+        var previewDirectories: [String] = []
+        var settingsFiles: [String] = []
+        var cursor = 0
+
+        while cursor < lines.count {
+            let line = lines[cursor]
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            if trimmedLine.hasPrefix("id:") {
+                id = unquoted(value(after: "id:", in: trimmedLine))
+            } else if trimmedLine.hasPrefix("title:") {
+                title = unquoted(value(after: "title:", in: trimmedLine))
+            } else if trimmedLine.hasPrefix("version:") {
+                version = unquoted(value(after: "version:", in: trimmedLine))
+            } else if trimmedLine == "enabled_module_ids:" {
+                let result = parseStringArray(from: lines, start: cursor + 1, parentIndentation: indentation(of: line))
+                enabledModuleIDs = result.values
+                cursor = result.nextIndex - 1
+            } else if trimmedLine == "preview_directories:" {
+                let result = parseStringArray(from: lines, start: cursor + 1, parentIndentation: indentation(of: line))
+                previewDirectories = result.values
+                cursor = result.nextIndex - 1
+            } else if trimmedLine == "settings_files:" {
+                let result = parseStringArray(from: lines, start: cursor + 1, parentIndentation: indentation(of: line))
+                settingsFiles = result.values
+                cursor = result.nextIndex - 1
+            }
+            cursor += 1
+        }
+
+        let fallbackTemplate = WorkspaceTemplateRegistry.template(id: id)
+        return WorkspaceTemplate(
+            id: id.isEmpty ? fallbackTemplate.id : id,
+            title: title.isEmpty ? fallbackTemplate.title : title,
+            version: version.isEmpty ? fallbackTemplate.version : version,
+            enabledModuleIDs: enabledModuleIDs.isEmpty ? fallbackTemplate.enabledModuleIDs : enabledModuleIDs,
+            previewDirectories: previewDirectories.isEmpty ? fallbackTemplate.previewDirectories : previewDirectories,
+            settingsFiles: settingsFiles.isEmpty ? fallbackTemplate.settingsFiles : settingsFiles
+        )
+    }
+
     public func saveConfiguration(_ configuration: WorkspaceModuleConfiguration, in root: ResearchRoot) throws {
         try write(configurationYAML(WorkspaceModuleRegistry.mergedConfiguration(from: configuration)), to: root.fileURL(for: Self.modulesRelativePath))
     }
 
     public func preview(for template: WorkspaceTemplate) -> [String] {
-        Array(Set(template.previewDirectories + template.settingsFiles)).sorted()
+        Array(Set(WorkspaceCreationWizard.safeDirectoryPathsToCreate(for: template) + template.settingsFiles)).sorted()
     }
 
     public nonisolated func configurationYAML(_ configuration: WorkspaceModuleConfiguration) -> String {
@@ -848,13 +1304,9 @@ public nonisolated struct WorkspaceTemplateRepository {
     }
 
     private func ensureDirectories(for template: WorkspaceTemplate, in root: ResearchRoot) throws {
-        let modules = WorkspaceModuleRegistry.modules(for: template).filter(\.enabled)
-        let directories = Set(template.previewDirectories + modules.flatMap { module in module.directories.map(\.path) })
-        for directory in directories where !directory.contains("*") && !directory.hasSuffix(".yaml") {
+        for directory in WorkspaceCreationWizard.safeDirectoryPathsToCreate(for: template) {
             try fileManager.createDirectory(at: root.directoryURL(for: directory), withIntermediateDirectories: true)
         }
-        try fileManager.createDirectory(at: root.directoryURL(for: "settings"), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: root.directoryURL(for: ".sci-station/agent"), withIntermediateDirectories: true)
     }
 
     private func ensureModulesConfiguration(_ template: WorkspaceTemplate, in root: ResearchRoot) throws {

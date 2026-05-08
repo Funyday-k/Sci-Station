@@ -62,6 +62,12 @@ private struct PaperMarkdownConversionMetadata {
     var fallbackReason: String?
 }
 
+private struct AgentMarkdownWritebackDraft {
+    var targetPath: String
+    var draftPath: String
+    var contents: String
+}
+
 private struct AgentRetrievalSelectedSourceFileStatus {
     var relativePath: String
     var exists: Bool
@@ -109,6 +115,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var workspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
     @Published private(set) var workspaceModuleWarnings: [WorkspaceModuleWarning] = []
     @Published private(set) var workspaceModuleDirectoryStatuses: [WorkspaceModuleDirectoryStatus] = []
+    @Published private(set) var workspaceModuleOverrides: [String: WorkspaceModuleOverride] = [:]
     @Published private(set) var researchProjects: [ResearchProject] = []
     @Published private(set) var currentProjectID: ResearchProject.ID?
     @Published private(set) var isViewingGlobalTodos = false
@@ -136,6 +143,8 @@ final class AppViewModel: ObservableObject {
     @Published var addTodosToAppleReminders = true
     @Published private(set) var workspacePreferences = WorkspacePreferences()
     @Published private(set) var workspaceSettingsStatusMessage: String?
+    @Published var isShowingWorkspaceCreationWizard = false
+    @Published private(set) var workspaceCreationDraft = WorkspaceCreationDraft()
     @Published var selectedSettingsCategory: SettingsCategory = .workspace
     @Published private(set) var selectedPaperID: Paper.ID?
     @Published private(set) var selectedLibraryPaperIDs: Set<Paper.ID> = []
@@ -250,6 +259,8 @@ final class AppViewModel: ObservableObject {
     private let todoRepository: TodoRepository
     private let calendarRepository: CalendarRepository
     private let workspacePreferencesRepository: WorkspacePreferencesRepository
+    private let workspaceModuleConfigurationStore: WorkspaceModuleConfigurationStore
+    private let workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository
     private let paperAnnotationsRepository: PaperAnnotationsRepository
     private let libraryBulkEditService: LibraryBulkEditService
     private let systemCalendarService: SystemCalendarService
@@ -261,6 +272,7 @@ final class AppViewModel: ObservableObject {
     private let paperSummaryService: PaperSummaryService
     private let llmWritebackService: LLMWritebackService
     private let agentService: SciStationAgentService
+    private let agentSessionEventLogger = AgentSessionEventLogger()
     private let appDebugEventLogger = AppDebugEventLogger()
     private let sidecarCoordinator: SidecarRuntimeCoordinator
     private let agentEmbeddingIndexController: AgentEmbeddingIndexController
@@ -286,6 +298,7 @@ final class AppViewModel: ObservableObject {
     private var agentStreamingResponseCommitScheduled = false
     private var agentStreamingPendingResponseText: String?
     private var agentStreamingRawResponseText = ""
+    private var workspaceModuleConfigurationWatchTask: Task<Void, Never>?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -324,21 +337,54 @@ final class AppViewModel: ObservableObject {
         WorkspaceTemplateRegistry.builtInTemplates
     }
 
+    var workspaceCreationTemplateOptions: [WorkspaceCreationTemplateOption] {
+        WorkspaceCreationWizard.templateOptions
+    }
+
+    var workspaceCreationPreview: WorkspaceCreationPreview {
+        WorkspaceCreationWizard.preview(for: workspaceCreationDraft)
+    }
+
+    var workspaceCreationTargetValidation: WorkspaceCreationTargetValidation {
+        WorkspaceCreationWizard.validateTargetURL(workspaceCreationDraft.targetURL)
+    }
+
+    var canCompleteWorkspaceCreation: Bool {
+        workspaceCreationTargetValidation.canCreate
+            && workspaceCreationDraft.privacyAcknowledged
+            && WorkspaceCreationWizard.templateOption(id: workspaceCreationDraft.templateID).isSelectable
+            && !isWorking
+    }
+
     var visibleWorkspaceSidebarSections: [WorkspaceSection] {
-        WorkspaceSection.sidebarSections.filter(isWorkspaceSectionAvailable)
+        orderedWorkspaceSections(WorkspaceSection.sidebarSections, using: workspaceModuleConfiguration).filter(isWorkspaceSectionAvailable)
     }
 
     var visibleProjectSidebarSections: [WorkspaceSection] {
-        WorkspaceSection.projectSidebarSections.filter(isWorkspaceProjectTabAvailable)
+        visibleProjectSidebarSections(for: currentProjectID)
     }
 
     var enabledAgentWorkflowIDs: Set<String> {
-        Set(WorkspaceModuleRegistry.availableWorkflows(in: workspaceModuleConfiguration))
+        Set(WorkspaceModuleRegistry.availableWorkflows(in: effectiveModuleConfiguration(for: currentProjectID)))
     }
 
     var workspaceModuleStatusSummary: String {
         let enabledCount = workspaceModuleConfiguration.modules.filter(\.enabled).count
-        return "\(enabledCount)/\(workspaceModuleConfiguration.modules.count) modules enabled; \(enabledAgentWorkflowIDs.count) workflows available"
+        let workspaceWorkflowCount = WorkspaceModuleRegistry.availableWorkflows(in: workspaceModuleConfiguration).count
+        return "\(enabledCount)/\(workspaceModuleConfiguration.modules.count) modules enabled; \(workspaceWorkflowCount) workflows available"
+    }
+
+    func effectiveModuleConfiguration(for projectID: ResearchProject.ID?) -> WorkspaceModuleConfiguration {
+        ModuleOverrideMerger.effectiveConfiguration(
+            workspace: workspaceModuleConfiguration,
+            override: projectID.flatMap { workspaceModuleOverrides[$0] }
+        )
+    }
+
+    func visibleProjectSidebarSections(for projectID: ResearchProject.ID?) -> [WorkspaceSection] {
+        let configuration = effectiveModuleConfiguration(for: projectID)
+        return orderedProjectSections(WorkspaceSection.projectSidebarSections, using: configuration)
+            .filter { isWorkspaceProjectTabAvailable($0, projectID: projectID) }
     }
 
     func isWorkspaceSectionAvailable(_ section: WorkspaceSection) -> Bool {
@@ -348,18 +394,64 @@ final class AppViewModel: ObservableObject {
         return WorkspaceModuleRegistry.availableRoutes(in: workspaceModuleConfiguration).contains { $0.id == routeID }
     }
 
-    func isWorkspaceProjectTabAvailable(_ section: WorkspaceSection) -> Bool {
+    func isWorkspaceProjectTabAvailable(_ section: WorkspaceSection, projectID: ResearchProject.ID? = nil) -> Bool {
         guard let tabID = section.moduleProjectTabID else {
             return true
         }
-        return WorkspaceModuleRegistry.availableProjectTabs(in: workspaceModuleConfiguration).contains { $0.id == tabID }
+        let configuration = effectiveModuleConfiguration(for: projectID ?? currentProjectID)
+        return WorkspaceModuleRegistry.availableProjectTabs(in: configuration).contains { $0.id == tabID }
     }
 
     func workspaceArtifactKindDescriptor(for kind: String?) -> WorkspaceModuleArtifactKindDescriptor? {
         guard let kind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
             return nil
         }
-        return WorkspaceModuleRegistry.artifactKindDescriptor(for: kind, in: workspaceModuleConfiguration)
+        return WorkspaceModuleRegistry.artifactKindDescriptor(for: kind, in: effectiveModuleConfiguration(for: currentProjectID))
+    }
+
+    private func orderedWorkspaceSections(_ sections: [WorkspaceSection], using configuration: WorkspaceModuleConfiguration) -> [WorkspaceSection] {
+        orderedSections(sections, using: configuration) { section in
+            guard let routeID = section.moduleRouteID else { return nil }
+            return configuration.modules.first { module in
+                module.routes.contains { $0.id == routeID }
+            }?.id
+        }
+    }
+
+    private func orderedProjectSections(_ sections: [WorkspaceSection], using configuration: WorkspaceModuleConfiguration) -> [WorkspaceSection] {
+        orderedSections(sections, using: configuration) { section in
+            guard let tabID = section.moduleProjectTabID else { return nil }
+            return configuration.modules.first { module in
+                module.projectTabs.contains { $0.id == tabID }
+            }?.id
+        }
+    }
+
+    private func orderedSections(
+        _ sections: [WorkspaceSection],
+        using configuration: WorkspaceModuleConfiguration,
+        moduleIDForSection: (WorkspaceSection) -> String?
+    ) -> [WorkspaceSection] {
+        let pinnedOrder = WorkspaceModuleSettingsMutation.pinnedOrder(in: configuration)
+        guard !pinnedOrder.isEmpty else {
+            return sections
+        }
+
+        return sections.enumerated().sorted { first, second in
+            let firstRank = moduleIDForSection(first.element).flatMap { pinnedOrder.firstIndex(of: $0) }
+            let secondRank = moduleIDForSection(second.element).flatMap { pinnedOrder.firstIndex(of: $0) }
+            switch (firstRank, secondRank) {
+            case let (lhs?, rhs?):
+                if lhs == rhs { return first.offset < second.offset }
+                return lhs < rhs
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return first.offset < second.offset
+            }
+        }.map(\.element)
     }
 
     var markdownOverwriteConfirmationTitle: String {
@@ -394,6 +486,8 @@ final class AppViewModel: ObservableObject {
         todoRepository: TodoRepository? = nil,
         calendarRepository: CalendarRepository? = nil,
         workspacePreferencesRepository: WorkspacePreferencesRepository? = nil,
+        workspaceModuleConfigurationStore: WorkspaceModuleConfigurationStore? = nil,
+        workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository? = nil,
         paperAnnotationsRepository: PaperAnnotationsRepository? = nil,
         libraryBulkEditService: LibraryBulkEditService? = nil,
         systemCalendarService: SystemCalendarService? = nil,
@@ -421,6 +515,8 @@ final class AppViewModel: ObservableObject {
         let resolvedTodoRepository = todoRepository ?? TodoRepository()
         let resolvedCalendarRepository = calendarRepository ?? CalendarRepository()
         let resolvedWorkspacePreferencesRepository = workspacePreferencesRepository ?? WorkspacePreferencesRepository()
+        let resolvedWorkspaceModuleConfigurationStore = workspaceModuleConfigurationStore ?? WorkspaceModuleConfigurationStore()
+        let resolvedWorkspaceModuleOverrideRepository = workspaceModuleOverrideRepository ?? WorkspaceModuleOverrideRepository()
         let resolvedPaperAnnotationsRepository = paperAnnotationsRepository ?? PaperAnnotationsRepository()
         let resolvedSystemCalendarService = systemCalendarService ?? SystemCalendarService()
         let resolvedPDFReadingStateService = pdfReadingStateService ?? PDFReadingStateService(paperRepository: resolvedPaperRepository)
@@ -460,6 +556,8 @@ final class AppViewModel: ObservableObject {
         self.todoRepository = resolvedTodoRepository
         self.calendarRepository = resolvedCalendarRepository
         self.workspacePreferencesRepository = resolvedWorkspacePreferencesRepository
+        self.workspaceModuleConfigurationStore = resolvedWorkspaceModuleConfigurationStore
+        self.workspaceModuleOverrideRepository = resolvedWorkspaceModuleOverrideRepository
         self.paperAnnotationsRepository = resolvedPaperAnnotationsRepository
         self.libraryBulkEditService = resolvedLibraryBulkEditService
         self.systemCalendarService = resolvedSystemCalendarService
@@ -1141,7 +1239,7 @@ final class AppViewModel: ObservableObject {
         for index in items.indices {
             items[index].moduleScopeDescription = WorkspaceModuleRegistry.moduleScopeDescription(
                 for: items[index].targetPaths,
-                in: workspaceModuleConfiguration
+                in: effectiveModuleConfiguration(for: run.projectID ?? run.currentProjectID ?? agentConversationProjectID)
             )
         }
         return items.filter { item in
@@ -1348,15 +1446,67 @@ final class AppViewModel: ObservableObject {
     }
 
     func createWorkspace() {
-        createWorkspace(template: WorkspaceTemplateRegistry.literatureReview)
+        beginWorkspaceCreation(template: WorkspaceTemplateRegistry.literatureReview)
     }
 
     func createWorkspace(template: WorkspaceTemplate) {
-        guard let destinationURL = Self.selectCreateWorkspaceURL() else {
+        beginWorkspaceCreation(template: template)
+    }
+
+    func beginWorkspaceCreation(template: WorkspaceTemplate = WorkspaceTemplateRegistry.literatureReview) {
+        workspaceCreationDraft = WorkspaceCreationWizard.draft(selecting: template)
+        isShowingWorkspaceCreationWizard = true
+    }
+
+    func updateWorkspaceCreationName(_ name: String) {
+        workspaceCreationDraft.workspaceName = name
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, let targetURL = workspaceCreationDraft.targetURL else {
             return
         }
 
-        let compatibility = ResearchRoot.compatibility(at: destinationURL)
+        workspaceCreationDraft.targetURL = targetURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(trimmedName, isDirectory: true)
+    }
+
+    func updateWorkspaceCreationTemplate(_ templateID: String) {
+        let option = WorkspaceCreationWizard.templateOption(id: templateID)
+        guard option.isSelectable, let template = option.template else {
+            return
+        }
+        workspaceCreationDraft.templateID = template.id
+        workspaceCreationDraft.enabledModuleIDs = Set(template.enabledModuleIDs)
+    }
+
+    func setWorkspaceCreationPrivacyAcknowledged(_ value: Bool) {
+        workspaceCreationDraft.privacyAcknowledged = value
+    }
+
+    func chooseWorkspaceCreationDestination() {
+        guard let destinationURL = Self.selectCreateWorkspaceURL(suggestedName: workspaceCreationDraft.workspaceName) else {
+            return
+        }
+
+        workspaceCreationDraft.targetURL = destinationURL
+        workspaceCreationDraft.workspaceName = destinationURL.lastPathComponent
+    }
+
+    func completeWorkspaceCreation() {
+        let validation = workspaceCreationTargetValidation
+        guard validation.canCreate, let destinationURL = workspaceCreationDraft.targetURL else {
+            present(WorkspaceError.incompatibleCreationTarget(validation.message))
+            return
+        }
+
+        guard workspaceCreationDraft.privacyAcknowledged else {
+            present(WorkspaceError.incompatibleCreationTarget("Confirm the privacy and AI setup boundary before creating the workspace."))
+            return
+        }
+
+        let template = WorkspaceCreationWizard.template(for: workspaceCreationDraft)
+        let compatibility = validation.compatibility ?? ResearchRoot.compatibility(at: destinationURL)
+        isShowingWorkspaceCreationWizard = false
         runWorkspaceTask(compatibilityHint: compatibility) {
             try await self.workspaceService.createWorkspace(at: destinationURL, template: template)
         }
@@ -1380,7 +1530,7 @@ final class AppViewModel: ObservableObject {
     func selectResearchProject(_ projectID: ResearchProject.ID, section: WorkspaceSection = .projects) {
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
-        let targetSection = isWorkspaceProjectTabAvailable(section) ? section : fallbackProjectSection()
+        let targetSection = isWorkspaceProjectTabAvailable(section, projectID: projectID) ? section : fallbackProjectSection(for: projectID)
         currentProjectID = projectID
         resetAgentDraftIfConversationChanged(to: projectID)
         isViewingGlobalTodos = false
@@ -2611,6 +2761,59 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func saveAgentToolCallDraft(callID: String) {
+        guard let currentWorkspace else {
+            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+        guard let currentRun = agentCurrentRun,
+              let call = currentRun.plan.toolCalls.first(where: { $0.id == callID }),
+              let draft = markdownWritebackDraft(for: call, in: currentRun, workspace: currentWorkspace) else {
+            agentErrorMessage = localized("没有可保存的 Markdown 草稿。", "No Markdown draft is available to save.")
+            return
+        }
+
+        Task {
+            do {
+                let document = try await markdownRepository.saveContents(
+                    draft.contents,
+                    relativePath: draft.draftPath,
+                    in: currentWorkspace
+                )
+                agentToolSessionApprovalDrafts.insert(callID)
+                agentToolDenials.remove(callID)
+                agentToolApprovals.remove(callID)
+                let message = localized(
+                    "已保存草稿：\(document.relativePath)。原目标 \(draft.targetPath) 尚未写入。",
+                    "Saved draft: \(document.relativePath). Original target \(draft.targetPath) was not written."
+                )
+                agentStatusMessage = message
+                let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+                let event = AgentSessionEvent(
+                    sessionID: currentRun.id,
+                    kind: .permissionResolved,
+                    summary: message,
+                    payloadJSON: JSONValue.object([
+                        "action": .string("save_draft_only"),
+                        "draft_path": .string(document.relativePath),
+                        "target_path": .string(draft.targetPath),
+                        "tool_call_id": .string(callID),
+                        "tool_name": .string(call.toolName)
+                    ]).canonicalJSON
+                )
+                try await agentSessionEventLogger.append(event, in: root)
+                agentSessionEvents.append(event)
+                try await loadWorkspaceData(
+                    in: currentWorkspace,
+                    selectingPaper: selectedPaperID,
+                    selectingMarkdown: document.relativePath
+                )
+            } catch {
+                agentErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func agentCorrectionFeedback(callID: String) -> String {
         agentToolCorrectionFeedback[callID] ?? ""
     }
@@ -3678,7 +3881,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        let conversationHistory = agentConversationMessagesForPrompt()
+        let conversationHistory = agentConversationMessagesForPrompt(latestGoal: trimmedGoal)
         let allowedToolNames = effectiveAgentAllowedToolNames
         let interactionMode = agentInteractionMode
         let runContextProjectID = agentConversationProjectID
@@ -3771,6 +3974,7 @@ final class AppViewModel: ObservableObject {
                 ]))
             } catch {
                 let message = error.localizedDescription
+                let failureCategory: AgentRunFailureCategory = (error is AgentPlanParserError) ? .malformedResponse : .providerError
                 agentErrorMessage = message
                 recordAppDebugEvent("agent.run_failed", payload: .object([
                     "prompt": .string(trimmedGoal),
@@ -3785,7 +3989,7 @@ final class AppViewModel: ObservableObject {
                     currentProjectID: runContextProjectID,
                     runtimeSelector: runtimeSelection.rawValue,
                     enabledToolNames: enabledToolNamesSnapshot,
-                    failureCategory: .providerError,
+                    failureCategory: failureCategory,
                     retryOfRunID: retryOfRunID
                 )
             }
@@ -4483,6 +4687,29 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func openWorkspaceRelativePath(_ relativePath: String) {
+        let normalizedPath = relativePath.replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPath.isEmpty,
+              !normalizedPath.hasPrefix("/"),
+              !normalizedPath.contains(".."),
+              let currentWorkspace else {
+            return
+        }
+
+        if normalizedPath.hasSuffix(".md") {
+            openMarkdownDocument(relativePath: normalizedPath)
+            return
+        }
+
+        let fileURL = currentWorkspace.fileURL(for: normalizedPath)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.open(fileURL)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL.deletingLastPathComponent()])
+        }
+    }
+
     func openPaperMarkdown(_ paper: Paper) {
         openMarkdownDocument(relativePath: paper.paperDirectoryRelativePath + "/paper.md")
     }
@@ -4715,15 +4942,16 @@ final class AppViewModel: ObservableObject {
         let root = ResearchRoot(rootURL: workspace.rootURL)
         currentResearchRoot = root
 
-        let moduleConfiguration = try WorkspaceTemplateRepository().loadConfiguration(in: root)
-        workspaceModuleConfiguration = moduleConfiguration
-        workspaceModuleWarnings = WorkspaceModuleRegistry.warnings(for: moduleConfiguration)
-        workspaceModuleDirectoryStatuses = WorkspaceModuleRegistry.directoryStatuses(for: moduleConfiguration, in: root)
+        let moduleConfiguration = try await workspaceModuleConfigurationStore.load(in: root)
+        applyWorkspaceModuleConfiguration(moduleConfiguration, in: root)
+        observeWorkspaceModuleConfigurationChanges(in: root)
         normalizeSelectedSectionForModuleAvailability()
 
         let registry = try await projectRegistryRepository.load(in: root)
         researchProjects = registry.projects
         currentProjectID = registry.lastOpenedProjectID ?? registry.projects.first?.id
+        workspaceModuleOverrides = await loadProjectModuleOverrides(for: registry.projects, in: root)
+        normalizeSelectedSectionForModuleAvailability()
 
         if compatibility == .legacyWorkspace || registry.projects.contains(where: { $0.defaultTags.contains("legacy-workspace") }) {
             rootCompatibilityMessage = "Opened an existing single-workspace library as a research root. Sci-Station created a default project shell without moving your files."
@@ -4731,6 +4959,127 @@ final class AppViewModel: ObservableObject {
             rootCompatibilityMessage = nil
         }
         agentRetrievalIndexStatus = await agentEmbeddingIndexController.status(in: root)
+    }
+
+    func saveWorkspaceModuleConfiguration(_ configuration: WorkspaceModuleConfiguration) async throws {
+        guard let root = currentResearchRoot ?? currentWorkspace.map({ ResearchRoot(rootURL: $0.rootURL) }) else {
+            throw ModuleSettingsError.persistFailed("No workspace is open.")
+        }
+        do {
+            try await workspaceModuleConfigurationStore.save(configuration, in: root)
+            applyWorkspaceModuleConfiguration(configuration, in: root)
+        } catch {
+            throw ModuleSettingsError.persistFailed(error.localizedDescription)
+        }
+    }
+
+    func resetWorkspaceModulesToTemplateDefault() async throws {
+        guard let root = currentResearchRoot ?? currentWorkspace.map({ ResearchRoot(rootURL: $0.rootURL) }) else {
+            throw ModuleSettingsError.persistFailed("No workspace is open.")
+        }
+        let template = (try? WorkspaceTemplateRepository().loadTemplate(in: root)) ?? WorkspaceTemplateRegistry.literatureReview
+        let beforeModules = workspaceModuleConfiguration.modules.filter(\.enabled).map(\.id).sorted()
+        let configuration = WorkspaceModuleRegistry.configuration(for: template)
+        try await saveWorkspaceModuleConfiguration(configuration)
+        recordModuleSettingsDebugEvent("module_settings.reset_to_template", payload: .object([
+            "template_id": .string(template.id),
+            "before_modules": jsonStringArray(beforeModules),
+            "after_modules": jsonStringArray(configuration.modules.filter(\.enabled).map(\.id).sorted())
+        ]))
+    }
+
+    @discardableResult
+    func setProjectModuleOverride(projectID: ResearchProject.ID, moduleID: String, enabled: Bool?) async throws -> WorkspaceModuleOverride? {
+        guard let root = currentResearchRoot ?? currentWorkspace.map({ ResearchRoot(rootURL: $0.rootURL) }) else {
+            throw ModuleSettingsError.persistFailed("No workspace is open.")
+        }
+        let override = try await workspaceModuleOverrideRepository.setOverride(projectID: projectID, moduleID: moduleID, enabled: enabled, in: root)
+        if let override {
+            workspaceModuleOverrides[projectID] = override
+        } else {
+            workspaceModuleOverrides.removeValue(forKey: projectID)
+        }
+        normalizeSelectedSectionForModuleAvailability()
+        recordModuleSettingsDebugEvent("module_settings.override_apply", payload: .object([
+            "project_id": .string(projectID),
+            "id": .string(moduleID),
+            "enabled": .bool(enabled ?? (workspaceModuleConfiguration.module(id: moduleID)?.enabled ?? false)),
+            "fallback_to_workspace": .bool(enabled == nil),
+            "cleared": .bool(enabled == nil)
+        ]))
+        return override
+    }
+
+    func repairWorkspaceModuleDirectory(_ status: WorkspaceModuleDirectoryStatus, approved: Bool) async -> WorkspaceModuleDirectoryRepairOutcome {
+        guard let root = currentResearchRoot ?? currentWorkspace.map({ ResearchRoot(rootURL: $0.rootURL) }) else {
+            return .failed(path: status.path, reason: "No workspace is open.")
+        }
+
+        let repairer = WorkspaceModuleDirectoryRepairer { request in
+            AgentPermissionDecision(
+                action: approved ? .allow : .deny,
+                scope: .once,
+                message: approved ? "Approved from Module Settings." : "Denied from Module Settings."
+            )
+        }
+        let outcome = await repairer.repair(status, in: root, activeProjects: activeResearchProjects)
+        workspaceModuleDirectoryStatuses = WorkspaceModuleRegistry.directoryStatuses(for: workspaceModuleConfiguration, in: root)
+        recordModuleSettingsDebugEvent("module_settings.repair", payload: .object([
+            "module_id": .string(status.moduleID),
+            "path": .string(status.path),
+            "outcome": .string(outcome.debugOutcome),
+            "reason": .string(moduleDirectoryRepairReason(outcome))
+        ]))
+        return outcome
+    }
+
+    func recordModuleSettingsDebugEvent(_ event: String, payload: JSONValue = .object([:])) {
+        recordAppDebugEvent(event, payload: payload, force: true)
+    }
+
+    func recordHomeDebugEvent(_ event: String, payload: JSONValue = .object([:])) {
+        recordAppDebugEvent(event, payload: payload, force: true)
+    }
+
+    private func applyWorkspaceModuleConfiguration(_ configuration: WorkspaceModuleConfiguration, in root: ResearchRoot) {
+        let mergedConfiguration = WorkspaceModuleRegistry.mergedConfiguration(from: configuration)
+        workspaceModuleConfiguration = mergedConfiguration
+        workspaceModuleWarnings = WorkspaceModuleRegistry.warnings(for: mergedConfiguration)
+        workspaceModuleDirectoryStatuses = WorkspaceModuleRegistry.directoryStatuses(for: mergedConfiguration, in: root)
+        normalizeSelectedSectionForModuleAvailability()
+    }
+
+    private func observeWorkspaceModuleConfigurationChanges(in root: ResearchRoot) {
+        workspaceModuleConfigurationWatchTask?.cancel()
+        workspaceModuleConfigurationWatchTask = Task { [weak self] in
+            guard let self else { return }
+            for await configuration in workspaceModuleConfigurationStore.subscribeChanges(in: root) {
+                await MainActor.run {
+                    self.applyWorkspaceModuleConfiguration(configuration, in: root)
+                }
+            }
+        }
+    }
+
+    private func loadProjectModuleOverrides(for projects: [ResearchProject], in root: ResearchRoot) async -> [String: WorkspaceModuleOverride] {
+        var overrides: [String: WorkspaceModuleOverride] = [:]
+        for project in projects {
+            if let override = try? await workspaceModuleOverrideRepository.loadOverride(projectID: project.id, in: root) {
+                overrides[project.id] = override
+            }
+        }
+        return overrides
+    }
+
+    private func moduleDirectoryRepairReason(_ outcome: WorkspaceModuleDirectoryRepairOutcome) -> String {
+        switch outcome {
+        case let .created(paths):
+            return paths.joined(separator: ", ")
+        case let .skippedWildcard(path):
+            return "Skipped wildcard path \(path) because no active project instance was available."
+        case let .denied(_, reason), let .failed(_, reason):
+            return reason
+        }
     }
 
     private func loadLibrary(in workspace: ResearchWorkspace, selecting paperID: Paper.ID?) async throws {
@@ -4764,7 +5113,11 @@ final class AppViewModel: ObservableObject {
     }
 
     private func fallbackProjectSection() -> WorkspaceSection {
-        visibleProjectSidebarSections.first ?? fallbackWorkspaceSection()
+        fallbackProjectSection(for: currentProjectID)
+    }
+
+    private func fallbackProjectSection(for projectID: ResearchProject.ID?) -> WorkspaceSection {
+        visibleProjectSidebarSections(for: projectID).first ?? fallbackWorkspaceSection()
     }
 
     private func normalizeSelectedSectionForModuleAvailability() {
@@ -5241,6 +5594,100 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    private func markdownWritebackDraft(
+        for call: AgentToolCall,
+        in run: AgentRun,
+        workspace: ResearchWorkspace
+    ) -> AgentMarkdownWritebackDraft? {
+        guard call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" else {
+            return nil
+        }
+
+        let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? run.plan.title ?? "Markdown draft"
+        let body = stringArgument("body", in: call.argumentsJSON)?.nilIfEmpty
+            ?? run.plan.finalResponseDraft?.nilIfEmpty
+            ?? run.plan.summary
+        let targetPath = stringArgument("relative_path", in: call.argumentsJSON)?.nilIfEmpty
+            ?? "wiki/plans/\(slug(from: title)).md"
+        let normalizedTargetPath = targetPath.replacingOccurrences(of: "\\", with: "/")
+        let createdAt = ISO8601DateFormatter().string(from: Date())
+        let bodyContents = body.hasPrefix("# ") ? body : "# \(title)\n\n\(body)"
+        let contents = """
+        ---
+        title: "\(escapedYAMLScalar(title))"
+        draft_for: "\(escapedYAMLScalar(normalizedTargetPath))"
+        source_run_id: "\(run.id)"
+        source_tool_call_id: "\(call.id)"
+        source_tool_name: "\(call.toolName)"
+        created_at: "\(createdAt)"
+        status: draft_only
+        ---
+
+        > Draft-only save from AI Lab. The original target `\(normalizedTargetPath)` has not been written.
+
+        \(bodyContents.trimmingCharacters(in: .whitespacesAndNewlines))
+        """
+        return AgentMarkdownWritebackDraft(
+            targetPath: normalizedTargetPath,
+            draftPath: uniqueDraftPath(for: normalizedTargetPath, title: title, workspace: workspace),
+            contents: contents + "\n"
+        )
+    }
+
+    private func uniqueDraftPath(for targetPath: String, title: String, workspace: ResearchWorkspace) -> String {
+        let targetBase = targetPath.split(separator: "/").last.map(String.init)?
+            .replacingOccurrences(of: ".md", with: "")
+            .nilIfEmpty
+        let base = slug(from: targetBase ?? title)
+        let candidate = "wiki/drafts/\(base).draft.md"
+        guard FileManager.default.fileExists(atPath: workspace.fileURL(for: candidate).path) else {
+            return candidate
+        }
+
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        return "wiki/drafts/\(base)-\(timestamp).draft.md"
+    }
+
+    private func escapedYAMLScalar(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    private func stringArgument(_ key: String, in rawJSON: String) -> String? {
+        guard let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object[key] as? String
+    }
+
+    private func slug(from title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let lowercased = title.lowercased()
+        var output = ""
+        var previousWasDash = false
+        for scalar in lowercased.unicodeScalars {
+            if allowed.contains(scalar) {
+                output.unicodeScalars.append(scalar)
+                previousWasDash = false
+            } else if !previousWasDash {
+                output.append("-")
+                previousWasDash = true
+            }
+        }
+        let slug = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "markdown-draft" : slug
+    }
+
+    private func limitedText(_ text: String, maxCharacters: Int) -> String {
+        guard text.count > maxCharacters else {
+            return text
+        }
+        return String(text.prefix(maxCharacters)) + "..."
+    }
+
     private func makeAgentStreamingDeltaHandler() -> (@Sendable (String) async -> Void) {
         { [weak self] delta in
             await self?.appendAgentStreamingResponseDelta(delta)
@@ -5359,8 +5806,8 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func agentConversationMessagesForPrompt(limit: Int = 6) -> [LLMChatMessage] {
-        agentConversationRuns
+    private func agentConversationMessagesForPrompt(latestGoal: String? = nil, limit: Int = 6) -> [LLMChatMessage] {
+        var messages = agentConversationRuns
             .suffix(limit)
             .flatMap { run -> [LLMChatMessage] in
                 let assistantText = [
@@ -5375,6 +5822,71 @@ final class AppViewModel: ObservableObject {
                     LLMChatMessage(role: .assistant, content: assistantText)
                 ]
             }
+        if let latestGoal,
+           isContinuationPrompt(latestGoal),
+           let evidenceSummary = agentContinuationEvidenceSummary() {
+            messages.append(LLMChatMessage(role: .user, content: evidenceSummary))
+        }
+        return messages
+    }
+
+    private func isContinuationPrompt(_ goal: String) -> Bool {
+        let normalized = goal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return false
+        }
+        let compact = normalized.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return [
+            "继续",
+            "接着",
+            "继续说",
+            "继续写",
+            "go on",
+            "continue",
+            "keep going"
+        ].contains { compact == $0 || compact.hasPrefix($0 + " ") }
+    }
+
+    private func agentContinuationEvidenceSummary() -> String? {
+        guard let run = agentConversationRuns.reversed().first(where: { !$0.toolResults.isEmpty }) else {
+            return nil
+        }
+        let resultLines = run.toolResults.suffix(8).enumerated().map { index, result in
+            continuationEvidenceLine(index: index + 1, result: result)
+        }
+        .joined(separator: "\n")
+        guard !resultLines.isEmpty else {
+            return nil
+        }
+        return """
+        Continuation context from the previous Sci-Station run.
+        The latest user prompt is a continuation request. Reuse this compact evidence summary before deciding to re-read full papers; only call read_paper again if the user asks for new sections or this summary is insufficient.
+
+        previous_run_goal:
+        \(run.goal)
+
+        previous_tool_evidence:
+        \(resultLines)
+        """
+    }
+
+    private func continuationEvidenceLine(index: Int, result: AgentToolResult) -> String {
+        let payload = result.payload?.objectValue
+        let paperID = payload?["paper_id"]?.stringValue
+            ?? payload?["paper"]?.objectValue?["id"]?.stringValue
+        let source = payload?["source"]?.stringValue
+            ?? payload?["paper"]?.objectValue?["raw_markdown_path"]?.stringValue
+        let heading = payload?["heading"]?.stringValue
+        let targetPath = payload?["target_path"]?.stringValue
+        let summary = [
+            paperID.map { "paper_id=\($0)" },
+            source.map { "source=\($0)" },
+            heading.map { "heading=\($0)" },
+            targetPath.map { "target=\($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+        return "- #\(index) \(result.toolName) \(result.succeeded ? "succeeded" : "failed")\(summary.isEmpty ? "" : " (\(summary))"): \(limitedText(result.message, maxCharacters: 500))"
     }
 
     private func agentProjectDraftKey(_ projectID: ResearchProject.ID?) -> String {
@@ -5493,12 +6005,12 @@ final class AppViewModel: ObservableObject {
         return "\(authors) \(year). \(paper.displayTitle).\(suffix)"
     }
 
-    private static func selectCreateWorkspaceURL() -> URL? {
+    private static func selectCreateWorkspaceURL(suggestedName: String = "ResearchWorkspace") -> URL? {
         let panel = NSSavePanel()
         panel.title = "Create Research Workspace"
         panel.prompt = "Create"
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "ResearchWorkspace"
+        panel.nameFieldStringValue = suggestedName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "ResearchWorkspace"
         panel.directoryURL = defaultPanelDirectoryURL()
 
         guard panel.runModal() == .OK else {

@@ -18,6 +18,7 @@ struct ProjectOverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                ProjectDashboardPanel(workspace: workspace)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
                     ProjectMetricCard(title: "Papers", value: "\(projectPapers.count)", systemImage: "books.vertical")
