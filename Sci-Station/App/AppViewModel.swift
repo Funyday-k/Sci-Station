@@ -118,8 +118,11 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var workspaceModuleOverrides: [String: WorkspaceModuleOverride] = [:]
     @Published private(set) var researchProjects: [ResearchProject] = []
     @Published private(set) var currentProjectID: ResearchProject.ID?
+    @Published private(set) var selectedProjectSpaceProjectID: ResearchProject.ID?
+    @Published private(set) var selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
     @Published private(set) var isViewingGlobalTodos = false
     @Published private(set) var rootCompatibilityMessage: String?
+    @Published private(set) var shellStatusMessage: String?
     @Published var isShowingResearchProjectEditor = false
     @Published var researchProjectEditorDraft = ResearchProjectEditorDraft()
     @Published private(set) var isSavingResearchProject = false
@@ -299,6 +302,7 @@ final class AppViewModel: ObservableObject {
     private var agentStreamingPendingResponseText: String?
     private var agentStreamingRawResponseText = ""
     private var workspaceModuleConfigurationWatchTask: Task<Void, Never>?
+    private var shellStatusDismissTask: Task<Void, Never>?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -357,11 +361,29 @@ final class AppViewModel: ObservableObject {
     }
 
     var visibleWorkspaceSidebarSections: [WorkspaceSection] {
-        orderedWorkspaceSections(WorkspaceSection.sidebarSections, using: workspaceModuleConfiguration).filter(isWorkspaceSectionAvailable)
+        topSidebarItems.map { workspaceSection(for: $0.top) }
+    }
+
+    var topSidebarItems: [TopSidebarItem] {
+        TopSidebarBuilder.items(pinnedOrder: workspacePreferences.pinnedTopLevelOrder)
     }
 
     var visibleProjectSidebarSections: [WorkspaceSection] {
         visibleProjectSidebarSections(for: currentProjectID)
+    }
+
+    var selectedProjectSpaceProject: ResearchProject? {
+        guard let selectedProjectSpaceProjectID else {
+            return nil
+        }
+        return activeResearchProjects.first { $0.id == selectedProjectSpaceProjectID }
+    }
+
+    var selectedProjectSpaceTabs: [ProjectSpaceTab] {
+        guard let projectID = selectedProjectSpaceProjectID else {
+            return []
+        }
+        return projectSpaceTabs(for: projectID)
     }
 
     var enabledAgentWorkflowIDs: Set<String> {
@@ -383,11 +405,22 @@ final class AppViewModel: ObservableObject {
 
     func visibleProjectSidebarSections(for projectID: ResearchProject.ID?) -> [WorkspaceSection] {
         let configuration = effectiveModuleConfiguration(for: projectID)
-        return orderedProjectSections(WorkspaceSection.projectSidebarSections, using: configuration)
+        return orderedProjectSections(WorkspaceSection.legacyProjectSidebarSections, using: configuration)
             .filter { isWorkspaceProjectTabAvailable($0, projectID: projectID) }
     }
 
+    func projectSpaceTabs(for projectID: ResearchProject.ID) -> [ProjectSpaceTab] {
+        ProjectSpaceTabsBuilder.tabs(
+            for: projectID,
+            configuration: effectiveModuleConfiguration(for: projectID),
+            pinnedOrder: workspacePreferences.projectSpacePinnedOrder
+        )
+    }
+
     func isWorkspaceSectionAvailable(_ section: WorkspaceSection) -> Bool {
+        if section.isTopLevel {
+            return true
+        }
         guard let routeID = section.moduleRouteID else {
             return true
         }
@@ -1333,17 +1366,25 @@ final class AppViewModel: ObservableObject {
     }
 
     func selectSection(_ section: WorkspaceSection) {
+        if section.inProjectSpaceOnly, let projectID = currentProjectID {
+            selectResearchProject(projectID, section: section)
+            return
+        }
+
         let targetSection = isWorkspaceSectionAvailable(section) ? section : fallbackWorkspaceSection()
         selectedSection = targetSection
+        selectedProjectSpaceProjectID = nil
         isViewingGlobalTodos = false
-        updateWorkspacePreferences { preferences in
-            preferences.recentSection = targetSection.rawValue
-        }
+        persistWorkspaceRoute(WorkspaceRoute(top: topRoute(for: targetSection)))
         if targetSection == .library {
             selectedLibraryProjectID = nil
             selectedCollectionPath = nil
             selectedTagName = nil
         }
+    }
+
+    func selectTopLevelRoute(_ top: WorkspaceRoute.Top) {
+        selectSection(workspaceSection(for: top))
     }
 
     func openSettings(category: SettingsCategory) {
@@ -1357,10 +1398,12 @@ final class AppViewModel: ObservableObject {
             return
         }
         selectedSection = .library
+        selectedProjectSpaceProjectID = nil
         isViewingGlobalTodos = false
         selectedLibraryProjectID = nil
         selectedCollectionPath = nil
         selectedTagName = nil
+        persistWorkspaceRoute(WorkspaceRoute(top: .library))
     }
 
     func selectCollection(_ relativePath: String) {
@@ -1369,10 +1412,12 @@ final class AppViewModel: ObservableObject {
             return
         }
         selectedSection = .library
+        selectedProjectSpaceProjectID = nil
         isViewingGlobalTodos = false
         selectedLibraryProjectID = nil
         selectedCollectionPath = relativePath
         selectedTagName = nil
+        persistWorkspaceRoute(WorkspaceRoute(top: .library, secondarySelection: relativePath))
     }
 
     func selectTag(_ name: String) {
@@ -1381,10 +1426,12 @@ final class AppViewModel: ObservableObject {
             return
         }
         selectedSection = .library
+        selectedProjectSpaceProjectID = nil
         isViewingGlobalTodos = false
         selectedLibraryProjectID = nil
         selectedTagName = name
         selectedCollectionPath = nil
+        persistWorkspaceRoute(WorkspaceRoute(top: .library, secondarySelection: name))
     }
 
     func clearLibraryFilters() {
@@ -1531,25 +1578,24 @@ final class AppViewModel: ObservableObject {
         saveAgentDraftForCurrentConversation()
         persistAgentDraftForCurrentConversation()
         let targetSection = isWorkspaceProjectTabAvailable(section, projectID: projectID) ? section : fallbackProjectSection(for: projectID)
+        let targetTabID = projectSpaceTabID(for: targetSection)
         currentProjectID = projectID
+        selectedProjectSpaceProjectID = projectID
+        selectedProjectSpaceTabID = targetTabID
+        selectedSection = .projects
         resetAgentDraftIfConversationChanged(to: projectID)
         isViewingGlobalTodos = false
-        if targetSection == .library {
-            selectedSection = .library
+        if targetTabID == "papers" {
             selectedLibraryProjectID = projectID
             selectedCollectionPath = nil
             selectedTagName = nil
-            updateWorkspacePreferences { preferences in
-                preferences.recentSection = targetSection.rawValue
-            }
-        } else {
-            selectSection(targetSection)
         }
 
         persistLastOpenedProject(projectID)
+        persistWorkspaceRoute(WorkspaceRoute(top: .projects, projectID: projectID, projectTabID: targetTabID))
         refreshAgentContext()
 
-        if targetSection == .wiki, let currentWorkspace {
+        if targetTabID == "wiki", let currentWorkspace {
             Task {
                 do {
                     try await loadMarkdownDocuments(in: currentWorkspace, selecting: nil)
@@ -1575,13 +1621,110 @@ final class AppViewModel: ObservableObject {
             return
         }
         selectedSection = .tasks
+        selectedProjectSpaceProjectID = nil
         isViewingGlobalTodos = true
         selectedLibraryProjectID = nil
         selectedCollectionPath = nil
         selectedTagName = nil
-        updateWorkspacePreferences { preferences in
-            preferences.recentSection = WorkspaceSection.tasks.rawValue
+        persistWorkspaceRoute(WorkspaceRoute(top: .calendar, secondarySelection: "global_todos"))
+    }
+
+    func selectProjectSpaceTab(_ tabID: String) {
+        guard let projectID = selectedProjectSpaceProjectID ?? currentProjectID else {
+            selectTopLevelRoute(.projects)
+            return
         }
+
+        let availableTabs = projectSpaceTabs(for: projectID)
+        let resolvedTabID: String
+        if availableTabs.contains(where: { $0.id == tabID }) {
+            resolvedTabID = tabID
+        } else {
+            resolvedTabID = ProjectSpaceTabsBuilder.overviewTabID
+            recordShellDebugEvent("project_space.builder_warn", payload: .object([
+                "project_id": .string(projectID),
+                "hidden_tabs": jsonStringArray([tabID]),
+                "reason": .string("module_disabled")
+            ]))
+        }
+
+        let previousTabID = selectedProjectSpaceTabID
+        currentProjectID = projectID
+        selectedProjectSpaceProjectID = projectID
+        selectedProjectSpaceTabID = resolvedTabID
+        selectedSection = .projects
+        isViewingGlobalTodos = false
+
+        if resolvedTabID == "papers" {
+            selectedLibraryProjectID = projectID
+            selectedCollectionPath = nil
+            selectedTagName = nil
+        }
+
+        persistLastOpenedProject(projectID)
+        persistWorkspaceRoute(WorkspaceRoute(top: .projects, projectID: projectID, projectTabID: resolvedTabID))
+        recordShellDebugEvent("project_space.tab_change", payload: .object([
+            "project_id": .string(projectID),
+            "from_tab": .string(previousTabID),
+            "to_tab": .string(resolvedTabID),
+            "available_tabs": jsonStringArray(availableTabs.map(\.id))
+        ]))
+
+        if resolvedTabID == "wiki", let currentWorkspace {
+            Task {
+                do {
+                    try await loadMarkdownDocuments(in: currentWorkspace, selecting: nil)
+                } catch {
+                    present(error)
+                }
+            }
+        }
+        refreshAgentContext()
+    }
+
+    func moveTopSidebarItem(_ itemID: String, before targetID: String) {
+        guard itemID != targetID, itemID != WorkspaceRoute.Top.settings.rawValue else {
+            return
+        }
+        let movableIDs = TopSidebarBuilder.items(pinnedOrder: workspacePreferences.pinnedTopLevelOrder)
+            .filter { !$0.isPinFixed }
+            .map(\.id)
+        guard movableIDs.contains(itemID) else {
+            return
+        }
+
+        var nextOrder = movableIDs.filter { $0 != itemID }
+        let insertionIndex = nextOrder.firstIndex(of: targetID) ?? nextOrder.count
+        nextOrder.insert(itemID, at: insertionIndex)
+        updateWorkspacePreferences { preferences in
+            preferences.pinnedTopLevelOrder = nextOrder + [WorkspaceRoute.Top.settings.rawValue]
+        }
+        recordSidebarRender()
+    }
+
+    func moveProjectSpaceTab(_ tabID: String, before targetID: String) {
+        guard tabID != targetID, let projectID = selectedProjectSpaceProjectID else {
+            return
+        }
+        let tabs = projectSpaceTabs(for: projectID)
+        guard tabs.contains(where: { $0.id == tabID && !$0.isPinFixed }) else {
+            return
+        }
+        let movableIDs = tabs.filter { !$0.isPinFixed }.map(\.id)
+        var nextOrder = movableIDs.filter { $0 != tabID }
+        let insertionIndex = nextOrder.firstIndex(of: targetID) ?? nextOrder.count
+        nextOrder.insert(tabID, at: insertionIndex)
+        updateWorkspacePreferences { preferences in
+            preferences.projectSpacePinnedOrder = nextOrder
+        }
+    }
+
+    func recordSidebarRender() {
+        let items = topSidebarItems
+        recordShellDebugEvent("sidebar.render", payload: .object([
+            "top_items": jsonStringArray(items.map(\.id)),
+            "pinned_order": jsonStringArray(workspacePreferences.pinnedTopLevelOrder)
+        ]))
     }
 
     private func persistLastOpenedProject(_ projectID: ResearchProject.ID) {
@@ -1678,7 +1821,10 @@ final class AppViewModel: ObservableObject {
                     let registry = try await projectRegistryRepository.load(in: currentResearchRoot)
                     researchProjects = registry.projects
                     currentProjectID = project.id
+                    selectedProjectSpaceProjectID = project.id
+                    selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
                     selectedSection = .projects
+                    persistWorkspaceRoute(WorkspaceRoute(top: .projects, projectID: project.id, projectTabID: ProjectSpaceTabsBuilder.overviewTabID))
                 }
 
                 isShowingResearchProjectEditor = false
@@ -2101,6 +2247,8 @@ final class AppViewModel: ObservableObject {
                     selectingMarkdown: selectedMarkdownID
                 )
                 selectedSection = .library
+                selectedProjectSpaceProjectID = nil
+                persistWorkspaceRoute(WorkspaceRoute(top: .library))
                 if !importedPapers.isEmpty {
                     startMarkdownConversion(for: importedPapers, in: currentWorkspace, statusSurface: .workspace)
                 }
@@ -2586,6 +2734,8 @@ final class AppViewModel: ObservableObject {
                     selectingMarkdown: selectedMarkdownID
                 )
                 selectedSection = .library
+                selectedProjectSpaceProjectID = nil
+                persistWorkspaceRoute(WorkspaceRoute(top: .library))
             } catch {
                 present(error)
             }
@@ -4850,6 +5000,8 @@ final class AppViewModel: ObservableObject {
                     selectingMarkdown: selectedMarkdownID
                 )
                 selectedSection = .library
+                selectedProjectSpaceProjectID = nil
+                persistWorkspaceRoute(WorkspaceRoute(top: .library))
                 startMarkdownConversion(for: [importedPaper], in: workspace, statusSurface: .workspace)
             } catch {
                 present(error)
@@ -5041,6 +5193,10 @@ final class AppViewModel: ObservableObject {
         recordAppDebugEvent(event, payload: payload, force: true)
     }
 
+    func recordShellDebugEvent(_ event: String, payload: JSONValue = .object([:])) {
+        recordAppDebugEvent(event, payload: payload, force: true)
+    }
+
     private func applyWorkspaceModuleConfiguration(_ configuration: WorkspaceModuleConfiguration, in root: ResearchRoot) {
         let mergedConfiguration = WorkspaceModuleRegistry.mergedConfiguration(from: configuration)
         workspaceModuleConfiguration = mergedConfiguration
@@ -5103,6 +5259,7 @@ final class AppViewModel: ObservableObject {
     private func loadWorkspacePreferences(in workspace: ResearchWorkspace) async throws {
         workspacePreferences = try await workspacePreferencesRepository.load(in: workspace)
         addTodosToAppleReminders = workspacePreferences.syncTodosToAppleReminders
+        restoreWorkspaceRouteFromPreferences()
         normalizeSelectedSectionForModuleAvailability()
         restorePinnedAgentThreadsForCurrentProject()
         restoreAgentToolStateForCurrentScope()
@@ -5124,6 +5281,7 @@ final class AppViewModel: ObservableObject {
         if let selectedSection, !isWorkspaceSectionAvailable(selectedSection) {
             self.selectedSection = fallbackWorkspaceSection()
         }
+        normalizeProjectSpaceSelectionForAvailability()
         if isViewingGlobalTodos && !isWorkspaceSectionAvailable(.tasks) {
             isViewingGlobalTodos = false
         }
@@ -5131,6 +5289,176 @@ final class AppViewModel: ObservableObject {
             selectedLibraryProjectID = nil
             selectedCollectionPath = nil
             selectedTagName = nil
+        }
+    }
+
+    private func normalizeProjectSpaceSelectionForAvailability() {
+        guard let projectID = selectedProjectSpaceProjectID else {
+            return
+        }
+
+        guard activeResearchProjects.contains(where: { $0.id == projectID }) else {
+            selectedProjectSpaceProjectID = nil
+            selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
+            selectedSection = .projects
+            showShellStatus(localized("项目已不存在，已回到项目列表。", "Project no longer exists; returned to the project list."))
+            recordShellDebugEvent("route.persist.fallback", payload: .object([
+                "reason": .string(RoutePersistenceFallbackReason.projectMissing.rawValue)
+            ]))
+            return
+        }
+
+        let availableTabs = projectSpaceTabs(for: projectID)
+        if !availableTabs.contains(where: { $0.id == selectedProjectSpaceTabID }) {
+            let hiddenTabID = selectedProjectSpaceTabID
+            selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
+            recordShellDebugEvent("project_space.builder_warn", payload: .object([
+                "project_id": .string(projectID),
+                "hidden_tabs": jsonStringArray([hiddenTabID]),
+                "reason": .string("module_disabled")
+            ]))
+            recordShellDebugEvent("route.persist.fallback", payload: .object([
+                "reason": .string(RoutePersistenceFallbackReason.moduleDisabled.rawValue)
+            ]))
+        }
+    }
+
+    private func restoreWorkspaceRouteFromPreferences() {
+        let candidate = workspacePreferences.lastRoute ?? legacyRouteFromRecentSection()
+        let result = RoutePersistence.restoreResult(
+            candidate: candidate,
+            activeProjectIDs: Set(activeResearchProjects.map(\.id)),
+            configuration: effectiveModuleConfiguration(for: candidate.projectID ?? currentProjectID)
+        )
+        applyRestoredRoute(result.route)
+        if let fallbackReason = result.fallbackReason {
+            recordShellDebugEvent("route.persist.fallback", payload: .object([
+                "reason": .string(fallbackReason.rawValue)
+            ]))
+        }
+    }
+
+    private func applyRestoredRoute(_ route: WorkspaceRoute) {
+        selectedSection = workspaceSection(for: route.top)
+        isViewingGlobalTodos = route.secondarySelection == "global_todos"
+        selectedProjectSpaceProjectID = nil
+
+        switch route.top {
+        case .home, .settings:
+            break
+        case .projects:
+            if let projectID = route.projectID, activeResearchProjects.contains(where: { $0.id == projectID }) {
+                currentProjectID = projectID
+                selectedProjectSpaceProjectID = projectID
+                let availableTabIDs = Set(projectSpaceTabs(for: projectID).map(\.id))
+                selectedProjectSpaceTabID = availableTabIDs.contains(route.projectTabID ?? "") ? (route.projectTabID ?? ProjectSpaceTabsBuilder.overviewTabID) : ProjectSpaceTabsBuilder.overviewTabID
+                if selectedProjectSpaceTabID == "papers" {
+                    selectedLibraryProjectID = projectID
+                    selectedCollectionPath = nil
+                    selectedTagName = nil
+                }
+            }
+        case .library:
+            selectedLibraryProjectID = nil
+            selectedCollectionPath = nil
+            selectedTagName = nil
+        case .calendar:
+            break
+        case .aiLab:
+            break
+        }
+    }
+
+    private func legacyRouteFromRecentSection() -> WorkspaceRoute {
+        guard let rawValue = workspacePreferences.recentSection,
+              let section = WorkspaceSection(rawValue: rawValue) else {
+            return .home
+        }
+        if section.inProjectSpaceOnly, let currentProjectID {
+            return WorkspaceRoute(top: .projects, projectID: currentProjectID, projectTabID: projectSpaceTabID(for: section))
+        }
+        return WorkspaceRoute(top: topRoute(for: section))
+    }
+
+    private func persistWorkspaceRoute(_ route: WorkspaceRoute) {
+        updateWorkspacePreferences { preferences in
+            preferences.lastRoute = route
+            preferences.recentSection = recentSectionValue(for: route)
+        }
+        recordShellDebugEvent("route.persist", payload: .object([
+            "top": .string(route.top.rawValue),
+            "project_id_present": .bool(route.projectID != nil),
+            "tab_id": .string(route.projectTabID ?? "")
+        ]))
+    }
+
+    private func recentSectionValue(for route: WorkspaceRoute) -> String {
+        switch route.top {
+        case .home:
+            return WorkspaceSection.dashboard.rawValue
+        case .projects:
+            return WorkspaceSection.projects.rawValue
+        case .library:
+            return WorkspaceSection.library.rawValue
+        case .calendar:
+            return WorkspaceSection.calendar.rawValue
+        case .aiLab:
+            return WorkspaceSection.llmLab.rawValue
+        case .settings:
+            return WorkspaceSection.settings.rawValue
+        }
+    }
+
+    private func topRoute(for section: WorkspaceSection) -> WorkspaceRoute.Top {
+        switch section {
+        case .dashboard:
+            return .home
+        case .projects:
+            return .projects
+        case .library:
+            return .library
+        case .calendar, .tasks:
+            return .calendar
+        case .llmLab:
+            return .aiLab
+        case .settings:
+            return .settings
+        case .pdfReader, .inbox, .wiki, .papers, .concepts, .methods, .gaps, .materials, .graph:
+            return .projects
+        }
+    }
+
+    private func workspaceSection(for top: WorkspaceRoute.Top) -> WorkspaceSection {
+        switch top {
+        case .home:
+            return .dashboard
+        case .projects:
+            return .projects
+        case .library:
+            return .library
+        case .calendar:
+            return .calendar
+        case .aiLab:
+            return .llmLab
+        case .settings:
+            return .settings
+        }
+    }
+
+    private func projectSpaceTabID(for section: WorkspaceSection) -> String {
+        section.moduleProjectTabID ?? ProjectSpaceTabsBuilder.overviewTabID
+    }
+
+    private func showShellStatus(_ message: String) {
+        shellStatusMessage = message
+        shellStatusDismissTask?.cancel()
+        shellStatusDismissTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            await MainActor.run {
+                if self?.shellStatusMessage == message {
+                    self?.shellStatusMessage = nil
+                }
+            }
         }
     }
 

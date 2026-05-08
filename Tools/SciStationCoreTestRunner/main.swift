@@ -23,6 +23,16 @@ private struct CoreVerificationSuite {
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try projectSpaceTabsBuilderHonorsAvailableModules()
+        try projectSpaceTabsBuilderRespectsPinnedOrder()
+        try projectSpaceTabsBuilderRemovesDisabledModuleTabs()
+        try projectSpaceTabsBuilderKeepsOverviewLeftmost()
+        try topSidebarBuilderProducesSixFixedItems()
+        try await routePersistenceRoundTripsLastRoute()
+        try routePersistenceFallsBackWhenProjectMissing()
+        try routePersistenceFallsBackWhenModuleDisabled()
+        try await workspacePreferencesSchemaVersion2BackwardCompat()
+        try projectSpaceContentRouterMapsAllKnownTabs()
         try agentLoopBudgetDefaultsAreExpanded()
         try await appDebugEventLoggerPersistsRedactedEvents()
         try await homeAggregatorReturnsEmptyDataForBlankWorkspace()
@@ -472,6 +482,126 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.minerUOverwriteExistingMarkdown == false, "Workspace preferences should preserve MinerU overwrite behavior.")
         try expect(loadedPreferences.agentDisabledToolNamesByScope["project:test-workspace|thread:agent-thread-1"] == ["create_todo", "write_markdown_plan"], "Workspace preferences should preserve scoped disabled tools.")
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
+    }
+
+    private func projectSpaceTabsBuilderHonorsAvailableModules() throws {
+        let tabs = ProjectSpaceTabsBuilder.tabs(
+            for: "project-a",
+            configuration: WorkspaceModuleRegistry.defaultConfiguration(),
+            pinnedOrder: []
+        )
+        let ids = tabs.map(\.id)
+
+        try expect(ids.contains("overview"), "ProjectSpace tabs should include Overview from the projects module.")
+        try expect(ids.contains("papers"), "ProjectSpace tabs should include Papers from the paper-library module.")
+        try expect(ids.contains("wiki"), "ProjectSpace tabs should include Wiki from the wiki module.")
+        try expect(ids.contains("tasks"), "ProjectSpace tabs should include Tasks from the tasks module.")
+        try expect(ids.contains("calendar"), "ProjectSpace tabs should include Calendar from the calendar module.")
+        try expect(ids.contains("ai-drafts"), "ProjectSpace tabs should include AI Workflows from the AI Lab module.")
+    }
+
+    private func projectSpaceTabsBuilderRespectsPinnedOrder() throws {
+        let tabs = ProjectSpaceTabsBuilder.tabs(
+            for: "project-a",
+            configuration: WorkspaceModuleRegistry.defaultConfiguration(),
+            pinnedOrder: ["wiki", "papers"]
+        )
+        let ids = tabs.map(\.id)
+
+        try expect(ids.prefix(3) == ["overview", "wiki", "papers"], "Pinned ProjectSpace tabs should follow Overview while preserving its fixed leftmost position.")
+    }
+
+    private func projectSpaceTabsBuilderRemovesDisabledModuleTabs() throws {
+        var configuration = WorkspaceModuleRegistry.defaultConfiguration()
+        for index in configuration.modules.indices where configuration.modules[index].id == "wiki" {
+            configuration.modules[index].enabled = false
+        }
+
+        let ids = ProjectSpaceTabsBuilder.tabs(for: "project-a", configuration: configuration, pinnedOrder: []).map(\.id)
+        try expect(!ids.contains("wiki"), "Disabling the wiki module should remove the Wiki ProjectSpace tab.")
+    }
+
+    private func projectSpaceTabsBuilderKeepsOverviewLeftmost() throws {
+        let tabs = ProjectSpaceTabsBuilder.tabs(
+            for: "project-a",
+            configuration: WorkspaceModuleRegistry.defaultConfiguration(),
+            pinnedOrder: ["tasks", "overview", "calendar"]
+        )
+        try expect(tabs.first?.id == "overview", "Overview should remain the leftmost ProjectSpace tab.")
+    }
+
+    private func topSidebarBuilderProducesSixFixedItems() throws {
+        let items = TopSidebarBuilder.items(pinnedOrder: ["settings", "library", "home"])
+        let ids = items.map(\.id)
+
+        try expect(Set(ids) == Set(["home", "projects", "library", "calendar", "ai-lab", "settings"]), "Top sidebar should contain exactly the six P43 top-level items.")
+        try expect(ids.count == 6, "Top sidebar should not duplicate fixed items.")
+        try expect(items.last?.id == "settings", "Settings should remain in the fixed top-level set.")
+    }
+
+    private func routePersistenceRoundTripsLastRoute() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("RoutePersistenceWorkspace", isDirectory: true)
+        let repository = WorkspacePreferencesRepository()
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var preferences = try await repository.load(in: workspace)
+        let route = WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "wiki", secondarySelection: nil)
+        preferences.lastRoute = route
+        try await repository.save(preferences, in: workspace)
+
+        let loaded = try await repository.load(in: workspace)
+        try expect(loaded.lastRoute == route, "WorkspacePreferences should round-trip the last ProjectSpace route.")
+    }
+
+    private func routePersistenceFallsBackWhenProjectMissing() throws {
+        let result = RoutePersistence.restoreResult(
+            candidate: WorkspaceRoute(top: .projects, projectID: "missing", projectTabID: "wiki"),
+            activeProjectIDs: ["project-a"],
+            configuration: WorkspaceModuleRegistry.defaultConfiguration()
+        )
+
+        try expect(result.route == WorkspaceRoute(top: .projects), "Missing project routes should fall back to the project list.")
+        try expect(result.fallbackReason == .projectMissing, "Missing project routes should report project_missing.")
+    }
+
+    private func routePersistenceFallsBackWhenModuleDisabled() throws {
+        let result = RoutePersistence.restoreResult(
+            candidate: WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "graph"),
+            activeProjectIDs: ["project-a"],
+            configuration: WorkspaceModuleRegistry.defaultConfiguration()
+        )
+
+        try expect(result.route == WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "overview"), "Disabled module routes should fall back to ProjectSpace Overview.")
+        try expect(result.fallbackReason == .moduleDisabled, "Disabled module routes should report module_disabled.")
+    }
+
+    private func workspacePreferencesSchemaVersion2BackwardCompat() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("PreferencesV1Workspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let workspace = ResearchWorkspace(rootURL: rootURL)
+        try FileManager.default.createDirectory(at: workspace.fileURL(for: WorkspacePreferencesRepository.relativePath).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\nrecent_section: \"library\"\n".write(to: workspace.fileURL(for: WorkspacePreferencesRepository.relativePath), atomically: true, encoding: .utf8)
+
+        let preferences = try await WorkspacePreferencesRepository().load(in: workspace)
+        try expect(preferences.schemaVersion == WorkspacePreferences.currentSchemaVersion, "Loading v1 preferences should normalize to schema version 2.")
+        try expect(preferences.pinnedTopLevelOrder == WorkspacePreferences.defaultPinnedTopLevelOrder, "Loading v1 preferences should fill top-level pin defaults.")
+        try expect(preferences.projectSpacePinnedOrder.isEmpty, "Loading v1 preferences should fill an empty ProjectSpace pin order.")
+    }
+
+    private func projectSpaceContentRouterMapsAllKnownTabs() throws {
+        for tabID in ProjectSpaceTabsBuilder.defaultOrder {
+            try expect(!ProjectSpaceTabsBuilder.systemImage(for: tabID).isEmpty, "ProjectSpace tab \(tabID) should have a router/icon mapping.")
+        }
     }
 
     private func agentLoopBudgetDefaultsAreExpanded() throws {

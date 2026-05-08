@@ -15,18 +15,33 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
     case graph
     case llmLab
     case tasks
+    case calendar
     case settings
 
     var id: String {
         rawValue
     }
 
-    static var sidebarSections: [WorkspaceSection] {
-        [.projects, .materials, .library, .inbox, .wiki, .tasks, .llmLab]
+    static var legacyProjectSidebarSections: [WorkspaceSection] {
+        [.projects, .library, .wiki, .tasks, .materials]
     }
 
-    static var projectSidebarSections: [WorkspaceSection] {
-        [.projects, .library, .wiki, .tasks, .materials]
+    var isTopLevel: Bool {
+        switch self {
+        case .dashboard, .projects, .library, .calendar, .llmLab, .settings:
+            return true
+        case .pdfReader, .inbox, .wiki, .papers, .concepts, .methods, .gaps, .materials, .graph, .tasks:
+            return false
+        }
+    }
+
+    var inProjectSpaceOnly: Bool {
+        switch self {
+        case .papers, .wiki, .tasks, .materials, .pdfReader, .inbox, .graph, .concepts, .methods, .gaps:
+            return true
+        case .dashboard, .projects, .library, .calendar, .llmLab, .settings:
+            return false
+        }
     }
 
     var moduleRouteID: String? {
@@ -59,6 +74,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "ai-lab"
         case .tasks:
             return "tasks"
+        case .calendar:
+            return "calendar"
         }
     }
 
@@ -82,6 +99,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "ai-drafts"
         case .tasks:
             return "tasks"
+        case .calendar:
+            return "calendar"
         }
     }
 
@@ -115,6 +134,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "AI Lab"
         case .tasks:
             return "Tasks"
+        case .calendar:
+            return "Calendar"
         case .settings:
             return "Settings"
         }
@@ -150,6 +171,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "brain"
         case .tasks:
             return "checklist"
+        case .calendar:
+            return "calendar"
         case .settings:
             return "gearshape"
         }
@@ -185,6 +208,8 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
             return "Run structured prompts and AI-assisted research workflows for the active project."
         case .tasks:
             return "Track due dates, complete reading tasks, and connect todo items back to papers."
+        case .calendar:
+            return "Review workspace deadlines, project events, and system calendar signals."
         case .settings:
             return "Configure workspace, PDF, LLM, and external tool settings."
         }

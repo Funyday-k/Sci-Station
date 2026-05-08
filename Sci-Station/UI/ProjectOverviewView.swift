@@ -188,7 +188,7 @@ struct ProjectOverviewView: View {
                     appModel.selectSection(.wiki)
                 }
                 ProjectWorkflowTile(title: "AI Lab", detail: "prompts + summaries", systemImage: "brain") {
-                    appModel.selectSection(.llmLab)
+                    appModel.selectProjectSpaceTab("ai-drafts")
                 }
             }
         }

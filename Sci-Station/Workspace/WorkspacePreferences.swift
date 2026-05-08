@@ -1,16 +1,47 @@
 import Foundation
 
+public nonisolated struct WorkspaceRoute: Codable, Hashable, Sendable {
+    public enum Top: String, Codable, CaseIterable, Hashable, Sendable {
+        case home
+        case projects
+        case library
+        case calendar
+        case aiLab = "ai-lab"
+        case settings
+
+        public nonisolated static let defaultOrder: [Top] = [.home, .projects, .library, .calendar, .aiLab, .settings]
+    }
+
+    public var top: Top
+    public var projectID: String?
+    public var projectTabID: String?
+    public var secondarySelection: String?
+
+    public nonisolated init(top: Top, projectID: String? = nil, projectTabID: String? = nil, secondarySelection: String? = nil) {
+        self.top = top
+        self.projectID = projectID
+        self.projectTabID = projectTabID
+        self.secondarySelection = secondarySelection
+    }
+
+    public nonisolated static let home = WorkspaceRoute(top: .home)
+}
+
 public struct WorkspacePreferences: Hashable, Sendable {
     public nonisolated static let currentSchemaVersion = 2
     public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
     public nonisolated static let defaultAgentChatFontSize = 14.0
     public nonisolated static let defaultAgentLoopBudget = AgentLoopOptions()
+    public nonisolated static let defaultPinnedTopLevelOrder = WorkspaceRoute.Top.defaultOrder.map(\.rawValue)
 
     public var schemaVersion: Int
     public var libraryVisibleColumns: [String]
     public var librarySortState: LibrarySortState
     public var defaultCollectionPath: String?
     public var recentSection: String?
+    public var pinnedTopLevelOrder: [String]
+    public var projectSpacePinnedOrder: [String]
+    public var lastRoute: WorkspaceRoute?
     public var syncTodosToAppleReminders: Bool
     public var appLanguage: AppLanguagePreference
     public var agentChatFontSize: Double
@@ -32,6 +63,9 @@ public struct WorkspacePreferences: Hashable, Sendable {
         librarySortState: LibrarySortState = LibrarySortState(),
         defaultCollectionPath: String? = nil,
         recentSection: String? = "library",
+        pinnedTopLevelOrder: [String] = Self.defaultPinnedTopLevelOrder,
+        projectSpacePinnedOrder: [String] = [],
+        lastRoute: WorkspaceRoute? = nil,
         syncTodosToAppleReminders: Bool = true,
         appLanguage: AppLanguagePreference = .system,
         agentChatFontSize: Double = Self.defaultAgentChatFontSize,
@@ -47,11 +81,14 @@ public struct WorkspacePreferences: Hashable, Sendable {
         minerUAPILanguage: String = "en",
         minerUOverwriteExistingMarkdown: Bool = true
     ) {
-        self.schemaVersion = schemaVersion
+        self.schemaVersion = max(schemaVersion, Self.currentSchemaVersion)
         self.libraryVisibleColumns = libraryVisibleColumns.isEmpty ? Self.defaultLibraryVisibleColumns : libraryVisibleColumns
         self.librarySortState = librarySortState
         self.defaultCollectionPath = defaultCollectionPath
         self.recentSection = recentSection
+        self.pinnedTopLevelOrder = pinnedTopLevelOrder.isEmpty ? Self.defaultPinnedTopLevelOrder : pinnedTopLevelOrder
+        self.projectSpacePinnedOrder = projectSpacePinnedOrder
+        self.lastRoute = lastRoute
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
         self.appLanguage = appLanguage
         let normalizedFontSize = agentChatFontSize.isFinite ? agentChatFontSize : Self.defaultAgentChatFontSize

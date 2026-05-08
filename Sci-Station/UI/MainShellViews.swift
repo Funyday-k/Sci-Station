@@ -12,172 +12,7 @@ struct SidebarView: View {
     @State private var isAILabExpanded = true
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                SidebarIconButton(
-                    systemImage: WorkspaceSection.dashboard.systemImage,
-                    isSelected: appModel.selectedSection == .dashboard,
-                    accessibilityLabel: "Home"
-                ) {
-                    appModel.selectSection(.dashboard)
-                }
-                .help("Home")
-
-                if appModel.isWorkspaceSectionAvailable(.tasks) {
-                    SidebarIconButton(
-                        systemImage: WorkspaceSection.tasks.systemImage,
-                        isSelected: appModel.selectedSection == .tasks && appModel.isViewingGlobalTodos,
-                        accessibilityLabel: "All Todos"
-                    ) {
-                        appModel.selectGlobalTodos()
-                    }
-                    .help("All Todos")
-                }
-
-                Spacer(minLength: 0)
-
-                if workspace != nil {
-                    SidebarIconButton(systemImage: "plus", isSelected: false, accessibilityLabel: "New Project") {
-                        appModel.beginCreatingResearchProject()
-                    }
-                    .help("New Project")
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if workspace == nil {
-                        SidebarSectionLabel(title: "Navigate")
-
-                        VStack(spacing: 2) {
-                            ForEach(WorkspaceSection.sidebarSections) { section in
-                                SidebarActionRow(
-                                    title: section.title,
-                                    systemImage: section.systemImage,
-                                    isSelected: isSelected(section)
-                                ) {
-                                    appModel.selectSection(section)
-                                }
-                                .disabled(true)
-                            }
-                        }
-                    } else {
-                        SidebarSectionLabel(title: "Projects")
-
-                        if appModel.activeResearchProjects.isEmpty {
-                            SidebarActionRow(
-                                title: "New Project",
-                                systemImage: "plus",
-                                isSelected: false
-                            ) {
-                                appModel.beginCreatingResearchProject()
-                            }
-                        } else {
-                            VStack(spacing: 6) {
-                                ForEach(appModel.activeResearchProjects) { project in
-                                    SidebarProjectGroup(project: project)
-                                }
-                            }
-                        }
-
-                        if appModel.isWorkspaceSectionAvailable(.llmLab) {
-                            SidebarAILabGroup(isExpanded: $isAILabExpanded)
-                        }
-                    }
-
-                    if workspace != nil, appModel.isWorkspaceSectionAvailable(.library) {
-                        SidebarSectionLabel(title: "Library")
-
-                        VStack(spacing: 2) {
-                            HStack(spacing: 6) {
-                                Button {
-                                    withAnimation(SidebarMotion.expansion) {
-                                        isAllPapersExpanded.toggle()
-                                    }
-                                } label: {
-                                    Image(systemName: isAllPapersExpanded ? "chevron.down" : "chevron.right")
-                                        .font(.caption)
-                                        .frame(width: 14, height: 20)
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
-                                .help(isAllPapersExpanded ? "Collapse Library folders" : "Expand Library folders")
-                                .accessibilityLabel(isAllPapersExpanded ? "Collapse Library folders" : "Expand Library folders")
-
-                                SidebarActionRow(
-                                    title: "All Papers",
-                                    systemImage: "books.vertical",
-                                    isSelected: appModel.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil,
-                                    badgeText: "\(appModel.papers.count)"
-                                ) {
-                                    appModel.selectLibraryScope()
-                                }
-                                .contextMenu {
-                                    Button("Create Folder") {
-                                        appModel.createSubfolder(in: nil)
-                                    }
-                                }
-                            }
-
-                            if isAllPapersExpanded {
-                                ForEach(rootCollections) { collection in
-                                    SidebarCollectionTree(
-                                        collection: collection,
-                                        allCollections: appModel.collections,
-                                        level: 0
-                                    )
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-                        }
-
-                        if !appModel.availableTagDefinitions.isEmpty {
-                            SidebarSectionLabel(title: "Tags")
-
-                            VStack(spacing: 2) {
-                                ForEach(appModel.availableTagDefinitions) { tag in
-                                    SidebarTagRow(
-                                        tag: tag,
-                                        isSelected: appModel.selectedTagName == tag.name
-                                    ) {
-                                        appModel.selectTag(tag.name)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-            }
-
-            Spacer(minLength: 0)
-
-            HStack {
-                SidebarIconButton(
-                    systemImage: WorkspaceSection.settings.systemImage,
-                    isSelected: appModel.selectedSection == .settings,
-                    accessibilityLabel: "Settings"
-                ) {
-                    appModel.selectSection(.settings)
-                }
-                .help("Settings")
-
-                Text(workspace?.displayName ?? "Sci-Station")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor))
+        TopSidebarView(workspace: workspace)
     }
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {
@@ -721,6 +556,8 @@ private struct SidebarTagRow: View {
 }
 
 struct WorkspaceContentView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let workspace: ResearchWorkspace?
     let selectedSection: WorkspaceSection?
     let isWorking: Bool
@@ -739,11 +576,17 @@ struct WorkspaceContentView: View {
                 } else if selectedSection == .wiki {
                     WikiWorkspaceView(workspace: workspace)
                 } else if selectedSection == .projects {
-                    ProjectOverviewView(workspace: workspace)
+                    if let project = appModel.selectedProjectSpaceProject {
+                        ProjectSpaceContainer(workspace: workspace, project: project)
+                    } else {
+                        ProjectsListView(workspace: workspace)
+                    }
                 } else if selectedSection == .materials {
                     MaterialsView(workspace: workspace)
                 } else if selectedSection == .tasks {
                     TasksWorkspaceView(workspace: workspace)
+                } else if selectedSection == .calendar {
+                    WorkspaceCalendarView(workspace: workspace)
                 } else if selectedSection == .llmLab {
                     AILabWorkspaceView(workspace: workspace)
                 } else {
@@ -763,6 +606,46 @@ struct WorkspaceContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .overlay(alignment: .bottom) {
+            if let message = appModel.shellStatusMessage {
+                Text(message)
+                    .font(.callout)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 18)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+    }
+}
+
+private struct WorkspaceCalendarView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let workspace: ResearchWorkspace
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Calendar")
+                        .font(.largeTitle)
+                        .fontWeight(.semibold)
+                    Text("Workspace-wide schedule for \(workspace.displayName).")
+                        .foregroundStyle(.secondary)
+                }
+
+                DashboardCalendarView(selectedDate: Binding(
+                    get: { appModel.selectedDashboardDate },
+                    set: { appModel.selectDashboardDate($0) }
+                ))
+
+                TodoDashboardWidget(scope: .global)
+            }
+            .padding(24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -36,6 +36,17 @@ public actor WorkspacePreferencesRepository {
         let recentSection = preferences.recentSection.map(quoted) ?? ""
         lines.append("default_collection: \(defaultCollection)")
         lines.append("recent_section: \(recentSection)")
+        lines.append("pinned_top_level_order:")
+        lines.append(contentsOf: preferences.pinnedTopLevelOrder.map { "  - \(quoted($0))" })
+        lines.append("project_space_pinned_order:")
+        lines.append(contentsOf: preferences.projectSpacePinnedOrder.map { "  - \(quoted($0))" })
+        if let lastRoute = preferences.lastRoute {
+            lines.append("last_route:")
+            lines.append("  top: \(quoted(lastRoute.top.rawValue))")
+            lines.append("  project_id: \(lastRoute.projectID.map(quoted) ?? "")")
+            lines.append("  project_tab_id: \(lastRoute.projectTabID.map(quoted) ?? "")")
+            lines.append("  secondary_selection: \(lastRoute.secondarySelection.map(quoted) ?? "")")
+        }
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
         lines.append("app_language: \(quoted(preferences.appLanguage.rawValue))")
         lines.append("agent_chat_font_size: \(preferences.agentChatFontSize)")
@@ -71,6 +82,9 @@ public actor WorkspacePreferencesRepository {
         var librarySortAscending = true
         var defaultCollectionPath: String?
         var recentSection: String?
+        var pinnedTopLevelOrder = WorkspacePreferences.defaultPinnedTopLevelOrder
+        var projectSpacePinnedOrder: [String] = []
+        var lastRoute: WorkspaceRoute?
         var syncTodosToAppleReminders = true
         var appLanguage = AppLanguagePreference.system
         var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
@@ -106,6 +120,18 @@ public actor WorkspacePreferencesRepository {
                 defaultCollectionPath = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "default_collection:", with: "").trimmingCharacters(in: .whitespaces)))
             } else if trimmed.hasPrefix("recent_section:") {
                 recentSection = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "recent_section:", with: "").trimmingCharacters(in: .whitespaces)))
+            } else if trimmed == "pinned_top_level_order:" {
+                let result = parseIndentedArray(from: lines, start: cursor + 1)
+                pinnedTopLevelOrder = result.values.isEmpty ? WorkspacePreferences.defaultPinnedTopLevelOrder : result.values
+                cursor = result.nextIndex - 1
+            } else if trimmed == "project_space_pinned_order:" {
+                let result = parseIndentedArray(from: lines, start: cursor + 1)
+                projectSpacePinnedOrder = result.values
+                cursor = result.nextIndex - 1
+            } else if trimmed == "last_route:" {
+                let result = parseWorkspaceRoute(from: lines, start: cursor + 1)
+                lastRoute = result.value
+                cursor = result.nextIndex - 1
             } else if trimmed.hasPrefix("sync_todos_to_apple_reminders:") {
                 let value = trimmed.replacingOccurrences(of: "sync_todos_to_apple_reminders:", with: "").trimmingCharacters(in: .whitespaces)
                 syncTodosToAppleReminders = Bool(value) ?? true
@@ -159,6 +185,9 @@ public actor WorkspacePreferencesRepository {
             librarySortState: LibrarySortState(field: librarySortField, isAscending: librarySortAscending),
             defaultCollectionPath: defaultCollectionPath,
             recentSection: recentSection,
+            pinnedTopLevelOrder: pinnedTopLevelOrder,
+            projectSpacePinnedOrder: projectSpacePinnedOrder,
+            lastRoute: lastRoute,
             syncTodosToAppleReminders: syncTodosToAppleReminders,
             appLanguage: appLanguage,
             agentChatFontSize: agentChatFontSize,
@@ -272,6 +301,48 @@ public actor WorkspacePreferencesRepository {
         }
 
         return (budget, cursor)
+    }
+
+    private nonisolated func parseWorkspaceRoute(from lines: [String], start: Int) -> (value: WorkspaceRoute?, nextIndex: Int) {
+        var values: [String: String] = [:]
+        var cursor = start
+
+        while cursor < lines.count, lines[cursor].hasPrefix("  ") {
+            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+            let parts = trimmed.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                break
+            }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = emptyToNil(unquoted(parts[1].trimmingCharacters(in: .whitespaces)))
+            values[key] = value
+            cursor += 1
+        }
+
+        guard let topValue = values["top"], let top = workspaceRouteTop(from: topValue) else {
+            return (nil, cursor)
+        }
+
+        return (WorkspaceRoute(
+            top: top,
+            projectID: values["project_id"] ?? nil,
+            projectTabID: values["project_tab_id"] ?? nil,
+            secondarySelection: values["secondary_selection"] ?? nil
+        ), cursor)
+    }
+
+    private nonisolated func workspaceRouteTop(from value: String) -> WorkspaceRoute.Top? {
+        if let top = WorkspaceRoute.Top(rawValue: value) {
+            return top
+        }
+        switch value {
+        case "dashboard":
+            return .home
+        case "aiLab", "ai_lab", "llmLab", "llm-lab":
+            return .aiLab
+        default:
+            return nil
+        }
     }
 
     private nonisolated func quoted(_ value: String) -> String {
