@@ -86,6 +86,7 @@ release/
 /*.sqlite-wal
 /DOC/
 /awesome-design-md-main/
+/.github/
 
 # Reference open-source repos
 /claude-code-main/

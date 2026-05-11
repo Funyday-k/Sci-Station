@@ -28,7 +28,7 @@ public nonisolated struct WorkspaceRoute: Codable, Hashable, Sendable {
 }
 
 public struct WorkspacePreferences: Hashable, Sendable {
-    public nonisolated static let currentSchemaVersion = 3
+    public nonisolated static let currentSchemaVersion = 4
     public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
     public nonisolated static let defaultAgentChatFontSize = 14.0
     public nonisolated static let defaultAgentLoopBudget = AgentLoopOptions()
@@ -45,6 +45,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var rightRailMode: RightRailMode
     public var isGlobalAIPanelOpen: Bool
     public var isProjectTreeExpanded: Bool
+    public var homeWidgetLayout: HomeWidgetLayout
     public var pinnedProjectIDs: [String]
     public var syncTodosToAppleReminders: Bool
     public var appLanguage: AppLanguagePreference
@@ -73,6 +74,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
         rightRailMode: RightRailMode = .inspector,
         isGlobalAIPanelOpen: Bool = false,
         isProjectTreeExpanded: Bool = true,
+        homeWidgetLayout: HomeWidgetLayout = HomeWidgetLayout.defaultLayout(),
         pinnedProjectIDs: [String] = [],
         syncTodosToAppleReminders: Bool = true,
         appLanguage: AppLanguagePreference = .system,
@@ -100,6 +102,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.rightRailMode = rightRailMode
         self.isGlobalAIPanelOpen = isGlobalAIPanelOpen
         self.isProjectTreeExpanded = isProjectTreeExpanded
+        self.homeWidgetLayout = homeWidgetLayout.normalized(descriptors: HomeWidgetRegistry.defaultDescriptors, columns: 4)
         self.pinnedProjectIDs = pinnedProjectIDs
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
         self.appLanguage = appLanguage

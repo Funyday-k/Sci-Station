@@ -34,8 +34,8 @@ struct ProjectSpaceContainer: View {
                 )
             } else {
                 ProjectSpaceUnavailableView(
-                    title: "ProjectSpace temporarily unavailable",
-                    message: "No available project tabs were resolved for this project.",
+                    title: appModel.t(.projectSpaceUnavailableTitle),
+                    message: appModel.t(.projectSpaceUnavailableMessage),
                     retry: { appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.overviewTabID) }
                 )
             }
@@ -53,10 +53,10 @@ struct ProjectSpaceContainer: View {
             Button {
                 appModel.selectTopLevelRoute(.projects)
             } label: {
-                Label("Projects", systemImage: "chevron.left")
+                Label(appModel.t(.routeProjects), systemImage: "chevron.left")
             }
             .buttonStyle(.borderless)
-            .help("Back to projects")
+            .help(appModel.t(.projectSpaceBackToProjects))
 
             Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
                 .font(.title3)
@@ -107,29 +107,38 @@ struct ProjectsListView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Projects")
+                        Text(appModel.t(.routeProjects))
                             .font(.largeTitle)
                             .fontWeight(.semibold)
-                        Text("Choose a project to enter its ProjectSpace tabs.")
+                        Text(appModel.t(.projectsChooseProject))
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                     Button {
+                        appModel.isShowingArchivedProjects.toggle()
+                    } label: {
+                        Label(
+                            appModel.isShowingArchivedProjects ? appModel.t(.sidebarHideArchived) : appModel.t(.sidebarShowArchived),
+                            systemImage: appModel.isShowingArchivedProjects ? "archivebox.fill" : "archivebox"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    Button {
                         appModel.beginCreatingResearchProject()
                     } label: {
-                        Label("New Project", systemImage: "plus")
+                        Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                     }
                     .buttonStyle(.borderedProminent)
                 }
 
                 if appModel.activeResearchProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("No projects have been registered yet.")
+                        Text(appModel.t(.projectsEmptyTitle))
                             .foregroundStyle(.secondary)
                         Button {
                             appModel.beginCreatingResearchProject()
                         } label: {
-                            Label("New Project", systemImage: "plus")
+                            Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                         }
                         .buttonStyle(.bordered)
                     }
@@ -150,6 +159,41 @@ struct ProjectsListView: View {
                                 appModel.selectResearchProject(project.id)
                             } edit: {
                                 appModel.beginEditingResearchProject(project.id)
+                            } restore: {
+                                appModel.restoreResearchProject(project)
+                            } archive: {
+                                appModel.confirmArchiveResearchProject(project)
+                            } trash: {
+                                appModel.confirmTrashResearchProject(project)
+                            }
+                        }
+                    }
+                }
+
+                if appModel.isShowingArchivedProjects, !appModel.archivedResearchProjects.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(appModel.t(.projectsArchivedTitle))
+                            .font(.headline)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], alignment: .leading, spacing: 12) {
+                            ForEach(appModel.archivedResearchProjects) { project in
+                                ProjectListCard(
+                                    project: project,
+                                    isSelected: false,
+                                    paperCount: appModel.papers(for: project.id).count,
+                                    openTodoCount: appModel.openTodos(for: project.id).count
+                                ) {
+                                    appModel.focusResearchProject(project.id)
+                                } open: {
+                                    appModel.selectResearchProject(project.id)
+                                } edit: {
+                                    appModel.beginEditingResearchProject(project.id)
+                                } restore: {
+                                    appModel.restoreResearchProject(project)
+                                } archive: {
+                                    appModel.confirmArchiveResearchProject(project)
+                                } trash: {
+                                    appModel.confirmTrashResearchProject(project)
+                                }
                             }
                         }
                     }
@@ -162,6 +206,8 @@ struct ProjectsListView: View {
 }
 
 private struct ProjectListCard: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let project: ResearchProject
     let isSelected: Bool
     let paperCount: Int
@@ -169,6 +215,9 @@ private struct ProjectListCard: View {
     let focus: () -> Void
     let open: () -> Void
     let edit: () -> Void
+    let restore: () -> Void
+    let archive: () -> Void
+    let trash: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -191,9 +240,9 @@ private struct ProjectListCard: View {
             }
 
             HStack(spacing: 12) {
-                ProjectListMetric(label: "Papers", value: "\(paperCount)")
-                ProjectListMetric(label: "Open", value: "\(openTodoCount)")
-                ProjectListMetric(label: "Updated", value: project.updatedAt.formatted(date: .abbreviated, time: .omitted))
+                ProjectListMetric(label: appModel.t(.projectsPapersMetric), value: "\(paperCount)")
+                ProjectListMetric(label: appModel.t(.projectsOpenMetric), value: "\(openTodoCount)")
+                ProjectListMetric(label: appModel.t(.projectsUpdatedMetric), value: project.updatedAt.formatted(date: .abbreviated, time: .omitted))
             }
         }
         .padding(12)
@@ -204,8 +253,16 @@ private struct ProjectListCard: View {
         .onTapGesture(perform: focus)
         .onTapGesture(count: 2, perform: open)
         .contextMenu {
-            Button("Open Project", action: open)
-            Button("Edit Project Info", action: edit)
+            if project.isArchived {
+                Button(appModel.t(.projectsRestore), action: restore)
+                Button(appModel.t(.projectTrashAction), role: .destructive, action: trash)
+            } else {
+                Button(appModel.t(.sidebarOpenProject), action: open)
+                Button(appModel.t(.projectsEditInfo), action: edit)
+                Divider()
+                Button(appModel.t(.projectArchiveAction), role: .destructive, action: archive)
+                Button(appModel.t(.projectTrashAction), role: .destructive, action: trash)
+            }
         }
     }
 }
@@ -229,6 +286,8 @@ private struct ProjectListMetric: View {
 }
 
 private struct ProjectSpaceTabStrip: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let tabs: [ProjectSpaceTab]
     let selectedTabID: String
     let select: (String) -> Void
@@ -253,16 +312,16 @@ private struct ProjectSpaceTabStrip: View {
                         Button {
                             select(tab.id)
                         } label: {
-                            Label(tab.title, systemImage: tab.systemImage)
+                            Label(localizedTitle(for: tab), systemImage: tab.systemImage)
                         }
                     }
                 } label: {
-                    Label("More", systemImage: "ellipsis.circle")
+                    Label(appModel.t(.projectSpaceMoreTabs), systemImage: "ellipsis.circle")
                         .padding(.horizontal, 9)
                         .padding(.vertical, 6)
                 }
                 .menuStyle(.borderlessButton)
-                .help("More project tabs")
+                .help(appModel.t(.projectSpaceMoreTabs))
             }
             Spacer(minLength: 0)
         }
@@ -289,16 +348,25 @@ private struct ProjectSpaceTabStrip: View {
         let visibleIDs = Set(visibleTabs.map(\.id))
         return tabs.filter { !visibleIDs.contains($0.id) }
     }
+
+    private func localizedTitle(for tab: ProjectSpaceTab) -> String {
+        guard let key = L10n.key(for: tab.id) else {
+            return tab.title
+        }
+        return appModel.t(key)
+    }
 }
 
 private struct ProjectSpaceTabButton: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let tab: ProjectSpaceTab
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Label(tab.title, systemImage: tab.systemImage)
+            Label(localizedTitle, systemImage: tab.systemImage)
                 .lineLimit(1)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6)
@@ -306,6 +374,13 @@ private struct ProjectSpaceTabButton: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-        .help(tab.title)
+        .help(localizedTitle)
+    }
+
+    private var localizedTitle: String {
+        guard let key = L10n.key(for: tab.id) else {
+            return tab.title
+        }
+        return appModel.t(key)
     }
 }

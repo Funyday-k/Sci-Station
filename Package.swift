@@ -64,9 +64,11 @@ let package = Package(
                 "Calendar",
                 "Import",
                 "MetadataProviders",
+                "Localization",
                 "LLM",
                 "Agent",
                 "UI/Shell/ShellModels.swift",
+                "UI/Shell/ResponsiveShellPolicy.swift",
                 "UI/Shell/TopSidebarBuilder.swift",
                 "UI/Shell/ProjectSpaceTabsBuilder.swift",
                 "UI/Shell/RoutePersistence.swift"

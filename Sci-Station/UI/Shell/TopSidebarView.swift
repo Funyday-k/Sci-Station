@@ -37,13 +37,13 @@ struct TopSidebarView: View {
                 Button {
                     appModel.beginCreatingResearchProject()
                 } label: {
-                    Label("New Project", systemImage: "plus")
+                    Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
                 .padding(.horizontal, 18)
-                .help("Create a research project")
+                .help(appModel.t(.sidebarCreateResearchProject))
             }
 
             Spacer(minLength: 0)
@@ -72,14 +72,14 @@ struct TopSidebarView: View {
             appModel.recordSidebarRender()
         }
         .confirmationDialog(
-            "Archive project?",
+            projectLifecycleConfirmationTitle,
             isPresented: $appModel.isShowingProjectDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Archive Project", role: .destructive) {
+            Button(projectLifecycleConfirmationAction, role: .destructive) {
                 appModel.confirmDeletePendingResearchProject()
             }
-            Button("Cancel", role: .cancel) {
+            Button(appModel.t(.appCancel), role: .cancel) {
                 appModel.cancelDeleteResearchProject()
             }
         } message: {
@@ -87,11 +87,34 @@ struct TopSidebarView: View {
         }
     }
 
+    private var projectLifecycleConfirmationTitle: String {
+        switch appModel.projectPendingLifecycleAction {
+        case .archive:
+            return appModel.t(.projectArchiveQuestion)
+        case .deleteToTrash:
+            return appModel.t(.projectTrashQuestion)
+        }
+    }
+
+    private var projectLifecycleConfirmationAction: String {
+        switch appModel.projectPendingLifecycleAction {
+        case .archive:
+            return appModel.t(.projectArchiveAction)
+        case .deleteToTrash:
+            return appModel.t(.projectTrashAction)
+        }
+    }
+
     private var projectDeleteConfirmationMessage: String {
         guard let project = appModel.projectPendingDeletion else {
-            return "This will archive the project and keep workspace files in place."
+            return appModel.t(.projectArchiveDefaultMessage)
         }
-        return "\(project.name) will be hidden from active Projects. Files under \(project.relativePath) stay in the workspace; physical deletion is not performed in this step."
+        switch appModel.projectPendingLifecycleAction {
+        case .archive:
+            return appModel.tf(.projectArchiveMessageFormat, project.name, project.relativePath)
+        case .deleteToTrash:
+            return appModel.tf(.projectTrashMessageFormat, project.name, project.relativePath)
+        }
     }
 
     private var header: some View {
@@ -103,7 +126,7 @@ struct TopSidebarView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Sci-Station")
                     .font(.headline)
-                Text("Research Shell")
+                Text(appModel.t(.sidebarResearchShell))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -144,12 +167,12 @@ private enum SidebarProjectSortMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(appModel: AppViewModel) -> String {
         switch self {
         case .usage:
-            return "Usage"
+            return appModel.t(.sidebarSortUsage)
         case .name:
-            return "Name"
+            return appModel.t(.sidebarSortName)
         }
     }
 
@@ -166,25 +189,52 @@ private enum SidebarProjectSortMode: String, CaseIterable, Identifiable {
 private struct SidebarProjectTreeSection: View {
     @EnvironmentObject private var appModel: AppViewModel
     @State private var sortMode = SidebarProjectSortMode.usage
+    @State private var searchText = ""
 
     private var isExpanded: Bool {
-        appModel.workspacePreferences.isProjectTreeExpanded
+        if appModel.responsiveShellModel.shouldCollapseProjectTree {
+            return false
+        }
+        return appModel.workspacePreferences.isProjectTreeExpanded
     }
 
     private var sortedProjects: [ResearchProject] {
+        let projects = appModel.sidebarProjects(searchText: searchText, includeArchived: appModel.isShowingArchivedProjects)
         switch sortMode {
         case .usage:
-            return appModel.activeResearchProjects.sorted { first, second in
+            return projects.sorted { first, second in
                 if first.updatedAt == second.updatedAt {
                     return first.name.localizedStandardCompare(second.name) == .orderedAscending
                 }
                 return first.updatedAt > second.updatedAt
             }
         case .name:
-            return appModel.activeResearchProjects.sorted { first, second in
+            return projects.sorted { first, second in
                 first.name.localizedStandardCompare(second.name) == .orderedAscending
             }
         }
+    }
+
+    private var activeProjects: [ResearchProject] {
+        sortedProjects.filter { !$0.isArchived }
+    }
+
+    private var archivedProjects: [ResearchProject] {
+        sortedProjects.filter(\.isArchived)
+    }
+
+    private var pinnedProjects: [ResearchProject] {
+        let pinnedIDs = Set(appModel.pinnedResearchProjects.map(\.id))
+        return activeProjects.filter { pinnedIDs.contains($0.id) }
+    }
+
+    private var recentProjects: [ResearchProject] {
+        let pinnedIDs = Set(pinnedProjects.map(\.id))
+        return activeProjects.filter { !pinnedIDs.contains($0.id) }
+    }
+
+    private var shouldShowRecentBuckets: Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sortMode == .usage
     }
 
     var body: some View {
@@ -201,9 +251,9 @@ private struct SidebarProjectTreeSection: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help(isExpanded ? "Collapse project tree" : "Expand project tree")
+                .help(isExpanded ? appModel.t(.sidebarCollapseProjectTree) : appModel.t(.sidebarExpandProjectTree))
 
-                Text("Projects")
+                Text(appModel.t(.routeProjects))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -212,8 +262,17 @@ private struct SidebarProjectTreeSection: View {
                         Button {
                             sortMode = mode
                         } label: {
-                            Label(mode.title, systemImage: sortMode == mode ? "checkmark" : mode.systemImage)
+                            Label(mode.title(appModel: appModel), systemImage: sortMode == mode ? "checkmark" : mode.systemImage)
                         }
+                    }
+                    Divider()
+                    Button {
+                        appModel.isShowingArchivedProjects.toggle()
+                    } label: {
+                        Label(
+                            appModel.isShowingArchivedProjects ? appModel.t(.sidebarHideArchived) : appModel.t(.sidebarShowArchived),
+                            systemImage: appModel.isShowingArchivedProjects ? "archivebox.fill" : "archivebox"
+                        )
                     }
                 } label: {
                     Image(systemName: sortMode.systemImage)
@@ -221,7 +280,7 @@ private struct SidebarProjectTreeSection: View {
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
-                .help("Sort projects by \(sortMode.title.lowercased())")
+                .help(appModel.t(.sidebarSortProjects))
 
                 Text("\(appModel.activeResearchProjects.count)")
                     .font(.caption2)
@@ -232,14 +291,34 @@ private struct SidebarProjectTreeSection: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 3) {
+                    TextField(appModel.t(.sidebarSearchProjects), text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                        .padding(.leading, 22)
+                        .padding(.bottom, 3)
+
                     if sortedProjects.isEmpty {
-                        Text("No projects")
+                        Text(appModel.t(.sidebarNoProjects))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.leading, 22)
                     } else {
-                        ForEach(sortedProjects) { project in
-                            SidebarProjectTreeRow(project: project)
+                        if shouldShowRecentBuckets {
+                            if !pinnedProjects.isEmpty {
+                                SidebarProjectBucket(title: appModel.t(.sidebarPinnedSection), projects: pinnedProjects)
+                            }
+                            if !recentProjects.isEmpty {
+                                SidebarProjectBucket(title: appModel.t(.sidebarRecentSection), projects: recentProjects)
+                            }
+                        } else {
+                            ForEach(activeProjects) { project in
+                                SidebarProjectTreeRow(project: project)
+                            }
+                        }
+
+                        if appModel.isShowingArchivedProjects, !archivedProjects.isEmpty {
+                            SidebarProjectBucket(title: appModel.t(.sidebarArchivedSection), projects: archivedProjects)
+                                .padding(.top, 4)
                         }
                     }
                 }
@@ -302,12 +381,12 @@ private struct SidebarProjectTreeRow: View {
             Button {
                 appModel.toggleResearchProjectPin(project)
             } label: {
-                Label(appModel.isResearchProjectPinned(project.id) ? "Unpin" : "Pin", systemImage: appModel.isResearchProjectPinned(project.id) ? "pin.fill" : "pin")
+                Label(appModel.isResearchProjectPinned(project.id) ? appModel.t(.sidebarUnpin) : appModel.t(.sidebarPin), systemImage: appModel.isResearchProjectPinned(project.id) ? "pin.fill" : "pin")
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.plain)
             .opacity(isHovering || appModel.isResearchProjectPinned(project.id) ? 1 : 0)
-            .help(appModel.isResearchProjectPinned(project.id) ? "Unpin project" : "Pin project")
+            .help(appModel.isResearchProjectPinned(project.id) ? appModel.t(.sidebarUnpin) : appModel.t(.sidebarPin))
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 7)
@@ -321,12 +400,19 @@ private struct SidebarProjectTreeRow: View {
         }
         .onHover { isHovering = $0 }
         .contextMenu {
-            Button("Open Project") { appModel.selectResearchProject(project.id) }
-            Button(appModel.isResearchProjectPinned(project.id) ? "Unpin" : "Pin") { appModel.toggleResearchProjectPin(project) }
-            Button(project.isCollapsed ? "Expand Sections" : "Collapse Sections") { appModel.toggleResearchProjectCollapse(project.id) }
+            if !project.isArchived {
+                Button(appModel.t(.sidebarOpenProject)) { appModel.selectResearchProject(project.id) }
+            }
+            Button(appModel.isResearchProjectPinned(project.id) ? appModel.t(.sidebarUnpin) : appModel.t(.sidebarPin)) { appModel.toggleResearchProjectPin(project) }
+            Button(project.isCollapsed ? appModel.t(.sidebarExpandSections) : appModel.t(.sidebarCollapseSections)) { appModel.toggleResearchProjectCollapse(project.id) }
             Divider()
-            Button("Archive", role: .destructive) { appModel.confirmDeleteResearchProject(project) }
-            Button("Delete...", role: .destructive) { appModel.confirmDeleteResearchProject(project) }
+            if project.isArchived {
+                Button(appModel.t(.projectsRestore)) { appModel.restoreResearchProject(project) }
+                Button(appModel.t(.projectTrashAction), role: .destructive) { appModel.confirmTrashResearchProject(project) }
+            } else {
+                Button(appModel.t(.projectArchiveAction), role: .destructive) { appModel.confirmArchiveResearchProject(project) }
+                Button(appModel.t(.projectTrashAction), role: .destructive) { appModel.confirmTrashResearchProject(project) }
+            }
         }
     }
 
@@ -337,6 +423,8 @@ private struct SidebarProjectTreeRow: View {
 }
 
 private struct TopSidebarRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let item: TopSidebarItem
     let isSelected: Bool
     let action: () -> Void
@@ -349,7 +437,7 @@ private struct TopSidebarRow: View {
                 Image(systemName: item.systemImage)
                     .frame(width: 18)
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                Text(item.title)
+                Text(appModel.t(L10n.key(for: item.top)))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -365,7 +453,7 @@ private struct TopSidebarRow: View {
             .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .help(item.title)
+        .help(appModel.t(L10n.key(for: item.top)))
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.14), value: isSelected)
         .animation(.easeOut(duration: 0.14), value: isHovering)

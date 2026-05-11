@@ -132,15 +132,19 @@ public nonisolated struct ToolbarModel: Codable, Hashable, Sendable {
     public nonisolated func contains(_ id: ToolbarActionID) -> Bool {
         (globalActions + pageActions + overflowActions).contains { $0.id == id }
     }
+
+    public nonisolated func action(_ id: ToolbarActionID) -> ToolbarAction? {
+        (globalActions + pageActions + overflowActions).first { $0.id == id }
+    }
 }
 
 public nonisolated enum ToolbarPolicy {
-    public static func resolve(route: WorkspaceRoute, context: WorkspaceContextSnapshot) -> ToolbarModel {
+    public static func resolve(route: WorkspaceRoute, context: WorkspaceContextSnapshot, language: AppLanguage = .english) -> ToolbarModel {
         var globalActions: [ToolbarAction] = [
-            ToolbarAction(id: .workspaceMenu, title: "Workspace", systemImage: "folder"),
-            ToolbarAction(id: .aiPanel, title: "AI", systemImage: "sparkles"),
-            ToolbarAction(id: .inspector, title: "Inspector", systemImage: "sidebar.right"),
-            ToolbarAction(id: .refresh, title: "Refresh", systemImage: "arrow.clockwise")
+            ToolbarAction(id: .workspaceMenu, title: L10n.text(.toolbarWorkspace, language: language), systemImage: "folder"),
+            ToolbarAction(id: .aiPanel, title: L10n.text(.toolbarAI, language: language), systemImage: "sparkles"),
+            ToolbarAction(id: .inspector, title: L10n.text(.toolbarInspector, language: language), systemImage: "sidebar.right"),
+            ToolbarAction(id: .refresh, title: L10n.text(.toolbarRefresh, language: language), systemImage: "arrow.clockwise")
         ]
         var pageActions: [ToolbarAction] = []
         var overflowActions: [ToolbarAction] = []
@@ -150,18 +154,18 @@ public nonisolated enum ToolbarPolicy {
             break
         case .projects:
             if context.projectID == nil {
-                pageActions.append(ToolbarAction(id: .newProject, title: "New Project", systemImage: "plus"))
+                pageActions.append(ToolbarAction(id: .newProject, title: L10n.text(.toolbarNewProject, language: language), systemImage: "plus"))
             } else if context.projectTabID == "papers" {
-                pageActions.append(contentsOf: paperImportActions())
+                pageActions.append(contentsOf: paperImportActions(language: language))
             } else if context.projectTabID == "wiki" {
-                pageActions.append(contentsOf: wikiActions())
+                pageActions.append(contentsOf: wikiActions(language: language))
             } else if context.projectTabID == "pdf-reader" {
-                pageActions.append(contentsOf: pdfReaderActions())
+                pageActions.append(contentsOf: pdfReaderActions(language: language))
             }
         case .library:
-            pageActions.append(contentsOf: paperImportActions())
+            pageActions.append(contentsOf: paperImportActions(language: language))
         case .calendar:
-            pageActions.append(ToolbarAction(id: .allTodos, title: "All Todos", systemImage: "checklist"))
+            pageActions.append(ToolbarAction(id: .allTodos, title: L10n.text(.toolbarAllTodos, language: language), systemImage: "checklist"))
         case .aiLab:
             globalActions.removeAll { $0.id == .inspector }
         case .settings:
@@ -169,7 +173,7 @@ public nonisolated enum ToolbarPolicy {
         }
 
         if route.top == .projects, context.projectTabID == nil {
-            overflowActions.append(ToolbarAction(id: .allTodos, title: "All Todos", systemImage: "checklist"))
+            overflowActions.append(ToolbarAction(id: .allTodos, title: L10n.text(.toolbarAllTodos, language: language), systemImage: "checklist"))
         }
 
         return ToolbarModel(globalActions: globalActions, pageActions: pageActions, overflowActions: overflowActions)
@@ -179,27 +183,27 @@ public nonisolated enum ToolbarPolicy {
         route.top == .library || (route.top == .projects && context.projectTabID == "papers")
     }
 
-    private static func paperImportActions() -> [ToolbarAction] {
+    private static func paperImportActions(language: AppLanguage) -> [ToolbarAction] {
         [
-            ToolbarAction(id: .addByIdentifier, title: "Add by Identifier", systemImage: "number"),
-            ToolbarAction(id: .importPDF, title: "Import PDF", systemImage: "doc.badge.plus")
+            ToolbarAction(id: .addByIdentifier, title: L10n.text(.toolbarAddByIdentifier, language: language), systemImage: "number"),
+            ToolbarAction(id: .importPDF, title: L10n.text(.toolbarImportPDF, language: language), systemImage: "doc.badge.plus")
         ]
     }
 
-    private static func pdfReaderActions() -> [ToolbarAction] {
+    private static func pdfReaderActions(language: AppLanguage) -> [ToolbarAction] {
         [
-            ToolbarAction(id: .pdfSearch, title: "Search", systemImage: "magnifyingglass"),
-            ToolbarAction(id: .pdfFindPrevious, title: "Previous", systemImage: "chevron.up"),
-            ToolbarAction(id: .pdfFindNext, title: "Next", systemImage: "chevron.down"),
-            ToolbarAction(id: .pdfAnnotationPlaceholder, title: "Annotations", systemImage: "highlighter")
+            ToolbarAction(id: .pdfSearch, title: L10n.text(.toolbarSearch, language: language), systemImage: "magnifyingglass"),
+            ToolbarAction(id: .pdfFindPrevious, title: L10n.text(.toolbarPrevious, language: language), systemImage: "chevron.up"),
+            ToolbarAction(id: .pdfFindNext, title: L10n.text(.toolbarNext, language: language), systemImage: "chevron.down"),
+            ToolbarAction(id: .pdfAnnotationPlaceholder, title: L10n.text(.toolbarAnnotations, language: language), systemImage: "highlighter")
         ]
     }
 
-    private static func wikiActions() -> [ToolbarAction] {
+    private static func wikiActions(language: AppLanguage) -> [ToolbarAction] {
         [
-            ToolbarAction(id: .wikiNewPage, title: "New Page", systemImage: "doc.badge.plus"),
-            ToolbarAction(id: .wikiSave, title: "Save", systemImage: "square.and.arrow.down"),
-            ToolbarAction(id: .wikiPreviewMode, title: "Preview", systemImage: "eye")
+            ToolbarAction(id: .wikiNewPage, title: L10n.text(.toolbarWikiNewPage, language: language), systemImage: "doc.badge.plus"),
+            ToolbarAction(id: .wikiSave, title: L10n.text(.toolbarSave, language: language), systemImage: "square.and.arrow.down"),
+            ToolbarAction(id: .wikiPreviewMode, title: L10n.text(.toolbarPreview, language: language), systemImage: "eye")
         ]
     }
 }

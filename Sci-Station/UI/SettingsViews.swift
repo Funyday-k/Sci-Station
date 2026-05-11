@@ -17,17 +17,17 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(appModel.selectedSettingsCategory.title)
+                    Text(appModel.selectedSettingsCategory.title(appModel: appModel))
                         .font(.system(size: 42, weight: .bold, design: .rounded))
-                    Text(appModel.selectedSettingsCategory.summary)
+                    Text(appModel.selectedSettingsCategory.summary(appModel: appModel))
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
 
                 if appModel.selectedSettingsCategory == .workspace {
-                GroupBox(appModel.localized("基本设置", "Basic Settings")) {
+                GroupBox(appModel.t(.settingsBasicSettings)) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Picker(appModel.localized("界面语言", "Interface Language"), selection: Binding(
+                        Picker(appModel.t(.settingsInterfaceLanguage), selection: Binding(
                             get: { appModel.workspacePreferences.appLanguage },
                             set: appModel.updateAppLanguagePreference
                         )) {
@@ -37,16 +37,16 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 360)
-                        Text(appModel.localized("语言设置会逐步统一新界面文案。", "The language setting is used for newly unified interface text."))
+                        Text(appModel.t(.settingsLanguageHelp))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Research Root") {
+                GroupBox(appModel.t(.settingsResearchRoot)) {
                     VStack(alignment: .leading, spacing: 12) {
-                        TextField("Workspace name", text: $workspaceName)
+                        TextField(appModel.t(.settingsWorkspaceName), text: $workspaceName)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(renameWorkspace)
                             .help(Text(verbatim: "Rename the current research root folder"))
@@ -55,32 +55,32 @@ struct SettingsView: View {
                             Button {
                                 appModel.beginWorkspaceCreation()
                             } label: {
-                                Label("Create Root", systemImage: "plus")
+                                Label(appModel.t(.settingsCreateRoot), systemImage: "plus")
                             }
                             .help(Text(verbatim: "Open the workspace creation wizard"))
 
                             Button {
                                 appModel.openWorkspace()
                             } label: {
-                                Label("Open Root", systemImage: "folder.badge.plus")
+                                Label(appModel.t(.settingsOpenRoot), systemImage: "folder.badge.plus")
                             }
                             .help(Text(verbatim: "Open an existing research root"))
 
                             Button {
                                 appModel.revealCurrentWorkspaceInFinder()
                             } label: {
-                                Label("Reveal in Finder", systemImage: "arrow.up.right.square")
+                                Label(appModel.t(.settingsRevealRoot), systemImage: "arrow.up.right.square")
                             }
                             .help(Text(verbatim: "Reveal this research root in Finder"))
 
-                            Button("Rename", action: renameWorkspace)
+                            Button(appModel.t(.settingsRename), action: renameWorkspace)
                                 .buttonStyle(.borderedProminent)
                                 .help(Text(verbatim: "Apply the workspace name change"))
                         }
 
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], alignment: .leading, spacing: 12) {
                             WorkspacePathRow(label: "Root", value: workspace.rootURL.path)
-                            WorkspacePathRow(label: "Projects", value: "\(appModel.activeResearchProjects.count)")
+                            WorkspacePathRow(label: appModel.t(.routeProjects), value: "\(appModel.activeResearchProjects.count)")
                             WorkspacePathRow(label: "Papers", value: "\(appModel.papers.count)")
                             WorkspacePathRow(label: "Folders", value: "\(appModel.collections.count)")
                             WorkspacePathRow(label: "Tags", value: "\(appModel.availableTagDefinitions.count)")
@@ -97,7 +97,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox("Workspace Modules") {
+                GroupBox(appModel.t(.settingsWorkspaceModules)) {
                     let availableModuleIDs = Set(WorkspaceModuleRegistry.availableModules(in: appModel.workspaceModuleConfiguration).map(\.id))
                     VStack(alignment: .leading, spacing: 12) {
                         WorkspacePathRow(label: "Registry", value: appModel.workspaceModuleStatusSummary)
@@ -163,16 +163,16 @@ struct SettingsView: View {
                 }
 
                 if appModel.selectedSettingsCategory == .projects {
-                GroupBox("Projects") {
+                GroupBox(appModel.t(.settingsProjects)) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("Edit project names, descriptions, icons, and colors.")
+                            Text(appModel.t(.settingsProjectsHelp))
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
                             Button {
                                 appModel.beginCreatingResearchProject()
                             } label: {
-                                Label("New Project", systemImage: "plus")
+                                Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                             }
                             .help(Text(verbatim: "Create a new project"))
                         }
@@ -194,7 +194,7 @@ struct SettingsView: View {
                                 Text("\(appModel.papers(for: project.id).count) papers")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Button("Edit") {
+                                Button(appModel.t(.settingsEdit)) {
                                     appModel.beginEditingResearchProject(project.id)
                                 }
                                 .buttonStyle(.link)
@@ -208,7 +208,7 @@ struct SettingsView: View {
                 }
 
                 if appModel.selectedSettingsCategory == .library {
-                GroupBox("Library") {
+                GroupBox(appModel.t(.settingsLibrary)) {
                     VStack(alignment: .leading, spacing: 12) {
                         TextField("Default folder for new imports", text: $defaultFolderPath, prompt: Text("Uncategorized"))
                             .textFieldStyle(.roundedBorder)
@@ -905,6 +905,44 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         }
     }
 
+    func title(appModel: AppViewModel) -> String {
+        switch self {
+        case .workspace:
+            return appModel.t(.toolbarWorkspace)
+        case .modules:
+            return appModel.t(.settingsModules)
+        case .projects:
+            return appModel.t(.settingsProjects)
+        case .library:
+            return appModel.t(.settingsLibrary)
+        case .tasks:
+            return appModel.t(.settingsTasks)
+        case .aiLab:
+            return appModel.t(.settingsAILab)
+        case .developer:
+            return appModel.t(.settingsDeveloper)
+        }
+    }
+
+    func summary(appModel: AppViewModel) -> String {
+        switch self {
+        case .workspace:
+            return appModel.t(.settingsWorkspaceSummary)
+        case .modules:
+            return appModel.t(.settingsModulesSummary)
+        case .projects:
+            return appModel.t(.settingsProjectsHelp)
+        case .library:
+            return appModel.t(.settingsLibrarySummary)
+        case .tasks:
+            return appModel.t(.settingsTasksSummary)
+        case .aiLab:
+            return appModel.t(.settingsAILabSummary)
+        case .developer:
+            return appModel.t(.settingsDeveloperSummary)
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .workspace:
@@ -926,11 +964,13 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 }
 
 private struct SettingsCategorySidebar: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     @Binding var selection: SettingsCategory
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Settings")
+            Text(appModel.t(.routeSettings))
                 .font(.headline)
                 .padding(.horizontal, 12)
                 .padding(.top, 16)
@@ -943,7 +983,7 @@ private struct SettingsCategorySidebar: View {
                         Image(systemName: category.systemImage)
                             .frame(width: 16)
                             .foregroundStyle(.secondary)
-                        Text(category.title)
+                        Text(category.title(appModel: appModel))
                             .lineLimit(1)
                         Spacer(minLength: 0)
                     }

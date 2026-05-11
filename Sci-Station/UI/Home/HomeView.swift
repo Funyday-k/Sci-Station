@@ -46,37 +46,32 @@ struct HomeView: View {
 
     private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 28) {
                 hero
                 primaryContent
-                secondaryContent
             }
-            .padding(24)
+            .padding(.horizontal, 28)
+            .padding(.top, 22)
+            .padding(.bottom, 36)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(HomeAuroraBackground().ignoresSafeArea())
     }
 
     @ViewBuilder
     private var primaryContent: some View {
         if let errorMessage {
             HomeUnavailableView(
-                title: appModel.localized("Home 暂时不可用", "Home temporarily unavailable"),
+                title: appModel.t(.homeTemporarilyUnavailable),
                 message: errorMessage,
-                retryTitle: appModel.localized("重试", "Retry")
+                retryTitle: appModel.t(.homeRetry)
             ) {
                 Task { await reloadHome(invalidating: true, reason: "retry") }
             }
         } else if let snapshot {
-            homePanels(for: snapshot)
+            HomeWidgetDashboardView(snapshot: snapshot)
         } else {
             loadingState
-        }
-    }
-
-    private func homePanels(for snapshot: HomeSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            TodayPanelView(snapshot: snapshot, appModel: appModel)
-            ActiveProjectsPanelView(projects: snapshot.activeProjects, moduleAvailability: snapshot.moduleAvailability, appModel: appModel)
-            AIReviewPanelView(aiReview: snapshot.aiReview, moduleAvailability: snapshot.moduleAvailability, appModel: appModel)
         }
     }
 
@@ -84,63 +79,81 @@ struct HomeView: View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
-            Text(appModel.localized("正在构建 Home 快照...", "Building Home snapshot..."))
+            Text(appModel.t(.homeLoadingSnapshot))
                 .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 18)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .glassEffect(.regular, in: Capsule())
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(workspace.displayName)
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(appModel.localized("今天的研究主控台", "Today's research command center"))
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(Color.accentColor)
+                    Text(appModel.t(.routeHome))
+                        .foregroundStyle(.primary)
                 }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .glassEffect(.regular, in: Capsule())
 
-                Spacer(minLength: 0)
+                Text(workspace.displayName)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.primary, Color.primary.opacity(0.78)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
 
-                Button {
-                    Task { await reloadHome(invalidating: true, reason: "manual_refresh") }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                Text(appModel.t(.homeDashboardSubtitle))
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    HomeBadge(
+                        systemImage: "square.grid.2x2",
+                        text: appModel.workspaceModuleStatusSummary,
+                        tint: .accentColor
+                    )
+                    HomeBadge(
+                        systemImage: workflowReady ? "checkmark.seal.fill" : "exclamationmark.triangle.fill",
+                        text: workflowReadyText,
+                        tint: workflowReady ? .green : .orange
+                    )
                 }
-                .help(appModel.localized("刷新 Home 快照", "Refresh Home snapshot"))
-                .disabled(isLoading)
+                .padding(.top, 2)
             }
 
-            HStack(spacing: 8) {
-                HomeBadge(systemImage: "square.grid.2x2", text: appModel.workspaceModuleStatusSummary)
-                HomeBadge(systemImage: workflowReady ? "checkmark.seal" : "exclamationmark.triangle", text: workflowReadyText)
+            Spacer(minLength: 0)
+
+            Button {
+                Task { await reloadHome(invalidating: true, reason: "manual_refresh") }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .rotationEffect(.degrees(isLoading ? 360 : 0))
+                    .animation(
+                        isLoading
+                            ? .linear(duration: 1.2).repeatForever(autoreverses: false)
+                            : .default,
+                        value: isLoading
+                    )
             }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .help(appModel.t(.homeRefreshSnapshot))
+            .disabled(isLoading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var secondaryContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(appModel.localized("次要视图", "Secondary Views"))
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            DashboardCalendarView(selectedDate: Binding(
-                get: { appModel.selectedDashboardDate },
-                set: { appModel.selectDashboardDate($0) }
-            ))
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], alignment: .leading, spacing: 16) {
-                DashboardPaperList(title: appModel.localized("最近添加", "Recently Added"), papers: appModel.recentPapers)
-                DashboardPaperList(title: appModel.localized("最近阅读", "Recently Read"), papers: appModel.recentlyReadPapers)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
     }
 
     private var workflowReady: Bool {
@@ -209,14 +222,20 @@ struct HomeView: View {
 struct HomeBadge: View {
     let systemImage: String
     let text: String
+    var tint: Color = .secondary
 
     var body: some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption.weight(.medium))
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint.opacity(0.85))
+            Text(text)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .glassEffect(.regular.tint(tint.opacity(0.05)), in: Capsule())
     }
 }
 
@@ -227,8 +246,8 @@ struct HomeUnavailableView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: "exclamationmark.triangle")
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
                 .foregroundStyle(.orange)
             Text(message)
@@ -237,10 +256,55 @@ struct HomeUnavailableView: View {
             Button(action: retry) {
                 Label(retryTitle, systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
         }
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .glassEffect(.regular.tint(.orange.opacity(0.10)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.orange.opacity(0.25), lineWidth: 0.5)
+        )
+    }
+}
+
+/// Soft aurora-style backdrop that gives Liquid Glass surfaces something to refract.
+/// Kept intentionally low-saturation so cards read as the primary content.
+struct HomeAuroraBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+
+            GeometryReader { proxy in
+                ZStack {
+                    blob(
+                        color: .accentColor.opacity(colorScheme == .dark ? 0.16 : 0.10),
+                        size: max(proxy.size.width, proxy.size.height) * 0.7
+                    )
+                    .offset(x: -proxy.size.width * 0.30, y: -proxy.size.height * 0.40)
+
+                    blob(
+                        color: Color.purple.opacity(colorScheme == .dark ? 0.12 : 0.07),
+                        size: max(proxy.size.width, proxy.size.height) * 0.6
+                    )
+                    .offset(x: proxy.size.width * 0.42, y: -proxy.size.height * 0.18)
+
+                    blob(
+                        color: Color.teal.opacity(colorScheme == .dark ? 0.10 : 0.06),
+                        size: max(proxy.size.width, proxy.size.height) * 0.65
+                    )
+                    .offset(x: proxy.size.width * 0.18, y: proxy.size.height * 0.42)
+                }
+                .blur(radius: 120)
+            }
+        }
+    }
+
+    private func blob(color: Color, size: CGFloat) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
     }
 }

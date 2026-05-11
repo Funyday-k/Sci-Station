@@ -18,28 +18,28 @@ struct Sci_StationApp: App {
         }
         .defaultSize(width: 1360, height: 860)
         .commands {
-            CommandMenu("Workspace") {
-                Button("Create Workspace", action: appModel.createWorkspace)
-                Button("New Project", action: appModel.beginCreatingResearchProject)
+            CommandMenu(appModel.t(.toolbarWorkspace)) {
+                Button(appModel.t(.toolbarCreateWorkspace), action: appModel.createWorkspace)
+                Button(appModel.t(.toolbarNewProject), action: appModel.beginCreatingResearchProject)
                     .keyboardShortcut("n", modifiers: [.command])
                     .disabled(appModel.currentWorkspace == nil)
-                Button("Open Workspace", action: appModel.openWorkspace)
+                Button(appModel.t(.toolbarOpenWorkspace), action: appModel.openWorkspace)
                     .keyboardShortcut("o", modifiers: [.command])
 
                 if appModel.currentWorkspace != nil {
                     Divider()
-                    Button("Reveal Workspace in Finder", action: appModel.revealCurrentWorkspaceInFinder)
-                    Button("Workspace Settings") {
+                    Button(appModel.t(.toolbarRevealInFinder), action: appModel.revealCurrentWorkspaceInFinder)
+                    Button(appModel.t(.toolbarSettings)) {
                         appModel.selectSection(.settings)
                     }
                 }
             }
 
-            CommandMenu("Paper") {
-                Button("Import PDF", action: appModel.importPDFFromGlobalMenu)
+            CommandMenu(appModel.t(.routePapers)) {
+                Button(appModel.t(.toolbarImportPDF), action: appModel.importPDFFromGlobalMenu)
                     .disabled(appModel.currentWorkspace == nil)
 
-                Button("Add by Identifier") {
+                Button(appModel.t(.toolbarAddByIdentifier)) {
                     appModel.beginIdentifierImportFromGlobalMenu()
                 }
                     .disabled(appModel.currentWorkspace == nil)
@@ -81,20 +81,20 @@ struct Sci_StationApp: App {
                 .disabled(appModel.selectedPaperDraft == nil)
             }
 
-            CommandMenu("View") {
-                Button("Search") {
+            CommandMenu(appModel.t(.menuView)) {
+                Button(appModel.t(.toolbarSearch)) {
                     appModel.focusSearchForCurrentSection()
                 }
                 .keyboardShortcut("f", modifiers: [.command])
                 .disabled(appModel.currentWorkspace == nil)
 
-                Button("Find Next") {
+                Button(appModel.t(.toolbarNext)) {
                     appModel.requestPDFReaderFindNext()
                 }
                 .keyboardShortcut("g", modifiers: [.command])
                 .disabled(appModel.selectedSection != .pdfReader)
 
-                Button("Find Previous") {
+                Button(appModel.t(.toolbarPrevious)) {
                     appModel.requestPDFReaderFindPrevious()
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
@@ -102,13 +102,13 @@ struct Sci_StationApp: App {
 
                 Divider()
 
-                Button("Show Inspector", action: appModel.focusInspector)
+                Button(appModel.t(.toolbarShowInspector), action: appModel.focusInspector)
                     .keyboardShortcut("i", modifiers: [.command])
                     .disabled(appModel.currentWorkspace == nil)
             }
 
-            CommandMenu("Wiki") {
-                Button("Save Wiki Page", action: appModel.saveSelectedMarkdownChanges)
+            CommandMenu(appModel.t(.routeWiki)) {
+                Button(appModel.t(.toolbarSave), action: appModel.saveSelectedMarkdownChanges)
                     .keyboardShortcut("s", modifiers: [.command])
                     .disabled(appModel.selectedSection != .wiki || !appModel.canSaveSelectedMarkdown)
             }

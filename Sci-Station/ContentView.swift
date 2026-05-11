@@ -53,130 +53,146 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                if hasToolbarAction(.workspaceMenu) {
+                if isPrimaryToolbarAction(.workspaceMenu) {
                     Menu {
-                        Button("Create Workspace", action: appModel.createWorkspace)
-                        Button("Open Workspace", action: appModel.openWorkspace)
+                        Button(appModel.t(.toolbarCreateWorkspace), action: appModel.createWorkspace)
+                        Button(appModel.t(.toolbarOpenWorkspace), action: appModel.openWorkspace)
 
                         if appModel.currentWorkspace != nil {
                             Divider()
-                            Button("Reveal in Finder", action: appModel.revealCurrentWorkspaceInFinder)
-                            Button("Settings") {
+                            Button(appModel.t(.toolbarRevealInFinder), action: appModel.revealCurrentWorkspaceInFinder)
+                            Button(appModel.t(.toolbarSettings)) {
                                 appModel.selectSection(.settings)
                             }
                         }
                     } label: {
-                        Label("Workspace", systemImage: "folder")
+                        Label(toolbarTitle(.workspaceMenu), systemImage: "folder")
                     }
                 }
 
-                if hasToolbarAction(.aiPanel), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.aiPanel), appModel.currentWorkspace != nil {
                     Button {
                         appModel.openGlobalAIPanel(source: "toolbar")
                     } label: {
-                        Label("AI", systemImage: "sparkles")
+                            Label(toolbarTitle(.aiPanel), systemImage: "sparkles")
                     }
-                    .help("Open AI")
+                        .help(appModel.t(.toolbarOpenAI))
                 }
 
-                if hasToolbarAction(.inspector), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.inspector), appModel.currentWorkspace != nil {
                     Button {
                         appModel.showContextInspector(source: "toolbar")
                     } label: {
-                        Label("Inspector", systemImage: "sidebar.right")
+                            Label(toolbarTitle(.inspector), systemImage: "sidebar.right")
                     }
-                    .help("Show inspector")
+                        .help(appModel.t(.toolbarShowInspector))
                 }
 
-                if hasToolbarAction(.refresh), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.refresh), appModel.currentWorkspace != nil {
                     Button {
                         appModel.refreshCurrentWorkspaceView()
                     } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                            Label(toolbarTitle(.refresh), systemImage: "arrow.clockwise")
                     }
-                    .help("Refresh")
+                        .help(toolbarTitle(.refresh))
                 }
 
-                if hasToolbarAction(.newProject), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.newProject), appModel.currentWorkspace != nil {
                     Button {
                         appModel.beginCreatingResearchProject()
                     } label: {
-                        Label("New Project", systemImage: "plus")
+                            Label(toolbarTitle(.newProject), systemImage: "plus")
                     }
                 }
 
-                if hasToolbarAction(.allTodos), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.allTodos), appModel.currentWorkspace != nil {
                     Button {
                         appModel.selectGlobalTodos()
                     } label: {
-                        Label("All Todos", systemImage: "checklist")
+                            Label(toolbarTitle(.allTodos), systemImage: "checklist")
                     }
                 }
 
-                if hasToolbarAction(.addByIdentifier), appModel.currentWorkspace != nil {
-                    Button("Add by Identifier") {
+                if isPrimaryToolbarAction(.addByIdentifier), appModel.currentWorkspace != nil {
+                        Button(toolbarTitle(.addByIdentifier)) {
                         appModel.beginIdentifierImport()
                     }
                 }
 
-                if hasToolbarAction(.importPDF), appModel.currentWorkspace != nil {
-                    Button("Import PDF", action: appModel.importPDF)
+                if isPrimaryToolbarAction(.importPDF), appModel.currentWorkspace != nil {
+                        Button(toolbarTitle(.importPDF), action: appModel.importPDF)
                 }
 
-                if hasToolbarAction(.pdfSearch), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.pdfSearch), appModel.currentWorkspace != nil {
                     Button {
                         appModel.focusSearchForCurrentSection()
                     } label: {
-                        Label("Search", systemImage: "magnifyingglass")
+                            Label(toolbarTitle(.pdfSearch), systemImage: "magnifyingglass")
                     }
                 }
 
-                if hasToolbarAction(.pdfFindPrevious), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.pdfFindPrevious), appModel.currentWorkspace != nil {
                     Button {
                         appModel.requestPDFReaderFindPrevious()
                     } label: {
-                        Label("Previous", systemImage: "chevron.up")
+                            Label(toolbarTitle(.pdfFindPrevious), systemImage: "chevron.up")
                     }
                 }
 
-                if hasToolbarAction(.pdfFindNext), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.pdfFindNext), appModel.currentWorkspace != nil {
                     Button {
                         appModel.requestPDFReaderFindNext()
                     } label: {
-                        Label("Next", systemImage: "chevron.down")
+                            Label(toolbarTitle(.pdfFindNext), systemImage: "chevron.down")
                     }
                 }
 
-                if hasToolbarAction(.pdfAnnotationPlaceholder), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.pdfAnnotationPlaceholder), appModel.currentWorkspace != nil {
                     Button {
                         appModel.showContextInspector(source: "pdf_annotation_toolbar")
                     } label: {
-                        Label("Annotations", systemImage: "highlighter")
+                            Label(toolbarTitle(.pdfAnnotationPlaceholder), systemImage: "highlighter")
                     }
                 }
 
-                if hasToolbarAction(.wikiNewPage), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.wikiNewPage), appModel.currentWorkspace != nil {
                     Button {
                         appModel.createMarkdownPage(named: "untitled-\(Int(Date().timeIntervalSince1970))")
                     } label: {
-                        Label("New Page", systemImage: "doc.badge.plus")
+                            Label(toolbarTitle(.wikiNewPage), systemImage: "doc.badge.plus")
                     }
                 }
 
-                if hasToolbarAction(.wikiSave), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.wikiSave), appModel.currentWorkspace != nil {
                     Button {
                         appModel.saveSelectedMarkdownChanges()
                     } label: {
-                        Label("Save", systemImage: "square.and.arrow.down")
+                            Label(toolbarTitle(.wikiSave), systemImage: "square.and.arrow.down")
                     }
                     .disabled(!appModel.canSaveSelectedMarkdown)
                 }
 
-                if hasToolbarAction(.wikiPreviewMode), appModel.currentWorkspace != nil {
+                if isPrimaryToolbarAction(.wikiPreviewMode), appModel.currentWorkspace != nil {
                     Button {} label: {
-                        Label("Preview", systemImage: "eye")
+                            Label(toolbarTitle(.wikiPreviewMode), systemImage: "eye")
                     }
                     .disabled(true)
+                }
+
+                if !appModel.toolbarModel.overflowActions.isEmpty, appModel.currentWorkspace != nil {
+                    Menu {
+                        ForEach(appModel.toolbarModel.overflowActions) { action in
+                            Button {
+                                performToolbarAction(action.id)
+                            } label: {
+                                Label(action.title, systemImage: toolbarSystemImage(action.id))
+                            }
+                            .disabled(action.id == .wikiPreviewMode || (action.id == .wikiSave && !appModel.canSaveSelectedMarkdown))
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .help(appModel.t(.menuView))
                 }
             }
 
@@ -197,13 +213,13 @@ struct ContentView: View {
             }
         }
         .alert(
-            "Sci-Station Error",
+            appModel.t(.appErrorTitle),
             isPresented: $appModel.isShowingError,
             actions: {
-                Button("OK", role: .cancel) {}
+                Button(appModel.t(.appOK), role: .cancel) {}
             },
             message: {
-                Text(appModel.errorMessage ?? "An unknown error occurred.")
+                Text(appModel.errorMessage ?? appModel.t(.appUnknownError))
             }
         )
         .task {
@@ -274,8 +290,83 @@ struct ContentView: View {
         }
     }
 
-    private func hasToolbarAction(_ id: ToolbarActionID) -> Bool {
-        appModel.toolbarModel.contains(id)
+    private func isPrimaryToolbarAction(_ id: ToolbarActionID) -> Bool {
+        appModel.toolbarModel.globalActions.contains(where: { $0.id == id })
+            || appModel.toolbarModel.pageActions.contains(where: { $0.id == id })
+    }
+
+    private func toolbarTitle(_ id: ToolbarActionID) -> String {
+        appModel.toolbarModel.action(id)?.title ?? id.rawValue
+    }
+
+    private func toolbarSystemImage(_ id: ToolbarActionID) -> String {
+        switch id {
+        case .workspaceMenu:
+            return "folder"
+        case .aiPanel:
+            return "sparkles"
+        case .inspector:
+            return "sidebar.right"
+        case .refresh:
+            return "arrow.clockwise"
+        case .newProject:
+            return "plus"
+        case .allTodos:
+            return "checklist"
+        case .addByIdentifier:
+            return "number"
+        case .importPDF:
+            return "doc.badge.plus"
+        case .pdfSearch:
+            return "magnifyingglass"
+        case .pdfFindPrevious:
+            return "chevron.up"
+        case .pdfFindNext:
+            return "chevron.down"
+        case .pdfAnnotationPlaceholder:
+            return "highlighter"
+        case .wikiNewPage:
+            return "doc.badge.plus"
+        case .wikiSave:
+            return "square.and.arrow.down"
+        case .wikiPreviewMode:
+            return "eye"
+        }
+    }
+
+    private func performToolbarAction(_ id: ToolbarActionID) {
+        switch id {
+        case .workspaceMenu:
+            break
+        case .aiPanel:
+            appModel.openGlobalAIPanel(source: "toolbar_overflow")
+        case .inspector:
+            appModel.showContextInspector(source: "toolbar_overflow")
+        case .refresh:
+            appModel.refreshCurrentWorkspaceView()
+        case .newProject:
+            appModel.beginCreatingResearchProject()
+        case .allTodos:
+            appModel.selectGlobalTodos()
+        case .addByIdentifier:
+            appModel.beginIdentifierImport()
+        case .importPDF:
+            appModel.importPDF()
+        case .pdfSearch:
+            appModel.focusSearchForCurrentSection()
+        case .pdfFindPrevious:
+            appModel.requestPDFReaderFindPrevious()
+        case .pdfFindNext:
+            appModel.requestPDFReaderFindNext()
+        case .pdfAnnotationPlaceholder:
+            appModel.showContextInspector(source: "pdf_annotation_toolbar_overflow")
+        case .wikiNewPage:
+            appModel.createMarkdownPage(named: "untitled-\(Int(Date().timeIntervalSince1970))")
+        case .wikiSave:
+            appModel.saveSelectedMarkdownChanges()
+        case .wikiPreviewMode:
+            break
+        }
     }
 }
 

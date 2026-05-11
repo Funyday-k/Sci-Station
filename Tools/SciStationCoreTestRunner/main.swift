@@ -23,13 +23,32 @@ private struct CoreVerificationSuite {
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try await workspacePreferencesLanguageRoundTrips()
+        try await homeWidgetLayoutRoundTripsPreferences()
+        try await homeWidgetLayoutFallsBackWhenInvalid()
+        try l10nCatalogResolvesChineseAndEnglish()
+        try l10nCatalogFallsBackWithAuditWarning()
+        try localizationAuditFlagsHardcodedSwiftUIText()
         try workspaceContextSnapshotReflectsHomeRoute()
         try workspaceContextSnapshotReflectsProjectPaperSelection()
         try rightRailAutoHidesWhenNoContext()
+        try responsivePolicyHidesRightRailBelowThreshold()
+        try responsivePolicyMovesToolbarActionsToOverflow()
         try await rightRailModePersistsAcrossWorkspaceReload()
+        try homeWidgetRegistryIncludesDefaultWidgets()
+        try homeWidgetRegistryFiltersDisabledModules()
+        try homeWidgetGridReflowsForTwoColumns()
+        try homeWidgetGridReflowsForSingleColumn()
+        try homeWidgetGridRepackAvoidsOverlap()
+        try homeWidgetResetRestoresDefaultLayout()
         try toolbarPolicyShowsImportOnlyForLibraryContexts()
         try toolbarPolicyHidesPaperActionsOnHome()
+        try toolbarPolicyShowsPDFActionsOnlyInPDFReader()
+        try toolbarPolicyShowsWikiActionsOnlyInWikiContext()
         try await projectTreeArchiveFallsBackToProjectsRoute()
+        try await projectArchiveHidesProjectFromActiveList()
+        try await projectRestoreReturnsProjectToActiveList()
+        try await projectDeleteMovesToTrashOrArchive()
         try projectSpaceTabsBuilderHonorsAvailableModules()
         try projectSpaceTabsBuilderRespectsPinnedOrder()
         try projectSpaceTabsBuilderRemovesDisabledModuleTabs()
@@ -515,6 +534,128 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
     }
 
+    private func workspacePreferencesLanguageRoundTrips() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("LanguagePreferencesWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var preferences = try await repository.load(in: workspace)
+        preferences.appLanguage = .english
+        try await repository.save(preferences, in: workspace)
+
+        let englishPreferences = try await repository.load(in: workspace)
+        preferences.appLanguage = .simplifiedChinese
+        try await repository.save(preferences, in: workspace)
+        let chinesePreferences = try await repository.load(in: workspace)
+
+        try expect(englishPreferences.appLanguage == .english, "Workspace preferences should round-trip English app language.")
+        try expect(chinesePreferences.appLanguage == .simplifiedChinese, "Workspace preferences should round-trip Chinese app language.")
+    }
+
+    private func homeWidgetLayoutRoundTripsPreferences() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("HomeWidgetPreferencesWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var preferences = try await repository.load(in: workspace)
+        preferences.homeWidgetLayout.resizeWidget(HomeWidgetID.today, to: .medium, descriptors: HomeWidgetRegistry.defaultDescriptors, columns: 2)
+        preferences.homeWidgetLayout.moveWidget(HomeWidgetID.aiReview, before: HomeWidgetID.today, descriptors: HomeWidgetRegistry.defaultDescriptors, columns: 2)
+        preferences.homeWidgetLayout.setWidget(HomeWidgetID.calendar, isEnabled: false, descriptors: HomeWidgetRegistry.defaultDescriptors, columns: 2)
+        try await repository.save(preferences, in: workspace)
+
+        let loaded = try await repository.load(in: workspace)
+        let loadedItems = Dictionary(uniqueKeysWithValues: loaded.homeWidgetLayout.items.map { ($0.widgetID, $0) })
+        try expect(loadedItems[HomeWidgetID.today]?.size == .medium, "Home widget preferences should preserve resized widgets.")
+        try expect(loadedItems[HomeWidgetID.calendar]?.isEnabled == false, "Home widget preferences should preserve disabled widgets.")
+        let loadedOrder = loaded.homeWidgetLayout.items.map(\.widgetID)
+        let aiIndex = loadedOrder.firstIndex(of: HomeWidgetID.aiReview) ?? Int.max
+        let todayIndex = loadedOrder.firstIndex(of: HomeWidgetID.today) ?? Int.max
+        try expect(aiIndex < todayIndex, "Home widget preferences should preserve explicit relative ordering.")
+    }
+
+    private func homeWidgetLayoutFallsBackWhenInvalid() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("InvalidHomeWidgetPreferencesWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let preferencesURL = workspace.fileURL(for: WorkspacePreferencesRepository.relativePath)
+        try FileManager.default.createDirectory(at: preferencesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        schema_version: 4
+        home_widget_layout:
+          schema_version: 1
+          updated_at: "not-a-date"
+          items:
+            - widget_id: "unknown_widget"
+              size: "giant"
+              column: -4
+              row: -2
+              is_enabled: true
+        """.write(to: preferencesURL, atomically: true, encoding: .utf8)
+
+        let loaded = try await repository.load(in: workspace)
+        let ids = loaded.homeWidgetLayout.items.map(\.widgetID)
+        try expect(ids.contains(HomeWidgetID.today), "Invalid Home widget preferences should fall back to known default widgets.")
+        try expect(!ids.contains("unknown_widget"), "Invalid Home widget preferences should drop unknown widget ids.")
+    }
+
+    private func l10nCatalogResolvesChineseAndEnglish() throws {
+        try expect(L10n.text(.toolbarImportPDF, language: .english) == "Import PDF", "English catalog should resolve Import PDF.")
+        try expect(L10n.text(.toolbarImportPDF, language: .simplifiedChinese) == "导入 PDF", "Chinese catalog should resolve Import PDF.")
+        try expect(L10n.text(.projectArchiveAction, language: .simplifiedChinese) == "归档项目", "Chinese catalog should resolve destructive project actions.")
+        try expect(L10n.missingKeys(language: .english).isEmpty, "English localization catalog should cover all keys.")
+        try expect(L10n.missingKeys(language: .simplifiedChinese).isEmpty, "Chinese localization catalog should cover all keys.")
+    }
+
+    private func l10nCatalogFallsBackWithAuditWarning() throws {
+        let result = L10n.resolve(rawKey: "missing.demo.key", language: .simplifiedChinese)
+
+        try expect(result.usedFallback, "Raw missing localization keys should report fallback usage.")
+        try expect(result.text == "missing.demo.key", "Raw missing localization keys should fall back to the key string.")
+    }
+
+    private func localizationAuditFlagsHardcodedSwiftUIText() throws {
+        let source = #"""
+        VStack {
+            Text("Import PDF")
+            Label("folder", systemImage: "folder")
+            Button(appModel.t(.toolbarImportPDF)) {}
+        }
+        """#
+        let findings = LocalizationAudit.findings(in: source, filePath: "SampleView.swift")
+
+        try expect(findings.contains { $0.literal == "Import PDF" }, "Localization audit should flag user-visible hardcoded English.")
+        try expect(!findings.contains { $0.literal == "folder" }, "Localization audit should allow system image names and simple symbols.")
+        try expect(!findings.contains { $0.literal == "toolbarImportPDF" }, "Localization audit should not flag L10n key references as literals.")
+    }
+
     private func workspaceContextSnapshotReflectsHomeRoute() throws {
         let snapshot = WorkspaceContextSnapshot(topLevelSectionID: WorkspaceRoute.Top.home.rawValue)
 
@@ -547,6 +688,105 @@ private struct CoreVerificationSuite {
         try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .inspector) == .hidden, "Home should auto-hide the right rail when no useful inspector exists.")
         try expect(RightRailPolicy.suggestedMode(route: libraryRoute, context: libraryContext, preferredMode: .hidden) == .inspector, "Library should auto-suggest the paper inspector rail.")
         try expect(aiPreferredMode == .ai, "An open AI rail should stay open across route context updates.")
+    }
+
+    private func responsivePolicyHidesRightRailBelowThreshold() throws {
+        let context = WorkspaceContextSnapshot(topLevelSectionID: "library")
+        let model = ResponsiveShellPolicy.resolve(
+            width: 900,
+            route: WorkspaceRoute(top: .library),
+            context: context,
+            preferredRightRailMode: .inspector
+        )
+
+        try expect(model.bucket == .compact, "Responsive shell policy should classify 900pt as compact.")
+        try expect(model.effectiveRightRailMode == .hidden, "Responsive shell policy should hide the right rail below 1000pt.")
+        try expect(model.homeWidgetColumns == 2, "Responsive shell policy should use two Home widget columns for compact widths.")
+        try expect(model.shouldCollapseProjectTree, "Responsive shell policy should collapse project tree in compact widths.")
+    }
+
+    private func responsivePolicyMovesToolbarActionsToOverflow() throws {
+        let model = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .library),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "library")
+        )
+        let narrowModel = ResponsiveShellPolicy.toolbarModel(model, width: 720)
+
+        try expect(narrowModel.pageActions.isEmpty, "Narrow responsive policy should move page toolbar actions out of the primary group.")
+        try expect(narrowModel.overflowActions.contains(where: { $0.id == .addByIdentifier }), "Narrow responsive policy should keep page actions reachable from overflow.")
+        try expect(narrowModel.globalActions.contains(where: { $0.id == .workspaceMenu }), "Narrow responsive policy should keep global actions visible.")
+    }
+
+    private func homeWidgetRegistryIncludesDefaultWidgets() throws {
+        let ids = Set(HomeWidgetRegistry.defaultDescriptors.map(\.id))
+        let expectedIDs: Set<String> = [
+            HomeWidgetID.today,
+            HomeWidgetID.activeProjects,
+            HomeWidgetID.aiReview,
+            HomeWidgetID.calendar,
+            HomeWidgetID.recentPapers,
+            HomeWidgetID.readingPlan,
+            HomeWidgetID.projectHealth,
+            HomeWidgetID.quickActions
+        ]
+
+        try expect(ids == expectedIDs, "Home widget registry should include every default dashboard widget.")
+        try expect(HomeWidgetRegistry.defaultDescriptors.allSatisfy { !$0.supportedSizes.isEmpty }, "Home widget descriptors should declare supported sizes.")
+    }
+
+    private func homeWidgetRegistryFiltersDisabledModules() throws {
+        let configuration = WorkspaceModuleRegistry.defaultConfiguration(enabledModuleIDs: ["projects"])
+        let availableIDs = Set(HomeWidgetRegistry.availableDescriptors(in: configuration).map(\.id))
+
+        try expect(availableIDs.contains(HomeWidgetID.activeProjects), "Project widgets should remain available when Projects is enabled.")
+        try expect(availableIDs.contains(HomeWidgetID.quickActions), "Quick Actions should remain available without module dependencies.")
+        try expect(!availableIDs.contains(HomeWidgetID.calendar), "Calendar widget should hide when Calendar module is disabled.")
+        try expect(!availableIDs.contains(HomeWidgetID.aiReview), "AI Review widget should hide when AI Lab module is disabled.")
+    }
+
+    private func homeWidgetGridReflowsForTwoColumns() throws {
+        let layout = HomeWidgetLayout.defaultLayout(columns: 2)
+        let descriptorsByID = Dictionary(uniqueKeysWithValues: HomeWidgetRegistry.defaultDescriptors.map { ($0.id, $0) })
+        let cells = HomeWidgetGridPlanner.cells(items: layout.items, descriptorsByID: descriptorsByID, columns: 2)
+
+        try expect(!cells.isEmpty, "Home widget planner should emit cells for default layout.")
+        try expect(cells.allSatisfy { $0.item.column + $0.columnSpan <= 2 }, "Home widget planner should clamp cells inside two columns.")
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: layout.items, descriptorsByID: descriptorsByID, columns: 2), "Two-column Home widget layout should not overlap.")
+    }
+
+    private func homeWidgetGridReflowsForSingleColumn() throws {
+        let layout = HomeWidgetLayout.defaultLayout(columns: 1)
+        let descriptorsByID = Dictionary(uniqueKeysWithValues: HomeWidgetRegistry.defaultDescriptors.map { ($0.id, $0) })
+        let cells = HomeWidgetGridPlanner.cells(items: layout.items, descriptorsByID: descriptorsByID, columns: 1)
+
+        try expect(cells.allSatisfy { $0.item.column == 0 && $0.columnSpan == 1 }, "Single-column Home widget layout should stack every widget in column zero.")
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: layout.items, descriptorsByID: descriptorsByID, columns: 1), "Single-column Home widget layout should not overlap.")
+    }
+
+    private func homeWidgetGridRepackAvoidsOverlap() throws {
+        let descriptors = HomeWidgetRegistry.defaultDescriptors
+        let descriptorsByID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+        let collidingLayout = HomeWidgetLayout(items: [
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.today, size: .wide, column: 0, row: 0),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.activeProjects, size: .wide, column: 0, row: 0),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.aiReview, size: .medium, column: 0, row: 0)
+        ])
+        let normalized = collidingLayout.normalized(descriptors: descriptors, columns: 3)
+
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: normalized.items, descriptorsByID: descriptorsByID, columns: 3), "Home widget planner should repack colliding items without overlap.")
+        try expect(normalized.items.count == descriptors.count, "Home widget normalization should backfill missing default descriptors.")
+    }
+
+    private func homeWidgetResetRestoresDefaultLayout() throws {
+        let descriptors = HomeWidgetRegistry.defaultDescriptors
+        var layout = HomeWidgetLayout.defaultLayout(descriptors: descriptors, columns: 4)
+        layout.moveWidget(HomeWidgetID.quickActions, before: HomeWidgetID.today, descriptors: descriptors, columns: 4)
+        layout.setWidget(HomeWidgetID.calendar, isEnabled: false, descriptors: descriptors, columns: 4)
+        layout.reset(descriptors: descriptors, columns: 4)
+
+        let defaultLayout = HomeWidgetLayout.defaultLayout(descriptors: descriptors, columns: 4)
+        try expect(layout.items.map(\.widgetID) == defaultLayout.items.map(\.widgetID), "Reset should restore Home widget default order.")
+        try expect(layout.items.allSatisfy(\.isEnabled), "Reset should re-enable default Home widgets.")
     }
 
     private func rightRailModePersistsAcrossWorkspaceReload() async throws {
@@ -608,6 +848,37 @@ private struct CoreVerificationSuite {
         try expect(model.contains(.refresh), "Home toolbar policy should keep refresh available.")
     }
 
+    private func toolbarPolicyShowsPDFActionsOnlyInPDFReader() throws {
+        let pdfModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "pdf-reader"),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "project-a", projectTabID: "pdf-reader"),
+            language: .simplifiedChinese
+        )
+        let wikiModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "wiki"),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "project-a", projectTabID: "wiki")
+        )
+
+        try expect(pdfModel.contains(.pdfSearch), "PDF Reader toolbar policy should include PDF search.")
+        try expect(pdfModel.action(.pdfAnnotationPlaceholder)?.title == "标注", "PDF Reader toolbar should localize PDF actions.")
+        try expect(!pdfModel.contains(.importPDF) && !pdfModel.contains(.addByIdentifier), "PDF Reader toolbar policy should hide Library import actions.")
+        try expect(!wikiModel.contains(.pdfSearch) && !wikiModel.contains(.pdfAnnotationPlaceholder), "Wiki toolbar policy should not include PDF Reader actions.")
+    }
+
+    private func toolbarPolicyShowsWikiActionsOnlyInWikiContext() throws {
+        let wikiModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "wiki"),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "project-a", projectTabID: "wiki")
+        )
+        let libraryModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .library),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "library")
+        )
+
+        try expect(wikiModel.contains(.wikiNewPage) && wikiModel.contains(.wikiSave), "Wiki toolbar policy should include Wiki actions.")
+        try expect(!libraryModel.contains(.wikiNewPage) && !libraryModel.contains(.wikiSave), "Library toolbar policy should not include Wiki actions.")
+    }
+
     private func projectTreeArchiveFallsBackToProjectsRoute() async throws {
         let rootURL = temporaryDirectoryURL().appendingPathComponent("ProjectArchiveRouteWorkspace", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
@@ -628,6 +899,63 @@ private struct CoreVerificationSuite {
 
         try expect(result.route == WorkspaceRoute(top: .projects), "Routes pointing at an archived project should fall back to the Projects list.")
         try expect(result.fallbackReason == .projectMissing, "Archived projects should be treated as unavailable for route restoration.")
+    }
+
+    private func projectArchiveHidesProjectFromActiveList() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("ProjectArchiveWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+        let repository = ProjectRegistryRepository()
+        let firstProject = try await repository.createProject(named: "Archive Candidate", in: root)
+        let secondProject = try await repository.createProject(named: "Still Active", in: root)
+        let result = try await repository.archiveProject(firstProject.id, in: root)
+        let activeProjectIDs = result.registry.projects.filter { !$0.isArchived }.map(\.id)
+        let projectFileContents = try String(contentsOf: root.fileURL(for: firstProject.relativePath + "/project.yaml"), encoding: .utf8)
+
+        try expect(result.project.isArchived, "Archived projects should be marked archived.")
+        try expect(!activeProjectIDs.contains(firstProject.id), "Archived projects should disappear from active project lists.")
+        try expect(activeProjectIDs == [secondProject.id], "Only non-archived projects should remain active.")
+        try expect(projectFileContents.contains("is_archived: true"), "Archived project.yaml should mirror archived lifecycle state.")
+    }
+
+    private func projectRestoreReturnsProjectToActiveList() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("ProjectRestoreWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+        let repository = ProjectRegistryRepository()
+        let project = try await repository.createProject(named: "Restore Candidate", in: root)
+
+        _ = try await repository.archiveProject(project.id, in: root)
+        let result = try await repository.restoreProject(project.id, in: root)
+        let restoredProject = try require(result.registry.projects.first { $0.id == project.id }, "Restored project should remain in the registry.")
+
+        try expect(!restoredProject.isArchived, "Restored projects should be active.")
+        try expect(FileManager.default.fileExists(atPath: root.directoryURL(for: restoredProject.relativePath).path), "Restored project directory should exist.")
+        try expect(result.registry.lastOpenedProjectID == project.id, "Restored project should become the last opened project.")
+    }
+
+    private func projectDeleteMovesToTrashOrArchive() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("ProjectTrashWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+        let repository = ProjectRegistryRepository()
+        let project = try await repository.createProject(named: "Trash Candidate", in: root)
+        let originalURL = root.directoryURL(for: project.relativePath)
+        let result = try await repository.deleteProjectToTrash(project.id, in: root)
+        let trashedProject = try require(result.registry.projects.first { $0.id == project.id }, "Trashed project should remain recoverable in the registry.")
+
+        try expect(trashedProject.isArchived, "Trashed projects should be hidden from active lists.")
+        try expect(trashedProject.relativePath.hasPrefix(".sci-station/trash/projects/"), "Trashed projects should move under the workspace trash.")
+        try expect(!FileManager.default.fileExists(atPath: originalURL.path), "Original project directory should be moved out of projects/.")
+        try expect(FileManager.default.fileExists(atPath: root.directoryURL(for: trashedProject.relativePath).path), "Trashed project directory should exist in workspace trash.")
+        let trashedProjectFile = try String(contentsOf: root.fileURL(for: trashedProject.relativePath + "/project.yaml"), encoding: .utf8)
+        try expect(trashedProjectFile.contains("relative_path: \"\(trashedProject.relativePath)\""), "Trashed project.yaml should mirror the trash relative path.")
     }
 
     private func projectSpaceTabsBuilderHonorsAvailableModules() throws {

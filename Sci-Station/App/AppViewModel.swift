@@ -25,6 +25,17 @@ struct ResearchProjectEditorDraft {
     }
 }
 
+private extension String {
+    var stableHashForDebug: String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(hash, radix: 16)
+    }
+}
+
 private enum AgentPanelValidationError: LocalizedError {
     case missingWorkspace
     case emptyGoal
@@ -128,6 +139,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isSavingResearchProject = false
     @Published var isShowingProjectDeleteConfirmation = false
     @Published private(set) var projectPendingDeletion: ResearchProject?
+    @Published private(set) var projectPendingLifecycleAction: ProjectLifecycleAction = .archive
+    @Published var isShowingArchivedProjects = false
     @Published var selectedSection: WorkspaceSection? = .projects
     @Published var isShowingError = false
     @Published private(set) var errorMessage: String?
@@ -149,6 +162,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var workspacePreferences = WorkspacePreferences()
     @Published private(set) var workspaceSettingsStatusMessage: String?
     @Published private(set) var isShellNarrowWidth = false
+    @Published private(set) var shellWindowWidth: Double = 1440
+    @Published var isEditingHomeLayout = false
+    @Published var isShowingHomeWidgetGallery = false
     @Published var isShowingWorkspaceCreationWizard = false
     @Published private(set) var workspaceCreationDraft = WorkspaceCreationDraft()
     @Published var selectedSettingsCategory: SettingsCategory = .workspace
@@ -462,23 +478,25 @@ final class AppViewModel: ObservableObject {
     }
 
     var toolbarModel: ToolbarModel {
-        ToolbarPolicy.resolve(route: currentWorkspaceRoute, context: currentWorkspaceContextSnapshot)
+        let model = ToolbarPolicy.resolve(route: currentWorkspaceRoute, context: currentWorkspaceContextSnapshot, language: appLanguage)
+        return ResponsiveShellPolicy.toolbarModel(model, width: shellWindowWidth)
+    }
+
+    var responsiveShellModel: ResponsiveShellModel {
+        ResponsiveShellPolicy.resolve(
+            width: shellWindowWidth,
+            route: currentWorkspaceRoute,
+            context: currentWorkspaceContextSnapshot,
+            preferredRightRailMode: workspacePreferences.rightRailMode
+        )
     }
 
     var effectiveRightRailMode: RightRailMode {
         guard currentWorkspace != nil else {
             return .hidden
         }
-        if isShellNarrowWidth {
-            return .hidden
-        }
-        if workspacePreferences.rightRailMode == .ai {
-            return .ai
-        }
-        if workspacePreferences.rightRailMode == .hidden {
-            return .hidden
-        }
-        return rightRailHasContent ? .inspector : .hidden
+        let mode = responsiveShellModel.effectiveRightRailMode
+        return mode == .inspector && !rightRailHasContent ? .hidden : mode
     }
 
     var rightRailHasContent: Bool {
@@ -505,6 +523,30 @@ final class AppViewModel: ObservableObject {
                 }
                 return first.updatedAt > second.updatedAt
             }
+    }
+
+    var archivedResearchProjects: [ResearchProject] {
+        researchProjects
+            .filter(\.isArchived)
+            .sorted { first, second in
+                if first.updatedAt == second.updatedAt {
+                    return first.name.localizedStandardCompare(second.name) == .orderedAscending
+                }
+                return first.updatedAt > second.updatedAt
+            }
+    }
+
+    func sidebarProjects(searchText: String, includeArchived: Bool) -> [ResearchProject] {
+        let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = includeArchived ? researchProjects : activeResearchProjects
+        return candidates.filter { project in
+            guard !trimmedSearch.isEmpty else {
+                return true
+            }
+            return project.name.localizedCaseInsensitiveContains(trimmedSearch)
+                || project.description.localizedCaseInsensitiveContains(trimmedSearch)
+                || project.relativePath.localizedCaseInsensitiveContains(trimmedSearch)
+        }
     }
 
     var visibleProjectSidebarSections: [WorkspaceSection] {
@@ -1193,16 +1235,22 @@ final class AppViewModel: ObservableObject {
     }
 
     var usesEnglishInterface: Bool {
-        switch workspacePreferences.appLanguage {
-        case .english:
-            return true
-        case .simplifiedChinese:
-            return false
-        case .system:
-            return !(Locale.preferredLanguages.first?.hasPrefix("zh") ?? false)
-        }
+        appLanguage == .english
     }
 
+    var appLanguage: AppLanguage {
+        AppLanguage(preference: workspacePreferences.appLanguage)
+    }
+
+    func t(_ key: L10nKey) -> String {
+        L10n.text(key, language: appLanguage)
+    }
+
+    func tf(_ key: L10nKey, _ arguments: CVarArg...) -> String {
+        String(format: L10n.text(key, language: appLanguage), locale: Locale(identifier: appLanguage.rawValue), arguments: arguments)
+    }
+
+    /// Migration helper for UI strings that have not moved to L10nKey yet.
     func localized(_ simplifiedChinese: String, _ english: String) -> String {
         usesEnglishInterface ? english : simplifiedChinese
     }
@@ -1976,9 +2024,12 @@ final class AppViewModel: ObservableObject {
     }
 
     func recordToolbarPolicyChange(_ model: ToolbarModel) {
-        recordShellDebugEvent("shell.toolbar.policy", payload: .object([
+        let actionCount = model.globalActions.count + model.pageActions.count + model.overflowActions.count
+        recordShellDebugEvent("toolbar.policy.resolve", payload: .object([
             "top": .string(currentWorkspaceRoute.top.rawValue),
             "tab_id": .string(currentWorkspaceContextSnapshot.projectTabID ?? ""),
+            "action_count": .number(String(actionCount)),
+            "hidden_action_count": .number("0"),
             "global_actions": jsonStringArray(model.globalActions.map { $0.id.rawValue }),
             "page_actions": jsonStringArray(model.pageActions.map { $0.id.rawValue }),
             "overflow_actions": jsonStringArray(model.overflowActions.map { $0.id.rawValue })
@@ -2010,16 +2061,121 @@ final class AppViewModel: ObservableObject {
     }
 
     func updateShellWindowWidth(_ width: CGFloat) {
-        let nextIsNarrow = width < 980
-        guard isShellNarrowWidth != nextIsNarrow else {
+        let nextWidth = Double(width)
+        let previousModel = responsiveShellModel
+        let nextModel = ResponsiveShellPolicy.resolve(
+            width: nextWidth,
+            route: currentWorkspaceRoute,
+            context: currentWorkspaceContextSnapshot,
+            preferredRightRailMode: workspacePreferences.rightRailMode
+        )
+        let nextIsNarrow = nextModel.bucket == .compact || nextModel.bucket == .narrow
+        guard shellWindowWidth != nextWidth || isShellNarrowWidth != nextIsNarrow else {
             return
         }
+        shellWindowWidth = nextWidth
         isShellNarrowWidth = nextIsNarrow
-        recordShellDebugEvent("shell.right_rail.change", payload: .object([
+        recordShellDebugEvent("shell.responsive_policy.apply", payload: .object([
+            "from_bucket": .string(previousModel.bucket.rawValue),
+            "to_bucket": .string(nextModel.bucket.rawValue),
+            "width": .number(String(nextWidth)),
+            "home_widget_columns": .number(String(nextModel.homeWidgetColumns)),
+            "toolbar_overflow": .bool(nextModel.shouldMoveToolbarPageActionsToOverflow),
             "from": .string(workspacePreferences.rightRailMode.rawValue),
-            "to": .string(nextIsNarrow ? RightRailMode.hidden.rawValue : workspacePreferences.rightRailMode.rawValue),
+            "to": .string(nextModel.effectiveRightRailMode.rawValue),
             "source": .string("window_width"),
             "is_narrow": .bool(nextIsNarrow)
+        ]))
+    }
+
+    func enterHomeLayoutEdit() {
+        isEditingHomeLayout = true
+        recordHomeDebugEvent("home.widget.layout_enter_edit")
+    }
+
+    func exitHomeLayoutEdit() {
+        isEditingHomeLayout = false
+        isShowingHomeWidgetGallery = false
+        recordHomeDebugEvent("home.widget.layout_exit_edit")
+    }
+
+    func showHomeWidgetGallery(_ isShowing: Bool) {
+        isShowingHomeWidgetGallery = isShowing
+        recordHomeDebugEvent("home.widget.gallery", payload: .object([
+            "is_showing": .bool(isShowing)
+        ]))
+    }
+
+    func moveHomeWidget(_ widgetID: String, offset: Int, columns: Int) {
+        updateWorkspacePreferences { preferences in
+            preferences.homeWidgetLayout.moveWidget(
+                widgetID,
+                offset: offset,
+                descriptors: HomeWidgetRegistry.defaultDescriptors,
+                columns: columns
+            )
+        }
+        recordHomeDebugEvent("home.widget.move", payload: .object([
+            "widget_id": .string(widgetID),
+            "offset": .number(String(offset)),
+            "columns": .number(String(columns))
+        ]))
+    }
+
+    func moveHomeWidget(_ sourceWidgetID: String, before targetWidgetID: String, columns: Int) {
+        updateWorkspacePreferences { preferences in
+            preferences.homeWidgetLayout.moveWidget(
+                sourceWidgetID,
+                before: targetWidgetID,
+                descriptors: HomeWidgetRegistry.defaultDescriptors,
+                columns: columns
+            )
+        }
+        recordHomeDebugEvent("home.widget.move", payload: .object([
+            "widget_id": .string(sourceWidgetID),
+            "before": .string(targetWidgetID),
+            "columns": .number(String(columns))
+        ]))
+    }
+
+    func resizeHomeWidget(_ widgetID: String, to size: HomeWidgetSize, columns: Int) {
+        updateWorkspacePreferences { preferences in
+            preferences.homeWidgetLayout.resizeWidget(
+                widgetID,
+                to: size,
+                descriptors: HomeWidgetRegistry.defaultDescriptors,
+                columns: columns
+            )
+        }
+        recordHomeDebugEvent("home.widget.resize", payload: .object([
+            "widget_id": .string(widgetID),
+            "size": .string(size.rawValue),
+            "columns": .number(String(columns))
+        ]))
+    }
+
+    func toggleHomeWidget(_ widgetID: String, isEnabled: Bool, columns: Int) {
+        updateWorkspacePreferences { preferences in
+            preferences.homeWidgetLayout.setWidget(
+                widgetID,
+                isEnabled: isEnabled,
+                descriptors: HomeWidgetRegistry.defaultDescriptors,
+                columns: columns
+            )
+        }
+        recordHomeDebugEvent("home.widget.toggle", payload: .object([
+            "widget_id": .string(widgetID),
+            "is_enabled": .bool(isEnabled),
+            "columns": .number(String(columns))
+        ]))
+    }
+
+    func resetHomeWidgetLayout(columns: Int) {
+        updateWorkspacePreferences { preferences in
+            preferences.homeWidgetLayout.reset(descriptors: HomeWidgetRegistry.defaultDescriptors, columns: columns)
+        }
+        recordHomeDebugEvent("home.widget.reset_default", payload: .object([
+            "columns": .number(String(columns))
         ]))
     }
 
@@ -2050,18 +2206,33 @@ final class AppViewModel: ObservableObject {
         ]))
     }
 
-    func confirmDeleteResearchProject(_ project: ResearchProject) {
+    func confirmArchiveResearchProject(_ project: ResearchProject) {
         projectPendingDeletion = project
+        projectPendingLifecycleAction = .archive
+        isShowingProjectDeleteConfirmation = true
+        recordShellDebugEvent("project.archive.requested", payload: .object([
+            "project_id_hash": .string(project.id.stableHashForDebug),
+            "relative_path_present": .bool(!project.relativePath.isEmpty)
+        ]))
+    }
+
+    func confirmTrashResearchProject(_ project: ResearchProject) {
+        projectPendingDeletion = project
+        projectPendingLifecycleAction = .deleteToTrash
         isShowingProjectDeleteConfirmation = true
         recordShellDebugEvent("project.delete.requested", payload: .object([
-            "project_id": .string(project.id),
-            "relative_path": .string(project.relativePath),
-            "archive_only": .bool(true)
+            "project_id_hash": .string(project.id.stableHashForDebug),
+            "mode": .string(ProjectLifecycleAction.deleteToTrash.rawValue)
         ]))
+    }
+
+    func confirmDeleteResearchProject(_ project: ResearchProject) {
+        confirmArchiveResearchProject(project)
     }
 
     func cancelDeleteResearchProject() {
         projectPendingDeletion = nil
+        projectPendingLifecycleAction = .archive
         isShowingProjectDeleteConfirmation = false
     }
 
@@ -2073,13 +2244,20 @@ final class AppViewModel: ObservableObject {
 
         projectPendingDeletion = nil
         isShowingProjectDeleteConfirmation = false
-        var archivedProject = project
-        archivedProject.isArchived = true
+        let action = projectPendingLifecycleAction
+        projectPendingLifecycleAction = .archive
 
         Task {
             do {
-                let registry = try await projectRegistryRepository.updateProject(archivedProject, in: currentResearchRoot)
-                researchProjects = registry.projects
+                let result: ProjectLifecycleResult
+                switch action {
+                case .archive:
+                    result = try await projectRegistryRepository.archiveProject(project.id, in: currentResearchRoot)
+                case .deleteToTrash:
+                    result = try await projectRegistryRepository.deleteProjectToTrash(project.id, in: currentResearchRoot)
+                }
+
+                researchProjects = result.registry.projects
                 updateWorkspacePreferences { preferences in
                     preferences.pinnedProjectIDs.removeAll { $0 == project.id }
                 }
@@ -2093,11 +2271,37 @@ final class AppViewModel: ObservableObject {
                     persistWorkspaceRoute(WorkspaceRoute(top: .projects))
                 }
 
-                showShellStatus(localized("已归档项目：\(project.name)。工作区文件保持不变。", "Archived project: \(project.name). Workspace files were left in place."))
-                recordShellDebugEvent("project.delete.confirmed", payload: .object([
-                    "project_id": .string(project.id),
-                    "relative_path": .string(project.relativePath),
-                    "archive_only": .bool(true)
+                switch action {
+                case .archive:
+                    showShellStatus(tf(.projectArchiveStatusFormat, project.name))
+                    recordShellDebugEvent("project.archive.confirmed", payload: .object([
+                        "project_id_hash": .string(project.id.stableHashForDebug)
+                    ]))
+                case .deleteToTrash:
+                    showShellStatus(tf(.projectTrashStatusFormat, project.name))
+                    recordShellDebugEvent("project.delete.confirmed", payload: .object([
+                        "project_id_hash": .string(project.id.stableHashForDebug),
+                        "mode": .string(ProjectLifecycleAction.deleteToTrash.rawValue)
+                    ]))
+                }
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func restoreResearchProject(_ project: ResearchProject) {
+        guard let currentResearchRoot else {
+            return
+        }
+
+        Task {
+            do {
+                let result = try await projectRegistryRepository.restoreProject(project.id, in: currentResearchRoot)
+                researchProjects = result.registry.projects
+                showShellStatus(tf(.projectRestoreStatusFormat, result.project.name))
+                recordShellDebugEvent("project.restore.confirmed", payload: .object([
+                    "project_id_hash": .string(project.id.stableHashForDebug)
                 ]))
             } catch {
                 present(error)
@@ -3566,10 +3770,15 @@ final class AppViewModel: ObservableObject {
     }
 
     func updateAppLanguagePreference(_ preference: AppLanguagePreference) {
+        let previousPreference = workspacePreferences.appLanguage
         Task { @MainActor [weak self] in
             self?.updateWorkspacePreferences { preferences in
                 preferences.appLanguage = preference
             }
+            self?.recordAppDebugEvent("l10n.language.change", payload: .object([
+                "from": .string(previousPreference.rawValue),
+                "to": .string(preference.rawValue)
+            ]))
         }
     }
 

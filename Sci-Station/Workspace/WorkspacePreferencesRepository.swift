@@ -50,6 +50,7 @@ public actor WorkspacePreferencesRepository {
         lines.append("right_rail_mode: \(quoted(preferences.rightRailMode.rawValue))")
         lines.append("global_ai_panel_open: \(preferences.isGlobalAIPanelOpen)")
         lines.append("project_tree_expanded: \(preferences.isProjectTreeExpanded)")
+        appendHomeWidgetLayout(preferences.homeWidgetLayout, to: &lines)
         lines.append("pinned_project_ids:")
         lines.append(contentsOf: preferences.pinnedProjectIDs.map { "  - \(quoted($0))" })
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
@@ -93,6 +94,7 @@ public actor WorkspacePreferencesRepository {
         var rightRailMode = RightRailMode.inspector
         var isGlobalAIPanelOpen = false
         var isProjectTreeExpanded = true
+        var homeWidgetLayout = HomeWidgetLayout.defaultLayout()
         var pinnedProjectIDs: [String] = []
         var syncTodosToAppleReminders = true
         var appLanguage = AppLanguagePreference.system
@@ -150,6 +152,10 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("project_tree_expanded:") {
                 let value = trimmed.replacingOccurrences(of: "project_tree_expanded:", with: "").trimmingCharacters(in: .whitespaces)
                 isProjectTreeExpanded = Bool(value) ?? true
+            } else if trimmed == "home_widget_layout:" {
+                let result = parseHomeWidgetLayout(from: lines, start: cursor + 1)
+                homeWidgetLayout = result.value
+                cursor = result.nextIndex - 1
             } else if trimmed == "pinned_project_ids:" {
                 let result = parseIndentedArray(from: lines, start: cursor + 1)
                 pinnedProjectIDs = result.values
@@ -213,6 +219,7 @@ public actor WorkspacePreferencesRepository {
             rightRailMode: rightRailMode,
             isGlobalAIPanelOpen: isGlobalAIPanelOpen,
             isProjectTreeExpanded: isProjectTreeExpanded,
+            homeWidgetLayout: homeWidgetLayout,
             pinnedProjectIDs: pinnedProjectIDs,
             syncTodosToAppleReminders: syncTodosToAppleReminders,
             appLanguage: appLanguage,
@@ -242,6 +249,95 @@ public actor WorkspacePreferencesRepository {
             lines.append("  \(quoted(scope)):")
             lines.append(contentsOf: values.map { "    - \(quoted($0))" })
         }
+    }
+
+    private nonisolated func appendHomeWidgetLayout(_ layout: HomeWidgetLayout, to lines: inout [String]) {
+        let normalizedLayout = layout.normalized(descriptors: HomeWidgetRegistry.defaultDescriptors, columns: 4)
+        lines.append("home_widget_layout:")
+        lines.append("  schema_version: \(HomeWidgetLayout.currentSchemaVersion)")
+        lines.append("  updated_at: \(quoted(formatDate(normalizedLayout.updatedAt)))")
+        lines.append("  items:")
+        for item in normalizedLayout.items {
+            lines.append("    - widget_id: \(quoted(item.widgetID))")
+            lines.append("      size: \(quoted(item.size.rawValue))")
+            lines.append("      column: \(item.column)")
+            lines.append("      row: \(item.row)")
+            lines.append("      is_enabled: \(item.isEnabled)")
+        }
+    }
+
+    private nonisolated func parseHomeWidgetLayout(from lines: [String], start: Int) -> (value: HomeWidgetLayout, nextIndex: Int) {
+        var schemaVersion = HomeWidgetLayout.currentSchemaVersion
+        var updatedAt = Date(timeIntervalSince1970: 0)
+        var items: [HomeWidgetLayoutItem] = []
+        var cursor = start
+
+        while cursor < lines.count, lines[cursor].hasPrefix("  ") {
+            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("schema_version:") {
+                let value = trimmed.replacingOccurrences(of: "schema_version:", with: "").trimmingCharacters(in: .whitespaces)
+                schemaVersion = Int(value) ?? HomeWidgetLayout.currentSchemaVersion
+                cursor += 1
+            } else if trimmed.hasPrefix("updated_at:") {
+                let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "updated_at:", with: "").trimmingCharacters(in: .whitespaces)))
+                updatedAt = value.flatMap(parseDate) ?? Date(timeIntervalSince1970: 0)
+                cursor += 1
+            } else if trimmed == "items:" {
+                let result = parseHomeWidgetItems(from: lines, start: cursor + 1)
+                items = result.values
+                cursor = result.nextIndex
+            } else {
+                cursor += 1
+            }
+        }
+
+        let layout = HomeWidgetLayout(schemaVersion: schemaVersion, items: items, updatedAt: updatedAt)
+        if items.isEmpty {
+            return (HomeWidgetLayout.defaultLayout(), cursor)
+        }
+        return (layout.normalized(descriptors: HomeWidgetRegistry.defaultDescriptors, columns: 4), cursor)
+    }
+
+    private nonisolated func parseHomeWidgetItems(from lines: [String], start: Int) -> (values: [HomeWidgetLayoutItem], nextIndex: Int) {
+        var values: [HomeWidgetLayoutItem] = []
+        var cursor = start
+
+        while cursor < lines.count, lines[cursor].hasPrefix("    ") {
+            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("-") else {
+                break
+            }
+
+            var fields: [String: String] = [:]
+            let firstField = trimmed.replacingOccurrences(of: "-", with: "", options: [], range: trimmed.startIndex..<trimmed.index(after: trimmed.startIndex)).trimmingCharacters(in: .whitespaces)
+            if let pair = parseKeyValue(firstField) {
+                fields[pair.key] = pair.value
+            }
+            cursor += 1
+
+            while cursor < lines.count, lines[cursor].hasPrefix("      ") {
+                let itemLine = lines[cursor].trimmingCharacters(in: .whitespaces)
+                guard let pair = parseKeyValue(itemLine) else {
+                    break
+                }
+                fields[pair.key] = pair.value
+                cursor += 1
+            }
+
+            guard let widgetID = fields["widget_id"].map(unquoted),
+                  !widgetID.isEmpty else {
+                continue
+            }
+            values.append(HomeWidgetLayoutItem(
+                widgetID: widgetID,
+                size: fields["size"].map(unquoted).flatMap(HomeWidgetSize.init(rawValue:)) ?? .medium,
+                column: fields["column"].flatMap(Int.init) ?? 0,
+                row: fields["row"].flatMap(Int.init) ?? 0,
+                isEnabled: fields["is_enabled"].flatMap(Bool.init) ?? true
+            ))
+        }
+
+        return (values, cursor)
     }
 
     private nonisolated func parseIndentedStringArrayMap(from lines: [String], start: Int) -> (values: [String: [String]], nextIndex: Int) {
@@ -392,5 +488,25 @@ public actor WorkspacePreferencesRepository {
     private nonisolated func emptyToNil(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private nonisolated func parseKeyValue(_ line: String) -> (key: String, value: String)? {
+        let parts = line.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return nil
+        }
+        return (parts[0].trimmingCharacters(in: .whitespaces), parts[1].trimmingCharacters(in: .whitespaces))
+    }
+
+    private nonisolated func formatDate(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
+    private nonisolated func parseDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 }

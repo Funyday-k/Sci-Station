@@ -323,6 +323,87 @@ public actor ProjectRegistryRepository {
         return registry
     }
 
+    public func archiveProject(_ projectID: ResearchProject.ID, in root: ResearchRoot) throws -> ProjectLifecycleResult {
+        var registry = try load(in: root)
+        guard let index = registry.projects.firstIndex(where: { $0.id == projectID }) else {
+            throw ProjectRegistryError.projectNotFound(projectID)
+        }
+
+        let previousRelativePath = registry.projects[index].relativePath
+        registry.projects[index].isArchived = true
+        registry.projects[index].updatedAt = Date()
+        registry.lastOpenedProjectID = nextActiveProjectID(in: registry, excluding: projectID)
+        try ensureProjectStructure(for: registry.projects[index], in: root)
+        try save(registry, in: root)
+        return ProjectLifecycleResult(
+            registry: registry,
+            project: registry.projects[index],
+            previousRelativePath: previousRelativePath,
+            nextRelativePath: registry.projects[index].relativePath
+        )
+    }
+
+    public func restoreProject(_ projectID: ResearchProject.ID, in root: ResearchRoot) throws -> ProjectLifecycleResult {
+        var registry = try load(in: root)
+        guard let index = registry.projects.firstIndex(where: { $0.id == projectID }) else {
+            throw ProjectRegistryError.projectNotFound(projectID)
+        }
+
+        let previousRelativePath = registry.projects[index].relativePath
+        var nextRelativePath = previousRelativePath
+        if previousRelativePath.hasPrefix(".sci-station/trash/projects/") {
+            nextRelativePath = uniqueProjectRelativePath(for: registry.projects[index].id, in: root)
+            let previousURL = root.directoryURL(for: previousRelativePath)
+            let nextURL = root.directoryURL(for: nextRelativePath)
+            if fileManager.fileExists(atPath: previousURL.path) {
+                try fileManager.createDirectory(at: nextURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fileManager.moveItem(at: previousURL, to: nextURL)
+            }
+        }
+
+        registry.projects[index].relativePath = nextRelativePath
+        registry.projects[index].isArchived = false
+        registry.projects[index].updatedAt = Date()
+        registry.lastOpenedProjectID = registry.projects[index].id
+        try ensureProjectStructure(for: registry.projects[index], in: root)
+        try save(registry, in: root)
+        return ProjectLifecycleResult(
+            registry: registry,
+            project: registry.projects[index],
+            previousRelativePath: previousRelativePath,
+            nextRelativePath: nextRelativePath
+        )
+    }
+
+    public func deleteProjectToTrash(_ projectID: ResearchProject.ID, in root: ResearchRoot) throws -> ProjectLifecycleResult {
+        var registry = try load(in: root)
+        guard let index = registry.projects.firstIndex(where: { $0.id == projectID }) else {
+            throw ProjectRegistryError.projectNotFound(projectID)
+        }
+
+        let previousRelativePath = registry.projects[index].relativePath
+        let previousURL = root.directoryURL(for: previousRelativePath)
+        let trashRelativePath = uniqueTrashRelativePath(for: registry.projects[index].id, in: root)
+        let trashURL = root.directoryURL(for: trashRelativePath)
+        try fileManager.createDirectory(at: trashURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: previousURL.path), previousURL.path != trashURL.path {
+            try fileManager.moveItem(at: previousURL, to: trashURL)
+        }
+
+        registry.projects[index].relativePath = trashRelativePath
+        registry.projects[index].isArchived = true
+        registry.projects[index].updatedAt = Date()
+        registry.lastOpenedProjectID = nextActiveProjectID(in: registry, excluding: projectID)
+        try ensureProjectStructure(for: registry.projects[index], in: root)
+        try save(registry, in: root)
+        return ProjectLifecycleResult(
+            registry: registry,
+            project: registry.projects[index],
+            previousRelativePath: previousRelativePath,
+            nextRelativePath: trashRelativePath
+        )
+    }
+
     private func ensureProjectStructure(for project: ResearchProject, in root: ResearchRoot) throws {
         let projectURL = root.directoryURL(for: project.relativePath)
         try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -345,6 +426,28 @@ public actor ProjectRegistryRepository {
         var suffix = 2
         let existing = Set(existingIDs)
         while existing.contains(candidate) {
+            candidate = "\(base)-\(suffix)"
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func nextActiveProjectID(in registry: ProjectRegistry, excluding projectID: ResearchProject.ID) -> ResearchProject.ID? {
+        registry.projects.first { $0.id != projectID && !$0.isArchived }?.id
+    }
+
+    private func uniqueProjectRelativePath(for projectID: ResearchProject.ID, in root: ResearchRoot) -> String {
+        uniqueRelativePath(base: "projects/\(projectID)", in: root)
+    }
+
+    private func uniqueTrashRelativePath(for projectID: ResearchProject.ID, in root: ResearchRoot) -> String {
+        uniqueRelativePath(base: ".sci-station/trash/projects/\(projectID)", in: root)
+    }
+
+    private func uniqueRelativePath(base: String, in root: ResearchRoot) -> String {
+        var candidate = base
+        var suffix = 2
+        while fileManager.fileExists(atPath: root.directoryURL(for: candidate).path) {
             candidate = "\(base)-\(suffix)"
             suffix += 1
         }
