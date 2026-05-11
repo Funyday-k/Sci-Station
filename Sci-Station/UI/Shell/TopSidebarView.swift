@@ -11,10 +11,12 @@ struct TopSidebarView: View {
 
             ScrollView {
                 VStack(spacing: 3) {
-                    ForEach(appModel.topSidebarItems) { item in
+                    ForEach(primarySidebarItems) { item in
                         TopSidebarRow(
                             item: item,
-                            isSelected: isSelected(item)
+                            isSelected: isSelected(item),
+                            showsProjectTreeToggle: item.top == .projects && workspace != nil,
+                            showsProjectCreateButton: item.top == .projects && workspace != nil
                         ) {
                             appModel.selectTopLevelRoute(item.top)
                         }
@@ -34,16 +36,8 @@ struct TopSidebarView: View {
             }
 
             if workspace != nil {
-                Button {
-                    appModel.beginCreatingResearchProject()
-                } label: {
-                    Label(appModel.t(.toolbarNewProject), systemImage: "plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .padding(.horizontal, 18)
-                .help(appModel.t(.sidebarCreateResearchProject))
+                SidebarSettingsButton(isSelected: appModel.selectedSection == .settings)
+                    .padding(.horizontal, 10)
             }
 
             Spacer(minLength: 0)
@@ -64,7 +58,10 @@ struct TopSidebarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background {
+            Color(nsColor: .windowBackgroundColor)
+            Color.secondary.opacity(0.055)
+        }
         .task {
             appModel.recordSidebarRender()
         }
@@ -143,6 +140,10 @@ struct TopSidebarView: View {
         return appModel.selectedSection == workspaceSection(for: item.top)
     }
 
+    private var primarySidebarItems: [TopSidebarItem] {
+        appModel.topSidebarItems.filter { $0.top != .settings }
+    }
+
     private func workspaceSection(for top: WorkspaceRoute.Top) -> WorkspaceSection {
         switch top {
         case .home:
@@ -161,35 +162,8 @@ struct TopSidebarView: View {
     }
 }
 
-private enum SidebarProjectSortMode: String, CaseIterable, Identifiable {
-    case usage
-    case name
-
-    var id: String { rawValue }
-
-    func title(appModel: AppViewModel) -> String {
-        switch self {
-        case .usage:
-            return appModel.t(.sidebarSortUsage)
-        case .name:
-            return appModel.t(.sidebarSortName)
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .usage:
-            return "clock.arrow.circlepath"
-        case .name:
-            return "textformat.abc"
-        }
-    }
-}
-
 private struct SidebarProjectTreeSection: View {
     @EnvironmentObject private var appModel: AppViewModel
-    @State private var sortMode = SidebarProjectSortMode.usage
-    @State private var searchText = ""
 
     private var isExpanded: Bool {
         if appModel.responsiveShellModel.shouldCollapseProjectTree {
@@ -199,20 +173,10 @@ private struct SidebarProjectTreeSection: View {
     }
 
     private var sortedProjects: [ResearchProject] {
-        let projects = appModel.sidebarProjects(searchText: searchText, includeArchived: appModel.isShowingArchivedProjects)
-        switch sortMode {
-        case .usage:
-            return projects.sorted { first, second in
-                if first.updatedAt == second.updatedAt {
-                    return first.name.localizedStandardCompare(second.name) == .orderedAscending
-                }
-                return first.updatedAt > second.updatedAt
-            }
-        case .name:
-            return projects.sorted { first, second in
+        appModel.sidebarProjects(searchText: "", includeArchived: appModel.isShowingArchivedProjects)
+            .sorted { first, second in
                 first.name.localizedStandardCompare(second.name) == .orderedAscending
             }
-        }
     }
 
     private var activeProjects: [ResearchProject] {
@@ -223,97 +187,18 @@ private struct SidebarProjectTreeSection: View {
         sortedProjects.filter(\.isArchived)
     }
 
-    private var pinnedProjects: [ResearchProject] {
-        let pinnedIDs = Set(appModel.pinnedResearchProjects.map(\.id))
-        return activeProjects.filter { pinnedIDs.contains($0.id) }
-    }
-
-    private var recentProjects: [ResearchProject] {
-        let pinnedIDs = Set(pinnedProjects.map(\.id))
-        return activeProjects.filter { !pinnedIDs.contains($0.id) }
-    }
-
-    private var shouldShowRecentBuckets: Bool {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sortMode == .usage
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        appModel.toggleProjectTreeExpansion()
-                    }
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption)
-                        .frame(width: 14, height: 20)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(isExpanded ? appModel.t(.sidebarCollapseProjectTree) : appModel.t(.sidebarExpandProjectTree))
-
-                Text(appModel.t(.routeProjects))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Menu {
-                    ForEach(SidebarProjectSortMode.allCases) { mode in
-                        Button {
-                            sortMode = mode
-                        } label: {
-                            Label(mode.title(appModel: appModel), systemImage: sortMode == mode ? "checkmark" : mode.systemImage)
-                        }
-                    }
-                    Divider()
-                    Button {
-                        appModel.isShowingArchivedProjects.toggle()
-                    } label: {
-                        Label(
-                            appModel.isShowingArchivedProjects ? appModel.t(.sidebarHideArchived) : appModel.t(.sidebarShowArchived),
-                            systemImage: appModel.isShowingArchivedProjects ? "archivebox.fill" : "archivebox"
-                        )
-                    }
-                } label: {
-                    Image(systemName: sortMode.systemImage)
-                        .font(.caption)
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-                .help(appModel.t(.sidebarSortProjects))
-
-                Text("\(appModel.activeResearchProjects.count)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.leading, 8)
-            .padding(.top, 2)
-
+        VStack(alignment: .leading, spacing: 4) {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 3) {
-                    TextField(appModel.t(.sidebarSearchProjects), text: $searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                        .padding(.leading, 22)
-                        .padding(.bottom, 3)
-
                     if sortedProjects.isEmpty {
                         Text(appModel.t(.sidebarNoProjects))
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .padding(.leading, 22)
+                            .padding(.leading, 34)
                     } else {
-                        if shouldShowRecentBuckets {
-                            if !pinnedProjects.isEmpty {
-                                SidebarProjectBucket(title: appModel.t(.sidebarPinnedSection), projects: pinnedProjects)
-                            }
-                            if !recentProjects.isEmpty {
-                                SidebarProjectBucket(title: appModel.t(.sidebarRecentSection), projects: recentProjects)
-                            }
-                        } else {
-                            ForEach(activeProjects) { project in
-                                SidebarProjectTreeRow(project: project)
-                            }
+                        ForEach(activeProjects) { project in
+                            SidebarProjectTreeRow(project: project)
                         }
 
                         if appModel.isShowingArchivedProjects, !archivedProjects.isEmpty {
@@ -322,7 +207,7 @@ private struct SidebarProjectTreeSection: View {
                         }
                     }
                 }
-                .padding(.leading, 18)
+                .padding(.leading, 30)
                 .padding(.trailing, 2)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -377,16 +262,6 @@ private struct SidebarProjectTreeRow: View {
             }
 
             Spacer(minLength: 0)
-
-            Button {
-                appModel.toggleResearchProjectPin(project)
-            } label: {
-                Label(appModel.isResearchProjectPinned(project.id) ? appModel.t(.sidebarUnpin) : appModel.t(.sidebarPin), systemImage: appModel.isResearchProjectPinned(project.id) ? "pin.fill" : "pin")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.plain)
-            .opacity(isHovering || appModel.isResearchProjectPinned(project.id) ? 1 : 0)
-            .help(appModel.isResearchProjectPinned(project.id) ? appModel.t(.sidebarUnpin) : appModel.t(.sidebarPin))
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 7)
@@ -403,7 +278,6 @@ private struct SidebarProjectTreeRow: View {
             if !project.isArchived {
                 Button(appModel.t(.sidebarOpenProject)) { appModel.selectResearchProject(project.id) }
             }
-            Button(appModel.isResearchProjectPinned(project.id) ? appModel.t(.sidebarUnpin) : appModel.t(.sidebarPin)) { appModel.toggleResearchProjectPin(project) }
             Button(project.isCollapsed ? appModel.t(.sidebarExpandSections) : appModel.t(.sidebarCollapseSections)) { appModel.toggleResearchProjectCollapse(project.id) }
             Divider()
             if project.isArchived {
@@ -427,25 +301,98 @@ private struct TopSidebarRow: View {
 
     let item: TopSidebarItem
     let isSelected: Bool
+    var showsProjectTreeToggle = false
+    var showsProjectCreateButton = false
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
+        HStack(spacing: 6) {
+            if showsProjectTreeToggle {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        appModel.toggleProjectTreeExpansion()
+                    }
+                } label: {
+                    Image(systemName: isProjectTreeExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 15, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(isProjectTreeExpanded ? appModel.t(.sidebarCollapseProjectTree) : appModel.t(.sidebarExpandProjectTree))
+            }
+
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Image(systemName: item.systemImage)
+                        .frame(width: 18)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    Text(appModel.t(L10n.key(for: item.top)))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if showsProjectCreateButton {
+                Button {
+                    appModel.beginCreatingResearchProject()
+                } label: {
+                    Label(appModel.t(.toolbarNewProject), systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(appModel.t(.sidebarCreateResearchProject))
+            }
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
+        .help(appModel.t(L10n.key(for: item.top)))
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: isSelected)
+        .animation(.easeOut(duration: 0.14), value: isHovering)
+    }
+
+    private var isProjectTreeExpanded: Bool {
+        if appModel.responsiveShellModel.shouldCollapseProjectTree {
+            return false
+        }
+        return appModel.workspacePreferences.isProjectTreeExpanded
+    }
+
+    private var rowBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.12)
+        }
+        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
+    }
+}
+
+private struct SidebarSettingsButton: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let isSelected: Bool
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            appModel.selectTopLevelRoute(.settings)
+        } label: {
             HStack(spacing: 10) {
-                Image(systemName: item.systemImage)
+                Image(systemName: "gearshape")
                     .frame(width: 18)
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                Text(appModel.t(L10n.key(for: item.top)))
+                Text(appModel.t(.routeSettings))
                     .lineLimit(1)
-                    .truncationMode(.tail)
                 Spacer(minLength: 0)
-                if item.isPinFixed {
-                    Image(systemName: "pin.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
             }
             .padding(.vertical, 7)
             .padding(.horizontal, 9)
@@ -453,10 +400,8 @@ private struct TopSidebarRow: View {
             .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .help(appModel.t(L10n.key(for: item.top)))
+        .help(appModel.t(.routeSettings))
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: isSelected)
-        .animation(.easeOut(duration: 0.14), value: isHovering)
     }
 
     private var rowBackground: Color {

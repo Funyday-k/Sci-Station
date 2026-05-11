@@ -133,25 +133,6 @@ struct HomeView: View {
             }
 
             Spacer(minLength: 0)
-
-            Button {
-                Task { await reloadHome(invalidating: true, reason: "manual_refresh") }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .rotationEffect(.degrees(isLoading ? 360 : 0))
-                    .animation(
-                        isLoading
-                            ? .linear(duration: 1.2).repeatForever(autoreverses: false)
-                            : .default,
-                        value: isLoading
-                    )
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .help(appModel.t(.homeRefreshSnapshot))
-            .disabled(isLoading)
         }
         .padding(.top, 4)
     }

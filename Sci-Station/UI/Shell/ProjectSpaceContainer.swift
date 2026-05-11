@@ -15,16 +15,14 @@ struct ProjectSpaceContainer: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
             header
-            Divider()
             ProjectSpaceTabStrip(
                 tabs: tabs,
                 selectedTabID: appModel.selectedProjectSpaceTabID,
                 select: appModel.selectProjectSpaceTab,
                 move: appModel.moveProjectSpaceTab
             )
-            Divider()
 
             if let selectedTab {
                 ProjectSpaceContentRouter(
@@ -41,6 +39,8 @@ struct ProjectSpaceContainer: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(12)
+        .background(ProjectSpaceBackground())
         .onAppear {
             if !tabs.contains(where: { $0.id == appModel.selectedProjectSpaceTabID }) {
                 appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.overviewTabID)
@@ -81,7 +81,11 @@ struct ProjectSpaceContainer: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 0.7)
+        }
     }
 
     private var stageDecision: ProjectStageDecision {
@@ -122,13 +126,13 @@ struct ProjectsListView: View {
                             systemImage: appModel.isShowingArchivedProjects ? "archivebox.fill" : "archivebox"
                         )
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     Button {
                         appModel.beginCreatingResearchProject()
                     } label: {
                         Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                 }
 
                 if appModel.activeResearchProjects.isEmpty {
@@ -144,7 +148,11 @@ struct ProjectsListView: View {
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.14), lineWidth: 0.7)
+                    }
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], alignment: .leading, spacing: 12) {
                         ForEach(appModel.activeResearchProjects) { project in
@@ -202,6 +210,7 @@ struct ProjectsListView: View {
             .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ProjectSpaceBackground())
     }
 }
 
@@ -247,7 +256,7 @@ private struct ProjectListCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 126, alignment: .topLeading)
-        .background(Color(hex: project.colorHex).opacity(isSelected ? 0.34 : 0.16), in: RoundedRectangle(cornerRadius: 8))
+        .glassEffect(.regular.tint(Color(hex: project.colorHex).opacity(isSelected ? 0.12 : 0.055)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.accentColor.opacity(0.62) : Color.secondary.opacity(0.16), lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture(perform: focus)
@@ -327,7 +336,11 @@ private struct ProjectSpaceTabStrip: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.035)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.6)
+        }
     }
 
     private var visibleTabs: [ProjectSpaceTab] {
@@ -354,6 +367,16 @@ private struct ProjectSpaceTabStrip: View {
             return tab.title
         }
         return appModel.t(key)
+    }
+}
+
+private struct ProjectSpaceBackground: View {
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            Color.secondary.opacity(0.05)
+        }
+        .ignoresSafeArea()
     }
 }
 

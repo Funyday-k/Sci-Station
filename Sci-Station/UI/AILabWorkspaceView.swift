@@ -509,6 +509,7 @@ struct AgentPanelView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    var isCompact = false
     @State private var isContextExpanded = false
     @State private var isAgentDetailsExpanded = false
     @State private var isPlanExpanded = false
@@ -521,9 +522,12 @@ struct AgentPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            sessionHeader
-
-            Divider()
+            if isCompact {
+                compactSessionHeader
+            } else {
+                sessionHeader
+                Divider()
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -537,9 +541,10 @@ struct AgentPanelView: View {
                         pendingPrompt: appModel.agentPendingUserPrompt,
                         streamingResponse: appModel.agentStreamingResponseText,
                         isThinking: appModel.isPlanningAgentRun,
-                        thinkingModeTitle: appModel.agentVisibleMode.title
+                        thinkingModeTitle: appModel.agentVisibleMode.title,
+                        isCompact: isCompact
                     )
-                    .padding(18)
+                    .padding(isCompact ? 10 : 18)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     pendingInteractionDock
@@ -557,6 +562,7 @@ struct AgentPanelView: View {
 
             composerDock
         }
+        .background(isCompact ? Color.clear : Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
             AgentThreadRenameSheet()
                 .environmentObject(appModel)
@@ -593,6 +599,69 @@ struct AgentPanelView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(Color.secondary.opacity(0.04))
+    }
+
+    private var compactSessionHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label("模式", systemImage: "switch.2")
+                    .font(.caption.weight(.semibold))
+
+                Picker("模式", selection: visibleModeSelection) {
+                    ForEach(AgentVisibleMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity)
+                .help(Text(verbatim: appModel.agentModeStatusText))
+            }
+
+            HStack(spacing: 8) {
+                Picker("上下文", selection: contextSelection) {
+                    Text("全工作区").tag("__workspace__")
+                    if !appModel.activeResearchProjects.isEmpty {
+                        ForEach(appModel.activeResearchProjects) { project in
+                            Text(project.name).tag(project.id)
+                        }
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity)
+                .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
+
+                Button {
+                    appModel.showAgentKnowledgeLibrary()
+                } label: {
+                    Label("知识库", systemImage: "books.vertical")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.glass)
+                .help("AI 知识库")
+            }
+
+            Text(appModel.agentThreadContextTitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            statusMessages
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background {
+            Color(nsColor: .windowBackgroundColor).opacity(0.66)
+            Color.secondary.opacity(0.045)
+        }
+    }
+
+    private var visibleModeSelection: Binding<AgentVisibleMode> {
+        Binding(
+            get: { appModel.agentVisibleMode },
+            set: { appModel.setAgentVisibleMode($0) }
+        )
     }
 
     private var contextSelection: Binding<String> {
@@ -751,6 +820,16 @@ struct AgentPanelView: View {
     }
 
     private var composerDock: some View {
+        Group {
+            if isCompact {
+                compactComposerDock
+            } else {
+                regularComposerDock
+            }
+        }
+    }
+
+    private var regularComposerDock: some View {
         VStack(spacing: 0) {
             AILabDockShell {
                 VStack(alignment: .leading, spacing: 8) {
@@ -842,6 +921,97 @@ struct AgentPanelView: View {
         .background(Color.secondary.opacity(0.04))
     }
 
+    private var compactComposerDock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
+                ZStack(alignment: .topLeading) {
+                    AgentComposerTextView(
+                        text: $appModel.agentGoal,
+                        fontSize: appModel.workspacePreferences.agentChatFontSize,
+                        onSubmit: submitComposer
+                    )
+                    .frame(minHeight: 72, maxHeight: 118)
+                    .padding(4)
+
+                    if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
+                            .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 12)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 0.7)
+                }
+
+                Button {
+                    if appModel.isPlanningAgentRun {
+                        appModel.cancelAgentGeneration()
+                    } else {
+                        submitComposer()
+                    }
+                } label: {
+                    Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(appModel.isExecutingAgentTools || (!appModel.isPlanningAgentRun && appModel.agentToolAvailabilityWarning != nil))
+                .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
+            }
+
+            if let warning = appModel.agentToolAvailabilityWarning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    appModel.startNewAgentConversation()
+                } label: {
+                    Label("新对话", systemImage: "plus.bubble")
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    appModel.refreshAgentContext()
+                } label: {
+                    Label(appModel.isRefreshingAgentContext ? "刷新中" : "刷新", systemImage: "arrow.clockwise")
+                        .labelStyle(.iconOnly)
+                }
+                .disabled(appModel.isRefreshingAgentContext)
+                .help("刷新 AI 上下文")
+
+                Button {
+                    appModel.openSettings(category: .aiLab)
+                } label: {
+                    Label("设置", systemImage: "gearshape")
+                        .labelStyle(.iconOnly)
+                }
+                .help("AI 设置")
+            }
+            .font(.caption)
+            .buttonStyle(.glass)
+            .controlSize(.small)
+        }
+        .padding(10)
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.16), lineWidth: 0.7)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+    }
+
     private func submitComposer() {
         guard !appModel.isPlanningAgentRun else {
             return
@@ -920,6 +1090,7 @@ private struct AgentConversationTimelineView: View {
     let streamingResponse: String?
     let isThinking: Bool
     let thinkingModeTitle: String
+    let isCompact: Bool
 
     private var visibleEvents: [AgentTimelineEvent] {
         events.filter { $0.sourceKind != .hookResult }
@@ -953,16 +1124,18 @@ private struct AgentConversationTimelineView: View {
     }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("对话时间线")
-                    .font(.headline)
-                if let thread {
-                    Text(thread.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        LazyVStack(alignment: .leading, spacing: isCompact ? 9 : 12) {
+            if !isCompact {
+                HStack {
+                    Text("对话时间线")
+                        .font(.headline)
+                    if let thread {
+                        Text(thread.title)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
             }
 
             if visibleEvents.isEmpty, visibleRuns.isEmpty, visiblePendingPrompt == nil, !isThinking {
@@ -971,7 +1144,7 @@ private struct AgentConversationTimelineView: View {
                     systemImage: "bubble.left.and.text.bubble.right",
                     description: Text("从下方输入框开始。")
                 )
-                .frame(maxWidth: .infinity, minHeight: 260)
+                .frame(maxWidth: .infinity, minHeight: isCompact ? 170 : 260)
             } else if !visibleEvents.isEmpty {
                 if canLoadEarlierEvents {
                     Button {
@@ -993,7 +1166,8 @@ private struct AgentConversationTimelineView: View {
                         copyDiagnosticAction: providerFailureAction(for: item),
                         evidencePreview: toolEvidencePreview(for: item),
                         targetPath: targetPath(for: item),
-                        openTargetAction: openTargetAction(for: item)
+                        openTargetAction: openTargetAction(for: item),
+                        isCompact: isCompact
                     )
                 }
             } else {
@@ -1011,7 +1185,8 @@ private struct AgentConversationTimelineView: View {
                     payloadPreview: nil,
                     isUser: true,
                     usesRichMarkdown: false,
-                    isError: false
+                    isError: false,
+                    isCompact: isCompact
                 )
             }
 
@@ -1026,10 +1201,11 @@ private struct AgentConversationTimelineView: View {
                     isUser: false,
                     usesRichMarkdown: true,
                     isError: false,
-                    animatesText: true
+                    animatesText: true,
+                    isCompact: isCompact
                 )
             } else if isThinking {
-                AgentThinkingBubbleView(thinkingModeTitle: thinkingModeTitle)
+                AgentThinkingBubbleView(thinkingModeTitle: thinkingModeTitle, isCompact: isCompact)
             }
         }
     }
@@ -1130,6 +1306,7 @@ private struct AgentConversationTimelineView: View {
 
 private struct AgentThinkingBubbleView: View {
     let thinkingModeTitle: String
+    var isCompact = false
 
     private let messages = [
         "正在读取所选论文和项目上下文",
@@ -1150,7 +1327,8 @@ private struct AgentThinkingBubbleView: View {
                 payloadPreview: nil,
                 isUser: false,
                 usesRichMarkdown: false,
-                isError: false
+                isError: false,
+                isCompact: isCompact
             )
         }
     }
@@ -1165,6 +1343,7 @@ private struct AgentTimelineEventRowView: View {
     let evidencePreview: String?
     let targetPath: String?
     let openTargetAction: (() -> Void)?
+    var isCompact = false
 
     @State private var showsEvidence = false
 
@@ -1181,7 +1360,8 @@ private struct AgentTimelineEventRowView: View {
                     payloadPreview: item.payloadPreview,
                     isUser: true,
                     usesRichMarkdown: false,
-                    isError: false
+                    isError: false,
+                    isCompact: isCompact
                 )
             case .assistantMessage:
                 AgentTurnBubbleView(
@@ -1193,7 +1373,8 @@ private struct AgentTimelineEventRowView: View {
                     isUser: false,
                     usesRichMarkdown: usesRichMarkdown,
                     isError: false,
-                    animatesText: animatesAssistantText
+                    animatesText: animatesAssistantText,
+                    isCompact: isCompact
                 )
             case .reasoningGroup:
                 AgentReasoningGroupRow(
@@ -1609,6 +1790,7 @@ private struct AgentTurnBubbleView: View {
     let usesRichMarkdown: Bool
     let isError: Bool
     var animatesText = false
+    var isCompact = false
 
     @State private var copyState: CopyState?
 
@@ -1625,7 +1807,7 @@ private struct AgentTurnBubbleView: View {
         if isError {
             return Color.red.opacity(0.10)
         }
-        return isUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08)
+        return isUser ? Color.accentColor.opacity(isCompact ? 0.18 : 0.14) : Color.secondary.opacity(isCompact ? 0.12 : 0.08)
     }
 
     private var bubbleWidth: CGFloat {
@@ -1638,10 +1820,14 @@ private struct AgentTurnBubbleView: View {
         return 640
     }
 
+    private var sideSpacer: CGFloat {
+        isCompact ? 0 : 72
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if isUser {
-                Spacer(minLength: 72)
+                Spacer(minLength: sideSpacer)
             }
 
             VStack(alignment: alignment, spacing: 5) {
@@ -1670,7 +1856,7 @@ private struct AgentTurnBubbleView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .frame(width: bubbleWidth, alignment: isUser ? .trailing : .leading)
+                .frame(maxWidth: isCompact ? .infinity : bubbleWidth, alignment: isUser ? .trailing : .leading)
                 .background(bubbleColor, in: RoundedRectangle(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
@@ -1697,12 +1883,12 @@ private struct AgentTurnBubbleView: View {
                         .controlSize(.small)
                         .help("复制 AI 回复")
                     }
-                    .frame(width: bubbleWidth, alignment: .leading)
+                    .frame(maxWidth: isCompact ? .infinity : bubbleWidth, alignment: .leading)
                 }
             }
 
             if !isUser {
-                Spacer(minLength: 72)
+                Spacer(minLength: sideSpacer)
             }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)

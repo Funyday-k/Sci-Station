@@ -143,8 +143,7 @@ public nonisolated enum ToolbarPolicy {
         var globalActions: [ToolbarAction] = [
             ToolbarAction(id: .workspaceMenu, title: L10n.text(.toolbarWorkspace, language: language), systemImage: "folder"),
             ToolbarAction(id: .aiPanel, title: L10n.text(.toolbarAI, language: language), systemImage: "sparkles"),
-            ToolbarAction(id: .inspector, title: L10n.text(.toolbarInspector, language: language), systemImage: "sidebar.right"),
-            ToolbarAction(id: .refresh, title: L10n.text(.toolbarRefresh, language: language), systemImage: "arrow.clockwise")
+            ToolbarAction(id: .inspector, title: L10n.text(.toolbarInspector, language: language), systemImage: "sidebar.right")
         ]
         var pageActions: [ToolbarAction] = []
         var overflowActions: [ToolbarAction] = []

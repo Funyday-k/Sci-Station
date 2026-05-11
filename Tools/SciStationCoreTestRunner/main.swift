@@ -847,7 +847,7 @@ private struct CoreVerificationSuite {
         try expect(!model.contains(.importPDF), "Home toolbar policy should hide Import PDF.")
         try expect(!model.contains(.addByIdentifier), "Home toolbar policy should hide Add by Identifier.")
         try expect(model.contains(.aiPanel), "Home toolbar policy should keep the global AI action.")
-        try expect(model.contains(.refresh), "Home toolbar policy should keep refresh available.")
+        try expect(!model.contains(.refresh), "Home toolbar policy should hide refresh.")
     }
 
     private func toolbarPolicyShowsPDFActionsOnlyInPDFReader() throws {

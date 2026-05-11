@@ -127,9 +127,7 @@ struct AgentThreadSidebarView: View {
                             open: {
                                 appModel.selectAgentThread(thread)
                             },
-                            pin: {
-                                appModel.toggleAgentThreadPin(thread)
-                            },
+                            pin: nil,
                             archive: {
                                 appModel.confirmArchiveAgentThread(thread)
                             }
@@ -138,7 +136,6 @@ struct AgentThreadSidebarView: View {
                             if !thread.isArchived {
                                 Button("Open") { appModel.selectAgentThread(thread) }
                                 Button("Rename") { appModel.beginRenameAgentThread(thread) }
-                                Button(appModel.isAgentThreadPinned(thread.id) ? "Unpin" : "Pin") { appModel.toggleAgentThreadPin(thread) }
                                 Button("Archive", role: .destructive) { appModel.confirmArchiveAgentThread(thread) }
                             }
                         }

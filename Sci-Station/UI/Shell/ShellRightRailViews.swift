@@ -21,7 +21,7 @@ struct ShellRightRailView: View {
                     )
                 }
             }
-            .background(Color(nsColor: .controlBackgroundColor))
+            .background(ShellRailBackground())
         } else {
             EmptyRightRailView()
         }
@@ -94,9 +94,7 @@ struct GlobalAISidePanel: View {
 
             GlobalAIContextActionBar(context: context)
 
-            Divider()
-
-            AgentPanelView(workspace: workspace)
+            AgentPanelView(workspace: workspace, isCompact: true)
         }
     }
 }
@@ -296,11 +294,15 @@ struct GlobalAIContextActionBar: View {
                     .disabled(context.selectedTextPreview == nil)
                 }
                 .font(.caption)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
+        }
+        .background {
+            Color(nsColor: .windowBackgroundColor).opacity(0.68)
+            Color.secondary.opacity(0.045)
         }
     }
 
@@ -348,6 +350,15 @@ private struct CollapsedShellRailRestoreButton: View {
 
 private struct EmptyRightRailView: View {
     var body: some View {
-        Color(nsColor: .controlBackgroundColor)
+        ShellRailBackground()
+    }
+}
+
+private struct ShellRailBackground: View {
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            Color.secondary.opacity(0.055)
+        }
     }
 }
