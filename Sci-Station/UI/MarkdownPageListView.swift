@@ -12,12 +12,27 @@ struct MarkdownPageListView: View {
 
             List(selection: selectionBinding) {
                 if appModel.markdownDocuments.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No wiki pages yet.")
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("No wiki pages yet.", systemImage: "text.book.closed")
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(.secondary)
-                        Button("Open Project Overview", action: appModel.openCurrentProjectOverviewPage)
-                        Button("Open Wiki Folder", action: appModel.openWikiFolder)
+                        HStack(spacing: 8) {
+                            Button {
+                                beginOperation(.newPage, defaultText: "")
+                            } label: {
+                                Label("New Page", systemImage: "doc.badge.plus")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button {
+                                appModel.openCurrentProjectOverviewPage()
+                            } label: {
+                                Label("Project Overview", systemImage: "rectangle.grid.2x2")
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
+                    .padding(.vertical, 8)
                 } else {
                     ForEach(appModel.markdownDocuments) { document in
                         VStack(alignment: .leading, spacing: 4) {

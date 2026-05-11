@@ -193,6 +193,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var pdfReaderSearchFocusRequest = 0
     @Published private(set) var pdfReaderFindNextRequest = 0
     @Published private(set) var pdfReaderFindPreviousRequest = 0
+    @Published private(set) var pdfReaderGoToPageRequest = 0
+    @Published private(set) var pdfReaderRequestedPageIndex: Int?
     @Published private(set) var inspectorFocusRequest = 0
     @Published private(set) var isImportingPDF = false
     @Published var isShowingIdentifierImport = false
@@ -331,6 +333,7 @@ final class AppViewModel: ObservableObject {
     private var agentStreamingRawResponseText = ""
     private var workspaceModuleConfigurationWatchTask: Task<Void, Never>?
     private var shellStatusDismissTask: Task<Void, Never>?
+    private var paperReaderReturnRoute: WorkspaceRoute?
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -1712,6 +1715,11 @@ final class AppViewModel: ObservableObject {
         pdfReaderFindPreviousRequest += 1
     }
 
+    func requestPDFReaderGoToPage(_ pageIndex: Int) {
+        pdfReaderRequestedPageIndex = max(0, pageIndex)
+        pdfReaderGoToPageRequest += 1
+    }
+
     func focusInspector() {
         inspectorFocusRequest += 1
     }
@@ -3028,20 +3036,28 @@ final class AppViewModel: ObservableObject {
     }
 
     func openPaperReader(_ paper: Paper) {
+        let returnRoute = currentWorkspaceRoute
         selectPaper(id: paper.id)
         guard canOpenPDF(for: paper) else {
             return
         }
 
-        hideRightRail(source: "paper_reader_open")
+        paperReaderReturnRoute = returnRoute
         selectedSection = .pdfReader
+        showContextInspector(source: "paper_reader_open")
         persistWorkspaceRoute(currentWorkspaceRoute)
     }
 
     func returnFromPaperReader() {
+        if let returnRoute = paperReaderReturnRoute {
+            paperReaderReturnRoute = nil
+            applyWorkspaceRoute(returnRoute)
+            return
+        }
+
         if let projectID = selectedProjectSpaceProjectID ?? currentProjectID,
            activeResearchProjects.contains(where: { $0.id == projectID }) {
-            selectResearchProject(projectID, section: .projects)
+            selectResearchProject(projectID, section: .library)
             return
         }
 
@@ -3430,9 +3446,22 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        var annotation = annotation
+        if annotation.selectionFingerprint?.isEmpty != false {
+            annotation.selectionFingerprint = annotation.duplicateFingerprint
+        }
+
+        if annotation.kind != .note,
+           selectedPDFAnnotations.contains(where: { existing in
+               existing.kind == annotation.kind && existing.duplicateFingerprint == annotation.duplicateFingerprint
+           }) {
+            recordAppDebugEvent("pdf.annotation.duplicate_skipped", payload: pdfAnnotationDebugPayload(annotation))
+            return
+        }
+
         Task {
             do {
-                selectedPDFAnnotations = try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace)
+                selectedPDFAnnotations = deduplicatedPDFAnnotations(try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace))
                 recordAppDebugEvent("pdf.annotation.create", payload: pdfAnnotationDebugPayload(annotation))
             } catch {
                 present(error)
@@ -3453,7 +3482,7 @@ final class AppViewModel: ObservableObject {
 
         Task {
             do {
-                selectedPDFAnnotations = try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace)
+                selectedPDFAnnotations = deduplicatedPDFAnnotations(try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace))
                 recordAppDebugEvent("pdf.annotation.update", payload: pdfAnnotationDebugPayload(annotation))
             } catch {
                 present(error)
@@ -3470,7 +3499,7 @@ final class AppViewModel: ObservableObject {
         selectedPDFAnnotations.removeAll { $0.id == id }
         Task {
             do {
-                selectedPDFAnnotations = try await pdfAnnotationStore.deleteAnnotation(id: id, for: selectedPaperDraft, in: currentWorkspace)
+                selectedPDFAnnotations = deduplicatedPDFAnnotations(try await pdfAnnotationStore.deleteAnnotation(id: id, for: selectedPaperDraft, in: currentWorkspace))
                 recordAppDebugEvent("pdf.annotation.delete", payload: pdfAnnotationDebugPayload(annotation))
             } catch {
                 present(error)
@@ -3498,7 +3527,7 @@ final class AppViewModel: ObservableObject {
 
         Task {
             do {
-                selectedPDFAnnotations = try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace)
+                selectedPDFAnnotations = deduplicatedPDFAnnotations(try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace))
                 recordAppDebugEvent("pdf.annotation.update", payload: pdfAnnotationDebugPayload(annotation))
             } catch {
                 present(error)
@@ -6514,7 +6543,24 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        selectedPDFAnnotations = try await pdfAnnotationStore.loadAnnotations(for: selectedPaperDraft, in: workspace)
+        selectedPDFAnnotations = deduplicatedPDFAnnotations(try await pdfAnnotationStore.loadAnnotations(for: selectedPaperDraft, in: workspace))
+    }
+
+    private func deduplicatedPDFAnnotations(_ annotations: [PDFAnnotationRecord]) -> [PDFAnnotationRecord] {
+        var seenFingerprints = Set<String>()
+        return annotations.filter { annotation in
+            guard annotation.kind != .note else {
+                return true
+            }
+            return seenFingerprints.insert(annotation.duplicateFingerprint).inserted
+        }
+    }
+
+    private func applyWorkspaceRoute(_ route: WorkspaceRoute) {
+        applyRestoredRoute(route)
+        persistWorkspaceRoute(route)
+        applyRightRailRouteSuggestion()
+        refreshAgentContext()
     }
 
     private func loadCollections(in workspace: ResearchWorkspace) async throws {
@@ -7539,6 +7585,7 @@ final class AppViewModel: ObservableObject {
             "kind": .string(annotation.kind.rawValue),
             "page_index": .string(String(annotation.pageIndex)),
             "bounds_count": .string(String(annotation.bounds.count)),
+            "fingerprint": .string(annotation.duplicateFingerprint),
             "selected_text_preview_present": .bool(!annotation.selectedTextPreview.isEmpty),
             "note_present": .bool(annotation.noteText?.isEmpty == false)
         ])

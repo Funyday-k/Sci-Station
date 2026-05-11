@@ -5,10 +5,12 @@
 //  Created by Funyday on 2026/4/27.
 //
 
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @AppStorage("sciStation.shellRightRailWidth") private var shellRightRailWidth = 360.0
     @State private var mainColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
 
@@ -24,8 +26,7 @@ struct ContentView: View {
 
                         Divider()
 
-                        ShellRightRailView(workspace: appModel.currentWorkspace)
-                            .frame(width: rightRailColumnWidth.ideal)
+                        resizableRightRail
                     }
                 }
             } else {
@@ -42,7 +43,7 @@ struct ContentView: View {
                     )
                     .navigationSplitViewColumnWidth(min: 560, ideal: 760)
                 } detail: {
-                    ShellRightRailView(workspace: appModel.currentWorkspace)
+                    resizableRightRail
                         .navigationSplitViewColumnWidth(
                             min: rightRailColumnWidth.min,
                             ideal: rightRailColumnWidth.ideal,
@@ -279,14 +280,28 @@ struct ContentView: View {
         }
     }
 
+    private var resizableRightRail: some View {
+        ResizableRightRailColumn(
+            width: $shellRightRailWidth,
+            minWidth: rightRailColumnWidth.min,
+            idealWidth: rightRailColumnWidth.ideal,
+            maxWidth: rightRailColumnWidth.max,
+            isResizable: appModel.effectiveRightRailMode != .hidden
+        ) {
+            ShellRightRailView(workspace: appModel.currentWorkspace)
+        }
+    }
+
     private var rightRailColumnWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) {
         switch appModel.effectiveRightRailMode {
         case .hidden:
             return (44, 48, 52)
         case .inspector:
-            return (260, 310, 380)
+            let ideal = min(max(CGFloat(shellRightRailWidth), 300), 640)
+            return (280, ideal, 640)
         case .ai:
-            return (340, 400, 480)
+            let ideal = min(max(CGFloat(shellRightRailWidth), 340), 680)
+            return (320, ideal, 680)
         }
     }
 
@@ -367,6 +382,83 @@ struct ContentView: View {
         case .wikiPreviewMode:
             break
         }
+    }
+}
+
+private struct ResizableRightRailColumn<Content: View>: View {
+    @Binding var width: Double
+    let minWidth: CGFloat
+    let idealWidth: CGFloat
+    let maxWidth: CGFloat
+    let isResizable: Bool
+    let content: Content
+
+    @State private var dragStartWidth: Double?
+
+    init(
+        width: Binding<Double>,
+        minWidth: CGFloat,
+        idealWidth: CGFloat,
+        maxWidth: CGFloat,
+        isResizable: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
+        self._width = width
+        self.minWidth = minWidth
+        self.idealWidth = idealWidth
+        self.maxWidth = maxWidth
+        self.isResizable = isResizable
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if isResizable {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 6)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                if dragStartWidth == nil {
+                                    dragStartWidth = clampedWidth
+                                }
+                                let proposed = (dragStartWidth ?? clampedWidth) - value.translation.width
+                                width = min(max(proposed, Double(minWidth)), Double(maxWidth))
+                            }
+                            .onEnded { _ in
+                                dragStartWidth = nil
+                            }
+                    )
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+            }
+
+            content
+                .frame(width: CGFloat(clampedWidth))
+        }
+        .frame(width: CGFloat(clampedWidth) + (isResizable ? 6 : 0))
+        .onAppear(perform: clampStoredWidth)
+        .onChange(of: isResizable) { _, _ in clampStoredWidth() }
+        .onChange(of: idealWidth) { _, _ in clampStoredWidth() }
+    }
+
+    private var clampedWidth: Double {
+        if !isResizable {
+            return Double(idealWidth)
+        }
+        return min(max(width, Double(minWidth)), Double(maxWidth))
+    }
+
+    private func clampStoredWidth() {
+        guard isResizable else { return }
+        width = clampedWidth
     }
 }
 

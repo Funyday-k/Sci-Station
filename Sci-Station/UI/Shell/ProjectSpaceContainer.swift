@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProjectSpaceContainer: View {
@@ -15,14 +16,8 @@ struct ProjectSpaceContainer: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             header
-            ProjectSpaceTabStrip(
-                tabs: tabs,
-                selectedTabID: appModel.selectedProjectSpaceTabID,
-                select: appModel.selectProjectSpaceTab,
-                move: appModel.moveProjectSpaceTab
-            )
 
             if let selectedTab {
                 ProjectSpaceContentRouter(
@@ -49,43 +44,77 @@ struct ProjectSpaceContainer: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Button {
-                appModel.selectTopLevelRoute(.projects)
-            } label: {
-                Label(appModel.t(.routeProjects), systemImage: "chevron.left")
-            }
-            .buttonStyle(.borderless)
-            .help(appModel.t(.projectSpaceBackToProjects))
+        VStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Button {
+                    appModel.selectTopLevelRoute(.projects)
+                } label: {
+                    Label(appModel.t(.routeProjects), systemImage: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .help(appModel.t(.projectSpaceBackToProjects))
 
-            Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
-                .font(.title3)
-                .frame(width: 34, height: 34)
-                .foregroundStyle(Color.primary.opacity(0.75))
-                .background(Color(hex: project.colorHex).opacity(0.22), in: RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(project.name)
+                Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
                     .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(project.description.isEmpty ? project.relativePath : project.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(Color.primary.opacity(0.78))
+                    .background(Color(hex: project.colorHex).opacity(0.18), in: RoundedRectangle(cornerRadius: 7))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(project.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(project.description.isEmpty ? project.relativePath : project.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                StageBadge(stage: stageDecision.stage, rule: stageDecision.rule)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    appModel.focusSearchForCurrentSection()
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("Search current project context")
+
+                Menu {
+                    Button("Project Overview") {
+                        appModel.openCurrentProjectOverviewPage()
+                    }
+                    Button("Edit Project Info") {
+                        appModel.beginEditingResearchProject(project.id)
+                    }
+                    Divider()
+                    Button("Reveal Project Folder") {
+                        NSWorkspace.shared.open(workspace.directoryURL(for: project.relativePath))
+                    }
+                    Button("Open Wiki Folder") {
+                        appModel.openWikiFolder()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .help("Project actions")
             }
 
-            Spacer(minLength: 0)
-
-            StageBadge(stage: stageDecision.stage, rule: stageDecision.rule)
+            ProjectSpaceTabStrip(
+                tabs: tabs,
+                selectedTabID: appModel.selectedProjectSpaceTabID,
+                select: appModel.selectProjectSpaceTab,
+                move: appModel.moveProjectSpaceTab
+            )
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.secondary.opacity(0.14), lineWidth: 0.7)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .sciStationPanel()
     }
 
     private var stageDecision: ProjectStageDecision {
@@ -256,11 +285,16 @@ private struct ProjectListCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 126, alignment: .topLeading)
-        .glassEffect(.regular.tint(Color(hex: project.colorHex).opacity(isSelected ? 0.12 : 0.055)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.accentColor.opacity(0.62) : Color.secondary.opacity(0.16), lineWidth: 1))
+        .glassEffect(.regular.tint(SciStationDesign.projectSurface(hex: project.colorHex, isSelected: isSelected)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.accentColor.opacity(0.62) : SciStationDesign.hairline, lineWidth: 1))
+        .overlay(alignment: .topTrailing) {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .padding(10)
+        }
         .contentShape(Rectangle())
-        .onTapGesture(perform: focus)
-        .onTapGesture(count: 2, perform: open)
+        .onTapGesture(perform: open)
         .contextMenu {
             if project.isArchived {
                 Button(appModel.t(.projectsRestore), action: restore)
@@ -334,13 +368,8 @@ private struct ProjectSpaceTabStrip: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.035)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.6)
-        }
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
     }
 
     private var visibleTabs: [ProjectSpaceTab] {
@@ -374,7 +403,7 @@ private struct ProjectSpaceBackground: View {
     var body: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
-            Color.secondary.opacity(0.05)
+            SciStationDesign.groupedSurface.opacity(0.78)
         }
         .ignoresSafeArea()
     }

@@ -77,7 +77,7 @@ public nonisolated enum RightRailPolicy {
             return .inspector
         case .projects:
             if context.projectTabID == "pdf-reader" {
-                return .hidden
+                return .inspector
             }
             return ["papers", "wiki"].contains(context.projectTabID) ? .inspector : .hidden
         case .home, .calendar, .aiLab, .settings:

@@ -644,7 +644,7 @@ private struct WorkspaceCalendarView: View {
                         ))
                         .frame(minWidth: 420)
 
-                        TodoDashboardWidget(scope: .selectedDate)
+                        CalendarSelectedDateDetailView(projectID: nil)
                             .frame(minWidth: 340)
                     }
 
@@ -654,13 +654,214 @@ private struct WorkspaceCalendarView: View {
                             set: { appModel.selectDashboardDate($0) }
                         ))
 
-                        TodoDashboardWidget(scope: .selectedDate)
+                        CalendarSelectedDateDetailView(projectID: nil)
                     }
                 }
             }
             .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct CalendarSelectedDateDetailView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let projectID: ResearchProject.ID?
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(selectedDateTitle)
+                            .font(.title3.weight(.semibold))
+                        Text(summaryText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        if let projectID {
+                            appModel.selectResearchProject(projectID, section: .tasks)
+                        } else {
+                            appModel.selectGlobalTodos()
+                        }
+                    } label: {
+                        Label("Open Tasks", systemImage: "checklist")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                if todos.isEmpty, workspaceEvents.isEmpty, systemItems.isEmpty {
+                    Label("No items for this date.", systemImage: "calendar")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 10)
+                } else {
+                    detailSection(title: "Todos", systemImage: "checklist", count: todos.count) {
+                        ForEach(todos.prefix(6)) { todo in
+                            CalendarTodoDetailRow(todo: todo)
+                        }
+                    }
+
+                    detailSection(title: "Project Events", systemImage: "flag", count: workspaceEvents.count) {
+                        ForEach(workspaceEvents.prefix(6)) { event in
+                            CalendarEventDetailRow(event: event)
+                        }
+                    }
+
+                    detailSection(title: "System Schedule", systemImage: "calendar.badge.clock", count: systemItems.count) {
+                        ForEach(systemItems.prefix(6)) { item in
+                            CalendarSystemScheduleRow(item: item)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Label("Selected Date", systemImage: "calendar")
+                .font(.headline)
+        }
+    }
+
+    @ViewBuilder
+    private func detailSection<Content: View>(title: String, systemImage: String, count: Int, @ViewBuilder content: () -> Content) -> some View {
+        if count > 0 {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("\(title) · \(count)", systemImage: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                VStack(alignment: .leading, spacing: 6) {
+                    content()
+                }
+            }
+        }
+    }
+
+    private var todos: [TodoItem] {
+        appModel.selectedDateTodos.filter { todo in
+            guard let projectID else {
+                return true
+            }
+            return todo.projectIDs.contains(projectID)
+        }
+    }
+
+    private var workspaceEvents: [CalendarEvent] {
+        appModel.selectedDateWorkspaceEvents.filter { event in
+            guard let projectID else {
+                return true
+            }
+            return event.projectID == projectID
+        }
+    }
+
+    private var systemItems: [SystemScheduleItem] {
+        guard projectID == nil else {
+            return []
+        }
+        return appModel.selectedDateSystemScheduleItems
+    }
+
+    private var selectedDateTitle: String {
+        appModel.selectedDashboardDate.formatted(date: .complete, time: .omitted)
+    }
+
+    private var summaryText: String {
+        let count = todos.count + workspaceEvents.count + systemItems.count
+        return count == 1 ? "1 scheduled item" : "\(count) scheduled items"
+    }
+}
+
+private struct CalendarTodoDetailRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let todo: TodoItem
+
+    var body: some View {
+        Button {
+            appModel.toggleTodo(todo)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: todo.status == .done ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(todo.status == .done ? .green : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(todo.title)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text([todo.priority.label, projectText].filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(SciStationDesign.subtleSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.rowCornerRadius, style: .continuous))
+    }
+
+    private var projectText: String {
+        todo.projectIDs.map(appModel.projectName(for:)).joined(separator: ", ")
+    }
+}
+
+private struct CalendarEventDetailRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let event: CalendarEvent
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color(hex: event.colorHex ?? "#5E6AD2"))
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text([event.category, event.projectID.map(appModel.projectName(for:))].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(SciStationDesign.subtleSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.rowCornerRadius, style: .continuous))
+    }
+}
+
+private struct CalendarSystemScheduleRow: View {
+    let item: SystemScheduleItem
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: item.kind.systemImage)
+                .foregroundStyle(item.isCompleted ? Color.secondary : Color.accentColor)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(item.categoryName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(SciStationDesign.subtleSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.rowCornerRadius, style: .continuous))
     }
 }
 

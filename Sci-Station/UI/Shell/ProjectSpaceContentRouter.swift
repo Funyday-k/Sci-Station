@@ -132,7 +132,7 @@ private struct CalendarProjectView: View {
                         )
                         .frame(minWidth: 420)
 
-                        TodoDashboardWidget(scope: .currentProject)
+                        CalendarSelectedDateDetailView(projectID: project.id)
                             .frame(minWidth: 340)
                     }
 
@@ -145,7 +145,7 @@ private struct CalendarProjectView: View {
                             projectID: project.id
                         )
 
-                        TodoDashboardWidget(scope: .currentProject)
+                        CalendarSelectedDateDetailView(projectID: project.id)
                     }
                 }
             }

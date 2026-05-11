@@ -14,6 +14,16 @@ public nonisolated struct PDFAnnotationBounds: Codable, Hashable, Sendable {
         self.width = width
         self.height = height
     }
+
+    public nonisolated var fingerprintComponent: String {
+        [pageIndex, quantized(x), quantized(y), quantized(width), quantized(height)]
+            .map(String.init)
+            .joined(separator: ":")
+    }
+
+    private nonisolated func quantized(_ value: Double) -> Int {
+        Int((value * 2).rounded())
+    }
 }
 
 public nonisolated struct PDFAnnotationRecord: Identifiable, Codable, Hashable, Sendable {
@@ -31,6 +41,8 @@ public nonisolated struct PDFAnnotationRecord: Identifiable, Codable, Hashable, 
     public var selectedTextPreview: String
     public var noteText: String?
     public var colorHex: String
+    public var opacity: Double?
+    public var selectionFingerprint: String?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -43,6 +55,8 @@ public nonisolated struct PDFAnnotationRecord: Identifiable, Codable, Hashable, 
         selectedTextPreview: String,
         noteText: String? = nil,
         colorHex: String,
+        opacity: Double? = nil,
+        selectionFingerprint: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -54,8 +68,26 @@ public nonisolated struct PDFAnnotationRecord: Identifiable, Codable, Hashable, 
         self.selectedTextPreview = selectedTextPreview
         self.noteText = noteText
         self.colorHex = colorHex
+        self.opacity = opacity
+        self.selectionFingerprint = selectionFingerprint
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public nonisolated var duplicateFingerprint: String {
+        if let selectionFingerprint, !selectionFingerprint.isEmpty {
+            return selectionFingerprint
+        }
+
+        let textKey = selectedTextPreview
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let boundsKey = bounds
+            .map(\.fingerprintComponent)
+            .sorted()
+            .joined(separator: "|")
+        return [paperID, kind.rawValue, textKey, boundsKey]
+            .joined(separator: "|")
     }
 }
 

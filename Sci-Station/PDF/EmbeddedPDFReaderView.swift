@@ -15,7 +15,6 @@ struct EmbeddedPDFReaderView: View {
 
     @StateObject private var viewModel: PDFReaderViewModel
     @State private var isShowingSearch = false
-    @State private var activeSidebarPanel: PDFReaderSidebarPanel?
     @State private var isShowingNoteDialog = false
     @State private var noteDraft = ""
     @FocusState private var focusedField: PDFReaderFocusedField?
@@ -42,69 +41,57 @@ struct EmbeddedPDFReaderView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                readerToolbar
+        VStack(spacing: 0) {
+            readerToolbar
 
-                if isShowingSearch {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search PDF", text: $viewModel.searchQuery)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit(viewModel.submitSearch)
-                            .focused($focusedField, equals: .search)
-                        Button("Find", action: viewModel.findNext)
-                            .buttonStyle(.bordered)
-                        Button("Next", action: viewModel.findNext)
-                            .buttonStyle(.bordered)
-                        Button("Previous", action: viewModel.findPrevious)
-                            .buttonStyle(.bordered)
-                        Button {
-                            isShowingSearch = false
-                        } label: {
-                            Image(systemName: "xmark")
-                        }
-                        .help("Close search")
-                        .accessibilityLabel("Close PDF search")
+            if isShowingSearch {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search PDF", text: $viewModel.searchQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(viewModel.submitSearch)
+                        .focused($focusedField, equals: .search)
+                    Button("Find", action: viewModel.findNext)
+                        .buttonStyle(.bordered)
+                    Button("Next", action: viewModel.findNext)
+                        .buttonStyle(.bordered)
+                    Button("Previous", action: viewModel.findPrevious)
+                        .buttonStyle(.bordered)
+                    Button {
+                        isShowingSearch = false
+                    } label: {
+                        Image(systemName: "xmark")
                     }
-                    .controlSize(.small)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.secondary.opacity(0.06))
-
-                    if let searchStatusMessage = viewModel.searchStatusMessage {
-                        Text(searchStatusMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 8)
-                    }
+                    .help("Close search")
+                    .accessibilityLabel("Close PDF search")
                 }
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.secondary.opacity(0.06))
 
-                PDFKitViewRepresentable(
-                    pdfURL: pdfURL,
-                    paperID: paper.id,
-                    annotations: appModel.selectedPDFAnnotations,
-                    viewModel: viewModel,
-                    onReadingStateChanged: onReadingStateChanged,
-                    onSelectionChanged: appModel.updatePDFSelection(preview:pageIndex:),
-                    onCreateAnnotation: appModel.createPDFAnnotation,
-                    onDeleteAnnotation: appModel.deletePDFAnnotation(id:),
-                    onMoveNoteAnnotation: appModel.movePDFAnnotationNote(id:pageIndex:x:y:)
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let searchStatusMessage = viewModel.searchStatusMessage {
+                    Text(searchStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                }
             }
 
-            Divider()
-
-            if let activeSidebarPanel {
-                PDFReaderMetadataPanel(workspace: workspace, paper: paper, panel: activeSidebarPanel, viewModel: viewModel)
-                    .frame(width: 320)
-                Divider()
-            }
-
-            PDFReaderSideRail(activePanel: $activeSidebarPanel)
+            PDFKitViewRepresentable(
+                pdfURL: pdfURL,
+                paperID: paper.id,
+                annotations: appModel.selectedPDFAnnotations,
+                viewModel: viewModel,
+                onReadingStateChanged: onReadingStateChanged,
+                onSelectionChanged: appModel.updatePDFSelection(preview:pageIndex:),
+                onCreateAnnotation: appModel.createPDFAnnotation,
+                onDeleteAnnotation: appModel.deletePDFAnnotation(id:),
+                onMoveNoteAnnotation: appModel.movePDFAnnotationNote(id:pageIndex:x:y:)
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .id(pdfURL.path)
@@ -118,6 +105,11 @@ struct EmbeddedPDFReaderView: View {
         .onChange(of: appModel.pdfReaderFindPreviousRequest) { _, _ in
             showAndFocusSearch()
             viewModel.findPrevious()
+        }
+        .onChange(of: appModel.pdfReaderGoToPageRequest) { _, _ in
+            if let pageIndex = appModel.pdfReaderRequestedPageIndex {
+                viewModel.goToPage(pageIndex + 1)
+            }
         }
         .task(id: paper.id) {
             appModel.reloadSelectedPDFAnnotations()
@@ -252,12 +244,16 @@ struct EmbeddedPDFReaderView: View {
             .accessibilityLabel("Open PDF in default viewer")
 
             Button {
-                activeSidebarPanel = activeSidebarPanel == nil ? .metadata : nil
+                if appModel.effectiveRightRailMode == .inspector {
+                    appModel.hideRightRail(source: "pdf_toolbar")
+                } else {
+                    appModel.showContextInspector(source: "pdf_toolbar")
+                }
             } label: {
-                Image(systemName: activeSidebarPanel == nil ? "sidebar.right" : "sidebar.trailing")
+                Image(systemName: appModel.effectiveRightRailMode == .inspector ? "sidebar.trailing" : "sidebar.right")
             }
-            .help("Toggle metadata sidebar")
-            .accessibilityLabel("Toggle reader sidebar")
+            .help("Toggle PDF inspector")
+            .accessibilityLabel("Toggle PDF inspector")
         }
         .controlSize(.small)
         .padding(.horizontal, 10)
@@ -1020,6 +1016,8 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
         private var pendingSelectionPageIndex: Int?
         private var isSelectionPublishScheduled = false
         private var lastAutoAnnotationSignature: String?
+        private var pendingAutoAnnotationSignature: String?
+        private var pendingAutoAnnotationGeneration = 0
         let overlayContentsPrefix = "sci-station-pdf-mark:"
 
         init(
@@ -1173,7 +1171,7 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
 
             pendingSelectionPreview = preview
             pendingSelectionPageIndex = pageIndex
-            autoCreateAnnotationIfNeeded(on: pdfView)
+            scheduleAutoCreateAnnotationIfNeeded(on: pdfView)
             guard !isSelectionPublishScheduled else {
                 return
             }
@@ -1200,18 +1198,34 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
             publishSelection(from: pdfView)
         }
 
-        private func autoCreateAnnotationIfNeeded(on pdfView: PDFView) {
+        private func scheduleAutoCreateAnnotationIfNeeded(on pdfView: PDFView) {
             guard let kind = viewModel.activeTextAnnotationMode,
                   kind == .highlight || kind == .underline,
                   let signature = selectionSignature(on: pdfView),
-                  signature != lastAutoAnnotationSignature,
-                  let annotation = annotationRecord(kind: kind, noteText: nil, on: pdfView) else {
+                  signature != lastAutoAnnotationSignature else {
+                pendingAutoAnnotationSignature = nil
                 return
             }
 
-            lastAutoAnnotationSignature = signature
-            viewModel.searchStatusMessage = "Applied \(kind.rawValue)."
-            onCreateAnnotation(annotation)
+            pendingAutoAnnotationSignature = signature
+            pendingAutoAnnotationGeneration += 1
+            let generation = pendingAutoAnnotationGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { [weak self, weak pdfView] in
+                guard let self,
+                      let pdfView,
+                      self.pendingAutoAnnotationGeneration == generation,
+                      self.pendingAutoAnnotationSignature == signature,
+                      self.selectionSignature(on: pdfView) == signature,
+                      signature != self.lastAutoAnnotationSignature,
+                      let annotation = self.annotationRecord(kind: kind, noteText: nil, on: pdfView) else {
+                    return
+                }
+
+                self.lastAutoAnnotationSignature = signature
+                self.pendingAutoAnnotationSignature = nil
+                self.viewModel.searchStatusMessage = "Applied \(kind.rawValue)."
+                self.onCreateAnnotation(annotation)
+            }
         }
 
         private func selectionSignature(on pdfView: PDFView) -> String? {
@@ -1244,19 +1258,23 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
             let selectedText = pdfView.currentSelection?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             var bounds: [PDFAnnotationBounds] = []
             if let selection = pdfView.currentSelection, !selectedText.isEmpty {
-                for page in selection.pages {
-                    let pageIndex = document.index(for: page)
-                    let rect = selection.bounds(for: page)
-                    guard pageIndex >= 0, !rect.isNull, !rect.isEmpty else {
-                        continue
+                let lineSelections = selection.selectionsByLine()
+                let selections = lineSelections.isEmpty ? [selection] : lineSelections
+                var seenBounds = Set<String>()
+                for lineSelection in selections {
+                    for page in lineSelection.pages {
+                        let pageIndex = document.index(for: page)
+                        let rect = lineSelection.bounds(for: page).standardized
+                        guard pageIndex >= 0, !rect.isNull, !rect.isEmpty, rect.width > 1, rect.height > 1 else {
+                            continue
+                        }
+                        let bound = normalizedBound(pageIndex: pageIndex, rect: rect)
+                        guard !seenBounds.contains(bound.fingerprintComponent) else {
+                            continue
+                        }
+                        seenBounds.insert(bound.fingerprintComponent)
+                        bounds.append(bound)
                     }
-                    bounds.append(PDFAnnotationBounds(
-                        pageIndex: pageIndex,
-                        x: rect.origin.x,
-                        y: rect.origin.y,
-                        width: rect.width,
-                        height: rect.height
-                    ))
                 }
             }
 
@@ -1288,21 +1306,61 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
                 bounds: bounds,
                 selectedTextPreview: Self.limitedText(selectedText, maxCharacters: 800),
                 noteText: noteText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                colorHex: kind.defaultColorHex
+                colorHex: kind.defaultColorHex,
+                opacity: kind.defaultOpacity,
+                selectionFingerprint: selectionSignature(on: pdfView)
             )
         }
 
+        private func normalizedBound(pageIndex: Int, rect: CGRect) -> PDFAnnotationBounds {
+            PDFAnnotationBounds(
+                pageIndex: pageIndex,
+                x: normalizedCoordinate(rect.origin.x),
+                y: normalizedCoordinate(rect.origin.y),
+                width: normalizedCoordinate(rect.width),
+                height: normalizedCoordinate(rect.height)
+            )
+        }
+
+        private func normalizedCoordinate(_ value: CGFloat) -> Double {
+            (Double(value) * 10).rounded() / 10
+        }
+
         private func renderAnnotations(_ annotations: [PDFAnnotationRecord], on pdfView: PDFView) {
-            let signature = annotations.map { "\($0.id)|\($0.updatedAt.timeIntervalSince1970)" }
+            let signature = annotations.map { Self.renderSignature(for: $0) }.sorted()
             guard signature != renderedAnnotationSignature else {
                 return
             }
             renderedAnnotationSignature = signature
 
             removeRenderedAnnotations(from: pdfView)
+            var renderedFingerprints = Set<String>()
             for annotation in annotations {
+                if annotation.kind != .note {
+                    guard renderedFingerprints.insert(annotation.duplicateFingerprint).inserted else {
+                        continue
+                    }
+                }
                 addRenderedAnnotation(annotation, to: pdfView)
             }
+        }
+
+        private static func renderSignature(for annotation: PDFAnnotationRecord) -> String {
+            let opacityComponent = annotation.opacity.map { String($0) } ?? ""
+            let updatedAtComponent = String(annotation.updatedAt.timeIntervalSince1970)
+            let boundsComponent = annotation.bounds.map { $0.fingerprintComponent }.joined(separator: ",")
+            let noteComponent = annotation.noteText ?? ""
+            let components: [String] = [
+                annotation.id,
+                annotation.kind.rawValue,
+                annotation.colorHex,
+                opacityComponent,
+                updatedAtComponent,
+                boundsComponent,
+                noteComponent,
+                annotation.duplicateFingerprint
+            ]
+            return components.joined(separator: "|")
         }
 
         private func removeRenderedAnnotations(from pdfView: PDFView) {
@@ -1341,7 +1399,7 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
                     let noteRect = CGRect(x: rect.minX, y: rect.maxY - 24, width: 24, height: 24)
                     pdfAnnotation = PDFAnnotation(bounds: noteRect, forType: .text, withProperties: nil)
                 }
-                pdfAnnotation.color = NSColor(hexString: record.colorHex) ?? record.kind.defaultColor
+                pdfAnnotation.color = NSColor(hexString: record.colorHex, alpha: record.opacity ?? record.kind.defaultOpacity) ?? record.kind.defaultColor
                 pdfAnnotation.userName = overlayUserName(for: record)
                 pdfAnnotation.contents = record.noteText?.nilIfEmpty ?? record.selectedTextPreview.nilIfEmpty ?? "PDF note"
                 page.addAnnotation(pdfAnnotation)
@@ -1411,10 +1469,21 @@ private extension PDFAnnotationRecord.Kind {
             return NSColor.systemOrange.withAlphaComponent(0.9)
         }
     }
+
+    var defaultOpacity: Double {
+        switch self {
+        case .highlight:
+            return 0.35
+        case .underline:
+            return 0.85
+        case .note:
+            return 0.9
+        }
+    }
 }
 
 private extension NSColor {
-    convenience init?(hexString: String) {
+    convenience init?(hexString: String, alpha: Double = 0.85) {
         let hex = hexString.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
         guard hex.count == 6, let value = Int(hex, radix: 16) else {
             return nil
@@ -1422,7 +1491,7 @@ private extension NSColor {
         let red = CGFloat((value >> 16) & 0xff) / 255
         let green = CGFloat((value >> 8) & 0xff) / 255
         let blue = CGFloat(value & 0xff) / 255
-        self.init(calibratedRed: red, green: green, blue: blue, alpha: 0.85)
+        self.init(calibratedRed: red, green: green, blue: blue, alpha: min(max(CGFloat(alpha), 0), 1))
     }
 }
 

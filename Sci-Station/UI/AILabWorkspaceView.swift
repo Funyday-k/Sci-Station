@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AILabWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @AppStorage("sciStation.aiThreadSidebarWidth") private var threadSidebarWidth = 280.0
 
     let workspace: ResearchWorkspace
     @State private var isThreadSidebarCollapsed = false
@@ -17,7 +18,11 @@ struct AILabWorkspaceView: View {
 
             HStack(spacing: 0) {
                 AgentThreadSidebarView(workspace: workspace, isCollapsed: $isThreadSidebarCollapsed)
-                    .frame(width: isThreadSidebarCollapsed ? 46 : 250)
+                    .frame(width: isThreadSidebarCollapsed ? 46 : CGFloat(clampedThreadSidebarWidth))
+
+                if !isThreadSidebarCollapsed {
+                    AILabSidebarResizeHandle(width: $threadSidebarWidth, minWidth: 220, maxWidth: 460)
+                }
 
                 Divider()
 
@@ -26,10 +31,51 @@ struct AILabWorkspaceView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            threadSidebarWidth = clampedThreadSidebarWidth
+        }
         .sheet(isPresented: $appModel.isShowingAgentKnowledgeLibrary) {
             AIKnowledgeLibrarySheet()
                 .environmentObject(appModel)
         }
+    }
+
+    private var clampedThreadSidebarWidth: Double {
+        min(max(threadSidebarWidth, 220), 460)
+    }
+}
+
+private struct AILabSidebarResizeHandle: View {
+    @Binding var width: Double
+    let minWidth: Double
+    let maxWidth: Double
+    @State private var dragStartWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 6)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if dragStartWidth == nil {
+                            dragStartWidth = width
+                        }
+                        let proposed = (dragStartWidth ?? width) + value.translation.width
+                        width = min(max(proposed, minWidth), maxWidth)
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
     }
 }
 

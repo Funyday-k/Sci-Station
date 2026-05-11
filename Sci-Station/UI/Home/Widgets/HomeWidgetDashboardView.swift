@@ -691,7 +691,8 @@ private struct TodayWidgetContent: View {
                 count: snapshot.today.dueTodos.count,
                 caption: appModel.t(.routeTasks),
                 tint: .orange,
-                systemImage: "checklist"
+                systemImage: "checklist",
+                action: { appModel.selectGlobalTodos() }
             )
         case .medium:
             VStack(alignment: .leading, spacing: 10) {
@@ -748,10 +749,10 @@ private struct TodayWidgetContent: View {
 
     private func todayMetrics(maxCount: Int) -> [HomeWidgetMetric] {
         let all = [
-            HomeWidgetMetric(systemImage: "checklist", title: appModel.t(.routeTasks), count: snapshot.today.dueTodos.count, tint: .orange),
-            HomeWidgetMetric(systemImage: "books.vertical", title: appModel.t(.homeWidgetReadingPlan), count: snapshot.today.readingQueue.count, tint: .teal),
-            HomeWidgetMetric(systemImage: "calendar.badge.clock", title: appModel.t(.homeWidgetCalendar), count: snapshot.today.upcomingDeadlines.count, tint: .red),
-            HomeWidgetMetric(systemImage: "tray.and.arrow.down", title: appModel.t(.homeWidgetAIReview), count: snapshot.today.pendingDrafts.count, tint: .purple)
+            HomeWidgetMetric(systemImage: "checklist", title: appModel.t(.routeTasks), count: snapshot.today.dueTodos.count, tint: .orange, destination: .tasks),
+            HomeWidgetMetric(systemImage: "books.vertical", title: appModel.t(.homeWidgetReadingPlan), count: snapshot.today.readingQueue.count, tint: .teal, destination: .library),
+            HomeWidgetMetric(systemImage: "calendar.badge.clock", title: appModel.t(.homeWidgetCalendar), count: snapshot.today.upcomingDeadlines.count, tint: .red, destination: .calendar),
+            HomeWidgetMetric(systemImage: "tray.and.arrow.down", title: appModel.t(.homeWidgetAIReview), count: snapshot.today.pendingDrafts.count, tint: .purple, destination: .aiReview)
         ]
         return Array(all.prefix(maxCount))
     }
@@ -771,7 +772,8 @@ private struct ActiveProjectsWidgetContent: View {
                 count: projects.count,
                 caption: appModel.t(.routeProjects),
                 tint: .accentColor,
-                systemImage: "folder"
+                systemImage: "folder",
+                action: { appModel.selectSection(.projects) }
             )
         case .medium:
             projectsList(limit: 3)
@@ -841,7 +843,8 @@ private struct AIReviewWidgetContent: View {
                 count: aiReview.needsApproval.count,
                 caption: appModel.localized("待审核", "Approval"),
                 tint: .purple,
-                systemImage: "checkmark.seal"
+                systemImage: "checkmark.seal",
+                action: { appModel.selectSection(appModel.isWorkspaceSectionAvailable(.inbox) ? .inbox : .llmLab) }
             )
         case .medium:
             VStack(alignment: .leading, spacing: 10) {
@@ -868,9 +871,9 @@ private struct AIReviewWidgetContent: View {
 
     private var aiMetrics: [HomeWidgetMetric] {
         [
-            HomeWidgetMetric(systemImage: "checkmark.seal", title: appModel.localized("待审核", "Approval"), count: aiReview.needsApproval.count, tint: .green),
-            HomeWidgetMetric(systemImage: "quote.bubble", title: appModel.localized("无支持证据", "Claims"), count: aiReview.unsupportedClaims.count, tint: .purple),
-            HomeWidgetMetric(systemImage: "exclamationmark.triangle", title: appModel.localized("证据陈旧", "Evidence"), count: aiReview.staleEvidenceWarnings.count, tint: .orange)
+            HomeWidgetMetric(systemImage: "checkmark.seal", title: appModel.localized("待审核", "Approval"), count: aiReview.needsApproval.count, tint: .green, destination: .aiReview),
+            HomeWidgetMetric(systemImage: "quote.bubble", title: appModel.localized("无支持证据", "Claims"), count: aiReview.unsupportedClaims.count, tint: .purple, destination: .aiLab),
+            HomeWidgetMetric(systemImage: "exclamationmark.triangle", title: appModel.localized("证据陈旧", "Evidence"), count: aiReview.staleEvidenceWarnings.count, tint: .orange, destination: .aiLab)
         ]
     }
 }
@@ -1411,7 +1414,8 @@ private struct RecentPapersWidgetContent: View {
                 count: appModel.recentPapers.count,
                 caption: appModel.t(.homeWidgetRecentPapers),
                 tint: .indigo,
-                systemImage: "doc.richtext"
+                systemImage: "doc.richtext",
+                action: { appModel.selectSection(.library) }
             )
         case .medium:
             VStack(alignment: .leading, spacing: 6) {
@@ -1482,7 +1486,8 @@ private struct ReadingPlanWidgetContent: View {
                 count: papers.count,
                 caption: appModel.t(.homeWidgetReadingPlan),
                 tint: .teal,
-                systemImage: "books.vertical"
+                systemImage: "books.vertical",
+                action: { appModel.selectSection(.library) }
             )
         case .medium:
             list(limit: 3)
@@ -1542,7 +1547,8 @@ private struct ProjectHealthWidgetContent: View {
                 count: snapshot.activeProjects.count,
                 caption: appModel.t(.routeProjects),
                 tint: .green,
-                systemImage: "waveform.path.ecg"
+                systemImage: "waveform.path.ecg",
+                action: { appModel.selectSection(.projects) }
             )
         case .medium:
             VStack(alignment: .leading, spacing: 10) {
@@ -1571,10 +1577,10 @@ private struct ProjectHealthWidgetContent: View {
 
     private var allMetrics: [HomeWidgetMetric] {
         [
-            HomeWidgetMetric(systemImage: "folder", title: appModel.t(.routeProjects), count: snapshot.activeProjects.count, tint: .accentColor),
-            HomeWidgetMetric(systemImage: "doc.richtext", title: appModel.t(.routePapers), count: paperCount, tint: .indigo),
-            HomeWidgetMetric(systemImage: "checklist", title: appModel.t(.routeTasks), count: openTodoCount, tint: .orange),
-            HomeWidgetMetric(systemImage: "brain", title: appModel.t(.routeAILab), count: reviewCount, tint: .purple)
+            HomeWidgetMetric(systemImage: "folder", title: appModel.t(.routeProjects), count: snapshot.activeProjects.count, tint: .accentColor, destination: .projects),
+            HomeWidgetMetric(systemImage: "doc.richtext", title: appModel.t(.routePapers), count: paperCount, tint: .indigo, destination: .library),
+            HomeWidgetMetric(systemImage: "checklist", title: appModel.t(.routeTasks), count: openTodoCount, tint: .orange, destination: .tasks),
+            HomeWidgetMetric(systemImage: "brain", title: appModel.t(.routeAILab), count: reviewCount, tint: .purple, destination: .aiLab)
         ]
     }
 }
@@ -1681,8 +1687,21 @@ private struct HomeBigNumber: View {
     let caption: String
     let tint: Color
     let systemImage: String
+    var action: (() -> Void)? = nil
 
     var body: some View {
+        if let action {
+            Button(action: action) {
+                content
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(caption)")
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
             Spacer(minLength: 0)
             Text("\(count)")
@@ -1699,10 +1718,22 @@ private struct HomeBigNumber: View {
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
+}
+
+private enum HomeWidgetDestination: Hashable {
+    case projects
+    case library
+    case tasks
+    case calendar
+    case aiLab
+    case aiReview
 }
 
 private struct HomeWidgetMetric: Hashable {
@@ -1710,48 +1741,94 @@ private struct HomeWidgetMetric: Hashable {
     let title: String
     let count: Int
     let tint: Color
+    var destination: HomeWidgetDestination? = nil
 }
 
 private struct HomeWidgetMetricStrip: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let metrics: [HomeWidgetMetric]
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(metrics, id: \.title) { metric in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 5) {
-                        Image(systemName: metric.systemImage)
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(metric.tint.opacity(0.9))
-                            .frame(width: 16, height: 16)
-                            .background(
-                                metric.tint.opacity(0.10),
-                                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            )
-                        Text(metric.title)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Text("\(metric.count)")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .monospacedDigit()
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(
-                    Color.primary.opacity(0.025),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.primary.opacity(0.04), lineWidth: 0.5)
-                )
+                metricTile(metric)
             }
+        }
+    }
+
+    private func metricTile(_ metric: HomeWidgetMetric) -> some View {
+        Group {
+            if let destination = metric.destination {
+                Button {
+                    open(destination)
+                } label: {
+                    metricContent(metric)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open \(metric.title)")
+            } else {
+                metricContent(metric)
+            }
+        }
+    }
+
+    private func metricContent(_ metric: HomeWidgetMetric) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Image(systemName: metric.systemImage)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(metric.tint.opacity(0.9))
+                    .frame(width: 16, height: 16)
+                    .background(
+                        metric.tint.opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    )
+                Text(metric.title)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if metric.destination != nil {
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Text("\(metric.count)")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            SciStationDesign.subtleSurface,
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(SciStationDesign.hairline.opacity(0.45), lineWidth: 0.5)
+        )
+    }
+
+    private func open(_ destination: HomeWidgetDestination) {
+        switch destination {
+        case .projects:
+            appModel.selectSection(.projects)
+        case .library:
+            appModel.selectSection(.library)
+        case .tasks:
+            appModel.selectGlobalTodos()
+        case .calendar:
+            appModel.selectSection(.calendar)
+        case .aiLab:
+            appModel.selectSection(.llmLab)
+        case .aiReview:
+            appModel.selectSection(appModel.isWorkspaceSectionAvailable(.inbox) ? .inbox : .llmLab)
         }
     }
 }
@@ -1805,6 +1882,9 @@ private struct HomeWidgetTextRow: View {
                     }
                 }
                 Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 4)

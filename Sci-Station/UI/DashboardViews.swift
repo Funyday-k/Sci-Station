@@ -421,7 +421,7 @@ struct TodoDashboardWidget: View {
 
     private var todoComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
                 TextField("New Reminder", text: $newTodoTitle)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(addTodo)
@@ -432,16 +432,22 @@ struct TodoDashboardWidget: View {
                     Label("Add", systemImage: "plus.circle.fill")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(addTodoDisabledReason != nil)
+                .help(addTodoDisabledReason ?? "Create todo")
             }
 
-            HStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 Toggle("Date", isOn: $newTodoHasDueDate)
                     .toggleStyle(.checkbox)
 
-                DatePicker("Due Date", selection: $newTodoDueDate, displayedComponents: .date)
-                    .labelsHidden()
-                    .disabled(!newTodoHasDueDate)
+                HStack(spacing: 6) {
+                    Text("Due")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    DatePicker("Due Date", selection: $newTodoDueDate, displayedComponents: .date)
+                        .labelsHidden()
+                        .disabled(!newTodoHasDueDate)
+                }
 
                 Picker("Priority", selection: $newTodoPriority) {
                     ForEach(Priority.allCases, id: \.self) { priority in
@@ -449,7 +455,7 @@ struct TodoDashboardWidget: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 120)
+                .frame(minWidth: 150, alignment: .leading)
 
                 Menu {
                     ForEach(appModel.activeResearchProjects) { project in
@@ -470,14 +476,32 @@ struct TodoDashboardWidget: View {
                     Label(newTodoProjectMenuTitle, systemImage: "folder")
                 }
                 .help("Choose which project owns this todo")
+                .frame(minWidth: 150, alignment: .leading)
+            }
+            .controlSize(.small)
 
+            HStack(alignment: .center, spacing: 10) {
                 TextField("Notes", text: $newTodoNotes)
                     .textFieldStyle(.roundedBorder)
+
+                if let addTodoDisabledReason {
+                    Label(addTodoDisabledReason, systemImage: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .controlSize(.small)
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var addTodoDisabledReason: String? {
+        if newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Enter a reminder title before adding."
+        }
+        return nil
     }
 
     @ViewBuilder

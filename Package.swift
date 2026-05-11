@@ -41,6 +41,7 @@ let package = Package(
                 "UI/PaperMarkdownConversionBadge.swift",
                 "UI/ProjectOverviewView.swift",
                 "UI/ResearchProjectEditorView.swift",
+                "UI/SciStationDesignTokens.swift",
                 "UI/SettingsViews.swift",
                 "UI/Shell/ProjectSpaceContainer.swift",
                 "UI/Shell/ProjectSpaceContentRouter.swift",

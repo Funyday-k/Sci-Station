@@ -63,37 +63,51 @@ struct MaterialsView: View {
                 .accessibilityLabel("Reload materials")
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    openInVSCode(materialsRootURL)
-                } label: {
-                    Label("Project", systemImage: "chevron.left.forwardslash.chevron.right")
-                }
-                .buttonStyle(.bordered)
+            if !materials.isEmpty {
+                HStack(spacing: 10) {
+                    Button {
+                        openInVSCode(materialsRootURL)
+                    } label: {
+                        Label("Project", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                    .buttonStyle(.bordered)
 
-                Button {
-                    NSWorkspace.shared.open(materialsRootURL)
-                } label: {
-                    Label("Finder", systemImage: "folder")
+                    Button {
+                        NSWorkspace.shared.open(materialsRootURL)
+                    } label: {
+                        Label("Finder", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
 
             List(selection: $selectedMaterialID) {
                 if materials.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No materials yet.")
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("No materials yet.", systemImage: "shippingbox")
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(.secondary)
-                        Button("Reveal Folder") {
-                            NSWorkspace.shared.open(materialsRootURL)
-                        }
-                        Button("Open in VS Code") {
-                            openInVSCode(materialsRootURL)
-                        }
-                        Button("Refresh") {
-                            Task { await reloadMaterials() }
+                        Text("Add datasets, notes, scripts, or exports to the materials folder for this project.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                        HStack(spacing: 8) {
+                            Button {
+                                NSWorkspace.shared.open(materialsRootURL)
+                            } label: {
+                                Label("Open Folder", systemImage: "folder")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button {
+                                openInVSCode(materialsRootURL)
+                            } label: {
+                                Label("Open in VS Code", systemImage: "chevron.left.forwardslash.chevron.right")
+                            }
+                            .buttonStyle(.bordered)
                         }
                     }
+                    .padding(.vertical, 8)
                 } else {
                     ForEach(groupedMaterials, id: \.category) { group in
                         Section(group.category.capitalized) {

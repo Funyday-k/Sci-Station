@@ -1220,6 +1220,11 @@ struct PDFReaderWorkspaceView: View {
 struct PaperInspectorView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @FocusState private var isEditingMetadataField: Bool
+    @State private var isCitationExpanded = false
+    @State private var isAdvancedExpanded = false
+    @State private var isFilesExpanded = false
+    @State private var isPaperHealthExpanded = false
+    @State private var isOrganizationExpanded = false
 
     let workspace: ResearchWorkspace
 
@@ -1342,15 +1347,13 @@ struct PaperInspectorView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    GroupBox("Core") {
+                    GroupBox("Essential") {
                         VStack(alignment: .leading, spacing: 12) {
-                            metadataField("Citekey", text: citekeyBinding)
                             metadataField("Title", text: titleBinding)
-                            metadataField("Title Translation", text: optionalBinding(\.titleTranslation))
-                            metadataField("Short Title", text: optionalBinding(\.shortTitle))
                             metadataField("Authors", text: authorsBinding, prompt: Text("Comma-separated authors"))
                             metadataField("Year", text: yearBinding)
-                            metadataField("Venue", text: venueBinding)
+                            metadataField("DOI", text: optionalBinding(\.doi))
+                            metadataField("arXiv", text: optionalBinding(\.arxiv))
                             TagCompletionField(
                                 title: "Tags",
                                 text: tagsBinding,
@@ -1363,56 +1366,7 @@ struct PaperInspectorView: View {
                         .padding(.vertical, 4)
                     }
 
-                    GroupBox("Bibliography") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            metadataField("Item Type", text: optionalBinding(\.itemType))
-                            metadataField("Publication Title", text: optionalBinding(\.publicationTitle))
-                            metadataField("Publisher", text: optionalBinding(\.publisher))
-                            metadataField("Publication Place", text: optionalBinding(\.publicationPlace))
-                            metadataField("Published Date", text: optionalBinding(\.publishedDate))
-                            metadataField("Volume", text: optionalBinding(\.volume))
-                            metadataField("Issue", text: optionalBinding(\.issue))
-                            metadataField("Pages", text: optionalBinding(\.pages))
-                            metadataField("Series", text: optionalBinding(\.series))
-                            metadataField("Series Title", text: optionalBinding(\.seriesTitle))
-                            metadataField("Journal Abbreviation", text: optionalBinding(\.journalAbbreviation))
-                            metadataField("ISSN", text: optionalBinding(\.issn))
-                            metadataField("ISBN", text: optionalBinding(\.isbn))
-                            metadataField("Language", text: optionalBinding(\.language))
-                            metadataField("Library Catalog", text: optionalBinding(\.libraryCatalog))
-                            metadataField("Call Number", text: optionalBinding(\.callNumber))
-                        }
-                        .textFieldStyle(.roundedBorder)
-                        .padding(.vertical, 4)
-                    }
-
-                    GroupBox("Identifiers") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            metadataField("DOI", text: optionalBinding(\.doi))
-                            metadataField("arXiv", text: optionalBinding(\.arxiv))
-                            metadataField("INSPIRE", text: optionalBinding(\.inspireID))
-                            metadataField("PMID", text: optionalBinding(\.pmid))
-                            metadataField("PMCID", text: optionalBinding(\.pmcid))
-                            metadataField("URL", text: optionalBinding(\.url))
-                            metadataField("PDF URL", text: optionalBinding(\.pdfURL))
-                            metadataField("Archive", text: optionalBinding(\.archive))
-                            metadataField("Archive Location", text: optionalBinding(\.archiveLocation))
-                            metadataField("Accessed At", text: optionalBinding(\.accessedAt))
-                            metadataField("Categories", text: categoriesBinding, prompt: Text("Comma-separated categories"))
-                        }
-                        .textFieldStyle(.roundedBorder)
-                        .padding(.vertical, 4)
-                    }
-
-                    GroupBox("Abstract") {
-                        TextEditor(text: optionalBinding(\.abstract))
-                            .font(.body)
-                            .focused($isEditingMetadataField)
-                            .frame(minHeight: 90)
-                            .padding(4)
-                    }
-
-                    GroupBox("Status") {
+                    GroupBox("Reading") {
                         VStack(alignment: .leading, spacing: 12) {
                             Picker("Reading Status", selection: statusBinding) {
                                 ForEach(ReadingStatus.allCases, id: \.self) { status in
@@ -1431,7 +1385,61 @@ struct PaperInspectorView: View {
                         .padding(.vertical, 4)
                     }
 
-                    GroupBox("Files") {
+                    DisclosureGroup("Citation", isExpanded: $isCitationExpanded) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            metadataField("Citekey", text: citekeyBinding)
+                            metadataField("Item Type", text: optionalBinding(\.itemType))
+                            metadataField("Venue", text: venueBinding)
+                            metadataField("Publication Title", text: optionalBinding(\.publicationTitle))
+                            metadataField("Publisher", text: optionalBinding(\.publisher))
+                            metadataField("Published Date", text: optionalBinding(\.publishedDate))
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.top, 8)
+                    }
+                    .padding(10)
+                    .background(SciStationDesign.groupedSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.compactCornerRadius, style: .continuous))
+
+                    DisclosureGroup("Advanced Metadata", isExpanded: $isAdvancedExpanded) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            metadataField("Title Translation", text: optionalBinding(\.titleTranslation))
+                            metadataField("Short Title", text: optionalBinding(\.shortTitle))
+                            metadataField("Categories", text: categoriesBinding, prompt: Text("Comma-separated categories"))
+                            metadataField("Volume", text: optionalBinding(\.volume))
+                            metadataField("Issue", text: optionalBinding(\.issue))
+                            metadataField("Pages", text: optionalBinding(\.pages))
+                            metadataField("Series", text: optionalBinding(\.series))
+                            metadataField("Series Title", text: optionalBinding(\.seriesTitle))
+                            metadataField("Journal Abbreviation", text: optionalBinding(\.journalAbbreviation))
+                            metadataField("ISSN", text: optionalBinding(\.issn))
+                            metadataField("ISBN", text: optionalBinding(\.isbn))
+                            metadataField("Language", text: optionalBinding(\.language))
+                            metadataField("Library Catalog", text: optionalBinding(\.libraryCatalog))
+                            metadataField("Call Number", text: optionalBinding(\.callNumber))
+                            metadataField("INSPIRE", text: optionalBinding(\.inspireID))
+                            metadataField("PMID", text: optionalBinding(\.pmid))
+                            metadataField("PMCID", text: optionalBinding(\.pmcid))
+                            metadataField("URL", text: optionalBinding(\.url))
+                            metadataField("PDF URL", text: optionalBinding(\.pdfURL))
+                            metadataField("Archive", text: optionalBinding(\.archive))
+                            metadataField("Archive Location", text: optionalBinding(\.archiveLocation))
+                            metadataField("Accessed At", text: optionalBinding(\.accessedAt))
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.top, 8)
+                    }
+                    .padding(10)
+                    .background(SciStationDesign.groupedSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.compactCornerRadius, style: .continuous))
+
+                    GroupBox("Abstract") {
+                        TextEditor(text: optionalBinding(\.abstract))
+                            .font(.body)
+                            .focused($isEditingMetadataField)
+                            .frame(minHeight: 90)
+                            .padding(4)
+                    }
+
+                    DisclosureGroup("Files", isExpanded: $isFilesExpanded) {
                         VStack(alignment: .leading, spacing: 10) {
                             WorkspacePathRow(label: "Folder", value: paper.folderDisplay)
                             WorkspacePathRow(label: "Projects", value: appModel.projectNames(for: paper).isEmpty ? "-" : appModel.projectNames(for: paper).joined(separator: ", "))
@@ -1443,10 +1451,12 @@ struct PaperInspectorView: View {
                             WorkspacePathRow(label: "Summary Target", value: paper.notesSummaryRelativePath ?? "-")
                             WorkspacePathRow(label: "Workspace Root", value: workspace.rootURL.path)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.top, 8)
                     }
+                    .padding(10)
+                    .background(SciStationDesign.groupedSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.compactCornerRadius, style: .continuous))
 
-                    GroupBox("paper.md Health") {
+                    DisclosureGroup("paper.md Health", isExpanded: $isPaperHealthExpanded) {
                         VStack(alignment: .leading, spacing: 10) {
                             WorkspacePathRow(label: "Status", value: appModel.paperMarkdownQualitySummary)
                             if !appModel.paperMarkdownQualityIssueLines.isEmpty {
@@ -1488,10 +1498,12 @@ struct PaperInspectorView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.top, 8)
                     }
+                    .padding(10)
+                    .background(SciStationDesign.groupedSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.compactCornerRadius, style: .continuous))
 
-                    GroupBox("Organization") {
+                    DisclosureGroup("Organization", isExpanded: $isOrganizationExpanded) {
                         VStack(alignment: .leading, spacing: 12) {
                             PaperProjectRelationshipEditor(paper: paper)
 
@@ -1517,8 +1529,10 @@ struct PaperInspectorView: View {
                                 }
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.top, 8)
                     }
+                    .padding(10)
+                    .background(SciStationDesign.groupedSurface, in: RoundedRectangle(cornerRadius: SciStationDesign.compactCornerRadius, style: .continuous))
 
                     HStack {
                         Button("Revert Edits", action: appModel.discardSelectedPaperChanges)
@@ -1566,14 +1580,20 @@ struct PaperInspectorView: View {
 
     @ViewBuilder
     private func metadataField(_ title: String, text: Binding<String>, prompt: Text? = nil) -> some View {
-        if let prompt {
-            TextField(title, text: text, prompt: prompt)
-                .focused($isEditingMetadataField)
-                .onSubmit(saveMetadataAndClearFocus)
-        } else {
-            TextField(title, text: text)
-                .focused($isEditingMetadataField)
-                .onSubmit(saveMetadataAndClearFocus)
+        LabeledContent {
+            if let prompt {
+                TextField(title, text: text, prompt: prompt)
+                    .focused($isEditingMetadataField)
+                    .onSubmit(saveMetadataAndClearFocus)
+            } else {
+                TextField(title, text: text)
+                    .focused($isEditingMetadataField)
+                    .onSubmit(saveMetadataAndClearFocus)
+            }
+        } label: {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
         }
     }
 
