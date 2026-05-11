@@ -126,17 +126,24 @@ public nonisolated struct AgentVisibleResponseExtractor {
         guard let json = balancedJSONObject(in: trimmed),
               let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ""
+            return partialVisibleText(from: trimmed)
         }
 
-        for key in ["final_response_draft", "finalResponseDraft", "answer", "content", "summary"] {
+        for key in ["final_response_draft", "finalResponseDraft", "answer", "response", "message", "markdown", "content", "summary"] {
             if let value = object[key] as? String,
                !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return value
             }
         }
 
-        return ""
+        let fallback = object.values.compactMap { value -> String? in
+            guard let text = value as? String else {
+                return nil
+            }
+            return nonEmpty(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        }.first
+
+        return fallback ?? stripMarkdownFence(from: trimmed)
     }
 
     private nonisolated static func looksStructured(_ value: String) -> Bool {
@@ -145,6 +152,77 @@ public nonisolated struct AgentVisibleResponseExtractor {
             || value.hasPrefix("```JSON")
             || value.contains("\"tool_calls\"")
             || value.contains("\"final_response_draft\"")
+    }
+
+    private nonisolated static func partialVisibleText(from value: String) -> String {
+        for key in ["final_response_draft", "finalResponseDraft", "answer", "response", "message", "markdown", "content", "summary"] {
+            if let partial = partialJSONStringValue(for: key, in: value) {
+                return partial
+            }
+        }
+        return stripMarkdownFence(from: value)
+    }
+
+    private nonisolated static func partialJSONStringValue(for key: String, in value: String) -> String? {
+        let quotedKey = "\"\(key)\""
+        guard let keyRange = value.range(of: quotedKey),
+              let colonRange = value[keyRange.upperBound...].range(of: ":") else {
+            return nil
+        }
+        var index = colonRange.upperBound
+        while index < value.endIndex, value[index].isWhitespace || value[index].isNewline {
+            index = value.index(after: index)
+        }
+        guard index < value.endIndex, value[index] == "\"" else {
+            return nil
+        }
+        index = value.index(after: index)
+
+        var output = ""
+        var isEscaped = false
+        while index < value.endIndex {
+            let character = value[index]
+            if isEscaped {
+                output.append(unescaped(character))
+                isEscaped = false
+            } else if character == "\\" {
+                isEscaped = true
+            } else if character == "\"" {
+                break
+            } else {
+                output.append(character)
+            }
+            index = value.index(after: index)
+        }
+
+        return nonEmpty(output.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private nonisolated static func nonEmpty(_ value: String) -> String? {
+        value.isEmpty ? nil : value
+    }
+
+    private nonisolated static func unescaped(_ character: Character) -> Character {
+        switch character {
+        case "n": return "\n"
+        case "r": return "\r"
+        case "t": return "\t"
+        default: return character
+        }
+    }
+
+    private nonisolated static func stripMarkdownFence(from value: String) -> String {
+        var output = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        for marker in ["```json", "```JSON", "```"] {
+            if output.hasPrefix(marker) {
+                output = String(output.dropFirst(marker.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if output.hasSuffix("```") {
+            output = String(output.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return output
     }
 
     private nonisolated static func balancedJSONObject(in value: String) -> String? {

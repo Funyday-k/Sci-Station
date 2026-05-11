@@ -5,6 +5,7 @@ struct AILabWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    @State private var isThreadSidebarCollapsed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,8 +15,15 @@ struct AILabWorkspaceView: View {
 
             Divider()
 
-            AgentPanelView(workspace: workspace)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 0) {
+                AgentThreadSidebarView(workspace: workspace, isCollapsed: $isThreadSidebarCollapsed)
+                    .frame(width: isThreadSidebarCollapsed ? 46 : 250)
+
+                Divider()
+
+                AgentPanelView(workspace: workspace)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $appModel.isShowingAgentKnowledgeLibrary) {
@@ -44,14 +52,21 @@ private struct AILabCompactHeaderView: View {
 
             Spacer(minLength: 0)
 
-            Picker("模式", selection: $appModel.agentInteractionMode) {
-                ForEach(AgentInteractionMode.allCases) { mode in
-                    Text(mode.shortTitle).tag(mode)
+            Picker("模式", selection: visibleModeSelection) {
+                ForEach(AgentVisibleMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 220)
+            .frame(width: 150)
             .help(Text(verbatim: appModel.agentModeStatusText))
+
+            Text(appModel.agentVisibleMode.permissionBadgeText)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(appModel.agentVisibleMode == .agent ? Color.orange : Color.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.08), in: Capsule())
 
             Button {
                 appModel.showAgentKnowledgeLibrary()
@@ -110,6 +125,13 @@ private struct AILabCompactHeaderView: View {
             .padding(.vertical, 6)
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         }
+    }
+
+    private var visibleModeSelection: Binding<AgentVisibleMode> {
+        Binding(
+            get: { appModel.agentVisibleMode },
+            set: { appModel.setAgentVisibleMode($0) }
+        )
     }
 }
 
@@ -173,11 +195,11 @@ private struct AgentToolPickerPopover: View {
     private func toolRiskLabel(_ risk: AgentToolRisk) -> String {
         switch risk {
         case .readOnly:
-            return "read-only"
+            return "只读"
         case .writesWorkspace, .modifiesMetadata:
-            return "write"
+            return "写入"
         case .network, .externalSideEffect, .runsCode, .destructive, .credentialAccess:
-            return "risky"
+            return "需审批"
         }
     }
 }
@@ -483,7 +505,7 @@ private struct AgentComposerTextView: NSViewRepresentable {
     }
 }
 
-private struct AgentPanelView: View {
+struct AgentPanelView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
@@ -509,11 +531,13 @@ private struct AgentPanelView: View {
                         thread: appModel.activeAgentThread,
                         runs: appModel.agentConversationRuns,
                         currentRun: appModel.agentCurrentRun,
-                        events: appModel.agentTimelineItems,
+                        events: appModel.agentTimelineEvents,
+                        canLoadEarlierEvents: appModel.canLoadEarlierAgentTimelineEvents,
+                        loadEarlierAction: appModel.loadEarlierAgentTimelineEvents,
                         pendingPrompt: appModel.agentPendingUserPrompt,
                         streamingResponse: appModel.agentStreamingResponseText,
                         isThinking: appModel.isPlanningAgentRun,
-                        thinkingModeTitle: appModel.agentInteractionMode.title
+                        thinkingModeTitle: appModel.agentVisibleMode.title
                     )
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -541,7 +565,7 @@ private struct AgentPanelView: View {
 
     private var sessionHeader: some View {
         HStack(spacing: 12) {
-            Label("模式：\(appModel.agentInteractionMode.title)", systemImage: "switch.2")
+            Label("模式：\(appModel.agentVisibleMode.title)", systemImage: "switch.2")
                 .font(.caption.weight(.semibold))
 
             Picker("运行范围", selection: contextSelection) {
@@ -729,46 +753,55 @@ private struct AgentPanelView: View {
     private var composerDock: some View {
         VStack(spacing: 0) {
             AILabDockShell {
-                HStack(alignment: .bottom, spacing: 10) {
-                    ZStack(alignment: .topLeading) {
-                        AgentComposerTextView(
-                            text: $appModel.agentGoal,
-                            fontSize: appModel.workspacePreferences.agentChatFontSize,
-                            onSubmit: submitComposer
-                        )
-                            .frame(minHeight: 54, maxHeight: 92)
-                            .padding(4)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .bottom, spacing: 10) {
+                        ZStack(alignment: .topLeading) {
+                            AgentComposerTextView(
+                                text: $appModel.agentGoal,
+                                fontSize: appModel.workspacePreferences.agentChatFontSize,
+                                onSubmit: submitComposer
+                            )
+                                .frame(minHeight: 54, maxHeight: 92)
+                                .padding(4)
 
-                        if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
-                                .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 12)
-                                .allowsHitTesting(false)
+                            if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
+                                    .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 12)
+                                    .allowsHitTesting(false)
+                            }
                         }
-                    }
-                    .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.16))
+                        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.16))
+                        }
+
+                        Button {
+                            if appModel.isPlanningAgentRun {
+                                appModel.cancelAgentGeneration()
+                            } else {
+                                submitComposer()
+                            }
+                        } label: {
+                            Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
+                                .labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(appModel.isExecutingAgentTools || (!appModel.isPlanningAgentRun && appModel.agentToolAvailabilityWarning != nil))
+                        .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
+                        .accessibilityLabel(appModel.isPlanningAgentRun ? "停止输出" : "发送")
                     }
 
-                    Button {
-                        if appModel.isPlanningAgentRun {
-                            appModel.cancelAgentGeneration()
-                        } else {
-                            submitComposer()
-                        }
-                    } label: {
-                        Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
-                            .labelStyle(.iconOnly)
+                    if let warning = appModel.agentToolAvailabilityWarning {
+                        Label(warning, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .accessibilityLabel(warning)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(appModel.isExecutingAgentTools)
-                    .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
-                    .accessibilityLabel(appModel.isPlanningAgentRun ? "停止输出" : "发送")
                 }
             }
 
@@ -880,14 +913,28 @@ private struct AgentConversationTimelineView: View {
     let thread: AgentThread?
     let runs: [AgentRun]
     let currentRun: AgentRun?
-    let events: [AgentSessionTimelineItem]
+    let events: [AgentTimelineEvent]
+    let canLoadEarlierEvents: Bool
+    let loadEarlierAction: () -> Void
     let pendingPrompt: String?
     let streamingResponse: String?
     let isThinking: Bool
     let thinkingModeTitle: String
 
-    private var visibleEvents: [AgentSessionTimelineItem] {
-        events.filter { $0.kind != .hookResult }
+    private var visibleEvents: [AgentTimelineEvent] {
+        events.filter { $0.sourceKind != .hookResult }
+    }
+
+    private var visiblePendingPrompt: String? {
+        guard let pendingPrompt,
+              !pendingPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let pending = normalizedMessage(pendingPrompt)
+        let isAlreadyCommitted = visibleEvents.contains { event in
+            event.kind == .userMessage && normalizedMessage(event.summary) == pending
+        }
+        return isAlreadyCommitted ? nil : pendingPrompt
     }
 
     private var visibleRuns: [AgentRun] {
@@ -898,7 +945,7 @@ private struct AgentConversationTimelineView: View {
         return Array(runs.prefix(5))
     }
 
-    private var richMarkdownEventIDs: Set<AgentSessionTimelineItem.ID> {
+    private var richMarkdownEventIDs: Set<AgentTimelineEvent.ID> {
         Set(visibleEvents
             .filter { $0.kind == .assistantMessage }
             .suffix(Self.richMarkdownBubbleLimit)
@@ -918,7 +965,7 @@ private struct AgentConversationTimelineView: View {
                 Spacer(minLength: 0)
             }
 
-            if visibleEvents.isEmpty, visibleRuns.isEmpty, pendingPrompt == nil, !isThinking {
+            if visibleEvents.isEmpty, visibleRuns.isEmpty, visiblePendingPrompt == nil, !isThinking {
                 ContentUnavailableView(
                     "还没有消息",
                     systemImage: "bubble.left.and.text.bubble.right",
@@ -926,10 +973,22 @@ private struct AgentConversationTimelineView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 260)
             } else if !visibleEvents.isEmpty {
+                if canLoadEarlierEvents {
+                    Button {
+                        loadEarlierAction()
+                    } label: {
+                        Label("加载更早事件", systemImage: "clock.arrow.circlepath")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+
                 ForEach(visibleEvents) { item in
-                    AgentSessionEventRowView(
+                    AgentTimelineEventRowView(
                         item: item,
                         usesRichMarkdown: richMarkdownEventIDs.contains(item.id),
+                        animatesAssistantText: shouldAnimateAssistantText(item),
                         retryAction: retryAction(for: item),
                         copyDiagnosticAction: providerFailureAction(for: item),
                         evidencePreview: toolEvidencePreview(for: item),
@@ -943,7 +1002,7 @@ private struct AgentConversationTimelineView: View {
                 }
             }
 
-            if let pendingPrompt {
+            if let pendingPrompt = visiblePendingPrompt {
                 AgentTurnBubbleView(
                     title: "你",
                     iconName: "person.crop.circle",
@@ -966,7 +1025,8 @@ private struct AgentConversationTimelineView: View {
                     payloadPreview: nil,
                     isUser: false,
                     usesRichMarkdown: true,
-                    isError: false
+                    isError: false,
+                    animatesText: true
                 )
             } else if isThinking {
                 AgentThinkingBubbleView(thinkingModeTitle: thinkingModeTitle)
@@ -974,26 +1034,39 @@ private struct AgentConversationTimelineView: View {
         }
     }
 
-    private func retryAction(for item: AgentSessionTimelineItem) -> (() -> Void)? {
-        guard item.kind == .toolCallFailed || item.kind == .runCancelled,
-              let run = runs.first(where: { $0.id == item.sessionID }) ?? (currentRun?.id == item.sessionID ? currentRun : nil),
+    private func normalizedMessage(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+    }
+
+    private func retryAction(for item: AgentTimelineEvent) -> (() -> Void)? {
+        guard item.status == .failed || item.status == .cancelled,
+              let run = runs.first(where: { $0.id == item.runID }) ?? (currentRun?.id == item.runID ? currentRun : nil),
               run.isRetryable else {
             return nil
         }
         return { appModel.retryAgentRun(run) }
     }
 
-    private func providerFailureAction(for item: AgentSessionTimelineItem) -> (() -> Void)? {
-        guard item.kind == .toolCallFailed || item.kind == .runCancelled || item.detail.contains("复制脱敏诊断") else {
+    private func shouldAnimateAssistantText(_ item: AgentTimelineEvent) -> Bool {
+        guard item.kind == .assistantMessage,
+              item.runID == currentRun?.id else {
+            return false
+        }
+        return Date().timeIntervalSince(item.timestamp) < 120
+    }
+
+    private func providerFailureAction(for item: AgentTimelineEvent) -> (() -> Void)? {
+        guard item.status == .failed || item.status == .cancelled || item.summary.contains("复制脱敏诊断") else {
             return nil
         }
         return { appModel.copyAgentRetrievalDiagnostic() }
     }
 
-    private func toolEvidencePreview(for item: AgentSessionTimelineItem) -> String? {
-        guard let run = runs.first(where: { $0.id == item.sessionID }) ?? (currentRun?.id == item.sessionID ? currentRun : nil),
+    private func toolEvidencePreview(for item: AgentTimelineEvent) -> String? {
+        guard let run = runs.first(where: { $0.id == item.runID }) ?? (currentRun?.id == item.runID ? currentRun : nil),
               !run.toolResults.isEmpty,
-              item.kind == .toolCallFailed || item.kind == .runCancelled || item.detail.contains("工具") || item.detail.contains("tool") else {
+              item.kind == .toolCall || item.kind == .error || item.summary.contains("工具") || item.summary.contains("tool") else {
             return nil
         }
 
@@ -1013,14 +1086,14 @@ private struct AgentConversationTimelineView: View {
         .joined(separator: "\n")
     }
 
-    private func targetPath(for item: AgentSessionTimelineItem) -> String? {
-        guard item.kind == .toolCallCompleted || item.kind == .permissionResolved else {
+    private func targetPath(for item: AgentTimelineEvent) -> String? {
+        guard item.kind == .toolCall || item.kind == .permissionRequest || item.kind == .artifactDraft else {
             return nil
         }
-        if let path = targetPath(in: item.payloadPreview) {
+        if let path = item.targetPaths.first ?? targetPath(in: item.payloadPreview) {
             return path
         }
-        guard let run = runs.first(where: { $0.id == item.sessionID }) ?? (currentRun?.id == item.sessionID ? currentRun : nil) else {
+        guard let run = runs.first(where: { $0.id == item.runID }) ?? (currentRun?.id == item.runID ? currentRun : nil) else {
             return nil
         }
         return run.toolResults
@@ -1033,7 +1106,7 @@ private struct AgentConversationTimelineView: View {
             .first
     }
 
-    private func openTargetAction(for item: AgentSessionTimelineItem) -> (() -> Void)? {
+    private func openTargetAction(for item: AgentTimelineEvent) -> (() -> Void)? {
         guard let path = targetPath(for: item) else {
             return nil
         }
@@ -1083,9 +1156,10 @@ private struct AgentThinkingBubbleView: View {
     }
 }
 
-private struct AgentSessionEventRowView: View {
-    let item: AgentSessionTimelineItem
+private struct AgentTimelineEventRowView: View {
+    let item: AgentTimelineEvent
     let usesRichMarkdown: Bool
+    let animatesAssistantText: Bool
     let retryAction: (() -> Void)?
     let copyDiagnosticAction: (() -> Void)?
     let evidencePreview: String?
@@ -1102,8 +1176,8 @@ private struct AgentSessionEventRowView: View {
                 AgentTurnBubbleView(
                     title: item.title,
                     iconName: iconName,
-                    detail: item.detail,
-                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    detail: item.summary,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened),
                     payloadPreview: item.payloadPreview,
                     isUser: true,
                     usesRichMarkdown: false,
@@ -1113,36 +1187,50 @@ private struct AgentSessionEventRowView: View {
                 AgentTurnBubbleView(
                     title: item.title,
                     iconName: iconName,
-                    detail: item.detail,
-                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    detail: item.summary,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened),
                     payloadPreview: item.payloadPreview,
                     isUser: false,
                     usesRichMarkdown: usesRichMarkdown,
-                    isError: false
+                    isError: false,
+                    animatesText: animatesAssistantText
                 )
-            case .reasoningSummary:
+            case .reasoningGroup:
+                AgentReasoningGroupRow(
+                    item: item,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened)
+                )
+            case .toolCall:
+                AgentToolCallCompactRow(
+                    item: item,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened)
+                )
+            case .permissionRequest:
+                AgentInlinePermissionEventCard(
+                    item: item,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened)
+                )
+            case .artifactDraft:
+                AgentDraftReviewEventCard(
+                    item: item,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened),
+                    openTargetAction: openTargetAction,
+                    targetPath: targetPath
+                )
+            case .error, .systemNotice:
                 AgentRuntimeEventRow(
                     title: item.title,
                     iconName: iconName,
                     iconColor: iconColor,
-                    detail: item.detail,
-                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
+                    detail: item.summary,
+                    metadata: item.timestamp.formatted(date: .abbreviated, time: .shortened),
                     payloadPreview: item.payloadPreview,
-                    isError: false
-                )
-            default:
-                AgentRuntimeEventRow(
-                    title: item.title,
-                    iconName: iconName,
-                    iconColor: iconColor,
-                    detail: item.detail,
-                    metadata: item.createdAt.formatted(date: .abbreviated, time: .shortened),
-                    payloadPreview: item.payloadPreview,
-                    isError: item.kind == .toolCallFailed
+                    isError: item.kind == .error
                 )
             }
 
-            if retryAction != nil || copyDiagnosticAction != nil || evidencePreview != nil || openTargetAction != nil {
+                if item.kind != .toolCall,
+                    retryAction != nil || copyDiagnosticAction != nil || evidencePreview != nil || openTargetAction != nil {
                 HStack(spacing: 8) {
                     if let retryAction {
                         Button {
@@ -1198,44 +1286,316 @@ private struct AgentSessionEventRowView: View {
             return "person.crop.circle"
         case .assistantMessage:
             return "sparkles"
-        case .reasoningSummary:
+        case .reasoningGroup:
             return "brain.head.profile"
-        case .runCancelled:
-            return "stop.circle"
-        case .permissionRequested:
+        case .permissionRequest:
             return "questionmark.shield"
-        case .permissionResolved:
-            return "checkmark.shield"
-        case .toolCallStarted:
-            return "play.circle"
-        case .toolCallCompleted:
-            return "checkmark.circle"
-        case .toolCallFailed:
+        case .artifactDraft:
+            return "doc.badge.gearshape"
+        case .toolCall:
+            return item.status == .failed ? "exclamationmark.triangle" : "terminal"
+        case .error:
             return "exclamationmark.triangle"
-        case .hookResult:
+        case .systemNotice:
             return "link"
-        case .compactionSummary:
-            return "text.badge.checkmark"
         }
     }
 
     private var iconColor: Color {
         switch item.kind {
-        case .toolCallFailed:
+        case .toolCall where item.status == .failed:
             return .red
-        case .permissionRequested:
+        case .error:
+            return .red
+        case .permissionRequest:
             return .orange
-        case .permissionResolved, .toolCallCompleted:
+        case .toolCall where item.status == .succeeded:
             return .green
-        case .hookResult:
+        case .systemNotice:
             return .purple
-        case .reasoningSummary:
+        case .reasoningGroup:
             return .blue
-        case .runCancelled:
+        case .toolCall where item.status == .cancelled:
             return .orange
         default:
             return .secondary
         }
+    }
+}
+
+private struct AgentReasoningGroupRow: View {
+    let item: AgentTimelineEvent
+    let metadata: String
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            Text(item.summary.isEmpty ? "本轮没有可展示的思考摘要。" : item.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+
+            if let payloadPreview = item.payloadPreview {
+                Text(payloadPreview)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "brain.head.profile")
+                    .foregroundStyle(.blue)
+                    .frame(width: 18)
+                Text("思考过程")
+                    .font(.subheadline.weight(.semibold))
+                Text("\(max(item.stepCount, 1)) step")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if item.toolCount > 0 {
+                    Text("\(item.toolCount) tool")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Text(metadata)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(9)
+        .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct AgentToolCallCompactRow: View {
+    let item: AgentTimelineEvent
+    let metadata: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconName)
+                .font(.caption2)
+                .foregroundStyle(iconColor)
+                .frame(width: 13)
+            Text(statusText)
+                .font(.caption2.weight(.semibold).monospaced())
+                .foregroundStyle(iconColor)
+            Text(actionText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if let target = item.targetPaths.first {
+                Text(target)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+            Text(metadata)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(statusText) \(actionText)")
+    }
+
+    private var actionText: String {
+        let name = item.toolName ?? item.title
+        switch item.status {
+        case .running:
+            return "正在使用工具 \(name)"
+        case .succeeded:
+            return "已完成工具 \(name)"
+        case .failed:
+            return "工具 \(name) 失败"
+        case .cancelled:
+            return "已停止工具 \(name)"
+        default:
+            return name
+        }
+    }
+
+    private var statusText: String {
+        switch item.status {
+        case .running:
+            return "调用中"
+        case .succeeded:
+            return "完成"
+        case .failed:
+            return "失败"
+        case .cancelled:
+            return "停止"
+        default:
+            return item.status.rawValue
+        }
+    }
+
+    private var iconName: String {
+        switch item.status {
+        case .running:
+            return "arrow.triangle.2.circlepath"
+        case .succeeded:
+            return "checkmark.circle"
+        case .failed:
+            return "exclamationmark.triangle"
+        default:
+            return "terminal"
+        }
+    }
+
+    private var iconColor: Color {
+        switch item.status {
+        case .failed:
+            return .red
+        case .succeeded:
+            return .green
+        case .running:
+            return .blue
+        default:
+            return .secondary
+        }
+    }
+}
+
+private struct AgentInlinePermissionEventCard: View {
+    let item: AgentTimelineEvent
+    let metadata: String
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "questionmark.shield")
+                    .foregroundStyle(.orange)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(item.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Text(metadata)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Label("Allow", systemImage: "checkmark.shield")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+                Label("Deny", systemImage: "xmark.shield")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.red)
+                Spacer(minLength: 0)
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Label(isExpanded ? "Hide Details" : "Details", systemImage: "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+
+            if isExpanded, let payloadPreview = item.payloadPreview {
+                Text(payloadPreview)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.orange.opacity(0.18))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Permission review: \(item.summary)")
+    }
+}
+
+private struct AgentDraftReviewEventCard: View {
+    let item: AgentTimelineEvent
+    let metadata: String
+    let openTargetAction: (() -> Void)?
+    let targetPath: String?
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.badge.gearshape")
+                    .foregroundStyle(.blue)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Wiki Draft Review")
+                        .font(.subheadline.weight(.semibold))
+                    Text(item.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Text(metadata)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let targetPath {
+                Label(targetPath, systemImage: "folder")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    openTargetAction?()
+                } label: {
+                    Label("Open Draft Location", systemImage: "arrow.up.forward.app")
+                }
+                .disabled(openTargetAction == nil)
+
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Label(isExpanded ? "Hide Preview" : "Preview", systemImage: "doc.text.magnifyingglass")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            if isExpanded, let payloadPreview = item.payloadPreview {
+                Text(payloadPreview)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(16)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+        .padding(10)
+        .background(Color.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -1248,6 +1608,7 @@ private struct AgentTurnBubbleView: View {
     let isUser: Bool
     let usesRichMarkdown: Bool
     let isError: Bool
+    var animatesText = false
 
     @State private var copyState: CopyState?
 
@@ -1292,7 +1653,11 @@ private struct AgentTurnBubbleView: View {
                 }
 
                 VStack(alignment: alignment, spacing: 6) {
-                    AgentMarkdownBubbleText(markdown: detail, isError: isError, usesRichMarkdown: usesRichMarkdown)
+                    if animatesText && !isUser && !isError {
+                        AgentAnimatedMarkdownBubbleText(markdown: detail, usesRichMarkdown: usesRichMarkdown)
+                    } else {
+                        AgentMarkdownBubbleText(markdown: detail, isError: isError, usesRichMarkdown: usesRichMarkdown)
+                    }
 
                     if let payloadPreview {
                         Text(payloadPreview)
@@ -1379,6 +1744,77 @@ private struct AgentTurnBubbleView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             copyState = nil
         }
+    }
+}
+
+private struct AgentAnimatedMarkdownBubbleText: View {
+    let markdown: String
+    let usesRichMarkdown: Bool
+
+    @State private var displayedMarkdown = ""
+    @State private var isAnimating = false
+    @State private var animationTask: Task<Void, Never>?
+
+    var body: some View {
+        AgentMarkdownBubbleText(markdown: displayedMarkdown, isError: false, usesRichMarkdown: usesRichMarkdown && !isAnimating)
+            .onAppear {
+                animate(to: markdown)
+            }
+            .onChange(of: markdown) { _, newValue in
+                animate(to: newValue)
+            }
+            .onDisappear {
+                animationTask?.cancel()
+                animationTask = nil
+            }
+    }
+
+    private func animate(to target: String) {
+        animationTask?.cancel()
+        guard !target.isEmpty else {
+            displayedMarkdown = ""
+            isAnimating = false
+            return
+        }
+        guard target.hasPrefix(displayedMarkdown) else {
+            displayedMarkdown = target
+            isAnimating = false
+            return
+        }
+        guard displayedMarkdown.count < target.count else {
+            displayedMarkdown = target
+            isAnimating = false
+            return
+        }
+
+        let startingCount = displayedMarkdown.count
+        isAnimating = true
+        animationTask = Task { @MainActor in
+            var current = displayedMarkdown
+            var index = target.index(target.startIndex, offsetBy: startingCount)
+            while index < target.endIndex, !Task.isCancelled {
+                let remaining = target.distance(from: index, to: target.endIndex)
+                let chunkSize = Self.chunkSize(for: target.count, remaining: remaining)
+                let nextIndex = target.index(index, offsetBy: chunkSize, limitedBy: target.endIndex) ?? target.endIndex
+                current.append(contentsOf: target[index..<nextIndex])
+                withAnimation(.linear(duration: 0.045)) {
+                    displayedMarkdown = current
+                }
+                index = nextIndex
+                try? await Task.sleep(nanoseconds: 14_000_000)
+            }
+            if !Task.isCancelled {
+                displayedMarkdown = target
+                isAnimating = false
+            }
+        }
+    }
+
+    private nonisolated static func chunkSize(for totalCount: Int, remaining: Int) -> Int {
+        if totalCount > 8_000 { return min(80, max(16, remaining / 40)) }
+        if totalCount > 3_000 { return min(48, max(10, remaining / 50)) }
+        if totalCount > 1_200 { return min(28, max(6, remaining / 60)) }
+        return min(12, max(2, remaining / 70))
     }
 }
 
@@ -1854,7 +2290,7 @@ private struct AgentPermissionDockView: View {
             AILabDockShell {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
-                        Label("Permission Dock", systemImage: "questionmark.shield")
+                        Label("Permission Review", systemImage: "questionmark.shield")
                             .font(.headline)
                         Text("\(items.count) tool calls")
                             .font(.caption)
@@ -1896,93 +2332,142 @@ private struct AgentPermissionDockRow: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let item: AgentPermissionDockItem
+    @State private var isDetailsExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .top, spacing: 10) {
                 permissionStateLabel
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(item.displayName)
-                        .font(.headline)
+                        .font(.subheadline.weight(.semibold))
                     Text(item.summary)
-                        .foregroundStyle(.secondary)
-                    Text("\(item.permissionKey) / \(item.risk.rawValue)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(item.matchedPolicyDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let moduleScopeDescription = item.moduleScopeDescription {
-                        Text("Module scope: \(moduleScopeDescription)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(item.argumentsPreview)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
 
                 Spacer(minLength: 0)
-            }
-
-            if !item.pathPreview.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Path Preview")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    ForEach(item.pathPreview, id: \.self) { path in
-                        Text(path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(.leading, 22)
-            }
-
-            if let diffPreview = item.diffPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !diffPreview.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Draft Preview")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    Text(diffPreview)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(14)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.leading, 22)
             }
 
             HStack(spacing: 8) {
                 Button {
                     appModel.setAgentToolApproval(callID: item.id, isApproved: true)
                 } label: {
-                    Label("批准并写入", systemImage: "checkmark.shield")
+                    Label("Allow", systemImage: "checkmark.shield")
                 }
                 .controlSize(.small)
-                .disabled(item.approvalState == .completed || item.approvalState == .deniedByPolicy)
-
-                Button {
-                    appModel.saveAgentToolCallDraft(callID: item.id)
-                } label: {
-                    Label("仅保存草稿", systemImage: "doc.badge.plus")
-                }
-                .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
                 .disabled(item.approvalState == .completed || item.approvalState == .deniedByPolicy)
 
                 Button(role: .destructive) {
                     appModel.setAgentToolDenied(callID: item.id, isDenied: true)
                 } label: {
-                    Label("拒绝", systemImage: "xmark.octagon")
+                    Label("Deny", systemImage: "xmark.octagon")
                 }
                 .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
                 .disabled(item.approvalState == .completed)
 
+                Button {
+                    isDetailsExpanded.toggle()
+                } label: {
+                    Label(isDetailsExpanded ? "Hide Details" : "Details", systemImage: "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+
                 Spacer(minLength: 0)
+            }
+
+            if isDetailsExpanded {
+                permissionDetails
+            }
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.065), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.12))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Permission review for \(item.displayName)")
+    }
+
+    @ViewBuilder
+    private var permissionDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(item.permissionKey) / \(item.risk.rawValue)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(item.matchedPolicyDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let moduleScopeDescription = item.moduleScopeDescription {
+                Text("Module scope: \(moduleScopeDescription)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !item.pathPreview.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Target Path")
+                        .font(.caption.weight(.semibold))
+                    ForEach(item.pathPreview, id: \.self) { path in
+                        Text(path)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Text(item.argumentsPreview)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let diffPreview = item.diffPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !diffPreview.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Wiki Draft Review")
+                        .font(.caption.weight(.semibold))
+                    Text(diffPreview)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(14)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            appModel.saveAgentToolCallDraft(callID: item.id)
+                        } label: {
+                            Label("Save Draft Copy", systemImage: "doc.badge.plus")
+                        }
+                        .disabled(item.approvalState == .completed || item.approvalState == .deniedByPolicy)
+
+                        Button {
+                            if let path = item.pathPreview.first {
+                                appModel.openWorkspaceRelativePath(path)
+                            }
+                        } label: {
+                            Label("Open Draft Location", systemImage: "arrow.up.forward.app")
+                        }
+                        .disabled(item.pathPreview.isEmpty)
+
+                        Button {
+                            appModel.requestAgentToolRewrite(callID: item.id)
+                        } label: {
+                            Label("Ask AI to Rewrite", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
             }
 
             TextField(
@@ -1994,8 +2479,7 @@ private struct AgentPermissionDockRow: View {
             )
             .textFieldStyle(.roundedBorder)
         }
-        .padding(10)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.leading, 28)
     }
 
     private var permissionStateLabel: some View {

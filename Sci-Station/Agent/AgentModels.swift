@@ -983,6 +983,7 @@ public nonisolated enum AgentSessionEventKind: String, Codable, Sendable {
     case userMessage = "user_message"
     case assistantMessage = "assistant_message"
     case reasoningSummary = "reasoning_summary"
+    case artifactDraft = "artifact_draft"
     case runCancelled = "run_cancelled"
     case toolCallStarted = "tool_call_started"
     case toolCallCompleted = "tool_call_completed"
@@ -1470,6 +1471,78 @@ public nonisolated enum AgentLoopPolicy: String, Sendable {
     case readOnlyAutoApproveWritesRequireApproval
 }
 
+public nonisolated enum AgentVisibleMode: String, CaseIterable, Identifiable, Codable, Sendable {
+    case plan
+    case agent
+
+    public nonisolated var id: String { rawValue }
+
+    public nonisolated init(interactionMode: AgentInteractionMode) {
+        switch interactionMode {
+        case .conversation, .plan:
+            self = .plan
+        case .assistant:
+            self = .agent
+        }
+    }
+
+    public nonisolated var defaultInteractionMode: AgentInteractionMode {
+        switch self {
+        case .plan:
+            return .conversation
+        case .agent:
+            return .assistant
+        }
+    }
+
+    public nonisolated var title: String {
+        switch self {
+        case .plan:
+            return "Plan"
+        case .agent:
+            return "Agent"
+        }
+    }
+
+    public nonisolated var permissionSummary: String {
+        switch self {
+        case .plan:
+            return "只读工具可自动运行；Markdown / Wiki 写入会先生成可审核草稿。"
+        case .agent:
+            return "可请求更改工作区；写入、执行和外部副作用仍需批准。"
+        }
+    }
+
+    public nonisolated var permissionBadgeText: String {
+        switch self {
+        case .plan:
+            return "Read-only + drafts"
+        case .agent:
+            return "Changes need approval"
+        }
+    }
+
+    public nonisolated func hasRequiredTools(
+        availableTools: [AgentToolDefinition],
+        enabledToolNames: Set<String>
+    ) -> Bool {
+        guard !availableTools.isEmpty else {
+            return true
+        }
+
+        switch self {
+        case .plan:
+            return availableTools.contains { tool in
+                tool.risk == .readOnly && enabledToolNames.contains(tool.name)
+            }
+        case .agent:
+            return availableTools.contains { tool in
+                enabledToolNames.contains(tool.name)
+            }
+        }
+    }
+}
+
 public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable, Sendable {
     case conversation
     case plan
@@ -1538,6 +1611,19 @@ public nonisolated enum AgentInteractionMode: String, CaseIterable, Identifiable
 
     public nonisolated var allowsPlainTextResponse: Bool {
         self == .conversation
+    }
+
+    public nonisolated var usesToolLoopRuntime: Bool {
+        switch self {
+        case .conversation, .assistant:
+            return true
+        case .plan:
+            return false
+        }
+    }
+
+    public nonisolated var visibleMode: AgentVisibleMode {
+        AgentVisibleMode(interactionMode: self)
     }
 }
 

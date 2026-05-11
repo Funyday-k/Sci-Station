@@ -55,6 +55,7 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
     public var updatedAt: Date
     public var lastReadAt: Date?
     public var lastReadPage: Int?
+    public var lastReadScale: Double?
     public var paperDirectoryRelativePath: String
     public var notesSummaryRelativePath: String?
     public var annotationsRelativePath: String?
@@ -79,7 +80,7 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         pdfRelativePath: String?, tags: [String], status: ReadingStatus,
         priority: Priority, rating: Int?, useFor: [String],
         createdAt: Date, updatedAt: Date, lastReadAt: Date? = nil,
-        lastReadPage: Int? = nil,
+        lastReadPage: Int? = nil, lastReadScale: Double? = nil,
         paperDirectoryRelativePath: String,
         notesSummaryRelativePath: String?, annotationsRelativePath: String?
     ) {
@@ -104,6 +105,7 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         self.useFor = useFor; self.createdAt = createdAt; self.updatedAt = updatedAt
         self.lastReadAt = lastReadAt
         self.lastReadPage = lastReadPage
+        self.lastReadScale = lastReadScale
         self.paperDirectoryRelativePath = paperDirectoryRelativePath
         self.notesSummaryRelativePath = notesSummaryRelativePath
         self.annotationsRelativePath = annotationsRelativePath

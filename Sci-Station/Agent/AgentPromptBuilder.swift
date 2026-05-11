@@ -11,9 +11,7 @@ public nonisolated struct AgentPromptBuilder {
       conversationHistory: [LLMChatMessage] = [],
       allowsPlainTextResponse: Bool = false
     ) throws -> String {
-      let history = conversationHistory
-        .filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        .suffix(12)
+      let history = safeConversationHistory(conversationHistory, allowedRoles: nil)
         .map { "\($0.role.rawValue): \($0.content)" }
         .joined(separator: "\n\n")
 
@@ -45,10 +43,7 @@ public nonisolated struct AgentPromptBuilder {
         modeInstructions: modeInstructions,
         allowsPlainTextResponse: allowsPlainTextResponse
       )
-      let safeHistory = conversationHistory
-        .filter { $0.role == .user || $0.role == .assistant }
-        .filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        .suffix(12)
+      let safeHistory = safeConversationHistory(conversationHistory, allowedRoles: [.user, .assistant])
 
       return [LLMChatMessage(role: .system, content: systemPrompt)]
         + safeHistory
@@ -63,10 +58,7 @@ public nonisolated struct AgentPromptBuilder {
     ) throws -> [LLMChatMessage] {
       let snapshotJSON = try encoded(workspaceSnapshot)
       let toolsJSON = try encoded(tools)
-      let safeHistory = conversationHistory
-        .filter { $0.role == .user || $0.role == .assistant }
-        .filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        .suffix(12)
+      let safeHistory = safeConversationHistory(conversationHistory, allowedRoles: [.user, .assistant])
 
       let systemPrompt = """
       You are the Sci-Station in-app research assistant running in a Swift-native tool loop.
@@ -87,6 +79,7 @@ public nonisolated struct AgentPromptBuilder {
       - When citing a paper or section, include the paper title, paper id, or relative file path so the user can re-locate it.
       - Final answers to paper formula questions must include the formula, the local context explaining what the symbols mean when available, and the source paper title/id/path. If no formula is found, say which tools and queries were used and which papers or sections did not match.
       - Tool results are JSON envelopes with a human summary and optional structured `payload`; use payload fields such as `paper_id`, `source`, `heading`, `line`, `matches`, and `content` as the evidence contract.
+      - For wiki writeback requests, prefer `write_wiki_markdown` with a readable Markdown `body` and explicit `relative_path`. If `current_project_id` exists, target `projects/<current_project_id>/wiki/notes/...md` or `projects/<current_project_id>/wiki/papers/<paper_id>.md`; otherwise target `wiki/notes/...md` or `wiki/papers/<paper_id>.md`.
       - For writeback requests such as wiki/todo/artifact writing, first produce a readable draft and target path; workspace write tools will pause for approval and must preserve the draft if approval is denied.
 
       workspace_context:
@@ -99,6 +92,38 @@ public nonisolated struct AgentPromptBuilder {
       return [LLMChatMessage(role: .system, content: systemPrompt)]
         + safeHistory
         + [LLMChatMessage(role: .user, content: "user_goal:\n\(goal)")]
+    }
+
+    private nonisolated func safeConversationHistory(
+      _ conversationHistory: [LLMChatMessage],
+      allowedRoles: Set<LLMChatRole>?
+    ) -> [LLMChatMessage] {
+      var remainingCharacters = 12_000
+      var kept: [LLMChatMessage] = []
+      for message in conversationHistory.reversed() {
+        if let allowedRoles, !allowedRoles.contains(message.role) {
+          continue
+        }
+        let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty, remainingCharacters > 0 else {
+          continue
+        }
+        let maxForMessage = min(3_000, remainingCharacters)
+        let clipped = clippedHistoryContent(content, maxCharacters: maxForMessage)
+        remainingCharacters -= clipped.count
+        kept.append(LLMChatMessage(role: message.role, content: clipped))
+        if kept.count >= 8 || remainingCharacters <= 0 {
+          break
+        }
+      }
+      return kept.reversed()
+    }
+
+    private nonisolated func clippedHistoryContent(_ content: String, maxCharacters: Int) -> String {
+      guard content.count > maxCharacters else {
+        return content
+      }
+      return String(content.prefix(maxCharacters)) + "\n[历史消息已截断]"
     }
 
     private nonisolated func buildSystemPrompt(
@@ -172,6 +197,7 @@ public nonisolated struct AgentPromptBuilder {
         - When `final_response_draft` is populated, format it as GitHub-flavored Markdown with blank-line paragraph breaks, bullet/numbered lists when helpful, and math written as `$...$` (inline) or `$$...$$` (display). Never wrap math in backticks.
         - Final answers to paper formula questions must include the formula, the local context explaining what the symbols mean when available, and the source paper title/id/path. If no formula is found, state the search path and misses.
         - Tool results use a stable JSON envelope with optional structured `payload`; cite payload fields such as `paper_id`, `source`, `heading`, `line`, `matches`, and `content` rather than inventing evidence.
+        - For wiki writeback requests, prefer `write_wiki_markdown` with a readable Markdown `body` and explicit `relative_path`. If `current_project_id` exists, target `projects/<current_project_id>/wiki/notes/...md` or `projects/<current_project_id>/wiki/papers/<paper_id>.md`; otherwise target `wiki/notes/...md` or `wiki/papers/<paper_id>.md`.
         - For writeback requests, fill `final_response_draft` with the proposed user-readable draft and target path before any write tool is executed. Write tools must remain approval-gated.
 
         Output JSON schema:

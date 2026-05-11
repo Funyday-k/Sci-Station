@@ -3,6 +3,7 @@ import SwiftUI
 struct MarkdownEditorView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @AppStorage("wiki.markdownEditorMode") private var editorModeRawValue = MarkdownEditorMode.source.rawValue
+    @State private var isFrontmatterExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -12,15 +13,7 @@ struct MarkdownEditorView: View {
                         Text(document.title)
                             .font(.largeTitle)
                             .fontWeight(.semibold)
-                        if appModel.selectedMarkdownHasUnsavedChanges {
-                            Text("Unsaved")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color.orange.opacity(0.14), in: Capsule())
-                        }
+                        saveStateBadge
                         Text(document.relativePath)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -63,6 +56,10 @@ struct MarkdownEditorView: View {
                         .keyboardShortcut("s", modifiers: [.command])
                 }
 
+                    markdownFormattingToolbar
+
+                    frontmatterPanel(for: document)
+
                 editorSurface(for: document)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -84,6 +81,85 @@ struct MarkdownEditorView: View {
             }
         }
         .padding(20)
+    }
+
+    private var saveStateBadge: some View {
+        let state = appModel.selectedMarkdownSaveState
+        let color: Color = switch state {
+        case .clean: .green
+        case .dirty: .orange
+        case .saving: .blue
+        case .failed: .red
+        }
+
+        return HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(appModel.selectedMarkdownSaveStateLabel)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12), in: Capsule())
+        .help(appModel.selectedMarkdownSaveErrorMessage ?? appModel.selectedMarkdownSaveStateLabel)
+    }
+
+    private var markdownFormattingToolbar: some View {
+        HStack(spacing: 6) {
+            ForEach(MarkdownFormattingAction.allCases) { action in
+                Button {
+                    appModel.insertMarkdownFormatting(action)
+                } label: {
+                    Label(action.title, systemImage: action.systemImage)
+                        .labelStyle(.iconOnly)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.bordered)
+                .help(action.title)
+                .disabled(appModel.selectedMarkdownDraft == nil)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .controlSize(.small)
+    }
+
+    @ViewBuilder
+    private func frontmatterPanel(for document: MarkdownDocument) -> some View {
+        if document.frontmatterEntries.isEmpty {
+            Button {
+                appModel.addFrontmatterToSelectedMarkdown()
+            } label: {
+                Label("Add Frontmatter", systemImage: "list.bullet.rectangle")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        } else {
+            DisclosureGroup(isExpanded: $isFrontmatterExpanded) {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(document.frontmatterEntries) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(entry.key)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 120, alignment: .leading)
+                            Text(entry.value)
+                                .font(.caption)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(.top, 6)
+            } label: {
+                Label("Frontmatter", systemImage: "list.bullet.rectangle")
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(10)
+            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     private var editorMode: MarkdownEditorMode {

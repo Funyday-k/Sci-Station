@@ -126,6 +126,8 @@ final class AppViewModel: ObservableObject {
     @Published var isShowingResearchProjectEditor = false
     @Published var researchProjectEditorDraft = ResearchProjectEditorDraft()
     @Published private(set) var isSavingResearchProject = false
+    @Published var isShowingProjectDeleteConfirmation = false
+    @Published private(set) var projectPendingDeletion: ResearchProject?
     @Published var selectedSection: WorkspaceSection? = .projects
     @Published var isShowingError = false
     @Published private(set) var errorMessage: String?
@@ -146,6 +148,7 @@ final class AppViewModel: ObservableObject {
     @Published var addTodosToAppleReminders = true
     @Published private(set) var workspacePreferences = WorkspacePreferences()
     @Published private(set) var workspaceSettingsStatusMessage: String?
+    @Published private(set) var isShellNarrowWidth = false
     @Published var isShowingWorkspaceCreationWizard = false
     @Published private(set) var workspaceCreationDraft = WorkspaceCreationDraft()
     @Published var selectedSettingsCategory: SettingsCategory = .workspace
@@ -154,6 +157,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var selectedPaperDraft: Paper?
     @Published var selectedPaperAnnotationsDraft = ""
     @Published private(set) var isSavingSelectedPaperAnnotations = false
+    @Published private(set) var selectedPDFAnnotations: [PDFAnnotationRecord] = []
+    @Published private(set) var selectedPDFSelectionPreview: String?
+    @Published private(set) var selectedPDFSelectionPageIndex: Int?
     @Published var libraryBatchTagText = ""
     @Published private(set) var libraryBatchStatusMessage: String?
     @Published var isShowingPaperDeleteConfirmation = false
@@ -206,6 +212,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentToolCorrectionFeedback: [String: String] = [:]
     @Published private(set) var agentRunHistory: [AgentRun] = []
     @Published private(set) var agentSessionEvents: [AgentSessionEvent] = []
+    @Published private(set) var agentTimelineVisibleLimit = 160
     @Published private(set) var agentThreads: [AgentThread] = []
     @Published private(set) var allAgentThreads: [AgentThread] = []
     @Published private(set) var agentNextRunContextScope: AgentContextScope = .project
@@ -250,6 +257,8 @@ final class AppViewModel: ObservableObject {
     @Published var isShowingUnsavedMarkdownConfirmation = false
     @Published private(set) var markdownSnippets: [MarkdownSnippet] = MarkdownSnippetRepository.defaultSnippets
     @Published private(set) var isSavingSelectedMarkdown = false
+    @Published private(set) var selectedMarkdownSaveState = MarkdownSaveState.clean
+    @Published private(set) var selectedMarkdownSaveErrorMessage: String?
 
     private let workspaceService: WorkspaceService
     private let projectRegistryRepository: ProjectRegistryRepository
@@ -265,6 +274,7 @@ final class AppViewModel: ObservableObject {
     private let workspaceModuleConfigurationStore: WorkspaceModuleConfigurationStore
     private let workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository
     private let paperAnnotationsRepository: PaperAnnotationsRepository
+    private let pdfAnnotationStore: PDFAnnotationStore
     private let libraryBulkEditService: LibraryBulkEditService
     private let systemCalendarService: SystemCalendarService
     private let pdfReadingStateService: PDFReadingStateService
@@ -295,6 +305,8 @@ final class AppViewModel: ObservableObject {
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
     private var agentPlanningTask: Task<Void, Never>?
+    private var agentLiveRunID: String?
+    private var agentLiveEventRefreshTask: Task<Void, Never>?
     private var agentRetrySourceRunID: String?
     private var agentStreamingRenderTask: Task<Void, Never>?
     private var agentStreamingRenderGeneration = 0
@@ -329,12 +341,41 @@ final class AppViewModel: ObservableObject {
         return "\(count) 工具"
     }
 
+    var agentVisibleMode: AgentVisibleMode {
+        agentInteractionMode.visibleMode
+    }
+
+    var agentVisibleModeStatusText: String {
+        agentVisibleMode.permissionSummary
+    }
+
+    var agentToolAvailabilityWarning: String? {
+        guard !agentToolDefinitions.isEmpty else {
+            return nil
+        }
+        if agentEnabledToolNames.isEmpty {
+            return "当前模式没有可用工具。请在工具菜单启用至少一个工具后再发送。"
+        }
+        guard agentVisibleMode.hasRequiredTools(
+            availableTools: agentToolDefinitions,
+            enabledToolNames: agentEnabledToolNames
+        ) else {
+            switch agentVisibleMode {
+            case .plan:
+                return "Plan 模式至少需要一个只读工具。请启用读取/搜索工具，或检查当前工具范围。"
+            case .agent:
+                return "Agent 模式没有可用工具。请启用工具后再运行。"
+            }
+        }
+        return nil
+    }
+
     var agentKnowledgePaperIDsForContext: Set<Paper.ID> {
         selectedAgentKnowledgePaperIDs.intersection(Set(papers.map(\.id)))
     }
 
     var agentModeStatusText: String {
-        agentInteractionMode.summary
+        agentVisibleModeStatusText
     }
 
     var workspaceTemplateOptions: [WorkspaceTemplate] {
@@ -366,6 +407,104 @@ final class AppViewModel: ObservableObject {
 
     var topSidebarItems: [TopSidebarItem] {
         TopSidebarBuilder.items(pinnedOrder: workspacePreferences.pinnedTopLevelOrder)
+    }
+
+    var currentWorkspaceRoute: WorkspaceRoute {
+        switch selectedSection {
+        case .some(.dashboard):
+            return .home
+        case .some(.projects):
+            return WorkspaceRoute(top: .projects, projectID: selectedProjectSpaceProjectID, projectTabID: selectedProjectSpaceProjectID == nil ? nil : selectedProjectSpaceTabID)
+        case .some(.library):
+            return WorkspaceRoute(top: .library, secondarySelection: selectedLibraryProjectID ?? selectedCollectionPath ?? selectedTagName)
+        case .some(.calendar), .some(.tasks):
+            return WorkspaceRoute(top: .calendar, secondarySelection: isViewingGlobalTodos ? "global_todos" : nil)
+        case .some(.llmLab):
+            return WorkspaceRoute(top: .aiLab, projectID: agentConversationProjectID)
+        case .some(.settings):
+            return WorkspaceRoute(top: .settings)
+        case .some(.pdfReader):
+            return WorkspaceRoute(top: .projects, projectID: selectedProjectSpaceProjectID ?? currentProjectID, projectTabID: "pdf-reader")
+        case .some(.wiki):
+            return WorkspaceRoute(top: .projects, projectID: selectedProjectSpaceProjectID ?? currentProjectID, projectTabID: "wiki")
+        case .some(.materials):
+            return WorkspaceRoute(top: .projects, projectID: selectedProjectSpaceProjectID ?? currentProjectID, projectTabID: "materials")
+        case .some(.graph):
+            return WorkspaceRoute(top: .projects, projectID: selectedProjectSpaceProjectID ?? currentProjectID, projectTabID: "graph")
+        case .some(.inbox), .some(.papers), .some(.concepts), .some(.methods), .some(.gaps):
+            return WorkspaceRoute(top: .projects, projectID: selectedProjectSpaceProjectID ?? currentProjectID, projectTabID: projectSpaceTabID(for: selectedSection ?? .projects))
+        case .none:
+            return .home
+        }
+    }
+
+    var currentWorkspaceContextSnapshot: WorkspaceContextSnapshot {
+        let route = currentWorkspaceRoute
+        let projectID = route.projectID
+        let project = projectID.flatMap { id in activeResearchProjects.first { $0.id == id } }
+        let selectedDateRange: DateInterval? = route.top == .calendar ? calendarDayRange(for: selectedDashboardDate) : nil
+        let selectedPaperMarkdownPath = selectedPaperDraft.map { paperMarkdownPath(for: $0) }
+
+        return WorkspaceContextSnapshot(
+            topLevelSectionID: route.top.rawValue,
+            projectID: projectID,
+            projectTitle: project?.name,
+            projectTabID: route.projectTabID,
+            selectedPaperID: selectedPaperDraft?.id,
+            selectedPaperTitle: selectedPaperDraft?.displayTitle,
+            selectedPaperMarkdownPath: selectedPaperMarkdownPath,
+            selectedMarkdownPath: selectedMarkdownDraft?.relativePath ?? selectedPaperMarkdownPath,
+            selectedTodoID: nil,
+            calendarDateRange: selectedDateRange,
+            pdfPageIndex: selectedPDFSelectionPageIndex ?? selectedPaperDraft?.lastReadPage,
+            selectedTextPreview: selectedPDFSelectionPreview
+        )
+    }
+
+    var toolbarModel: ToolbarModel {
+        ToolbarPolicy.resolve(route: currentWorkspaceRoute, context: currentWorkspaceContextSnapshot)
+    }
+
+    var effectiveRightRailMode: RightRailMode {
+        guard currentWorkspace != nil else {
+            return .hidden
+        }
+        if isShellNarrowWidth {
+            return .hidden
+        }
+        if workspacePreferences.rightRailMode == .ai {
+            return .ai
+        }
+        if workspacePreferences.rightRailMode == .hidden {
+            return .hidden
+        }
+        return rightRailHasContent ? .inspector : .hidden
+    }
+
+    var rightRailHasContent: Bool {
+        switch selectedSection {
+        case .some(.library), .some(.wiki), .some(.dashboard), .some(.projects), .some(.calendar), .some(.tasks), .some(.pdfReader):
+            return true
+        default:
+            return false
+        }
+    }
+
+    var pinnedResearchProjects: [ResearchProject] {
+        let activeByID = Dictionary(uniqueKeysWithValues: activeResearchProjects.map { ($0.id, $0) })
+        return workspacePreferences.pinnedProjectIDs.compactMap { activeByID[$0] }
+    }
+
+    var recentResearchProjects: [ResearchProject] {
+        let pinnedIDs = Set(workspacePreferences.pinnedProjectIDs)
+        return activeResearchProjects
+            .filter { !pinnedIDs.contains($0.id) }
+            .sorted { first, second in
+                if first.updatedAt == second.updatedAt {
+                    return first.name.localizedStandardCompare(second.name) == .orderedAscending
+                }
+                return first.updatedAt > second.updatedAt
+            }
     }
 
     var visibleProjectSidebarSections: [WorkspaceSection] {
@@ -522,6 +661,7 @@ final class AppViewModel: ObservableObject {
         workspaceModuleConfigurationStore: WorkspaceModuleConfigurationStore? = nil,
         workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository? = nil,
         paperAnnotationsRepository: PaperAnnotationsRepository? = nil,
+        pdfAnnotationStore: PDFAnnotationStore? = nil,
         libraryBulkEditService: LibraryBulkEditService? = nil,
         systemCalendarService: SystemCalendarService? = nil,
         pdfReadingStateService: PDFReadingStateService? = nil,
@@ -551,6 +691,7 @@ final class AppViewModel: ObservableObject {
         let resolvedWorkspaceModuleConfigurationStore = workspaceModuleConfigurationStore ?? WorkspaceModuleConfigurationStore()
         let resolvedWorkspaceModuleOverrideRepository = workspaceModuleOverrideRepository ?? WorkspaceModuleOverrideRepository()
         let resolvedPaperAnnotationsRepository = paperAnnotationsRepository ?? PaperAnnotationsRepository()
+        let resolvedPDFAnnotationStore = pdfAnnotationStore ?? PDFAnnotationStore()
         let resolvedSystemCalendarService = systemCalendarService ?? SystemCalendarService()
         let resolvedPDFReadingStateService = pdfReadingStateService ?? PDFReadingStateService(paperRepository: resolvedPaperRepository)
         let resolvedMovePaperToCollectionService = MovePaperToCollectionService(paperRepository: resolvedPaperRepository)
@@ -592,6 +733,7 @@ final class AppViewModel: ObservableObject {
         self.workspaceModuleConfigurationStore = resolvedWorkspaceModuleConfigurationStore
         self.workspaceModuleOverrideRepository = resolvedWorkspaceModuleOverrideRepository
         self.paperAnnotationsRepository = resolvedPaperAnnotationsRepository
+        self.pdfAnnotationStore = resolvedPDFAnnotationStore
         self.libraryBulkEditService = resolvedLibraryBulkEditService
         self.systemCalendarService = resolvedSystemCalendarService
         self.systemCalendarAccessState = resolvedSystemCalendarService.accessState
@@ -731,6 +873,23 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentTimelineItems: [AgentSessionTimelineItem] {
+        AgentSessionTimelineItem.items(
+            from: agentSessionEvents,
+            runs: agentConversationRuns + [agentCurrentRun].compactMap { $0 },
+            sessionIDs: agentRelevantSessionIDs,
+            limit: agentTimelineVisibleLimit
+        )
+    }
+
+    var agentTimelineEvents: [AgentTimelineEvent] {
+        AgentTimelineEvent.events(from: agentTimelineItems)
+    }
+
+    var canLoadEarlierAgentTimelineEvents: Bool {
+        agentTimelineAllItems.count > agentTimelineItems.count
+    }
+
+    private var agentTimelineAllItems: [AgentSessionTimelineItem] {
         let sessionIDs = agentRelevantSessionIDs
         guard !sessionIDs.isEmpty else {
             return []
@@ -738,14 +897,32 @@ final class AppViewModel: ObservableObject {
         return AgentSessionTimelineItem.items(
             from: agentSessionEvents,
             runs: agentConversationRuns + [agentCurrentRun].compactMap { $0 },
-            sessionIDs: sessionIDs
+            sessionIDs: sessionIDs,
+            limit: nil
         )
+    }
+
+    func loadEarlierAgentTimelineEvents() {
+        let previousLimit = agentTimelineVisibleLimit
+        let totalCount = agentTimelineAllItems.count
+        guard totalCount > previousLimit else {
+            return
+        }
+        agentTimelineVisibleLimit = min(totalCount, previousLimit + 160)
+        recordAppDebugEvent("ai.timeline.project", payload: .object([
+            "event_count": .number(String(totalCount)),
+            "hidden_count": .number(String(max(0, totalCount - agentTimelineVisibleLimit))),
+            "visible_limit": .number(String(agentTimelineVisibleLimit))
+        ]))
     }
 
     private var agentRelevantSessionIDs: Set<String> {
         var ids = Set(agentConversationRuns.map(\.id))
         if let currentRunID = agentCurrentRun?.id {
             ids.insert(currentRunID)
+        }
+        if let agentLiveRunID {
+            ids.insert(agentLiveRunID)
         }
         return ids
     }
@@ -815,6 +992,20 @@ final class AppViewModel: ObservableObject {
             ?? pendingAgentThread?.projectID
             ?? activeAgentThread?.projectID
             ?? currentProjectID
+    }
+
+    func setAgentVisibleMode(_ mode: AgentVisibleMode) {
+        let previousMode = agentVisibleMode
+        guard previousMode != mode else {
+            return
+        }
+
+        agentInteractionMode = mode.defaultInteractionMode
+        recordAppDebugEvent("ai.mode.change", payload: .object([
+            "from": .string(previousMode.rawValue),
+            "to": .string(mode.rawValue),
+            "thread_id_present": .bool(activeAgentThreadID != nil)
+        ]))
     }
 
     func setAgentContextSelectionToken(_ token: String) {
@@ -939,9 +1130,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func todos(for projectID: ResearchProject.ID) -> [TodoItem] {
-        todos.filter { todo in
-            todo.projectIDs.contains(projectID) || (todo.projectIDs.isEmpty && activeResearchProjects.count <= 1)
-        }
+        todos.filter { $0.projectIDs.contains(projectID) }
     }
 
     func openTodos(for projectID: ResearchProject.ID) -> [TodoItem] {
@@ -1324,6 +1513,19 @@ final class AppViewModel: ObservableObject {
 
     var canSaveSelectedMarkdown: Bool {
         currentWorkspace != nil && selectedMarkdownDraft != nil
+    }
+
+    var selectedMarkdownSaveStateLabel: String {
+        switch selectedMarkdownSaveState {
+        case .clean:
+            return "Saved"
+        case .dirty:
+            return "Unsaved"
+        case .saving:
+            return "Saving"
+        case .failed:
+            return "Error"
+        }
     }
 
     var selectedMarkdownHasUnsavedChanges: Bool {
@@ -1716,6 +1918,190 @@ final class AppViewModel: ObservableObject {
         nextOrder.insert(tabID, at: insertionIndex)
         updateWorkspacePreferences { preferences in
             preferences.projectSpacePinnedOrder = nextOrder
+        }
+    }
+
+    func applyRightRailRouteSuggestion() {
+        guard workspacePreferences.rightRailMode != .ai else {
+            recordGlobalAIContextUpdate(reason: "route_change")
+            return
+        }
+
+        let suggestedMode = RightRailPolicy.suggestedMode(
+            route: currentWorkspaceRoute,
+            context: currentWorkspaceContextSnapshot,
+            preferredMode: workspacePreferences.rightRailMode
+        )
+        guard workspacePreferences.rightRailMode != suggestedMode else {
+            return
+        }
+        setRightRailMode(suggestedMode, source: "auto_route")
+    }
+
+    func setRightRailMode(_ mode: RightRailMode, source: String = "manual") {
+        let previousMode = workspacePreferences.rightRailMode
+        updateWorkspacePreferences { preferences in
+            preferences.rightRailMode = mode
+            preferences.isGlobalAIPanelOpen = mode == .ai
+        }
+        recordShellDebugEvent("shell.right_rail.change", payload: .object([
+            "from": .string(previousMode.rawValue),
+            "to": .string(mode.rawValue),
+            "source": .string(source),
+            "top": .string(currentWorkspaceRoute.top.rawValue),
+            "project_id_present": .bool(currentWorkspaceContextSnapshot.projectID != nil),
+            "tab_id": .string(currentWorkspaceContextSnapshot.projectTabID ?? "")
+        ]))
+    }
+
+    func openGlobalAIPanel(source: String = "toolbar") {
+        setRightRailMode(.ai, source: source)
+        recordShellDebugEvent("shell.ai_panel.open", payload: currentWorkspaceContextDebugPayload(reason: source))
+        recordGlobalAIContextUpdate(reason: source)
+    }
+
+    func showContextInspector(source: String = "toolbar") {
+        setRightRailMode(.inspector, source: source)
+    }
+
+    func hideRightRail(source: String = "manual") {
+        setRightRailMode(.hidden, source: source)
+    }
+
+    func recordGlobalAIContextUpdate(reason: String = "context_update") {
+        guard workspacePreferences.rightRailMode == .ai else {
+            return
+        }
+        recordShellDebugEvent("shell.ai_panel.context_update", payload: currentWorkspaceContextDebugPayload(reason: reason))
+    }
+
+    func recordToolbarPolicyChange(_ model: ToolbarModel) {
+        recordShellDebugEvent("shell.toolbar.policy", payload: .object([
+            "top": .string(currentWorkspaceRoute.top.rawValue),
+            "tab_id": .string(currentWorkspaceContextSnapshot.projectTabID ?? ""),
+            "global_actions": jsonStringArray(model.globalActions.map { $0.id.rawValue }),
+            "page_actions": jsonStringArray(model.pageActions.map { $0.id.rawValue }),
+            "overflow_actions": jsonStringArray(model.overflowActions.map { $0.id.rawValue })
+        ]))
+    }
+
+    func refreshCurrentWorkspaceView() {
+        switch selectedSection {
+        case .wiki:
+            reloadWiki()
+        case .llmLab:
+            refreshAgentContext()
+        case .calendar, .tasks:
+            refreshSystemSchedule(around: selectedDashboardDate)
+        case .library:
+            reloadLibrary()
+        default:
+            guard let currentWorkspace else {
+                return
+            }
+            Task {
+                do {
+                    try await loadWorkspaceData(in: currentWorkspace, selectingPaper: selectedPaperID, selectingMarkdown: selectedMarkdownID)
+                } catch {
+                    present(error)
+                }
+            }
+        }
+    }
+
+    func updateShellWindowWidth(_ width: CGFloat) {
+        let nextIsNarrow = width < 980
+        guard isShellNarrowWidth != nextIsNarrow else {
+            return
+        }
+        isShellNarrowWidth = nextIsNarrow
+        recordShellDebugEvent("shell.right_rail.change", payload: .object([
+            "from": .string(workspacePreferences.rightRailMode.rawValue),
+            "to": .string(nextIsNarrow ? RightRailMode.hidden.rawValue : workspacePreferences.rightRailMode.rawValue),
+            "source": .string("window_width"),
+            "is_narrow": .bool(nextIsNarrow)
+        ]))
+    }
+
+    func toggleProjectTreeExpansion() {
+        updateWorkspacePreferences { preferences in
+            preferences.isProjectTreeExpanded.toggle()
+        }
+        recordShellDebugEvent("sidebar.project_tree.toggle", payload: .object([
+            "is_expanded": .bool(workspacePreferences.isProjectTreeExpanded)
+        ]))
+    }
+
+    func isResearchProjectPinned(_ projectID: ResearchProject.ID) -> Bool {
+        workspacePreferences.pinnedProjectIDs.contains(projectID)
+    }
+
+    func toggleResearchProjectPin(_ project: ResearchProject) {
+        updateWorkspacePreferences { preferences in
+            if preferences.pinnedProjectIDs.contains(project.id) {
+                preferences.pinnedProjectIDs.removeAll { $0 == project.id }
+            } else {
+                preferences.pinnedProjectIDs.append(project.id)
+            }
+        }
+        recordShellDebugEvent("sidebar.project_tree.toggle", payload: .object([
+            "project_id": .string(project.id),
+            "pin_state": .bool(isResearchProjectPinned(project.id))
+        ]))
+    }
+
+    func confirmDeleteResearchProject(_ project: ResearchProject) {
+        projectPendingDeletion = project
+        isShowingProjectDeleteConfirmation = true
+        recordShellDebugEvent("project.delete.requested", payload: .object([
+            "project_id": .string(project.id),
+            "relative_path": .string(project.relativePath),
+            "archive_only": .bool(true)
+        ]))
+    }
+
+    func cancelDeleteResearchProject() {
+        projectPendingDeletion = nil
+        isShowingProjectDeleteConfirmation = false
+    }
+
+    func confirmDeletePendingResearchProject() {
+        guard let project = projectPendingDeletion, let currentResearchRoot else {
+            cancelDeleteResearchProject()
+            return
+        }
+
+        projectPendingDeletion = nil
+        isShowingProjectDeleteConfirmation = false
+        var archivedProject = project
+        archivedProject.isArchived = true
+
+        Task {
+            do {
+                let registry = try await projectRegistryRepository.updateProject(archivedProject, in: currentResearchRoot)
+                researchProjects = registry.projects
+                updateWorkspacePreferences { preferences in
+                    preferences.pinnedProjectIDs.removeAll { $0 == project.id }
+                }
+
+                if selectedProjectSpaceProjectID == project.id || currentProjectID == project.id {
+                    selectedProjectSpaceProjectID = nil
+                    currentProjectID = activeResearchProjects.first?.id
+                    selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
+                    selectedSection = .projects
+                    selectedLibraryProjectID = nil
+                    persistWorkspaceRoute(WorkspaceRoute(top: .projects))
+                }
+
+                showShellStatus(localized("已归档项目：\(project.name)。工作区文件保持不变。", "Archived project: \(project.name). Workspace files were left in place."))
+                recordShellDebugEvent("project.delete.confirmed", payload: .object([
+                    "project_id": .string(project.id),
+                    "relative_path": .string(project.relativePath),
+                    "archive_only": .bool(true)
+                ]))
+            } catch {
+                present(error)
+            }
         }
     }
 
@@ -2151,6 +2537,14 @@ final class AppViewModel: ObservableObject {
         importPDF(from: pdfURL, into: currentWorkspace)
     }
 
+    func importPDFFromGlobalMenu() {
+        guard currentWorkspace != nil else {
+            return
+        }
+        ensurePaperImportContextForGlobalMenu()
+        importPDF()
+    }
+
     func prepareIdentifierImport(initialInput: String? = nil) {
         identifierImportInput = initialInput ?? ""
         identifierImportCollectionPath = selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
@@ -2162,6 +2556,14 @@ final class AppViewModel: ObservableObject {
     func beginIdentifierImport(with initialInput: String? = nil) {
         prepareIdentifierImport(initialInput: initialInput)
         isShowingIdentifierImport = true
+    }
+
+    func beginIdentifierImportFromGlobalMenu() {
+        guard currentWorkspace != nil else {
+            return
+        }
+        ensurePaperImportContextForGlobalMenu()
+        beginIdentifierImport()
     }
 
     func resetIdentifierImportForm() {
@@ -2382,6 +2784,9 @@ final class AppViewModel: ObservableObject {
         selectedPaperID = id
         selectedPaperDraft = papers.first(where: { $0.id == id })
         paperMarkdownQualityReport = nil
+        selectedPDFAnnotations = []
+        selectedPDFSelectionPreview = nil
+        selectedPDFSelectionPageIndex = nil
         guard let currentWorkspace else {
             selectedPaperAnnotationsDraft = ""
             return
@@ -2390,6 +2795,7 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await loadSelectedPaperAnnotations(in: currentWorkspace)
+                try await loadSelectedPDFAnnotations(in: currentWorkspace)
             } catch {
                 present(error)
             }
@@ -2423,7 +2829,19 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        hideRightRail(source: "paper_reader_open")
         selectedSection = .pdfReader
+        persistWorkspaceRoute(currentWorkspaceRoute)
+    }
+
+    func returnFromPaperReader() {
+        if let projectID = selectedProjectSpaceProjectID ?? currentProjectID,
+           activeResearchProjects.contains(where: { $0.id == projectID }) {
+            selectResearchProject(projectID, section: .projects)
+            return
+        }
+
+        selectSection(.library)
     }
 
     func openEvidenceSource(_ jump: AgentEvidenceSourceJump) {
@@ -2742,7 +3160,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func saveSelectedPaperReadingState(lastPage: Int) {
+    func saveSelectedPaperReadingState(lastPage: Int, scaleFactor: Double?) {
         guard let currentWorkspace, let selectedPaperDraft else {
             return
         }
@@ -2751,6 +3169,7 @@ final class AppViewModel: ObservableObject {
             do {
                 let savedPaper = try await pdfReadingStateService.save(
                     lastPage: lastPage,
+                    scaleFactor: scaleFactor,
                     for: selectedPaperDraft,
                     in: currentWorkspace
                 )
@@ -2776,6 +3195,107 @@ final class AppViewModel: ObservableObject {
 
             do {
                 try await paperAnnotationsRepository.saveAnnotations(contents, for: selectedPaperDraft, in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func reloadSelectedPDFAnnotations() {
+        guard let currentWorkspace else {
+            selectedPDFAnnotations = []
+            return
+        }
+
+        Task {
+            do {
+                try await loadSelectedPDFAnnotations(in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updatePDFSelection(preview: String?, pageIndex: Int?) {
+        selectedPDFSelectionPreview = preview.map { limitedText($0, maxCharacters: 800) }
+        selectedPDFSelectionPageIndex = pageIndex
+    }
+
+    func createPDFAnnotation(_ annotation: PDFAnnotationRecord) {
+        guard let currentWorkspace, let selectedPaperDraft else {
+            return
+        }
+
+        Task {
+            do {
+                selectedPDFAnnotations = try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace)
+                recordAppDebugEvent("pdf.annotation.create", payload: pdfAnnotationDebugPayload(annotation))
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func updatePDFAnnotationNote(id: PDFAnnotationRecord.ID, noteText: String) {
+        guard let currentWorkspace, let selectedPaperDraft,
+              let index = selectedPDFAnnotations.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        var annotation = selectedPDFAnnotations[index]
+        annotation.noteText = noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : noteText
+        annotation.updatedAt = Date()
+        selectedPDFAnnotations[index] = annotation
+
+        Task {
+            do {
+                selectedPDFAnnotations = try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace)
+                recordAppDebugEvent("pdf.annotation.update", payload: pdfAnnotationDebugPayload(annotation))
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func deletePDFAnnotation(id: PDFAnnotationRecord.ID) {
+        guard let currentWorkspace, let selectedPaperDraft,
+              let annotation = selectedPDFAnnotations.first(where: { $0.id == id }) else {
+            return
+        }
+
+        selectedPDFAnnotations.removeAll { $0.id == id }
+        Task {
+            do {
+                selectedPDFAnnotations = try await pdfAnnotationStore.deleteAnnotation(id: id, for: selectedPaperDraft, in: currentWorkspace)
+                recordAppDebugEvent("pdf.annotation.delete", payload: pdfAnnotationDebugPayload(annotation))
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func movePDFAnnotationNote(id: PDFAnnotationRecord.ID, pageIndex: Int, x: Double, y: Double) {
+        guard let currentWorkspace, let selectedPaperDraft,
+              let index = selectedPDFAnnotations.firstIndex(where: { $0.id == id && $0.kind == .note }) else {
+            return
+        }
+
+        var annotation = selectedPDFAnnotations[index]
+        annotation.pageIndex = pageIndex
+        annotation.bounds = [PDFAnnotationBounds(
+            pageIndex: pageIndex,
+            x: x,
+            y: y,
+            width: 24,
+            height: 24
+        )]
+        annotation.updatedAt = Date()
+        selectedPDFAnnotations[index] = annotation
+
+        Task {
+            do {
+                selectedPDFAnnotations = try await pdfAnnotationStore.upsertAnnotation(annotation, for: selectedPaperDraft, in: currentWorkspace)
+                recordAppDebugEvent("pdf.annotation.update", payload: pdfAnnotationDebugPayload(annotation))
             } catch {
                 present(error)
             }
@@ -2887,6 +3407,11 @@ final class AppViewModel: ObservableObject {
         if isApproved {
             agentToolApprovals.insert(callID)
             agentToolDenials.remove(callID)
+            recordAppDebugEvent("ai.permission.inline_decision", payload: .object([
+                "tool_call_id": .string(callID),
+                "decision": .string("allow"),
+                "risk": .string(agentPermissionRiskDescription(callID: callID))
+            ]))
         } else {
             agentToolApprovals.remove(callID)
         }
@@ -2897,9 +3422,38 @@ final class AppViewModel: ObservableObject {
             agentToolDenials.insert(callID)
             agentToolApprovals.remove(callID)
             agentToolSessionApprovalDrafts.remove(callID)
+            recordAppDebugEvent("ai.permission.inline_decision", payload: .object([
+                "tool_call_id": .string(callID),
+                "decision": .string("deny"),
+                "risk": .string(agentPermissionRiskDescription(callID: callID))
+            ]))
         } else {
             agentToolDenials.remove(callID)
         }
+    }
+
+    func requestAgentToolRewrite(callID: String) {
+        let feedback = localized(
+            "请根据当前对话重写这个草稿，保留来源依据，并先解释目标路径与主要改动。",
+            "Please rewrite this draft from the current conversation, preserve source evidence, and explain the target path and main changes first."
+        )
+        agentToolCorrectionFeedback[callID] = feedback
+        agentToolDenials.insert(callID)
+        agentToolApprovals.remove(callID)
+        agentToolSessionApprovalDrafts.remove(callID)
+        agentStatusMessage = localized("已标记为需要 AI 重写。", "Marked for AI rewrite.")
+        recordAppDebugEvent("ai.draft_review.rewrite_requested", payload: .object([
+            "tool_call_id": .string(callID),
+            "reason_present": .bool(true)
+        ]))
+    }
+
+    private func agentPermissionRiskDescription(callID: String) -> String {
+        guard let currentRun = agentCurrentRun,
+              let item = agentPermissionDockItems(for: currentRun).first(where: { $0.id == callID }) else {
+            return "unknown"
+        }
+        return item.risk.rawValue
     }
 
     func setAgentSessionApprovalDraft(callID: String, isEnabled: Bool) {
@@ -3238,7 +3792,7 @@ final class AppViewModel: ObservableObject {
 
     private func selectedAgentRetrievalSourcePath() -> String? {
         if let selectedPaperDraft {
-            return selectedPaperDraft.paperDirectoryRelativePath + "/paper.md"
+            return paperMarkdownPath(for: selectedPaperDraft)
         }
         if let selectedMarkdownDraft {
             return selectedMarkdownDraft.relativePath
@@ -4031,9 +4585,20 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        if let warning = agentToolAvailabilityWarning {
+            agentErrorMessage = warning
+            recordAppDebugEvent("ai.toolset.unavailable", payload: .object([
+                "visible_mode": .string(agentVisibleMode.rawValue),
+                "enabled_tool_count": .number(String(agentEnabledToolNames.count)),
+                "available_tool_count": .number(String(agentToolDefinitions.count))
+            ]))
+            return
+        }
+
         let conversationHistory = agentConversationMessagesForPrompt(latestGoal: trimmedGoal)
         let allowedToolNames = effectiveAgentAllowedToolNames
         let interactionMode = agentInteractionMode
+        let usesToolLoopRuntime = interactionMode.usesToolLoopRuntime
         let runContextProjectID = agentConversationProjectID
         let runtimeSelection = workspacePreferences.agentRuntimeSelection
         let enabledToolNamesSnapshot = allowedToolNames?.sorted() ?? agentEnabledToolNames.sorted()
@@ -4041,7 +4606,7 @@ final class AppViewModel: ObservableObject {
         agentRetrySourceRunID = nil
         let executionOptions = AgentExecutionOptions(
             mode: .planOnly,
-            loopPolicy: interactionMode == .conversation ? .readOnlyAutoApproveWritesRequireApproval : .manualApprovalOnly,
+            loopPolicy: usesToolLoopRuntime ? .readOnlyAutoApproveWritesRequireApproval : .manualApprovalOnly,
             runtimeSelection: runtimeSelection,
             isSidecarDisabledForWorkspace: workspacePreferences.isSidecarDisabledForWorkspace,
             disabledHookIDs: agentDisabledHookIDs,
@@ -4052,7 +4617,7 @@ final class AppViewModel: ObservableObject {
             loopOptions: workspacePreferences.agentLoopBudget,
             retryOfRunID: retryOfRunID
         )
-        let responseDeltaHandler = interactionMode == .conversation ? makeAgentStreamingDeltaHandler() : nil
+        let responseDeltaHandler = usesToolLoopRuntime ? makeAgentStreamingDeltaHandler() : nil
 
         isPlanningAgentRun = true
         agentPendingUserPrompt = trimmedGoal
@@ -4064,9 +4629,11 @@ final class AppViewModel: ObservableObject {
             "selected_paper_id": .string(selectedPaperID ?? ""),
             "allowed_tool_names": jsonStringArray(allowedToolNames?.sorted() ?? []),
             "enabled_tool_names": jsonStringArray(enabledToolNamesSnapshot),
-            "conversation_history_messages": .number(String(conversationHistory.count))
+            "conversation_history_messages": .number(String(conversationHistory.count)),
+            "conversation_history_characters": .number(String(conversationHistory.reduce(0) { $0 + $1.content.count }))
         ]))
         resetAgentStreamingPreview()
+        startAgentLiveEventRefresh(in: currentWorkspace)
         agentGoal = ""
         persistAgentDraftForCurrentConversation()
         agentErrorMessage = nil
@@ -4075,6 +4642,7 @@ final class AppViewModel: ObservableObject {
         agentPlanningTask?.cancel()
         agentPlanningTask = Task {
             defer {
+                stopAgentLiveEventRefresh(clearRunID: true)
                 isPlanningAgentRun = false
                 agentPendingUserPrompt = nil
                 agentPlanningTask = nil
@@ -4100,17 +4668,18 @@ final class AppViewModel: ObservableObject {
                     configuration: llmConfiguration,
                     apiKey: apiKey,
                     options: executionOptions,
-                    responseDeltaHandler: responseDeltaHandler
+                    responseDeltaHandler: responseDeltaHandler,
+                    sessionEventHandler: makeAgentSessionEventHandler()
                 )
                 try Task.checkCancellation()
                 agentCurrentRun = run
                 resetAgentStreamingPreview()
                 try await attachRunToActiveThread(run, in: currentWorkspace)
                 resetAgentPermissionDockState()
-                let isWaitingForApproval = interactionMode == .conversation && run.completedAt == nil && !run.plan.toolCalls.isEmpty
+                let isWaitingForApproval = usesToolLoopRuntime && run.lifecycleState == .waitingForApproval
                 agentStatusMessage = isWaitingForApproval
                     ? "等待批准工具调用。输入草稿已保留。"
-                    : (interactionMode == .conversation
+                    : (usesToolLoopRuntime
                         ? "已根据所选 AI 知识库生成回复。"
                         : "计划已生成。运行前请审查允许写入工作区的工具。")
                 recordAgentRunDebugOutput(run, event: "agent.run_completed")
@@ -4171,9 +4740,11 @@ final class AppViewModel: ObservableObject {
             "approved_tool_call_ids": jsonStringArray(Array(agentToolApprovals).sorted()),
             "denied_tool_call_ids": jsonStringArray(Array(agentToolDenials).sorted())
         ]), runID: currentRun.id)
+        startAgentLiveEventRefresh(in: currentWorkspace, liveRunID: currentRun.id)
 
         Task {
             defer {
+                stopAgentLiveEventRefresh(clearRunID: true)
                 isExecutingAgentTools = false
             }
 
@@ -4803,6 +5374,14 @@ final class AppViewModel: ObservableObject {
         let nextSelectionID = pendingMarkdownSelectionID
         pendingMarkdownSelectionID = nil
         isShowingUnsavedMarkdownConfirmation = false
+        if let nextSelectionID,
+           !markdownDocuments.contains(where: { $0.id == nextSelectionID }) {
+            selectedMarkdownID = nil
+            selectedMarkdownDraft = nil
+            updateSelectedMarkdownSaveState(.clean)
+            openMarkdownDocument(relativePath: nextSelectionID)
+            return
+        }
         applyMarkdownSelection(nextSelectionID)
     }
 
@@ -4814,6 +5393,7 @@ final class AppViewModel: ObservableObject {
     private func applyMarkdownSelection(_ id: String?) {
         selectedMarkdownID = id
         selectedMarkdownDraft = markdownDocuments.first(where: { $0.id == id })
+        updateSelectedMarkdownSaveState(.clean)
     }
 
     func openMarkdownDocument(relativePath: String) {
@@ -4830,7 +5410,16 @@ final class AppViewModel: ObservableObject {
 
         Task {
             do {
-                try await loadMarkdownDocuments(in: currentWorkspace, selecting: relativePath)
+                let directDocument = try await markdownRepository.loadDocument(relativePath: relativePath, in: currentWorkspace)
+                mergeMarkdownDocument(directDocument)
+                selectedMarkdownID = directDocument.id
+                selectedMarkdownDraft = directDocument
+                updateSelectedMarkdownSaveState(.clean)
+                recordAppDebugEvent("paper_markdown.open_direct", payload: .object([
+                    "relative_path": .string(directDocument.relativePath),
+                    "is_paper_markdown": .bool(directDocument.relativePath.hasSuffix("/paper.md"))
+                ]))
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: directDocument.id)
             } catch {
                 present(error)
             }
@@ -4861,7 +5450,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func openPaperMarkdown(_ paper: Paper) {
-        openMarkdownDocument(relativePath: paper.paperDirectoryRelativePath + "/paper.md")
+        openMarkdownDocument(relativePath: paperMarkdownPath(for: paper))
     }
 
     func openCurrentProjectOverviewPage() {
@@ -4880,6 +5469,7 @@ final class AppViewModel: ObservableObject {
 
         draft.rawContents = expandedMarkdownContentsIfNeeded(newValue)
         selectedMarkdownDraft = draft
+        updateSelectedMarkdownSaveState(selectedMarkdownHasUnsavedChanges ? .dirty : .clean)
     }
 
     func insertMarkdownSnippet(_ snippet: MarkdownSnippet) {
@@ -4893,6 +5483,42 @@ final class AppViewModel: ObservableObject {
             ? snippetBody
             : currentContents + "\n\n" + snippetBody
         selectedMarkdownDraft = draft
+        updateSelectedMarkdownSaveState(.dirty)
+    }
+
+    func insertMarkdownFormatting(_ action: MarkdownFormattingAction) {
+        guard var draft = selectedMarkdownDraft else {
+            return
+        }
+
+        let insertion = action.insertionText
+        let currentContents = draft.rawContents.trimmingCharacters(in: .newlines)
+        draft.rawContents = currentContents.isEmpty
+            ? insertion
+            : currentContents + "\n\n" + insertion
+        selectedMarkdownDraft = draft
+        updateSelectedMarkdownSaveState(.dirty)
+    }
+
+    func addFrontmatterToSelectedMarkdown() {
+        guard var draft = selectedMarkdownDraft else {
+            return
+        }
+        guard !draft.rawContents.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("---") else {
+            return
+        }
+
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled" : draft.title
+        draft.rawContents = """
+        ---
+        title: "\(title)"
+        tags: []
+        ---
+
+        \(draft.rawContents)
+        """
+        selectedMarkdownDraft = draft
+        updateSelectedMarkdownSaveState(.dirty)
     }
 
     func openMarkdownSnippetsFile() {
@@ -4915,12 +5541,118 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func createMarkdownPage(named name: String) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let relativePath = wikiManagedRelativePath(from: name, defaultFileName: "untitled.md")
+        let title = markdownTitle(from: name)
+        let contents = "# \(title)\n"
+        Task {
+            do {
+                let document = try await markdownRepository.createDocument(relativePath: relativePath, contents: contents, in: currentWorkspace)
+                recordAppDebugEvent("wiki.file.create", payload: .object(["relative_path": .string(document.relativePath)]))
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: document.id)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func createMarkdownFolder(named name: String) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        let relativePath = wikiManagedFolderPath(from: name, defaultFolderName: "notes")
+        Task {
+            do {
+                let createdPath = try await markdownRepository.createFolder(relativePath: relativePath, in: currentWorkspace)
+                recordAppDebugEvent("wiki.file.create", payload: .object([
+                    "relative_path": .string(createdPath),
+                    "kind": .string("folder")
+                ]))
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: selectedMarkdownID)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func renameSelectedMarkdownDocument(to newFileName: String) {
+        guard let currentWorkspace, let selectedMarkdownDraft else {
+            return
+        }
+
+        let oldPath = selectedMarkdownDraft.relativePath
+        Task {
+            do {
+                let document = try await markdownRepository.renameDocument(relativePath: oldPath, toFileName: newFileName, in: currentWorkspace)
+                recordAppDebugEvent("wiki.file.rename", payload: .object([
+                    "from": .string(oldPath),
+                    "to": .string(document.relativePath)
+                ]))
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: document.id)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func moveSelectedMarkdownDocument(toFolder folderPath: String) {
+        guard let currentWorkspace, let selectedMarkdownDraft else {
+            return
+        }
+
+        let oldPath = selectedMarkdownDraft.relativePath
+        let fileName = (oldPath as NSString).lastPathComponent
+        let destinationFolder = wikiManagedFolderPath(from: folderPath, defaultFolderName: "notes")
+        let destinationPath = (destinationFolder as NSString).appendingPathComponent(fileName)
+            .replacingOccurrences(of: "\\", with: "/")
+        Task {
+            do {
+                let document = try await markdownRepository.moveDocument(from: oldPath, to: destinationPath, in: currentWorkspace)
+                recordAppDebugEvent("wiki.file.rename", payload: .object([
+                    "from": .string(oldPath),
+                    "to": .string(document.relativePath),
+                    "operation": .string("move")
+                ]))
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: document.id)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func archiveSelectedMarkdownDocument() {
+        guard let currentWorkspace, let selectedMarkdownDraft else {
+            return
+        }
+
+        let archivedPath = selectedMarkdownDraft.relativePath
+        let remainingIDs = markdownDocuments.map(\.id).filter { $0 != selectedMarkdownDraft.id }
+        Task {
+            do {
+                let trashPath = try await markdownRepository.archiveDocument(relativePath: archivedPath, in: currentWorkspace)
+                recordAppDebugEvent("wiki.file.archive", payload: .object([
+                    "relative_path": .string(archivedPath),
+                    "trash_path": .string(trashPath)
+                ]))
+                try await loadMarkdownDocuments(in: currentWorkspace, selecting: remainingIDs.first)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
     func saveSelectedMarkdownChanges() {
         guard let currentWorkspace, let selectedMarkdownDraft else {
             return
         }
 
         isSavingSelectedMarkdown = true
+        updateSelectedMarkdownSaveState(.saving)
         Task {
             defer {
                 isSavingSelectedMarkdown = false
@@ -4933,7 +5665,9 @@ final class AppViewModel: ObservableObject {
                     in: currentWorkspace
                 )
                 try await loadMarkdownDocuments(in: currentWorkspace, selecting: selectedMarkdownDraft.relativePath)
+                updateSelectedMarkdownSaveState(.clean)
             } catch {
+                updateSelectedMarkdownSaveState(.failed, errorMessage: error.localizedDescription)
                 present(error)
             }
         }
@@ -5449,6 +6183,40 @@ final class AppViewModel: ObservableObject {
         section.moduleProjectTabID ?? ProjectSpaceTabsBuilder.overviewTabID
     }
 
+    private func ensurePaperImportContextForGlobalMenu() {
+        guard !ToolbarPolicy.showsPaperImportActions(route: currentWorkspaceRoute, context: currentWorkspaceContextSnapshot) else {
+            return
+        }
+        selectLibraryScope()
+        showShellStatus(localized("已切换到 Library，可继续导入论文。", "Switched to Library for paper import."))
+    }
+
+    private func currentWorkspaceContextDebugPayload(reason: String) -> JSONValue {
+        let snapshot = currentWorkspaceContextSnapshot
+        return .object([
+            "reason": .string(reason),
+            "top": .string(snapshot.topLevelSectionID),
+            "project_id_present": .bool(snapshot.projectID != nil),
+            "project_tab_id": .string(snapshot.projectTabID ?? ""),
+            "selected_paper_id_present": .bool(snapshot.selectedPaperID != nil),
+            "selected_paper_title": .string(snapshot.selectedPaperTitle ?? ""),
+            "selected_paper_markdown_path": .string(snapshot.selectedPaperMarkdownPath ?? ""),
+            "selected_markdown_path": .string(snapshot.selectedMarkdownPath ?? ""),
+            "selected_todo_id_present": .bool(snapshot.selectedTodoID != nil),
+            "pdf_page_index": .string(snapshot.pdfPageIndex.map(String.init) ?? ""),
+            "selected_text_preview_present": .bool(snapshot.selectedTextPreview != nil)
+        ])
+    }
+
+    private func calendarDayRange(for date: Date) -> DateInterval? {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: date)
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
+            return nil
+        }
+        return DateInterval(start: start, end: end)
+    }
+
     private func showShellStatus(_ message: String) {
         shellStatusMessage = message
         shellStatusDismissTask?.cancel()
@@ -5478,6 +6246,15 @@ final class AppViewModel: ObservableObject {
         }
 
         selectedPaperAnnotationsDraft = try await paperAnnotationsRepository.loadAnnotations(for: selectedPaperDraft, in: workspace)
+    }
+
+    private func loadSelectedPDFAnnotations(in workspace: ResearchWorkspace) async throws {
+        guard let selectedPaperDraft else {
+            selectedPDFAnnotations = []
+            return
+        }
+
+        selectedPDFAnnotations = try await pdfAnnotationStore.loadAnnotations(for: selectedPaperDraft, in: workspace)
     }
 
     private func loadCollections(in workspace: ResearchWorkspace) async throws {
@@ -5709,13 +6486,13 @@ final class AppViewModel: ObservableObject {
                 includedPaperIDs: agentKnowledgePaperIDsForContext
             )
             agentToolDefinitions = await agentService.toolDefinitions()
-            agentRunHistory = try await agentService.recentRuns(in: root, limit: 200)
+            agentRunHistory = try await agentService.recentRuns(in: root, limit: 1000)
             allAgentThreads = try await agentService.allThreads(in: root)
             applyAgentThreadFilterForCurrentScope()
             restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
             restorePinnedAgentThreadsForCurrentProject()
             restoreAgentToolStateForCurrentScope()
-            agentSessionEvents = try await agentService.sessionEvents(in: root, limit: 300)
+            agentSessionEvents = try await agentService.sessionEvents(in: root, limit: nil)
             let runtimeLoader = AgentRuntimeConfigurationLoader()
             agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
             agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
@@ -5726,6 +6503,110 @@ final class AppViewModel: ObservableObject {
                 : await sidecarCoordinator.refreshHealth()
         } catch {
             agentErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func startAgentLiveEventRefresh(in workspace: ResearchWorkspace, liveRunID: String? = nil) {
+        agentLiveEventRefreshTask?.cancel()
+        agentLiveRunID = liveRunID
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+        let baselineEventIDs = Set(agentSessionEvents.map(\.id))
+        agentLiveEventRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else {
+                    return
+                }
+                do {
+                    let events = try await self.agentService.sessionEvents(in: root, limit: nil)
+                    await MainActor.run {
+                        self.mergeAgentLiveSessionEvents(events, baselineEventIDs: baselineEventIDs)
+                    }
+                } catch {
+                    // Best-effort UI refresh; the final run refresh remains authoritative.
+                }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
+    }
+
+    private func stopAgentLiveEventRefresh(clearRunID: Bool) {
+        agentLiveEventRefreshTask?.cancel()
+        agentLiveEventRefreshTask = nil
+        if clearRunID {
+            agentLiveRunID = nil
+        }
+    }
+
+    private func makeAgentSessionEventHandler() -> (@Sendable (AgentSessionEvent) async -> Void) {
+        { [weak self] event in
+            await MainActor.run {
+                self?.appendAgentLiveSessionEvent(event)
+            }
+        }
+    }
+
+    private func appendAgentLiveSessionEvent(_ event: AgentSessionEvent) {
+        mergeAgentLiveSessionEvents([event], baselineEventIDs: [])
+        agentLiveRunID = event.sessionID
+    }
+
+    private func mergeAgentLiveSessionEvents(_ events: [AgentSessionEvent], baselineEventIDs: Set<String>) {
+        guard !events.isEmpty else {
+            return
+        }
+        var eventsByID: [String: AgentSessionEvent] = [:]
+        for event in agentSessionEvents {
+            eventsByID[event.id] = event
+        }
+        for event in events {
+            eventsByID[event.id] = event
+        }
+        agentSessionEvents = eventsByID.values.sorted(by: agentSessionEventSort)
+
+        if agentLiveRunID == nil,
+           let liveEvent = events.sorted(by: { $0.createdAt < $1.createdAt }).first(where: { event in
+               !baselineEventIDs.contains(event.id) && event.kind != .hookResult
+           }) {
+            agentLiveRunID = liveEvent.sessionID
+        }
+        rebuildAgentHookActivitySummary()
+    }
+
+    private nonisolated func agentSessionEventSort(_ first: AgentSessionEvent, _ second: AgentSessionEvent) -> Bool {
+        if first.createdAt != second.createdAt {
+            return first.createdAt < second.createdAt
+        }
+        if first.sessionID != second.sessionID {
+            return first.sessionID.localizedStandardCompare(second.sessionID) == .orderedAscending
+        }
+        let firstPriority = agentSessionEventSortPriority(first.kind)
+        let secondPriority = agentSessionEventSortPriority(second.kind)
+        if firstPriority != secondPriority {
+            return firstPriority < secondPriority
+        }
+        return first.id.localizedStandardCompare(second.id) == .orderedAscending
+    }
+
+    private nonisolated func agentSessionEventSortPriority(_ kind: AgentSessionEventKind) -> Int {
+        switch kind {
+        case .userMessage:
+            return 0
+        case .reasoningSummary:
+            return 10
+        case .assistantMessage:
+            return 20
+        case .toolCallStarted:
+            return 30
+        case .toolCallCompleted, .toolCallFailed:
+            return 40
+        case .artifactDraft, .permissionRequested:
+            return 50
+        case .permissionResolved:
+            return 60
+        case .runCancelled:
+            return 70
+        case .hookResult, .compactionSummary:
+            return 90
         }
     }
 
@@ -6138,6 +7019,9 @@ final class AppViewModel: ObservableObject {
         var messages = agentConversationRuns
             .suffix(limit)
             .flatMap { run -> [LLMChatMessage] in
+                if shouldSkipRunInAgentConversationHistory(run) {
+                    return []
+                }
                 let assistantText = [
                     run.plan.finalResponseDraft?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                     run.plan.summary.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -6147,7 +7031,7 @@ final class AppViewModel: ObservableObject {
 
                 return [
                     LLMChatMessage(role: .user, content: run.goal),
-                    LLMChatMessage(role: .assistant, content: assistantText)
+                    LLMChatMessage(role: .assistant, content: limitedText(assistantText, maxCharacters: 2_000))
                 ]
             }
         if let latestGoal,
@@ -6156,6 +7040,24 @@ final class AppViewModel: ObservableObject {
             messages.append(LLMChatMessage(role: .user, content: evidenceSummary))
         }
         return messages
+    }
+
+    private func shouldSkipRunInAgentConversationHistory(_ run: AgentRun) -> Bool {
+        if run.failureCategory == .cancelledByUser {
+            return true
+        }
+        let text = [
+            run.plan.finalResponseDraft?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            run.plan.summary.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+        let failurePrefixes = [
+            "模型没有返回最终回复",
+            "The model did not return a final response",
+            "Sidecar run completed without a visible response"
+        ]
+        return failurePrefixes.contains { text.hasPrefix($0) }
     }
 
     private func isContinuationPrompt(_ goal: String) -> Bool {
@@ -6272,6 +7174,114 @@ final class AppViewModel: ObservableObject {
         let nextSelectionID = markdownID ?? selectedMarkdownID ?? loadedDocuments.first?.id
         selectedMarkdownID = nextSelectionID
         selectedMarkdownDraft = loadedDocuments.first(where: { $0.id == nextSelectionID })
+        updateSelectedMarkdownSaveState(.clean)
+    }
+
+    private func mergeMarkdownDocument(_ document: MarkdownDocument) {
+        if let index = markdownDocuments.firstIndex(where: { $0.id == document.id }) {
+            markdownDocuments[index] = document
+        } else {
+            markdownDocuments.append(document)
+        }
+        backlinkIndex = BacklinkIndex(documents: markdownDocuments)
+    }
+
+    private func updateSelectedMarkdownSaveState(_ state: MarkdownSaveState, errorMessage: String? = nil) {
+        guard selectedMarkdownSaveState != state || selectedMarkdownSaveErrorMessage != errorMessage else {
+            return
+        }
+
+        selectedMarkdownSaveState = state
+        selectedMarkdownSaveErrorMessage = errorMessage
+        recordAppDebugEvent("markdown.editor.save_state", payload: .object([
+            "state": .string(state.rawValue),
+            "relative_path": .string(selectedMarkdownDraft?.relativePath ?? ""),
+            "error_present": .bool(errorMessage != nil)
+        ]))
+    }
+
+    private func paperMarkdownPath(for paper: Paper) -> String {
+        paper.paperDirectoryRelativePath + "/paper.md"
+    }
+
+    private func currentWikiRootRelativePath() -> String {
+        if let project = currentResearchProject {
+            return project.relativePath + "/wiki"
+        }
+        return "wiki"
+    }
+
+    private func wikiManagedRelativePath(from input: String, defaultFileName: String) -> String {
+        var normalized = input
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if normalized.isEmpty {
+            normalized = defaultFileName
+        }
+        if !normalized.contains("/") && (normalized as NSString).pathExtension.isEmpty {
+            normalized = wikiPathSlug(from: normalized) + ".md"
+        } else if (normalized as NSString).pathExtension.isEmpty {
+            normalized += ".md"
+        }
+        if normalized.hasPrefix("wiki/") || normalized.hasPrefix("projects/") {
+            return normalized
+        }
+        return currentWikiRootRelativePath() + "/" + normalized
+    }
+
+    private func wikiManagedFolderPath(from input: String, defaultFolderName: String) -> String {
+        var normalized = input
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if normalized.isEmpty {
+            normalized = defaultFolderName
+        }
+        if !normalized.contains("/") {
+            normalized = wikiPathSlug(from: normalized)
+        }
+        if normalized.hasPrefix("wiki/") || normalized.hasPrefix("projects/") {
+            return normalized
+        }
+        return currentWikiRootRelativePath() + "/" + normalized
+    }
+
+    private func markdownTitle(from input: String) -> String {
+        let lastComponent = input
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/")
+            .last
+            .map(String.init) ?? "Untitled"
+        let title = (lastComponent as NSString).deletingPathExtension
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? "Untitled" : title.capitalized
+    }
+
+    private func wikiPathSlug(from value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+        let filtered = String(value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : " "
+        })
+        let slug = filtered
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace || $0 == "_" })
+            .joined(separator: "-")
+        return slug.isEmpty ? "untitled" : slug
+    }
+
+    private func pdfAnnotationDebugPayload(_ annotation: PDFAnnotationRecord) -> JSONValue {
+        .object([
+            "annotation_id": .string(annotation.id),
+            "paper_id": .string(annotation.paperID),
+            "kind": .string(annotation.kind.rawValue),
+            "page_index": .string(String(annotation.pageIndex)),
+            "bounds_count": .string(String(annotation.bounds.count)),
+            "selected_text_preview_present": .bool(!annotation.selectedTextPreview.isEmpty),
+            "note_present": .bool(annotation.noteText?.isEmpty == false)
+        ])
     }
 
     private func selectedAgentRetrievalSourceFileStatus() -> AgentRetrievalSelectedSourceFileStatus? {

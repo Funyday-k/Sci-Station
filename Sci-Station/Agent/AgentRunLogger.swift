@@ -87,11 +87,11 @@ public actor AgentSessionEventLogger {
         try append(event, logURL: root.fileURL(for: Self.relativePath))
     }
 
-    public func events(in workspace: ResearchWorkspace, sessionID: String? = nil, limit: Int = 200) throws -> [AgentSessionEvent] {
+    public func events(in workspace: ResearchWorkspace, sessionID: String? = nil, limit: Int? = nil) throws -> [AgentSessionEvent] {
         try events(logURL: workspace.fileURL(for: Self.relativePath), sessionID: sessionID, limit: limit)
     }
 
-    public func events(in root: ResearchRoot, sessionID: String? = nil, limit: Int = 200) throws -> [AgentSessionEvent] {
+    public func events(in root: ResearchRoot, sessionID: String? = nil, limit: Int? = nil) throws -> [AgentSessionEvent] {
         try events(logURL: root.fileURL(for: Self.relativePath), sessionID: sessionID, limit: limit)
     }
 
@@ -116,8 +116,11 @@ public actor AgentSessionEventLogger {
         }
     }
 
-    private func events(logURL: URL, sessionID: String?, limit: Int) throws -> [AgentSessionEvent] {
-        guard limit > 0, fileManager.fileExists(atPath: logURL.path) else {
+    private func events(logURL: URL, sessionID: String?, limit: Int?) throws -> [AgentSessionEvent] {
+        if let limit, limit <= 0 {
+            return []
+        }
+        guard fileManager.fileExists(atPath: logURL.path) else {
             return []
         }
 
@@ -134,6 +137,9 @@ public actor AgentSessionEventLogger {
                 sessionID.map { event.sessionID == $0 } ?? true
             }
 
+        guard let limit else {
+            return validEvents
+        }
         return Array(validEvents.suffix(limit))
     }
 }

@@ -994,7 +994,7 @@ public actor AgentLoopRunner {
         toolResults: [AgentToolResult],
         messages: [LLMChatMessage]
     ) -> String {
-        let wantsChinese = goal.range(of: #"\p{Han}"#, options: .regularExpression) != nil
+        let wantsChinese = Self.containsChinese(goal) || messages.contains { Self.containsChinese($0.content) }
         if toolResults.isEmpty {
             let contextSummary = latestContextSummary(from: messages)
             if wantsChinese {
@@ -1065,7 +1065,7 @@ public actor AgentLoopRunner {
     private nonisolated func latestContextSummary(from messages: [LLMChatMessage]) -> String {
         let latestContent = messages.reversed().compactMap { message in
             message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        }.first ?? "No visible context message was available."
+        }.first ?? "没有可见的上下文消息。"
         return summary(for: latestContent)
     }
 
@@ -1107,8 +1107,8 @@ public actor AgentLoopRunner {
             AgentSessionEvent(
                 sessionID: runID,
                 kind: .toolCallStarted,
-                summary: "Running \(call.toolName).",
-                payloadJSON: call.argumentsJSON
+                summary: "正在使用工具：\(call.toolName)",
+                payloadJSON: toolCallPayloadJSON(for: call)
             ),
             in: root
         )
@@ -1174,8 +1174,14 @@ public actor AgentLoopRunner {
     }
 
     private func appendAssistantEvent(_ message: LLMChatMessage, sessionID: String, root: ResearchRoot) async throws {
-        let summary = message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            ?? (message.toolCalls.isEmpty ? "Assistant response." : "Assistant requested tools: \(message.toolCalls.map(\.toolName).joined(separator: ", ")).")
+        let summary: String
+        if let visibleContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            summary = visibleContent
+        } else if !message.toolCalls.isEmpty || message.reasoningContent?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            summary = "工具调用准备就绪"
+        } else {
+            return
+        }
         try await appendEvent(
             AgentSessionEvent(
                 sessionID: sessionID,
@@ -1311,7 +1317,7 @@ public actor AgentLoopRunner {
         let pathText = targetPaths.isEmpty ? "no target path" : targetPaths.joined(separator: ", ")
         if call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" {
             let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Markdown draft"
-            return "Draft Markdown write (\(risk.rawValue)) -> \(pathText): \(title)"
+            return "Markdown 写入草稿（\(risk.rawValue)）-> \(pathText)：\(title)"
         }
         return "\(call.toolName) (\(risk.rawValue)) -> \(pathText)"
     }
@@ -1412,6 +1418,18 @@ public actor AgentLoopRunner {
         return "工具 \(result.toolName) 失败：\(summary(for: result.errorMessage ?? result.message))"
     }
 
+    private nonisolated func toolCallPayloadJSON(for call: AgentToolCall) -> String {
+        var object: [String: JSONValue]
+        if let value = try? JSONValue.parse(call.argumentsJSON), case let .object(arguments) = value {
+            object = arguments
+        } else {
+            object = ["arguments_json": .string(call.argumentsJSON)]
+        }
+        object["tool_call_id"] = .string(call.id)
+        object["tool_name"] = .string(call.toolName)
+        return JSONValue.object(object).canonicalJSON
+    }
+
     private nonisolated func distinctToolNames(from results: [AgentToolResult]) -> [String] {
         var seen: Set<String> = []
         var names: [String] = []
@@ -1420,6 +1438,10 @@ public actor AgentLoopRunner {
             names.append(result.toolName)
         }
         return names
+    }
+
+    private nonisolated static func containsChinese(_ text: String) -> Bool {
+        text.range(of: #"\p{Han}"#, options: .regularExpression) != nil
     }
 
     private nonisolated func paperID(at index: Int, in result: AgentToolResult) -> String? {

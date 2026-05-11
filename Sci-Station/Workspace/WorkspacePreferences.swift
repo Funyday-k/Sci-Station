@@ -28,7 +28,7 @@ public nonisolated struct WorkspaceRoute: Codable, Hashable, Sendable {
 }
 
 public struct WorkspacePreferences: Hashable, Sendable {
-    public nonisolated static let currentSchemaVersion = 2
+    public nonisolated static let currentSchemaVersion = 3
     public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
     public nonisolated static let defaultAgentChatFontSize = 14.0
     public nonisolated static let defaultAgentLoopBudget = AgentLoopOptions()
@@ -42,6 +42,10 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var pinnedTopLevelOrder: [String]
     public var projectSpacePinnedOrder: [String]
     public var lastRoute: WorkspaceRoute?
+    public var rightRailMode: RightRailMode
+    public var isGlobalAIPanelOpen: Bool
+    public var isProjectTreeExpanded: Bool
+    public var pinnedProjectIDs: [String]
     public var syncTodosToAppleReminders: Bool
     public var appLanguage: AppLanguagePreference
     public var agentChatFontSize: Double
@@ -66,6 +70,10 @@ public struct WorkspacePreferences: Hashable, Sendable {
         pinnedTopLevelOrder: [String] = Self.defaultPinnedTopLevelOrder,
         projectSpacePinnedOrder: [String] = [],
         lastRoute: WorkspaceRoute? = nil,
+        rightRailMode: RightRailMode = .inspector,
+        isGlobalAIPanelOpen: Bool = false,
+        isProjectTreeExpanded: Bool = true,
+        pinnedProjectIDs: [String] = [],
         syncTodosToAppleReminders: Bool = true,
         appLanguage: AppLanguagePreference = .system,
         agentChatFontSize: Double = Self.defaultAgentChatFontSize,
@@ -89,6 +97,10 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.pinnedTopLevelOrder = pinnedTopLevelOrder.isEmpty ? Self.defaultPinnedTopLevelOrder : pinnedTopLevelOrder
         self.projectSpacePinnedOrder = projectSpacePinnedOrder
         self.lastRoute = lastRoute
+        self.rightRailMode = rightRailMode
+        self.isGlobalAIPanelOpen = isGlobalAIPanelOpen
+        self.isProjectTreeExpanded = isProjectTreeExpanded
+        self.pinnedProjectIDs = pinnedProjectIDs
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
         self.appLanguage = appLanguage
         let normalizedFontSize = agentChatFontSize.isFinite ? agentChatFontSize : Self.defaultAgentChatFontSize

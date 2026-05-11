@@ -23,6 +23,13 @@ private struct CoreVerificationSuite {
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try workspaceContextSnapshotReflectsHomeRoute()
+        try workspaceContextSnapshotReflectsProjectPaperSelection()
+        try rightRailAutoHidesWhenNoContext()
+        try await rightRailModePersistsAcrossWorkspaceReload()
+        try toolbarPolicyShowsImportOnlyForLibraryContexts()
+        try toolbarPolicyHidesPaperActionsOnHome()
+        try await projectTreeArchiveFallsBackToProjectsRoute()
         try projectSpaceTabsBuilderHonorsAvailableModules()
         try projectSpaceTabsBuilderRespectsPinnedOrder()
         try projectSpaceTabsBuilderRemovesDisabledModuleTabs()
@@ -32,6 +39,7 @@ private struct CoreVerificationSuite {
         try routePersistenceFallsBackWhenProjectMissing()
         try routePersistenceFallsBackWhenModuleDisabled()
         try await workspacePreferencesSchemaVersion2BackwardCompat()
+        try await workspacePreferencesSchemaVersionForRightRail()
         try projectSpaceContentRouterMapsAllKnownTabs()
         try agentLoopBudgetDefaultsAreExpanded()
         try await appDebugEventLoggerPersistsRedactedEvents()
@@ -64,6 +72,9 @@ private struct CoreVerificationSuite {
         try await paperRepositoryDeletesPaperDirectory()
         try librarySearchMatchesExtendedMetadata()
         try await paperAnnotationsRepositoryRoundTripsAnnotations()
+        try await pdfAnnotationStoreRoundTripsSidecar()
+        try await pdfAnnotationStoreRejectsPathTraversal()
+        try await pdfAnnotationStoreHandlesMissingSidecar()
         try await paperRepositoryLoadsNestedCollectionPapers()
         try await tagRepositoryUpsertsAndDeletesDefinitions()
         try await todoRepositoryCreatesCompletesAndDeletesTodos()
@@ -81,6 +92,20 @@ private struct CoreVerificationSuite {
         try agentPlanParserExtractsJSONFromMarkdownFence()
         try agentPlanParserExtractsBalancedJSONBeforeTrailingText()
         try agentVisibleResponseExtractorHidesJSONEnvelope()
+        try agentVisibleResponseExtractorKeepsPartialStructuredText()
+        try agentVisibleModeMapsConversationAndPlanToPlan()
+        try agentVisibleModeMapsAssistantToAgent()
+        try agentInteractionModeRuntimePolicyMatchesVisibleModes()
+        try planModeRequiresReadableToolSet()
+        try agentTimelineProjectionKeepsChronologicalOrder()
+        try agentTimelineProjectionGroupsReasoningEvents()
+        try agentTimelineProjectionHidesHookResults()
+        try agentTimelineProjectionMergesToolStartAndFinish()
+        try toolCallRowsAreCollapsedByDefault()
+        try permissionRequestShowsAllowDenyOnlyByDefault()
+        try draftReviewDefaultsToProjectWikiWhenProjectContextExists()
+        try draftReviewFallsBackToGlobalWikiWithoutProject()
+        try timelinePaginationCanLoadEarlierEvents()
         try agentPlanParserWritebackFallbackKeepsMarkdownDraft()
         try await agentPlannerAcceptsPlainTextConversationResponse()
         try await agentPlannerAcceptsPlainTextAssistantFallback()
@@ -211,6 +236,12 @@ private struct CoreVerificationSuite {
         try wikiLinkParserExtractsTargets()
         try backlinkIndexFindsIncomingReferences()
         try await markdownRepositoryLoadsAndSavesDocuments()
+        try await paperMarkdownDirectLoadMergesIntoDocumentList()
+        try await markdownRepositoryCreatesPageInsideWikiRoot()
+        try await markdownRepositoryRejectsAbsolutePath()
+        try await markdownRepositoryRenamesSelectedPage()
+        try await markdownRepositoryArchivesPageInsteadOfHardDelete()
+        try markdownSaveStateTransitionsDirtySavingClean()
     }
 
     private func createWorkspaceInitializesExpectedStructure() async throws {
@@ -484,6 +515,121 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
     }
 
+    private func workspaceContextSnapshotReflectsHomeRoute() throws {
+        let snapshot = WorkspaceContextSnapshot(topLevelSectionID: WorkspaceRoute.Top.home.rawValue)
+
+        try expect(snapshot.topLevelSectionID == "home", "Home context snapshots should preserve the top-level route id.")
+        try expect(snapshot.displayTitle == "home", "Home context snapshots should use the top-level route as the fallback display title.")
+    }
+
+    private func workspaceContextSnapshotReflectsProjectPaperSelection() throws {
+        let snapshot = WorkspaceContextSnapshot(
+            topLevelSectionID: WorkspaceRoute.Top.projects.rawValue,
+            projectID: "project-a",
+            projectTitle: "Dark Matter Maps",
+            projectTabID: "papers",
+            selectedPaperID: "paper-1",
+            selectedPaperTitle: "A Compact Paper"
+        )
+
+        try expect(snapshot.projectID == "project-a", "Project snapshots should preserve the project id.")
+        try expect(snapshot.projectTabID == "papers", "Project snapshots should preserve the active project tab.")
+        try expect(snapshot.displayTitle == "Paper: A Compact Paper", "Paper selections should take precedence in context display titles.")
+    }
+
+    private func rightRailAutoHidesWhenNoContext() throws {
+        let homeRoute = WorkspaceRoute(top: .home)
+        let homeContext = WorkspaceContextSnapshot(topLevelSectionID: "home")
+        let libraryRoute = WorkspaceRoute(top: .library)
+        let libraryContext = WorkspaceContextSnapshot(topLevelSectionID: "library")
+        let aiPreferredMode = RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .ai)
+
+        try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .inspector) == .hidden, "Home should auto-hide the right rail when no useful inspector exists.")
+        try expect(RightRailPolicy.suggestedMode(route: libraryRoute, context: libraryContext, preferredMode: .hidden) == .inspector, "Library should auto-suggest the paper inspector rail.")
+        try expect(aiPreferredMode == .ai, "An open AI rail should stay open across route context updates.")
+    }
+
+    private func rightRailModePersistsAcrossWorkspaceReload() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("RightRailPreferencesWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var preferences = try await repository.load(in: workspace)
+        preferences.rightRailMode = .ai
+        preferences.isGlobalAIPanelOpen = true
+        preferences.isProjectTreeExpanded = false
+        preferences.pinnedProjectIDs = ["project-a", "project-b"]
+        try await repository.save(preferences, in: workspace)
+
+        let loaded = try await repository.load(in: workspace)
+        try expect(loaded.rightRailMode == .ai, "Workspace preferences should persist the right rail mode.")
+        try expect(loaded.isGlobalAIPanelOpen, "Workspace preferences should persist AI panel open state.")
+        try expect(!loaded.isProjectTreeExpanded, "Workspace preferences should persist project tree expansion state.")
+        try expect(loaded.pinnedProjectIDs == ["project-a", "project-b"], "Workspace preferences should persist pinned project ids.")
+    }
+
+    private func toolbarPolicyShowsImportOnlyForLibraryContexts() throws {
+        let libraryModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .library),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "library")
+        )
+        let projectPapersModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "papers"),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "project-a", projectTabID: "papers")
+        )
+        let calendarModel = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .calendar),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "calendar")
+        )
+
+        try expect(libraryModel.contains(.importPDF) && libraryModel.contains(.addByIdentifier), "Library toolbar policy should include paper import actions.")
+        try expect(projectPapersModel.contains(.importPDF) && projectPapersModel.contains(.addByIdentifier), "ProjectSpace Papers toolbar policy should include paper import actions.")
+        try expect(!calendarModel.contains(.importPDF) && !calendarModel.contains(.addByIdentifier), "Calendar toolbar policy should not include paper import actions.")
+    }
+
+    private func toolbarPolicyHidesPaperActionsOnHome() throws {
+        let model = ToolbarPolicy.resolve(
+            route: .home,
+            context: WorkspaceContextSnapshot(topLevelSectionID: "home")
+        )
+
+        try expect(!model.contains(.importPDF), "Home toolbar policy should hide Import PDF.")
+        try expect(!model.contains(.addByIdentifier), "Home toolbar policy should hide Add by Identifier.")
+        try expect(model.contains(.aiPanel), "Home toolbar policy should keep the global AI action.")
+        try expect(model.contains(.refresh), "Home toolbar policy should keep refresh available.")
+    }
+
+    private func projectTreeArchiveFallsBackToProjectsRoute() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("ProjectArchiveRouteWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let root = ResearchRoot(rootURL: rootURL)
+        let repository = ProjectRegistryRepository()
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let project = try await repository.createProject(named: "Archive Candidate", in: root)
+        var archivedProject = project
+        archivedProject.isArchived = true
+        let registry = try await repository.updateProject(archivedProject, in: root)
+        let activeProjectIDs = Set(registry.projects.filter { !$0.isArchived }.map(\.id))
+        let result = RoutePersistence.restoreResult(
+            candidate: WorkspaceRoute(top: .projects, projectID: project.id, projectTabID: "papers"),
+            activeProjectIDs: activeProjectIDs,
+            configuration: WorkspaceModuleRegistry.defaultConfiguration()
+        )
+
+        try expect(result.route == WorkspaceRoute(top: .projects), "Routes pointing at an archived project should fall back to the Projects list.")
+        try expect(result.fallbackReason == .projectMissing, "Archived projects should be treated as unavailable for route restoration.")
+    }
+
     private func projectSpaceTabsBuilderHonorsAvailableModules() throws {
         let tabs = ProjectSpaceTabsBuilder.tabs(
             for: "project-a",
@@ -593,9 +739,25 @@ private struct CoreVerificationSuite {
         try "schema_version: 1\nlibrary_visible_columns:\n  - \"title\"\nrecent_section: \"library\"\n".write(to: workspace.fileURL(for: WorkspacePreferencesRepository.relativePath), atomically: true, encoding: .utf8)
 
         let preferences = try await WorkspacePreferencesRepository().load(in: workspace)
-        try expect(preferences.schemaVersion == WorkspacePreferences.currentSchemaVersion, "Loading v1 preferences should normalize to schema version 2.")
+        try expect(preferences.schemaVersion == WorkspacePreferences.currentSchemaVersion, "Loading v1 preferences should normalize to the current schema version.")
         try expect(preferences.pinnedTopLevelOrder == WorkspacePreferences.defaultPinnedTopLevelOrder, "Loading v1 preferences should fill top-level pin defaults.")
         try expect(preferences.projectSpacePinnedOrder.isEmpty, "Loading v1 preferences should fill an empty ProjectSpace pin order.")
+    }
+
+    private func workspacePreferencesSchemaVersionForRightRail() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("PreferencesRightRailSchemaWorkspace", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let workspace = ResearchWorkspace(rootURL: rootURL)
+        try FileManager.default.createDirectory(at: workspace.fileURL(for: WorkspacePreferencesRepository.relativePath).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "schema_version: 2\nlibrary_visible_columns:\n  - \"title\"\nrecent_section: \"library\"\n".write(to: workspace.fileURL(for: WorkspacePreferencesRepository.relativePath), atomically: true, encoding: .utf8)
+
+        let preferences = try await WorkspacePreferencesRepository().load(in: workspace)
+        try expect(preferences.schemaVersion == WorkspacePreferences.currentSchemaVersion, "Loading pre-P43.5 preferences should normalize to the right-rail schema version.")
+        try expect(preferences.rightRailMode == .inspector, "Pre-P43.5 preferences should default to inspector mode for context-rich routes.")
+        try expect(!preferences.isGlobalAIPanelOpen, "Pre-P43.5 preferences should default the global AI panel to closed.")
+        try expect(preferences.isProjectTreeExpanded, "Pre-P43.5 preferences should default the project tree to expanded.")
+        try expect(preferences.pinnedProjectIDs.isEmpty, "Pre-P43.5 preferences should default pinned project ids to empty.")
     }
 
     private func projectSpaceContentRouterMapsAllKnownTabs() throws {
@@ -1506,6 +1668,86 @@ private struct CoreVerificationSuite {
         try expect(loadedAnnotations.contains("Important reading note."), "Paper annotations repository should round-trip annotations.md contents.")
     }
 
+    private func pdfAnnotationStoreRoundTripsSidecar() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+        let paperRepository = PaperRepository()
+        let store = PDFAnnotationStore()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("PDFAnnotationsWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await paperRepository.save(samplePaper(id: "pdf-sidecar-paper"), in: workspace)
+        let annotation = PDFAnnotationRecord(
+            id: "mark-1",
+            paperID: paper.id,
+            pageIndex: 2,
+            kind: .highlight,
+            bounds: [PDFAnnotationBounds(pageIndex: 2, x: 10, y: 20, width: 120, height: 18)],
+            selectedTextPreview: "Important result",
+            noteText: nil,
+            colorHex: "#F7D154",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        try await store.saveAnnotations([annotation], for: paper, in: workspace)
+        let loaded = try await store.loadAnnotations(for: paper, in: workspace)
+        let sidecarPath = try await store.sidecarRelativePath(for: paper, in: workspace)
+
+        try expect(loaded == [annotation], "PDFAnnotationStore should round-trip sidecar records.")
+        try expect(sidecarPath.hasSuffix("pdf_annotations.json"), "PDFAnnotationStore should write the expected sidecar filename.")
+    }
+
+    private func pdfAnnotationStoreRejectsPathTraversal() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: WorkspaceBookmarkStore(defaults: defaults))
+        let store = PDFAnnotationStore()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("PDFTraversalWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        var paper = samplePaper(id: "bad-path-paper")
+        paper.paperDirectoryRelativePath = "library/papers/../escape"
+
+        do {
+            _ = try await store.loadAnnotations(for: paper, in: workspace)
+            throw ValidationError(message: "PDFAnnotationStore should reject paper directory path traversal.")
+        } catch PDFAnnotationStoreError.invalidPaperDirectory {
+        }
+    }
+
+    private func pdfAnnotationStoreHandlesMissingSidecar() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: WorkspaceBookmarkStore(defaults: defaults))
+        let paperRepository = PaperRepository()
+        let store = PDFAnnotationStore()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("PDFMissingSidecarWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paper = try await paperRepository.save(samplePaper(id: "missing-sidecar-paper"), in: workspace)
+        let loaded = try await store.loadAnnotations(for: paper, in: workspace)
+
+        try expect(loaded.isEmpty, "PDFAnnotationStore should treat a missing sidecar as an empty migration state.")
+    }
+
     private func paperRepositoryLoadsNestedCollectionPapers() async throws {
         let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
         let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
@@ -2005,8 +2247,157 @@ private struct CoreVerificationSuite {
                 let plainText = "普通 Markdown 回复"
 
                 try expect(visibleText == "只显示这一段。", "Visible response extractor should return final_response_draft from JSON envelopes.")
-                try expect(AgentVisibleResponseExtractor.visibleText(from: partialJSON).isEmpty, "Visible response extractor should hide partial JSON while it is still streaming.")
+                try expect(AgentVisibleResponseExtractor.visibleText(from: partialJSON) == "still streaming", "Visible response extractor should recover partial structured text instead of hiding all output.")
                 try expect(AgentVisibleResponseExtractor.visibleText(from: plainText) == plainText, "Visible response extractor should preserve plain text responses.")
+            }
+
+            private func agentVisibleResponseExtractorKeepsPartialStructuredText() throws {
+                let partialResponse = "{\"response\": \"第一段已经生成，第二段"
+                let unknownEnvelope = "{\"tool_calls\": [], \"display\": \"fallback text\"}"
+
+                try expect(AgentVisibleResponseExtractor.visibleText(from: partialResponse).contains("第一段已经生成"), "Partial structured responses should keep the user-visible field while streaming or interrupted.")
+                try expect(AgentVisibleResponseExtractor.visibleText(from: unknownEnvelope) == "fallback text", "Structured envelopes with unfamiliar string keys should still expose useful text.")
+            }
+
+            private func agentVisibleModeMapsConversationAndPlanToPlan() throws {
+                try expect(AgentVisibleMode(interactionMode: .conversation) == .plan, "Conversation mode should appear as Plan in the UI adapter.")
+                try expect(AgentVisibleMode(interactionMode: .plan) == .plan, "Legacy plan mode should appear as Plan in the UI adapter.")
+                try expect(AgentInteractionMode.conversation.visibleMode == .plan, "Interaction mode adapter should preserve old conversation runs as visible Plan.")
+            }
+
+            private func agentVisibleModeMapsAssistantToAgent() throws {
+                try expect(AgentVisibleMode(interactionMode: .assistant) == .agent, "Assistant mode should appear as Agent in the UI adapter.")
+                try expect(AgentVisibleMode.agent.defaultInteractionMode == .assistant, "Visible Agent should use the assistant runtime behavior.")
+                try expect(AgentVisibleMode.plan.defaultInteractionMode == .conversation, "Visible Plan should keep the streaming conversation runtime behavior.")
+            }
+
+            private func agentInteractionModeRuntimePolicyMatchesVisibleModes() throws {
+                try expect(AgentInteractionMode.conversation.usesToolLoopRuntime, "Visible Plan should keep the tool-loop runtime for read-only research answers.")
+                try expect(AgentInteractionMode.assistant.usesToolLoopRuntime, "Visible Agent should execute read-only tools and pause only for approval-requiring writes.")
+                try expect(!AgentInteractionMode.plan.usesToolLoopRuntime, "Legacy Plan mode should remain planner-only.")
+            }
+
+            private func planModeRequiresReadableToolSet() throws {
+                let readTool = AgentToolDefinition(name: "search_papers", summary: "Search papers", inputSchema: "{}", risk: .readOnly)
+                let writeTool = AgentToolDefinition(name: "write_wiki_markdown", summary: "Write wiki", inputSchema: "{}", risk: .writesWorkspace)
+
+                try expect(AgentVisibleMode.plan.hasRequiredTools(availableTools: [readTool, writeTool], enabledToolNames: ["search_papers"]), "Plan mode should run when a read-only tool is enabled.")
+                try expect(!AgentVisibleMode.plan.hasRequiredTools(availableTools: [readTool, writeTool], enabledToolNames: ["write_wiki_markdown"]), "Plan mode should warn when no read-only tools are enabled.")
+                try expect(AgentVisibleMode.agent.hasRequiredTools(availableTools: [readTool, writeTool], enabledToolNames: ["write_wiki_markdown"]), "Agent mode should run when at least one tool is enabled.")
+            }
+
+            private func agentTimelineProjectionKeepsChronologicalOrder() throws {
+                let events = [
+                    AgentSessionEvent(id: "late", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 30), kind: .assistantMessage, summary: "late"),
+                    AgentSessionEvent(id: "early", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 10), kind: .userMessage, summary: "early"),
+                    AgentSessionEvent(id: "middle", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 20), kind: .toolCallStarted, summary: "middle")
+                ]
+
+                let items = AgentSessionTimelineItem.items(from: events, sessionIDs: ["run-a"], limit: nil)
+                try expect(items.map(\.eventID) == ["early", "middle", "late"], "Timeline projection should keep chronological order when loading full history.")
+            }
+
+            private func agentTimelineProjectionGroupsReasoningEvents() throws {
+                let item = AgentSessionTimelineItem.items(from: [
+                    AgentSessionEvent(id: "reasoning", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 10), kind: .reasoningSummary, summary: "Read papers and compare formulas.")
+                ]).first
+                let event = try require(item.map(AgentTimelineEvent.init(item:)), "Reasoning timeline item should project.")
+
+                try expect(event.kind == .reasoningGroup, "Reasoning summaries should project as reasoning groups.")
+                try expect(event.isCollapsedByDefault, "Reasoning groups should be collapsed by default.")
+                try expect(event.stepCount == 1, "Reasoning groups should report at least one visible step.")
+            }
+
+            private func agentTimelineProjectionHidesHookResults() throws {
+                let items = AgentSessionTimelineItem.items(from: [
+                    AgentSessionEvent(id: "user", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 10), kind: .userMessage, summary: "Hello"),
+                    AgentSessionEvent(id: "hook", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 11), kind: .hookResult, summary: "Stop validation reminder"),
+                    AgentSessionEvent(id: "assistant", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 12), kind: .assistantMessage, summary: "Hi")
+                ])
+                let events = AgentTimelineEvent.events(from: items)
+
+                try expect(events.map(\.sourceKind) == [.userMessage, .assistantMessage], "Hook results should stay in audit logs but not render in the AI Lab timeline.")
+            }
+
+            private func agentTimelineProjectionMergesToolStartAndFinish() throws {
+                let items = AgentSessionTimelineItem.items(from: [
+                    AgentSessionEvent(
+                        id: "start",
+                        sessionID: "run-a",
+                        createdAt: Date(timeIntervalSince1970: 10),
+                        kind: .toolCallStarted,
+                        summary: "Running read_paper.",
+                        payloadJSON: "{\"tool_call_id\":\"call-a\",\"tool_name\":\"read_paper\"}"
+                    ),
+                    AgentSessionEvent(
+                        id: "finish",
+                        sessionID: "run-a",
+                        createdAt: Date(timeIntervalSince1970: 11),
+                        kind: .toolCallCompleted,
+                        summary: "已使用工具：read_paper",
+                        payloadJSON: "{\"tool_call_id\":\"call-a\",\"tool_name\":\"read_paper\",\"summary\":\"ok\"}"
+                    )
+                ])
+                let events = AgentTimelineEvent.events(from: items)
+                let event = try require(events.first, "Merged tool event should exist.")
+
+                try expect(events.count == 1, "Tool start and finish should render as one timeline row.")
+                try expect(event.id == "tool-run-a-call-a", "Merged tool row should keep a stable id for in-place UI updates.")
+                try expect(event.status == .succeeded, "Merged tool row should update to the finish status.")
+                try expect(event.toolName == "read_paper", "Merged tool row should keep the tool name.")
+            }
+
+            private func toolCallRowsAreCollapsedByDefault() throws {
+                let item = AgentSessionTimelineItem.items(from: [
+                    AgentSessionEvent(id: "tool", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 10), kind: .toolCallCompleted, summary: "已使用工具：search_papers", payloadJSON: "{\"tool_name\":\"search_papers\"}")
+                ]).first
+                let event = try require(item.map(AgentTimelineEvent.init(item:)), "Tool timeline item should project.")
+
+                try expect(event.kind == .toolCall, "Tool events should project as compact tool rows.")
+                try expect(event.toolName == "search_papers", "Tool rows should expose the tool name.")
+                try expect(event.isCollapsedByDefault, "Tool rows should be collapsed by default.")
+            }
+
+            private func permissionRequestShowsAllowDenyOnlyByDefault() throws {
+                let item = AgentSessionTimelineItem.items(from: [
+                    AgentSessionEvent(id: "permission", sessionID: "run-a", createdAt: Date(timeIntervalSince1970: 10), kind: .permissionRequested, summary: "write_wiki_markdown needs approval.", payloadJSON: "{\"target_path\":\"wiki/test.md\"}")
+                ]).first
+                let event = try require(item.map(AgentTimelineEvent.init(item:)), "Permission timeline item should project.")
+
+                try expect(event.kind == .permissionRequest, "Permission events should project as inline permission requests.")
+                try expect(event.status == .waitingForApproval, "Permission requests should remain waiting until the user decides.")
+                try expect(event.targetPaths == ["wiki/test.md"], "Permission requests should expose target paths for review.")
+                try expect(event.isCollapsedByDefault, "Permission details should be collapsed by default.")
+            }
+
+            private func draftReviewDefaultsToProjectWikiWhenProjectContextExists() throws {
+                let path = AgentDraftReviewItem.defaultWikiTargetPath(projectID: "project-a", slug: "notes/summary")
+                try expect(path == "projects/project-a/wiki/summary.md", "Project draft review should default to the project's wiki folder.")
+            }
+
+            private func draftReviewFallsBackToGlobalWikiWithoutProject() throws {
+                let path = AgentDraftReviewItem.defaultWikiTargetPath(projectID: nil, slug: "summary.md")
+                try expect(path == "wiki/summary.md", "Workspace draft review should fall back to the global wiki folder.")
+            }
+
+            private func timelinePaginationCanLoadEarlierEvents() throws {
+                let events = (0..<180).map { index in
+                    AgentSessionEvent(
+                        id: "event-\(index)",
+                        sessionID: "run-a",
+                        createdAt: Date(timeIntervalSince1970: Double(index)),
+                        kind: .assistantMessage,
+                        summary: "message \(index)"
+                    )
+                }
+
+                let limited = AgentSessionTimelineItem.items(from: events, sessionIDs: ["run-a"], limit: 120)
+                let full = AgentSessionTimelineItem.items(from: events, sessionIDs: ["run-a"], limit: nil)
+
+                try expect(limited.count == 120, "Timeline projection should still support a page-size limit.")
+                try expect(limited.first?.eventID == "event-60", "Limited projection should return the newest page.")
+                try expect(full.count == 180, "Full timeline projection should be available for Load Earlier pagination.")
+                try expect(full.first?.eventID == "event-0", "Full projection should preserve earliest events.")
             }
 
             private func agentPlanParserWritebackFallbackKeepsMarkdownDraft() throws {
@@ -6013,6 +6404,108 @@ private struct CoreVerificationSuite {
 
         try expect(paperDocument.relativePath == paperMarkdownPath, "MarkdownRepository should load a specific converted paper.md outside wiki/ for preview/editing.")
         try expect(paperDocument.title == "Converted Demo Paper", "MarkdownRepository should parse frontmatter for external Markdown documents.")
+    }
+
+    private func paperMarkdownDirectLoadMergesIntoDocumentList() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: WorkspaceBookmarkStore(defaults: defaults))
+        let repository = MarkdownRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("PaperMarkdownDirectLoadWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let paperMarkdownPath = "library/papers/Uncategorized/direct-paper/paper.md"
+        let paperMarkdownURL = workspace.fileURL(for: paperMarkdownPath)
+        try FileManager.default.createDirectory(at: paperMarkdownURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Direct Paper\n".write(to: paperMarkdownURL, atomically: true, encoding: .utf8)
+
+        var documents = try await repository.loadDocuments(in: workspace)
+        try expect(!documents.contains(where: { $0.relativePath == paperMarkdownPath }), "paper.md outside wiki should not be part of the default wiki scan.")
+        let directDocument = try await repository.loadDocument(relativePath: paperMarkdownPath, in: workspace)
+        if !documents.contains(where: { $0.id == directDocument.id }) {
+            documents.append(directDocument)
+        }
+
+        try expect(documents.contains(where: { $0.relativePath == paperMarkdownPath }), "Direct paper.md load should be mergeable into the active document list without changing wiki scan semantics.")
+    }
+
+    private func markdownRepositoryCreatesPageInsideWikiRoot() async throws {
+        let fixture = try await markdownRepositoryFixture(named: "MarkdownCreateWorkspace")
+        defer { cleanupMarkdownRepositoryFixture(fixture) }
+
+        let document = try await fixture.repository.createDocument(relativePath: "wiki/notes/new-page", contents: "# New Page\n", in: fixture.workspace)
+
+        try expect(document.relativePath == "wiki/notes/new-page.md", "MarkdownRepository should default new pages to .md inside wiki root.")
+        try expect(FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: document.relativePath).path), "Created wiki page should exist on disk.")
+    }
+
+    private func markdownRepositoryRejectsAbsolutePath() async throws {
+        let fixture = try await markdownRepositoryFixture(named: "MarkdownAbsolutePathWorkspace")
+        defer { cleanupMarkdownRepositoryFixture(fixture) }
+
+        do {
+            _ = try await fixture.repository.createDocument(relativePath: "/wiki/escape.md", contents: "# Escape\n", in: fixture.workspace)
+            throw ValidationError(message: "MarkdownRepository should reject absolute paths.")
+        } catch MarkdownRepositoryError.invalidRelativePath {
+        }
+    }
+
+    private func markdownRepositoryRenamesSelectedPage() async throws {
+        let fixture = try await markdownRepositoryFixture(named: "MarkdownRenameWorkspace")
+        defer { cleanupMarkdownRepositoryFixture(fixture) }
+
+        let original = try await fixture.repository.createDocument(relativePath: "wiki/notes/original.md", contents: "# Original\n", in: fixture.workspace)
+        let renamed = try await fixture.repository.renameDocument(relativePath: original.relativePath, toFileName: "renamed.md", in: fixture.workspace)
+
+        try expect(renamed.relativePath == "wiki/notes/renamed.md", "MarkdownRepository should rename a selected page within its folder.")
+        try expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: original.relativePath).path), "Renaming should remove the old file path.")
+        try expect(FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: renamed.relativePath).path), "Renaming should create the new file path.")
+    }
+
+    private func markdownRepositoryArchivesPageInsteadOfHardDelete() async throws {
+        let fixture = try await markdownRepositoryFixture(named: "MarkdownArchiveWorkspace")
+        defer { cleanupMarkdownRepositoryFixture(fixture) }
+
+        let document = try await fixture.repository.createDocument(relativePath: "wiki/notes/archive-me.md", contents: "# Archive Me\n", in: fixture.workspace)
+        let trashPath = try await fixture.repository.archiveDocument(relativePath: document.relativePath, in: fixture.workspace, now: Date(timeIntervalSince1970: 1_777_000_000))
+
+        try expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: document.relativePath).path), "Archiving should move the active wiki file away from its original path.")
+        try expect(trashPath.hasPrefix(".sci-station/trash/wiki/"), "Archived wiki pages should move into the workspace trash area.")
+        try expect(FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: trashPath).path), "Archived wiki file should remain recoverable from trash.")
+    }
+
+    private func markdownSaveStateTransitionsDirtySavingClean() throws {
+        let states: [MarkdownSaveState] = [.clean, .dirty, .saving, .clean, .failed]
+        let data = try JSONEncoder().encode(states)
+        let decoded = try JSONDecoder().decode([MarkdownSaveState].self, from: data)
+
+        try expect(decoded == states, "MarkdownSaveState should preserve clean/dirty/saving/failed transitions through Codable.")
+    }
+
+    private struct MarkdownRepositoryFixture {
+        let workspace: ResearchWorkspace
+        let repository: MarkdownRepository
+        let suiteName: String
+        let workspaceRoot: URL
+    }
+
+    private func markdownRepositoryFixture(named name: String) async throws -> MarkdownRepositoryFixture {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: WorkspaceBookmarkStore(defaults: defaults))
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent(name, isDirectory: true)
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        return MarkdownRepositoryFixture(workspace: workspace, repository: MarkdownRepository(), suiteName: suiteName, workspaceRoot: workspaceRoot)
+    }
+
+    private func cleanupMarkdownRepositoryFixture(_ fixture: MarkdownRepositoryFixture) {
+        try? FileManager.default.removeItem(at: fixture.workspaceRoot.deletingLastPathComponent())
+        UserDefaults(suiteName: fixture.suiteName)?.removePersistentDomain(forName: fixture.suiteName)
     }
 
     private struct LoopWorkspaceFixture {

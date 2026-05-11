@@ -1189,8 +1189,9 @@ struct PDFReaderWorkspaceView: View {
                     workspace: workspace,
                     paper: paper,
                     initialPage: paper.lastReadPage,
-                    onPageChanged: appModel.saveSelectedPaperReadingState(lastPage:),
-                    onBackToLibrary: { appModel.selectSection(.library) },
+                    initialScaleFactor: paper.lastReadScale,
+                    onReadingStateChanged: appModel.saveSelectedPaperReadingState(lastPage:scaleFactor:),
+                    onBackToLibrary: appModel.returnFromPaperReader,
                     onOpenExternal: appModel.openSelectedPaperPDF
                 )
                 .padding(0)
@@ -1202,7 +1203,7 @@ struct PDFReaderWorkspaceView: View {
                     message: "Select a paper with a local PDF in Library, then switch back to PDF Reader mode.",
                     actionTitle: "Back to Library"
                 ) {
-                    appModel.selectSection(.library)
+                    appModel.returnFromPaperReader()
                 }
             } else {
                 PDFReaderEmptyStateView(

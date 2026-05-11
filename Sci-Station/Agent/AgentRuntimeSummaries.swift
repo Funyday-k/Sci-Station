@@ -52,26 +52,22 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
     public nonisolated static func items(
         from events: [AgentSessionEvent],
         sessionIDs: Set<String>? = nil,
-        limit: Int = 120
+        limit: Int? = nil
     ) -> [AgentSessionTimelineItem] {
         let filteredEvents = events.filter { event in
             sessionIDs.map { $0.contains(event.sessionID) } ?? true
         }
-        .sorted { first, second in
-            if first.createdAt == second.createdAt {
-                return first.id.localizedStandardCompare(second.id) == .orderedAscending
-            }
-            return first.createdAt < second.createdAt
-        }
+        .sorted(by: Self.sessionEventSort)
 
-        return Array(filteredEvents.suffix(max(0, limit))).map(AgentSessionTimelineItem.init(event:))
+        let limitedEvents = Self.limited(filteredEvents, limit: limit)
+        return limitedEvents.map(AgentSessionTimelineItem.init(event:))
     }
 
     public nonisolated static func items(
         from events: [AgentSessionEvent],
         runs: [AgentRun],
         sessionIDs: Set<String>? = nil,
-        limit: Int = 120
+        limit: Int? = nil
     ) -> [AgentSessionTimelineItem] {
         let filteredEvents = events.filter { event in
             sessionIDs.map { $0.contains(event.sessionID) } ?? true
@@ -87,14 +83,72 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
             .filter { !eventSessionIDs.contains($0.id) }
             .flatMap { projectedItems(from: $0) }
 
-        let combined = (eventItems + projectedTimelineItems).sorted { first, second in
-            if first.createdAt == second.createdAt {
-                return first.id.localizedStandardCompare(second.id) == .orderedAscending
-            }
+        let combined = (eventItems + projectedTimelineItems).sorted(by: Self.timelineItemSort)
+
+        return Self.limited(combined, limit: limit)
+    }
+
+    private nonisolated static func limited<T>(_ values: [T], limit: Int?) -> [T] {
+        guard let limit else {
+            return values
+        }
+        guard limit > 0 else {
+            return []
+        }
+        return Array(values.suffix(limit))
+    }
+
+    private nonisolated static func sessionEventSort(_ first: AgentSessionEvent, _ second: AgentSessionEvent) -> Bool {
+        if first.createdAt != second.createdAt {
             return first.createdAt < second.createdAt
         }
+        if first.sessionID != second.sessionID {
+            return first.sessionID.localizedStandardCompare(second.sessionID) == .orderedAscending
+        }
+        let firstPriority = eventKindSortPriority(first.kind)
+        let secondPriority = eventKindSortPriority(second.kind)
+        if firstPriority != secondPriority {
+            return firstPriority < secondPriority
+        }
+        return first.id.localizedStandardCompare(second.id) == .orderedAscending
+    }
 
-        return Array(combined.suffix(max(0, limit)))
+    private nonisolated static func timelineItemSort(_ first: AgentSessionTimelineItem, _ second: AgentSessionTimelineItem) -> Bool {
+        if first.createdAt != second.createdAt {
+            return first.createdAt < second.createdAt
+        }
+        if first.sessionID != second.sessionID {
+            return first.sessionID.localizedStandardCompare(second.sessionID) == .orderedAscending
+        }
+        let firstPriority = eventKindSortPriority(first.kind)
+        let secondPriority = eventKindSortPriority(second.kind)
+        if firstPriority != secondPriority {
+            return firstPriority < secondPriority
+        }
+        return first.id.localizedStandardCompare(second.id) == .orderedAscending
+    }
+
+    private nonisolated static func eventKindSortPriority(_ kind: AgentSessionEventKind) -> Int {
+        switch kind {
+        case .userMessage:
+            return 0
+        case .reasoningSummary:
+            return 10
+        case .assistantMessage:
+            return 20
+        case .toolCallStarted:
+            return 30
+        case .toolCallCompleted, .toolCallFailed:
+            return 40
+        case .artifactDraft, .permissionRequested:
+            return 50
+        case .permissionResolved:
+            return 60
+        case .runCancelled:
+            return 70
+        case .hookResult, .compactionSummary:
+            return 90
+        }
     }
 
     private nonisolated static func projectedItems(from run: AgentRun) -> [AgentSessionTimelineItem] {
@@ -178,6 +232,8 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
             return "AI 回复"
         case .reasoningSummary:
             return "思考摘要"
+        case .artifactDraft:
+            return "Artifact 草稿"
         case .runCancelled:
             return "已停止"
         case .permissionRequested:
@@ -195,6 +251,396 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         case .compactionSummary:
             return "压缩摘要"
         }
+    }
+}
+
+public nonisolated enum AgentTimelineStatus: String, Codable, Sendable {
+    case pending
+    case running
+    case waitingForApproval
+    case approved
+    case denied
+    case succeeded
+    case failed
+    case cancelled
+    case info
+}
+
+public nonisolated struct AgentTimelineEvent: Identifiable, Codable, Hashable, Sendable {
+    public nonisolated enum Kind: String, Codable, Sendable {
+        case userMessage
+        case assistantMessage
+        case reasoningGroup
+        case toolCall
+        case permissionRequest
+        case artifactDraft
+        case error
+        case systemNotice
+    }
+
+    public var id: String
+    public var eventID: String
+    public var runID: String
+    public var threadID: String?
+    public var kind: Kind
+    public var sourceKind: AgentSessionEventKind
+    public var timestamp: Date
+    public var title: String
+    public var summary: String
+    public var status: AgentTimelineStatus
+    public var targetPaths: [String]
+    public var payloadPreview: String?
+    public var toolName: String?
+    public var stepCount: Int
+    public var toolCount: Int
+    public var isCollapsedByDefault: Bool
+
+    public nonisolated init(
+        id: String,
+        eventID: String,
+        runID: String,
+        threadID: String? = nil,
+        kind: Kind,
+        sourceKind: AgentSessionEventKind,
+        timestamp: Date,
+        title: String,
+        summary: String,
+        status: AgentTimelineStatus,
+        targetPaths: [String] = [],
+        payloadPreview: String? = nil,
+        toolName: String? = nil,
+        stepCount: Int = 0,
+        toolCount: Int = 0,
+        isCollapsedByDefault: Bool = false
+    ) {
+        self.id = id
+        self.eventID = eventID
+        self.runID = runID
+        self.threadID = threadID
+        self.kind = kind
+        self.sourceKind = sourceKind
+        self.timestamp = timestamp
+        self.title = title
+        self.summary = summary
+        self.status = status
+        self.targetPaths = targetPaths
+        self.payloadPreview = payloadPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.toolName = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.stepCount = stepCount
+        self.toolCount = toolCount
+        self.isCollapsedByDefault = isCollapsedByDefault
+    }
+
+    public nonisolated init(item: AgentSessionTimelineItem) {
+        let mapped = Self.mapping(for: item.kind)
+        self.init(
+            id: item.id,
+            eventID: item.eventID,
+            runID: item.sessionID,
+            threadID: nil,
+            kind: mapped.kind,
+            sourceKind: item.kind,
+            timestamp: item.createdAt,
+            title: mapped.title ?? item.title,
+            summary: item.detail,
+            status: mapped.status,
+            targetPaths: Self.targetPaths(from: item.payloadPreview),
+            payloadPreview: item.payloadPreview,
+            toolName: Self.toolName(from: item),
+            stepCount: mapped.kind == .reasoningGroup ? 1 : 0,
+            toolCount: mapped.kind == .toolCall ? 1 : 0,
+            isCollapsedByDefault: mapped.collapsed
+        )
+    }
+
+    public nonisolated static func events(from items: [AgentSessionTimelineItem]) -> [AgentTimelineEvent] {
+        let events = items
+            .filter { $0.kind != .hookResult }
+            .filter { !Self.isHiddenToolOnlyAssistantItem($0) }
+            .map(AgentTimelineEvent.init(item:))
+            .sorted { first, second in
+                if first.timestamp == second.timestamp {
+                    return first.id.localizedStandardCompare(second.id) == .orderedAscending
+                }
+                return first.timestamp < second.timestamp
+            }
+        return compactToolCallEvents(events)
+    }
+
+    private nonisolated static func isHiddenToolOnlyAssistantItem(_ item: AgentSessionTimelineItem) -> Bool {
+        item.kind == .assistantMessage && item.detail == "工具调用准备就绪"
+    }
+
+    private nonisolated static func compactToolCallEvents(_ events: [AgentTimelineEvent]) -> [AgentTimelineEvent] {
+        var compacted: [AgentTimelineEvent] = []
+        var indexByKey: [String: Int] = [:]
+        var openKeysByFallback: [String: [String]] = [:]
+
+        for event in events {
+            guard event.kind == .toolCall else {
+                compacted.append(event)
+                continue
+            }
+
+            var normalizedEvent = event
+            let callKey = toolCallMergeKey(for: event)
+            if let callKey {
+                normalizedEvent.id = "tool-\(callKey)"
+            }
+            let fallbackKey = toolFallbackKey(for: event)
+
+            if let callKey, let index = indexByKey[callKey] {
+                compacted[index] = mergedToolEvent(compacted[index], with: normalizedEvent)
+                closeOpenFallback(fallbackKey, key: callKey, in: &openKeysByFallback)
+                continue
+            }
+
+            if event.status != .running,
+               let fallbackKey,
+               let openKey = openKeysByFallback[fallbackKey]?.last,
+               let index = indexByKey[openKey] {
+                compacted[index] = mergedToolEvent(compacted[index], with: normalizedEvent)
+                if let callKey {
+                    indexByKey[callKey] = index
+                }
+                closeOpenFallback(fallbackKey, key: openKey, in: &openKeysByFallback)
+                continue
+            }
+
+            let key = callKey ?? "fallback-\(event.id)"
+            indexByKey[key] = compacted.count
+            if event.status == .running, let fallbackKey {
+                openKeysByFallback[fallbackKey, default: []].append(key)
+            }
+            compacted.append(normalizedEvent)
+        }
+
+        return compacted
+    }
+
+    private nonisolated static func mergedToolEvent(
+        _ existing: AgentTimelineEvent,
+        with update: AgentTimelineEvent
+    ) -> AgentTimelineEvent {
+        var merged = existing
+        merged.eventID = update.eventID
+        merged.sourceKind = update.sourceKind
+        merged.title = update.title
+        merged.summary = update.summary.isEmpty ? existing.summary : update.summary
+        merged.status = update.status
+        merged.targetPaths = mergedTargetPaths(existing.targetPaths, update.targetPaths)
+        merged.payloadPreview = update.payloadPreview ?? existing.payloadPreview
+        merged.toolName = update.toolName ?? existing.toolName
+        merged.toolCount = max(existing.toolCount, update.toolCount, 1)
+        merged.isCollapsedByDefault = true
+        return merged
+    }
+
+    private nonisolated static func mergedTargetPaths(_ first: [String], _ second: [String]) -> [String] {
+        var seen = Set<String>()
+        return (first + second).filter { path in
+            seen.insert(path).inserted
+        }
+    }
+
+    private nonisolated static func closeOpenFallback(
+        _ fallbackKey: String?,
+        key: String,
+        in openKeysByFallback: inout [String: [String]]
+    ) {
+        guard let fallbackKey, var keys = openKeysByFallback[fallbackKey] else {
+            return
+        }
+        keys.removeAll { $0 == key }
+        openKeysByFallback[fallbackKey] = keys.isEmpty ? nil : keys
+    }
+
+    private nonisolated static func toolCallMergeKey(for event: AgentTimelineEvent) -> String? {
+        guard let payloadPreview = event.payloadPreview,
+              let callID = stringValue(for: ["tool_call_id", "toolCallID", "call_id", "callID"], in: payloadPreview) else {
+            return nil
+        }
+        return "\(event.runID)-\(callID)"
+    }
+
+    private nonisolated static func toolFallbackKey(for event: AgentTimelineEvent) -> String? {
+        guard let toolName = event.toolName?.lowercased() else {
+            return nil
+        }
+        return "\(event.runID)-\(toolName)"
+    }
+
+    private nonisolated static func mapping(
+        for sourceKind: AgentSessionEventKind
+    ) -> (kind: Kind, status: AgentTimelineStatus, collapsed: Bool, title: String?) {
+        switch sourceKind {
+        case .userMessage:
+            return (.userMessage, .succeeded, false, nil)
+        case .assistantMessage:
+            return (.assistantMessage, .succeeded, false, nil)
+        case .reasoningSummary:
+            return (.reasoningGroup, .info, true, "思考过程")
+        case .artifactDraft:
+            return (.artifactDraft, .waitingForApproval, true, "Wiki Draft Review")
+        case .runCancelled:
+            return (.error, .cancelled, false, nil)
+        case .toolCallStarted:
+            return (.toolCall, .running, true, nil)
+        case .toolCallCompleted:
+            return (.toolCall, .succeeded, true, nil)
+        case .toolCallFailed:
+            return (.toolCall, .failed, true, nil)
+        case .permissionRequested:
+            return (.permissionRequest, .waitingForApproval, true, "审批工具调用")
+        case .permissionResolved:
+            return (.permissionRequest, .approved, true, "审批结果")
+        case .hookResult, .compactionSummary:
+            return (.systemNotice, .info, true, nil)
+        }
+    }
+
+    private nonisolated static func toolName(from item: AgentSessionTimelineItem) -> String? {
+        if let payloadPreview = item.payloadPreview,
+           let payloadToolName = stringValue(for: ["tool_name", "toolName", "tool", "name"], in: payloadPreview) {
+            return payloadToolName
+        }
+
+        if let detailToolName = toolName(fromDetail: item.detail) {
+            return detailToolName
+        }
+
+        let separators = ["：", ":"]
+        for separator in separators {
+            if let range = item.detail.range(of: separator) {
+                let prefix = item.detail[..<range.lowerBound]
+                let words = prefix.split(separator: " ")
+                if let last = words.last {
+                    return String(last)
+                }
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func toolName(fromDetail detail: String) -> String? {
+        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = [
+            "Running ",
+            "Sidecar requested ",
+            "正在使用工具：",
+            "正在使用工具:",
+            "已使用工具：",
+            "已使用工具:"
+        ]
+        for prefix in prefixes where trimmed.hasPrefix(prefix) {
+            return sanitizedToolName(String(trimmed.dropFirst(prefix.count)))
+        }
+        if trimmed.hasPrefix("工具 ") {
+            return sanitizedToolName(String(trimmed.dropFirst("工具 ".count)))
+        }
+        if trimmed.hasPrefix("Tool call ") {
+            return sanitizedToolName(String(trimmed.dropFirst("Tool call ".count)))
+        }
+        return nil
+    }
+
+    private nonisolated static func sanitizedToolName(_ text: String) -> String? {
+        let token = text
+            .split { character in
+                character.isWhitespace || ".。:：,，".contains(character)
+            }
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return token?.isEmpty == false ? token : nil
+    }
+
+    private nonisolated static func targetPaths(from payloadPreview: String?) -> [String] {
+        guard let payloadPreview else {
+            return []
+        }
+        var paths: [String] = []
+        if let singlePath = stringValue(for: ["target_path", "draft_path", "proposed_path", "path"], in: payloadPreview) {
+            paths.append(singlePath)
+        }
+        if let value = try? JSONValue.parse(payloadPreview), case let .object(object) = value {
+            if let targetPaths = object["target_paths"]?.arrayValue {
+                paths.append(contentsOf: targetPaths.compactMap(\.stringValue))
+            }
+            if let modifiedPaths = object["modified_paths"]?.arrayValue {
+                paths.append(contentsOf: modifiedPaths.compactMap(\.stringValue))
+            }
+        }
+        var seen = Set<String>()
+        return paths.filter { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return false }
+            return seen.insert(trimmed).inserted
+        }
+    }
+
+    private nonisolated static func stringValue(for keys: [String], in payloadPreview: String) -> String? {
+        guard let value = try? JSONValue.parse(payloadPreview), case let .object(object) = value else {
+            return nil
+        }
+        for key in keys {
+            if let text = object[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                return text
+            }
+        }
+        return nil
+    }
+}
+
+public nonisolated enum DraftReviewStatus: String, Codable, Sendable {
+    case pending
+    case approved
+    case rejected
+    case rewriteRequested
+}
+
+public nonisolated struct AgentDraftReviewItem: Identifiable, Codable, Hashable, Sendable {
+    public var id: String
+    public var runID: String
+    public var toolCallID: String
+    public var targetPath: String
+    public var markdownPreview: String
+    public var diffPreview: String
+    public var sourceContextSummary: String
+    public var status: DraftReviewStatus
+
+    public nonisolated init(
+        id: String,
+        runID: String,
+        toolCallID: String,
+        targetPath: String,
+        markdownPreview: String,
+        diffPreview: String = "",
+        sourceContextSummary: String = "",
+        status: DraftReviewStatus = .pending
+    ) {
+        self.id = id
+        self.runID = runID
+        self.toolCallID = toolCallID
+        self.targetPath = targetPath
+        self.markdownPreview = markdownPreview
+        self.diffPreview = diffPreview
+        self.sourceContextSummary = sourceContextSummary
+        self.status = status
+    }
+
+    public nonisolated static func defaultWikiTargetPath(projectID: String?, slug: String = "ai-draft") -> String {
+        let normalizedSlug = slug
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/")
+            .last
+            .map(String.init) ?? "ai-draft"
+        let filename = normalizedSlug.hasSuffix(".md") ? normalizedSlug : "\(normalizedSlug).md"
+        if let projectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines), !projectID.isEmpty {
+            return "projects/\(projectID)/wiki/\(filename)"
+        }
+        return "wiki/\(filename)"
     }
 }
 
@@ -356,7 +802,7 @@ public nonisolated struct AgentPermissionDockItem: Identifiable, Hashable, Senda
         let pathText = targetPaths.joined(separator: ", ").nilIfEmpty ?? "workspace"
         if call.toolName == "write_markdown_plan" || call.toolName == "write_wiki_markdown" {
             let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty ?? "Markdown draft"
-            return "Draft Markdown write (\(risk.rawValue)) -> \(pathText): \(title)"
+            return "Markdown 写入草稿（\(risk.rawValue)）-> \(pathText)：\(title)"
         }
         return "\(call.toolName) (\(risk.rawValue)) -> \(pathText)"
     }

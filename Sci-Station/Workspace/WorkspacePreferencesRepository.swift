@@ -47,6 +47,11 @@ public actor WorkspacePreferencesRepository {
             lines.append("  project_tab_id: \(lastRoute.projectTabID.map(quoted) ?? "")")
             lines.append("  secondary_selection: \(lastRoute.secondarySelection.map(quoted) ?? "")")
         }
+        lines.append("right_rail_mode: \(quoted(preferences.rightRailMode.rawValue))")
+        lines.append("global_ai_panel_open: \(preferences.isGlobalAIPanelOpen)")
+        lines.append("project_tree_expanded: \(preferences.isProjectTreeExpanded)")
+        lines.append("pinned_project_ids:")
+        lines.append(contentsOf: preferences.pinnedProjectIDs.map { "  - \(quoted($0))" })
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
         lines.append("app_language: \(quoted(preferences.appLanguage.rawValue))")
         lines.append("agent_chat_font_size: \(preferences.agentChatFontSize)")
@@ -85,6 +90,10 @@ public actor WorkspacePreferencesRepository {
         var pinnedTopLevelOrder = WorkspacePreferences.defaultPinnedTopLevelOrder
         var projectSpacePinnedOrder: [String] = []
         var lastRoute: WorkspaceRoute?
+        var rightRailMode = RightRailMode.inspector
+        var isGlobalAIPanelOpen = false
+        var isProjectTreeExpanded = true
+        var pinnedProjectIDs: [String] = []
         var syncTodosToAppleReminders = true
         var appLanguage = AppLanguagePreference.system
         var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
@@ -131,6 +140,19 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed == "last_route:" {
                 let result = parseWorkspaceRoute(from: lines, start: cursor + 1)
                 lastRoute = result.value
+                cursor = result.nextIndex - 1
+            } else if trimmed.hasPrefix("right_rail_mode:") {
+                let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "right_rail_mode:", with: "").trimmingCharacters(in: .whitespaces)))
+                rightRailMode = value.flatMap(RightRailMode.init(rawValue:)) ?? .hidden
+            } else if trimmed.hasPrefix("global_ai_panel_open:") {
+                let value = trimmed.replacingOccurrences(of: "global_ai_panel_open:", with: "").trimmingCharacters(in: .whitespaces)
+                isGlobalAIPanelOpen = Bool(value) ?? false
+            } else if trimmed.hasPrefix("project_tree_expanded:") {
+                let value = trimmed.replacingOccurrences(of: "project_tree_expanded:", with: "").trimmingCharacters(in: .whitespaces)
+                isProjectTreeExpanded = Bool(value) ?? true
+            } else if trimmed == "pinned_project_ids:" {
+                let result = parseIndentedArray(from: lines, start: cursor + 1)
+                pinnedProjectIDs = result.values
                 cursor = result.nextIndex - 1
             } else if trimmed.hasPrefix("sync_todos_to_apple_reminders:") {
                 let value = trimmed.replacingOccurrences(of: "sync_todos_to_apple_reminders:", with: "").trimmingCharacters(in: .whitespaces)
@@ -188,6 +210,10 @@ public actor WorkspacePreferencesRepository {
             pinnedTopLevelOrder: pinnedTopLevelOrder,
             projectSpacePinnedOrder: projectSpacePinnedOrder,
             lastRoute: lastRoute,
+            rightRailMode: rightRailMode,
+            isGlobalAIPanelOpen: isGlobalAIPanelOpen,
+            isProjectTreeExpanded: isProjectTreeExpanded,
+            pinnedProjectIDs: pinnedProjectIDs,
             syncTodosToAppleReminders: syncTodosToAppleReminders,
             appLanguage: appLanguage,
             agentChatFontSize: agentChatFontSize,

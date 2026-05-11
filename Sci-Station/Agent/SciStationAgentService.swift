@@ -107,7 +107,8 @@ public actor SciStationAgentService {
         configuration: LLMConfiguration,
         apiKey: String,
         options: AgentExecutionOptions = AgentExecutionOptions(),
-        responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
+        responseDeltaHandler: (@Sendable (String) async -> Void)? = nil,
+        sessionEventHandler: (@Sendable (AgentSessionEvent) async -> Void)? = nil
     ) async throws -> AgentRun {
         let createdAt = Date()
         let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
@@ -124,6 +125,41 @@ public actor SciStationAgentService {
         if let deniedHook = hookResults.first(where: { $0.permissionDecision == .deny }) {
             throw AgentError.invalidArguments(deniedHook.message ?? "Prompt was blocked by an agent hook.")
         }
+        let toolDefinitions = await filteredToolDefinitions(allowedToolNames: options.allowedToolNames)
+
+        if let localRun = try await directLocalResponseRunIfNeeded(
+            goal: goal,
+            createdAt: createdAt,
+            workspace: workspace,
+            projects: projects,
+            toolDefinitions: toolDefinitions,
+            hookResults: hookResults,
+            mode: options.mode,
+            currentProjectID: currentProjectID,
+            runtimeSelector: options.runtimeSelection.rawValue,
+            enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            retryOfRunID: options.retryOfRunID,
+            root: resolvedRoot,
+            responseDeltaHandler: responseDeltaHandler
+        ) {
+            return localRun
+        }
+
+        if let directWritebackRun = try await directWikiWritebackRunIfNeeded(
+            goal: goal,
+            createdAt: createdAt,
+            conversationHistory: conversationHistory,
+            toolDefinitions: toolDefinitions,
+            currentProjectID: currentProjectID,
+            selectedPaperID: selectedPaperID,
+            runtimeSelector: options.runtimeSelection.rawValue,
+            enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            retryOfRunID: options.retryOfRunID,
+            root: resolvedRoot
+        ) {
+            return directWritebackRun
+        }
+
         let snapshot = try await contextBuilder.snapshot(
             in: workspace,
             root: resolvedRoot,
@@ -132,7 +168,6 @@ public actor SciStationAgentService {
             selectedPaperID: selectedPaperID,
             includedPaperIDs: includedPaperIDs
         )
-        let toolDefinitions = await filteredToolDefinitions(allowedToolNames: options.allowedToolNames)
 
         if options.loopPolicy == .readOnlyAutoApproveWritesRequireApproval,
            let chatProvider = provider as? any LLMChatProvider {
@@ -181,6 +216,9 @@ public actor SciStationAgentService {
             var runtimeEvents: [AgentRuntimeEventEnvelope] = []
             for try await envelope in stream {
                 runtimeEvents.append(envelope)
+                if let sessionEvent = runtimeSessionEvent(from: envelope) {
+                    await sessionEventHandler?(sessionEvent)
+                }
             }
             if let loopResult = await legacyRuntime.completedLoopResult(runID: runID) {
                 try await persistFallbackDraftIfNeeded(loopResult, projectID: currentProjectID, in: resolvedRoot)
@@ -288,6 +326,275 @@ public actor SciStationAgentService {
             return
         }
         try await draftRepository.saveDraft(text, projectID: projectID, threadID: nil, in: root)
+    }
+
+    private func directLocalResponseRunIfNeeded(
+        goal: String,
+        createdAt: Date,
+        workspace: ResearchWorkspace,
+        projects: [ResearchProject],
+        toolDefinitions: [AgentToolDefinition],
+        hookResults: [AgentHookResult],
+        mode: AgentRunMode,
+        currentProjectID: ResearchProject.ID?,
+        runtimeSelector: String?,
+        enabledToolNames: [String]?,
+        retryOfRunID: String?,
+        root: ResearchRoot,
+        responseDeltaHandler: (@Sendable (String) async -> Void)?
+    ) async throws -> AgentRun? {
+        guard let response = localResponse(
+            for: goal,
+            workspace: workspace,
+            projects: projects,
+            currentProjectID: currentProjectID,
+            toolDefinitions: toolDefinitions
+        ) else {
+            return nil
+        }
+        if let responseDeltaHandler {
+            await responseDeltaHandler(response)
+        }
+        let run = AgentRun(
+            id: "agent-run-\(UUID().uuidString.lowercased())",
+            goal: goal,
+            createdAt: createdAt,
+            completedAt: Date(),
+            mode: mode,
+            plan: AgentPlan(
+                title: "本地快速回复",
+                summary: response,
+                risk: "无需调用远程模型。",
+                steps: ["识别为无需远程模型的基础对话。"],
+                toolCalls: [],
+                finalResponseDraft: response
+            ),
+            toolResults: [],
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: runtimeSelector,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNames,
+            lifecycleState: .completed,
+            retryOfRunID: retryOfRunID
+        )
+        try await runLogger.append(run, in: root)
+        try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: hookResults, in: root)
+        return run
+    }
+
+    private nonisolated func localResponse(
+        for goal: String,
+        workspace: ResearchWorkspace,
+        projects: [ResearchProject],
+        currentProjectID: ResearchProject.ID?,
+        toolDefinitions: [AgentToolDefinition]
+    ) -> String? {
+        let normalized = normalizedLocalPrompt(goal)
+        guard isSimpleGreeting(normalized) || isSimpleAgentStatusPrompt(normalized) else {
+            return nil
+        }
+
+        let workspaceName = workspace.rootURL.lastPathComponent
+        let projectName = currentProjectID
+            .flatMap { projectID in projects.first(where: { $0.id == projectID })?.name.nilIfEmpty }
+            ?? workspaceName
+        let enabledToolCount = toolDefinitions.count
+        return ([
+            "你好，我在。Sci-Station Agent 已连接到当前研究工作区。",
+            "",
+            "- 当前范围：\(projectName)",
+            "- 工作区：\(workspaceName)",
+            "- 可用工具：\(enabledToolCount) 个",
+            "",
+            "你可以直接让我总结论文、查公式、整理 wiki 草稿或创建待办；需要读论文正文时我会使用工具，写入 wiki 前会等待你审批。"
+        ] as [String?])
+            .compactMap { $0 }
+            .joined(separator: "\n")
+    }
+
+    private nonisolated func normalizedLocalPrompt(_ goal: String) -> String {
+        goal
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "。.!！?？~～ "))
+    }
+
+    private nonisolated func isSimpleGreeting(_ normalized: String) -> Bool {
+        [
+            "你好", "您好", "嗨", "哈喽", "hello", "hi", "hey", "在吗", "早上好", "下午好", "晚上好"
+        ].contains(normalized)
+    }
+
+    private nonisolated func isSimpleAgentStatusPrompt(_ normalized: String) -> Bool {
+        [
+            "你是谁", "你能做什么", "agent状态", "agent 状态", "状态", "介绍一下你自己"
+        ].contains(normalized)
+    }
+
+    private func directWikiWritebackRunIfNeeded(
+        goal: String,
+        createdAt: Date,
+        conversationHistory: [LLMChatMessage],
+        toolDefinitions: [AgentToolDefinition],
+        currentProjectID: ResearchProject.ID?,
+        selectedPaperID: String?,
+        runtimeSelector: String?,
+        enabledToolNames: [String]?,
+        retryOfRunID: String?,
+        root: ResearchRoot
+    ) async throws -> AgentRun? {
+        guard isDirectWikiWritebackRequest(goal),
+              let toolName = preferredWikiWriteToolName(in: toolDefinitions),
+              let prior = priorAssistantDraft(from: conversationHistory) else {
+            return nil
+        }
+
+        let title = wikiDraftTitle(previousUserGoal: prior.previousUserGoal, selectedPaperID: selectedPaperID)
+        let wikiPrefix = currentProjectID.map { "projects/\($0)/wiki" } ?? "wiki"
+        let targetPath = selectedPaperID
+            .map { "\(wikiPrefix)/papers/\($0).md" }
+            ?? "\(wikiPrefix)/notes/\(slug(from: title)).md"
+        let arguments = JSONValue.object([
+            "title": .string(title),
+            "body": .string(prior.assistantMarkdown),
+            "relative_path": .string(targetPath)
+        ]).canonicalJSON
+        let call = AgentToolCall(
+            id: "call-wiki-writeback-\(UUID().uuidString.lowercased())",
+            toolName: toolName,
+            argumentsJSON: arguments
+        )
+        let run = AgentRun(
+            id: "agent-run-\(UUID().uuidString.lowercased())",
+            goal: goal,
+            createdAt: createdAt,
+            completedAt: nil,
+            mode: .planOnly,
+            plan: AgentPlan(
+                title: "等待 Wiki 写入审批",
+                summary: "已把上一条 AI 回复整理为 Wiki 草稿，等待批准写入 \(targetPath)。",
+                risk: "写入工作区前需要审批。",
+                steps: [
+                    "整理上一条 AI 回复为 Markdown 草稿。",
+                    "等待审批后写入 \(targetPath)。"
+                ],
+                toolCalls: [call],
+                finalResponseDraft: prior.assistantMarkdown
+            ),
+            toolResults: [],
+            currentProjectID: currentProjectID,
+            contextScope: AgentContextScope.inferred(projectID: currentProjectID),
+            projectID: currentProjectID,
+            runtimeSelector: runtimeSelector,
+            createdFromRoute: "ai_lab",
+            enabledToolNames: enabledToolNames,
+            lifecycleState: .waitingForApproval,
+            retryOfRunID: retryOfRunID
+        )
+        try await runLogger.append(run, in: root)
+        try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: [], in: root)
+        return run
+    }
+
+    private nonisolated struct PriorAssistantDraft {
+        var assistantMarkdown: String
+        var previousUserGoal: String?
+    }
+
+    private nonisolated func isDirectWikiWritebackRequest(_ goal: String) -> Bool {
+        let normalized = goal
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !normalized.isEmpty else {
+            return false
+        }
+        let mentionsWiki = normalized.contains("wiki") || normalized.contains("维基")
+        let mentionsWrite = [
+            "写进", "写入", "写到", "放进", "保存", "存到", "write", "save", "append"
+        ].contains { normalized.contains($0) }
+        guard mentionsWiki && mentionsWrite else {
+            return false
+        }
+        let referencesPriorAnswer = ["上面", "刚才", "这个内容", "这段", "上一条", "that", "it"].contains { normalized.contains($0) }
+        let requestsNewContent = ["总结", "概括", "摘要", "公式", "这个文章", "这篇", "论文", "文章", "paper", "summary", "summarize", "formula", "what", "什么"].contains { normalized.contains($0) }
+        if requestsNewContent && !referencesPriorAnswer {
+            return false
+        }
+        if normalized.count <= 48 {
+            return true
+        }
+        return referencesPriorAnswer
+    }
+
+    private nonisolated func preferredWikiWriteToolName(in tools: [AgentToolDefinition]) -> String? {
+        let toolNames = Set(tools.map(\.name))
+        if toolNames.contains("write_wiki_markdown") {
+            return "write_wiki_markdown"
+        }
+        if toolNames.contains("write_markdown_plan") {
+            return "write_markdown_plan"
+        }
+        return nil
+    }
+
+    private nonisolated func priorAssistantDraft(from history: [LLMChatMessage]) -> PriorAssistantDraft? {
+        guard let assistantIndex = history.indices.reversed().first(where: { index in
+            guard history[index].role == .assistant else {
+                return false
+            }
+            let content = history[index].content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !content.isEmpty
+                && !content.contains("模型没有返回最终回复")
+                && !content.localizedCaseInsensitiveContains("did not return a final response")
+        }) else {
+            return nil
+        }
+        let previousUserGoal = history[..<assistantIndex]
+            .reversed()
+            .first(where: { $0.role == .user })?
+            .content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        return PriorAssistantDraft(
+            assistantMarkdown: history[assistantIndex].content.trimmingCharacters(in: .whitespacesAndNewlines),
+            previousUserGoal: previousUserGoal
+        )
+    }
+
+    private nonisolated func wikiDraftTitle(previousUserGoal: String?, selectedPaperID: String?) -> String {
+        if let selectedPaperID = selectedPaperID?.nilIfEmpty {
+            return "Paper Note - \(selectedPaperID)"
+        }
+        let cleanedGoal = previousUserGoal?
+            .replacingOccurrences(of: "user_goal:", with: "", options: [.caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        guard let cleanedGoal else {
+            return "AI Wiki Note"
+        }
+        return String(cleanedGoal.prefix(60))
+    }
+
+    private nonisolated func slug(from title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let lowercased = title.lowercased()
+        var output = ""
+        var previousWasDash = false
+        for scalar in lowercased.unicodeScalars {
+            if allowed.contains(scalar) {
+                output.unicodeScalars.append(scalar)
+                previousWasDash = false
+            } else if !previousWasDash {
+                output.append("-")
+                previousWasDash = true
+            }
+        }
+        let slug = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "ai-wiki-note" : slug
     }
 
     public func resumePendingToolCall(
@@ -611,7 +918,7 @@ public actor SciStationAgentService {
         return run
     }
 
-    public func sessionEvents(in root: ResearchRoot, sessionID: String? = nil, limit: Int = 100) async throws -> [AgentSessionEvent] {
+    public func sessionEvents(in root: ResearchRoot, sessionID: String? = nil, limit: Int? = nil) async throws -> [AgentSessionEvent] {
         try await sessionEventLogger.events(in: root, sessionID: sessionID, limit: limit)
     }
 
@@ -675,16 +982,16 @@ public actor SciStationAgentService {
             case .allow:
                 continue
             case .ask:
-                decisionSummary = "Tool call \(call.toolName) is waiting for explicit approval."
+                decisionSummary = "工具 \(call.toolName) 正在等待审批。"
             case .deny:
-                decisionSummary = "Tool call \(call.toolName) is denied by \(decision.ruleID ?? "default policy")."
+                decisionSummary = "工具 \(call.toolName) 已被 \(decision.ruleID ?? "默认策略") 拒绝。"
             }
             try await sessionEventLogger.append(
                 AgentSessionEvent(
                     sessionID: run.id,
                     kind: eventKind,
                     summary: decisionSummary,
-                    payloadJSON: call.argumentsJSON
+                    payloadJSON: toolCallPayloadJSON(for: call)
                 ),
                 in: root
             )
@@ -715,7 +1022,7 @@ public actor SciStationAgentService {
                         sessionID: run.id,
                         kind: .permissionResolved,
                         summary: "Allowed \(call.toolName) once for this execution.",
-                        payloadJSON: call.argumentsJSON
+                        payloadJSON: toolCallPayloadJSON(for: call)
                     ),
                     in: root
                 )
@@ -739,8 +1046,8 @@ public actor SciStationAgentService {
                 AgentSessionEvent(
                     sessionID: run.id,
                     kind: .toolCallStarted,
-                    summary: "Running \(call.toolName).",
-                    payloadJSON: call.argumentsJSON
+                    summary: "正在使用工具：\(call.toolName)",
+                    payloadJSON: toolCallPayloadJSON(for: call)
                 ),
                 in: root
             )
@@ -752,11 +1059,44 @@ public actor SciStationAgentService {
                     sessionID: run.id,
                     kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
                     summary: result.succeeded ? "已使用工具：\(result.toolName)" : result.message,
-                    payloadJSON: result.payload?.canonicalJSON ?? result.modifiedPaths.joined(separator: "\n").nilIfEmpty
+                    payloadJSON: toolResultPayloadJSON(for: result)
                 ),
                 in: root
             )
         }
+    }
+
+    private nonisolated func toolCallPayloadJSON(for call: AgentToolCall) -> String {
+        var object: [String: JSONValue]
+        if let value = try? JSONValue.parse(call.argumentsJSON), case let .object(arguments) = value {
+            object = arguments
+        } else {
+            object = ["arguments_json": .string(call.argumentsJSON)]
+        }
+        object["tool_call_id"] = .string(call.id)
+        object["tool_name"] = .string(call.toolName)
+        return JSONValue.object(object).canonicalJSON
+    }
+
+    private nonisolated func toolResultPayloadJSON(for result: AgentToolResult) -> String? {
+        var object: [String: JSONValue]
+        if let payload = result.payload, case let .object(payloadObject) = payload {
+            object = payloadObject
+        } else {
+            object = [:]
+            if let payload = result.payload {
+                object["payload"] = payload
+            }
+        }
+        object["tool_call_id"] = .string(result.callID)
+        object["tool_name"] = .string(result.toolName)
+        if !result.modifiedPaths.isEmpty {
+            object["modified_paths"] = .array(result.modifiedPaths.map { .string($0) })
+        }
+        if let errorMessage = result.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            object["error"] = .string(errorMessage)
+        }
+        return object.isEmpty ? nil : JSONValue.object(object).canonicalJSON
     }
 
     private func reasoningSummary(
@@ -1118,110 +1458,124 @@ public actor SciStationAgentService {
         )
 
         for envelope in envelopes {
-            let event = envelope.event
-            switch event {
-            case let .artifactDraft(artifact):
-                let payloadData = try SidecarJSONCodec.encoder.encode(artifact)
-                let payload = String(data: payloadData, encoding: .utf8) ?? "{}"
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: .reasoningSummary,
-                        summary: "Artifact draft: \(artifact.title)",
-                        payloadJSON: payload
-                    ),
-                    in: root
-                )
-            case let .approvalRequired(approval):
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: .permissionRequested,
-                        summary: "Sidecar requested approval for \(approval.tool).",
-                        payloadJSON: approval.arguments.canonicalJSON
-                    ),
-                    in: root
-                )
-            case let .toolCallRequested(call):
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: .toolCallStarted,
-                        summary: "Sidecar requested \(call.tool).",
-                        payloadJSON: call.arguments.canonicalJSON
-                    ),
-                    in: root
-                )
-            case let .toolCallCompleted(call):
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: call.result.succeeded ? .toolCallCompleted : .toolCallFailed,
-                        summary: runtimeToolEventSummary(tool: call.tool, result: call.result),
-                        payloadJSON: call.result.content
-                    ),
-                    in: root
-                )
-            case let .finalResponse(response):
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: .assistantMessage,
-                        summary: response.markdown
-                    ),
-                    in: root
-                )
-            case let .runFailed(failure):
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: .assistantMessage,
-                        summary: "Run failed: \(failure.error.message)"
-                    ),
-                    in: root
-                )
-            case let .sidecarUnavailable(error), let .sidecarCrashed(error), let .fallbackToLegacyRuntime(error):
-                try await sessionEventLogger.append(
-                    AgentSessionEvent(
-                        sessionID: run.id,
-                        createdAt: envelope.timestamp,
-                        kind: .reasoningSummary,
-                        summary: runtimeEventSummary(event),
-                        payloadJSON: error.message
-                    ),
-                    in: root
-                )
-            default:
-                break
+            if let event = runtimeSessionEvent(from: envelope) {
+                try await sessionEventLogger.append(event, in: root)
             }
         }
     }
 
+    private nonisolated func runtimeSessionEvent(from envelope: AgentRuntimeEventEnvelope) -> AgentSessionEvent? {
+        switch envelope.event {
+        case let .artifactDraft(artifact):
+            let payloadData = try? SidecarJSONCodec.encoder.encode(artifact)
+            let payload = payloadData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: .artifactDraft,
+                summary: "Artifact 草稿：\(artifact.title)",
+                payloadJSON: payload
+            )
+        case let .approvalRequired(approval):
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: .permissionRequested,
+                summary: "工具 \(approval.tool) 需要审批。",
+                payloadJSON: runtimeToolCallPayloadJSON(tool: approval.tool, toolCallID: approval.toolCallID, arguments: approval.arguments)
+            )
+        case let .toolCallRequested(call):
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: .toolCallStarted,
+                summary: "正在使用工具：\(call.tool)",
+                payloadJSON: runtimeToolCallPayloadJSON(tool: call.tool, toolCallID: call.toolCallID, arguments: call.arguments)
+            )
+        case let .toolCallCompleted(call):
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: call.result.succeeded ? .toolCallCompleted : .toolCallFailed,
+                summary: runtimeToolEventSummary(tool: call.tool, result: call.result),
+                payloadJSON: (try? call.result.stableJSON()) ?? call.result.content
+            )
+        case let .finalResponse(response):
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: .assistantMessage,
+                summary: response.markdown
+            )
+        case let .runFailed(failure):
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: .assistantMessage,
+                summary: "运行失败：\(failure.error.message)"
+            )
+        case let .sidecarUnavailable(error), let .sidecarCrashed(error), let .fallbackToLegacyRuntime(error):
+            return AgentSessionEvent(
+                id: "runtime-\(envelope.id)",
+                sessionID: envelope.runID,
+                threadID: envelope.threadID,
+                createdAt: envelope.timestamp,
+                kind: .reasoningSummary,
+                summary: runtimeEventSummary(envelope.event),
+                payloadJSON: error.message
+            )
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated func runtimeToolCallPayloadJSON(
+        tool: String,
+        toolCallID: String,
+        arguments: AgentToolArguments
+    ) -> String {
+        var object: [String: JSONValue]
+        if case let .object(argumentsObject) = arguments.value {
+            object = argumentsObject
+        } else {
+            object = ["arguments": arguments.value]
+        }
+        object["tool_call_id"] = .string(toolCallID)
+        object["tool_name"] = .string(tool)
+        return JSONValue.object(object).canonicalJSON
+    }
+
     private nonisolated func runtimeEventSummary(_ event: AgentRuntimeEvent) -> String {
         switch event {
-        case let .runStarted(payload): return "run started: \(payload.goal)"
-        case let .nodeStarted(payload): return "node started: \(payload.name)"
-        case .assistantDelta: return "assistant delta"
-        case let .assistantMessage(payload): return "assistant message: \(payload.content.prefix(80))"
-        case let .toolCallRequested(payload): return "tool requested: \(payload.tool)"
-        case let .toolCallCompleted(payload): return "tool completed: \(payload.tool)"
-        case let .approvalRequired(payload): return "approval required: \(payload.tool)"
-        case let .artifactDraft(payload): return "artifact draft: \(payload.kind)"
-        case let .checkpointSaved(payload): return "checkpoint saved: \(payload.state.rawValue)"
-        case .finalResponse: return "final response"
-        case let .runCancelled(payload): return "run cancelled: \(payload.reason ?? "cancelled")"
-        case let .runFailed(payload): return "run failed: \(payload.error.message)"
-        case .sidecarStarting: return "sidecar starting"
-        case .sidecarReady: return "sidecar ready"
-        case let .sidecarUnavailable(payload): return "sidecar unavailable: \(payload.message)"
-        case let .sidecarCrashed(payload): return "sidecar crashed: \(payload.message)"
-        case let .fallbackToLegacyRuntime(payload): return "fallback to Swift Loop: \(payload.message)"
+        case let .runStarted(payload): return "运行开始：\(payload.goal)"
+        case let .nodeStarted(payload): return "节点开始：\(payload.name)"
+        case .assistantDelta: return "AI 正在生成"
+        case let .assistantMessage(payload): return "AI 消息：\(payload.content.prefix(80))"
+        case let .toolCallRequested(payload): return "请求工具：\(payload.tool)"
+        case let .toolCallCompleted(payload): return "工具完成：\(payload.tool)"
+        case let .approvalRequired(payload): return "需要审批：\(payload.tool)"
+        case let .artifactDraft(payload): return "Artifact 草稿：\(payload.kind)"
+        case let .checkpointSaved(payload): return "检查点已保存：\(payload.state.rawValue)"
+        case .finalResponse: return "最终回复"
+        case let .runCancelled(payload): return "运行已取消：\(payload.reason ?? "cancelled")"
+        case let .runFailed(payload): return "运行失败：\(payload.error.message)"
+        case .sidecarStarting: return "Sidecar 启动中"
+        case .sidecarReady: return "Sidecar 已就绪"
+        case let .sidecarUnavailable(payload): return "Sidecar 不可用：\(payload.message)"
+        case let .sidecarCrashed(payload): return "Sidecar 已崩溃：\(payload.message)"
+        case let .fallbackToLegacyRuntime(payload): return "已回退到 Swift Loop：\(payload.message)"
         }
     }
 

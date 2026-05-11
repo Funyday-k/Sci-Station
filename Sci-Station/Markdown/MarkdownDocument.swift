@@ -93,6 +93,77 @@ public struct MarkdownDocumentReference: Identifiable, Sendable {
     }
 }
 
+public nonisolated enum MarkdownSaveState: String, Codable, Hashable, Sendable {
+    case clean
+    case dirty
+    case saving
+    case failed
+}
+
+public nonisolated enum MarkdownFormattingAction: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case heading
+    case bold
+    case italic
+    case codeBlock
+    case link
+    case wikiLink
+    case taskCheckbox
+    case table
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .heading: return "Heading"
+        case .bold: return "Bold"
+        case .italic: return "Italic"
+        case .codeBlock: return "Code"
+        case .link: return "Link"
+        case .wikiLink: return "Wikilink"
+        case .taskCheckbox: return "Task"
+        case .table: return "Table"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .heading: return "textformat.size"
+        case .bold: return "bold"
+        case .italic: return "italic"
+        case .codeBlock: return "chevron.left.forwardslash.chevron.right"
+        case .link: return "link"
+        case .wikiLink: return "link.badge.plus"
+        case .taskCheckbox: return "checklist"
+        case .table: return "tablecells"
+        }
+    }
+
+    public var insertionText: String {
+        switch self {
+        case .heading:
+            return "## Heading"
+        case .bold:
+            return "**bold text**"
+        case .italic:
+            return "_italic text_"
+        case .codeBlock:
+            return "```\ncode\n```"
+        case .link:
+            return "[label](https://example.com)"
+        case .wikiLink:
+            return "[[Page Title]]"
+        case .taskCheckbox:
+            return "- [ ] Task"
+        case .table:
+            return """
+            | Column | Notes |
+            |---|---|
+            | Item | Detail |
+            """
+        }
+    }
+}
+
 public struct MarkdownDocument: Identifiable, Hashable, Sendable {
     public let fileURL: URL
     public let relativePath: String

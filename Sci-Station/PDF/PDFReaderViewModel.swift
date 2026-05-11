@@ -15,6 +15,7 @@ final class PDFReaderViewModel: ObservableObject {
         case search(String, UUID)
         case findNext(String, UUID)
         case findPrevious(String, UUID)
+        case createAnnotation(PDFAnnotationRecord.Kind, String?, UUID)
     }
 
     @Published var currentPage = 1
@@ -22,12 +23,17 @@ final class PDFReaderViewModel: ObservableObject {
     @Published var pageInput = "1"
     @Published var searchQuery = ""
     @Published var searchStatusMessage: String?
+    @Published var activeTextAnnotationMode: PDFAnnotationRecord.Kind?
+    @Published private(set) var selectedTextPreview: String?
+    @Published private(set) var selectedTextPageIndex: Int?
     @Published private(set) var pendingCommand: Command?
 
     let initialPage: Int?
+    let initialScaleFactor: Double?
 
-    init(initialPage: Int?) {
+    init(initialPage: Int?, initialScaleFactor: Double?) {
         self.initialPage = initialPage
+        self.initialScaleFactor = initialScaleFactor
         if let initialPage {
             currentPage = initialPage
             pageInput = String(initialPage)
@@ -68,6 +74,10 @@ final class PDFReaderViewModel: ObservableObject {
             return
         }
 
+        goToPage(page)
+    }
+
+    func goToPage(_ page: Int) {
         pendingCommand = .goToPage(page, UUID())
     }
 
@@ -98,5 +108,41 @@ final class PDFReaderViewModel: ObservableObject {
         }
 
         pendingCommand = .findPrevious(trimmedQuery, UUID())
+    }
+
+    func toggleHighlightAnnotationMode() {
+        toggleTextAnnotationMode(.highlight)
+    }
+
+    func toggleUnderlineAnnotationMode() {
+        toggleTextAnnotationMode(.underline)
+    }
+
+    func createNoteAnnotation(noteText: String?) {
+        pendingCommand = .createAnnotation(.note, noteText, UUID())
+    }
+
+    func updateSelection(preview: String?, pageIndex: Int?) {
+        selectedTextPreview = preview
+        selectedTextPageIndex = pageIndex
+    }
+
+    var hasTextSelection: Bool {
+        selectedTextPreview?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private func toggleTextAnnotationMode(_ kind: PDFAnnotationRecord.Kind) {
+        if activeTextAnnotationMode == kind {
+            activeTextAnnotationMode = nil
+            searchStatusMessage = nil
+            return
+        }
+
+        activeTextAnnotationMode = kind
+        if hasTextSelection {
+            pendingCommand = .createAnnotation(kind, nil, UUID())
+        } else {
+            searchStatusMessage = "Select text to apply \(kind.rawValue)."
+        }
     }
 }

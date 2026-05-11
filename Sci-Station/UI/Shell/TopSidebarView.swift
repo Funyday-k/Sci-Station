@@ -9,23 +9,29 @@ struct TopSidebarView: View {
         VStack(spacing: 12) {
             header
 
-            VStack(spacing: 3) {
-                ForEach(appModel.topSidebarItems) { item in
-                    TopSidebarRow(
-                        item: item,
-                        isSelected: isSelected(item)
-                    ) {
-                        appModel.selectTopLevelRoute(item.top)
-                    }
-                    .draggable(item.id)
-                    .dropDestination(for: String.self) { droppedIDs, _ in
-                        guard let droppedID = droppedIDs.first else { return false }
-                        appModel.moveTopSidebarItem(droppedID, before: item.id)
-                        return true
+            ScrollView {
+                VStack(spacing: 3) {
+                    ForEach(appModel.topSidebarItems) { item in
+                        TopSidebarRow(
+                            item: item,
+                            isSelected: isSelected(item)
+                        ) {
+                            appModel.selectTopLevelRoute(item.top)
+                        }
+                        .draggable(item.id)
+                        .dropDestination(for: String.self) { droppedIDs, _ in
+                            guard let droppedID = droppedIDs.first else { return false }
+                            appModel.moveTopSidebarItem(droppedID, before: item.id)
+                            return true
+                        }
+
+                        if item.top == .projects, workspace != nil {
+                            SidebarProjectTreeSection()
+                        }
                     }
                 }
+                .padding(.horizontal, 10)
             }
-            .padding(.horizontal, 10)
 
             if workspace != nil {
                 Button {
@@ -65,6 +71,27 @@ struct TopSidebarView: View {
         .onChange(of: appModel.workspacePreferences.pinnedTopLevelOrder) { _, _ in
             appModel.recordSidebarRender()
         }
+        .confirmationDialog(
+            "Archive project?",
+            isPresented: $appModel.isShowingProjectDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Archive Project", role: .destructive) {
+                appModel.confirmDeletePendingResearchProject()
+            }
+            Button("Cancel", role: .cancel) {
+                appModel.cancelDeleteResearchProject()
+            }
+        } message: {
+            Text(projectDeleteConfirmationMessage)
+        }
+    }
+
+    private var projectDeleteConfirmationMessage: String {
+        guard let project = appModel.projectPendingDeletion else {
+            return "This will archive the project and keep workspace files in place."
+        }
+        return "\(project.name) will be hidden from active Projects. Files under \(project.relativePath) stay in the workspace; physical deletion is not performed in this step."
     }
 
     private var header: some View {
@@ -108,6 +135,204 @@ struct TopSidebarView: View {
         case .settings:
             return .settings
         }
+    }
+}
+
+private enum SidebarProjectSortMode: String, CaseIterable, Identifiable {
+    case usage
+    case name
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .usage:
+            return "Usage"
+        case .name:
+            return "Name"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .usage:
+            return "clock.arrow.circlepath"
+        case .name:
+            return "textformat.abc"
+        }
+    }
+}
+
+private struct SidebarProjectTreeSection: View {
+    @EnvironmentObject private var appModel: AppViewModel
+    @State private var sortMode = SidebarProjectSortMode.usage
+
+    private var isExpanded: Bool {
+        appModel.workspacePreferences.isProjectTreeExpanded
+    }
+
+    private var sortedProjects: [ResearchProject] {
+        switch sortMode {
+        case .usage:
+            return appModel.activeResearchProjects.sorted { first, second in
+                if first.updatedAt == second.updatedAt {
+                    return first.name.localizedStandardCompare(second.name) == .orderedAscending
+                }
+                return first.updatedAt > second.updatedAt
+            }
+        case .name:
+            return appModel.activeResearchProjects.sorted { first, second in
+                first.name.localizedStandardCompare(second.name) == .orderedAscending
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        appModel.toggleProjectTreeExpansion()
+                    }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption)
+                        .frame(width: 14, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(isExpanded ? "Collapse project tree" : "Expand project tree")
+
+                Text("Projects")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Menu {
+                    ForEach(SidebarProjectSortMode.allCases) { mode in
+                        Button {
+                            sortMode = mode
+                        } label: {
+                            Label(mode.title, systemImage: sortMode == mode ? "checkmark" : mode.systemImage)
+                        }
+                    }
+                } label: {
+                    Image(systemName: sortMode.systemImage)
+                        .font(.caption)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .help("Sort projects by \(sortMode.title.lowercased())")
+
+                Text("\(appModel.activeResearchProjects.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.leading, 8)
+            .padding(.top, 2)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 3) {
+                    if sortedProjects.isEmpty {
+                        Text("No projects")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 22)
+                    } else {
+                        ForEach(sortedProjects) { project in
+                            SidebarProjectTreeRow(project: project)
+                        }
+                    }
+                }
+                .padding(.leading, 18)
+                .padding(.trailing, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.bottom, 4)
+    }
+}
+
+private struct SidebarProjectBucket: View {
+    let title: String
+    let projects: [ResearchProject]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+                .padding(.leading, 6)
+
+            ForEach(projects) { project in
+                SidebarProjectTreeRow(project: project)
+            }
+        }
+    }
+}
+
+private struct SidebarProjectTreeRow: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let project: ResearchProject
+    @State private var isHovering = false
+
+    private var isSelected: Bool {
+        appModel.selectedProjectSpaceProject?.id == project.id
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
+                .frame(width: 15)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(project.name)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+                Text(project.relativePath)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                appModel.toggleResearchProjectPin(project)
+            } label: {
+                Label(appModel.isResearchProjectPinned(project.id) ? "Unpin" : "Pin", systemImage: appModel.isResearchProjectPinned(project.id) ? "pin.fill" : "pin")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovering || appModel.isResearchProjectPinned(project.id) ? 1 : 0)
+            .help(appModel.isResearchProjectPinned(project.id) ? "Unpin project" : "Pin project")
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 7)
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            appModel.focusResearchProject(project.id)
+        }
+        .onTapGesture(count: 2) {
+            appModel.selectResearchProject(project.id)
+        }
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Open Project") { appModel.selectResearchProject(project.id) }
+            Button(appModel.isResearchProjectPinned(project.id) ? "Unpin" : "Pin") { appModel.toggleResearchProjectPin(project) }
+            Button(project.isCollapsed ? "Expand Sections" : "Collapse Sections") { appModel.toggleResearchProjectCollapse(project.id) }
+            Divider()
+            Button("Archive", role: .destructive) { appModel.confirmDeleteResearchProject(project) }
+            Button("Delete...", role: .destructive) { appModel.confirmDeleteResearchProject(project) }
+        }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.12) }
+        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
     }
 }
 

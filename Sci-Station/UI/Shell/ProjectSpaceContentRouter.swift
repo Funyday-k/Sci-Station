@@ -105,6 +105,8 @@ private struct TasksProjectView: View {
 }
 
 private struct CalendarProjectView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let workspace: ResearchWorkspace
     let project: ResearchProject
 
@@ -118,9 +120,39 @@ private struct CalendarProjectView: View {
                     Text("Project schedule for \(project.name).")
                         .foregroundStyle(.secondary)
                 }
-                TodoDashboardWidget(scope: .currentProject)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        DashboardCalendarView(
+                            selectedDate: Binding(
+                                get: { appModel.selectedDashboardDate },
+                                set: { appModel.selectDashboardDate($0) }
+                            ),
+                            projectID: project.id
+                        )
+                        .frame(minWidth: 420)
+
+                        TodoDashboardWidget(scope: .currentProject)
+                            .frame(minWidth: 340)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        DashboardCalendarView(
+                            selectedDate: Binding(
+                                get: { appModel.selectedDashboardDate },
+                                set: { appModel.selectDashboardDate($0) }
+                            ),
+                            projectID: project.id
+                        )
+
+                        TodoDashboardWidget(scope: .currentProject)
+                    }
+                }
             }
             .padding(24)
+        }
+        .onAppear {
+            appModel.focusResearchProject(project.id)
         }
     }
 }

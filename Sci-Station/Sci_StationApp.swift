@@ -36,11 +36,11 @@ struct Sci_StationApp: App {
             }
 
             CommandMenu("Paper") {
-                Button("Import PDF", action: appModel.importPDF)
+                Button("Import PDF", action: appModel.importPDFFromGlobalMenu)
                     .disabled(appModel.currentWorkspace == nil)
 
                 Button("Add by Identifier") {
-                    appModel.beginIdentifierImport()
+                    appModel.beginIdentifierImportFromGlobalMenu()
                 }
                     .disabled(appModel.currentWorkspace == nil)
 

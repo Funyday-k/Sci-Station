@@ -1040,9 +1040,11 @@ struct DashboardCalendarView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     @Binding var selectedDate: Date
+    var projectID: ResearchProject.ID? = nil
     @State private var displayedMonth = Calendar.current.startOfDay(for: Date())
     @State private var selectedAppleCategories: Set<String> = []
     @State private var selectedProjectCategories: Set<String> = []
+    @State private var includeAllProjects = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 1), count: 7)
     private let calendar = Calendar.current
@@ -1083,6 +1085,10 @@ struct DashboardCalendarView: View {
                 }
 
                 HStack(spacing: 10) {
+                    if projectID != nil {
+                        Toggle("All Projects", isOn: $includeAllProjects)
+                            .toggleStyle(.checkbox)
+                    }
                     categoryFilterMenu(
                         title: "Apple",
                         categories: appleCalendarCategories,
@@ -1121,7 +1127,7 @@ struct DashboardCalendarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Text("Calendar")
-                .font(.title2)
+                .font(.headline)
                 .fontWeight(.semibold)
         }
         .onAppear {
@@ -1152,6 +1158,9 @@ struct DashboardCalendarView: View {
 
     private func calendarItems(for date: Date) -> [CalendarDisplayItem] {
         let todoItems = appModel.todos.compactMap { todo -> CalendarDisplayItem? in
+            guard includesProject(todo.projectIDs) else {
+                return nil
+            }
             guard let dueDate = todo.dueDate else {
                 return nil
             }
@@ -1170,6 +1179,9 @@ struct DashboardCalendarView: View {
         }
 
         let workspaceEvents = appModel.calendarEvents.compactMap { event -> CalendarDisplayItem? in
+            guard includesProject(event.projectID.map { [$0] } ?? []) else {
+                return nil
+            }
             guard calendar.isDate(event.date, inSameDayAs: date) else {
                 return nil
             }
@@ -1188,6 +1200,9 @@ struct DashboardCalendarView: View {
         }
 
         let systemItems = appModel.systemScheduleItems.compactMap { item -> CalendarDisplayItem? in
+            guard projectID == nil || includeAllProjects else {
+                return nil
+            }
             guard calendar.isDate(item.displayDate, inSameDayAs: date) else {
                 return nil
             }
@@ -1248,11 +1263,23 @@ struct DashboardCalendarView: View {
     }
 
     private var appleCalendarCategories: [String] {
-        Array(Set(appModel.systemScheduleItems.map(\.categoryName))).sorted()
+        guard projectID == nil || includeAllProjects else {
+            return []
+        }
+        return Array(Set(appModel.systemScheduleItems.map(\.categoryName))).sorted()
     }
 
     private var projectCalendarCategories: [String] {
-        Array(Set(appModel.calendarEvents.map(\.category))).sorted()
+        return Array(Set(appModel.calendarEvents.filter { event in
+            includesProject(event.projectID.map { [$0] } ?? [])
+        }.map(\.category))).sorted()
+    }
+
+    private func includesProject(_ projectIDs: [ResearchProject.ID]) -> Bool {
+        guard let projectID, !includeAllProjects else {
+            return true
+        }
+        return projectIDs.contains(projectID)
     }
 
     private func includes(category: String, selected: Set<String>) -> Bool {
@@ -1330,10 +1357,10 @@ private struct CalendarDayCellView: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(date.formatted(.dateTime.day()))
-                        .font(.callout)
+                        .font(.caption)
                         .fontWeight(isToday ? .semibold : .regular)
                     if isToday {
                         Circle()
@@ -1343,12 +1370,12 @@ private struct CalendarDayCellView: View {
                     Spacer(minLength: 0)
                 }
 
-                ForEach(items.prefix(3)) { item in
+                ForEach(items.prefix(2)) { item in
                     CalendarItemPill(item: item)
                 }
 
-                if items.count > 3 {
-                    Text("+\(items.count - 3) more")
+                if items.count > 2 {
+                    Text("+\(items.count - 2) more")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1356,8 +1383,8 @@ private struct CalendarDayCellView: View {
 
                 Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
-            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+            .padding(6)
             .foregroundStyle(isCurrentMonth ? .primary : .secondary)
             .background(backgroundColor, in: RoundedRectangle(cornerRadius: 8))
         }
@@ -1389,7 +1416,7 @@ private struct CalendarItemPill: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 18, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 15, alignment: .leading)
         .padding(.horizontal, 4)
         .background(item.color.opacity(0.13), in: RoundedRectangle(cornerRadius: 4))
         .help("\(item.subtitle): \(item.title)")

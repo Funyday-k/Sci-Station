@@ -149,7 +149,10 @@ public actor SciStationToolHost {
             if let path = stringArgument("relative_path", in: call.argumentsJSON) {
                 return [path]
             }
-            return ["wiki/plans/*.md"]
+            if let projectID = context.currentProjectID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                return ["projects/\(projectID)/wiki/notes/*.md"]
+            }
+            return ["wiki/notes/*.md"]
         default:
             return definition.risk == .readOnly ? [] : ["workspace"]
         }

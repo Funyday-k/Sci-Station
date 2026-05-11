@@ -69,6 +69,7 @@ public struct PaperMetadataCodec {
             updatedAt: effectiveUpdatedAt,
             lastReadAt: reading["last_read_at"].flatMap(parseTimestamp(_:)),
             lastReadPage: reading["last_page"].flatMap(Int.init),
+            lastReadScale: reading["last_scale"].flatMap(Double.init),
             paperDirectoryRelativePath: directoryRelativePath,
             notesSummaryRelativePath: emptyToNil(notes["summary_file"]),
             annotationsRelativePath: "annotations.md"
@@ -130,6 +131,7 @@ public struct PaperMetadataCodec {
             "reading:",
             "  added: \(makeDayFormatter().string(from: paper.createdAt))",
             encodeNestedScalar(key: "last_page", value: paper.lastReadPage.map(String.init)),
+            encodeNestedScalar(key: "last_scale", value: paper.lastReadScale.map { String(format: "%.4f", $0) }),
             encodeNestedScalar(key: "last_read_at", value: paper.lastReadAt.map(timestampString(from:))),
             "  first_read:",
             "  deep_read:",

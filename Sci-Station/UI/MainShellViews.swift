@@ -636,12 +636,27 @@ private struct WorkspaceCalendarView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                DashboardCalendarView(selectedDate: Binding(
-                    get: { appModel.selectedDashboardDate },
-                    set: { appModel.selectDashboardDate($0) }
-                ))
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        DashboardCalendarView(selectedDate: Binding(
+                            get: { appModel.selectedDashboardDate },
+                            set: { appModel.selectDashboardDate($0) }
+                        ))
+                        .frame(minWidth: 420)
 
-                TodoDashboardWidget(scope: .global)
+                        TodoDashboardWidget(scope: .selectedDate)
+                            .frame(minWidth: 340)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        DashboardCalendarView(selectedDate: Binding(
+                            get: { appModel.selectedDashboardDate },
+                            set: { appModel.selectDashboardDate($0) }
+                        ))
+
+                        TodoDashboardWidget(scope: .selectedDate)
+                    }
+                }
             }
             .padding(24)
         }

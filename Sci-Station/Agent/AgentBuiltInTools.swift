@@ -457,8 +457,8 @@ public nonisolated struct WriteWikiMarkdownAgentTool: AgentTool {
         AgentToolDefinition(
             name: toolName,
             displayName: "Write Wiki Markdown",
-            summary: "Create or replace an approved Markdown document under wiki/plans, wiki/papers, wiki/notes, or wiki/projects.",
-            inputSchema: "{\"title\":\"string\",\"body\":\"markdown string\",\"relative_path\":\"wiki/plans/name.md, wiki/papers/<paper_id>.md, wiki/notes/name.md, or wiki/projects/name.md optional\"}",
+            summary: "Create or replace an approved Markdown document under the workspace wiki or the current project's wiki.",
+            inputSchema: "{\"title\":\"string\",\"body\":\"markdown string\",\"relative_path\":\"wiki/notes/name.md, wiki/papers/<paper_id>.md, projects/<project_id>/wiki/notes/name.md, or projects/<project_id>/wiki/papers/<paper_id>.md optional\"}",
             risk: .writesWorkspace,
             requiresConfirmation: true,
             permissionKey: "wiki.write",
@@ -514,7 +514,11 @@ public nonisolated struct WriteWikiMarkdownAgentTool: AgentTool {
             return normalizedPath
         }
 
-        return "wiki/plans/\(slug(from: title)).md"
+        let category = toolName == "write_markdown_plan" ? "plans" : "notes"
+        if let projectID = context.currentProjectID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            return "projects/\(projectID)/wiki/\(category)/\(slug(from: title)).md"
+        }
+        return "wiki/\(category)/\(slug(from: title)).md"
     }
 
     private nonisolated func validateWikiPath(_ path: String) throws {
@@ -524,9 +528,17 @@ public nonisolated struct WriteWikiMarkdownAgentTool: AgentTool {
               !path.hasPrefix("/"),
               !path.contains(".."),
               !hasEmptyComponent,
-              allowedPrefixes.contains(where: { path.hasPrefix($0) }) else {
-            throw AgentError.invalidArguments("relative_path must be a Markdown file under wiki/plans, wiki/papers, wiki/notes, or wiki/projects")
+              allowedPrefixes.contains(where: { path.hasPrefix($0) }) || isProjectWikiPath(path) else {
+            throw AgentError.invalidArguments("relative_path must be a Markdown file under wiki/plans, wiki/papers, wiki/notes, wiki/projects, or projects/<project_id>/wiki")
         }
+    }
+
+    private nonisolated func isProjectWikiPath(_ path: String) -> Bool {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        return components.count >= 4
+            && components[0] == "projects"
+            && !components[1].isEmpty
+            && components[2] == "wiki"
     }
 
     private func validatePaperWikiPath(_ path: String, context: AgentToolContext) async throws {
