@@ -149,7 +149,7 @@ struct HomeWidgetDashboardView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .glassEffect(.regular, in: Capsule())
+                    .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
             }
 
             Spacer(minLength: 0)
@@ -222,9 +222,9 @@ private struct HomeWidgetCard: View {
     }
 
     private var tintOpacity: Double {
-        if isDropTarget { return 0.12 }
-        if appModel.isEditingHomeLayout { return 0.06 }
-        if isHovering { return 0.045 }
+        if isDropTarget { return 0.08 }
+        if appModel.isEditingHomeLayout { return 0.045 }
+        if isHovering { return 0.035 }
         return 0.025
     }
 
@@ -265,7 +265,7 @@ private struct HomeWidgetCard: View {
         .padding(cardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .glassEffect(
-            .regular.tint(accent.opacity(tintOpacity)),
+            .regular.tint(appModel.liquidGlassTintColor.opacity(tintOpacity)),
             in: RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
         )
         .overlay(
@@ -353,6 +353,10 @@ private struct HomeWidgetCard: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if appModel.isEditingHomeLayout {
+                    editControls
+                        .transition(.opacity)
+                }
             }
         } else {
             HStack(spacing: 10) {
@@ -421,7 +425,7 @@ private struct HomeWidgetCard: View {
         .controlSize(.small)
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .glassEffect(.regular, in: Capsule())
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.05)), in: Capsule())
     }
 
     private func sizeIcon(_ size: HomeWidgetSize) -> String {
@@ -485,7 +489,7 @@ private struct HomeWidgetDragPreview: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .glassEffect(.regular.tint(accent.opacity(0.10)), in: Capsule())
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.07)), in: Capsule())
         .overlay(
             Capsule().stroke(accent.opacity(0.30), lineWidth: 0.8)
         )
@@ -537,7 +541,7 @@ private struct HomeWidgetGalleryView: View {
             }
         }
         .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
@@ -578,7 +582,7 @@ private struct HomeWidgetGalleryView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.035)), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.primary.opacity(0.04), lineWidth: 0.5)
@@ -629,7 +633,7 @@ private struct HomeWidgetEmptyState: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
@@ -882,9 +886,9 @@ private struct CalendarWidgetContent: View {
         case .small:
             MiniCalendarIcon()
         case .medium:
-            CompactMonthGrid(showsSelection: false, density: .compact)
+            CompactMonthGrid(showsSelection: true, density: .compact, showsAgenda: true, agendaLimit: 2)
         case .large:
-            CompactMonthGrid(showsSelection: true, density: .comfortable)
+            CompactMonthGrid(showsSelection: true, density: .comfortable, showsAgenda: true, agendaLimit: 4)
         case .wide:
             DashboardCalendarView(selectedDate: Binding(
                 get: { appModel.selectedDashboardDate },
@@ -928,7 +932,7 @@ private struct MiniCalendarIcon: View {
                 }
             }
 
-            let cellHeight: CGFloat = 14
+            let cellHeight: CGFloat = 12
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 1), count: 7),
                 spacing: 1
@@ -953,7 +957,9 @@ private struct MiniCalendarIcon: View {
         }()
         ZStack {
             if isToday {
-                Circle().fill(Color.red)
+                Circle()
+                    .fill(Color.red.opacity(0.88))
+                    .frame(width: 12, height: 12)
             }
             Text("\(day)")
                 .font(.system(size: 8, weight: isToday ? .bold : .regular))
@@ -1020,6 +1026,8 @@ private struct CompactMonthGrid: View {
 
     let showsSelection: Bool
     let density: CalendarDensity
+    let showsAgenda: Bool
+    let agendaLimit: Int
 
     private var calendar: Calendar { Calendar.current }
 
@@ -1028,11 +1036,19 @@ private struct CompactMonthGrid: View {
             header
             weekdayRow
             datesGrid
-            if density == .comfortable {
+            if showsAgenda {
+                selectedAgenda
+            } else if density == .comfortable {
                 selectionFooter
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            appModel.refreshSystemSchedule(around: displayedMonth)
+        }
+        .onChange(of: displayedMonth) { _, newMonth in
+            appModel.refreshSystemSchedule(around: newMonth)
+        }
     }
 
     private var header: some View {
@@ -1098,6 +1114,7 @@ private struct CompactMonthGrid: View {
         let isToday = calendar.isDateInToday(date)
         let isSelected = showsSelection && calendar.isDate(date, inSameDayAs: appModel.selectedDashboardDate)
         let dayNumber = calendar.component(.day, from: date)
+        let items = calendarItems(for: date)
 
         let textColor: Color = {
             if !isInMonth { return .secondary.opacity(0.45) }
@@ -1111,22 +1128,82 @@ private struct CompactMonthGrid: View {
                 appModel.selectDashboardDate(date)
             }
         } label: {
-            ZStack {
-                if isSelected {
-                    Circle().fill(Color.red)
-                } else if isToday && !isSelected {
-                    Circle().stroke(Color.red.opacity(0.55), lineWidth: 1)
+            VStack(spacing: density == .compact ? 1 : 2) {
+                ZStack {
+                    if isSelected {
+                        Circle()
+                            .fill(Color.red.opacity(0.88))
+                            .frame(width: dayCircleDiameter, height: dayCircleDiameter)
+                    } else if isToday && !isSelected {
+                        Circle()
+                            .stroke(Color.red.opacity(0.55), lineWidth: 1)
+                            .frame(width: dayCircleDiameter, height: dayCircleDiameter)
+                    }
+                    Text("\(dayNumber)")
+                        .font(.system(size: density == .compact ? 10 : 12, weight: isToday || isSelected ? .semibold : .regular))
+                        .foregroundStyle(textColor)
+                        .monospacedDigit()
                 }
-                Text("\(dayNumber)")
-                    .font(.system(size: density == .compact ? 10 : 12, weight: isToday || isSelected ? .semibold : .regular))
-                    .foregroundStyle(textColor)
-                    .monospacedDigit()
+                .frame(width: dayCircleDiameter, height: dayCircleDiameter)
+                .frame(maxWidth: .infinity)
+
+                eventDots(items)
             }
-            .frame(maxWidth: .infinity, minHeight: density == .compact ? 18 : 24)
-            .contentShape(Circle())
+            .frame(maxWidth: .infinity, minHeight: dayCellHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!showsSelection)
+    }
+
+    @ViewBuilder
+    private func eventDots(_ items: [HomeCalendarAgendaItem]) -> some View {
+        if items.isEmpty {
+            Color.clear.frame(height: eventDotSize)
+        } else {
+            HStack(spacing: 2) {
+                ForEach(Array(items.prefix(3))) { item in
+                    Circle()
+                        .fill(item.tint.opacity(0.88))
+                        .frame(width: eventDotSize, height: eventDotSize)
+                }
+            }
+            .frame(height: eventDotSize)
+        }
+    }
+
+    private var selectedAgenda: some View {
+        let items = calendarItems(for: appModel.selectedDashboardDate)
+        return VStack(alignment: .leading, spacing: density == .compact ? 4 : 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "calendar.circle")
+                    .foregroundStyle(Color.red.opacity(0.78))
+                Text(footerText)
+                    .font(density == .compact ? .caption.weight(.medium) : .callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if items.count > agendaLimit {
+                    Text("+\(items.count - agendaLimit)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if items.isEmpty {
+                Text(appModel.localized("暂无日程", "No schedule"))
+                    .font(density == .compact ? .caption : .callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                VStack(alignment: .leading, spacing: density == .compact ? 3 : 5) {
+                    ForEach(Array(items.prefix(agendaLimit))) { item in
+                        HomeCalendarAgendaRow(item: item, density: density)
+                    }
+                }
+            }
+        }
+        .padding(.top, density == .compact ? 1 : 3)
     }
 
     private var selectionFooter: some View {
@@ -1175,10 +1252,149 @@ private struct CompactMonthGrid: View {
         let leadingDays = (weekdayOfFirst - firstWeekday + 7) % 7
         let gridStart = calendar.date(byAdding: .day, value: -leadingDays, to: monthStart) ?? monthStart
 
-        let totalCells = density == .compact ? 35 : 42
-        return (0..<totalCells).compactMap { offset in
+        return (0..<42).compactMap { offset in
             calendar.date(byAdding: .day, value: offset, to: gridStart)
         }
+    }
+
+    private var dayCellHeight: CGFloat {
+        density == .compact ? 24 : 32
+    }
+
+    private var dayCircleDiameter: CGFloat {
+        density == .compact ? 16 : 20
+    }
+
+    private var eventDotSize: CGFloat {
+        density == .compact ? 3 : 4
+    }
+
+    private func calendarItems(for date: Date) -> [HomeCalendarAgendaItem] {
+        let todoItems = appModel.todos.compactMap { todo -> HomeCalendarAgendaItem? in
+            guard let dueDate = todo.dueDate, calendar.isDate(dueDate, inSameDayAs: date) else {
+                return nil
+            }
+            return HomeCalendarAgendaItem(
+                id: "todo-\(todo.id)",
+                title: todo.title,
+                detail: todo.status == .done ? appModel.localized("已完成", "Done") : todo.priority.label,
+                systemImage: "checklist",
+                tint: color(for: todo.priority),
+                sortDate: dueDate,
+                sortPriority: prioritySortValue(for: todo.priority)
+            )
+        }
+
+        let workspaceItems = appModel.calendarEvents.compactMap { event -> HomeCalendarAgendaItem? in
+            guard calendar.isDate(event.date, inSameDayAs: date) else {
+                return nil
+            }
+            return HomeCalendarAgendaItem(
+                id: "workspace-\(event.id)",
+                title: event.title,
+                detail: event.category,
+                systemImage: "calendar",
+                tint: event.colorHex.map(Color.init(hex:)) ?? .accentColor,
+                sortDate: event.date,
+                sortPriority: 10
+            )
+        }
+
+        let systemItems = appModel.systemScheduleItems.compactMap { item -> HomeCalendarAgendaItem? in
+            guard calendar.isDate(item.displayDate, inSameDayAs: date) else {
+                return nil
+            }
+            return HomeCalendarAgendaItem(
+                id: "system-\(item.id)",
+                title: item.title,
+                detail: [item.kind.label, item.categoryName].filter { !$0.isEmpty }.joined(separator: " / "),
+                systemImage: item.kind.systemImage,
+                tint: color(for: item),
+                sortDate: item.displayDate,
+                sortPriority: item.isHoliday ? 5 : (item.kind == .event ? 20 : 30)
+            )
+        }
+
+        return (todoItems + workspaceItems + systemItems).sorted { first, second in
+            if first.sortDate == second.sortDate {
+                return first.sortPriority < second.sortPriority
+            }
+            return first.sortDate < second.sortDate
+        }
+    }
+
+    private func color(for priority: Priority) -> Color {
+        switch priority {
+        case .low:
+            return .gray
+        case .medium:
+            return .accentColor
+        case .high:
+            return .orange
+        case .urgent:
+            return .red
+        }
+    }
+
+    private func color(for item: SystemScheduleItem) -> Color {
+        if let colorHex = item.calendarColorHex {
+            return Color(hex: colorHex)
+        }
+        if item.isHoliday {
+            return .red
+        }
+        return item.kind == .event ? .blue : .orange
+    }
+
+    private func prioritySortValue(for priority: Priority) -> Int {
+        switch priority {
+        case .urgent:
+            return 0
+        case .high:
+            return 1
+        case .medium:
+            return 2
+        case .low:
+            return 3
+        }
+    }
+}
+
+private struct HomeCalendarAgendaItem: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let systemImage: String
+    let tint: Color
+    let sortDate: Date
+    let sortPriority: Int
+}
+
+private struct HomeCalendarAgendaRow: View {
+    let item: HomeCalendarAgendaItem
+    let density: CalendarDensity
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: item.systemImage)
+                .font(.system(size: density == .compact ? 9 : 10, weight: .semibold))
+                .foregroundStyle(item.tint.opacity(0.9))
+                .frame(width: density == .compact ? 14 : 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(.system(size: density == .compact ? 11 : 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if !item.detail.isEmpty && density == .comfortable {
+                    Text(item.detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: density == .compact ? 17 : 22, alignment: .leading)
     }
 }
 

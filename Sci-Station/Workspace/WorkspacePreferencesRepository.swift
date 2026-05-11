@@ -55,6 +55,7 @@ public actor WorkspacePreferencesRepository {
         lines.append(contentsOf: preferences.pinnedProjectIDs.map { "  - \(quoted($0))" })
         lines.append("sync_todos_to_apple_reminders: \(preferences.syncTodosToAppleReminders)")
         lines.append("app_language: \(quoted(preferences.appLanguage.rawValue))")
+        lines.append("liquid_glass_tint: \(quoted(preferences.liquidGlassTint.rawValue))")
         lines.append("agent_chat_font_size: \(preferences.agentChatFontSize)")
         lines.append("agent_runtime_selection: \(quoted(preferences.agentRuntimeSelection.rawValue))")
         lines.append("agent_sidecar_disabled_for_workspace: \(preferences.isSidecarDisabledForWorkspace)")
@@ -98,6 +99,7 @@ public actor WorkspacePreferencesRepository {
         var pinnedProjectIDs: [String] = []
         var syncTodosToAppleReminders = true
         var appLanguage = AppLanguagePreference.system
+        var liquidGlassTint = LiquidGlassTintPreference.system
         var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
         var agentRuntimeSelection = AgentRuntimeSelection.autoFallback
         var isSidecarDisabledForWorkspace = false
@@ -166,6 +168,9 @@ public actor WorkspacePreferencesRepository {
             } else if trimmed.hasPrefix("app_language:") {
                 let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "app_language:", with: "").trimmingCharacters(in: .whitespaces)))
                 appLanguage = value.flatMap(AppLanguagePreference.init(rawValue:)) ?? .system
+            } else if trimmed.hasPrefix("liquid_glass_tint:") {
+                let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "liquid_glass_tint:", with: "").trimmingCharacters(in: .whitespaces)))
+                liquidGlassTint = value.flatMap(LiquidGlassTintPreference.init(rawValue:)) ?? .system
             } else if trimmed.hasPrefix("agent_chat_font_size:") {
                 let value = trimmed.replacingOccurrences(of: "agent_chat_font_size:", with: "").trimmingCharacters(in: .whitespaces)
                 agentChatFontSize = Double(value) ?? WorkspacePreferences.defaultAgentChatFontSize
@@ -223,6 +228,7 @@ public actor WorkspacePreferencesRepository {
             pinnedProjectIDs: pinnedProjectIDs,
             syncTodosToAppleReminders: syncTodosToAppleReminders,
             appLanguage: appLanguage,
+            liquidGlassTint: liquidGlassTint,
             agentChatFontSize: agentChatFontSize,
             agentRuntimeSelection: agentRuntimeSelection,
             isSidecarDisabledForWorkspace: isSidecarDisabledForWorkspace,

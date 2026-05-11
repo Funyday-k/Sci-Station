@@ -84,7 +84,7 @@ struct HomeView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .glassEffect(.regular, in: Capsule())
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
     }
 
     private var hero: some View {
@@ -99,7 +99,7 @@ struct HomeView: View {
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 11)
                 .padding(.vertical, 6)
-                .glassEffect(.regular, in: Capsule())
+                .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: Capsule())
 
                 Text(workspace.displayName)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -220,6 +220,8 @@ struct HomeView: View {
 }
 
 struct HomeBadge: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let systemImage: String
     let text: String
     var tint: Color = .secondary
@@ -235,7 +237,7 @@ struct HomeBadge: View {
         .font(.caption.weight(.medium))
         .padding(.horizontal, 11)
         .padding(.vertical, 6)
-        .glassEffect(.regular.tint(tint.opacity(0.05)), in: Capsule())
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
     }
 }
 
@@ -260,7 +262,7 @@ struct HomeUnavailableView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(.orange.opacity(0.10)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .glassEffect(.regular.tint(.orange.opacity(0.06)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.orange.opacity(0.25), lineWidth: 0.5)
@@ -272,39 +274,13 @@ struct HomeUnavailableView: View {
 /// Kept intentionally low-saturation so cards read as the primary content.
 struct HomeAuroraBackground: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appModel: AppViewModel
 
     var body: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
-
-            GeometryReader { proxy in
-                ZStack {
-                    blob(
-                        color: .accentColor.opacity(colorScheme == .dark ? 0.16 : 0.10),
-                        size: max(proxy.size.width, proxy.size.height) * 0.7
-                    )
-                    .offset(x: -proxy.size.width * 0.30, y: -proxy.size.height * 0.40)
-
-                    blob(
-                        color: Color.purple.opacity(colorScheme == .dark ? 0.12 : 0.07),
-                        size: max(proxy.size.width, proxy.size.height) * 0.6
-                    )
-                    .offset(x: proxy.size.width * 0.42, y: -proxy.size.height * 0.18)
-
-                    blob(
-                        color: Color.teal.opacity(colorScheme == .dark ? 0.10 : 0.06),
-                        size: max(proxy.size.width, proxy.size.height) * 0.65
-                    )
-                    .offset(x: proxy.size.width * 0.18, y: proxy.size.height * 0.42)
-                }
-                .blur(radius: 120)
-            }
+            appModel.liquidGlassTintColor.opacity(colorScheme == .dark ? 0.055 : 0.035)
+            Color.white.opacity(colorScheme == .dark ? 0.015 : 0.045)
         }
-    }
-
-    private func blob(color: Color, size: CGFloat) -> some View {
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
     }
 }

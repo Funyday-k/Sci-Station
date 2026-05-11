@@ -44,6 +44,44 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                GroupBox(appModel.localized("液态玻璃", "Liquid Glass")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker(appModel.localized("色调", "Tint"), selection: Binding(
+                            get: { appModel.workspacePreferences.liquidGlassTint },
+                            set: appModel.updateLiquidGlassTintPreference
+                        )) {
+                            ForEach(LiquidGlassTintPreference.allCases) { option in
+                                Text(appModel.liquidGlassTintLabel(for: option)).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 260)
+
+                        HStack(spacing: 8) {
+                            ForEach(LiquidGlassTintPreference.allCases) { option in
+                                Button {
+                                    appModel.updateLiquidGlassTintPreference(option)
+                                } label: {
+                                    Circle()
+                                        .fill(AppViewModel.color(for: option).opacity(option == .system ? 0.72 : 0.88))
+                                        .frame(width: 18, height: 18)
+                                        .overlay(
+                                            Circle()
+                                                .strokeBorder(
+                                                    appModel.workspacePreferences.liquidGlassTint == option ? Color.primary.opacity(0.65) : Color.primary.opacity(0.12),
+                                                    lineWidth: appModel.workspacePreferences.liquidGlassTint == option ? 2 : 0.8
+                                                )
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .help(appModel.liquidGlassTintLabel(for: option))
+                            }
+                        }
+
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox(appModel.t(.settingsResearchRoot)) {
                     VStack(alignment: .leading, spacing: 12) {
                         TextField(appModel.t(.settingsWorkspaceName), text: $workspaceName)

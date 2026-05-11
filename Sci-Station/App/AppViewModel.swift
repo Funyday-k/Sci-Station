@@ -3782,6 +3782,57 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var liquidGlassTintColor: Color {
+        Self.color(for: workspacePreferences.liquidGlassTint)
+    }
+
+    func liquidGlassTintLabel(for preference: LiquidGlassTintPreference) -> String {
+        switch preference {
+        case .system:
+            return localized("系统强调色", "System Accent")
+        case .blue:
+            return localized("雾蓝", "Mist Blue")
+        case .mint:
+            return localized("薄荷", "Mint")
+        case .lavender:
+            return localized("淡紫", "Lavender")
+        case .rose:
+            return localized("浅玫瑰", "Soft Rose")
+        case .amber:
+            return localized("浅琥珀", "Soft Amber")
+        case .graphite:
+            return localized("石墨", "Graphite")
+        }
+    }
+
+    func updateLiquidGlassTintPreference(_ preference: LiquidGlassTintPreference) {
+        updateWorkspacePreferences { preferences in
+            preferences.liquidGlassTint = preference
+        }
+        recordAppDebugEvent("appearance.liquid_glass_tint.change", payload: .object([
+            "tint": .string(preference.rawValue)
+        ]))
+    }
+
+    static func color(for preference: LiquidGlassTintPreference) -> Color {
+        switch preference {
+        case .system:
+            return .accentColor
+        case .blue:
+            return Color(red: 0.36, green: 0.55, blue: 0.82)
+        case .mint:
+            return Color(red: 0.34, green: 0.66, blue: 0.57)
+        case .lavender:
+            return Color(red: 0.58, green: 0.50, blue: 0.78)
+        case .rose:
+            return Color(red: 0.78, green: 0.45, blue: 0.55)
+        case .amber:
+            return Color(red: 0.78, green: 0.58, blue: 0.28)
+        case .graphite:
+            return Color(red: 0.48, green: 0.51, blue: 0.55)
+        }
+    }
+
     func updateAgentChatFontSize(_ fontSize: Double) {
         updateWorkspacePreferences { preferences in
             preferences.agentChatFontSize = fontSize

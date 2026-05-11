@@ -493,6 +493,7 @@ private struct CoreVerificationSuite {
         )
         preferences.updateLibraryVisibleColumns(from: "title,authors,bibtex")
         preferences.appLanguage = .simplifiedChinese
+        preferences.liquidGlassTint = .mint
         preferences.agentChatFontSize = 17
         preferences.agentDebugLoggingEnabled = true
         preferences.agentLoopBudget = AgentLoopOptions(
@@ -523,6 +524,7 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.defaultCollectionPath == "Dark-Matter", "Workspace preferences should preserve default collection.")
         try expect(loadedPreferences.recentSection == "library", "Workspace preferences should preserve recent section.")
         try expect(loadedPreferences.appLanguage == .simplifiedChinese, "Workspace preferences should preserve app language.")
+        try expect(loadedPreferences.liquidGlassTint == .mint, "Workspace preferences should preserve Liquid Glass tint.")
         try expect(loadedPreferences.agentChatFontSize == 17, "Workspace preferences should preserve AI Lab chat font size.")
         try expect(loadedPreferences.agentLoopBudget == preferences.agentLoopBudget, "Workspace preferences should preserve AI Lab loop budget.")
         try expect(loadedPreferences.agentDebugLoggingEnabled == true, "Workspace preferences should preserve debug logging mode.")
@@ -1068,6 +1070,7 @@ private struct CoreVerificationSuite {
 
         let preferences = try await WorkspacePreferencesRepository().load(in: workspace)
         try expect(preferences.schemaVersion == WorkspacePreferences.currentSchemaVersion, "Loading v1 preferences should normalize to the current schema version.")
+        try expect(preferences.liquidGlassTint == .system, "Loading old preferences should default Liquid Glass tint to system accent.")
         try expect(preferences.pinnedTopLevelOrder == WorkspacePreferences.defaultPinnedTopLevelOrder, "Loading v1 preferences should fill top-level pin defaults.")
         try expect(preferences.projectSpacePinnedOrder.isEmpty, "Loading v1 preferences should fill an empty ProjectSpace pin order.")
     }

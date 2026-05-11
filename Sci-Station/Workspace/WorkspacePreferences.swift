@@ -28,7 +28,7 @@ public nonisolated struct WorkspaceRoute: Codable, Hashable, Sendable {
 }
 
 public struct WorkspacePreferences: Hashable, Sendable {
-    public nonisolated static let currentSchemaVersion = 4
+    public nonisolated static let currentSchemaVersion = 5
     public nonisolated static let defaultLibraryVisibleColumns = ["title", "authors", "year", "tags", "projects", "collection"]
     public nonisolated static let defaultAgentChatFontSize = 14.0
     public nonisolated static let defaultAgentLoopBudget = AgentLoopOptions()
@@ -49,6 +49,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
     public var pinnedProjectIDs: [String]
     public var syncTodosToAppleReminders: Bool
     public var appLanguage: AppLanguagePreference
+    public var liquidGlassTint: LiquidGlassTintPreference
     public var agentChatFontSize: Double
     public var agentRuntimeSelection: AgentRuntimeSelection
     public var isSidecarDisabledForWorkspace: Bool
@@ -78,6 +79,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
         pinnedProjectIDs: [String] = [],
         syncTodosToAppleReminders: Bool = true,
         appLanguage: AppLanguagePreference = .system,
+        liquidGlassTint: LiquidGlassTintPreference = .system,
         agentChatFontSize: Double = Self.defaultAgentChatFontSize,
         agentRuntimeSelection: AgentRuntimeSelection = .autoFallback,
         isSidecarDisabledForWorkspace: Bool = false,
@@ -106,6 +108,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
         self.pinnedProjectIDs = pinnedProjectIDs
         self.syncTodosToAppleReminders = syncTodosToAppleReminders
         self.appLanguage = appLanguage
+        self.liquidGlassTint = liquidGlassTint
         let normalizedFontSize = agentChatFontSize.isFinite ? agentChatFontSize : Self.defaultAgentChatFontSize
         self.agentChatFontSize = min(max(normalizedFontSize, 11), 22)
         self.agentRuntimeSelection = agentRuntimeSelection
@@ -132,6 +135,18 @@ public struct WorkspacePreferences: Hashable, Sendable {
             .filter { !$0.isEmpty }
         libraryVisibleColumns = columns.isEmpty ? Self.defaultLibraryVisibleColumns : columns
     }
+}
+
+public enum LiquidGlassTintPreference: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
+    case system
+    case blue
+    case mint
+    case lavender
+    case rose
+    case amber
+    case graphite
+
+    public nonisolated var id: String { rawValue }
 }
 
 public enum AgentRuntimeSelection: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
