@@ -1,5 +1,16 @@
 import Foundation
 
+/// Parses and serialises `library/papers/<id>/meta.yaml` documents.
+///
+/// # Round-trip guarantees
+///
+/// - Unknown top-level blocks (scalar or block-form) are preserved verbatim and
+///   re-emitted at the end of the document. This keeps `references:`,
+///   user-added fields, and other P45+ extensions alive across `decode → encode`.
+/// - Unknown child keys under known block sections (`reading:`, `notes:`,
+///   `links:`) are preserved and re-emitted under the same section.
+/// - The graph node identifier is serialised as `graph_node_id:` and never
+///   recomputed by the codec itself.
 public struct PaperMetadataCodec {
     public nonisolated init() {}
 
@@ -11,9 +22,9 @@ public struct PaperMetadataCodec {
         updatedAt: Date?
     ) -> Paper {
         let parsed = parse(contents)
-        let notes = parsed.objects["notes"] ?? [:]
-        let reading = parsed.objects["reading"] ?? [:]
-        let parsedCreatedAt = reading["added"].flatMap { makeDayFormatter().date(from: $0) }
+        let notes = parsed.objects["notes"] ?? ParsedObjectBlock()
+        let reading = parsed.objects["reading"] ?? ParsedObjectBlock()
+        let parsedCreatedAt = reading.scalars["added"].flatMap { makeDayFormatter().date(from: $0) }
         let effectiveCreatedAt = parsedCreatedAt ?? createdAt ?? updatedAt ?? Date()
         let effectiveUpdatedAt = updatedAt ?? effectiveCreatedAt
 
@@ -67,19 +78,40 @@ public struct PaperMetadataCodec {
             useFor: arrayValue(for: "use_for", in: parsed),
             createdAt: effectiveCreatedAt,
             updatedAt: effectiveUpdatedAt,
-            lastReadAt: reading["last_read_at"].flatMap(parseTimestamp(_:)),
-            lastReadPage: reading["last_page"].flatMap(Int.init),
-            lastReadScale: reading["last_scale"].flatMap(Double.init),
+            lastReadAt: reading.scalars["last_read_at"].flatMap(parseTimestamp(_:)),
+            lastReadPage: reading.scalars["last_page"].flatMap(Int.init),
+            lastReadScale: reading.scalars["last_scale"].flatMap(Double.init),
             paperDirectoryRelativePath: directoryRelativePath,
-            notesSummaryRelativePath: emptyToNil(notes["summary_file"]),
-            annotationsRelativePath: "annotations.md"
+            notesSummaryRelativePath: emptyToNil(notes.scalars["summary_file"]),
+            annotationsRelativePath: "annotations.md",
+            graphNodeID: optionalStringValue(for: "graph_node_id", in: parsed)
         )
     }
 
+    /// Fast-path helper used by `PaperRepository` to implement the
+    /// freeze-on-first-write policy for `graphNodeID` without having to decode
+    /// the full `Paper` struct.
+    public nonisolated func decodedGraphNodeID(from contents: String) -> String? {
+        optionalStringValue(for: "graph_node_id", in: parse(contents))
+    }
+
     public nonisolated func encode(_ paper: Paper) -> String {
-        [
+        // We need access to the original parsed document to preserve unknown blocks.
+        // Callers who want round-trip fidelity should use `encode(_:preserving:)`.
+        // This overload preserves no unknown fields.
+        encode(paper, preserving: nil)
+    }
+
+    /// Encodes a paper to YAML. When `existingContents` is provided, any
+    /// unknown top-level blocks or unknown child keys under known block
+    /// sections (`reading:`, `notes:`, `links:`) are preserved and re-emitted.
+    public nonisolated func encode(_ paper: Paper, preserving existingContents: String?) -> String {
+        let preserved: ParsedDocument? = existingContents.map { parse($0) }
+
+        var lines: [String] = [
             "id: \(paper.id)",
             "citekey: \(paper.citekey)",
+            "graph_node_id: \(quoted(paper.resolvedGraphNodeID))",
             "title: \(quoted(paper.title))",
             encodeArray(key: "authors", values: paper.authors),
             encodeScalar(key: "year", value: paper.year.map(String.init)),
@@ -134,18 +166,66 @@ public struct PaperMetadataCodec {
             encodeNestedScalar(key: "last_scale", value: paper.lastReadScale.map { String(format: "%.4f", $0) }),
             encodeNestedScalar(key: "last_read_at", value: paper.lastReadAt.map(timestampString(from:))),
             "  first_read:",
-            "  deep_read:",
-            "",
-            "links:",
-            "  semantic_scholar:",
-            "  github:",
-            "  project_page:",
-            "",
-            "notes:",
-            encodeNestedScalar(key: "summary_file", value: paper.notesSummaryRelativePath)
+            "  deep_read:"
         ]
-        .joined(separator: "\n") + "\n"
+
+        // Preserve any unknown child keys inside `reading:` that the codec
+        // does not explicitly manage.
+        if let preservedReading = preserved?.objects["reading"] {
+            let reservedReading: Set<String> = ["added", "last_page", "last_scale", "last_read_at", "first_read", "deep_read"]
+            for unknownLine in preservedReading.unknownLines(reserved: reservedReading) {
+                lines.append(unknownLine)
+            }
+        }
+
+        lines.append("")
+        lines.append("links:")
+        let preservedLinks = preserved?.objects["links"]
+        let reservedLinkKeys: Set<String> = ["semantic_scholar", "github", "project_page"]
+        lines.append(encodeNestedScalar(key: "semantic_scholar", value: preservedLinks?.scalars["semantic_scholar"]))
+        lines.append(encodeNestedScalar(key: "github", value: preservedLinks?.scalars["github"]))
+        lines.append(encodeNestedScalar(key: "project_page", value: preservedLinks?.scalars["project_page"]))
+        if let preservedLinks {
+            for unknownLine in preservedLinks.unknownLines(reserved: reservedLinkKeys) {
+                lines.append(unknownLine)
+            }
+        }
+
+        lines.append("")
+        lines.append("notes:")
+        lines.append(encodeNestedScalar(key: "summary_file", value: paper.notesSummaryRelativePath))
+        if let preservedNotes = preserved?.objects["notes"] {
+            let reservedNotesKeys: Set<String> = ["summary_file"]
+            for unknownLine in preservedNotes.unknownLines(reserved: reservedNotesKeys) {
+                lines.append(unknownLine)
+            }
+        }
+
+        // Any fully unknown top-level blocks (e.g. future `references:` list)
+        // are emitted verbatim in their original order.
+        if let preserved {
+            let knownTopLevel = Self.knownTopLevelKeys
+            for block in preserved.orderedUnknownBlocks where !knownTopLevel.contains(block.key) {
+                lines.append("")
+                lines.append(contentsOf: block.rawLines)
+            }
+        }
+
+        return lines.joined(separator: "\n") + "\n"
     }
+
+    private static let knownTopLevelKeys: Set<String> = [
+        "id", "citekey", "graph_node_id", "title", "authors", "year", "venue",
+        "doi", "arxiv", "inspire_id", "url", "pdf_url", "pdf", "collection_path",
+        "folder_path", "categories", "abstract", "title_translation", "item_type",
+        "publication_title", "publisher", "publication_place", "published_date",
+        "volume", "issue", "pages", "series", "series_title",
+        "journal_abbreviation", "issn", "isbn", "pmid", "pmcid", "language",
+        "archive", "archive_location", "library_catalog", "call_number",
+        "short_title", "accessed_at", "bibtex", "tags", "project_ids",
+        "core_project_ids", "status", "priority", "rating", "use_for",
+        "reading", "links", "notes"
+    ]
 
     nonisolated private func makeDayFormatter() -> DateFormatter {
         let formatter = DateFormatter()
@@ -255,12 +335,14 @@ public struct PaperMetadataCodec {
 
             if remainder == "[]" {
                 parsedDocument.arrays[key] = []
+                parsedDocument.orderedUnknownBlocks.append(ParsedBlock(key: key, rawLines: [line]))
                 index += 1
                 continue
             }
 
             if !remainder.isEmpty {
                 parsedDocument.scalars[key] = unquoted(remainder)
+                parsedDocument.orderedUnknownBlocks.append(ParsedBlock(key: key, rawLines: [line]))
                 index += 1
                 continue
             }
@@ -268,6 +350,7 @@ public struct PaperMetadataCodec {
             let childIndex = nextNonEmptyLine(after: index, in: lines)
             guard childIndex < lines.count, indentation(of: lines[childIndex]) > indentLevel else {
                 parsedDocument.scalars[key] = ""
+                parsedDocument.orderedUnknownBlocks.append(ParsedBlock(key: key, rawLines: [line]))
                 index += 1
                 continue
             }
@@ -275,8 +358,15 @@ public struct PaperMetadataCodec {
             let childTrimmedLine = lines[childIndex].trimmingCharacters(in: .whitespaces)
             if childTrimmedLine.hasPrefix("- ") {
                 var values: [String] = []
+                var rawLines: [String] = [line]
                 var cursor = childIndex
 
+                // For list blocks we need to capture every line whose indent
+                // is greater than the parent block, not just lines that begin
+                // with `- `. This keeps list-of-objects blocks (such as the
+                // P45 `references:` extension) intact across round-trips —
+                // each list item's sub-keys sit at a deeper indent level and
+                // must survive verbatim.
                 while cursor < lines.count {
                     let childLine = lines[cursor]
                     let childIndentation = indentation(of: childLine)
@@ -287,20 +377,26 @@ public struct PaperMetadataCodec {
                         continue
                     }
 
-                    guard childIndentation > indentLevel, childTrimmed.hasPrefix("- ") else {
+                    guard childIndentation > indentLevel else {
                         break
                     }
 
-                    values.append(unquoted(String(childTrimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)))
+                    if childTrimmed.hasPrefix("- ") {
+                        values.append(unquoted(String(childTrimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)))
+                    }
+                    rawLines.append(childLine)
                     cursor += 1
                 }
 
                 parsedDocument.arrays[key] = values
+                parsedDocument.orderedUnknownBlocks.append(ParsedBlock(key: key, rawLines: rawLines))
                 index = cursor
                 continue
             }
 
-            var object: [String: String] = [:]
+            // Generic block object (may contain scalars and/or nested structures).
+            var object = ParsedObjectBlock()
+            var rawLines: [String] = [line]
             var cursor = childIndex
 
             while cursor < lines.count {
@@ -313,18 +409,26 @@ public struct PaperMetadataCodec {
                     continue
                 }
 
-                guard childIndentation > indentLevel, let childColonIndex = childTrimmed.firstIndex(of: ":") else {
+                guard childIndentation > indentLevel else {
                     break
                 }
 
-                let childKey = String(childTrimmed[..<childColonIndex])
-                let childValue = String(childTrimmed[childTrimmed.index(after: childColonIndex)...])
-                    .trimmingCharacters(in: .whitespaces)
-                object[childKey] = unquoted(childValue)
+                if let childColonIndex = childTrimmed.firstIndex(of: ":") {
+                    let childKey = String(childTrimmed[..<childColonIndex])
+                    let childValue = String(childTrimmed[childTrimmed.index(after: childColonIndex)...])
+                        .trimmingCharacters(in: .whitespaces)
+                    object.scalars[childKey] = unquoted(childValue)
+                    object.rawChildLines.append(childLine)
+                } else {
+                    // Not a key: value pair (could be "- item", etc.). Still preserve raw.
+                    object.rawChildLines.append(childLine)
+                }
+                rawLines.append(childLine)
                 cursor += 1
             }
 
             parsedDocument.objects[key] = object
+            parsedDocument.orderedUnknownBlocks.append(ParsedBlock(key: key, rawLines: rawLines))
             index = cursor
         }
 
@@ -364,7 +468,58 @@ public struct PaperMetadataCodec {
 private struct ParsedDocument {
     var scalars: [String: String] = [:]
     var arrays: [String: [String]] = [:]
-    var objects: [String: [String: String]] = [:]
+    var objects: [String: ParsedObjectBlock] = [:]
+    /// Ordered list of parsed top-level blocks (key + raw lines). Used by the
+    /// encoder to preserve unknown blocks in their original order.
+    var orderedUnknownBlocks: [ParsedBlock] = []
 
     nonisolated init() {}
+}
+
+private struct ParsedObjectBlock {
+    var scalars: [String: String] = [:]
+    /// Raw lines for children of this block, preserving indentation and
+    /// original ordering. Used to re-emit unknown child keys.
+    var rawChildLines: [String] = []
+
+    nonisolated init() {}
+
+    /// Returns the raw child lines whose `key:` is not in `reserved`.
+    /// Child lines without a `:` (e.g. list items) are included as-is when
+    /// they sit under an unknown key.
+    nonisolated func unknownLines(reserved: Set<String>) -> [String] {
+        var result: [String] = []
+        var inUnknownBlock = false
+        var unknownBlockIndent = -1
+
+        for raw in rawChildLines {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let indent = raw.prefix(while: { $0 == " " }).count
+
+            if trimmed.isEmpty {
+                continue
+            }
+
+            if let colonIndex = trimmed.firstIndex(of: ":") {
+                let key = String(trimmed[..<colonIndex])
+                if !reserved.contains(key) {
+                    result.append(raw)
+                    inUnknownBlock = true
+                    unknownBlockIndent = indent
+                } else {
+                    inUnknownBlock = false
+                    unknownBlockIndent = -1
+                }
+            } else if inUnknownBlock, indent > unknownBlockIndent {
+                // Continuation of an unknown block (list items, etc.)
+                result.append(raw)
+            }
+        }
+        return result
+    }
+}
+
+private struct ParsedBlock {
+    var key: String
+    var rawLines: [String]
 }

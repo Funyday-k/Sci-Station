@@ -45,6 +45,7 @@ let package = Package(
                 "UI/SettingsViews.swift",
                 "UI/Shell/ProjectSpaceContainer.swift",
                 "UI/Shell/ProjectSpaceContentRouter.swift",
+                "UI/Shell/PlaceholderViews.swift",
                 "UI/Shell/AgentThreadSidebarView.swift",
                 "UI/Shell/ShellRightRailViews.swift",
                 "UI/Shell/TopSidebarView.swift",
@@ -72,6 +73,7 @@ let package = Package(
                 "UI/Shell/ResponsiveShellPolicy.swift",
                 "UI/Shell/TopSidebarBuilder.swift",
                 "UI/Shell/ProjectSpaceTabsBuilder.swift",
+                "UI/Shell/ProjectSpaceTabIcon.swift",
                 "UI/Shell/RoutePersistence.swift"
             ],
             swiftSettings: [

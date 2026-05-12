@@ -94,40 +94,7 @@ public nonisolated enum ProjectSpaceTabsBuilder {
     }
 
     public static func systemImage(for tabID: String) -> String {
-        switch tabID {
-        case "overview":
-            return "square.grid.2x2"
-        case "papers":
-            return "books.vertical"
-        case "wiki":
-            return "doc.text"
-        case "tasks":
-            return "checklist"
-        case "calendar":
-            return "calendar"
-        case "ai-drafts":
-            return "brain"
-        case "graph":
-            return "point.3.connected.trianglepath.dotted"
-        case "code":
-            return "chevron.left.forwardslash.chevron.right"
-        case "data":
-            return "externaldrive"
-        case "experiments":
-            return "testtube.2"
-        case "recommendations":
-            return "sparkles"
-        case "materials":
-            return "shippingbox"
-        case "pdf-reader":
-            return "doc.viewfinder"
-        case "writing":
-            return "pencil.and.outline"
-        case "theory":
-            return "function"
-        default:
-            return "square"
-        }
+        ProjectSpaceTabIcon.systemImage(for: tabID)
     }
 
     private static func title(for moduleTab: WorkspaceModuleProjectTab) -> String {

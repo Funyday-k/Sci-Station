@@ -226,16 +226,61 @@ public actor MarkdownRepository {
     }
 
     private func uniquePageKeys(for fileURL: URL, title: String) -> [String] {
-        let candidates = [
-            WikiLink.normalizePageKey(title),
-            WikiLink.normalizePageKey(fileURL.deletingPathExtension().lastPathComponent)
-        ]
+        let normalizedTitle = WikiLink.normalizePageKey(title)
+        let normalizedFilename = WikiLink.normalizePageKey(fileURL.deletingPathExtension().lastPathComponent)
+
+        // Keep bare keys for backwards-compatibility with links that do not
+        // specify a namespace (e.g. `[[Page Title]]` in legacy docs). Also emit
+        // namespace-qualified keys so that `[[concept:dark-matter]]` links
+        // resolve to docs stored under `wiki/concepts/`.
+        let namespace = inferredNamespace(from: fileURL)
+        let bareCandidates = [normalizedTitle, normalizedFilename]
+        var namespacedCandidates: [String] = []
+        if let namespace {
+            namespacedCandidates = bareCandidates.map { namespace + "/" + $0 }
+        }
+        // Also register under the default `wiki/` namespace so legacy links
+        // that omitted the namespace still resolve to the correct document.
+        let wikiCandidates = bareCandidates.map { "wiki/" + $0 }
 
         var pageKeys: [String] = []
-        for candidate in candidates where !candidate.isEmpty && !pageKeys.contains(candidate) {
+        for candidate in bareCandidates + namespacedCandidates + wikiCandidates
+            where !candidate.isEmpty && !candidate.hasSuffix("/") && !pageKeys.contains(candidate) {
             pageKeys.append(candidate)
         }
         return pageKeys
+    }
+
+    /// Inspects the workspace-relative file path to infer which wiki namespace
+    /// a document belongs to. Used so that, for example, documents stored
+    /// under `wiki/concepts/foo.md` also answer to `[[concept:foo]]` links.
+    private func inferredNamespace(from fileURL: URL) -> String? {
+        let parts = fileURL.pathComponents
+        guard let wikiIndex = parts.firstIndex(where: { $0.lowercased() == "wiki" }),
+              wikiIndex + 1 < parts.count else {
+            return nil
+        }
+        let folder = parts[wikiIndex + 1].lowercased()
+        switch folder {
+        case "concepts", "concept":
+            return "concept"
+        case "methods", "method":
+            return "method"
+        case "papers", "paper":
+            return "paper"
+        case "projects", "project":
+            return "project"
+        case "authors", "author":
+            return "author"
+        case "datasets", "dataset":
+            return "dataset"
+        case "gaps", "gap":
+            return "gap"
+        case "notes", "note":
+            return "note"
+        default:
+            return nil
+        }
     }
 
     private func normalizedWikiFilePath(_ relativePath: String, defaultExtension: String? = nil) throws -> String {

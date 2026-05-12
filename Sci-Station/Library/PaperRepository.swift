@@ -90,8 +90,32 @@ public actor PaperRepository {
             )
         }
 
+        // Freeze-on-first-write for graphNodeID.
+        // If the existing meta.yaml already has a graph_node_id, we must keep it
+        // even if the in-memory paper (or its title/authors/doi) has changed. This
+        // guarantees `paper:<graph_node_id>` nodes in the citation graph never drift.
         let metadataURL = directoryURL.appendingPathComponent("meta.yaml", isDirectory: false)
-        let metadataContents = metadataCodec.encode(updatedPaper)
+        let existingContents: String? = {
+            guard let data = try? Data(contentsOf: metadataURL),
+                  let contents = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            return contents
+        }()
+        if let existingContents,
+           let persistedGraphNodeID = metadataCodec.decodedGraphNodeID(from: existingContents) {
+            updatedPaper.graphNodeID = persistedGraphNodeID
+        } else if (updatedPaper.graphNodeID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty {
+            updatedPaper.graphNodeID = PaperIdentityGenerator.graphNodeID(
+                doi: updatedPaper.doi,
+                arxiv: updatedPaper.arxiv,
+                inspireID: updatedPaper.inspireID,
+                citekey: updatedPaper.citekey,
+                fallbackPaperID: updatedPaper.id
+            )
+        }
+
+        let metadataContents = metadataCodec.encode(updatedPaper, preserving: existingContents)
         try metadataContents.write(to: metadataURL, atomically: true, encoding: .utf8)
 
         let annotationsRelativePath = updatedPaper.annotationsRelativePath ?? "annotations.md"

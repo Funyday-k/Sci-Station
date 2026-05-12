@@ -80,7 +80,13 @@ private struct CoreVerificationSuite {
         try batchImportInputParserSplitsMultipleIdentifiers()
         try await vscodeBridgePreparesPythonRunTask()
         try citekeyGenerationUsesAuthorYearKeyword()
+        try graphNodeIDDerivationFollowsPriorityOrder()
+        try graphNodeIDResolvedFromPaperInstance()
         try metadataCodecRoundTripKeepsEditableFields()
+        try metadataCodecPreservesUnknownFields()
+        try metadataCodecEmitsGraphNodeID()
+        try agentToolErrorClassifierMapsCancelAndTimeout()
+        try await jsonlWriterAppendsDurableDedupedLines()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
         try await paperRepositoryKeepsLegacyRawPapersLoadable()
         try await legacyPaperMigrationPlanDetectsRawPaperConflicts()
@@ -253,7 +259,9 @@ private struct CoreVerificationSuite {
         try await wikiPageGenerationRejectsSilentOverwrite()
         try frontmatterParserParsesArraysAndBody()
         try wikiLinkParserExtractsTargets()
+        try wikiLinkParserExtractsNamespaces()
         try backlinkIndexFindsIncomingReferences()
+        try backlinkIndexResolvesNamespacedLinks()
         try await markdownRepositoryLoadsAndSavesDocuments()
         try await paperMarkdownDirectLoadMergesIntoDocumentList()
         try await markdownRepositoryCreatesPageInsideWikiRoot()
@@ -6677,6 +6685,260 @@ private struct CoreVerificationSuite {
 
         try expect(backlinks.count == 1, "BacklinkIndex should return referencing pages for the selected document.")
         try expect(backlinks.first?.relativePath == sourceDocument.relativePath, "BacklinkIndex should point back to the source page.")
+    }
+
+    private func wikiLinkParserExtractsNamespaces() throws {
+        let parser = WikiLinkParser()
+        let links = parser.parse("""
+        See [[concept:dark-matter]], [[method:Glauber|Glauber method]], and [[Legacy Page]].
+        Also [[concept:dark-matter#overview]].
+        """)
+
+        try expect(links.count == 3, "Namespaced parser should dedupe across namespace+target, not across full raw text.")
+        try expect(links[0].namespace == "concept" && links[0].target == "dark-matter", "First link should carry namespace=concept.")
+        try expect(links[1].namespace == "method" && links[1].target == "Glauber", "Second link should carry namespace=method.")
+        try expect(links[2].namespace == nil && links[2].target == "Legacy Page", "Legacy non-namespaced link should still parse.")
+        try expect(links[0].normalizedTarget == "concept/dark matter", "Namespaced target should expose a namespace-prefixed normalized key.")
+    }
+
+    private func backlinkIndexResolvesNamespacedLinks() throws {
+        let concept = MarkdownDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/wiki/concepts/dark-matter.md"),
+            relativePath: "wiki/concepts/dark-matter.md",
+            category: "concepts",
+            title: "Dark Matter",
+            frontmatter: [:],
+            body: "# Dark Matter",
+            rawContents: "# Dark Matter",
+            outgoingLinks: [],
+            pageKeys: [
+                WikiLink.normalizePageKey("Dark Matter"),
+                "concept/" + WikiLink.normalizePageKey("Dark Matter"),
+                "wiki/" + WikiLink.normalizePageKey("Dark Matter")
+            ]
+        )
+        let source = MarkdownDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/wiki/papers/garani2017.md"),
+            relativePath: "wiki/papers/garani2017.md",
+            category: "papers",
+            title: "Dark matter in the Sun",
+            frontmatter: [:],
+            body: "See [[concept:Dark Matter]].",
+            rawContents: "See [[concept:Dark Matter]].",
+            outgoingLinks: [
+                WikiLink(
+                    target: "Dark Matter",
+                    originalText: "[[concept:Dark Matter]]",
+                    namespace: "concept"
+                )
+            ],
+            pageKeys: [WikiLink.normalizePageKey("Dark matter in the Sun")]
+        )
+
+        let index = BacklinkIndex(documents: [concept, source])
+        let backlinks = index.backlinks(for: concept)
+        try expect(backlinks.count == 1, "Namespaced [[concept:...]] link should produce a backlink on the namespaced target.")
+        try expect(backlinks.first?.relativePath == source.relativePath, "Backlink should point back to the source page.")
+    }
+
+    private func graphNodeIDDerivationFollowsPriorityOrder() throws {
+        let doiBased = PaperIdentityGenerator.graphNodeID(
+            doi: "https://doi.org/10.1103/PhysRevD.42.3344",
+            arxiv: "2101.12345",
+            inspireID: "12345",
+            citekey: "smith2021abc",
+            fallbackPaperID: "smith2021-abc"
+        )
+        try expect(doiBased == "10.1103/physrevd.42.3344", "DOI should win and be lowercased/trimmed.")
+
+        let arxivBased = PaperIdentityGenerator.graphNodeID(
+            doi: nil,
+            arxiv: "2101.12345v3",
+            inspireID: "12345",
+            citekey: "smith2021abc",
+            fallbackPaperID: "smith2021-abc"
+        )
+        try expect(arxivBased == "arxiv:2101.12345", "arXiv should drop the version suffix.")
+
+        let inspireBased = PaperIdentityGenerator.graphNodeID(
+            doi: nil,
+            arxiv: nil,
+            inspireID: "https://inspirehep.net/literature/12345",
+            citekey: "smith2021abc",
+            fallbackPaperID: "smith2021-abc"
+        )
+        try expect(inspireBased == "inspire:12345", "Inspire URL should reduce to the numeric id.")
+
+        let citekeyBased = PaperIdentityGenerator.graphNodeID(
+            doi: nil,
+            arxiv: nil,
+            inspireID: nil,
+            citekey: "Smith2021ABC",
+            fallbackPaperID: "smith2021-abc"
+        )
+        try expect(citekeyBased == "citekey:smith2021abc", "Citekey fallback should be lowercased and prefixed.")
+
+        let localFallback = PaperIdentityGenerator.graphNodeID(
+            doi: nil,
+            arxiv: nil,
+            inspireID: nil,
+            citekey: nil,
+            fallbackPaperID: "Smith2021-ABC"
+        )
+        try expect(localFallback == "local:smith2021-abc", "Local fallback should be used when nothing else is available.")
+    }
+
+    private func graphNodeIDResolvedFromPaperInstance() throws {
+        let now = Date()
+        let paper = Paper(
+            id: "garani2017-dark-matter-sun",
+            citekey: "garani2017dark",
+            title: "Dark matter in the Sun",
+            authors: ["Raghuveer Garani"],
+            year: 2017,
+            venue: "arXiv",
+            doi: nil,
+            arxiv: "1702.02768v2",
+            url: nil,
+            pdfRelativePath: "paper.pdf",
+            tags: [],
+            status: .unread,
+            priority: .medium,
+            rating: nil,
+            useFor: [],
+            createdAt: now,
+            updatedAt: now,
+            paperDirectoryRelativePath: "library/papers/Uncategorized/garani2017-dark-matter-sun",
+            notesSummaryRelativePath: nil,
+            annotationsRelativePath: "annotations.md"
+        )
+        try expect(paper.resolvedGraphNodeID == "arxiv:1702.02768", "Paper should resolve graph node id from arXiv without version.")
+    }
+
+    private func metadataCodecPreservesUnknownFields() throws {
+        let codec = PaperMetadataCodec()
+        let rawWithReferences = """
+        id: smith2024
+        citekey: smith2024graph
+        title: "Graph RAG"
+        authors:
+          - "Smith"
+        year: 2024
+        status: unread
+        priority: medium
+        rating:
+        use_for: []
+        references:
+          - doi: "10.1000/ref.1"
+            title: "Ref One"
+          - arxiv: "2101.00001"
+            title: "Ref Two"
+        custom_field: "do not drop me"
+        reading:
+          added: 2024-01-01
+          first_read:
+          deep_read:
+          custom_reading_note: "round trip"
+        links:
+          semantic_scholar:
+          github:
+          project_page:
+        notes:
+          summary_file:
+          custom_notes_field: "preserved"
+        """
+
+        let decoded = codec.decode(
+            rawWithReferences,
+            directoryRelativePath: "library/papers/Uncategorized/smith2024",
+            fallbackTitle: "Fallback",
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let reEncoded = codec.encode(decoded, preserving: rawWithReferences)
+
+        try expect(reEncoded.contains("references:"), "Unknown references: block should be preserved across round-trip.")
+        try expect(reEncoded.contains("doi: \"10.1000/ref.1\""), "Unknown references children should be preserved verbatim.")
+        try expect(reEncoded.contains("arxiv: \"2101.00001\""), "Unknown references children should be preserved verbatim.")
+        try expect(reEncoded.contains("custom_field: \"do not drop me\""), "Unknown top-level scalar should be preserved.")
+        try expect(reEncoded.contains("custom_reading_note: \"round trip\""), "Unknown child key under reading: should be preserved.")
+        try expect(reEncoded.contains("custom_notes_field: \"preserved\""), "Unknown child key under notes: should be preserved.")
+    }
+
+    private func metadataCodecEmitsGraphNodeID() throws {
+        let codec = PaperMetadataCodec()
+        let now = Date()
+        let paper = Paper(
+            id: "smith2024",
+            citekey: "smith2024graph",
+            title: "Graph RAG",
+            authors: ["Smith"],
+            year: 2024,
+            venue: nil,
+            doi: nil,
+            arxiv: "2401.12345v1",
+            url: nil,
+            pdfRelativePath: nil,
+            tags: [],
+            status: .unread,
+            priority: .medium,
+            rating: nil,
+            useFor: [],
+            createdAt: now,
+            updatedAt: now,
+            paperDirectoryRelativePath: "library/papers/Uncategorized/smith2024",
+            notesSummaryRelativePath: nil,
+            annotationsRelativePath: "annotations.md"
+        )
+        let encoded = codec.encode(paper)
+        try expect(encoded.contains("graph_node_id: \"arxiv:2401.12345\""), "Encoder should emit a stable graph_node_id derived from arXiv.")
+        try expect(codec.decodedGraphNodeID(from: encoded) == "arxiv:2401.12345", "decodedGraphNodeID helper should return the persisted value.")
+    }
+
+    private func agentToolErrorClassifierMapsCancelAndTimeout() throws {
+        let classifier = AgentToolErrorClassifier()
+
+        let cancelled = classifier.classify(CancellationError(), toolName: "list_papers")
+        try expect(cancelled.code == .cancelled, "CancellationError should map to the cancelled code.")
+
+        let timeout = classifier.classify(
+            AgentTimeoutError(operation: "Tool invocation", timeoutSeconds: 5, toolName: "list_papers"),
+            toolName: "list_papers"
+        )
+        try expect(timeout.code == .timeout, "AgentTimeoutError should map to the timeout code.")
+
+        let network = classifier.classify(URLError(.notConnectedToInternet), toolName: "list_papers")
+        try expect(network.code == .network, "URLError should map to the network code.")
+
+        let unknown = classifier.classify(AgentError.unknownTool("mystery"), toolName: "mystery")
+        try expect(unknown.code == .toolNotFound, "unknownTool should classify as tool_not_found.")
+    }
+
+    private func jsonlWriterAppendsDurableDedupedLines() async throws {
+        let url = temporaryDirectoryURL().appendingPathComponent("jsonl/events.jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent())
+        }
+
+        struct DummyEvent: Codable, Hashable {
+            var id: String
+            var sequence: Int
+        }
+
+        let writer = JSONLWriter(url: url) { data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = object["id"] as? String else {
+                return nil
+            }
+            return id
+        }
+        _ = try await writer.append(DummyEvent(id: "e1", sequence: 1), id: "e1")
+        _ = try await writer.append(DummyEvent(id: "e1", sequence: 1), id: "e1")
+        _ = try await writer.append(DummyEvent(id: "e2", sequence: 2), id: "e2")
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        let lines = contents.split(whereSeparator: \.isNewline)
+        try expect(lines.count == 2, "Duplicate id should be skipped by the writer dedup cache.")
     }
 
     private func markdownRepositoryLoadsAndSavesDocuments() async throws {

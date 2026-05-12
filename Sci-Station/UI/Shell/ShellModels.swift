@@ -102,6 +102,12 @@ public nonisolated enum ToolbarActionID: String, Codable, CaseIterable, Hashable
     case wikiNewPage = "wiki_new_page"
     case wikiSave = "wiki_save"
     case wikiPreviewMode = "wiki_preview_mode"
+    // P46 graph toolbar actions.
+    case graphSearch = "graph_search"
+    case graphDepth = "graph_depth"
+    case graphLayoutMode = "graph_layout_mode"
+    case graphFilterKinds = "graph_filter_kinds"
+    case graphResetView = "graph_reset_view"
 }
 
 public nonisolated struct ToolbarAction: Identifiable, Codable, Hashable, Sendable {

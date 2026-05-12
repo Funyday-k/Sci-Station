@@ -122,26 +122,15 @@ public actor AgentLoopCheckpointStore {
         try await runDirectoryStore.saveCheckpoint(pending, in: root)
     }
 
-    public func saveLegacyFallback(_ pending: AgentPendingToolCall, in root: ResearchRoot) throws {
+    public func saveLegacyFallback(_ pending: AgentPendingToolCall, in root: ResearchRoot) async throws {
         let logURL = root.fileURL(for: Self.relativePath)
         try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(pending)
-        guard let line = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        if fileManager.fileExists(atPath: logURL.path) {
-            let handle = try FileHandle(forWritingTo: logURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((line + "\n").utf8))
-        } else {
-            try (line + "\n").write(to: logURL, atomically: true, encoding: .utf8)
-        }
+        let writer = await JSONLWriterRegistry.shared.writer(for: logURL)
+        try await writer.append(pending, encoder: encoder)
     }
 
     public func pending(runID: String, in root: ResearchRoot) async throws -> AgentPendingToolCall? {
@@ -697,7 +686,19 @@ public actor AgentLoopRunner {
             let response: LLMProviderResponse
             do {
                 let request = try LLMProviderRequestSanitizer.sanitized(providerRequest, configuration: configuration)
-                response = try await provider.respond(to: request, configuration: configuration, apiKey: apiKey)
+                // Hard timeout so a hung provider cannot park the entire loop.
+                // Cooperative cancellation inside the task group gives the
+                // URLSession a chance to unwind its socket before we surface
+                // the error.
+                let capturedProvider = provider
+                let capturedConfiguration = configuration
+                let capturedAPIKey = apiKey
+                response = try await withAgentTimeout(
+                    options.providerTimeoutSeconds,
+                    operation: "LLM provider.respond"
+                ) {
+                    try await capturedProvider.respond(to: request, configuration: capturedConfiguration, apiKey: capturedAPIKey)
+                }
                 try Task.checkCancellation()
             } catch {
                 if let fallback = try await visibleProviderFailureResult(
@@ -1115,7 +1116,19 @@ public actor AgentLoopRunner {
 
         let result: AgentToolResult
         do {
-            var invoked = try await toolHost.invoke(call, context: toolContext)
+            // Hard timeout per tool so a wedged graph query, PDF reader, or
+            // stuck embedding store cannot wedge the whole loop. See
+            // DOC/comment.md §1.5.
+            let capturedHost = toolHost
+            let capturedCall = call
+            let capturedContext = toolContext
+            var invoked = try await withAgentTimeout(
+                options.toolTimeoutSeconds,
+                operation: "Tool invocation",
+                toolName: call.toolName
+            ) {
+                try await capturedHost.invoke(capturedCall, context: capturedContext)
+            }
             if invoked.callID.isEmpty {
                 invoked.callID = call.id
             }

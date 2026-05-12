@@ -59,6 +59,11 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
     public var paperDirectoryRelativePath: String
     public var notesSummaryRelativePath: String?
     public var annotationsRelativePath: String?
+    /// Stable identifier for graph nodes. Persisted in `meta.yaml` as `graph_node_id`.
+    ///
+    /// Frozen after first write; must not change because of title/author edits.
+    /// See `PaperIdentityGenerator.graphNodeID` for the derivation rules.
+    public var graphNodeID: String?
 
     public nonisolated init(
         id: String, citekey: String, title: String, authors: [String], year: Int?,
@@ -82,7 +87,8 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         createdAt: Date, updatedAt: Date, lastReadAt: Date? = nil,
         lastReadPage: Int? = nil, lastReadScale: Double? = nil,
         paperDirectoryRelativePath: String,
-        notesSummaryRelativePath: String?, annotationsRelativePath: String?
+        notesSummaryRelativePath: String?, annotationsRelativePath: String?,
+        graphNodeID: String? = nil
     ) {
         self.id = id; self.citekey = citekey; self.title = title; self.authors = authors
         self.year = year; self.venue = venue; self.doi = doi; self.arxiv = arxiv
@@ -112,6 +118,7 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         self.projectIDs = projectIDs
         self.coreProjectIDs = coreProjectIDs
         self.folderPath = folderPath ?? self.collectionPath
+        self.graphNodeID = graphNodeID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmptyInternal
     }
 
     public nonisolated init(
@@ -292,6 +299,31 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         return [prefix, "wiki", "papers", "\(citekey).md"]
             .filter { !$0.isEmpty }
             .joined(separator: "/")
+    }
+
+    /// Returns the persisted `graphNodeID` when available. Falls back to a newly
+    /// computed value derived from DOI/arXiv/Inspire/citekey/paperID.
+    ///
+    /// The fallback is for legacy papers that were created before the field existed.
+    /// Writers should treat the first-observed value as the authoritative one and
+    /// persist it via `meta.yaml` (`graph_node_id`).
+    public nonisolated var resolvedGraphNodeID: String {
+        if let stored = graphNodeID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmptyInternal {
+            return stored
+        }
+        return PaperIdentityGenerator.graphNodeID(
+            doi: doi,
+            arxiv: arxiv,
+            inspireID: inspireID,
+            citekey: citekey,
+            fallbackPaperID: id
+        )
+    }
+}
+
+private extension String {
+    nonisolated var nilIfEmptyInternal: String? {
+        isEmpty ? nil : self
     }
 }
 

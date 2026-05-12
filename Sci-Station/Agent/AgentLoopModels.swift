@@ -482,6 +482,13 @@ public nonisolated struct AgentLoopOptions: Codable, Hashable, Sendable {
     public var maxAccumulatedToolResultCharacters: Int
     public var autoApproveReadOnly: Bool
     public var allowProviderNativeTools: Bool
+    /// Hard timeout (seconds) for a single `provider.respond(...)` call.
+    /// `0` disables the timeout. Defaults to 120s which is more forgiving than
+    /// the default tool timeout because LLMs can legitimately stream for a while.
+    public var providerTimeoutSeconds: Double
+    /// Hard timeout (seconds) for a single tool invocation via `toolHost.invoke`.
+    /// `0` disables the timeout.
+    public var toolTimeoutSeconds: Double
 
     public nonisolated init(
         maxSteps: Int = 20,
@@ -490,7 +497,9 @@ public nonisolated struct AgentLoopOptions: Codable, Hashable, Sendable {
         maxToolResultCharactersPerCall: Int = 384_000,
         maxAccumulatedToolResultCharacters: Int = 1_000_000,
         autoApproveReadOnly: Bool = true,
-        allowProviderNativeTools: Bool = true
+        allowProviderNativeTools: Bool = true,
+        providerTimeoutSeconds: Double = 120,
+        toolTimeoutSeconds: Double = 30
     ) {
         self.maxSteps = max(1, maxSteps)
         self.maxToolCalls = max(1, maxToolCalls)
@@ -499,6 +508,8 @@ public nonisolated struct AgentLoopOptions: Codable, Hashable, Sendable {
         self.maxAccumulatedToolResultCharacters = max(1_000, maxAccumulatedToolResultCharacters)
         self.autoApproveReadOnly = autoApproveReadOnly
         self.allowProviderNativeTools = allowProviderNativeTools
+        self.providerTimeoutSeconds = max(0, providerTimeoutSeconds)
+        self.toolTimeoutSeconds = max(0, toolTimeoutSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -509,6 +520,34 @@ public nonisolated struct AgentLoopOptions: Codable, Hashable, Sendable {
         case maxAccumulatedToolResultCharacters = "max_accumulated_tool_result_characters"
         case autoApproveReadOnly = "auto_approve_read_only"
         case allowProviderNativeTools = "allow_provider_native_tools"
+        case providerTimeoutSeconds = "provider_timeout_seconds"
+        case toolTimeoutSeconds = "tool_timeout_seconds"
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxSteps = max(1, try container.decodeIfPresent(Int.self, forKey: .maxSteps) ?? 20)
+        self.maxToolCalls = max(1, try container.decodeIfPresent(Int.self, forKey: .maxToolCalls) ?? 80)
+        self.maxContextCharacters = max(1_000, try container.decodeIfPresent(Int.self, forKey: .maxContextCharacters) ?? 1_000_000)
+        self.maxToolResultCharactersPerCall = max(1_000, try container.decodeIfPresent(Int.self, forKey: .maxToolResultCharactersPerCall) ?? 384_000)
+        self.maxAccumulatedToolResultCharacters = max(1_000, try container.decodeIfPresent(Int.self, forKey: .maxAccumulatedToolResultCharacters) ?? 1_000_000)
+        self.autoApproveReadOnly = try container.decodeIfPresent(Bool.self, forKey: .autoApproveReadOnly) ?? true
+        self.allowProviderNativeTools = try container.decodeIfPresent(Bool.self, forKey: .allowProviderNativeTools) ?? true
+        self.providerTimeoutSeconds = max(0, try container.decodeIfPresent(Double.self, forKey: .providerTimeoutSeconds) ?? 120)
+        self.toolTimeoutSeconds = max(0, try container.decodeIfPresent(Double.self, forKey: .toolTimeoutSeconds) ?? 30)
+    }
+
+    public nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(maxSteps, forKey: .maxSteps)
+        try container.encode(maxToolCalls, forKey: .maxToolCalls)
+        try container.encode(maxContextCharacters, forKey: .maxContextCharacters)
+        try container.encode(maxToolResultCharactersPerCall, forKey: .maxToolResultCharactersPerCall)
+        try container.encode(maxAccumulatedToolResultCharacters, forKey: .maxAccumulatedToolResultCharacters)
+        try container.encode(autoApproveReadOnly, forKey: .autoApproveReadOnly)
+        try container.encode(allowProviderNativeTools, forKey: .allowProviderNativeTools)
+        try container.encode(providerTimeoutSeconds, forKey: .providerTimeoutSeconds)
+        try container.encode(toolTimeoutSeconds, forKey: .toolTimeoutSeconds)
     }
 }
 

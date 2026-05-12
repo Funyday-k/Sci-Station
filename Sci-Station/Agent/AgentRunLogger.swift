@@ -2,17 +2,22 @@ import Foundation
 
 public actor AgentRunLogger {
     private let fileManager: FileManager
+    private let writerRegistry: JSONLWriterRegistry
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        writerRegistry: JSONLWriterRegistry = .shared
+    ) {
         self.fileManager = fileManager
+        self.writerRegistry = writerRegistry
     }
 
-    public func append(_ run: AgentRun, in workspace: ResearchWorkspace) throws {
-        try append(run, logURL: workspace.fileURL(for: ".sci-station/agent/runs.jsonl"))
+    public func append(_ run: AgentRun, in workspace: ResearchWorkspace) async throws {
+        try await append(run, logURL: workspace.fileURL(for: ".sci-station/agent/runs.jsonl"))
     }
 
-    public func append(_ run: AgentRun, in root: ResearchRoot) throws {
-        try append(run, logURL: root.fileURL(for: ".sci-station/agent/runs.jsonl"))
+    public func append(_ run: AgentRun, in root: ResearchRoot) async throws {
+        try await append(run, logURL: root.fileURL(for: ".sci-station/agent/runs.jsonl"))
     }
 
     public func recentRuns(in workspace: ResearchWorkspace, limit: Int = 5) throws -> [AgentRun] {
@@ -30,25 +35,9 @@ public actor AgentRunLogger {
             .map { $0 }
     }
 
-    private func append(_ run: AgentRun, logURL: URL) throws {
-        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(run)
-        guard let line = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        if fileManager.fileExists(atPath: logURL.path) {
-            let handle = try FileHandle(forWritingTo: logURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((line + "\n").utf8))
-        } else {
-            try (line + "\n").write(to: logURL, atomically: true, encoding: .utf8)
-        }
+    private func append(_ run: AgentRun, logURL: URL) async throws {
+        let writer = await writerRegistry.writer(for: logURL)
+        try await writer.append(run, encoder: JSONLWriter.defaultEncoder())
     }
 
     private func recentRuns(logURL: URL, limit: Int) throws -> [AgentRun] {
@@ -74,17 +63,22 @@ public actor AgentSessionEventLogger {
     public static let relativePath = ".sci-station/agent/session_events.jsonl"
 
     private let fileManager: FileManager
+    private let writerRegistry: JSONLWriterRegistry
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        writerRegistry: JSONLWriterRegistry = .shared
+    ) {
         self.fileManager = fileManager
+        self.writerRegistry = writerRegistry
     }
 
-    public func append(_ event: AgentSessionEvent, in workspace: ResearchWorkspace) throws {
-        try append(event, logURL: workspace.fileURL(for: Self.relativePath))
+    public func append(_ event: AgentSessionEvent, in workspace: ResearchWorkspace) async throws {
+        try await append(event, logURL: workspace.fileURL(for: Self.relativePath))
     }
 
-    public func append(_ event: AgentSessionEvent, in root: ResearchRoot) throws {
-        try append(event, logURL: root.fileURL(for: Self.relativePath))
+    public func append(_ event: AgentSessionEvent, in root: ResearchRoot) async throws {
+        try await append(event, logURL: root.fileURL(for: Self.relativePath))
     }
 
     public func events(in workspace: ResearchWorkspace, sessionID: String? = nil, limit: Int? = nil) throws -> [AgentSessionEvent] {
@@ -95,25 +89,20 @@ public actor AgentSessionEventLogger {
         try events(logURL: root.fileURL(for: Self.relativePath), sessionID: sessionID, limit: limit)
     }
 
-    private func append(_ event: AgentSessionEvent, logURL: URL) throws {
-        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(event)
-        guard let line = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileWriteUnknown)
+    private func append(_ event: AgentSessionEvent, logURL: URL) async throws {
+        // Redact sensitive content before persisting. Session events may
+        // contain workspace paths, paper titles, or wiki body previews that
+        // should not leak into debug bundles. See DOC/comment.md §8.2.
+        var redactedEvent = event
+        if let payload = redactedEvent.payloadJSON,
+           payload.count > 1024 {
+            redactedEvent.payloadJSON = String(payload.prefix(1024)) + "\n[truncated by Sci-Station]"
         }
-
-        if fileManager.fileExists(atPath: logURL.path) {
-            let handle = try FileHandle(forWritingTo: logURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((line + "\n").utf8))
-        } else {
-            try (line + "\n").write(to: logURL, atomically: true, encoding: .utf8)
+        if let payload = redactedEvent.payloadJSON {
+            redactedEvent.payloadJSON = AgentRunDirectoryStore.redactSensitiveTextPublic(payload)
         }
+        let writer = await writerRegistry.writer(for: logURL)
+        try await writer.append(redactedEvent, encoder: JSONLWriter.defaultEncoder())
     }
 
     private func events(logURL: URL, sessionID: String?, limit: Int?) throws -> [AgentSessionEvent] {
@@ -179,29 +168,20 @@ public actor AppDebugEventLogger {
     public static let relativePath = ".sci-station/debug/app_events.jsonl"
 
     private let fileManager: FileManager
+    private let writerRegistry: JSONLWriterRegistry
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        writerRegistry: JSONLWriterRegistry = .shared
+    ) {
         self.fileManager = fileManager
+        self.writerRegistry = writerRegistry
     }
 
-    public func append(_ event: AppDebugEvent, in root: ResearchRoot) throws {
+    public func append(_ event: AppDebugEvent, in root: ResearchRoot) async throws {
         let logURL = root.fileURL(for: Self.relativePath)
-        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let encoder = AgentRunDirectoryStore.encoder()
-        let data = try encoder.encode(event)
-        guard let line = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        if fileManager.fileExists(atPath: logURL.path) {
-            let handle = try FileHandle(forWritingTo: logURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((line + "\n").utf8))
-        } else {
-            try (line + "\n").write(to: logURL, atomically: true, encoding: .utf8)
-        }
+        let writer = await writerRegistry.writer(for: logURL)
+        try await writer.append(event, encoder: AgentRunDirectoryStore.encoder())
     }
 
     public func events(in root: ResearchRoot, limit: Int = 200) throws -> [AppDebugEvent] {

@@ -171,42 +171,8 @@ private struct AILabProjectWorkflowsView: View {
     }
 }
 
-private struct ProjectSpacePlaceholderView: View {
-    let title: String
-    let systemImage: String
-    let message: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.largeTitle.weight(.semibold))
-            Text(message)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-struct ProjectSpaceUnavailableView: View {
-    let title: String
-    let message: String
-    let retry: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: "exclamationmark.triangle")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.orange)
-            Text(message)
-                .foregroundStyle(.secondary)
-            Button(action: retry) {
-                Label("Retry", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
+private struct ProjectSpacePlaceholderView_Deprecated: View {
+    // Retained as a placeholder to avoid accidental re-introduction; the live
+    // implementation now lives in PlaceholderViews.swift for reuse.
+    var body: some View { EmptyView() }
 }

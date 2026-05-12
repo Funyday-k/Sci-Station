@@ -174,9 +174,14 @@ public actor AgentRunDirectoryStore {
     public static let runsRelativePath = ".sci-station/agent/runs"
 
     private let fileManager: FileManager
+    private let writerRegistry: JSONLWriterRegistry
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        writerRegistry: JSONLWriterRegistry = .shared
+    ) {
         self.fileManager = fileManager
+        self.writerRegistry = writerRegistry
     }
 
     public func runDirectoryURL(runID: String, in root: ResearchRoot) -> URL {
@@ -190,12 +195,16 @@ public actor AgentRunDirectoryStore {
         return runDirectory
     }
 
-    public func saveCheckpoint(_ pending: AgentPendingToolCall, in root: ResearchRoot) throws {
+    public func saveCheckpoint(_ pending: AgentPendingToolCall, in root: ResearchRoot) async throws {
         let runDirectory = try ensureRunDirectory(runID: pending.runID, in: root)
         let checkpointURL = runDirectory.appendingPathComponent("checkpoint.json", isDirectory: false)
         let encoder = Self.encoder()
         try encoder.encode(pending).write(to: checkpointURL, options: .atomic)
-        try appendJSONLine(pending.approvalRequest, to: runDirectory.appendingPathComponent("approvals.jsonl", isDirectory: false), encoder: encoder)
+        try await appendJSONLine(
+            pending.approvalRequest,
+            to: runDirectory.appendingPathComponent("approvals.jsonl", isDirectory: false),
+            encoder: encoder
+        )
     }
 
     public func pending(runID: String, in root: ResearchRoot) throws -> AgentPendingToolCall? {
@@ -219,13 +228,24 @@ public actor AgentRunDirectoryStore {
         return nil
     }
 
-    public func appendEvent(_ envelope: AgentRuntimeEventEnvelope, in root: ResearchRoot) throws {
+    public func appendEvent(_ envelope: AgentRuntimeEventEnvelope, in root: ResearchRoot) async throws {
         let runDirectory = try ensureRunDirectory(runID: envelope.runID, in: root)
         let eventsURL = runDirectory.appendingPathComponent("events.jsonl", isDirectory: false)
-        if fileManager.fileExists(atPath: eventsURL.path), try eventEnvelopes(runID: envelope.runID, in: root).contains(where: { $0.id == envelope.id }) {
-            return
-        }
-        try appendJSONLine(envelope, to: eventsURL, encoder: Self.encoder())
+        // Use a shared JSONLWriter keyed by the file URL. This is both crash-safe
+        // (each write is fsync'd) and dedup-aware (constant time) — the previous
+        // implementation re-decoded every line in the file on each call, which
+        // grew O(N²) over long runs.
+        let writer = await writerRegistry.writer(
+            for: eventsURL,
+            idExtractor: { data in
+                guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = object["id"] as? String else {
+                    return nil
+                }
+                return id
+            }
+        )
+        try await writer.append(envelope, encoder: Self.encoder(), id: envelope.id)
     }
 
     public func nextSequence(runID: String, in root: ResearchRoot) throws -> Int {
@@ -257,9 +277,13 @@ public actor AgentRunDirectoryStore {
         return try Self.decoder().decode(AgentToolResultWireFormat.self, from: Data(contentsOf: resultURL))
     }
 
-    public func appendToolCallRecord(_ record: AgentToolExecutionLedgerRecord, in root: ResearchRoot) throws {
+    public func appendToolCallRecord(_ record: AgentToolExecutionLedgerRecord, in root: ResearchRoot) async throws {
         let runDirectory = try ensureRunDirectory(runID: record.runID, in: root)
-        try appendJSONLine(record, to: runDirectory.appendingPathComponent("tool_calls.jsonl", isDirectory: false), encoder: Self.encoder())
+        try await appendJSONLine(
+            record,
+            to: runDirectory.appendingPathComponent("tool_calls.jsonl", isDirectory: false),
+            encoder: Self.encoder()
+        )
     }
 
     public func toolCallRecords(runID: String, in root: ResearchRoot) throws -> [AgentToolExecutionLedgerRecord] {
@@ -359,20 +383,9 @@ public actor AgentRunDirectoryStore {
         return bundleURL
     }
 
-    private func appendJSONLine<T: Encodable>(_ value: T, to url: URL, encoder: JSONEncoder) throws {
-        let data = try encoder.encode(value)
-        guard let line = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: url.path) {
-            let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((line + "\n").utf8))
-        } else {
-            try (line + "\n").write(to: url, atomically: true, encoding: .utf8)
-        }
+    private func appendJSONLine<T: Encodable>(_ value: T, to url: URL, encoder: JSONEncoder) async throws {
+        let writer = await writerRegistry.writer(for: url)
+        try await writer.append(value, encoder: encoder)
     }
 
     private func readJSONLines<T: Decodable>(_ type: T.Type, from url: URL) throws -> [T] {
@@ -421,12 +434,21 @@ public actor AgentRunDirectoryStore {
     private nonisolated static func redactPathLikeText(_ string: String) -> String {
         let homeRedacted = string.replacingOccurrences(of: NSHomeDirectory(), with: "~")
         let pattern = #"(?<![\w:])/(?:[^\s]+/)*[^\s]+"#
-        return redactSensitiveText(homeRedacted.replacingOccurrences(of: pattern, with: "[PATH]", options: .regularExpression))
+        return redactSensitiveTextInternal(homeRedacted.replacingOccurrences(of: pattern, with: "[PATH]", options: .regularExpression))
     }
 
-    private nonisolated static func redactSensitiveText(_ text: String) -> String {
+    /// Public entry point for redacting sensitive text. Used by
+    /// `AgentSessionEventLogger` to sanitise payloads before persisting.
+    public nonisolated static func redactSensitiveTextPublic(_ text: String) -> String {
+        redactSensitiveTextInternal(text)
+    }
+
+    private nonisolated static func redactSensitiveTextInternal(_ text: String) -> String {
         var redacted = text.replacingOccurrences(of: #"sk-[A-Za-z0-9_\-]+"#, with: "[REDACTED]", options: .regularExpression)
-        redacted = redacted.replacingOccurrences(of: #"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,}\]]+"#, with: "$1=[REDACTED]", options: .regularExpression)
+        redacted = redacted.replacingOccurrences(of: #"(?i)(api[_-]?key|token|secret|password|bearer|authorization|cookie|session|jwt)\s*[:=]\s*[^\s,}\]]+"#, with: "$1=[REDACTED]", options: .regularExpression)
+        redacted = redacted.replacingOccurrences(of: #"eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"#, with: "[REDACTED_JWT]", options: .regularExpression)
+        redacted = redacted.replacingOccurrences(of: #"AIza[A-Za-z0-9_\-]{30,}"#, with: "[REDACTED_GCLOUD]", options: .regularExpression)
+        redacted = redacted.replacingOccurrences(of: #"Bearer\s+[A-Za-z0-9_\-\.]+"#, with: "Bearer [REDACTED]", options: .regularExpression)
         return redacted
     }
 
@@ -446,7 +468,7 @@ public actor AgentRunDirectoryStore {
         guard let text = String(data: data, encoding: .utf8) else {
             return data
         }
-        return Data(Self.redactSensitiveText(text).utf8)
+        return Data(Self.redactSensitiveTextInternal(text).utf8)
     }
 }
 

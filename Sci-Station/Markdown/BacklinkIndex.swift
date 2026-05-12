@@ -19,8 +19,29 @@ public struct BacklinkIndex: Sendable {
             )
 
             for link in sourceDocument.outgoingLinks {
-                let targets = documentsByPageKey[link.normalizedTarget] ?? []
-                for targetDocument in targets where targetDocument.relativePath != sourceDocument.relativePath {
+                // Resolution strategy (most specific first):
+                // 1. Fully-qualified namespace key (`concept/dark matter`)
+                // 2. `wiki/<key>` default namespace
+                // 3. Bare legacy key (`<key>`) — this is the backwards-compat
+                //    path that keeps pre-namespace documents discoverable.
+                var resolved: [MarkdownDocument] = []
+                var seenPaths: Set<String> = []
+
+                let orderedCandidates: [String]
+                if link.namespace != nil {
+                    orderedCandidates = [link.normalizedTarget, "wiki/" + link.legacyNormalizedTarget, link.legacyNormalizedTarget]
+                } else {
+                    orderedCandidates = [link.normalizedTarget, link.legacyNormalizedTarget]
+                }
+
+                for candidate in orderedCandidates {
+                    guard let matches = documentsByPageKey[candidate] else { continue }
+                    for match in matches where seenPaths.insert(match.relativePath).inserted {
+                        resolved.append(match)
+                    }
+                }
+
+                for targetDocument in resolved where targetDocument.relativePath != sourceDocument.relativePath {
                     if backlinks[targetDocument.relativePath, default: []].contains(where: { $0.relativePath == reference.relativePath }) {
                         continue
                     }

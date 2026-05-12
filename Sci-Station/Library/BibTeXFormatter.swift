@@ -69,11 +69,28 @@ public struct BibTeXFormatter {
     }
 
     private nonisolated static func escaped(_ value: String) -> String {
-        value
+        // BibTeX special characters that must be escaped.
+        // `{` / `}` are the field brace tokens themselves, so they have to be
+        // preserved carefully — our encoded fields are `{value}`, and unescaped
+        // braces inside `value` would close the field prematurely. We escape them
+        // with the standard LaTeX `\{` / `\}` form.
+        //
+        // Order matters: we replace the backslash first so we do not double-
+        // escape the replacements we add in subsequent steps.
+        return value
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\\", with: "\\textbackslash{}")
+            .replacingOccurrences(of: "{", with: "\\{")
+            .replacingOccurrences(of: "}", with: "\\}")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "&", with: "\\&")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "#", with: "\\#")
+            .replacingOccurrences(of: "_", with: "\\_")
+            .replacingOccurrences(of: "^", with: "\\^{}")
+            .replacingOccurrences(of: "~", with: "\\~{}")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

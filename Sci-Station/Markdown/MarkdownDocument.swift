@@ -2,7 +2,9 @@ import Foundation
 
 public enum FrontmatterValue: Hashable, Sendable {
     case string(String)
-    case array([String])
+    case array([FrontmatterValue])
+    case object([String: FrontmatterValue])
+    case null
 
     public nonisolated var stringValue: String? {
         guard case let .string(value) = self else {
@@ -12,12 +14,35 @@ public enum FrontmatterValue: Hashable, Sendable {
         return value
     }
 
+    /// Returns a `[String]` if the value is an array of string scalars.
+    /// Non-string entries are filtered; callers that need mixed content should
+    /// use `arrayElements` instead.
     public nonisolated var arrayValue: [String]? {
         guard case let .array(value) = self else {
             return nil
         }
 
+        return value.compactMap { element in
+            if case let .string(string) = element {
+                return string
+            }
+            return nil
+        }
+    }
+
+    /// Returns the raw `FrontmatterValue` array, preserving object/null entries.
+    public nonisolated var arrayElements: [FrontmatterValue]? {
+        guard case let .array(value) = self else {
+            return nil
+        }
         return value
+    }
+
+    public nonisolated var objectValue: [String: FrontmatterValue]? {
+        if case let .object(value) = self {
+            return value
+        }
+        return nil
     }
 
     public nonisolated var displayString: String {
@@ -25,7 +50,16 @@ public enum FrontmatterValue: Hashable, Sendable {
         case let .string(value):
             return value.isEmpty ? "-" : value
         case let .array(value):
-            return value.isEmpty ? "[]" : value.joined(separator: ", ")
+            if value.isEmpty { return "[]" }
+            return value.map(\.displayString).joined(separator: ", ")
+        case let .object(value):
+            if value.isEmpty { return "{}" }
+            let rendered = value.keys.sorted().map { key in
+                "\(key): \(value[key]?.displayString ?? "-")"
+            }
+            return "{ " + rendered.joined(separator: ", ") + " }"
+        case .null:
+            return "-"
         }
     }
 }
@@ -45,10 +79,15 @@ public struct MarkdownFrontmatterEntry: Identifiable, Hashable, Sendable {
 }
 
 public struct WikiLink: Identifiable, Hashable, Sendable {
+    /// Optional namespace (e.g. `concept`, `method`, `project`, `paper`).
+    /// `nil` implies the default `wiki` namespace.
+    public let namespace: String?
     public let target: String
     public let originalText: String
 
-    public nonisolated init(target: String, originalText: String) {
+    public nonisolated init(target: String, originalText: String, namespace: String? = nil) {
+        self.namespace = namespace?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .asNonEmpty
         self.target = target
         self.originalText = originalText
     }
@@ -57,7 +96,17 @@ public struct WikiLink: Identifiable, Hashable, Sendable {
         originalText
     }
 
+    /// Combined namespace-aware key used by the backlink index.
+    /// Legacy links without a namespace collapse into `wiki/<normalized>` so
+    /// existing pages continue to resolve.
     public nonisolated var normalizedTarget: String {
+        let ns = namespace ?? "wiki"
+        return ns + "/" + Self.normalizePageKey(target)
+    }
+
+    /// Legacy target that ignored namespaces. Kept for backwards-compatible
+    /// callers; prefer `normalizedTarget` for new code.
+    public nonisolated var legacyNormalizedTarget: String {
         Self.normalizePageKey(target)
     }
 
@@ -76,6 +125,12 @@ public struct WikiLink: Identifiable, Hashable, Sendable {
             .lowercased()
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
+    }
+}
+
+private extension String {
+    nonisolated var asNonEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

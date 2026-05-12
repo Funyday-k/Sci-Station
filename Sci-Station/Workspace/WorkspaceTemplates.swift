@@ -696,7 +696,15 @@ public nonisolated enum WorkspaceModuleRegistry {
         "experiment_planning": ["experiments", "ai-lab"],
         "run_log_summary": ["experiments", "ai-lab"],
         "citation_graph_review": ["citation-graph"],
-        "research_queue_update": ["recommendation"],
+        // P44 — graph indexer maintenance / rebuild workflow.
+        "graph_indexer_maintenance": ["citation-graph"],
+        // P46 — graph browse UI placeholder workflow.
+        "graph_ui_browse": ["citation-graph"],
+        // P47 — graph-powered drafting workflows.
+        "graph_insight_draft": ["citation-graph", "ai-lab"],
+        // P47 calls out that research_queue_update needs both recommendation
+        // and citation-graph because the queue is derived from graph metrics.
+        "research_queue_update": ["recommendation", "citation-graph"],
         "outline_to_manuscript": ["writing", "ai-lab"],
         "claim_citation_check": ["writing", "paper-library", "ai-lab"],
         "definition_extraction": ["theory-notes", "paper-library"],
@@ -845,8 +853,19 @@ public nonisolated enum WorkspaceModuleRegistry {
             directories: [directory(".sci-station/graph")],
             routes: [route("graph", "/graph")],
             projectTabs: [tab("graph", "Graph")],
-            workflows: ["citation_graph_review"],
-            artifactKinds: ["graph_insight"],
+            // P44 introduces graph_indexer_maintenance. P46 introduces
+            // graph_ui_browse. P47 introduces graph_insight_draft.
+            workflows: ["citation_graph_review", "graph_indexer_maintenance", "graph_ui_browse"],
+            // Graph node/edge are produced by P44; reading path / bridge /
+            // stale artifacts are produced by P47 drafting workflows.
+            artifactKinds: [
+                "graph_insight",
+                "graph_node",
+                "graph_edge",
+                "graph_reading_path",
+                "graph_bridge_papers",
+                "graph_stale_artifacts"
+            ],
             approvalScopes: ["artifact_save"],
             writePaths: [".sci-station/graph/", "projects/*/wiki/"]
         ),
