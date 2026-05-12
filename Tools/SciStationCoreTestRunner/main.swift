@@ -87,6 +87,21 @@ private struct CoreVerificationSuite {
         try metadataCodecEmitsGraphNodeID()
         try agentToolErrorClassifierMapsCancelAndTimeout()
         try await jsonlWriterAppendsDurableDedupedLines()
+        try await graphRepositoryAppendsAndReloadsAtomically()
+        try await graphRepositoryDropsOrphanEdgesAfterTombstone()
+        try await graphRepositoryCompactPreservesEffectiveState()
+        try await graphRepositoryCrashRecoveryReplaysJSONL()
+        try await graphReadModelSubgraphRespectsDepth()
+        try await graphReadModelPathReturnsBFSResult()
+        try bibtexParserHandlesArticleAndMisc()
+        try bibtexParserSkipsMalformedEntry()
+        try markdownReferencesExtractorReadsSection()
+        try referenceResolverDOIWinsOverTitle()
+        try referenceResolverProducesExternalOnMiss()
+        try levenshteinDistanceComputesCorrectly()
+        try graphLayoutEngineDeterministicWithFixedSeed()
+        try graphLayoutEngineConvergesUnderThreshold()
+        try await subgraphCacheLRUEvictsOldest()
         try await paperRepositorySaveAndLoadRoundTripsPaper()
         try await paperRepositoryKeepsLegacyRawPapersLoadable()
         try await legacyPaperMigrationPlanDetectsRawPaperConflicts()
@@ -6939,6 +6954,393 @@ private struct CoreVerificationSuite {
         let contents = try String(contentsOf: url, encoding: .utf8)
         let lines = contents.split(whereSeparator: \.isNewline)
         try expect(lines.count == 2, "Duplicate id should be skipped by the writer dedup cache.")
+    }
+
+    private func graphRepositoryAppendsAndReloadsAtomically() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("GraphRepoTest", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+
+        let now = Date()
+        let node = GraphNode(id: "paper:test1", kind: .paper, displayName: "Test Paper", createdAt: now, updatedAt: now, sourceHash: "abc", lastIndexedAt: now)
+        try await repo.upsertNode(node)
+
+        let node2 = GraphNode(id: "project:proj1", kind: .project, displayName: "Project 1", createdAt: now, updatedAt: now, sourceHash: "def", lastIndexedAt: now)
+        try await repo.upsertNode(node2)
+
+        let edge = GraphEdge(kind: .belongsTo, from: "paper:test1", to: "project:proj1", createdAt: now, updatedAt: now, sourceHash: "ghi", lastIndexedAt: now)
+        try await repo.upsertEdge(edge)
+
+        let snap = await repo.snapshot()
+        try expect(snap.nodes.count == 2, "GraphRepository should have 2 nodes after upserts.")
+        try expect(snap.edges.count == 1, "GraphRepository should have 1 edge after upsert.")
+
+        // Close and reopen — should replay from jsonl.
+        await repo.close()
+        let repo2 = GraphRepository()
+        try await repo2.open(in: root)
+        let snap2 = await repo2.snapshot()
+        try expect(snap2.nodes.count == 2, "GraphRepository should reload 2 nodes from jsonl.")
+        try expect(snap2.edges.count == 1, "GraphRepository should reload 1 edge from jsonl.")
+        try expect(snap2.node(id: "paper:test1")?.displayName == "Test Paper", "Reloaded node should preserve displayName.")
+        await repo2.close()
+    }
+
+    private func graphRepositoryDropsOrphanEdgesAfterTombstone() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("GraphOrphanTest", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+
+        let now = Date()
+        try await repo.upsertNode(GraphNode(id: "paper:a", kind: .paper, displayName: "A", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertNode(GraphNode(id: "paper:b", kind: .paper, displayName: "B", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:a", to: "paper:b", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        try await repo.deleteNode(id: "paper:b")
+        let snap = await repo.snapshot()
+        try expect(snap.nodes.count == 1, "After deleting node B, only A should remain.")
+        try expect(snap.edges.count == 0, "After deleting node B, the incident edge should be removed.")
+
+        // Reopen — tombstone should suppress the edge on replay.
+        await repo.close()
+        let repo2 = GraphRepository()
+        try await repo2.open(in: root)
+        let snap2 = await repo2.snapshot()
+        try expect(snap2.nodes.count == 1, "After replay, only A should remain.")
+        try expect(snap2.edges.count == 0, "After replay, orphan edge should be dropped.")
+        await repo2.close()
+    }
+
+    private func graphRepositoryCompactPreservesEffectiveState() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("GraphCompactTest", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+
+        let now = Date()
+        try await repo.upsertNode(GraphNode(id: "paper:x", kind: .paper, displayName: "X", createdAt: now, updatedAt: now, sourceHash: "h1", lastIndexedAt: now))
+        try await repo.upsertNode(GraphNode(id: "paper:y", kind: .paper, displayName: "Y", createdAt: now, updatedAt: now, sourceHash: "h2", lastIndexedAt: now))
+        try await repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:x", to: "paper:y", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let result = try await repo.forceCompact()
+        try expect(result.snapshotURL != nil, "Compact should produce a snapshot file.")
+
+        // Reopen after compact — should load from snapshot, not jsonl.
+        await repo.close()
+        let repo2 = GraphRepository()
+        try await repo2.open(in: root)
+        let snap = await repo2.snapshot()
+        try expect(snap.nodes.count == 2, "After compact + reopen, nodes should be preserved.")
+        try expect(snap.edges.count == 1, "After compact + reopen, edges should be preserved.")
+        await repo2.close()
+    }
+
+    private func graphRepositoryCrashRecoveryReplaysJSONL() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("GraphCrashTest", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+
+        let now = Date()
+        try await repo.upsertNode(GraphNode(id: "paper:crash1", kind: .paper, displayName: "Crash Paper", createdAt: now, updatedAt: now, sourceHash: "c1", lastIndexedAt: now))
+        await repo.close()
+
+        // Simulate a crash by appending a damaged line to nodes.jsonl.
+        let nodesURL = root.fileURL(for: ".sci-station/graph/nodes.jsonl")
+        let existing = try String(contentsOf: nodesURL, encoding: .utf8)
+        try (existing + "{not-valid-json}\n").write(to: nodesURL, atomically: true, encoding: .utf8)
+
+        // Reopen — should skip the damaged line and still load the valid node.
+        let repo2 = GraphRepository()
+        try await repo2.open(in: root)
+        let snap = await repo2.snapshot()
+        try expect(snap.nodes.count == 1, "Crash recovery should skip damaged lines and load valid nodes.")
+        try expect(snap.node(id: "paper:crash1")?.displayName == "Crash Paper", "Valid node should survive crash recovery.")
+        await repo2.close()
+    }
+
+    private func graphReadModelSubgraphRespectsDepth() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("GraphReadModelTest", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+
+        let now = Date()
+        // Build a chain: A -> B -> C
+        try await repo.upsertNode(GraphNode(id: "paper:a", kind: .paper, displayName: "A", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertNode(GraphNode(id: "paper:b", kind: .paper, displayName: "B", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertNode(GraphNode(id: "paper:c", kind: .paper, displayName: "C", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:a", to: "paper:b", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:b", to: "paper:c", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let readModel = GraphReadModel(repository: repo)
+
+        // Depth 1 from A should only reach B.
+        let sub1 = await readModel.subgraph(centerNodeID: "paper:a", depth: 1)
+        try expect(sub1.nodes.count == 2, "Subgraph depth=1 from A should include A and B.")
+        try expect(sub1.edges.count == 1, "Subgraph depth=1 from A should include 1 edge.")
+
+        // Depth 2 from A should reach B and C.
+        let sub2 = await readModel.subgraph(centerNodeID: "paper:a", depth: 2)
+        try expect(sub2.nodes.count == 3, "Subgraph depth=2 from A should include A, B, and C.")
+        try expect(sub2.edges.count == 2, "Subgraph depth=2 from A should include 2 edges.")
+        await repo.close()
+    }
+
+    private func graphReadModelPathReturnsBFSResult() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("GraphPathTest", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+
+        let now = Date()
+        try await repo.upsertNode(GraphNode(id: "paper:s", kind: .paper, displayName: "S", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertNode(GraphNode(id: "concept:dm", kind: .concept, displayName: "Dark Matter", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertNode(GraphNode(id: "paper:t", kind: .paper, displayName: "T", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertEdge(GraphEdge(kind: .mentions, from: "paper:s", to: "concept:dm", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await repo.upsertEdge(GraphEdge(kind: .mentions, from: "paper:t", to: "concept:dm", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let readModel = GraphReadModel(repository: repo)
+        let path = await readModel.path(from: "paper:s", to: "paper:t")
+        try expect(path != nil, "Path from S to T should exist via concept:dm.")
+        try expect(path?.count == 2, "Path should be 2 edges: S->dm, T->dm.")
+
+        let noPath = await readModel.path(from: "paper:s", to: "paper:nonexistent")
+        try expect(noPath == nil, "Path to nonexistent node should return nil.")
+        await repo.close()
+    }
+
+    private func bibtexParserHandlesArticleAndMisc() throws {
+        let bibtex = """
+        @article{garani2017dark,
+          title = {Dark matter in the Sun: scattering off electrons vs nucleons},
+          author = {Raghuveer Garani and Sergio Palomares-Ruiz},
+          year = {2017},
+          eprint = {1702.02768},
+          archivePrefix = {arXiv},
+          doi = {10.1088/1475-7516/2017/05/007}
+        }
+
+        @misc{nguyen2026sun,
+          title = {The Sun Can Strongly Constrain},
+          author = {Thong T. Q. Nguyen and Tim Linden},
+          year = {2026},
+          eprint = {2602.15113}
+        }
+        """
+
+        let parser = BibtexParser()
+        let entries = parser.parse(bibtex)
+        try expect(entries.count == 2, "BibtexParser should parse 2 entries.")
+        try expect(entries[0].key == "garani2017dark", "First entry key should be garani2017dark.")
+        try expect(entries[0].doi == "10.1088/1475-7516/2017/05/007", "First entry should have DOI.")
+        try expect(entries[0].arxivID == "1702.02768", "First entry should have arXiv from eprint field.")
+        try expect(entries[0].year == 2017, "First entry year should be 2017.")
+        try expect(entries[0].firstAuthorLastName == "Garani", "First author last name should be Garani.")
+        try expect(entries[1].key == "nguyen2026sun", "Second entry key should be nguyen2026sun.")
+        try expect(entries[1].type == "misc", "Second entry type should be misc.")
+    }
+
+    private func bibtexParserSkipsMalformedEntry() throws {
+        let bibtex = """
+        @comment{This is a comment block that should be skipped.}
+
+        @article{valid,
+          title = {Valid Paper},
+          author = {Smith},
+          year = {2024}
+        }
+
+        @misc{also_valid,
+          title = {Also Valid},
+          year = {2025}
+        }
+        """
+
+        let parser = BibtexParser()
+        let entries = parser.parse(bibtex)
+        try expect(entries.count == 2, "BibtexParser should skip @comment and parse 2 valid entries.")
+        try expect(entries[0].key == "valid", "First entry should be 'valid'.")
+        try expect(entries[0].title == "Valid Paper", "First entry title should be 'Valid Paper'.")
+        try expect(entries[1].key == "also_valid", "Second entry should be 'also_valid'.")
+    }
+
+    private func markdownReferencesExtractorReadsSection() throws {
+        let markdown = """
+        # Introduction
+
+        Some text here.
+
+        ## References
+
+        1. Garani, R. & Palomares-Ruiz, S. (2017). Dark matter in the Sun. doi:10.1088/1475-7516/2017/05/007
+        2. Nguyen, T. & Linden, T. (2026). The Sun Can Strongly Constrain. arXiv:2602.15113
+        - Smith, J. (2024). A third reference without identifiers.
+
+        ## Appendix
+
+        This should not be included.
+        """
+
+        let extractor = MarkdownReferencesExtractor()
+        let refs = extractor.extract(from: markdown)
+        try expect(refs.count == 3, "Extractor should find 3 references.")
+        try expect(refs[0].contains("Garani"), "First ref should contain Garani.")
+        try expect(refs[1].contains("2602.15113"), "Second ref should contain arXiv id.")
+        try expect(refs[2].contains("Smith"), "Third ref should contain Smith.")
+    }
+
+    private func referenceResolverDOIWinsOverTitle() throws {
+        let now = Date()
+        let papers = [
+            Paper(id: "garani2017", citekey: "garani2017dark", title: "Dark matter in the Sun", authors: ["Raghuveer Garani"], year: 2017, venue: nil, doi: "10.1088/1475-7516/2017/05/007", arxiv: "1702.02768v2", url: nil, pdfRelativePath: nil, tags: [], status: .unread, priority: .medium, rating: nil, useFor: [], createdAt: now, updatedAt: now, paperDirectoryRelativePath: "library/papers/Uncategorized/garani2017", notesSummaryRelativePath: nil, annotationsRelativePath: nil)
+        ]
+        let index = LocalPaperIndex(papers: papers)
+        let resolver = ReferenceResolver()
+
+        // Reference with DOI that matches.
+        let ref = CitationReference(
+            sourcePaperID: "nguyen2026",
+            evidenceSource: .paperMarkdown,
+            rawText: "Garani 2017 doi:10.1088/1475-7516/2017/05/007",
+            doi: "10.1088/1475-7516/2017/05/007",
+            normalizedTitle: "dark matter in the sun"
+        )
+        let result = resolver.resolve(ref, localIndex: index)
+        if case .matchedLocal(let id) = result.outcome {
+            try expect(id == "10.1088/1475-7516/2017/05/007", "DOI match should resolve to the local paper's graphNodeID (DOI-based).")
+        } else {
+            try expect(false, "DOI match should produce .matchedLocal, got \(result.outcome).")
+        }
+    }
+
+    private func referenceResolverProducesExternalOnMiss() throws {
+        let index = LocalPaperIndex(papers: [])
+        let resolver = ReferenceResolver()
+
+        let ref = CitationReference(
+            sourcePaperID: "test",
+            evidenceSource: .bibtex,
+            rawText: "Unknown paper doi:10.9999/fake",
+            doi: "10.9999/fake"
+        )
+        let result = resolver.resolve(ref, localIndex: index)
+        if case .matchedExternal(let nodeID, let source) = result.outcome {
+            try expect(nodeID == "paper:external:doi:10.9999/fake", "External node ID should contain the DOI.")
+            try expect(source == .doi, "External source should be .doi.")
+        } else {
+            try expect(false, "Missing DOI should produce .matchedExternal.")
+        }
+
+        // No identifiers at all.
+        let refNoID = CitationReference(
+            sourcePaperID: "test",
+            evidenceSource: .paperMarkdown,
+            rawText: "Some vague reference"
+        )
+        let resultNoID = resolver.resolve(refNoID, localIndex: index)
+        if case .unresolved(let reason) = resultNoID.outcome {
+            try expect(reason == "no_doi_arxiv_or_title", "No identifiers should produce unresolved.")
+        } else {
+            try expect(false, "No identifiers should produce .unresolved.")
+        }
+    }
+
+    private func levenshteinDistanceComputesCorrectly() throws {
+        try expect(Levenshtein.distance("kitten", "sitting") == 3, "Levenshtein(kitten, sitting) should be 3.")
+        try expect(Levenshtein.distance("", "abc") == 3, "Levenshtein('', abc) should be 3.")
+        try expect(Levenshtein.distance("abc", "abc") == 0, "Levenshtein(abc, abc) should be 0.")
+        try expect(Levenshtein.distance("dark matter", "dark mater") == 1, "Levenshtein with 1 char diff should be 1.")
+    }
+
+    private func graphLayoutEngineDeterministicWithFixedSeed() throws {
+        let nodes: [GraphNode] = (0..<5).map { i in
+            GraphNode(id: "paper:p\(i)", kind: .paper, displayName: "Paper \(i)", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date())
+        }
+        let edges: [GraphEdge] = [
+            GraphEdge(kind: .cites, from: "paper:p0", to: "paper:p1", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date()),
+            GraphEdge(kind: .cites, from: "paper:p1", to: "paper:p2", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date()),
+            GraphEdge(kind: .mentions, from: "paper:p2", to: "paper:p3", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date()),
+            GraphEdge(kind: .cites, from: "paper:p3", to: "paper:p4", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date())
+        ]
+        let subgraph = GraphSubgraph(center: "paper:p0", nodes: nodes, edges: edges)
+        let engine = GraphLayoutEngine()
+
+        let result1 = engine.layout(subgraph, canvasWidth: 800, canvasHeight: 600, seed: 42)
+        let result2 = engine.layout(subgraph, canvasWidth: 800, canvasHeight: 600, seed: 42)
+
+        try expect(result1.positions.count == 5, "Layout should produce positions for all 5 nodes.")
+        for (id, pos1) in result1.positions {
+            guard let pos2 = result2.positions[id] else {
+                try expect(false, "Second run should have position for \(id).")
+                continue
+            }
+            try expect(abs(pos1.x - pos2.x) < 0.001 && abs(pos1.y - pos2.y) < 0.001, "Layout should be deterministic for node \(id).")
+        }
+    }
+
+    private func graphLayoutEngineConvergesUnderThreshold() throws {
+        let nodes: [GraphNode] = (0..<3).map { i in
+            GraphNode(id: "n\(i)", kind: .concept, displayName: "C\(i)", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date())
+        }
+        let edges: [GraphEdge] = [
+            GraphEdge(kind: .mentions, from: "n0", to: "n1", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date()),
+            GraphEdge(kind: .mentions, from: "n1", to: "n2", createdAt: Date(), updatedAt: Date(), sourceHash: nil, lastIndexedAt: Date())
+        ]
+        let subgraph = GraphSubgraph(center: "n0", nodes: nodes, edges: edges)
+        let engine = GraphLayoutEngine()
+        let result = engine.layout(subgraph, canvasWidth: 600, canvasHeight: 400, seed: 7)
+
+        try expect(result.settled, "Layout with 3 nodes should converge (settled=true).")
+        try expect(result.iterations < 200, "Layout should converge before max iterations.")
+    }
+
+    private func subgraphCacheLRUEvictsOldest() async throws {
+        let cache = SubgraphCache(capacity: 3)
+        let emptySubgraph = GraphSubgraph(center: "x", nodes: [], edges: [])
+
+        let key1 = SubgraphCache.Key(viewKind: .paperNeighborhood, centerNodeID: "a", depth: 1, kindFilter: [])
+        let key2 = SubgraphCache.Key(viewKind: .paperNeighborhood, centerNodeID: "b", depth: 1, kindFilter: [])
+        let key3 = SubgraphCache.Key(viewKind: .paperNeighborhood, centerNodeID: "c", depth: 1, kindFilter: [])
+        let key4 = SubgraphCache.Key(viewKind: .paperNeighborhood, centerNodeID: "d", depth: 1, kindFilter: [])
+
+        await cache.put(key1, emptySubgraph)
+        await cache.put(key2, emptySubgraph)
+        await cache.put(key3, emptySubgraph)
+        let count1 = await cache.count
+        try expect(count1 == 3, "Cache should have 3 entries.")
+
+        await cache.put(key4, emptySubgraph)
+        let count2 = await cache.count
+        try expect(count2 == 3, "Cache should evict oldest to stay at capacity 3.")
+        let evicted = await cache.get(key1)
+        try expect(evicted == nil, "Oldest entry (key1) should be evicted.")
+        let newest = await cache.get(key4)
+        try expect(newest != nil, "Newest entry (key4) should be present.")
+
+        await cache.invalidateAll()
+        let count3 = await cache.count
+        try expect(count3 == 0, "invalidateAll should clear all entries.")
     }
 
     private func markdownRepositoryLoadsAndSavesDocuments() async throws {

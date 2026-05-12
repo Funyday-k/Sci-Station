@@ -2068,6 +2068,64 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Graph UI (P46)
+
+    private var _graphRepository: GraphRepository?
+
+    private func initializeGraphRepository(in workspace: ResearchWorkspace) async {
+        let root = ResearchRoot(rootURL: workspace.rootURL)
+        let repo = GraphRepository(debug: appDebugEventLogger)
+        do {
+            try await repo.open(in: root)
+            _graphRepository = repo
+            // Run the indexer to populate/update the graph.
+            let indexer = GraphIndexer(
+                repository: repo,
+                paperRepository: PaperRepository(),
+                projectRegistryRepository: projectRegistryRepository,
+                markdownRepository: MarkdownRepository(),
+                todoRepository: TodoRepository(),
+                debug: appDebugEventLogger
+            )
+            try await indexer.run(in: workspace, root: root, force: false)
+        } catch {
+            // Graph initialization failure is non-fatal; the tab will show
+            // an empty state.
+            _graphRepository = nil
+        }
+    }
+
+    func graphReadModel() async -> GraphReadModel? {
+        guard let repo = _graphRepository else { return nil }
+        return GraphReadModel(repository: repo)
+    }
+
+    func showGraphActionPlaceholder(reason: String) {
+        // P47 will replace this with actual agent tool invocation.
+        recordShellDebugEvent("graph.ui.action", payload: .object([
+            "action": .string("placeholder"),
+            "reason": .string(reason)
+        ]))
+    }
+
+    func handleGraphNodeAction(_ action: NodeAction) {
+        switch action {
+        case .openPaper(let paperID):
+            selectPaper(id: paperID)
+        case .openWikiPage(let path):
+            openMarkdownDocument(relativePath: path)
+        case .addToProject, .markAsCore, .createTodo:
+            // Write actions would go through Permission Dock in full implementation.
+            // For P46 we log the intent.
+            recordShellDebugEvent("graph.ui.action", payload: .object([
+                "action": .string("write_action_placeholder"),
+                "node_action": .string(String(describing: action))
+            ]))
+        case .generateReadingOrder, .explainConnection, .findBridgePapers:
+            showGraphActionPlaceholder(reason: "available_in_p47")
+        }
+    }
+
     func updateShellWindowWidth(_ width: CGFloat) {
         let nextWidth = Double(width)
         let previousModel = responsiveShellModel
@@ -6111,6 +6169,7 @@ final class AppViewModel: ObservableObject {
         try await loadMarkdownSnippets(in: workspace)
         try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
         await refreshAgentState(in: workspace)
+        await initializeGraphRepository(in: workspace)
     }
 
     private func loadResearchRoot(in workspace: ResearchWorkspace, compatibility: ResearchRootCompatibility?) async throws {

@@ -346,6 +346,16 @@ struct ContentView: View {
             return "square.and.arrow.down"
         case .wikiPreviewMode:
             return "eye"
+        case .graphSearch:
+            return "magnifyingglass"
+        case .graphDepth:
+            return "slider.horizontal.3"
+        case .graphLayoutMode:
+            return "circle.grid.3x3"
+        case .graphFilterKinds:
+            return "line.3.horizontal.decrease.circle"
+        case .graphResetView:
+            return "arrow.counterclockwise"
         }
     }
 
@@ -380,6 +390,10 @@ struct ContentView: View {
         case .wikiSave:
             appModel.saveSelectedMarkdownChanges()
         case .wikiPreviewMode:
+            break
+        case .graphSearch, .graphDepth, .graphLayoutMode, .graphFilterKinds, .graphResetView:
+            // P46 will wire these to the graph view model. For now they are
+            // no-ops since the graph tab is still a placeholder.
             break
         }
     }

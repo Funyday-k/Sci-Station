@@ -225,32 +225,51 @@ public actor PaperMarkdownConversionService {
 
         var fallbackReason = PaperMarkdownConversionError.missingMinerUAPIToken.localizedDescription
         if !configuration.minerUAPIToken.isEmpty {
-            do {
-                let generatedMarkdown = try await convertWithMinerUAPI(
-                    paper,
-                    pdfURL: pdfURL,
-                    markdownURL: markdownURL,
-                    configuration: configuration
-                )
-                let markdown = markdownDocument(
-                    for: paper,
-                    pageMarkdown: generatedMarkdown,
-                    extractionEngine: "mineru_api",
-                    fallbackReason: nil
-                )
-                try FileManager.default.createDirectory(at: markdownURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
-                return PaperMarkdownConversionResult(
-                    paperID: paper.id,
-                    title: paper.displayTitle,
-                    markdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
-                    didWriteMarkdown: true,
-                    errorMessage: nil,
-                    extractionEngine: "mineru_api",
-                    fallbackReason: nil
-                )
-            } catch {
-                fallbackReason = error.localizedDescription
+            // Retry up to 2 times for transient network/TLS errors. The MinerU
+            // API is remote and can fail due to proxy interference, DNS hiccups,
+            // or brief TLS negotiation failures — especially common behind
+            // corporate VPNs or in regions with unstable connectivity.
+            var lastError: Error?
+            for attempt in 1...3 {
+                do {
+                    let generatedMarkdown = try await convertWithMinerUAPI(
+                        paper,
+                        pdfURL: pdfURL,
+                        markdownURL: markdownURL,
+                        configuration: configuration
+                    )
+                    let markdown = markdownDocument(
+                        for: paper,
+                        pageMarkdown: generatedMarkdown,
+                        extractionEngine: "mineru_api",
+                        fallbackReason: nil
+                    )
+                    try FileManager.default.createDirectory(at: markdownURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+                    return PaperMarkdownConversionResult(
+                        paperID: paper.id,
+                        title: paper.displayTitle,
+                        markdownRelativePath: paper.paperDirectoryRelativePath + "/paper.md",
+                        didWriteMarkdown: true,
+                        errorMessage: nil,
+                        extractionEngine: "mineru_api",
+                        fallbackReason: nil
+                    )
+                } catch {
+                    lastError = error
+                    // Only retry on transient network/TLS errors. Non-retryable
+                    // errors (auth failure, bad request, etc.) break immediately.
+                    if isRetryableNetworkError(error), attempt < 3 {
+                        let delay = UInt64(pow(2.0, Double(attempt - 1))) * 1_000_000_000
+                        try? await Task.sleep(nanoseconds: delay)
+                        continue
+                    }
+                    break
+                }
+            }
+            if let lastError {
+                let diagnostic = diagnosticMessage(for: lastError)
+                fallbackReason = "\(lastError.localizedDescription)\(diagnostic)"
             }
         }
 
@@ -518,6 +537,47 @@ public actor PaperMarkdownConversionService {
             let secondSize = (try? second.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return firstSize > secondSize
         }.first
+    }
+
+    private nonisolated func isRetryableNetworkError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .secureConnectionFailed,    // TLS error
+                 .timedOut,
+                 .networkConnectionLost,
+                 .notConnectedToInternet,
+                 .dnsLookupFailed,
+                 .cannotConnectToHost,
+                 .cannotFindHost:
+                return true
+            default:
+                return false
+            }
+        }
+        // NSError domain check for generic network failures.
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return [-1200, -1001, -1005, -1009, -1003, -1004].contains(nsError.code)
+        }
+        return false
+    }
+
+    private nonisolated func diagnosticMessage(for error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .secureConnectionFailed:
+                return " [诊断: TLS 握手失败。如果您使用了 VPN 或代理，请检查其是否拦截了 HTTPS 连接。也可以尝试在系统设置中信任代理证书，或暂时关闭代理后重试。]"
+            case .timedOut:
+                return " [诊断: 连接超时。请检查网络连接是否稳定。]"
+            case .notConnectedToInternet:
+                return " [诊断: 无网络连接。请检查 Wi-Fi 或有线网络。]"
+            case .dnsLookupFailed, .cannotFindHost:
+                return " [诊断: DNS 解析失败。请检查 mineru.net 是否可访问，或尝试更换 DNS 服务器。]"
+            default:
+                return ""
+            }
+        }
+        return ""
     }
 
     private nonisolated func markdownByRestoringMinerUAssets(

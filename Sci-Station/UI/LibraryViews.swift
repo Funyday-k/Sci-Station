@@ -374,8 +374,6 @@ private struct LibraryPaperTableView: View {
             }
             .padding(.horizontal, 2)
 
-            sortableColumnHeader
-
             Table(
                 of: LibraryPaperTableRow.self,
                 selection: selectionBinding

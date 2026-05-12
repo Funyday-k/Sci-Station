@@ -27,11 +27,7 @@ struct ProjectSpaceContentRouter: View {
             case "pdf-reader":
                 PDFReaderWorkspaceView(workspace: workspace)
             case "graph":
-                ProjectSpacePlaceholderView(
-                    title: "Graph",
-                    systemImage: tab.systemImage,
-                    message: "Graph data not built yet, see P44-P46."
-                )
+                GraphView(workspace: workspace)
             case "code":
                 ProjectSpacePlaceholderView(title: "Code", systemImage: tab.systemImage, message: "Project code workflows land in P55.")
             case "data":

@@ -321,7 +321,12 @@ private struct TopSidebarRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help(isProjectTreeExpanded ? appModel.t(.sidebarCollapseProjectTree) : appModel.t(.sidebarExpandProjectTree))
+                .disabled(appModel.responsiveShellModel.shouldCollapseProjectTree)
+                .help(
+                    appModel.responsiveShellModel.shouldCollapseProjectTree
+                        ? appModel.t(.sidebarProjectTreeCollapsedByPolicy)
+                        : (isProjectTreeExpanded ? appModel.t(.sidebarCollapseProjectTree) : appModel.t(.sidebarExpandProjectTree))
+                )
             }
 
             Button(action: action) {

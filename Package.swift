@@ -51,7 +51,8 @@ let package = Package(
                 "UI/Shell/TopSidebarView.swift",
                 "UI/TagViews.swift",
                 "UI/WikiViews.swift",
-                "UI/WorkspaceSection.swift"
+                "UI/WorkspaceSection.swift",
+                "UI/Graph"
             ],
             sources: [
                 "Workspace",
@@ -69,6 +70,7 @@ let package = Package(
                 "Localization",
                 "LLM",
                 "Agent",
+                "Graph",
                 "UI/Shell/ShellModels.swift",
                 "UI/Shell/ResponsiveShellPolicy.swift",
                 "UI/Shell/TopSidebarBuilder.swift",

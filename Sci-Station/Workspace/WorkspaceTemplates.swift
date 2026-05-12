@@ -848,7 +848,7 @@ public nonisolated enum WorkspaceModuleRegistry {
         module(
             id: "citation-graph",
             title: "Citation Graph",
-            enabled: false,
+            enabled: true,
             dependencies: ["paper-library", "wiki"],
             directories: [directory(".sci-station/graph")],
             routes: [route("graph", "/graph")],

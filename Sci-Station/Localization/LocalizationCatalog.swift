@@ -63,6 +63,7 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case sidebarCreateResearchProject
     case sidebarCollapseProjectTree
     case sidebarExpandProjectTree
+    case sidebarProjectTreeCollapsedByPolicy
     case sidebarSortUsage
     case sidebarSortName
     case sidebarSortProjects
@@ -291,6 +292,7 @@ public nonisolated enum L10n {
         .sidebarCreateResearchProject: "Create a research project",
         .sidebarCollapseProjectTree: "Collapse project tree",
         .sidebarExpandProjectTree: "Expand project tree",
+        .sidebarProjectTreeCollapsedByPolicy: "Project tree is collapsed because the window is too narrow. Widen the window to expand.",
         .sidebarSortUsage: "Usage",
         .sidebarSortName: "Name",
         .sidebarSortProjects: "Sort projects",
@@ -446,6 +448,7 @@ public nonisolated enum L10n {
         .sidebarCreateResearchProject: "创建研究项目",
         .sidebarCollapseProjectTree: "折叠项目树",
         .sidebarExpandProjectTree: "展开项目树",
+        .sidebarProjectTreeCollapsedByPolicy: "窗口宽度不足，项目树已自动折叠。请拉宽窗口以展开。",
         .sidebarSortUsage: "最近使用",
         .sidebarSortName: "名称",
         .sidebarSortProjects: "项目排序",
