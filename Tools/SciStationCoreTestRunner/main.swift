@@ -41,6 +41,7 @@ private struct CoreVerificationSuite {
         try homeWidgetGridReflowsForSingleColumn()
         try homeWidgetGridRepackAvoidsOverlap()
         try homeWidgetResetRestoresDefaultLayout()
+        try homeWidgetDragOntoCommitsInBothDirections()
         try toolbarPolicyShowsImportOnlyForLibraryContexts()
         try toolbarPolicyHidesPaperActionsOnHome()
         try toolbarPolicyShowsPDFActionsOnlyInPDFReader()
@@ -67,11 +68,14 @@ private struct CoreVerificationSuite {
         try await homeAggregatorInvalidatesOnDraftInboxChange()
         try await homeAggregatorInvalidatesOnTodoChange()
         try await homeAggregatorErrorRecordsDebugEvent()
+        try await homeAggregatorPopulatesReadingQueueEntriesWhenQueueAvailable()
+        try await homeAggregatorFallsBackToHeuristicReadingQueueWhenQueueEmpty()
         try projectStageProviderInfersExplorationForBlankProject()
         try projectStageProviderInfersOnHoldAfter21DaysIdle()
         try projectStageProviderInfersReviewingWhenUnsupportedClaimPresent()
         try projectDashboardAggregatorReturnsCorrectStage()
         try projectDashboardAggregatorOrdersArtifactsByCreatedDesc()
+        try projectDashboardAggregatorBuildsReadingQueuePreview()
         try await homeSnapshotEncodesAndDecodesRoundTrip()
         try librarySortStateSortsPapers()
         try await libraryBulkEditServiceUpdatesSelectedPapers()
@@ -93,6 +97,12 @@ private struct CoreVerificationSuite {
         try await graphRepositoryCrashRecoveryReplaysJSONL()
         try await graphReadModelSubgraphRespectsDepth()
         try await graphReadModelPathReturnsBFSResult()
+        try graphAgentToolsExposeReadOnlyDefinitions()
+        try await graphToolBackendFindsMissingCorePapers()
+        try await graphToolBackendGeneratesReadingPath()
+        try await graphToolBackendDetectsStaleCitations()
+        try await graphToolBackendFindsUnsupportedArtifactClaims()
+        try await graphToolBackendFindsBridgePapers()
         try bibtexParserHandlesArticleAndMisc()
         try bibtexParserSkipsMalformedEntry()
         try markdownReferencesExtractorReadsSection()
@@ -118,10 +128,33 @@ private struct CoreVerificationSuite {
         try await paperRepositoryLoadsNestedCollectionPapers()
         try await tagRepositoryUpsertsAndDeletesDefinitions()
         try await todoRepositoryCreatesCompletesAndDeletesTodos()
+        try await researchQueueStoreAppendPersistsAndReloads()
+        try await researchQueueStoreAppendBatchPreservesOrderWithinBatch()
+        try await researchQueueStoreReorderRewritesOrderField()
+        try await researchQueueStoreReorderHandlesPartialIDList()
+        try await researchQueueStoreUpdateStatusRecordsTimestamps()
+        try await researchQueueStoreRemoveDoesNotAffectOtherScopes()
+        try await researchQueueStoreLoadIgnoresMalformedEntriesAndLogsWarning()
+        try await researchQueueStoreWorkspaceQueueTopRespectsLimitAndStatusFilter()
+        try await researchQueueStoreProjectQueueIsolatedPerProjectID()
+        try await researchQueueStoreApplyPaperStatusTransitionRespectsRules()
+        try researchQueueYAMLEncodingRoundtripIsStable()
+        try researchQueueYAMLDecoderSkipsUnknownFieldsForward()
+        try await researchQueueDebugEventsScrubSensitiveFields()
+        try await researchQueueIngestorMapsApprovedRecommendationCandidatesAndDedupes()
+        try await researchQueueIngestorAppliesPaperStatusDiffsToStore()
+        try await researchQueueIngestorPersistsCursorAcrossReopen()
+        try await researchQueueFixtureRoundTripsFiveDiverseEntries()
+        try recommendationConfigYAMLRoundTripsDailySourceSettings()
+        try dailyFeedCandidateImporterMapsExternalArxivCandidates()
+        try await recommendationCandidateGathererDedupsDailyFeedAndQueueTail()
+        try await recommendationScorerRanksByLibraryInterestAndSuppressesFinished()
+        try await recommendationPipelineWritesSnapshotAndQueuePayload()
         try identifierParserRecognizesSupportedKinds()
         try metadataProviderBuildsStableLookupURLs()
         try arxivEntryParserExtractsMetadataDraft()
         try inspireMetadataMapperExtractsMetadataDraft()
+        try inspireMetadataMapperExtractsCitationGraphFields()
         try llmRequestBuildsExpectedPayload()
         try openAIProviderPreservesReasoningContent()
         try openAIProviderRejectsThinkingModeToolReplayWithoutReasoning()
@@ -163,6 +196,7 @@ private struct CoreVerificationSuite {
         try await agentServiceRecordCancelledRunPersistsLifecycle()
         try await agentServiceExecutesApprovedPlan()
         try agentPaperIntentRouterMapsAbstractToAbstractSection()
+        try agentPaperIntentRouterClassifiesGraphIntents()
         try await agentLoopRunnerCallsReadOnlyToolThenContinues()
         try await agentLoopRunnerReturnsVisibleFallbackAfterToolThenEmptyProvider()
         try await agentLoopRunnerEmptyResponseWithoutToolsKeepsContextFallback()
@@ -217,6 +251,9 @@ private struct CoreVerificationSuite {
         try await workspaceTemplateModuleConfigWritesAndLegacyMigration()
         try await workspaceCreationWizardPreviewValidationAndSafety()
         try workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts()
+        try workspaceModuleRegistryGatesGraphWorkflows()
+        try paperLibraryModuleDeclaresReadingQueueArtifactKindAndWorkflow()
+        try workspaceModuleRegistryWorkflowGatingForReadingQueueCurate()
         try moduleSettingsViewModelEnableModuleRequiresDependencies()
         try moduleSettingsViewModelEnableDependenciesEnablesAllAncestors()
         try await moduleSettingsViewModelTogglePinPersistsOrder()
@@ -708,11 +745,23 @@ private struct CoreVerificationSuite {
         let homeContext = WorkspaceContextSnapshot(topLevelSectionID: "home")
         let libraryRoute = WorkspaceRoute(top: .library)
         let libraryContext = WorkspaceContextSnapshot(topLevelSectionID: "library")
-        let aiPreferredMode = RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .ai)
+        let projectsRoute = WorkspaceRoute(top: .projects, projectID: "proj-1", projectTabID: "queue")
+        let projectsContext = WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "proj-1", projectTabID: "queue")
 
-        try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .inspector) == .hidden, "Home should auto-hide the right rail when no useful inspector exists.")
-        try expect(RightRailPolicy.suggestedMode(route: libraryRoute, context: libraryContext, preferredMode: .hidden) == .inspector, "Library should auto-suggest the paper inspector rail.")
-        try expect(aiPreferredMode == .ai, "An open AI rail should stay open across route context updates.")
+        // 2026-05-17 UI Bug Bash: the right rail policy is now fully sticky —
+        // suggestedMode echoes preferredMode back so user-driven toggles win.
+        // Route-based hints have been moved to `defaultMode(for:)`, which is
+        // only consulted when seeding an untouched workspace's initial state.
+        try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .inspector) == .inspector, "User-pinned inspector mode must survive a Home route refresh.")
+        try expect(RightRailPolicy.suggestedMode(route: libraryRoute, context: libraryContext, preferredMode: .hidden) == .hidden, "User-hidden right rail must stay hidden across route changes (sticky preference).")
+        try expect(RightRailPolicy.suggestedMode(route: projectsRoute, context: projectsContext, preferredMode: .inspector) == .inspector, "User-opened inspector must stay open on routes that previously hinted .hidden (queue tab regression).")
+        try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .ai) == .ai, "An open AI rail should stay open across route context updates.")
+
+        // `defaultMode(for:)` keeps the legacy auto-hide intent for workspace
+        // bootstrap, but it is now opt-in for callers that want a fresh
+        // workspace to start with a context-aware default.
+        try expect(RightRailPolicy.defaultMode(route: homeRoute, context: homeContext) == .hidden, "Home default mode should still be .hidden so a fresh workspace doesn't open with an empty inspector.")
+        try expect(RightRailPolicy.defaultMode(route: libraryRoute, context: libraryContext) == .inspector, "Library default mode should still seed the paper inspector for a fresh workspace.")
     }
 
     private func responsivePolicyHidesRightRailBelowThreshold() throws {
@@ -812,6 +861,61 @@ private struct CoreVerificationSuite {
         let defaultLayout = HomeWidgetLayout.defaultLayout(descriptors: descriptors, columns: 4)
         try expect(layout.items.map(\.widgetID) == defaultLayout.items.map(\.widgetID), "Reset should restore Home widget default order.")
         try expect(layout.items.allSatisfy(\.isEnabled), "Reset should re-enable default Home widgets.")
+    }
+
+    /// 2026-05-17 UI Bug Bash Round 3 regression. The user reported that
+    /// dragging a Home widget briefly settled into the new spot and then
+    /// snapped back. Two model-side bugs were responsible:
+    ///
+    /// 1. `repack` re-sorted `items` by `(row, column)` BEFORE laying them
+    ///    out, but at the moment `moveWidget(_:before:)` calls `repack` the
+    ///    items still carry their pre-move positions, so the sort silently
+    ///    restored the original order — every drag was a no-op once persisted
+    ///    (verified in `~/Documents/ResearchWorkspace/.sci-station/debug/app_events.jsonl`
+    ///    at 2026-05-17T09:13:18Z).
+    ///
+    /// 2. `moveWidget(_:before:)` was asymmetric — for forward drags
+    ///    (`sourceIndex < targetIndex`) inserting "immediately before target"
+    ///    only nudges the source one slot, never landing on the target's
+    ///    tile. The dashboard now calls the unified `onto:` variant which
+    ///    swaps source into target's slot regardless of drag direction.
+    ///
+    /// Both regressions covered here against `cols = 4` (typical expanded
+    /// dashboard width) so a future refactor that re-introduces the position
+    /// sort will fail the same scenarios the user manually hit.
+    private func homeWidgetDragOntoCommitsInBothDirections() throws {
+        let descriptors = HomeWidgetRegistry.defaultDescriptors
+
+        // Backward drag: aiReview (idx 2) → onto activeProjects (idx 1).
+        // The user's actual logged action; before the fix this came back as
+        // a no-op because repack's positionSort restored the old order.
+        var backward = HomeWidgetLayout.defaultLayout(descriptors: descriptors, columns: 4)
+        backward.moveWidget(HomeWidgetID.aiReview, onto: HomeWidgetID.activeProjects, descriptors: descriptors, columns: 4)
+        let backwardOrder = backward.items.map(\.widgetID)
+        let aiIdxBackward = backwardOrder.firstIndex(of: HomeWidgetID.aiReview) ?? Int.max
+        let activeIdxBackward = backwardOrder.firstIndex(of: HomeWidgetID.activeProjects) ?? Int.max
+        try expect(aiIdxBackward < activeIdxBackward, "Backward drag (aiReview onto activeProjects) must land aiReview at activeProjects's slot.")
+
+        // Forward drag: today (idx 0) → onto aiReview (idx 2). Before the
+        // `onto:` semantic this only moved today by one slot; after the fix
+        // today must land at aiReview's exact slot.
+        var forward = HomeWidgetLayout.defaultLayout(descriptors: descriptors, columns: 4)
+        forward.moveWidget(HomeWidgetID.today, onto: HomeWidgetID.aiReview, descriptors: descriptors, columns: 4)
+        let forwardOrder = forward.items.map(\.widgetID)
+        let todayIdxForward = forwardOrder.firstIndex(of: HomeWidgetID.today) ?? Int.max
+        let aiIdxForward = forwardOrder.firstIndex(of: HomeWidgetID.aiReview) ?? Int.max
+        try expect(todayIdxForward > aiIdxForward, "Forward drag (today onto aiReview) must place today AFTER aiReview in the order, swapping into aiReview's slot.")
+
+        // Repacking the layout (e.g. via `setWidget`) MUST NOT silently
+        // restore the pre-move order. This was the second model bug — the
+        // `repack` helper used to sort by `(row, column)` first, undoing the
+        // move once items were laid out. The post-fix invariant: the user's
+        // intended array order survives any subsequent normalize / repack.
+        forward.setWidget(HomeWidgetID.calendar, isEnabled: false, descriptors: descriptors, columns: 4)
+        let postRepackOrder = forward.items.filter(\.isEnabled).map(\.widgetID)
+        let todayIdxAfter = postRepackOrder.firstIndex(of: HomeWidgetID.today) ?? Int.max
+        let aiIdxAfter = postRepackOrder.firstIndex(of: HomeWidgetID.aiReview) ?? Int.max
+        try expect(todayIdxAfter > aiIdxAfter, "Subsequent repack (via setWidget) must NOT restore the pre-move order — the user's drag must persist across normalization.")
     }
 
     private func rightRailModePersistsAcrossWorkspaceReload() async throws {
@@ -1076,7 +1180,9 @@ private struct CoreVerificationSuite {
         let result = RoutePersistence.restoreResult(
             candidate: WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "graph"),
             activeProjectIDs: ["project-a"],
-            configuration: WorkspaceModuleRegistry.defaultConfiguration()
+            configuration: WorkspaceModuleRegistry.defaultConfiguration(
+                enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["citation-graph"])
+            )
         )
 
         try expect(result.route == WorkspaceRoute(top: .projects, projectID: "project-a", projectTabID: "overview"), "Disabled module routes should fall back to ProjectSpace Overview.")
@@ -1216,6 +1322,113 @@ private struct CoreVerificationSuite {
         }
     }
 
+    private func sampleQueueEntryForHomeTest(
+        id: String,
+        scope: QueueScope,
+        order: Int,
+        status: QueueStatus,
+        source: QueueSource = .manual,
+        paperID: String? = nil,
+        externalKey: String? = nil,
+        displayTitle: String,
+        lastTouchedAt: Date
+    ) -> ResearchQueueEntry {
+        ResearchQueueEntry(
+            id: id,
+            paperID: paperID,
+            externalKey: externalKey,
+            displayTitle: displayTitle,
+            scope: scope,
+            status: status,
+            source: source,
+            order: order,
+            addedAt: lastTouchedAt,
+            startedAt: nil,
+            finishedAt: nil,
+            lastTouchedAt: lastTouchedAt,
+            noteSummary: nil,
+            sourceRefs: []
+        )
+    }
+
+    private func homeAggregatorPopulatesReadingQueueEntriesWhenQueueAvailable() async throws {
+        let aggregator = HomeAggregator()
+        let baseDate = Date(timeIntervalSince1970: 1_777_600_000)
+        let queueEntries: [ResearchQueueEntry] = [
+            sampleQueueEntryForHomeTest(
+                id: "queue:workspace:p-old",
+                scope: .workspace,
+                order: 1,
+                status: .queued,
+                paperID: "p-old",
+                displayTitle: "Older Queued Paper",
+                lastTouchedAt: baseDate
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:workspace:p-recent",
+                scope: .workspace,
+                order: 2,
+                status: .reading,
+                paperID: "p-recent",
+                displayTitle: "Recent Reading Paper",
+                lastTouchedAt: baseDate.addingTimeInterval(7_200)
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:workspace:p-finished",
+                scope: .workspace,
+                order: 3,
+                status: .finished,
+                paperID: "p-finished",
+                displayTitle: "Finished Paper",
+                lastTouchedAt: baseDate.addingTimeInterval(3_600)
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:workspace:ext-arxiv",
+                scope: .workspace,
+                order: 4,
+                status: .queued,
+                source: .recommendation,
+                externalKey: "arxiv:2410.12345",
+                displayTitle: "External Recommendation",
+                lastTouchedAt: baseDate.addingTimeInterval(1_800)
+            )
+        ]
+
+        let snapshot = try await aggregator.snapshot(
+            input: HomeAggregationInput(
+                workspaceID: "queue-home-workspace",
+                queueEntries: queueEntries
+            ),
+            now: baseDate.addingTimeInterval(10_000)
+        )
+
+        let entries = snapshot.today.readingQueueEntries
+        try expect(entries.map(\.id) == [
+            "queue:workspace:p-recent",
+            "queue:workspace:ext-arxiv",
+            "queue:workspace:p-old"
+        ], "Today panel should sort active queue entries by lastTouchedAt desc and skip finished/dismissed rows.")
+        try expect(entries.first?.status == .reading, "Most recently touched entry should land first regardless of status (queued/reading both qualify).")
+        try expect(entries.last?.status == .queued, "Older queued entries should still appear when the active queue is small.")
+        try expect(entries.contains { $0.externalKey == "arxiv:2410.12345" }, "Today panel should preserve external recommendations alongside library entries.")
+    }
+
+    private func homeAggregatorFallsBackToHeuristicReadingQueueWhenQueueEmpty() async throws {
+        let aggregator = HomeAggregator()
+        var paper = samplePaper(id: "fallback-paper")
+        paper.priority = .high
+        let snapshot = try await aggregator.snapshot(
+            input: HomeAggregationInput(
+                workspaceID: "queue-fallback-workspace",
+                papers: [paper],
+                queueEntries: []
+            ),
+            now: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+        try expect(snapshot.today.readingQueueEntries.isEmpty, "When no queue entries are wired, readingQueueEntries should remain empty.")
+        try expect(!snapshot.today.readingQueue.isEmpty, "Heuristic readingQueue should keep populating from papers so the Home card never goes blank.")
+    }
+
     private func projectStageProviderInfersExplorationForBlankProject() throws {
         let decision = ProjectStageProvider().stage(for: ProjectStageSignal(projectID: "blank"), today: Date(timeIntervalSince1970: 1_777_600_000))
         try expect(decision.stage == .exploration, "Blank project should infer exploration stage.")
@@ -1283,6 +1496,83 @@ private struct CoreVerificationSuite {
 
         let snapshot = try require(ProjectDashboardSnapshotBuilder().build(input: input, now: Date(timeIntervalSince1970: 1_777_600_010)), "Project dashboard snapshot should build for artifact ordering.")
         try expect(Array(snapshot.recentArtifacts.map(\.title).prefix(2)) == ["Newer Artifact", "Older Artifact"], "Project dashboard should order recent artifacts newest first.")
+    }
+
+    private func projectDashboardAggregatorBuildsReadingQueuePreview() throws {
+        let project = sampleResearchProject(id: "project-queue-preview")
+        var linkedPaper = samplePaper(id: "p-linked")
+        linkedPaper.projectIDs = [project.id]
+        var unlinkedPaper = samplePaper(id: "p-unlinked")
+        unlinkedPaper.projectIDs = []
+
+        let baseDate = Date(timeIntervalSince1970: 1_777_600_000)
+        let projectScope = QueueScope.project(project.id)
+        let queueEntries: [ResearchQueueEntry] = [
+            sampleQueueEntryForHomeTest(
+                id: "queue:project:\(project.id):p-old",
+                scope: projectScope,
+                order: 1,
+                status: .queued,
+                paperID: "p-old",
+                displayTitle: "Older Project Paper",
+                lastTouchedAt: baseDate
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:project:\(project.id):p-recent",
+                scope: projectScope,
+                order: 2,
+                status: .reading,
+                paperID: "p-recent",
+                displayTitle: "Recent Project Paper",
+                lastTouchedAt: baseDate.addingTimeInterval(7_200)
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:project:\(project.id):p-finished",
+                scope: projectScope,
+                order: 3,
+                status: .finished,
+                paperID: "p-finished",
+                displayTitle: "Finished Project Paper",
+                lastTouchedAt: baseDate.addingTimeInterval(3_600)
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:workspace:p-linked",
+                scope: .workspace,
+                order: 4,
+                status: .queued,
+                paperID: "p-linked",
+                displayTitle: "Workspace Linked Paper",
+                lastTouchedAt: baseDate.addingTimeInterval(5_400)
+            ),
+            sampleQueueEntryForHomeTest(
+                id: "queue:workspace:p-unlinked",
+                scope: .workspace,
+                order: 5,
+                status: .queued,
+                paperID: "p-unlinked",
+                displayTitle: "Workspace Unlinked Paper",
+                lastTouchedAt: baseDate.addingTimeInterval(9_000)
+            )
+        ]
+
+        let input = ProjectDashboardAggregationInput(
+            workspaceID: "queue-preview-workspace",
+            project: project,
+            papers: [linkedPaper, unlinkedPaper],
+            queueEntries: queueEntries
+        )
+        let snapshot = try require(
+            ProjectDashboardSnapshotBuilder().build(input: input, now: baseDate.addingTimeInterval(20_000)),
+            "Project dashboard snapshot should build for queue preview test."
+        )
+        let previewIDs = snapshot.readingQueuePreview.map(\.id)
+        try expect(previewIDs == [
+            "queue:project:\(project.id):p-recent",
+            "queue:workspace:p-linked",
+            "queue:project:\(project.id):p-old"
+        ], "Reading queue preview should sort active project + project-linked workspace entries by lastTouchedAt desc, capped at 3.")
+        try expect(!previewIDs.contains("queue:project:\(project.id):p-finished"), "Finished entries should not appear in the project preview.")
+        try expect(!previewIDs.contains("queue:workspace:p-unlinked"), "Workspace queue rows whose paper is not linked to the project should be excluded.")
     }
 
     private func homeSnapshotEncodesAndDecodesRoundTrip() async throws {
@@ -2283,6 +2573,956 @@ private struct CoreVerificationSuite {
                 try expect(legacyTodos.first?.projectIDs == [], "Todo repository should treat legacy todos without project_ids as unassigned.")
     }
 
+    // MARK: - P48 Research Queue (Layer A: store + YAML)
+
+    private func makeQueueWorkspace(_ name: String) throws -> (URL, ResearchWorkspace) {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        return (rootURL, ResearchWorkspace(rootURL: rootURL))
+    }
+
+    private func sampleQueueEntry(
+        id: String,
+        scope: QueueScope,
+        order: Int,
+        status: QueueStatus = .queued,
+        source: QueueSource = .manual,
+        paperID: String? = nil,
+        externalKey: String? = nil,
+        displayTitle: String = "Sample Paper",
+        addedAt: Date = Date(timeIntervalSince1970: 1_777_600_000),
+        lastTouchedAt: Date = Date(timeIntervalSince1970: 1_777_600_000),
+        noteSummary: String? = nil,
+        sourceRefs: [String] = []
+    ) -> ResearchQueueEntry {
+        ResearchQueueEntry(
+            id: id,
+            paperID: paperID,
+            externalKey: externalKey,
+            displayTitle: displayTitle,
+            scope: scope,
+            status: status,
+            source: source,
+            order: order,
+            addedAt: addedAt,
+            startedAt: nil,
+            finishedAt: nil,
+            lastTouchedAt: lastTouchedAt,
+            noteSummary: noteSummary,
+            sourceRefs: sourceRefs
+        )
+    }
+
+    private func researchQueueStoreAppendPersistsAndReloads() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueuePersistWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let entry = sampleQueueEntry(
+            id: "queue:workspace:p1",
+            scope: .workspace,
+            order: 1,
+            paperID: "p1",
+            displayTitle: "Persisted Paper"
+        )
+        try await store.append(entry)
+        let storedIDs = await store.entries(in: .workspace).map(\.id)
+        try expect(storedIDs == ["queue:workspace:p1"], "Append should add the row to the workspace queue.")
+
+        let queueFileURL = workspace.fileURL(for: "library/queue.yaml")
+        try expect(FileManager.default.fileExists(atPath: queueFileURL.path), "Append should create library/queue.yaml on disk.")
+
+        await store.close()
+
+        let reopened = ResearchQueueStore(workspace: workspace)
+        try await reopened.open()
+        let reloaded = await reopened.entries(in: .workspace)
+        try expect(reloaded.count == 1, "Reopening should reload the persisted entry.")
+        try expect(reloaded.first?.paperID == "p1", "Reopened entry should preserve paper_id.")
+        try expect(reloaded.first?.displayTitle == "Persisted Paper", "Reopened entry should preserve display_title.")
+    }
+
+    private func researchQueueStoreAppendBatchPreservesOrderWithinBatch() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueAppendBatchWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let entries = [
+            sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 0, paperID: "a"),
+            sampleQueueEntry(id: "queue:workspace:b", scope: .workspace, order: 0, paperID: "b"),
+            sampleQueueEntry(id: "queue:workspace:c", scope: .workspace, order: 0, paperID: "c")
+        ]
+        try await store.appendBatch(entries, scope: .workspace)
+        let stored = await store.entries(in: .workspace)
+        try expect(stored.map(\.id) == ["queue:workspace:a", "queue:workspace:b", "queue:workspace:c"], "appendBatch should preserve input order when callers leave order=0.")
+        try expect(stored.map(\.order) == [1, 2, 3], "appendBatch should auto-assign monotonically increasing order values.")
+    }
+
+    private func researchQueueStoreReorderRewritesOrderField() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueReorderWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let entries = [
+            sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 1, paperID: "a"),
+            sampleQueueEntry(id: "queue:workspace:b", scope: .workspace, order: 2, paperID: "b"),
+            sampleQueueEntry(id: "queue:workspace:c", scope: .workspace, order: 3, paperID: "c")
+        ]
+        try await store.appendBatch(entries, scope: .workspace)
+        try await store.reorder(scope: .workspace, orderedIDs: ["queue:workspace:c", "queue:workspace:b", "queue:workspace:a"])
+        let stored = await store.entries(in: .workspace)
+        try expect(stored.map(\.id) == ["queue:workspace:c", "queue:workspace:b", "queue:workspace:a"], "Reorder should reflect the supplied order.")
+        try expect(stored.map(\.order) == [1, 2, 3], "Reorder should rewrite the order field as 1..n.")
+    }
+
+    private func researchQueueStoreReorderHandlesPartialIDList() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueuePartialReorderWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let entries = [
+            sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 1, paperID: "a"),
+            sampleQueueEntry(id: "queue:workspace:b", scope: .workspace, order: 2, paperID: "b"),
+            sampleQueueEntry(id: "queue:workspace:c", scope: .workspace, order: 3, paperID: "c"),
+            sampleQueueEntry(id: "queue:workspace:d", scope: .workspace, order: 4, paperID: "d")
+        ]
+        try await store.appendBatch(entries, scope: .workspace)
+        try await store.reorder(scope: .workspace, orderedIDs: ["queue:workspace:c", "queue:workspace:a"])
+        let stored = await store.entries(in: .workspace)
+        try expect(stored.map(\.id) == [
+            "queue:workspace:c",
+            "queue:workspace:a",
+            "queue:workspace:b",
+            "queue:workspace:d"
+        ], "Partial reorder should append unspecified IDs at the tail in their prior relative order.")
+        try expect(stored.map(\.order) == [1, 2, 3, 4], "Partial reorder should still produce contiguous order values.")
+    }
+
+    private func researchQueueStoreUpdateStatusRecordsTimestamps() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueStatusWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let initialAt = Date(timeIntervalSince1970: 1_777_600_000)
+        let entry = sampleQueueEntry(
+            id: "queue:workspace:a",
+            scope: .workspace,
+            order: 1,
+            status: .queued,
+            paperID: "a",
+            addedAt: initialAt,
+            lastTouchedAt: initialAt
+        )
+        try await store.append(entry)
+
+        let readingAt = Date(timeIntervalSince1970: 1_777_600_500)
+        try await store.updateStatus(id: entry.id, status: .reading, at: readingAt)
+        let afterReading = try require(await store.entry(id: entry.id), "Entry should still exist after updateStatus.")
+        try expect(afterReading.status == .reading, "updateStatus should change the status field.")
+        try expect(afterReading.startedAt == readingAt, "Switching to reading should write startedAt.")
+        try expect(afterReading.lastTouchedAt == readingAt, "Switching to reading should update lastTouchedAt.")
+
+        let finishedAt = Date(timeIntervalSince1970: 1_777_601_000)
+        try await store.updateStatus(id: entry.id, status: .finished, at: finishedAt)
+        let afterFinish = try require(await store.entry(id: entry.id), "Entry should still exist after second updateStatus.")
+        try expect(afterFinish.status == .finished, "updateStatus should change the status field a second time.")
+        try expect(afterFinish.finishedAt == finishedAt, "Switching to finished should write finishedAt.")
+        try expect(afterFinish.startedAt == readingAt, "finishedAt update should not overwrite an earlier startedAt.")
+        try expect(afterFinish.lastTouchedAt == finishedAt, "Switching to finished should update lastTouchedAt.")
+    }
+
+    private func researchQueueStoreRemoveDoesNotAffectOtherScopes() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueRemoveScopeWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        try await store.append(sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 1, paperID: "a"))
+        try await store.append(sampleQueueEntry(id: "queue:project:p1:b", scope: .project("p1"), order: 1, paperID: "b"))
+
+        try await store.remove(id: "queue:workspace:a")
+        let workspaceAfterRemove = await store.entries(in: .workspace)
+        let projectAfterRemove = await store.entries(in: .project("p1")).map(\.id)
+        try expect(workspaceAfterRemove.isEmpty, "Removing the workspace entry should leave the workspace queue empty.")
+        try expect(projectAfterRemove == ["queue:project:p1:b"], "Removing the workspace entry should not touch the project queue.")
+    }
+
+    private func researchQueueStoreLoadIgnoresMalformedEntriesAndLogsWarning() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueMalformedWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let queueFileURL = workspace.fileURL(for: "library/queue.yaml")
+        try FileManager.default.createDirectory(at: queueFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let malformedYAML = """
+        schema_version: 1
+        scope: "workspace"
+        generated_at: "2026-05-17T12:00:00Z"
+        entries:
+          - id: "queue:workspace:good"
+            paper_id: "good"
+            external_key: null
+            display_title: "Good Entry"
+            scope: "workspace"
+            status: queued
+            source: manual
+            order: 1
+            added_at: "2026-05-17T11:00:00Z"
+            started_at: null
+            finished_at: null
+            last_touched_at: "2026-05-17T11:00:00Z"
+            note_summary: null
+            source_refs: []
+          - id: "queue:workspace:bad"
+            display_title: "Missing required fields"
+            order: 2
+            note_summary: null
+            source_refs: []
+        """
+        try malformedYAML.write(to: queueFileURL, atomically: true, encoding: .utf8)
+        let originalContents = try String(contentsOf: queueFileURL, encoding: .utf8)
+
+        let logger = AppDebugEventLogger()
+        let store = ResearchQueueStore(workspace: workspace, debugLogger: logger)
+        try await store.open()
+
+        let stored = await store.entries(in: .workspace)
+        try expect(stored.map(\.id) == ["queue:workspace:good"], "Malformed entries should be skipped while keeping valid rows loaded.")
+
+        let postLoadContents = try String(contentsOf: queueFileURL, encoding: .utf8)
+        try expect(postLoadContents == originalContents, "Loading malformed YAML should not rewrite the file.")
+
+        let root = ResearchRoot(rootURL: workspace.rootURL)
+        let events = try await logger.events(in: root)
+        let loadErrorEvents = events.filter { $0.event == "queue.load.error" }
+        try expect(!loadErrorEvents.isEmpty, "Malformed YAML should emit at least one queue.load.error debug event.")
+        let firstPayload = try require(loadErrorEvents.first?.payload.objectValue, "queue.load.error should ship a structured payload.")
+        try expect(firstPayload["reason"] == .string("yaml_parse_failure"), "queue.load.error should report yaml_parse_failure as the reason.")
+    }
+
+    private func researchQueueStoreWorkspaceQueueTopRespectsLimitAndStatusFilter() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueTopWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let entries: [ResearchQueueEntry] = [
+            sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 1, status: .queued, paperID: "a"),
+            sampleQueueEntry(id: "queue:workspace:b", scope: .workspace, order: 2, status: .reading, paperID: "b"),
+            sampleQueueEntry(id: "queue:workspace:c", scope: .workspace, order: 3, status: .finished, paperID: "c"),
+            sampleQueueEntry(id: "queue:workspace:d", scope: .workspace, order: 4, status: .queued, paperID: "d"),
+            sampleQueueEntry(id: "queue:workspace:e", scope: .workspace, order: 5, status: .dismissed, paperID: "e")
+        ]
+        try await store.appendBatch(entries, scope: .workspace)
+
+        let topAll = await store.workspaceQueueTop(limit: 10)
+        try expect(topAll.map(\.id) == ["queue:workspace:a", "queue:workspace:b", "queue:workspace:d"], "workspaceQueueTop should hide finished and dismissed entries.")
+
+        let topTwo = await store.workspaceQueueTop(limit: 2)
+        try expect(topTwo.map(\.id) == ["queue:workspace:a", "queue:workspace:b"], "workspaceQueueTop should respect the limit.")
+
+        let topZero = await store.workspaceQueueTop(limit: 0)
+        try expect(topZero.isEmpty, "workspaceQueueTop with limit 0 should return no entries.")
+    }
+
+    private func researchQueueStoreProjectQueueIsolatedPerProjectID() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueProjectIsolationWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        try await store.append(sampleQueueEntry(id: "queue:project:p1:a", scope: .project("p1"), order: 1, paperID: "a"))
+        try await store.append(sampleQueueEntry(id: "queue:project:p2:b", scope: .project("p2"), order: 1, paperID: "b"))
+
+        let p1 = await store.entries(in: .project("p1")).map(\.id)
+        let p2 = await store.entries(in: .project("p2")).map(\.id)
+        let workspaceEntries = await store.entries(in: .workspace)
+
+        try expect(p1 == ["queue:project:p1:a"], "Project p1 queue should only contain its own entry.")
+        try expect(p2 == ["queue:project:p2:b"], "Project p2 queue should only contain its own entry.")
+        try expect(workspaceEntries.isEmpty, "Workspace queue should remain empty when only project entries are appended.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "projects/p1/queue.yaml").path), "Project queue should write to projects/p1/queue.yaml.")
+        try expect(FileManager.default.fileExists(atPath: workspace.fileURL(for: "projects/p2/queue.yaml").path), "Project queue should write to projects/p2/queue.yaml.")
+    }
+
+    private func researchQueueStoreApplyPaperStatusTransitionRespectsRules() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueuePaperStatusWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        try await store.append(sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 1, status: .queued, paperID: "a"))
+        try await store.append(sampleQueueEntry(id: "queue:workspace:b", scope: .workspace, order: 2, status: .reading, paperID: "b"))
+        try await store.append(sampleQueueEntry(id: "queue:workspace:c", scope: .workspace, order: 3, status: .finished, paperID: "c"))
+        try await store.append(sampleQueueEntry(id: "queue:workspace:d", scope: .workspace, order: 4, status: .dismissed, paperID: "d"))
+
+        let now = Date(timeIntervalSince1970: 1_777_700_000)
+
+        await store.applyPaperStatusTransition(paperID: "a", from: .unread, to: .skimmed, at: now)
+        let aStatus = await store.entry(id: "queue:workspace:a")?.status
+        try expect(aStatus == .reading, "Skimming a queued paper should flip its entry to reading.")
+
+        await store.applyPaperStatusTransition(paperID: "b", from: .deepRead, to: .summarized, at: now)
+        let bStatus = await store.entry(id: "queue:workspace:b")?.status
+        try expect(bStatus == .finished, "Summarizing a reading paper should flip its entry to finished.")
+
+        await store.applyPaperStatusTransition(paperID: "c", from: .summarized, to: .used, at: now)
+        let cStatus = await store.entry(id: "queue:workspace:c")?.status
+        try expect(cStatus == .finished, "Already-finished entries should ignore further paper status changes.")
+
+        await store.applyPaperStatusTransition(paperID: "d", from: .skimmed, to: .skimmed, at: now)
+        let dStatus = await store.entry(id: "queue:workspace:d")?.status
+        try expect(dStatus == .dismissed, "Dismissed entries should be invariant under paper status changes.")
+
+        try await store.append(sampleQueueEntry(id: "queue:workspace:e", scope: .workspace, order: 5, status: .queued, paperID: "e"))
+        await store.applyPaperStatusTransition(paperID: "e", from: .unread, to: .rejected, at: now)
+        let eStatus = await store.entry(id: "queue:workspace:e")?.status
+        try expect(eStatus == .dismissed, "Rejecting a paper should dismiss its queued entry.")
+    }
+
+    private func researchQueueYAMLEncodingRoundtripIsStable() throws {
+        let scope = QueueScope.workspace
+        let now = Date(timeIntervalSince1970: 1_777_600_000)
+        let entries = [
+            sampleQueueEntry(
+                id: "queue:workspace:a",
+                scope: scope,
+                order: 1,
+                status: .queued,
+                paperID: "a",
+                displayTitle: "Paper A",
+                addedAt: now,
+                lastTouchedAt: now
+            ),
+            sampleQueueEntry(
+                id: "queue:workspace:ext:arxiv-2410.12345",
+                scope: scope,
+                order: 2,
+                status: .reading,
+                source: .recommendation,
+                externalKey: "arxiv:2410.12345",
+                displayTitle: "External Paper",
+                addedAt: now,
+                lastTouchedAt: now,
+                noteSummary: "Cited by 4 of my core papers",
+                sourceRefs: ["run:r1", "tool_call:c1"]
+            )
+        ]
+
+        let firstPass = ResearchQueueYAMLEncoder.encode(entries: entries, scope: scope, generatedAt: now)
+        let secondPass = ResearchQueueYAMLEncoder.encode(entries: entries, scope: scope, generatedAt: now)
+        try expect(firstPass == secondPass, "YAML encoding must be deterministic for the same entries and timestamp.")
+
+        let decoded = ResearchQueueYAMLEncoder.decode(contents: firstPass)
+        try expect(decoded.skippedEntryCount == 0, "Round-trip decode should not skip any entry.")
+        try expect(decoded.fileSchemaVersion == ResearchQueueYAMLEncoder.schemaVersion, "Round-trip decode should preserve schema_version.")
+        try expect(decoded.entries.map(\.id) == entries.map(\.id), "Round-trip decode should preserve entry IDs and order.")
+        try expect(decoded.entries.map(\.status) == entries.map(\.status), "Round-trip decode should preserve status.")
+        try expect(decoded.entries.map(\.source) == entries.map(\.source), "Round-trip decode should preserve source.")
+        try expect(decoded.entries[1].externalKey == "arxiv:2410.12345", "Round-trip decode should preserve external_key.")
+        try expect(decoded.entries[1].noteSummary == "Cited by 4 of my core papers", "Round-trip decode should preserve note_summary.")
+        try expect(decoded.entries[1].sourceRefs == ["run:r1", "tool_call:c1"], "Round-trip decode should preserve source_refs ordering.")
+        try expect(decoded.entries[0].externalKey == nil, "Round-trip decode should treat null external_key as nil.")
+    }
+
+    private func researchQueueYAMLDecoderSkipsUnknownFieldsForward() throws {
+        let yaml = """
+        schema_version: 1
+        scope: "workspace"
+        generated_at: "2026-05-17T12:00:00Z"
+        future_section: "ignored"
+        entries:
+          - id: "queue:workspace:a"
+            paper_id: "a"
+            external_key: null
+            display_title: "Paper A"
+            scope: "workspace"
+            status: queued
+            source: manual
+            order: 1
+            added_at: "2026-05-17T11:00:00Z"
+            started_at: null
+            finished_at: null
+            last_touched_at: "2026-05-17T11:00:00Z"
+            note_summary: null
+            source_refs: []
+            future_field: "should be ignored"
+            future_object_field: "{stub}"
+        """
+        let decoded = ResearchQueueYAMLEncoder.decode(contents: yaml)
+        try expect(decoded.entries.count == 1, "Forward-compatible decode should return the known entry.")
+        try expect(decoded.skippedEntryCount == 0, "Unknown fields are not malformed and should not increment the skipped counter.")
+        try expect(decoded.entries.first?.id == "queue:workspace:a", "Forward-compatible decode should preserve known fields.")
+        try expect(decoded.entries.first?.paperID == "a", "Forward-compatible decode should preserve paper_id.")
+    }
+
+    private func researchQueueDebugEventsScrubSensitiveFields() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueDebugScrubWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let logger = AppDebugEventLogger()
+        let store = ResearchQueueStore(workspace: workspace, debugLogger: logger)
+        try await store.open()
+
+        let secretTitle = "Confidential Manuscript Title"
+        let secretSummary = "Reviewer flagged unsupported claim about classified evidence."
+        let entry = sampleQueueEntry(
+            id: "queue:workspace:secret",
+            scope: .workspace,
+            order: 1,
+            paperID: "secret-paper",
+            displayTitle: secretTitle,
+            noteSummary: secretSummary
+        )
+        try await store.append(entry)
+        try await store.updateStatus(id: entry.id, status: .reading)
+
+        let root = ResearchRoot(rootURL: workspace.rootURL)
+        let events = try await logger.events(in: root).filter { $0.event.hasPrefix("queue.") }
+        try expect(!events.isEmpty, "Queue mutations should produce debug events.")
+
+        for event in events {
+            let serialized = event.payload.canonicalJSON
+            try expect(!serialized.contains(secretTitle), "Queue debug events must not include display_title text. Event: \(event.event)")
+            try expect(!serialized.contains(secretSummary), "Queue debug events must not include note_summary text. Event: \(event.event)")
+        }
+    }
+
+    private func makeRecommendationToolResult(
+        callID: String,
+        succeeded: Bool = true,
+        requiresConfirmation: Bool = false,
+        kind: String = "recommendation_note",
+        scope: String? = nil,
+        candidates: [JSONValue]
+    ) -> AgentToolResult {
+        var payload: [String: JSONValue] = [
+            "schema_version": .number("1"),
+            "kind": .string(kind),
+            "queue_candidates": .array(candidates)
+        ]
+        if let scope {
+            payload["queue_scope"] = .string(scope)
+        }
+        return AgentToolResult(
+            callID: callID,
+            toolName: "recommendation_pipeline",
+            succeeded: succeeded,
+            requiresConfirmation: requiresConfirmation,
+            message: "Recommendation note draft",
+            payload: .object(payload)
+        )
+    }
+
+    private func makeAgentRunForQueueIngest(
+        id: String,
+        toolResults: [AgentToolResult],
+        projectID: String? = nil
+    ) -> AgentRun {
+        AgentRun(
+            id: id,
+            goal: "Recommendation fixture",
+            createdAt: Date(timeIntervalSince1970: 1_777_600_000),
+            completedAt: Date(timeIntervalSince1970: 1_777_600_001),
+            mode: .planOnly,
+            plan: AgentPlan(title: "Fixture", summary: "Fixture", toolCalls: []),
+            toolResults: toolResults,
+            currentProjectID: projectID
+        )
+    }
+
+    private func researchQueueIngestorMapsApprovedRecommendationCandidatesAndDedupes() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueIngestRecommendationWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        let ingestor = ResearchQueueIngestor(store: store, workspace: workspace)
+        await ingestor.start()
+
+        let approvedResult = makeRecommendationToolResult(
+            callID: "call-1",
+            candidates: [
+                .object([
+                    "paper_id": .string("p-alpha"),
+                    "display_title": .string("Alpha Paper"),
+                    "reason": .string("Cited by 4 of my core papers")
+                ]),
+                .object([
+                    "external_key": .string("arxiv:2410.12345"),
+                    "display_title": .string("External Paper")
+                ])
+            ]
+        )
+        let pendingResult = makeRecommendationToolResult(
+            callID: "call-2",
+            requiresConfirmation: true,
+            candidates: [
+                .object([
+                    "paper_id": .string("p-beta"),
+                    "display_title": .string("Beta Paper")
+                ])
+            ]
+        )
+        let failedResult = makeRecommendationToolResult(
+            callID: "call-3",
+            succeeded: false,
+            candidates: [
+                .object([
+                    "paper_id": .string("p-gamma"),
+                    "display_title": .string("Gamma Paper")
+                ])
+            ]
+        )
+        let unrelatedResult = makeRecommendationToolResult(
+            callID: "call-4",
+            kind: "wiki_markdown_write",
+            candidates: [
+                .object([
+                    "paper_id": .string("p-delta"),
+                    "display_title": .string("Delta Paper")
+                ])
+            ]
+        )
+
+        let run = makeAgentRunForQueueIngest(
+            id: "run-1",
+            toolResults: [approvedResult, pendingResult, failedResult, unrelatedResult]
+        )
+
+        await ingestor.ingest(runs: [run])
+        let afterFirst = await store.entries(in: .workspace)
+        try expect(afterFirst.map(\.id) == [
+            "queue:workspace:p-alpha",
+            "queue:workspace:arxiv:2410.12345"
+        ], "Ingestor should map only approved recommendation candidates into queue entries.")
+        try expect(afterFirst.first?.source == .recommendation, "Ingested entries should be marked source=recommendation.")
+        try expect(afterFirst.first?.noteSummary == "Cited by 4 of my core papers", "Ingestor should map `reason` to noteSummary.")
+        try expect(afterFirst.last?.externalKey == "arxiv:2410.12345", "Ingestor should preserve external_key for entries without paper_id.")
+
+        // Re-ingest the same run with the same callID; nothing new should land.
+        await ingestor.ingest(runs: [run])
+        let afterSecondPass = await store.entries(in: .workspace)
+        try expect(afterSecondPass.count == afterFirst.count, "Re-running ingest with the same (runID, callID) pair should be a no-op.")
+    }
+
+    private func researchQueueIngestorAppliesPaperStatusDiffsToStore() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueIngestPaperStatusWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let store = ResearchQueueStore(workspace: workspace)
+        try await store.open()
+        try await store.append(sampleQueueEntry(id: "queue:workspace:a", scope: .workspace, order: 1, status: .queued, paperID: "p-a"))
+        try await store.append(sampleQueueEntry(id: "queue:workspace:b", scope: .workspace, order: 2, status: .reading, paperID: "p-b"))
+        try await store.append(sampleQueueEntry(id: "queue:workspace:c", scope: .workspace, order: 3, status: .queued, paperID: "p-c"))
+
+        let ingestor = ResearchQueueIngestor(store: store, workspace: workspace)
+        await ingestor.start()
+
+        var previousPaperA = samplePaper(id: "p-a")
+        previousPaperA.status = .unread
+        var currentPaperA = previousPaperA
+        currentPaperA.status = .skimmed
+        currentPaperA.lastReadAt = Date(timeIntervalSince1970: 1_777_700_000)
+
+        var previousPaperB = samplePaper(id: "p-b")
+        previousPaperB.status = .deepRead
+        var currentPaperB = previousPaperB
+        currentPaperB.status = .summarized
+        currentPaperB.lastReadAt = Date(timeIntervalSince1970: 1_777_700_500)
+
+        var previousPaperC = samplePaper(id: "p-c")
+        previousPaperC.status = .unread
+        var currentPaperC = previousPaperC
+        currentPaperC.status = .rejected
+
+        await ingestor.ingest(
+            papers: [currentPaperA, currentPaperB, currentPaperC],
+            previous: [
+                previousPaperA.id: previousPaperA,
+                previousPaperB.id: previousPaperB,
+                previousPaperC.id: previousPaperC
+            ]
+        )
+
+        let aStatus = await store.entry(id: "queue:workspace:a")?.status
+        let bStatus = await store.entry(id: "queue:workspace:b")?.status
+        let cStatus = await store.entry(id: "queue:workspace:c")?.status
+        try expect(aStatus == .reading, "Ingesting unread→skimmed should flip queued entries to reading.")
+        try expect(bStatus == .finished, "Ingesting deepRead→summarized should flip reading entries to finished.")
+        try expect(cStatus == .dismissed, "Ingesting *→rejected should dismiss the queue entry.")
+
+        // No-diff pass should be a no-op (no exceptions, no further mutations).
+        await ingestor.ingest(papers: [currentPaperA, currentPaperB, currentPaperC], previous: [
+            currentPaperA.id: currentPaperA,
+            currentPaperB.id: currentPaperB,
+            currentPaperC.id: currentPaperC
+        ])
+        let aStatusAfter = await store.entry(id: "queue:workspace:a")?.status
+        try expect(aStatusAfter == .reading, "A no-op diff pass must not change any entry's status.")
+    }
+
+    /// P48.11 — Fixture-style sanity that persists 5 entries spanning every
+    /// scope/status/source combination and re-loads them through a fresh
+    /// store. Acts as a debug-grade reference so engineers can copy/paste the
+    /// fixture into a real workspace and see populated UI immediately.
+    private func researchQueueFixtureRoundTripsFiveDiverseEntries() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueFixtureWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let baseDate = Date(timeIntervalSince1970: 1_777_600_000)
+        let projectScope = QueueScope.project("project-fixture")
+        let entries: [ResearchQueueEntry] = [
+            ResearchQueueEntry(
+                id: "queue:workspace:p-active-recent",
+                paperID: "p-active-recent",
+                externalKey: nil,
+                displayTitle: "Active workspace paper (most recent)",
+                scope: .workspace,
+                status: .reading,
+                source: .manual,
+                order: 1,
+                addedAt: baseDate,
+                startedAt: baseDate.addingTimeInterval(900),
+                finishedAt: nil,
+                lastTouchedAt: baseDate.addingTimeInterval(7_200),
+                noteSummary: "Skim 4.1, 4.2 first",
+                sourceRefs: []
+            ),
+            ResearchQueueEntry(
+                id: "queue:workspace:p-finished",
+                paperID: "p-finished",
+                externalKey: nil,
+                displayTitle: "Finished workspace paper",
+                scope: .workspace,
+                status: .finished,
+                source: .paperStatus,
+                order: 2,
+                addedAt: baseDate,
+                startedAt: baseDate.addingTimeInterval(1_200),
+                finishedAt: baseDate.addingTimeInterval(5_400),
+                lastTouchedAt: baseDate.addingTimeInterval(5_400),
+                noteSummary: nil,
+                sourceRefs: []
+            ),
+            ResearchQueueEntry(
+                id: "queue:workspace:ext-arxiv",
+                paperID: nil,
+                externalKey: "arxiv:2410.12345",
+                displayTitle: "External recommendation candidate",
+                scope: .workspace,
+                status: .queued,
+                source: .recommendation,
+                order: 3,
+                addedAt: baseDate,
+                startedAt: nil,
+                finishedAt: nil,
+                lastTouchedAt: baseDate.addingTimeInterval(3_600),
+                noteSummary: nil,
+                sourceRefs: ["run-rec-1#tool-1"]
+            ),
+            ResearchQueueEntry(
+                id: "queue:project:project-fixture:p-project-1",
+                paperID: "p-project-1",
+                externalKey: nil,
+                displayTitle: "Project queue head",
+                scope: projectScope,
+                status: .queued,
+                source: .graphTool,
+                order: 1,
+                addedAt: baseDate,
+                startedAt: nil,
+                finishedAt: nil,
+                lastTouchedAt: baseDate.addingTimeInterval(1_800),
+                noteSummary: nil,
+                sourceRefs: ["run-graph-1#tool-2"]
+            ),
+            ResearchQueueEntry(
+                id: "queue:project:project-fixture:p-project-2",
+                paperID: "p-project-2",
+                externalKey: nil,
+                displayTitle: "Deferred project paper",
+                scope: projectScope,
+                status: .deferred,
+                source: .manual,
+                order: 2,
+                addedAt: baseDate,
+                startedAt: nil,
+                finishedAt: nil,
+                lastTouchedAt: baseDate.addingTimeInterval(2_700),
+                noteSummary: "Wait until next milestone",
+                sourceRefs: []
+            )
+        ]
+
+        let firstStore = ResearchQueueStore(workspace: workspace)
+        try await firstStore.open()
+        let workspaceFixture = entries.filter { $0.scope == .workspace }
+        let projectFixture = entries.filter { $0.scope == projectScope }
+        try await firstStore.appendBatch(workspaceFixture, scope: .workspace)
+        try await firstStore.appendBatch(projectFixture, scope: projectScope)
+        let firstSnapshot = await firstStore.snapshot()
+        try expect(firstSnapshot.entriesByScope[QueueScope.workspace.identifier]?.count == 3, "Fixture should write 3 workspace-scope rows.")
+        try expect(firstSnapshot.entriesByScope[projectScope.identifier]?.count == 2, "Fixture should write 2 project-scope rows.")
+        await firstStore.close()
+
+        let secondStore = ResearchQueueStore(workspace: workspace)
+        try await secondStore.open()
+        let workspaceEntries = await secondStore.entries(in: .workspace)
+        let projectEntries = await secondStore.entries(in: projectScope)
+
+        try expect(workspaceEntries.map(\.id) == [
+            "queue:workspace:p-active-recent",
+            "queue:workspace:p-finished",
+            "queue:workspace:ext-arxiv"
+        ], "Fixture round-trip should preserve workspace ordering.")
+        try expect(projectEntries.map(\.id) == [
+            "queue:project:project-fixture:p-project-1",
+            "queue:project:project-fixture:p-project-2"
+        ], "Fixture round-trip should preserve project ordering.")
+
+        let externalEntry = try require(
+            workspaceEntries.first(where: { $0.id == "queue:workspace:ext-arxiv" }),
+            "Fixture round-trip should include the external recommendation candidate."
+        )
+        try expect(externalEntry.paperID == nil && externalEntry.externalKey == "arxiv:2410.12345", "External entry should keep its arxiv key after reload.")
+        try expect(externalEntry.source == .recommendation, "External entry should keep its recommendation source label after reload.")
+        try expect(externalEntry.sourceRefs == ["run-rec-1#tool-1"], "Source refs should round-trip exactly.")
+
+        let finishedEntry = try require(
+            workspaceEntries.first(where: { $0.id == "queue:workspace:p-finished" }),
+            "Fixture round-trip should include the finished entry."
+        )
+        try expect(finishedEntry.startedAt != nil && finishedEntry.finishedAt != nil, "Finished entries should preserve startedAt/finishedAt timestamps.")
+        try expect(finishedEntry.source == .paperStatus, "paper_status sync source should round-trip.")
+
+        let projectHead = try require(
+            projectEntries.first,
+            "Fixture round-trip should include the project queue head."
+        )
+        try expect(projectHead.source == .graphTool, "Graph-tool source should round-trip.")
+        try expect(projectHead.scope == projectScope, "Project scope should round-trip.")
+    }
+
+    private func researchQueueIngestorPersistsCursorAcrossReopen() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ResearchQueueIngestCursorWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let firstStore = ResearchQueueStore(workspace: workspace)
+        try await firstStore.open()
+        let firstIngestor = ResearchQueueIngestor(store: firstStore, workspace: workspace)
+        await firstIngestor.start()
+
+        let result = makeRecommendationToolResult(
+            callID: "call-cursor-1",
+            candidates: [
+                .object([
+                    "paper_id": .string("p-cursor"),
+                    "display_title": .string("Cursor Paper")
+                ])
+            ]
+        )
+        let run = makeAgentRunForQueueIngest(id: "run-cursor", toolResults: [result])
+        await firstIngestor.ingest(runs: [run])
+        let firstCount = await firstStore.entries(in: .workspace).count
+        try expect(firstCount == 1, "First ingestor pass should record one entry.")
+
+        let cursorURL = workspace.fileURL(for: ResearchQueueIngestor.cursorRelativePath)
+        try expect(FileManager.default.fileExists(atPath: cursorURL.path), "Cursor should be persisted under .sci-station/queue/ingest_cursor.json.")
+
+        await firstStore.close()
+
+        let secondStore = ResearchQueueStore(workspace: workspace)
+        try await secondStore.open()
+        let secondIngestor = ResearchQueueIngestor(store: secondStore, workspace: workspace)
+        await secondIngestor.start()
+
+        await secondIngestor.ingest(runs: [run])
+        let secondCount = await secondStore.entries(in: .workspace).count
+        try expect(secondCount == 1, "Reopened ingestor must read the persisted cursor and skip the already-scanned tool call.")
+    }
+
+    private func recommendationConfigYAMLRoundTripsDailySourceSettings() throws {
+        var config = RecommendationConfig()
+        config.cadence = .daily
+        config.scope = .workspace
+        config.topK = 7
+        config.externalNetworkEnabled = true
+        config.maxDailyCandidates = 42
+        config.weights.libraryInterestSimilarity = 0.55
+        config.dailySources = [
+            RecommendationDailySourceConfig(kind: .arxiv, enabled: true, categories: ["cs.AI", "cs.CL"], includeCrossList: true),
+            RecommendationDailySourceConfig(kind: .biorxiv, enabled: false, categories: ["neuroscience"])
+        ]
+
+        let yaml = RecommendationConfigStore.encode(config)
+        let decoded = try RecommendationConfigStore.decode(yaml)
+
+        try expect(decoded.cadence == .daily, "Recommendation config should preserve cadence.")
+        try expect(decoded.scope == .workspace, "Recommendation config should preserve scope.")
+        try expect(decoded.topK == 7, "Recommendation config should preserve top_k.")
+        try expect(decoded.externalNetworkEnabled, "Recommendation config should preserve external network opt-in.")
+        try expect(decoded.maxDailyCandidates == 42, "Recommendation config should preserve max_daily_candidates.")
+        try expect(decoded.weights.libraryInterestSimilarity == 0.55, "Recommendation config should preserve library-interest weight.")
+        try expect(decoded.dailySources.first?.kind == .arxiv && decoded.dailySources.first?.enabled == true, "Daily source config should preserve arxiv enabled state.")
+        try expect(decoded.dailySources.first?.categories == ["cs.AI", "cs.CL"], "Daily source config should preserve categories.")
+        try expect(decoded.dailySources.first?.includeCrossList == true, "Daily source config should preserve include_cross_list.")
+    }
+
+    private func dailyFeedCandidateImporterMapsExternalArxivCandidates() throws {
+        let jsonl = """
+        {"source":"arxiv","id":"2604.22012v1","title":"Graph Retrieval for Scientific Agents","authors":["Ada Lovelace","Grace Hopper"],"abstract":"Graph retrieval agents use literature libraries for recommendations.","published":"2026-04-20T00:00:00Z","categories":["cs.AI","cs.CL"],"url":"https://arxiv.org/abs/2604.22012","pdf_url":"https://arxiv.org/pdf/2604.22012.pdf"}
+        """
+        let candidates = try DailyFeedCandidateImporter().parseJSONLines(jsonl)
+        let candidate = try require(candidates.first, "Importer should return one candidate.")
+
+        try expect(candidate.canonicalID == "external:arxiv:2604.22012", "Importer should canonicalize arXiv external keys without version suffix.")
+        try expect(candidate.externalKey == "arxiv:2604.22012", "Importer should preserve arXiv external_key.")
+        try expect(candidate.publishedYear == 2026, "Importer should derive published year.")
+        try expect(candidate.sourceTags == [.dailyFeed], "Importer should mark daily feed source.")
+        try expect(candidate.abstractText?.contains("Graph retrieval") == true, "Importer should keep abstract in memory for scoring.")
+    }
+
+    private func recommendationCandidateGathererDedupsDailyFeedAndQueueTail() async throws {
+        let gatherer = RecommendationCandidateGatherer()
+        let context = RecommendationContext(evaluatedAt: Date(timeIntervalSince1970: 1_777_600_000))
+        let daily = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.22012",
+            externalKey: "arxiv:2604.22012",
+            displayTitle: "Daily Candidate",
+            sourceTags: [.dailyFeed]
+        )
+        let queueEntry = sampleQueueEntry(
+            id: "queue:workspace:arxiv:2604.22012",
+            scope: .workspace,
+            order: 1,
+            externalKey: "arxiv:2604.22012",
+            displayTitle: "Queued Candidate"
+        )
+
+        let candidates = await gatherer.gather(
+            papers: [],
+            queueEntries: [queueEntry],
+            dailyFeedCandidates: [daily],
+            context: context,
+            config: RecommendationConfig()
+        )
+        let candidate = try require(candidates.first, "Gatherer should return the deduped candidate.")
+
+        try expect(candidates.count == 1, "Gatherer should dedupe candidates by canonical external key.")
+        try expect(candidate.sourceTags.contains(.dailyFeed), "Deduped candidate should retain daily feed source.")
+        try expect(candidate.sourceTags.contains(.queueTail), "Deduped candidate should retain queue tail source.")
+    }
+
+    private func recommendationScorerRanksByLibraryInterestAndSuppressesFinished() async throws {
+        var corePaper = samplePaper(id: "core-graph")
+        corePaper.title = "Graph Retrieval Agents"
+        corePaper.abstract = "Graph retrieval agents build literature maps for scientific recommendation."
+        corePaper.tags = ["graph", "retrieval", "agents"]
+        corePaper.coreProjectIDs = ["proj"]
+
+        let matchingCandidate = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.22012",
+            externalKey: "arxiv:2604.22012",
+            displayTitle: "Graph Retrieval Agents for Literature Recommendation",
+            authors: ["Ada Lovelace"],
+            publishedYear: 2026,
+            sourceTags: [.dailyFeed],
+            categories: ["cs.AI"],
+            abstractText: "Graph retrieval agents rank papers from a user library."
+        )
+        let unrelatedCandidate = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.00001",
+            externalKey: "arxiv:2604.00001",
+            displayTitle: "A Marine Biology Survey",
+            publishedYear: 2026,
+            sourceTags: [.dailyFeed],
+            abstractText: "Coral reef ecology and ocean temperatures."
+        )
+        let context = RecommendationContext(
+            projectID: "proj",
+            corePaperIDs: ["core-graph"],
+            queueStatusByID: ["arxiv:2604.00001": .finished],
+            openGapKeywords: ["retrieval"],
+            interestPapers: [corePaper],
+            evaluatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+        let ranked = await RecommendationScorer().score([unrelatedCandidate, matchingCandidate], context: context, locale: .zh)
+
+        try expect(ranked.first?.id == matchingCandidate.id, "Scorer should rank the candidate matching recent library interests first.")
+        try expect(ranked.first?.features.libraryInterestSimilarity ?? 0 > 0, "Matching candidate should have nonzero library-interest similarity.")
+        try expect(ranked.last?.features.queuePressurePenalty == 0.95, "Finished queue entries should receive a strong pressure penalty.")
+        try expect(ranked.first?.reason.contains("匹配近期文献兴趣") == true, "Reason builder should localize the top signal in Chinese.")
+    }
+
+    private func recommendationPipelineWritesSnapshotAndQueuePayload() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("RecommendationPipelineWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        var interestPaper = samplePaper(id: "interest")
+        interestPaper.title = "Graph Retrieval Agents"
+        interestPaper.abstract = "Graph retrieval agents build literature maps for recommendation."
+        interestPaper.updatedAt = Date(timeIntervalSince1970: 1_777_500_000)
+        let daily = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.22012",
+            externalKey: "arxiv:2604.22012",
+            displayTitle: "Graph Retrieval Agents for Daily Literature",
+            publishedYear: 2026,
+            sourceTags: [.dailyFeed],
+            sourceURL: "https://arxiv.org/abs/2604.22012",
+            pdfURL: "https://arxiv.org/pdf/2604.22012.pdf",
+            categories: ["cs.AI"],
+            abstractText: "Graph retrieval agents rank daily arXiv papers from a local library."
+        )
+        let config = RecommendationConfig(topK: 1)
+        let context = RecommendationContext(
+            interestPapers: [interestPaper],
+            evaluatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+        let fixedDate = Date(timeIntervalSince1970: 1_777_700_000)
+        let pipeline = RecommendationPipeline(dateProvider: { fixedDate })
+
+        let result = try await pipeline.run(
+            workspace: workspace,
+            papers: [],
+            dailyFeedCandidates: [daily],
+            context: context,
+            config: config,
+            trigger: .manual,
+            locale: .en
+        )
+        let run = try require(result, "Pipeline should produce a first recommendation run.")
+        let skipped = try await pipeline.run(
+            workspace: workspace,
+            papers: [],
+            dailyFeedCandidates: [daily],
+            context: context,
+            config: config,
+            trigger: .manual,
+            locale: .en
+        )
+
+        try expect(run.scores.count == 1, "Pipeline should keep topK scored recommendations.")
+        try expect(skipped == nil, "Pipeline should skip the same candidate hash within 30 minutes.")
+        let snapshotURL = workspace.fileURL(for: "\(RecommendationPipeline.notesRelativeDirectory)/\(run.id).json")
+        let historyURL = workspace.fileURL(for: RecommendationPipeline.historyRelativePath)
+        try expect(FileManager.default.fileExists(atPath: snapshotURL.path), "Pipeline should write a snapshot JSON file.")
+        try expect(FileManager.default.fileExists(atPath: historyURL.path), "Pipeline should append recommendation history.")
+
+        let payload = RecommendationPipeline.recommendationNotePayload(for: run, queueScope: .workspace)
+        let payloadObject = try jsonObject(payload, "Recommendation note payload should be an object.")
+        let candidates = payloadObject["queue_candidates"]?.arrayValue ?? []
+        let firstCandidate = try jsonObject(candidates.first, "Payload should contain a queue candidate object.")
+        try expect(payloadObject["kind"]?.stringValue == "recommendation_note", "Payload kind should match the P48 ingestor contract.")
+        try expect(payloadObject["queue_scope"]?.stringValue == "workspace", "Payload should include queue_scope for P48 ingestion.")
+        try expect(firstCandidate["external_key"]?.stringValue == "arxiv:2604.22012", "Payload should preserve external_key for queue ingestion.")
+        try expect(firstCandidate["display_title"]?.stringValue == "Graph Retrieval Agents for Daily Literature", "Payload should preserve display_title.")
+    }
+
         private func identifierParserRecognizesSupportedKinds() throws {
                 let parser = IdentifierParser()
 
@@ -2363,6 +3603,41 @@ private struct CoreVerificationSuite {
                 try expect(draft.arxiv == "2401.12345", "INSPIRE mapper should extract linked arXiv ids.")
                 try expect(draft.pdfURL == "https://arxiv.org/pdf/2401.12345.pdf", "INSPIRE mapper should prefer arXiv PDF links when available.")
                 try expect(draft.inspireID == "2811054", "INSPIRE mapper should preserve the record id.")
+        }
+
+        private func inspireMetadataMapperExtractsCitationGraphFields() throws {
+                let mapper = InspireMetadataMapper()
+                let json = """
+                {
+                    "id": "1517248",
+                    "metadata": {
+                        "control_number": 1517248,
+                        "titles": [{"title": "Dark matter in the Sun"}],
+                        "abstracts": [{"value": "Solar dark matter scattering."}],
+                        "authors": [{"full_name": "Garani, Raghuveer"}],
+                        "arxiv_eprints": [{"value": "1702.02768"}],
+                        "dois": [{"value": "10.1088/1475-7516/2017/05/007"}],
+                        "publication_info": [{"year": 2017, "journal_title": "JCAP"}],
+                        "inspire_categories": [{"term": "Phenomenology"}],
+                        "citation_count": 103,
+                        "reference_count": 197,
+                        "references": [
+                            {"record": {"$ref": "https://inspirehep.net/api/literature/812742"}},
+                            {"record": {"$ref": "https://inspirehep.net/api/literature/812742"}},
+                            {"recid": 930231}
+                        ]
+                    }
+                }
+                """
+
+                let data = Data(json.utf8)
+                let paper = try mapper.mapCitationPaper(data: data, fallbackRecordID: "1517248")
+                let references = try mapper.referenceRecordIDs(data: data)
+                try expect(paper.inspireID == "1517248", "INSPIRE citation paper should use control_number as id.")
+                try expect(paper.firstAuthorLastName == "Garani", "INSPIRE citation paper should expose a compact first author label.")
+                try expect(paper.citationCount == 103, "INSPIRE citation paper should extract citation_count.")
+                try expect(paper.referenceCount == 197, "INSPIRE citation paper should extract reference_count.")
+                try expect(references == ["812742", "930231"], "INSPIRE references should extract unique referenced record ids in order.")
         }
 
             private func llmRequestBuildsExpectedPayload() throws {
@@ -3498,6 +4773,28 @@ private struct CoreVerificationSuite {
                 try expect(englishIntent.ordinalIndex == 0, "English first-paper abstract questions should preserve ordinal selection.")
                 try expect(englishIntent.sectionHint == "Abstract", "English abstract should map to the Abstract section hint.")
                 try expect(argumentsJSON.contains("Abstract 摘要 summary"), "Search arguments should use a bilingual abstract retrieval query.")
+            }
+
+            private func agentPaperIntentRouterClassifiesGraphIntents() throws {
+                let router = AgentPaperIntentRouter()
+                let missing = router.classify("这个项目还有哪些核心论文没引？")
+                let reading = router.classify("读完这篇下一篇应该看什么？")
+                let stale = router.classify("检查这个项目有没有过时引用")
+                let unsupported = router.classify("哪些 artifact claim 缺乏证据？")
+                let bridge = router.classify("explain connection between paper:a and paper:c")
+
+                try expect(missing.kind == .graphMissingCorePapers, "Missing-core graph questions should route to graphMissingCorePapers.")
+                try expect(missing.graphToolName == GraphAgentTools.findMissingCorePapers, "Missing-core intent should prefer find_missing_core_papers.")
+                try expect(reading.kind == .graphReadingPath, "Next-paper questions should route to graphReadingPath.")
+                try expect(stale.kind == .graphStaleCitations, "Stale citation questions should route to graphStaleCitations.")
+                try expect(unsupported.kind == .graphUnsupportedClaims, "Unsupported claim questions should route to graphUnsupportedClaims.")
+                try expect(bridge.kind == .graphBridgePapers, "Bridge questions should route to graphBridgePapers.")
+                let missingArgs = router.graphArgumentsJSON(for: missing, currentProjectID: "proj", selectedPaperID: nil) ?? ""
+                let readingArgs = router.graphArgumentsJSON(for: reading, currentProjectID: "proj", selectedPaperID: "paper:center") ?? ""
+                let bridgeArgs = router.graphArgumentsJSON(for: bridge, currentProjectID: nil, selectedPaperID: nil) ?? ""
+                try expect(missingArgs.contains("proj"), "Missing-core graph preflight arguments should include project_id.")
+                try expect(readingArgs.contains("paper:center"), "Reading path preflight arguments should include selected center paper.")
+                try expect(bridgeArgs.contains("paper:a") && bridgeArgs.contains("paper:c"), "Bridge preflight arguments should include both paper node ids.")
             }
 
             private func agentPaperIntentRouterMapsThirdPaperOrdinal() throws {
@@ -5016,7 +6313,7 @@ private struct CoreVerificationSuite {
                 try expect(!noLibraryRoutes.contains("pdf-reader"), "Modules with disabled dependencies should hide their routes.")
                 try expect(!noLibraryWorkflows.contains("paper_reading"), "Workflow requirements should hide paper_reading when paper-library is disabled.")
                 try expect(!noLibraryWorkflows.contains("related_work"), "Workflow requirements should hide related_work when paper-library is disabled.")
-                try expect(noLibraryWorkflows.contains("gap_planning"), "Unrelated enabled workflow should remain available.")
+                try expect(!noLibraryWorkflows.contains("gap_planning"), "gap_planning should hide when citation-graph is unavailable through paper-library dependency.")
 
                 let descriptor = WorkspaceModuleRegistry.artifactKindDescriptor(for: "paper_reading_note", in: defaultConfiguration)
                 let unknownDescriptor = WorkspaceModuleRegistry.artifactKindDescriptor(for: "future_artifact", in: defaultConfiguration)
@@ -5031,8 +6328,64 @@ private struct CoreVerificationSuite {
                 try expect(scopeDescription?.contains("Wiki") == true || scopeDescription?.contains("Projects") == true, "Module approval scope should explain matching module write paths.")
         }
 
+            private func workspaceModuleRegistryGatesGraphWorkflows() throws {
+                let defaultConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+                let defaultWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: defaultConfiguration))
+                try expect(defaultWorkflows.contains("graph_insight"), "Default configuration should expose graph_insight when AI Lab and Citation Graph are enabled.")
+                try expect(defaultWorkflows.contains("related_work"), "related_work should remain available when Citation Graph is enabled.")
+                try expect(defaultWorkflows.contains("gap_planning"), "gap_planning should remain available when Citation Graph is enabled.")
+
+                let noGraphConfiguration = WorkspaceModuleRegistry.defaultConfiguration(
+                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["citation-graph"])
+                )
+                let noGraphWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: noGraphConfiguration))
+                try expect(!noGraphWorkflows.contains("graph_insight"), "graph_insight should be gated by Citation Graph.")
+                try expect(!noGraphWorkflows.contains("related_work"), "related_work should be gated by Citation Graph after P47.")
+                try expect(!noGraphWorkflows.contains("gap_planning"), "gap_planning should be gated by Citation Graph after P47.")
+
+                let noAILabConfiguration = WorkspaceModuleRegistry.defaultConfiguration(
+                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["ai-lab"])
+                )
+                let noAILabWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: noAILabConfiguration))
+                try expect(!noAILabWorkflows.contains("graph_insight"), "graph_insight should also require AI Lab.")
+            }
+
+    private func paperLibraryModuleDeclaresReadingQueueArtifactKindAndWorkflow() throws {
+        let module = try require(WorkspaceModuleRegistry.module(id: "paper-library"), "paper-library module must remain in the built-in registry.")
+        try expect(module.artifactKinds.contains("reading_queue_entry"), "paper-library should declare the reading_queue_entry artifact kind.")
+        try expect(module.workflows.contains("reading_queue_curate"), "paper-library should declare the reading_queue_curate workflow.")
+        try expect(module.permissions.writePaths.contains("library/queue.yaml"), "paper-library should permit writes to library/queue.yaml.")
+        try expect(module.permissions.writePaths.contains("projects/*/queue.yaml"), "paper-library should permit writes to projects/*/queue.yaml.")
+        try expect(module.projectTabs.contains(where: { $0.id == "queue" }), "paper-library should contribute the Queue project-space tab.")
+
+        let descriptor = WorkspaceModuleRegistry.artifactKindDescriptor(for: "reading_queue_entry", in: WorkspaceModuleRegistry.defaultConfiguration())
+        try expect(descriptor.isKnown && descriptor.moduleID == "paper-library", "reading_queue_entry should resolve to paper-library via the artifact kind descriptor.")
+    }
+
+    private func workspaceModuleRegistryWorkflowGatingForReadingQueueCurate() throws {
+        let defaultConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+        let defaultWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: defaultConfiguration))
+        try expect(defaultWorkflows.contains("reading_queue_curate"), "reading_queue_curate should be available when paper-library is enabled.")
+
+        let noLibraryConfiguration = WorkspaceModuleRegistry.defaultConfiguration(
+            enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["paper-library"])
+        )
+        let noLibraryWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: noLibraryConfiguration))
+        try expect(!noLibraryWorkflows.contains("reading_queue_curate"), "reading_queue_curate should hide when paper-library is disabled.")
+
+        let availableProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: defaultConfiguration).map(\.id))
+        try expect(availableProjectTabs.contains("queue"), "Queue tab should be available when paper-library is enabled.")
+        let noLibraryProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: noLibraryConfiguration).map(\.id))
+        try expect(!noLibraryProjectTabs.contains("queue"), "Queue tab should disappear when paper-library is disabled.")
+
+        let requirements = try require(WorkspaceModuleRegistry.workflowRequirements["reading_queue_curate"], "reading_queue_curate should declare workflow requirements.")
+        try expect(requirements == ["paper-library"], "reading_queue_curate should require exactly paper-library; AI ingest stays under research_queue_update.")
+    }
+
             private func moduleSettingsViewModelEnableModuleRequiresDependencies() throws {
-                let configuration = WorkspaceModuleRegistry.defaultConfiguration()
+                let configuration = WorkspaceModuleRegistry.defaultConfiguration(
+                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["citation-graph"])
+                )
                 do {
                     _ = try WorkspaceModuleSettingsMutation.setModule("recommendation", enabled: true, in: configuration)
                     try expect(false, "Enabling recommendation should require citation-graph first.")
@@ -5044,7 +6397,9 @@ private struct CoreVerificationSuite {
             }
 
             private func moduleSettingsViewModelEnableDependenciesEnablesAllAncestors() throws {
-                let configuration = WorkspaceModuleRegistry.defaultConfiguration()
+                let configuration = WorkspaceModuleRegistry.defaultConfiguration(
+                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["citation-graph"])
+                )
                 let result = try WorkspaceModuleSettingsMutation.enableModuleAndDependencies("recommendation", in: configuration)
                 let enabledIDs = result.configuration.enabledModuleIDs
 
@@ -7130,6 +8485,130 @@ private struct CoreVerificationSuite {
         await repo.close()
     }
 
+    private func graphAgentToolsExposeReadOnlyDefinitions() throws {
+        let definitions = GraphAgentTools.makeDefaultTools(paperRepository: PaperRepository(), debugEventLogger: nil).map(\.definition)
+        let definitionsByName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.name, $0) })
+        try expect(Set(definitionsByName.keys).isSuperset(of: GraphAgentTools.allNames), "Default graph tools should expose all P47 tool names.")
+        for name in GraphAgentTools.allNames {
+            guard let definition = definitionsByName[name] else {
+                throw ValidationError(message: "Missing graph tool definition for \(name).")
+            }
+            try expect(definition.risk == .readOnly, "\(name) should be read-only.")
+            try expect(definition.requiresConfirmation == false, "\(name) should not require Permission Dock approval.")
+            try expect(definition.permissionKey == "graph.read", "\(name) should use graph.read permission key.")
+        }
+    }
+
+    private func graphToolBackendFindsMissingCorePapers() async throws {
+        let fixture = try await graphToolFixture(name: "GraphMissingCoreToolTest")
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL.deletingLastPathComponent()) }
+        let now = Date()
+        var corePaper = graphPaper(id: "core-paper", graphNodeID: "core-paper", title: "Core Paper", year: 2024, projectID: "proj", isCore: true)
+        corePaper = try await fixture.paperRepository.save(corePaper, in: fixture.workspace)
+        var linkedPaper = graphPaper(id: "linked-paper", graphNodeID: "linked-paper", title: "Already Linked", year: 2021, projectID: "proj", isCore: false)
+        linkedPaper = try await fixture.paperRepository.save(linkedPaper, in: fixture.workspace)
+
+        try await fixture.repo.upsertNode(GraphNode(id: "project:proj", kind: .project, displayName: "Project", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:core-paper", kind: .paper, displayName: corePaper.title, payload: .object(["year": .number("2024")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:missing-paper", kind: .paper, displayName: "Missing Foundational Paper", payload: .object(["year": .number("2020")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:linked-paper", kind: .paper, displayName: linkedPaper.title, payload: .object(["year": .number("2021")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .belongsTo, from: "paper:core-paper", to: "project:proj", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .belongsTo, from: "paper:linked-paper", to: "project:proj", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:core-paper", to: "paper:missing-paper", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:core-paper", to: "paper:linked-paper", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let backend = GraphToolBackend(readModel: GraphReadModel(repository: fixture.repo), paperRepository: fixture.paperRepository, debugEventLogger: nil)
+        let result = try await backend.findMissingCorePapers(argumentsJSON: #"{"project_id":"proj"}"#, context: fixture.context)
+        let object = try jsonObject(result.payload, "Missing core payload should be an object.")
+        let rows = object["missing_core_papers"]?.arrayValue ?? []
+        try expect(result.succeeded, "Missing core tool should succeed.")
+        try expect(result.requiresConfirmation, "Missing core discoveries should create a graph insight draft for review.")
+        try expect(rows.count == 1, "Only the unlinked cited paper should be returned.")
+        try expect(rows.first?.objectValue?["paper_node_id"]?.stringValue == "paper:missing-paper", "Missing paper node id should match.")
+        try expect(object["graph_insight_draft"]?.objectValue?["kind"]?.stringValue == "graph_insight", "Payload should include a nested graph insight draft.")
+        await fixture.repo.close()
+    }
+
+    private func graphToolBackendGeneratesReadingPath() async throws {
+        let fixture = try await graphToolFixture(name: "GraphReadingPathToolTest")
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL.deletingLastPathComponent()) }
+        let now = Date()
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:foundation", kind: .paper, displayName: "Foundation", payload: .object(["year": .number("2010")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:center", kind: .paper, displayName: "Center", payload: .object(["year": .number("2020")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:followup", kind: .paper, displayName: "Follow Up", payload: .object(["year": .number("2024")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:center", to: "paper:foundation", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:followup", to: "paper:center", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let backend = GraphToolBackend(readModel: GraphReadModel(repository: fixture.repo), paperRepository: fixture.paperRepository, debugEventLogger: nil)
+        let result = try await backend.generateReadingPath(argumentsJSON: #"{"center_paper_id":"paper:center","k":3}"#, context: fixture.context)
+        let rows = try jsonObject(result.payload, "Reading path payload should be an object.")["reading_path"]?.arrayValue ?? []
+        let order = rows.compactMap { $0.objectValue?["paper_node_id"]?.stringValue }
+        try expect(order == ["paper:foundation", "paper:center", "paper:followup"], "Reading path should order cited prerequisites before citing follow-ups.")
+        await fixture.repo.close()
+    }
+
+    private func graphToolBackendDetectsStaleCitations() async throws {
+        let fixture = try await graphToolFixture(name: "GraphStaleCitationToolTest")
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL.deletingLastPathComponent()) }
+        let now = Date()
+        try await fixture.repo.upsertNode(GraphNode(id: "project:proj", kind: .project, displayName: "Project", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:current", kind: .paper, displayName: "Current", payload: .object(["year": .number("2024")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:old", kind: .paper, displayName: "Old Baseline", payload: .object(["year": .number("2000")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "paper:new", kind: .paper, displayName: "New Extension", payload: .object(["year": .number("2023")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .belongsTo, from: "paper:current", to: "project:proj", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:current", to: "paper:old", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .extends, from: "paper:new", to: "paper:old", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let backend = GraphToolBackend(readModel: GraphReadModel(repository: fixture.repo), paperRepository: fixture.paperRepository, debugEventLogger: nil)
+        let result = try await backend.detectStaleCitations(argumentsJSON: #"{"project_id":"proj","threshold_days":3650}"#, context: fixture.context)
+        let rows = try jsonObject(result.payload, "Stale citation payload should be an object.")["stale_edges"]?.arrayValue ?? []
+        try expect(rows.count == 1, "Stale citation detector should flag the old citation with a newer extension.")
+        let suggestions = rows.first?.objectValue?["suggested_newer_papers"]?.arrayValue ?? []
+        try expect(suggestions.first?.objectValue?["paper_node_id"]?.stringValue == "paper:new", "Stale citation detector should suggest the newer extending paper.")
+        await fixture.repo.close()
+    }
+
+    private func graphToolBackendFindsUnsupportedArtifactClaims() async throws {
+        let fixture = try await graphToolFixture(name: "GraphUnsupportedClaimsToolTest")
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL.deletingLastPathComponent()) }
+        let now = Date()
+        try await fixture.repo.upsertNode(GraphNode(id: "project:proj", kind: .project, displayName: "Project", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "artifact:one", kind: .artifact, displayName: "Related Work Draft", payload: .object(["status": .string("saved")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "claim:one", kind: .claim, displayName: "Unsupported Claim", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "claim:two", kind: .claim, displayName: "Stale Claim", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertNode(GraphNode(id: "evidence:stale", kind: .evidence, displayName: "Old Evidence", payload: .object(["status": .string("stale")]), createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .belongsTo, from: "artifact:one", to: "project:proj", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .mentions, from: "artifact:one", to: "claim:one", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .mentions, from: "artifact:one", to: "claim:two", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .supports, from: "evidence:stale", to: "claim:two", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let backend = GraphToolBackend(readModel: GraphReadModel(repository: fixture.repo), paperRepository: fixture.paperRepository, debugEventLogger: nil)
+        let result = try await backend.findUnsupportedArtifactClaims(argumentsJSON: #"{"project_id":"proj"}"#, context: fixture.context)
+        let rows = try jsonObject(result.payload, "Unsupported claims payload should be an object.")["claims"]?.arrayValue ?? []
+        let severities = Set(rows.compactMap { $0.objectValue?["severity"]?.stringValue })
+        try expect(severities == ["error", "warning"], "Unsupported claims tool should report missing and stale evidence severities.")
+        await fixture.repo.close()
+    }
+
+    private func graphToolBackendFindsBridgePapers() async throws {
+        let fixture = try await graphToolFixture(name: "GraphBridgeToolTest")
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL.deletingLastPathComponent()) }
+        let now = Date()
+        for nodeID in ["paper:a", "paper:b", "paper:c"] {
+            try await fixture.repo.upsertNode(GraphNode(id: nodeID, kind: .paper, displayName: nodeID, createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        }
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:a", to: "paper:b", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+        try await fixture.repo.upsertEdge(GraphEdge(kind: .cites, from: "paper:b", to: "paper:c", createdAt: now, updatedAt: now, sourceHash: nil, lastIndexedAt: now))
+
+        let backend = GraphToolBackend(readModel: GraphReadModel(repository: fixture.repo), paperRepository: fixture.paperRepository, debugEventLogger: nil)
+        let result = try await backend.findBridgePapers(argumentsJSON: #"{"from_paper_id":"paper:a","to_paper_id":"paper:c"}"#, context: fixture.context)
+        let payload = try jsonObject(result.payload, "Bridge payload should be an object.")
+        let rows = payload["bridge_papers"]?.arrayValue ?? []
+        try expect(payload["path_found"] == .bool(true), "Bridge tool should report path_found=true.")
+        try expect(rows.compactMap { $0.objectValue?["paper_node_id"]?.stringValue } == ["paper:a", "paper:b", "paper:c"], "Bridge tool should preserve shortest path paper order.")
+        await fixture.repo.close()
+    }
+
     private func bibtexParserHandlesArticleAndMisc() throws {
         let bibtex = """
         @article{garani2017dark,
@@ -7674,6 +9153,51 @@ private struct CoreVerificationSuite {
             configuration: LLMConfiguration(),
             apiKey: "test-key"
         )
+    }
+
+    private struct GraphToolTestFixture {
+        var rootURL: URL
+        var root: ResearchRoot
+        var workspace: ResearchWorkspace
+        var repo: GraphRepository
+        var paperRepository: PaperRepository
+        var context: AgentToolContext
+    }
+
+    private func graphToolFixture(name: String) async throws -> GraphToolTestFixture {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = ResearchRoot(rootURL: rootURL)
+        let workspace = ResearchWorkspace(rootURL: rootURL)
+        let repo = GraphRepository()
+        try await repo.open(in: root)
+        let paperRepository = PaperRepository()
+        let context = AgentToolContext(
+            workspace: workspace,
+            researchRoot: root,
+            currentProjectID: "proj"
+        )
+        return GraphToolTestFixture(
+            rootURL: rootURL,
+            root: root,
+            workspace: workspace,
+            repo: repo,
+            paperRepository: paperRepository,
+            context: context
+        )
+    }
+
+    private func graphPaper(id: String, graphNodeID: String, title: String, year: Int, projectID: String, isCore: Bool) -> Paper {
+        var paper = samplePaper(id: id)
+        paper.citekey = id
+        paper.title = title
+        paper.year = year
+        paper.arxiv = nil
+        paper.graphNodeID = graphNodeID
+        paper.projectIDs = [projectID]
+        paper.coreProjectIDs = isCore ? [projectID] : []
+        paper.paperDirectoryRelativePath = "library/papers/Uncategorized/\(id)"
+        return paper
     }
 
     private func samplePaper(id: String) -> Paper {

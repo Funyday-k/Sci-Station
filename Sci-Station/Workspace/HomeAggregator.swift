@@ -12,6 +12,10 @@ public nonisolated struct HomeAggregationInput: Sendable {
     public var retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot
     public var moduleConfiguration: WorkspaceModuleConfiguration
     public var failureReason: String?
+    /// P48 — Real queue entries the AppViewModel has loaded for the active
+    /// workspace and project. Optional; default empty for callers that have
+    /// not yet wired the queue store.
+    public var queueEntries: [ResearchQueueEntry]
 
     public init(
         workspaceID: String,
@@ -24,7 +28,8 @@ public nonisolated struct HomeAggregationInput: Sendable {
         sessionEvents: [AgentSessionEvent] = [],
         retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot = AgentEmbeddingIndexStatusSnapshot.disabled(),
         moduleConfiguration: WorkspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration(),
-        failureReason: String? = nil
+        failureReason: String? = nil,
+        queueEntries: [ResearchQueueEntry] = []
     ) {
         self.workspaceID = workspaceID
         self.currentProjectID = currentProjectID
@@ -37,6 +42,7 @@ public nonisolated struct HomeAggregationInput: Sendable {
         self.retrievalIndexStatus = retrievalIndexStatus
         self.moduleConfiguration = moduleConfiguration
         self.failureReason = failureReason
+        self.queueEntries = queueEntries
     }
 
     public var signature: Int {
@@ -101,6 +107,14 @@ public nonisolated struct HomeAggregationInput: Sendable {
         hasher.combine(retrievalIndexStatus)
         hasher.combine(moduleConfiguration)
         hasher.combine(failureReason)
+        for entry in queueEntries.sorted(by: { $0.id < $1.id }) {
+            hasher.combine(entry.id)
+            hasher.combine(entry.status.rawValue)
+            hasher.combine(entry.source.rawValue)
+            hasher.combine(entry.order)
+            hasher.combine(entry.lastTouchedAt)
+            hasher.combine(entry.scope.identifier)
+        }
         return hasher.finalize()
     }
 }
@@ -243,6 +257,18 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             .map { $0 } : []
 
         let readingQueue = moduleAvailability.libraryEnabled ? readingQueue(from: input.papers) : []
+        let readingQueueEntries: [ReadingQueueEntrySummary] = moduleAvailability.libraryEnabled
+            ? input.queueEntries
+                .filter { $0.status == .queued || $0.status == .reading }
+                .sorted { lhs, rhs in
+                    if lhs.lastTouchedAt != rhs.lastTouchedAt {
+                        return lhs.lastTouchedAt > rhs.lastTouchedAt
+                    }
+                    return lhs.order < rhs.order
+                }
+                .prefix(10)
+                .map(ReadingQueueEntrySummary.init(entry:))
+            : []
         let pendingDrafts = moduleAvailability.aiLabEnabled ? draftSummaries(from: input.agentRuns, projectID: input.currentProjectID)
             .prefix(6)
             .map { $0 } : []
@@ -251,7 +277,8 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             dueTodos: dueTodos,
             readingQueue: readingQueue,
             upcomingDeadlines: upcomingDeadlines,
-            pendingDrafts: pendingDrafts
+            pendingDrafts: pendingDrafts,
+            readingQueueEntries: readingQueueEntries
         )
     }
 
@@ -391,8 +418,8 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
     public func artifactSummaries(from runs: [AgentRun]) -> [ArtifactSummary] {
         runs.flatMap { run in
             run.toolResults.compactMap { result -> ArtifactSummary? in
-                if let payload = result.payload,
-                   let draft = decode(AgentArtifactDraft.self, from: payload) {
+                     if let payload = result.payload,
+                         let draft = artifactDraft(from: payload) {
                     return ArtifactSummary(
                         id: draft.id,
                         runID: run.id,
@@ -565,6 +592,16 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             return nil
         }
         return try? AgentRunDirectoryStore.decoder().decode(T.self, from: data)
+    }
+
+    private func artifactDraft(from value: JSONValue) -> AgentArtifactDraft? {
+        if let draft = decode(AgentArtifactDraft.self, from: value) {
+            return draft
+        }
+        guard let nested = value.objectValue?["graph_insight_draft"] else {
+            return nil
+        }
+        return decode(AgentArtifactDraft.self, from: nested)
     }
 
     private func artifactKind(from result: AgentToolResult) -> String {

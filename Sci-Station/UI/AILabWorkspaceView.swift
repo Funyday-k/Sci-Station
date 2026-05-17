@@ -2289,7 +2289,17 @@ private struct AgentArtifactDraftPreview: Decodable {
     var evidenceRefs: [AgentEvidenceRef]
 
     init?(_ rawJSON: String) {
-        guard let data = rawJSON.data(using: .utf8), let decoded = try? AgentRunDirectoryStore.decoder().decode(Self.self, from: data) else {
+        guard let data = rawJSON.data(using: .utf8) else {
+            return nil
+        }
+        if let decoded = try? AgentRunDirectoryStore.decoder().decode(Self.self, from: data) {
+            self = decoded
+            return
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let nested = object["graph_insight_draft"],
+              let nestedData = try? JSONSerialization.data(withJSONObject: nested, options: []),
+              let decoded = try? AgentRunDirectoryStore.decoder().decode(Self.self, from: nestedData) else {
             return nil
         }
         self = decoded

@@ -16,6 +16,7 @@ public actor SciStationAgentService {
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
+    private let appDebugEventLogger: AppDebugEventLogger?
 
     public init(
         provider: any LLMProvider,
@@ -30,13 +31,14 @@ public actor SciStationAgentService {
         sidecarCoordinator: SidecarRuntimeCoordinator = SidecarRuntimeCoordinator(),
         threadRepository: AgentThreadRepository = AgentThreadRepository(),
         draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
+        appDebugEventLogger: AppDebugEventLogger? = AppDebugEventLogger(),
         hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks()
     ) {
         let resolvedContextBuilder = contextBuilder ?? AgentWorkspaceContextBuilder(
             paperRepository: paperRepository,
             todoRepository: todoRepository
         )
-        let resolvedToolRegistry = toolRegistry ?? AgentToolRegistry(tools: [
+        let defaultTools: [any AgentTool] = [
             ListPapersAgentTool(paperRepository: paperRepository),
             ReadPaperAgentTool(paperRepository: paperRepository),
             ReadPaperSectionAgentTool(paperRepository: paperRepository),
@@ -47,9 +49,14 @@ public actor SciStationAgentService {
             ListMaterialsAgentTool(),
             CreateTodoAgentTool(todoRepository: todoRepository),
             UpdatePaperClassificationAgentTool(paperRepository: paperRepository),
+            RequestRecommendationRefreshAgentTool(),
             WriteMarkdownPlanAgentTool(markdownRepository: markdownRepository, paperRepository: paperRepository),
             WriteWikiMarkdownAgentTool(markdownRepository: markdownRepository, paperRepository: paperRepository)
-        ])
+        ] + GraphAgentTools.makeDefaultTools(
+            paperRepository: paperRepository,
+            debugEventLogger: appDebugEventLogger
+        )
+        let resolvedToolRegistry = toolRegistry ?? AgentToolRegistry(tools: defaultTools)
         let resolvedLoopCheckpointStore = AgentLoopCheckpointStore()
         let resolvedToolHost = SciStationToolHost(legacyRegistry: resolvedToolRegistry)
         let resolvedLoopRunner = AgentLoopRunner(sessionEventLogger: sessionEventLogger, checkpointStore: resolvedLoopCheckpointStore)
@@ -68,6 +75,7 @@ public actor SciStationAgentService {
         self.sidecarCoordinator = sidecarCoordinator
         self.threadRepository = threadRepository
         self.draftRepository = draftRepository
+        self.appDebugEventLogger = appDebugEventLogger
         self.hookDefinitions = hookDefinitions
     }
 
@@ -178,7 +186,8 @@ public actor SciStationAgentService {
                 selectedPaperID: selectedPaperID,
                 researchRoot: resolvedRoot,
                 currentProjectID: currentProjectID,
-                allowedPaperIDs: includedPaperIDs
+                allowedPaperIDs: includedPaperIDs,
+                debugEventLogger: appDebugEventLogger
             )
             let messages = try AgentPromptBuilder().buildToolLoopChatMessages(
                 goal: goal,
@@ -273,7 +282,8 @@ public actor SciStationAgentService {
             selectedPaperID: selectedPaperID,
             researchRoot: resolvedRoot,
             currentProjectID: currentProjectID,
-            allowedPaperIDs: includedPaperIDs
+            allowedPaperIDs: includedPaperIDs,
+            debugEventLogger: appDebugEventLogger
         )
         for call in plan.toolCalls {
             hookResults.append(contentsOf: hookEngine.evaluate(
@@ -627,7 +637,8 @@ public actor SciStationAgentService {
             selectedPaperID: selectedPaperID,
             researchRoot: resolvedRoot,
             currentProjectID: currentProjectID,
-            allowedPaperIDs: includedPaperIDs
+            allowedPaperIDs: includedPaperIDs,
+            debugEventLogger: appDebugEventLogger
         )
         let loopResult = try await loopRunner.resume(
             AgentLoopResumeRequest(
@@ -698,7 +709,8 @@ public actor SciStationAgentService {
             selectedPaperID: selectedPaperID,
             researchRoot: resolvedRoot,
             currentProjectID: currentProjectID,
-            allowedPaperIDs: includedPaperIDs
+            allowedPaperIDs: includedPaperIDs,
+            debugEventLogger: appDebugEventLogger
         )
         let toolResults = await toolExecutor.execute(
             plan: executablePlan,

@@ -122,6 +122,50 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
+                    ProjectDashboardCard(title: appModel.localized("阅读队列", "Reading Queue"), systemImage: "tray.full") {
+                        if snapshot.readingQueuePreview.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(appModel.localized("还没有论文进入项目阅读队。从 Library / Graph 右键“Add to Project Queue”开始。", "Add a paper from Library / Graph to start your queue."))
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button {
+                                    recordAction("open_queue_tab_empty", targetID: snapshot.projectID)
+                                    appModel.selectProjectSpaceTab("queue")
+                                } label: {
+                                    Label(appModel.localized("打开 Queue 页", "Open Queue Tab"), systemImage: "tray.full")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(snapshot.readingQueuePreview) { entry in
+                                    Button {
+                                        recordAction("open_queue_entry", targetID: entry.id)
+                                        if let paperID = entry.paperID {
+                                            appModel.selectPaper(id: paperID)
+                                        }
+                                        appModel.selectProjectSpaceTab("queue")
+                                    } label: {
+                                        ProjectDashboardQueueRow(entry: entry)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                if snapshot.readingQueuePreview.count >= 3 {
+                                    Button {
+                                        recordAction("open_queue_tab_more", targetID: snapshot.projectID)
+                                        appModel.selectProjectSpaceTab("queue")
+                                    } label: {
+                                        Label(appModel.localized("查看全部队列", "View full queue"), systemImage: "arrow.up.right")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+                            }
+                        }
+                    }
+
                     ProjectDashboardCard(title: appModel.localized("Current Reading Plan", "Current Reading Plan"), systemImage: "list.bullet.rectangle") {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(snapshot.currentReadingPlan ?? appModel.localized("Reading Plan 数据源将在 P50 接入。", "Reading Plan data arrives in P50."))
@@ -162,6 +206,9 @@ struct ProjectDashboardPanel: View {
         .onChange(of: appModel.agentCurrentRun) { _, _ in
             Task { await reload(invalidating: true) }
         }
+        .onChange(of: appModel.researchQueueScopes) { _, _ in
+            Task { await reload(invalidating: true) }
+        }
     }
 
     @MainActor
@@ -178,7 +225,8 @@ struct ProjectDashboardPanel: View {
                 todos: appModel.todos,
                 markdownDocuments: appModel.markdownDocuments,
                 agentRuns: agentRunsForAggregation,
-                unsupportedClaims: unsupportedClaimsForAggregation
+                unsupportedClaims: unsupportedClaimsForAggregation,
+                queueEntries: Array(appModel.researchQueueScopes.values.joined())
             )
             let nextSnapshot = try await aggregator.snapshot(input: input)
             snapshot = nextSnapshot
@@ -229,6 +277,62 @@ struct ProjectDashboardPanel: View {
             "action_id": .string(actionID),
             "target_id": .string(targetID)
         ]))
+    }
+}
+
+private struct ProjectDashboardQueueRow: View {
+    let entry: ReadingQueueEntrySummary
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: statusSystemImage)
+                .foregroundStyle(statusTint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.displayTitle)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(subtitleText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var statusSystemImage: String {
+        switch entry.status {
+        case .queued: return "tray"
+        case .reading: return "book"
+        case .finished: return "checkmark.seal"
+        case .deferred: return "moon"
+        case .dismissed: return "xmark.circle"
+        }
+    }
+
+    private var statusTint: Color {
+        switch entry.status {
+        case .queued: return .blue
+        case .reading: return .orange
+        case .finished: return .green
+        case .deferred: return .purple
+        case .dismissed: return .secondary
+        }
+    }
+
+    private var subtitleText: String {
+        var parts: [String] = []
+        parts.append(entry.status == .reading ? "Reading" : "Queued")
+        if let externalKey = entry.externalKey, entry.paperID == nil {
+            parts.append("external: \(externalKey)")
+        }
+        switch entry.source {
+        case .recommendation: parts.append("from recommendation")
+        case .graphTool: parts.append("from graph tool")
+        case .paperStatus: parts.append("paper status sync")
+        case .manual: break
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

@@ -63,15 +63,39 @@ public nonisolated enum RightRailMode: String, Codable, CaseIterable, Hashable, 
 }
 
 public nonisolated enum RightRailPolicy {
+    /// User preference is now the single source of truth for the right rail
+    /// mode. The toolbar Inspector / AI buttons mutate `preferences.rightRailMode`
+    /// via `setRightRailMode`, and this policy simply echoes it back so the
+    /// ResponsiveShellPolicy uses the user's choice verbatim.
+    ///
+    /// Why we removed route-driven overrides
+    /// =====================================
+    /// Pre-2026-05-17 this function returned `.inspector` on Library / Wiki /
+    /// PDF routes and `.hidden` on Home / Calendar / queue-style tabs. That
+    /// felt magical in demos but produced a real bug in the field: when the
+    /// user explicitly clicked the toolbar Inspector toggle on the Queue tab
+    /// to hide / show the rail, the next `applyRightRailRouteSuggestion()`
+    /// pass would overwrite their preference with the route's suggestion.
+    /// The result was that the rail either bounced back open after collapse
+    /// or refused to open at all on tabs whose route hint was `.hidden`.
+    ///
+    /// `defaultMode(for:)` keeps the legacy hint available for callers that
+    /// want to seed a workspace's initial preference (see `applyRightRailRouteSuggestion`).
     public static func suggestedMode(
         route: WorkspaceRoute,
         context: WorkspaceContextSnapshot,
         preferredMode: RightRailMode
     ) -> RightRailMode {
-        if preferredMode == .ai {
-            return .ai
-        }
+        preferredMode
+    }
 
+    /// Initial default for a workspace that has never been touched. Used at
+    /// workspace open to seed a sensible starting state; never used to
+    /// override a user-set preference at runtime.
+    public static func defaultMode(
+        route: WorkspaceRoute,
+        context: WorkspaceContextSnapshot
+    ) -> RightRailMode {
         switch route.top {
         case .library:
             return .inspector

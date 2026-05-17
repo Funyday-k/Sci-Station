@@ -61,6 +61,17 @@ private enum MarkdownConversionStatusSurface {
     case workspace
 }
 
+private enum GraphExternalPaperImportError: LocalizedError {
+    case missingWorkspace
+
+    var errorDescription: String? {
+        switch self {
+        case .missingWorkspace:
+            return "Open a workspace before adding graph papers to the library."
+        }
+    }
+}
+
 private struct PendingMarkdownConversionRequest {
     var papers: [Paper]
     var workspace: ResearchWorkspace
@@ -335,6 +346,17 @@ final class AppViewModel: ObservableObject {
     private var shellStatusDismissTask: Task<Void, Never>?
     private var paperReaderReturnRoute: WorkspaceRoute?
 
+    // P48 Research Queue (Layer A store + Layer B ingestor). Both are lazily
+    // bound to the currently open workspace by `setupResearchQueueIfNeeded`.
+    private var researchQueueStore: ResearchQueueStore?
+    private var researchQueueIngestor: ResearchQueueIngestor?
+    private var researchQueueWorkspaceID: URL?
+    private var previousPapersForQueueIngest: [String: Paper] = [:]
+    private var researchQueueIngestTask: Task<Void, Never>?
+    private var researchQueueAgentRunIngestTask: Task<Void, Never>?
+    private var researchQueueChangeWatchTask: Task<Void, Never>?
+    @Published private(set) var researchQueueScopes: [String: [ResearchQueueEntry]] = [:]
+
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
     }
@@ -352,7 +374,11 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentEnabledToolNames: Set<String> {
-        Set(agentToolDefinitions.map(\.name)).subtracting(agentDisabledToolNames)
+        var names = Set(agentToolDefinitions.map(\.name)).subtracting(agentDisabledToolNames)
+        if !enabledAgentWorkflowIDs.contains("graph_insight") {
+            names.subtract(GraphAgentTools.allNames)
+        }
+        return names
     }
 
     var agentEnabledToolSummary: String {
@@ -1977,21 +2003,15 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    /// Called on route / tab changes. The right rail mode itself is now a
+    /// sticky user preference (set via the toolbar Inspector / AI buttons)
+    /// and is no longer auto-flipped here. The only remaining job is to keep
+    /// the global AI panel's context summary in sync when the rail is in AI
+    /// mode — previously the route-driven flip handled that as a side effect.
     func applyRightRailRouteSuggestion() {
-        guard workspacePreferences.rightRailMode != .ai else {
+        if workspacePreferences.rightRailMode == .ai {
             recordGlobalAIContextUpdate(reason: "route_change")
-            return
         }
-
-        let suggestedMode = RightRailPolicy.suggestedMode(
-            route: currentWorkspaceRoute,
-            context: currentWorkspaceContextSnapshot,
-            preferredMode: workspacePreferences.rightRailMode
-        )
-        guard workspacePreferences.rightRailMode != suggestedMode else {
-            return
-        }
-        setRightRailMode(suggestedMode, source: "auto_route")
     }
 
     func setRightRailMode(_ mode: RightRailMode, source: String = "manual") {
@@ -2022,6 +2042,23 @@ final class AppViewModel: ObservableObject {
 
     func hideRightRail(source: String = "manual") {
         setRightRailMode(.hidden, source: source)
+    }
+
+    /// Toggle a specific right-rail mode. If the rail is already showing the
+    /// requested mode, the rail collapses; otherwise it switches to that mode.
+    /// This is what the toolbar Inspector / AI buttons drive so that a single
+    /// click in either direction reaches the user's intent without having to
+    /// hunt for a close button inside the rail itself.
+    func toggleRightRailMode(_ mode: RightRailMode, source: String = "toolbar") {
+        guard mode != .hidden else {
+            hideRightRail(source: source)
+            return
+        }
+        if effectiveRightRailMode == mode {
+            hideRightRail(source: "\(source)_toggle_off")
+        } else {
+            setRightRailMode(mode, source: source)
+        }
     }
 
     func recordGlobalAIContextUpdate(reason: String = "context_update") {
@@ -2101,7 +2138,6 @@ final class AppViewModel: ObservableObject {
     }
 
     func showGraphActionPlaceholder(reason: String) {
-        // P47 will replace this with actual agent tool invocation.
         recordShellDebugEvent("graph.ui.action", payload: .object([
             "action": .string("placeholder"),
             "reason": .string(reason)
@@ -2121,8 +2157,111 @@ final class AppViewModel: ObservableObject {
                 "action": .string("write_action_placeholder"),
                 "node_action": .string(String(describing: action))
             ]))
-        case .generateReadingOrder, .explainConnection, .findBridgePapers:
-            showGraphActionPlaceholder(reason: "available_in_p47")
+        case .generateReadingOrder(let centerPaperID):
+            startGraphInsightAgentRun(
+                actionName: "generate_reading_order",
+                preferredToolName: GraphAgentTools.generateReadingPath,
+                prompt: "Use the graph_insight workflow. Call \(GraphAgentTools.generateReadingPath) for center_paper_id \(centerPaperID), then explain the recommended reading order with graph evidence."
+            )
+        case .explainConnection(let fromID, let toID):
+            startGraphInsightAgentRun(
+                actionName: "explain_connection",
+                preferredToolName: GraphAgentTools.findBridgePapers,
+                prompt: "Use the graph_insight workflow. Call \(GraphAgentTools.findBridgePapers) with from_paper_id \(fromID) and to_paper_id \(toID), then explain the connection with graph evidence."
+            )
+        case .findBridgePapers(let fromID, let toID):
+            startGraphInsightAgentRun(
+                actionName: "find_bridge_papers",
+                preferredToolName: GraphAgentTools.findBridgePapers,
+                prompt: "Use the graph_insight workflow. Call \(GraphAgentTools.findBridgePapers) with from_paper_id \(fromID) and to_paper_id \(toID), then summarize the bridge papers and evidence."
+            )
+        }
+    }
+
+    private func startGraphInsightAgentRun(actionName: String, preferredToolName: String, prompt: String) {
+        guard currentWorkspace != nil else {
+            agentErrorMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+        guard enabledAgentWorkflowIDs.contains("graph_insight") else {
+            agentErrorMessage = "Citation Graph module is required for graph insights."
+            recordAppDebugEvent(AppDebugEventName.agentToolGraphBlockedByModule.rawValue, payload: .object([
+                "action": .string(actionName),
+                "workflow": .string("graph_insight")
+            ]))
+            return
+        }
+
+        let projectID = currentProjectID
+        setAgentVisibleMode(.agent)
+        if let projectID {
+            setAgentContextSelectionToken(projectID)
+        } else {
+            setAgentContextSelectionToken("__workspace__")
+        }
+        selectSection(.llmLab)
+        startNewAgentConversation()
+        agentGoal = prompt
+        recordAppDebugEvent(AppDebugEventName.agentIntentGraphRouted.rawValue, payload: .object([
+            "action": .string(actionName),
+            "tool": .string(preferredToolName),
+            "workflow": .string("graph_insight"),
+            "project_id": .string(projectID ?? "")
+        ]))
+        generateAgentPlan()
+    }
+
+    func importGraphExternalPaper(from identifier: String) async throws -> Paper {
+        guard let currentWorkspace else {
+            throw GraphExternalPaperImportError.missingWorkspace
+        }
+
+        if let existing = existingPaper(matchingGraphImportIdentifier: identifier) {
+            selectPaper(id: existing.id)
+            return existing
+        }
+
+        let collectionPath = selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
+        var importedPaper = try await remoteImportService.importItem(
+            from: identifier,
+            draftPreview: nil,
+            into: currentWorkspace,
+            existingPapers: papers,
+            collectionPath: collectionPath,
+            tags: []
+        )
+
+        if let selectedLibraryProjectID,
+           !importedPaper.projectIDs.contains(selectedLibraryProjectID) {
+            importedPaper.projectIDs.append(selectedLibraryProjectID)
+            importedPaper = try await paperRepository.save(importedPaper, in: currentWorkspace)
+        }
+
+        try await loadWorkspaceData(
+            in: currentWorkspace,
+            selectingPaper: importedPaper.id,
+            selectingMarkdown: selectedMarkdownID
+        )
+        startMarkdownConversion(for: [importedPaper], in: currentWorkspace, statusSurface: .workspace)
+        return importedPaper
+    }
+
+    private func existingPaper(matchingGraphImportIdentifier identifier: String) -> Paper? {
+        let parsed = IdentifierParser().parse(identifier)
+        switch parsed.kind {
+        case .inspire:
+            let inspireID = parsed.normalizedValue
+            return papers.first { paper in
+                PaperIdentityGenerator.normalizedInspire(paper.inspireID) == inspireID || paper.resolvedGraphNodeID == "inspire:\(inspireID)"
+            }
+        case .doi:
+            guard let doi = PaperIdentityGenerator.normalizedDOI(parsed.normalizedValue) else { return nil }
+            return papers.first { PaperIdentityGenerator.normalizedDOI($0.doi) == doi }
+        case .arxiv:
+            guard let arxiv = PaperIdentityGenerator.normalizedArxiv(parsed.normalizedValue) else { return nil }
+            return papers.first { PaperIdentityGenerator.normalizedArxiv($0.arxiv) == arxiv || $0.resolvedGraphNodeID == "arxiv:\(arxiv)" }
+        case .pdfURL, .url, .unknown:
+            return nil
         }
     }
 
@@ -2200,6 +2339,25 @@ final class AppViewModel: ObservableObject {
         recordHomeDebugEvent("home.widget.move", payload: .object([
             "widget_id": .string(sourceWidgetID),
             "before": .string(targetWidgetID),
+            "columns": .number(String(columns))
+        ]))
+    }
+
+    /// Drop-target move: place source widget at the slot currently held by
+    /// target. Used by the dashboard drag handler so forward and backward
+    /// drags both end up swapping into the target's tile.
+    func moveHomeWidget(_ sourceWidgetID: String, onto targetWidgetID: String, columns: Int) {
+        updateWorkspacePreferences { preferences in
+            preferences.homeWidgetLayout.moveWidget(
+                sourceWidgetID,
+                onto: targetWidgetID,
+                descriptors: HomeWidgetRegistry.defaultDescriptors,
+                columns: columns
+            )
+        }
+        recordHomeDebugEvent("home.widget.move", payload: .object([
+            "widget_id": .string(sourceWidgetID),
+            "onto": .string(targetWidgetID),
             "columns": .number(String(columns))
         ]))
     }
@@ -6155,6 +6313,7 @@ final class AppViewModel: ObservableObject {
     ) async throws {
         try await loadResearchRoot(in: workspace, compatibility: rootCompatibility)
         try await loadWorkspacePreferences(in: workspace)
+        await setupResearchQueueIfNeeded(in: workspace)
         try await loadLibrary(in: workspace, selecting: paperID)
         try await loadLegacyPaperMigrationPlan(in: workspace)
         try await loadCollections(in: workspace)
@@ -6324,6 +6483,7 @@ final class AppViewModel: ObservableObject {
         projectPaperLinks = try await projectPaperLinkRepository.load(in: workspace)
         let loadedPapers = try await paperRepository.loadPapers(in: workspace)
         papers = loadedPapers
+        notifyResearchQueueOfPapers(loadedPapers)
 
         let nextSelectionID = paperID ?? selectedPaperID ?? loadedPapers.first?.id
         let nextSelectedPaper = loadedPapers.first(where: { $0.id == nextSelectionID })
@@ -6839,6 +6999,259 @@ final class AppViewModel: ObservableObject {
         "\(workspace.rootURL.path)#mineru-api"
     }
 
+    // MARK: - P48 Research Queue wiring
+
+    /// Bind a `ResearchQueueStore` + `ResearchQueueIngestor` pair to the
+    /// currently open workspace. Safe to call repeatedly; the bind is
+    /// reused as long as the workspace URL is unchanged.
+    private func setupResearchQueueIfNeeded(in workspace: ResearchWorkspace) async {
+        if researchQueueWorkspaceID == workspace.id, researchQueueStore != nil {
+            return
+        }
+
+        if let existing = researchQueueStore {
+            await existing.close()
+        }
+        researchQueueIngestTask?.cancel()
+        researchQueueIngestTask = nil
+        researchQueueAgentRunIngestTask?.cancel()
+        researchQueueAgentRunIngestTask = nil
+        researchQueueChangeWatchTask?.cancel()
+        researchQueueChangeWatchTask = nil
+        researchQueueStore = nil
+        researchQueueIngestor = nil
+        researchQueueScopes = [:]
+        previousPapersForQueueIngest.removeAll()
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+        let logger = appDebugEventLogger
+        let store = ResearchQueueStore(
+            workspace: workspace,
+            researchRoot: root,
+            debugLogger: logger
+        )
+        do {
+            try await store.open()
+        } catch {
+            try? await logger.append(AppDebugEvent(
+                event: "queue.load.error",
+                workspaceID: workspace.rootURL.path,
+                payload: .object([
+                    "scope": .string("workspace"),
+                    "reason": .string("open_failed")
+                ])
+            ), in: root)
+            return
+        }
+
+        let ingestor = ResearchQueueIngestor(
+            store: store,
+            workspace: workspace,
+            researchRoot: root,
+            debugLogger: logger
+        )
+        await ingestor.start()
+
+        researchQueueStore = store
+        researchQueueIngestor = ingestor
+        researchQueueWorkspaceID = workspace.id
+
+        await refreshResearchQueueSnapshot()
+        researchQueueChangeWatchTask = Task { [weak self] in
+            guard let stream = await self?.researchQueueStore?.subscribeChanges() else { return }
+            for await _ in stream {
+                if Task.isCancelled { break }
+                await self?.refreshResearchQueueSnapshot()
+            }
+        }
+    }
+
+    private func refreshResearchQueueSnapshot() async {
+        guard let store = researchQueueStore else {
+            researchQueueScopes = [:]
+            return
+        }
+        let snapshot = await store.snapshot()
+        researchQueueScopes = snapshot.entriesByScope
+    }
+
+    /// Sorted list of entries for the given scope, taken straight from the
+    /// published snapshot. SwiftUI views should call this rather than poking
+    /// the store directly, so updates stay on the main actor.
+    func researchQueueEntries(in scope: QueueScope) -> [ResearchQueueEntry] {
+        researchQueueScopes[scope.identifier] ?? []
+    }
+
+    var availableResearchQueueScopes: [QueueScope] {
+        var scopes: [QueueScope] = [.workspace]
+        if let projectID = currentProjectID {
+            scopes.append(.project(projectID))
+        }
+        return scopes
+    }
+
+    /// Append a paper to the chosen queue scope. Idempotent: silently
+    /// returns if the paper is already in that scope's queue.
+    func addPaperToResearchQueue(paperID: String, displayTitle: String, scope: QueueScope) {
+        guard let store = researchQueueStore else {
+            return
+        }
+        let now = Date()
+        let entry = ResearchQueueEntry(
+            id: "queue:\(scope.identifier):\(paperID)",
+            paperID: paperID,
+            externalKey: nil,
+            displayTitle: displayTitle,
+            scope: scope,
+            status: .queued,
+            source: .manual,
+            order: 0,
+            addedAt: now,
+            startedAt: nil,
+            finishedAt: nil,
+            lastTouchedAt: now,
+            noteSummary: nil,
+            sourceRefs: []
+        )
+        Task {
+            do {
+                try await store.append(entry)
+            } catch ResearchQueueStoreError.duplicateID {
+                // Already in queue — leave the existing row in place.
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    /// Append an external paper (DOI / arXiv / placeholder) without a
+    /// `paperID`. Used by graph or recommendation entry points before the
+    /// paper is imported into the library.
+    func addExternalPaperToResearchQueue(externalKey: String, displayTitle: String, scope: QueueScope, source: QueueSource = .manual, sourceRefs: [String] = []) {
+        guard let store = researchQueueStore else {
+            return
+        }
+        let now = Date()
+        let entry = ResearchQueueEntry(
+            id: "queue:\(scope.identifier):\(externalKey)",
+            paperID: nil,
+            externalKey: externalKey,
+            displayTitle: displayTitle,
+            scope: scope,
+            status: .queued,
+            source: source,
+            order: 0,
+            addedAt: now,
+            startedAt: nil,
+            finishedAt: nil,
+            lastTouchedAt: now,
+            noteSummary: nil,
+            sourceRefs: sourceRefs
+        )
+        Task {
+            do {
+                try await store.append(entry)
+            } catch ResearchQueueStoreError.duplicateID {
+                // Already in queue.
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    func updateResearchQueueEntryStatus(id: String, status: QueueStatus) {
+        guard let store = researchQueueStore else {
+            return
+        }
+        Task {
+            do {
+                try await store.updateStatus(id: id, status: status, at: nil)
+            } catch ResearchQueueStoreError.unknownID {
+                return
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    func removeResearchQueueEntry(id: String) {
+        guard let store = researchQueueStore else {
+            return
+        }
+        Task {
+            do {
+                try await store.remove(id: id)
+            } catch ResearchQueueStoreError.unknownID {
+                return
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    /// Move a row up or down by 1, or to the top (`offset == .min`) / bottom
+    /// (`offset == .max`).
+    func moveResearchQueueEntry(id: String, in scope: QueueScope, offset: Int) {
+        guard let store = researchQueueStore else {
+            return
+        }
+        Task {
+            let entries = await store.entries(in: scope)
+            guard !entries.isEmpty else { return }
+            guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+            var ordered = entries.map(\.id)
+            let target: Int
+            if offset == Int.min {
+                target = 0
+            } else if offset == Int.max {
+                target = ordered.count - 1
+            } else {
+                target = max(0, min(ordered.count - 1, index + offset))
+            }
+            guard target != index else { return }
+            ordered.remove(at: index)
+            ordered.insert(id, at: target)
+            do {
+                try await store.reorder(scope: scope, orderedIDs: ordered)
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    /// Forward the latest `papers` snapshot to the ingestor so it can run
+    /// the §4.10 `Paper.status` → queue entry transition rules. Diffing
+    /// happens inside the ingestor; we just hand it the prior snapshot.
+    private func notifyResearchQueueOfPapers(_ loadedPapers: [Paper]) {
+        guard let ingestor = researchQueueIngestor else {
+            // Cache the snapshot so the next setup pass has a baseline and
+            // does not flag the initial load as a transition burst.
+            previousPapersForQueueIngest = Dictionary(uniqueKeysWithValues: loadedPapers.map { ($0.id, $0) })
+            return
+        }
+        let previous = previousPapersForQueueIngest
+        previousPapersForQueueIngest = Dictionary(uniqueKeysWithValues: loadedPapers.map { ($0.id, $0) })
+
+        researchQueueIngestTask?.cancel()
+        researchQueueIngestTask = Task {
+            await ingestor.ingest(papers: loadedPapers, previous: previous)
+        }
+    }
+
+    /// Forward the latest `agentRunHistory` snapshot to the ingestor. The
+    /// ingestor itself de-duplicates by `(runID, callID)` via a persistent
+    /// cursor so calling this on every refresh is safe.
+    private func notifyResearchQueueOfAgentRuns(_ runs: [AgentRun]) {
+        guard let ingestor = researchQueueIngestor else {
+            return
+        }
+        let snapshot = runs
+        researchQueueAgentRunIngestTask?.cancel()
+        researchQueueAgentRunIngestTask = Task {
+            await ingestor.ingest(runs: snapshot)
+        }
+    }
+
     private func refreshAgentState(in workspace: ResearchWorkspace) async {
         do {
             let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
@@ -6852,6 +7265,7 @@ final class AppViewModel: ObservableObject {
             )
             agentToolDefinitions = await agentService.toolDefinitions()
             agentRunHistory = try await agentService.recentRuns(in: root, limit: 1000)
+            notifyResearchQueueOfAgentRuns(agentRunHistory)
             allAgentThreads = try await agentService.allThreads(in: root)
             applyAgentThreadFilterForCurrentScope()
             restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)

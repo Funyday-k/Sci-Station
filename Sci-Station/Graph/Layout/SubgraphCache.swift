@@ -105,7 +105,7 @@ public nonisolated struct GraphViewState: Hashable, Sendable {
 }
 
 /// Actions that can be performed on a graph node. Write actions require
-/// Permission Dock approval; agent actions are P47 placeholders.
+/// Permission Dock approval; agent actions route through AI Lab graph workflows.
 public nonisolated enum NodeAction: Hashable, Sendable {
     case openPaper(paperID: String)
     case openWikiPage(path: String)

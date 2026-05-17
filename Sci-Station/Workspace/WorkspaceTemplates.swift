@@ -679,13 +679,14 @@ public nonisolated enum WorkspaceModuleRegistry {
         "tasks",
         "calendar",
         "pdf-reader",
-        "ai-lab"
+        "ai-lab",
+        "citation-graph"
     ]
 
     public static let workflowRequirements: [String: Set<String>] = [
         "paper_reading": ["ai-lab", "paper-library", "pdf-reader"],
-        "related_work": ["ai-lab", "paper-library", "wiki"],
-        "gap_planning": ["ai-lab", "wiki", "tasks", "projects"],
+        "related_work": ["ai-lab", "paper-library", "wiki", "citation-graph"],
+        "gap_planning": ["ai-lab", "wiki", "tasks", "projects", "citation-graph"],
         "write_markdown_plan": ["wiki"],
         "write_wiki_markdown": ["wiki"],
         "project_planning": ["projects", "wiki"],
@@ -701,6 +702,7 @@ public nonisolated enum WorkspaceModuleRegistry {
         // P46 — graph browse UI placeholder workflow.
         "graph_ui_browse": ["citation-graph"],
         // P47 — graph-powered drafting workflows.
+        "graph_insight": ["citation-graph", "ai-lab"],
         "graph_insight_draft": ["citation-graph", "ai-lab"],
         // P47 calls out that research_queue_update needs both recommendation
         // and citation-graph because the queue is derived from graph metrics.
@@ -708,7 +710,10 @@ public nonisolated enum WorkspaceModuleRegistry {
         "outline_to_manuscript": ["writing", "ai-lab"],
         "claim_citation_check": ["writing", "paper-library", "ai-lab"],
         "definition_extraction": ["theory-notes", "paper-library"],
-        "theorem_dependency_map": ["theory-notes", "wiki"]
+        "theorem_dependency_map": ["theory-notes", "wiki"],
+        // P48 — manual queue curation workflow lives entirely under paper-library.
+        // AI-driven queue ingest still runs through `research_queue_update` above.
+        "reading_queue_curate": ["paper-library"]
     ]
 
     public static let builtInModules: [WorkspaceModule] = [
@@ -728,11 +733,11 @@ public nonisolated enum WorkspaceModuleRegistry {
             title: "Paper Library",
             directories: [directory("library/papers", required: true), directory("library/refs", required: true)],
             routes: [route("library", "/library")],
-            projectTabs: [tab("papers", "Papers")],
-            workflows: ["paper_reading", "related_work"],
-            artifactKinds: ["paper_reading_note", "related_work"],
+            projectTabs: [tab("papers", "Papers"), tab("queue", "Queue")],
+            workflows: ["paper_reading", "related_work", "reading_queue_curate"],
+            artifactKinds: ["paper_reading_note", "related_work", "reading_queue_entry"],
             approvalScopes: ["artifact_save", "wiki_write"],
-            writePaths: ["library/papers/", "library/refs/"]
+            writePaths: ["library/papers/", "library/refs/", "library/queue.yaml", "projects/*/queue.yaml"]
         ),
         module(
             id: "wiki",
@@ -854,8 +859,8 @@ public nonisolated enum WorkspaceModuleRegistry {
             routes: [route("graph", "/graph")],
             projectTabs: [tab("graph", "Graph")],
             // P44 introduces graph_indexer_maintenance. P46 introduces
-            // graph_ui_browse. P47 introduces graph_insight_draft.
-            workflows: ["citation_graph_review", "graph_indexer_maintenance", "graph_ui_browse"],
+            // graph_ui_browse. P47 introduces graph_insight.
+            workflows: ["citation_graph_review", "graph_indexer_maintenance", "graph_ui_browse", "graph_insight"],
             // Graph node/edge are produced by P44; reading path / bridge /
             // stale artifacts are produced by P47 drafting workflows.
             artifactKinds: [
@@ -968,13 +973,14 @@ public nonisolated enum WorkspaceModuleRegistry {
     }
 
     public static func availableWorkflows(in configuration: WorkspaceModuleConfiguration) -> [String] {
-        let enabledIDs = configuration.enabledModuleIDs
-        let declaredWorkflows = availableModules(in: configuration).flatMap(\.workflows)
+        let modules = availableModules(in: configuration)
+        let availableIDs = Set(modules.map(\.id))
+        let declaredWorkflows = modules.flatMap(\.workflows)
         let filteredWorkflows = declaredWorkflows.filter { workflowID in
             guard let requirements = workflowRequirements[workflowID] else {
                 return true
             }
-            return requirements.isSubset(of: enabledIDs)
+            return requirements.isSubset(of: availableIDs)
         }
         return Array(Set(filteredWorkflows)).sorted()
     }

@@ -52,8 +52,10 @@ Complete one full task-book-driven iteration. A complete iteration starts by rea
    - Record any skipped validation with the reason.
 
 7. Write the next task book before ending the iteration.
-   - Create or update the next task-book document in the repository's existing documentation style.
-   - Include a concise summary of the completed round, the verified state, remaining risks, and proposed next tasks.
+   - Check if a next task book already exists in the repository (e.g. the next numbered `DOC/Proposal*.md`).
+   - If a next task book exists, update it with a summary of the completed round, verified state, remaining risks, and any adjustments needed based on what was learned during implementation.
+   - If no next task book exists, ask the user whether to create one or defer.
+   - Do NOT create a `DOC/Next-Step-Task-Book.md` file. The canonical location for task books is `DOC/Proposal<N>.md`.
    - Include a `Question` section with actionable choices or prompts for the user. These Questions must guide the next round's broad direction and important details.
 
 8. Finalize the round.

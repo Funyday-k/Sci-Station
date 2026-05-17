@@ -36,7 +36,7 @@ public nonisolated enum ProjectSpaceTabsBuilder {
     public static let overviewTabID = "overview"
 
     public static let defaultOrder: [String] = [
-        "overview", "papers", "wiki", "tasks", "calendar", "ai-drafts", "graph",
+        "overview", "papers", "queue", "wiki", "tasks", "calendar", "ai-drafts", "graph",
         "code", "data", "experiments", "recommendations", "materials", "pdf-reader", "writing", "theory"
     ]
 

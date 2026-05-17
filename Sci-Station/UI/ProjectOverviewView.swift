@@ -45,6 +45,9 @@ struct ProjectOverviewView: View {
         .onChange(of: appModel.agentCurrentRun) { _, _ in
             Task { await reloadDashboard(invalidating: true) }
         }
+        .onChange(of: appModel.researchQueueScopes) { _, _ in
+            Task { await reloadDashboard(invalidating: true) }
+        }
     }
 
     private var header: some View {
@@ -515,7 +518,8 @@ struct ProjectOverviewView: View {
                 todos: appModel.todos,
                 markdownDocuments: appModel.markdownDocuments,
                 agentRuns: agentRunsForAggregation,
-                unsupportedClaims: unsupportedClaimsForAggregation
+                unsupportedClaims: unsupportedClaimsForAggregation,
+                queueEntries: Array(appModel.researchQueueScopes.values.joined())
             )
             dashboardSnapshot = try await dashboardAggregator.snapshot(input: input)
             dashboardErrorMessage = nil

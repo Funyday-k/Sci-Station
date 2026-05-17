@@ -11,6 +11,22 @@ struct HomeView: View {
     @State private var isLoading = false
 
     var body: some View {
+        contentWithPrimaryWatchers
+            .onChange(of: appModel.agentSessionEvents) { _, _ in
+                Task { await reloadHome(invalidating: true, reason: "agent_event_change") }
+            }
+            .onChange(of: appModel.agentRetrievalIndexStatus) { _, _ in
+                Task { await reloadHome(invalidating: true, reason: "retrieval_change") }
+            }
+            .onChange(of: appModel.workspaceModuleConfiguration) { _, _ in
+                Task { await reloadHome(invalidating: true, reason: "module_config_change") }
+            }
+            .onChange(of: appModel.researchQueueScopes) { _, _ in
+                Task { await reloadHome(invalidating: true, reason: "queue_change") }
+            }
+    }
+
+    private var contentWithPrimaryWatchers: some View {
         content
             .task(id: workspace.id) {
                 await reloadHome(invalidating: false, reason: "appear")
@@ -32,15 +48,6 @@ struct HomeView: View {
             }
             .onChange(of: appModel.agentCurrentRun) { _, _ in
                 Task { await reloadHome(invalidating: true, reason: "draft_change") }
-            }
-            .onChange(of: appModel.agentSessionEvents) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "agent_event_change") }
-            }
-            .onChange(of: appModel.agentRetrievalIndexStatus) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "retrieval_change") }
-            }
-            .onChange(of: appModel.workspaceModuleConfiguration) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "module_config_change") }
             }
     }
 
@@ -185,7 +192,8 @@ struct HomeView: View {
             agentRuns: agentRunsForAggregation,
             sessionEvents: appModel.agentSessionEvents,
             retrievalIndexStatus: appModel.agentRetrievalIndexStatus,
-            moduleConfiguration: appModel.workspaceModuleConfiguration
+            moduleConfiguration: appModel.workspaceModuleConfiguration,
+            queueEntries: Array(appModel.researchQueueScopes.values.joined())
         )
     }
 

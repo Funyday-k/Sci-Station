@@ -65,6 +65,8 @@ let package = Package(
                 "Tags",
                 "Tasks",
                 "Calendar",
+                "Queue",
+                "Recommendation",
                 "Import",
                 "MetadataProviders",
                 "Localization",

@@ -6,19 +6,22 @@ public nonisolated struct AgentToolContext: Sendable {
     public var researchRoot: ResearchRoot?
     public var currentProjectID: ResearchProject.ID?
     public var allowedPaperIDs: Set<String>?
+    public var debugEventLogger: AppDebugEventLogger?
 
     public nonisolated init(
         workspace: ResearchWorkspace,
         selectedPaperID: String? = nil,
         researchRoot: ResearchRoot? = nil,
         currentProjectID: ResearchProject.ID? = nil,
-        allowedPaperIDs: Set<String>? = nil
+        allowedPaperIDs: Set<String>? = nil,
+        debugEventLogger: AppDebugEventLogger? = nil
     ) {
         self.workspace = workspace
         self.selectedPaperID = selectedPaperID
         self.researchRoot = researchRoot
         self.currentProjectID = currentProjectID
         self.allowedPaperIDs = allowedPaperIDs
+        self.debugEventLogger = debugEventLogger
     }
 }
 

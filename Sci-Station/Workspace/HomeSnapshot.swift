@@ -60,20 +60,43 @@ public nonisolated struct HomeModuleAvailability: Codable, Hashable, Sendable {
 
 public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
     public var dueTodos: [TodoSummary]
+    /// P42 heuristic list of recently-prioritised papers, kept as a fallback
+    /// when the P48 queue is empty so the Today panel never goes blank.
     public var readingQueue: [PaperSummary]
     public var upcomingDeadlines: [DeadlineSummary]
     public var pendingDrafts: [DraftSummary]
+    /// P48 真实 queue 投影。非空时 UI 优先渲染此列；为空时回退到 `readingQueue`。
+    public var readingQueueEntries: [ReadingQueueEntrySummary]
 
     public init(
         dueTodos: [TodoSummary] = [],
         readingQueue: [PaperSummary] = [],
         upcomingDeadlines: [DeadlineSummary] = [],
-        pendingDrafts: [DraftSummary] = []
+        pendingDrafts: [DraftSummary] = [],
+        readingQueueEntries: [ReadingQueueEntrySummary] = []
     ) {
         self.dueTodos = dueTodos
         self.readingQueue = readingQueue
         self.upcomingDeadlines = upcomingDeadlines
         self.pendingDrafts = pendingDrafts
+        self.readingQueueEntries = readingQueueEntries
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case dueTodos
+        case readingQueue
+        case upcomingDeadlines
+        case pendingDrafts
+        case readingQueueEntries
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.dueTodos = try container.decodeIfPresent([TodoSummary].self, forKey: .dueTodos) ?? []
+        self.readingQueue = try container.decodeIfPresent([PaperSummary].self, forKey: .readingQueue) ?? []
+        self.upcomingDeadlines = try container.decodeIfPresent([DeadlineSummary].self, forKey: .upcomingDeadlines) ?? []
+        self.pendingDrafts = try container.decodeIfPresent([DraftSummary].self, forKey: .pendingDrafts) ?? []
+        self.readingQueueEntries = try container.decodeIfPresent([ReadingQueueEntrySummary].self, forKey: .readingQueueEntries) ?? []
     }
 }
 
@@ -360,10 +383,15 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
     public var openGaps: [GapSummary]
     public var recentArtifacts: [ArtifactSummary]
     public var nextDeadline: DeadlineSummary?
+    /// Persisted from `projects/<id>/wiki/research_plan.md` (P50 surfaces it).
+    /// Kept untouched so the existing "Current Reading Plan" card still works.
     public var currentReadingPlan: String?
     public var openTodoCount: Int
     public var builtAt: Date
     public var generationDuration: TimeInterval
+    /// P48 — Top 3 active queue entries scoped to this project (project queue
+    /// plus the workspace-queue rows whose paper is linked to the project).
+    public var readingQueuePreview: [ReadingQueueEntrySummary]
 
     public init(
         projectID: String,
@@ -377,7 +405,8 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         currentReadingPlan: String?,
         openTodoCount: Int,
         builtAt: Date,
-        generationDuration: TimeInterval
+        generationDuration: TimeInterval,
+        readingQueuePreview: [ReadingQueueEntrySummary] = []
     ) {
         self.projectID = projectID
         self.projectTitle = projectTitle
@@ -391,6 +420,40 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.openTodoCount = openTodoCount
         self.builtAt = builtAt
         self.generationDuration = generationDuration
+        self.readingQueuePreview = readingQueuePreview
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectID
+        case projectTitle
+        case stage
+        case stageRule
+        case corePapers
+        case openGaps
+        case recentArtifacts
+        case nextDeadline
+        case currentReadingPlan
+        case openTodoCount
+        case builtAt
+        case generationDuration
+        case readingQueuePreview
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.projectID = try container.decode(String.self, forKey: .projectID)
+        self.projectTitle = try container.decode(String.self, forKey: .projectTitle)
+        self.stage = try container.decode(ProjectStage.self, forKey: .stage)
+        self.stageRule = try container.decode(String.self, forKey: .stageRule)
+        self.corePapers = try container.decodeIfPresent([PaperSummary].self, forKey: .corePapers) ?? []
+        self.openGaps = try container.decodeIfPresent([GapSummary].self, forKey: .openGaps) ?? []
+        self.recentArtifacts = try container.decodeIfPresent([ArtifactSummary].self, forKey: .recentArtifacts) ?? []
+        self.nextDeadline = try container.decodeIfPresent(DeadlineSummary.self, forKey: .nextDeadline)
+        self.currentReadingPlan = try container.decodeIfPresent(String.self, forKey: .currentReadingPlan)
+        self.openTodoCount = try container.decodeIfPresent(Int.self, forKey: .openTodoCount) ?? 0
+        self.builtAt = try container.decode(Date.self, forKey: .builtAt)
+        self.generationDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .generationDuration) ?? 0
+        self.readingQueuePreview = try container.decodeIfPresent([ReadingQueueEntrySummary].self, forKey: .readingQueuePreview) ?? []
     }
 
     public var debugPayload: JSONValue {
@@ -398,7 +461,8 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
             "project_id": .string(projectID),
             "duration_ms": .number(String(Int((generationDuration * 1000).rounded()))),
             "stage": .string(stage.rawValue),
-            "recent_artifacts_count": .number(String(recentArtifacts.count))
+            "recent_artifacts_count": .number(String(recentArtifacts.count)),
+            "reading_queue_preview_count": .number(String(readingQueuePreview.count))
         ])
     }
 }

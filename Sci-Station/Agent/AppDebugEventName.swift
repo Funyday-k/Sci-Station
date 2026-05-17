@@ -40,6 +40,11 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case agentRunCompleted = "agent.run_completed"
     case agentRunFailed = "agent.run_failed"
     case agentToolGraphQuery = "agent.tool.graph_query"
+    case agentToolGraphResultSize = "agent.tool.graph_result_size"
+    case agentToolGraphError = "agent.tool.graph_error"
+    case agentToolGraphInsightDraft = "agent.tool.graph_insight_draft"
+    case agentIntentGraphRouted = "agent.intent.graph_routed"
+    case agentToolGraphBlockedByModule = "agent.tool.graph_blocked_by_module"
 
     // MARK: - Graph (P44–P47)
     case graphIndexerRebuildStarted = "graph.indexer.rebuild_started"

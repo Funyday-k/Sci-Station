@@ -325,6 +325,31 @@ public actor AgentLoopRunner {
             return execution.result
         }
 
+        if let graphToolName = intent.graphToolName {
+            guard let graphArgumentsJSON = router.graphArgumentsJSON(
+                for: intent,
+                currentProjectID: toolContext.currentProjectID,
+                selectedPaperID: toolContext.selectedPaperID
+            ) else {
+                return PaperPreflightResult(messages: initialMessages, steps: [], toolResults: [])
+            }
+            if let logger = toolContext.debugEventLogger {
+                try? await logger.append(AppDebugEvent(
+                    event: AppDebugEventName.agentIntentGraphRouted.rawValue,
+                    payload: .object([
+                        "intent": .string(intent.kind.rawValue),
+                        "tool": .string(graphToolName)
+                    ])
+                ), in: root)
+            }
+            _ = try await runPreflightCall(AgentToolCall(
+                id: "preflight-graph-\(graphToolName)",
+                toolName: graphToolName,
+                argumentsJSON: graphArgumentsJSON
+            ))
+            return try preflightResult()
+        }
+
         if availableToolNames.contains("list_papers"), intent.kind == .paperListing || intent.ordinalIndex != nil || intent.requiresPaperEvidence {
             let listResult = try await runPreflightCall(AgentToolCall(
                 id: "preflight-list-papers",

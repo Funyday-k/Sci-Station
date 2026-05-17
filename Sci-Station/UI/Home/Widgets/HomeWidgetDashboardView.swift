@@ -1,5 +1,6 @@
+import AppKit
+import Combine
 import SwiftUI
-import UniformTypeIdentifiers
 
 // MARK: - Grid constants
 
@@ -13,12 +14,68 @@ private enum HomeWidgetGridConstants {
     static let outerPadding: CGFloat = 0
 }
 
+// MARK: - Drag controller
+
+/// Coordinates the live, push-aside drag UX in `HomeWidgetDashboardView`.
+///
+/// As the user drags a widget in edit mode, the controller tracks the source
+/// item, the current pointer translation in grid coordinates, and a tentative
+/// "preview" layout where the source has been logically inserted before
+/// whichever widget the pointer is currently over. Sibling widgets render
+/// from the preview layout, so they animate out of the way to make room —
+/// matching the iPadOS/macOS Home Screen rearrange feel that the user
+/// reported missing on 2026-05-17.
+@MainActor
+private final class HomeWidgetDragController: ObservableObject {
+    @Published var draggedWidgetID: String?
+    @Published var translation: CGSize = .zero
+    @Published var previewLayout: HomeWidgetLayout?
+    /// Snapshot of the layout at drag start. The dragged widget's render
+    /// position is anchored to its `baseLayout` cell + translation, while
+    /// siblings flow according to `previewLayout`. Without this anchor the
+    /// dragged card's `.offset` would compose the gesture translation on top
+    /// of an already-shifted preview cell, sending the card flying past the
+    /// cursor and making the drop hit-test miss every target — the symptom
+    /// the user reported as "snaps back to original spot".
+    @Published var baseLayout: HomeWidgetLayout?
+
+    var isDragging: Bool { draggedWidgetID != nil }
+
+    func begin(widgetID: String, baseLayout: HomeWidgetLayout) {
+        draggedWidgetID = widgetID
+        translation = .zero
+        previewLayout = baseLayout
+        self.baseLayout = baseLayout
+    }
+
+    func update(translation: CGSize, previewLayout: HomeWidgetLayout) {
+        self.translation = translation
+        self.previewLayout = previewLayout
+    }
+
+    func end() {
+        draggedWidgetID = nil
+        translation = .zero
+        previewLayout = nil
+        baseLayout = nil
+    }
+
+    /// Look up an item in the captured `baseLayout` (i.e. its position at
+    /// drag start, BEFORE any preview reorder). Returns nil between drags.
+    func baseItem(_ widgetID: String) -> HomeWidgetLayoutItem? {
+        baseLayout?.items.first { $0.widgetID == widgetID }
+    }
+}
+
 // MARK: - Dashboard
 
 struct HomeWidgetDashboardView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @StateObject private var dragController = HomeWidgetDragController()
 
     let snapshot: HomeSnapshot
+
+    private static let gridCoordinateSpace: String = "home-widget-grid"
 
     private var columns: Int {
         max(1, appModel.responsiveShellModel.homeWidgetColumns)
@@ -32,8 +89,14 @@ struct HomeWidgetDashboardView: View {
         appModel.workspacePreferences.homeWidgetLayout.normalized(descriptors: availableDescriptors, columns: columns)
     }
 
+    /// Layout used for rendering — during a drag this reflects the preview
+    /// reorder so siblings animate out of the way.
+    private var renderLayout: HomeWidgetLayout {
+        dragController.previewLayout ?? normalizedLayout
+    }
+
     private var visibleItems: [HomeWidgetLayoutItem] {
-        normalizedLayout.visibleItems(descriptors: availableDescriptors, columns: columns)
+        renderLayout.visibleItems(descriptors: availableDescriptors, columns: columns)
     }
 
     private var totalRows: Int {
@@ -70,6 +133,12 @@ struct HomeWidgetDashboardView: View {
         .animation(.smooth(duration: 0.28), value: appModel.isShowingHomeWidgetGallery)
         .animation(.smooth(duration: 0.28), value: appModel.isEditingHomeLayout)
         .animation(.smooth(duration: 0.32), value: visibleItems)
+        .onChange(of: appModel.isEditingHomeLayout) { _, isEditing in
+            // Cancel any in-flight drag if the user exits edit mode mid-drag.
+            if !isEditing {
+                dragController.end()
+            }
+        }
     }
 
     private var grid: some View {
@@ -86,16 +155,42 @@ struct HomeWidgetDashboardView: View {
 
                     ForEach(visibleItems) { item in
                         if let descriptor = HomeWidgetRegistry.descriptor(id: item.widgetID) {
-                            let metrics = cellMetrics(for: item, columnWidth: columnWidth, cols: cols)
+                            let isDragging = dragController.draggedWidgetID == item.widgetID
+                            // Anchor the dragged card to its drag-start cell
+                            // so `.offset(metrics + translation)` lands on the
+                            // cursor exactly. Siblings continue to flow from
+                            // the preview layout so they animate out of the
+                            // way.
+                            let positionItem: HomeWidgetLayoutItem = {
+                                if isDragging, let base = dragController.baseItem(item.widgetID) {
+                                    return base
+                                }
+                                return item
+                            }()
+                            let metrics = cellMetrics(for: positionItem, columnWidth: columnWidth, cols: cols)
                             HomeWidgetCard(
                                 item: item,
                                 descriptor: descriptor,
                                 columns: cols,
                                 cellSize: CGSize(width: metrics.width, height: metrics.height),
-                                snapshot: snapshot
+                                snapshot: snapshot,
+                                isBeingDragged: isDragging,
+                                onDragBegan: {
+                                    beginDrag(item: item, cols: cols)
+                                },
+                                onDragChanged: { value in
+                                    updateDrag(value: value, columnWidth: columnWidth, cols: cols)
+                                },
+                                onDragEnded: { value in
+                                    endDrag(value: value, columnWidth: columnWidth, cols: cols)
+                                }
                             )
                             .frame(width: metrics.width, height: metrics.height)
-                            .offset(x: metrics.x, y: metrics.y)
+                            .offset(
+                                x: metrics.x + (isDragging ? dragController.translation.width : 0),
+                                y: metrics.y + (isDragging ? dragController.translation.height : 0)
+                            )
+                            .zIndex(isDragging ? 10 : 0)
                             .transition(.scale(scale: 0.96).combined(with: .opacity))
                         }
                     }
@@ -104,6 +199,105 @@ struct HomeWidgetDashboardView: View {
             }
         }
         .frame(height: gridHeight)
+        .coordinateSpace(name: Self.gridCoordinateSpace)
+    }
+
+    /// Capture the current layout as the drag baseline so siblings stay where
+    /// they are at gesture start.
+    private func beginDrag(item: HomeWidgetLayoutItem, cols: Int) {
+        guard appModel.isEditingHomeLayout else { return }
+        dragController.begin(widgetID: item.widgetID, baseLayout: normalizedLayout)
+    }
+
+    /// On every gesture tick, hit-test the cursor against the un-shifted
+    /// `normalizedLayout` and rebuild a preview layout that inserts the
+    /// source before that cell's widget. Siblings then animate to their
+    /// new slots.
+    ///
+    /// Uses `value.location` (already in the named "home-widget-grid"
+    /// coordinate space) directly instead of recomputing centre from cell
+    /// metrics + translation. The metrics-based path is unstable while a
+    /// preview is in flight because the dragged card's cell is itself
+    /// moving in the preview layout.
+    private func updateDrag(
+        value: DragGesture.Value,
+        columnWidth: CGFloat,
+        cols: Int
+    ) {
+        guard let sourceID = dragController.draggedWidgetID else { return }
+        let preview = previewLayout(
+            sourceID: sourceID,
+            cursor: value.location,
+            columnWidth: columnWidth,
+            cols: cols
+        )
+        dragController.update(translation: value.translation, previewLayout: preview)
+    }
+
+    /// Commit the preview layout if the drop landed on a different cell;
+    /// otherwise just clear the drag state. Uses the same `value.location`
+    /// hit-test as `updateDrag` so the on-release commit matches whatever
+    /// preview the user was seeing on the last frame, and uses `onto:` so
+    /// forward and backward drags BOTH swap into the target's slot.
+    private func endDrag(
+        value: DragGesture.Value,
+        columnWidth: CGFloat,
+        cols: Int
+    ) {
+        defer { dragController.end() }
+        guard let sourceID = dragController.draggedWidgetID else { return }
+        guard let targetID = widgetID(at: value.location, columnWidth: columnWidth, cols: cols),
+              targetID != sourceID else {
+            return
+        }
+        appModel.moveHomeWidget(sourceID, onto: targetID, columns: cols)
+    }
+
+    /// Pure helper used by `updateDrag` per-tick. Returns a layout copy with
+    /// `sourceID` placed at the slot currently held by whichever widget lies
+    /// under `cursor` (i.e. drop-target semantics). If the cursor is outside
+    /// the grid or already over the source's own cell, returns the unchanged
+    /// `normalizedLayout` so siblings stop animating (calmer feel near the
+    /// drag origin).
+    private func previewLayout(
+        sourceID: String,
+        cursor: CGPoint,
+        columnWidth: CGFloat,
+        cols: Int
+    ) -> HomeWidgetLayout {
+        var preview = normalizedLayout
+        if let targetID = widgetID(at: cursor, columnWidth: columnWidth, cols: cols),
+           targetID != sourceID {
+            preview.moveWidget(
+                sourceID,
+                onto: targetID,
+                descriptors: availableDescriptors,
+                columns: cols
+            )
+        }
+        return preview
+    }
+
+    /// Look up the widget whose cell currently contains the given grid point.
+    /// Returns nil for empty grid cells / out-of-bounds points.
+    private func widgetID(at point: CGPoint, columnWidth: CGFloat, cols: Int) -> String? {
+        guard point.x >= 0, point.y >= 0 else { return nil }
+        let pitchX = columnWidth + HomeWidgetGridConstants.spacing
+        let pitchY = HomeWidgetGridConstants.rowHeight + HomeWidgetGridConstants.spacing
+        let col = min(cols - 1, max(0, Int(point.x / pitchX)))
+        let row = max(0, Int(point.y / pitchY))
+        // Use the un-previewed normalized layout for hit testing so the cell
+        // we report is stable as the preview animates.
+        let candidates = normalizedLayout.visibleItems(descriptors: availableDescriptors, columns: cols)
+        for item in candidates {
+            let cs = min(cols, max(1, item.size.columnSpan))
+            let rs = max(1, item.size.rowSpan)
+            if col >= item.column && col < item.column + cs
+                && row >= item.row && row < item.row + rs {
+                return item.widgetID
+            }
+        }
+        return nil
     }
 
     /// Faint grid lines that only appear in edit mode so users understand it's a tile grid.
@@ -197,7 +391,6 @@ private struct HomeWidgetCard: View {
     @EnvironmentObject private var appModel: AppViewModel
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
-    @State private var isDropTarget = false
 
     let item: HomeWidgetLayoutItem
     let descriptor: HomeWidgetDescriptor
@@ -205,12 +398,23 @@ private struct HomeWidgetCard: View {
     let cellSize: CGSize
     let snapshot: HomeSnapshot
 
+    /// True while this widget is the one the user is dragging; the parent
+    /// dashboard renders the dragged card at the pointer location and
+    /// up-shifts its z-index above sibling cards.
+    let isBeingDragged: Bool
+    let onDragBegan: () -> Void
+    let onDragChanged: (DragGesture.Value) -> Void
+    let onDragEnded: (DragGesture.Value) -> Void
+
     private var effectiveSize: HomeWidgetSize {
         // Clamp visual size to available columns so a "wide" (4×4) widget in a 2-col
         // layout renders its "medium" variant instead of squishing 4-col content.
         let cs = min(columns, max(1, item.size.columnSpan))
         switch cs {
-        case 1: return .small
+        case 1:
+            // Preserve the .tall (1×2) variant — it has a vertical content
+            // layout that should not be collapsed to the .small renderer.
+            return item.size == .tall ? .tall : .small
         case 2: return .medium
         case 3: return .large
         default: return item.size
@@ -222,21 +426,21 @@ private struct HomeWidgetCard: View {
     }
 
     private var tintOpacity: Double {
-        if isDropTarget { return 0.08 }
+        if isBeingDragged { return 0.10 }
         if appModel.isEditingHomeLayout { return 0.045 }
         if isHovering { return 0.035 }
         return 0.025
     }
 
     private var borderOpacity: Double {
-        if isDropTarget { return 0.55 }
+        if isBeingDragged { return 0.65 }
         if appModel.isEditingHomeLayout { return 0.25 }
         return 0.0
     }
 
     private var cardCorner: CGFloat {
         switch effectiveSize {
-        case .small: return 18
+        case .small, .tall: return 18
         case .medium: return 22
         case .large, .wide: return 26
         }
@@ -244,7 +448,7 @@ private struct HomeWidgetCard: View {
 
     private var cardPadding: CGFloat {
         switch effectiveSize {
-        case .small: return 12
+        case .small, .tall: return 12
         case .medium: return 16
         case .large: return 18
         case .wide: return 20
@@ -261,6 +465,10 @@ private struct HomeWidgetCard: View {
                 snapshot: snapshot
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // Suppress inner buttons during edit mode so the entire card can
+            // initiate the DragGesture without competing inner button taps.
+            .allowsHitTesting(!appModel.isEditingHomeLayout)
+            .opacity(appModel.isEditingHomeLayout ? 0.85 : 1.0)
         }
         .padding(cardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -285,27 +493,69 @@ private struct HomeWidgetCard: View {
             RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
                 .stroke(accent.opacity(borderOpacity), lineWidth: 1.2)
         )
+        .overlay(alignment: .topTrailing) {
+            // Visible drag affordance + grabbing cursor only while editing.
+            if appModel.isEditingHomeLayout {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent.opacity(0.85))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        accent.opacity(0.10),
+                        in: Capsule()
+                    )
+                    .padding(8)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: cardCorner, style: .continuous))
-        .shadow(color: .black.opacity(isHovering ? 0.07 : 0.04), radius: isHovering ? 12 : 8, x: 0, y: isHovering ? 6 : 4)
+        .shadow(
+            color: .black.opacity(isBeingDragged ? 0.18 : (isHovering ? 0.07 : 0.04)),
+            radius: isBeingDragged ? 18 : (isHovering ? 12 : 8),
+            x: 0,
+            y: isBeingDragged ? 10 : (isHovering ? 6 : 4)
+        )
+        .scaleEffect(isBeingDragged ? 1.03 : 1.0)
         .animation(.smooth(duration: 0.22), value: isHovering)
-        .animation(.smooth(duration: 0.18), value: isDropTarget)
+        .animation(.smooth(duration: 0.18), value: isBeingDragged)
         .onHover { hovering in
             isHovering = hovering
+            updateCursor(hovering: hovering)
         }
-        // NSItemProvider-based drag is the most reliable on macOS.
-        // Only active in edit mode so accidental drags can't happen during normal use.
-        .draggableIf(appModel.isEditingHomeLayout, widgetID: item.widgetID, descriptor: descriptor, accent: accent, appModel: appModel)
-        .onDrop(of: [.plainText, .utf8PlainText], isTargeted: $isDropTarget) { providers in
-            handleDrop(providers: providers)
-        }
+        // Custom DragGesture is more reliable than `.onDrag` for SwiftUI views
+        // inside a glass-effect ZStack on macOS, and gives us per-frame callbacks
+        // so the parent can recompute the live "push aside" preview layout.
+        .modifier(EditDragGestureModifier(
+            enabled: appModel.isEditingHomeLayout,
+            isBeingDragged: isBeingDragged,
+            onBegan: onDragBegan,
+            onChanged: onDragChanged,
+            onEnded: onDragEnded
+        ))
         .contextMenu {
             cardContextMenu
+        }
+    }
+
+    private func updateCursor(hovering: Bool) {
+        // Only flip the cursor while editing; outside edit mode the cards behave
+        // like normal interactive cards, so the system pointer is correct.
+        guard appModel.isEditingHomeLayout else {
+            return
+        }
+        if hovering {
+            NSCursor.openHand.push()
+        } else {
+            NSCursor.pop()
         }
     }
 
     private var spacingForSize: CGFloat {
         switch effectiveSize {
         case .small: return 8
+        case .tall: return 10
         case .medium: return 12
         case .large: return 14
         case .wide: return 16
@@ -378,7 +628,7 @@ private struct HomeWidgetCard: View {
 
     private var headerFont: Font {
         switch effectiveSize {
-        case .small: return .caption.weight(.semibold)
+        case .small, .tall: return .caption.weight(.semibold)
         case .medium: return .headline
         case .large: return .title3.weight(.semibold)
         case .wide: return .title2.weight(.semibold)
@@ -431,70 +681,46 @@ private struct HomeWidgetCard: View {
     private func sizeIcon(_ size: HomeWidgetSize) -> String {
         switch size {
         case .small: return "square"
+        case .tall: return "rectangle.portrait"
         case .medium: return "square.grid.2x2"
         case .large: return "square.grid.3x3"
         case .wide: return "square.grid.4x3.fill"
         }
     }
 
-    @MainActor
-    private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        let targetID = item.widgetID
-        let targetColumns = columns
-        for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
-            _ = provider.loadObject(ofClass: NSString.self) { reading, _ in
-                guard let sourceID = (reading as? NSString) as String? else { return }
-                Task { @MainActor in
-                    guard sourceID != targetID else { return }
-                    appModel.moveHomeWidget(sourceID, before: targetID, columns: targetColumns)
-                }
-            }
-            return true
-        }
-        return false
-    }
 }
 
-// MARK: - Conditional draggable helper
+// MARK: - Conditional DragGesture modifier
 
-private extension View {
-    @ViewBuilder
-    func draggableIf(_ condition: Bool, widgetID: String, descriptor: HomeWidgetDescriptor, accent: Color, appModel: AppViewModel) -> some View {
-        if condition {
-            self.onDrag {
-                let provider = NSItemProvider(object: widgetID as NSString)
-                provider.suggestedName = appModel.t(descriptor.titleKey)
-                return provider
-            } preview: {
-                HomeWidgetDragPreview(descriptor: descriptor, accent: accent, appModel: appModel)
-            }
+/// Attaches an edit-mode `DragGesture` to a widget card. The gesture only
+/// installs while `enabled` is true so non-edit-mode taps reach the inner
+/// content buttons unimpeded.
+///
+/// `coordinateSpace: .named("home-widget-grid")` requires the parent
+/// dashboard's grid to declare `.coordinateSpace(name: ...)`; the parent
+/// uses the per-tick translation to recompute a live preview layout.
+private struct EditDragGestureModifier: ViewModifier {
+    let enabled: Bool
+    let isBeingDragged: Bool
+    let onBegan: () -> Void
+    let onChanged: (DragGesture.Value) -> Void
+    let onEnded: (DragGesture.Value) -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.gesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .named("home-widget-grid"))
+                    .onChanged { value in
+                        if !isBeingDragged {
+                            onBegan()
+                        }
+                        onChanged(value)
+                    }
+                    .onEnded(onEnded)
+            )
         } else {
-            self
+            content
         }
-    }
-}
-
-private struct HomeWidgetDragPreview: View {
-    let descriptor: HomeWidgetDescriptor
-    let accent: Color
-    let appModel: AppViewModel
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: descriptor.systemImage)
-                .foregroundStyle(accent)
-            Text(appModel.t(descriptor.titleKey))
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.07)), in: Capsule())
-        .overlay(
-            Capsule().stroke(accent.opacity(0.30), lineWidth: 0.8)
-        )
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
-        .frame(width: 220)
     }
 }
 
@@ -694,6 +920,27 @@ private struct TodayWidgetContent: View {
                 systemImage: "checklist",
                 action: { appModel.selectGlobalTodos() }
             )
+        case .tall:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetTallCount(
+                    count: snapshot.today.dueTodos.count,
+                    caption: appModel.t(.routeTasks),
+                    tint: .orange,
+                    systemImage: "checklist"
+                )
+                if snapshot.today.dueTodos.isEmpty {
+                    Text(appModel.t(.homeReadingPlanEmpty))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(snapshot.today.dueTodos.prefix(3)) { todo in
+                        HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                            appModel.selectGlobalTodos()
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
         case .medium:
             VStack(alignment: .leading, spacing: 10) {
                 HomeWidgetMetricStrip(metrics: todayMetrics(maxCount: 2))
@@ -775,6 +1022,16 @@ private struct ActiveProjectsWidgetContent: View {
                 systemImage: "folder",
                 action: { appModel.selectSection(.projects) }
             )
+        case .tall:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetTallCount(
+                    count: projects.count,
+                    caption: appModel.t(.routeProjects),
+                    tint: .accentColor,
+                    systemImage: "folder"
+                )
+                projectsList(limit: 4)
+            }
         case .medium:
             projectsList(limit: 3)
         case .large:
@@ -846,6 +1103,27 @@ private struct AIReviewWidgetContent: View {
                 systemImage: "checkmark.seal",
                 action: { appModel.selectSection(appModel.isWorkspaceSectionAvailable(.inbox) ? .inbox : .llmLab) }
             )
+        case .tall:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetTallCount(
+                    count: aiReview.needsApproval.count,
+                    caption: appModel.localized("待审核", "Approval"),
+                    tint: .purple,
+                    systemImage: "checkmark.seal"
+                )
+                if aiReview.needsApproval.isEmpty {
+                    Text(appModel.t(.homeReadingPlanEmpty))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(aiReview.needsApproval.prefix(3)) { draft in
+                        HomeWidgetTextRow(title: draft.title, detail: draft.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "doc.badge.clock") {
+                            appModel.selectSection(appModel.isWorkspaceSectionAvailable(.inbox) ? .inbox : .llmLab)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
         case .medium:
             VStack(alignment: .leading, spacing: 10) {
                 HomeWidgetMetricStrip(metrics: aiMetrics)
@@ -888,6 +1166,10 @@ private struct CalendarWidgetContent: View {
         switch size {
         case .small:
             MiniCalendarIcon()
+        case .tall:
+            // Calendar opted out of `.tall`, but keep an exhaustive switch
+            // safe so adding it back in the future doesn't crash.
+            MiniCalendarIcon()
         case .medium:
             CompactMonthGrid(showsSelection: true, density: .compact, showsAgenda: true, agendaLimit: 2)
         case .large:
@@ -927,7 +1209,11 @@ private struct MiniCalendarIcon: View {
             }
 
             HStack(spacing: 0) {
-                ForEach(weekdaySymbols, id: \.self) { symbol in
+                // Weekday symbols repeat ("S" Sunday + Saturday, "T" Tuesday
+                // + Thursday) so `\.self` triggers the SwiftUI duplicate-ID
+                // warning. Index-based identity is unambiguous here because
+                // the array always has exactly 7 entries.
+                ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
                     Text(symbol)
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -1092,7 +1378,9 @@ private struct CompactMonthGrid: View {
 
     private var weekdayRow: some View {
         HStack(spacing: 0) {
-            ForEach(weekdaySymbols, id: \.self) { symbol in
+            // See note in the medium-calendar variant: weekday symbols repeat
+            // so we identify by index instead of the symbol string itself.
+            ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
                 Text(symbol)
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
@@ -1410,13 +1698,25 @@ private struct RecentPapersWidgetContent: View {
     var body: some View {
         switch size {
         case .small:
-            HomeBigNumber(
+            HomeSmallList(
                 count: appModel.recentPapers.count,
                 caption: appModel.t(.homeWidgetRecentPapers),
                 tint: .indigo,
                 systemImage: "doc.richtext",
+                firstLine: appModel.recentPapers.first?.displayTitle,
                 action: { appModel.selectSection(.library) }
             )
+        case .tall:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetTallCount(
+                    count: appModel.recentPapers.count,
+                    caption: appModel.t(.homeWidgetRecentPapers),
+                    tint: .indigo,
+                    systemImage: "doc.richtext"
+                )
+                paperRows(appModel.recentPapers.prefix(3))
+                Spacer(minLength: 0)
+            }
         case .medium:
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(appModel.recentPapers.prefix(3))) { paper in
@@ -1482,13 +1782,24 @@ private struct ReadingPlanWidgetContent: View {
     var body: some View {
         switch size {
         case .small:
-            HomeBigNumber(
+            HomeSmallList(
                 count: papers.count,
                 caption: appModel.t(.homeWidgetReadingPlan),
                 tint: .teal,
                 systemImage: "books.vertical",
+                firstLine: papers.first?.title,
                 action: { appModel.selectSection(.library) }
             )
+        case .tall:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetTallCount(
+                    count: papers.count,
+                    caption: appModel.t(.homeWidgetReadingPlan),
+                    tint: .teal,
+                    systemImage: "books.vertical"
+                )
+                list(limit: 4)
+            }
         case .medium:
             list(limit: 3)
         case .large:
@@ -1550,6 +1861,13 @@ private struct ProjectHealthWidgetContent: View {
                 systemImage: "waveform.path.ecg",
                 action: { appModel.selectSection(.projects) }
             )
+        case .tall:
+            // Project Health opted out of `.tall`; fall back to medium.
+            VStack(alignment: .leading, spacing: 10) {
+                HomeWidgetMetricStrip(metrics: metrics(prefix: 2))
+                HomeWidgetMetricStrip(metrics: metrics(suffix: 2))
+                Spacer(minLength: 0)
+            }
         case .medium:
             VStack(alignment: .leading, spacing: 10) {
                 HomeWidgetMetricStrip(metrics: metrics(prefix: 2))
@@ -1600,6 +1918,19 @@ private struct QuickActionsWidgetContent: View {
                 }
                 actionTile(title: appModel.t(.homeQuickActionOpenLibrary), systemImage: "doc.richtext", tint: .indigo) {
                     appModel.selectSection(.library)
+                }
+                Spacer(minLength: 0)
+            }
+        case .tall:
+            VStack(spacing: 7) {
+                actionRow(title: appModel.t(.homeQuickActionOpenLibrary), systemImage: "doc.richtext", tint: .indigo) {
+                    appModel.selectSection(.library)
+                }
+                actionRow(title: appModel.t(.homeQuickActionOpenWiki), systemImage: "text.book.closed", tint: .blue) {
+                    appModel.selectSection(.wiki)
+                }
+                actionRow(title: appModel.t(.routeAILab), systemImage: "brain", tint: .purple) {
+                    appModel.selectSection(.llmLab)
                 }
                 Spacer(minLength: 0)
             }
@@ -1724,6 +2055,99 @@ private struct HomeBigNumber: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+    }
+}
+
+/// 1×1 (small) variant for list-style widgets. Like `HomeBigNumber` but with
+/// a single representative line under the count, so the user can tell at a
+/// glance which paper / queue item is on top — addresses the 2026-05-17
+/// "1×1 needs more content" feedback.
+private struct HomeSmallList: View {
+    let count: Int
+    let caption: String
+    let tint: Color
+    let systemImage: String
+    let firstLine: String?
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        if let action {
+            Button(action: action) {
+                content
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(caption)")
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(count)")
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                Text(caption)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            if let firstLine, !firstLine.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(tint.opacity(0.95))
+                    Text(firstLine)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            } else {
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// Compact header for `.tall` (1×2) widget variants. Shows the count and
+/// caption in a single row so the remaining height can be used for a 3-4
+/// item list.
+private struct HomeWidgetTallCount: View {
+    let count: Int
+    let caption: String
+    let tint: Color
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(count)")
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .monospacedDigit()
+                .lineLimit(1)
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint.opacity(0.95))
+            Text(caption)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -1904,6 +2328,8 @@ private extension HomeWidgetSize {
         switch self {
         case .small:
             return appModel.t(.homeWidgetSizeSmall)
+        case .tall:
+            return appModel.t(.homeWidgetSizeTall)
         case .medium:
             return appModel.t(.homeWidgetSizeMedium)
         case .large:

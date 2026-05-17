@@ -8,6 +8,13 @@ public nonisolated enum AgentPaperIntentKind: String, Codable, Sendable {
     case sectionSummary = "section_summary"
     case citationLookup = "citation_lookup"
     case writeback = "writeback"
+    case graphMissingCorePapers = "graph_missing_core_papers"
+    case graphReadingPath = "graph_reading_path"
+    case graphStaleCitations = "graph_stale_citations"
+    case graphUnsupportedClaims = "graph_unsupported_claims"
+    case graphStaleSavedArtifacts = "graph_stale_saved_artifacts"
+    case graphMethodLineage = "graph_method_lineage"
+    case graphBridgePapers = "graph_bridge_papers"
     case continuation
 }
 
@@ -33,8 +40,29 @@ public nonisolated struct AgentPaperIntent: Codable, Hashable, Sendable {
         switch kind {
         case .paperBodyQA, .formula, .sectionSummary, .citationLookup, .writeback:
             return true
-        case .paperListing, .continuation, .none:
+        case .paperListing, .graphMissingCorePapers, .graphReadingPath, .graphStaleCitations, .graphUnsupportedClaims, .graphStaleSavedArtifacts, .graphMethodLineage, .graphBridgePapers, .continuation, .none:
             return false
+        }
+    }
+
+    public nonisolated var graphToolName: String? {
+        switch kind {
+        case .graphMissingCorePapers:
+            return GraphAgentTools.findMissingCorePapers
+        case .graphReadingPath:
+            return GraphAgentTools.generateReadingPath
+        case .graphStaleCitations:
+            return GraphAgentTools.detectStaleCitations
+        case .graphUnsupportedClaims:
+            return GraphAgentTools.findUnsupportedArtifactClaims
+        case .graphStaleSavedArtifacts:
+            return GraphAgentTools.findStaleSavedArtifacts
+        case .graphMethodLineage:
+            return GraphAgentTools.findMethodLineage
+        case .graphBridgePapers:
+            return GraphAgentTools.findBridgePapers
+        case .none, .paperListing, .paperBodyQA, .formula, .sectionSummary, .citationLookup, .writeback, .continuation:
+            return nil
         }
     }
 }
@@ -58,6 +86,27 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
 
         if isContinuation(lowercased) {
             return AgentPaperIntent(kind: .continuation, ordinalIndex: nil, query: nil, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["没引", "漏引", "未引用", "缺少核心", "missing core", "missing citation", "not cited", "uncited core"]) {
+            return AgentPaperIntent(kind: .graphMissingCorePapers, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["读完", "下一篇", "阅读路径", "阅读顺序", "reading path", "reading order", "next paper", "what next", "after this paper"]) {
+            return AgentPaperIntent(kind: .graphReadingPath, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["过时引用", "引用过时", "引文过时", "stale citation", "outdated citation", "citation outdated", "old citation"]) {
+            return AgentPaperIntent(kind: .graphStaleCitations, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["unsupported claim", "unsupported claims", "缺乏证据", "没有证据", "证据不足", "artifact claim", "claims unsupported"]) {
+            return AgentPaperIntent(kind: .graphUnsupportedClaims, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["stale artifact", "stale saved artifact", "saved artifact", "过时 artifact", "保存的产物", "证据过期", "需要刷新的产物"]) {
+            return AgentPaperIntent(kind: .graphStaleSavedArtifacts, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["方法发展", "方法谱系", "method lineage", "lineage", "evolved from", "extends method", "method evolution"]) {
+            return AgentPaperIntent(kind: .graphMethodLineage, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
+        }
+        if containsAny(lowercased, ["两篇之间", "之间的联系", "连接两篇", "bridge paper", "bridge papers", "between these papers", "connection between", "关联路径", "explain connection"]) {
+            return AgentPaperIntent(kind: .graphBridgePapers, ordinalIndex: ordinalIndex, query: trimmed, sectionHint: nil)
         }
         if mentionsWrite && mentionsPaper {
             return AgentPaperIntent(kind: .writeback, ordinalIndex: ordinalIndex, query: searchQuery(from: trimmed, formula: mentionsFormula), sectionHint: sectionHint(in: trimmed))
@@ -90,7 +139,51 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
         if intent.kind == .paperListing {
             return availableToolNames.contains("list_papers")
         }
+        if let graphToolName = intent.graphToolName {
+            return availableToolNames.contains(graphToolName)
+        }
         return availableToolNames.contains("list_papers") || availableToolNames.contains("search_papers") || availableToolNames.contains("read_paper") || availableToolNames.contains("read_paper_section")
+    }
+
+    public nonisolated func graphArgumentsJSON(for intent: AgentPaperIntent, currentProjectID: String?, selectedPaperID: String?) -> String? {
+        var fields: [String: JSONValue] = [:]
+        switch intent.kind {
+        case .graphMissingCorePapers:
+            guard let projectID = currentProjectID?.nilIfEmpty else { return nil }
+            fields["project_id"] = .string(projectID)
+            fields["k"] = .number("10")
+        case .graphReadingPath:
+            guard let paperID = selectedPaperID?.nilIfEmpty else { return nil }
+            fields["center_paper_id"] = .string(paperID)
+            if let projectID = currentProjectID?.nilIfEmpty {
+                fields["project_id"] = .string(projectID)
+            }
+            fields["depth"] = .number("3")
+            fields["k"] = .number("12")
+        case .graphStaleCitations, .graphUnsupportedClaims, .graphStaleSavedArtifacts:
+            if let projectID = currentProjectID?.nilIfEmpty {
+                fields["project_id"] = .string(projectID)
+            }
+        case .graphMethodLineage:
+            guard let methodNodeID = Self.graphNodeIDs(in: intent.query ?? "", prefix: "method:").first else { return nil }
+            fields["method_node_id"] = .string(methodNodeID)
+            fields["max_depth"] = .number("4")
+        case .graphBridgePapers:
+            let paperNodeIDs = Self.graphNodeIDs(in: intent.query ?? "", prefix: "paper:")
+            if let selectedPaperID = selectedPaperID?.nilIfEmpty, let targetPaperID = paperNodeIDs.first(where: { $0 != selectedPaperID }) {
+                fields["from_paper_id"] = .string(selectedPaperID)
+                fields["to_paper_id"] = .string(targetPaperID)
+            } else if paperNodeIDs.count >= 2 {
+                fields["from_paper_id"] = .string(paperNodeIDs[0])
+                fields["to_paper_id"] = .string(paperNodeIDs[1])
+            } else {
+                return nil
+            }
+            fields["max_depth"] = .number("4")
+        case .none, .paperListing, .paperBodyQA, .formula, .sectionSummary, .citationLookup, .writeback, .continuation:
+            return nil
+        }
+        return JSONValue.object(fields).canonicalJSON
     }
 
     public nonisolated func searchArgumentsJSON(for intent: AgentPaperIntent, paperID: String?) -> String {
@@ -115,6 +208,20 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
             return "citation source quote"
         case .writeback, .paperBodyQA:
             return intent.query?.nilIfEmpty ?? "method result conclusion"
+        case .graphMissingCorePapers:
+            return "missing core cited papers project citation graph"
+        case .graphReadingPath:
+            return "reading path citation graph next paper"
+        case .graphStaleCitations:
+            return "stale outdated citation newer extending papers"
+        case .graphUnsupportedClaims:
+            return "unsupported artifact claims evidence"
+        case .graphStaleSavedArtifacts:
+            return "stale saved artifacts evidence"
+        case .graphMethodLineage:
+            return "method lineage extends uses"
+        case .graphBridgePapers:
+            return "bridge papers shortest graph path"
         case .paperListing, .continuation, .none:
             return intent.query?.nilIfEmpty ?? "paper"
         }
@@ -210,6 +317,19 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
             }
         }
         return nil
+    }
+
+    private nonisolated static func graphNodeIDs(in value: String, prefix: String) -> [String] {
+        let escapedPrefix = NSRegularExpression.escapedPattern(for: prefix)
+        let pattern = #"\b"# + escapedPrefix + #"[^\s,，。;；)）\]]+"#
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return expression.matches(in: value, range: range).compactMap { match in
+            guard let valueRange = Range(match.range, in: value) else { return nil }
+            return String(value[valueRange])
+        }
     }
 
     private nonisolated static func ordinalTokenIndex(_ token: String) -> Int? {

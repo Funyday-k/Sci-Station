@@ -38,10 +38,28 @@ struct TodayPanelView: View {
                     }
                 }
 
-                HomeSignalCard(title: appModel.localized("阅读队列", "Reading Queue"), systemImage: "books.vertical", count: data.readingQueue.count) {
+                HomeSignalCard(
+                    title: appModel.localized("阅读队列", "Reading Queue"),
+                    systemImage: "books.vertical",
+                    count: data.readingQueueEntries.isEmpty ? data.readingQueue.count : data.readingQueueEntries.count
+                ) {
                     if !snapshot.moduleAvailability.libraryEnabled {
                         ModuleDisabledView(message: appModel.localized("Library 模块已关闭。", "Library module is disabled.")) {
                             appModel.openSettings(category: .modules)
+                        }
+                    } else if !data.readingQueueEntries.isEmpty {
+                        VStack(spacing: 7) {
+                            ForEach(data.readingQueueEntries.prefix(5)) { entry in
+                                HomeQueueEntryRow(entry: entry) {
+                                    recordAction("open_queue_entry", targetID: entry.id)
+                                    if let paperID = entry.paperID {
+                                        appModel.selectPaper(id: paperID)
+                                        appModel.selectSection(.library)
+                                    } else {
+                                        appModel.selectSection(.library)
+                                    }
+                                }
+                            }
                         }
                     } else if data.readingQueue.isEmpty {
                         HomeEmptyState(
@@ -531,6 +549,70 @@ private struct HomeTodoRow: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct HomeQueueEntryRow: View {
+    let entry: ReadingQueueEntrySummary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: statusSystemImage)
+                    .foregroundStyle(statusTint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.displayTitle)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    Text(subtitleText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var statusSystemImage: String {
+        switch entry.status {
+        case .queued: return "tray"
+        case .reading: return "book"
+        case .finished: return "checkmark.seal"
+        case .deferred: return "moon"
+        case .dismissed: return "xmark.circle"
+        }
+    }
+
+    private var statusTint: Color {
+        switch entry.status {
+        case .queued: return .blue
+        case .reading: return .orange
+        case .finished: return .green
+        case .deferred: return .purple
+        case .dismissed: return .secondary
+        }
+    }
+
+    private var subtitleText: String {
+        var parts: [String] = []
+        parts.append(entry.status == .reading ? "Reading" : "Queued")
+        if let externalKey = entry.externalKey, entry.paperID == nil {
+            parts.append("external: \(externalKey)")
+        }
+        switch entry.source {
+        case .recommendation:
+            parts.append("from recommendation")
+        case .graphTool:
+            parts.append("from graph tool")
+        case .paperStatus:
+            parts.append("paper status sync")
+        case .manual:
+            break
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

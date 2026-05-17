@@ -3,10 +3,10 @@ import Foundation
 /// Read-only query interface over the research graph. All queries are
 /// forwarded to the underlying `GraphRepository` actor. P46 UI and P47 agent
 /// tools consume this struct rather than the repository directly.
-public struct GraphReadModel: Sendable {
+public nonisolated struct GraphReadModel: Sendable {
     private let repository: GraphRepository
 
-    public init(repository: GraphRepository) {
+    public nonisolated init(repository: GraphRepository) {
         self.repository = repository
     }
 

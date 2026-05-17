@@ -73,20 +73,27 @@ struct ContentView: View {
 
                 if isPrimaryToolbarAction(.aiPanel), appModel.currentWorkspace != nil {
                     Button {
-                        appModel.openGlobalAIPanel(source: "toolbar")
+                        appModel.toggleRightRailMode(.ai, source: "toolbar")
                     } label: {
                             Label(toolbarTitle(.aiPanel), systemImage: "sparkles")
                     }
-                        .help(appModel.t(.toolbarOpenAI))
+                        .help(appModel.effectiveRightRailMode == .ai
+                              ? appModel.localized("收起 AI", "Hide AI")
+                              : appModel.t(.toolbarOpenAI))
                 }
 
                 if isPrimaryToolbarAction(.inspector), appModel.currentWorkspace != nil {
                     Button {
-                        appModel.showContextInspector(source: "toolbar")
+                        appModel.toggleRightRailMode(.inspector, source: "toolbar")
                     } label: {
-                            Label(toolbarTitle(.inspector), systemImage: "sidebar.right")
+                            Label(
+                                toolbarTitle(.inspector),
+                                systemImage: appModel.effectiveRightRailMode == .inspector ? "sidebar.trailing" : "sidebar.right"
+                            )
                     }
-                        .help(appModel.t(.toolbarShowInspector))
+                        .help(appModel.effectiveRightRailMode == .inspector
+                              ? appModel.localized("收起检查器", "Hide inspector")
+                              : appModel.t(.toolbarShowInspector))
                 }
 
                 if isPrimaryToolbarAction(.refresh), appModel.currentWorkspace != nil {
@@ -364,9 +371,9 @@ struct ContentView: View {
         case .workspaceMenu:
             break
         case .aiPanel:
-            appModel.openGlobalAIPanel(source: "toolbar_overflow")
+            appModel.toggleRightRailMode(.ai, source: "toolbar_overflow")
         case .inspector:
-            appModel.showContextInspector(source: "toolbar_overflow")
+            appModel.toggleRightRailMode(.inspector, source: "toolbar_overflow")
         case .refresh:
             appModel.refreshCurrentWorkspaceView()
         case .newProject:

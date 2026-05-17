@@ -8,6 +8,11 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
     public var markdownDocuments: [MarkdownDocument]
     public var agentRuns: [AgentRun]
     public var unsupportedClaims: [ClaimSummary]
+    /// P48 — Queue entries the AppViewModel exposes for the workspace plus all
+    /// active projects. The snapshot builder filters down to the project of
+    /// interest before rendering. Default empty for callers that have not yet
+    /// wired the queue store.
+    public var queueEntries: [ResearchQueueEntry]
 
     public init(
         workspaceID: String,
@@ -16,7 +21,8 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
         todos: [TodoItem] = [],
         markdownDocuments: [MarkdownDocument] = [],
         agentRuns: [AgentRun] = [],
-        unsupportedClaims: [ClaimSummary] = []
+        unsupportedClaims: [ClaimSummary] = [],
+        queueEntries: [ResearchQueueEntry] = []
     ) {
         self.workspaceID = workspaceID
         self.project = project
@@ -25,6 +31,7 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
         self.markdownDocuments = markdownDocuments
         self.agentRuns = agentRuns
         self.unsupportedClaims = unsupportedClaims
+        self.queueEntries = queueEntries
     }
 
     public var signature: Int {
@@ -74,6 +81,14 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
             }
         }
         hasher.combine(unsupportedClaims)
+        for entry in queueEntries.sorted(by: { $0.id < $1.id }) {
+            hasher.combine(entry.id)
+            hasher.combine(entry.status.rawValue)
+            hasher.combine(entry.source.rawValue)
+            hasher.combine(entry.order)
+            hasher.combine(entry.lastTouchedAt)
+            hasher.combine(entry.scope.identifier)
+        }
         return hasher.finalize()
     }
 }
@@ -177,6 +192,13 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             now: now
         )
 
+        let projectPaperIDs = Set(projectPapers.map(\.id))
+        let readingQueuePreview = readingQueuePreview(
+            from: input.queueEntries,
+            projectID: project.id,
+            projectPaperIDs: projectPaperIDs
+        )
+
         return ProjectDashboardSnapshot(
             projectID: project.id,
             projectTitle: project.name,
@@ -189,8 +211,41 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             currentReadingPlan: nil,
             openTodoCount: openTodoCount,
             builtAt: now,
-            generationDuration: Date().timeIntervalSince(start)
+            generationDuration: Date().timeIntervalSince(start),
+            readingQueuePreview: readingQueuePreview
         )
+    }
+
+    private func readingQueuePreview(
+        from entries: [ResearchQueueEntry],
+        projectID: String,
+        projectPaperIDs: Set<String>
+    ) -> [ReadingQueueEntrySummary] {
+        let projectScope = QueueScope.project(projectID).identifier
+        let candidates = entries.filter { entry in
+            guard entry.status == .queued || entry.status == .reading else {
+                return false
+            }
+            if entry.scope.identifier == projectScope {
+                return true
+            }
+            // Surface workspace-queue rows whose paper is linked to the
+            // project so the project dashboard does not appear empty just
+            // because the user added the paper at the workspace level.
+            if entry.scope == .workspace, let paperID = entry.paperID {
+                return projectPaperIDs.contains(paperID)
+            }
+            return false
+        }
+        return candidates
+            .sorted { lhs, rhs in
+                if lhs.lastTouchedAt != rhs.lastTouchedAt {
+                    return lhs.lastTouchedAt > rhs.lastTouchedAt
+                }
+                return lhs.order < rhs.order
+            }
+            .prefix(3)
+            .map(ReadingQueueEntrySummary.init(entry:))
     }
 
     private func prioritySortValue(_ priority: Priority) -> Int {

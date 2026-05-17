@@ -38,9 +38,7 @@ struct ContextInspectorRail: View {
         VStack(spacing: 0) {
             ShellRailHeader(
                 title: inspectorTitle,
-                subtitle: appModel.currentWorkspaceContextSnapshot.displayTitle,
-                close: { appModel.hideRightRail(source: "inspector_close") },
-                openAI: { appModel.openGlobalAIPanel(source: "inspector_header") }
+                subtitle: appModel.currentWorkspaceContextSnapshot.displayTitle
             )
 
             Divider()
@@ -63,10 +61,12 @@ struct ContextInspectorRail: View {
     }
 
     private var inspectorTitle: String {
-        if shouldShowPaperInspector { return "Paper Inspector" }
-        if shouldShowWikiInspector { return "Wiki Inspector" }
-        if appModel.selectedSection == .pdfReader || appModel.currentWorkspaceContextSnapshot.projectTabID == "pdf-reader" { return "PDF Context" }
-        return "Context"
+        if shouldShowPaperInspector { return appModel.localized("论文检查器", "Paper Inspector") }
+        if shouldShowWikiInspector { return appModel.localized("Wiki 检查器", "Wiki Inspector") }
+        if appModel.selectedSection == .pdfReader || appModel.currentWorkspaceContextSnapshot.projectTabID == "pdf-reader" {
+            return appModel.localized("PDF 上下文", "PDF Context")
+        }
+        return appModel.localized("上下文", "Context")
     }
 
     private var shouldShowPaperInspector: Bool {
@@ -88,9 +88,7 @@ struct GlobalAISidePanel: View {
         VStack(spacing: 0) {
             ShellRailHeader(
                 title: "AI",
-                subtitle: context.displayTitle,
-                close: { appModel.hideRightRail(source: "ai_panel_close") },
-                openAI: nil
+                subtitle: context.displayTitle
             )
 
             GlobalAIContextActionBar(context: context)
@@ -103,9 +101,11 @@ struct GlobalAISidePanel: View {
 private struct ShellRailHeader: View {
     let title: String
     let subtitle: String
-    let close: () -> Void
-    let openAI: (() -> Void)?
 
+    // The rail's open/close + AI affordances are owned by the window toolbar
+    // (see `ContentView`'s Inspector / AI toolbar buttons, which toggle the
+    // rail in place). Keeping a second set of buttons inside the rail header
+    // produced two visually-identical collapse/AI controls — see Bug Bash 2026-05-17.
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -119,20 +119,6 @@ private struct ShellRailHeader: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
-            if let openAI {
-                Button(action: openAI) {
-                    Label("AI", systemImage: "sparkles")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderless)
-                .help("Open AI")
-            }
-            Button(action: close) {
-                Label("Hide", systemImage: "sidebar.right")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("Hide rail")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -152,15 +138,18 @@ private struct ContextActionsRail: View {
                 Button {
                     appModel.openGlobalAIPanel(source: "context_action")
                 } label: {
-                    Label("Ask About View", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Label(
+                        appModel.localized("询问当前视图", "Ask About View"),
+                        systemImage: "sparkles"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
 
                 Button {
                     appModel.refreshCurrentWorkspaceView()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label(appModel.t(.toolbarRefresh), systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
@@ -169,7 +158,7 @@ private struct ContextActionsRail: View {
                     Button {
                         appModel.beginCreatingResearchProject()
                     } label: {
-                        Label("New Project", systemImage: "plus")
+                        Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered)
@@ -179,7 +168,7 @@ private struct ContextActionsRail: View {
                     Button {
                         appModel.selectGlobalTodos()
                     } label: {
-                        Label("All Todos", systemImage: "checklist")
+                        Label(appModel.t(.toolbarAllTodos), systemImage: "checklist")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered)
@@ -188,7 +177,7 @@ private struct ContextActionsRail: View {
                 Button {
                     appModel.revealCurrentWorkspaceInFinder()
                 } label: {
-                    Label("Reveal Workspace", systemImage: "folder")
+                    Label(appModel.t(.toolbarRevealInFinder), systemImage: "folder")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
@@ -754,6 +743,8 @@ struct GlobalAIContextActionBar: View {
 }
 
 private struct CollapsedShellRailRestoreButton: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let showAI: () -> Void
     let showInspector: () -> Void
 
@@ -764,14 +755,14 @@ private struct CollapsedShellRailRestoreButton: View {
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
-            .help("Open AI")
+            .help(appModel.t(.toolbarOpenAI))
 
             Button(action: showInspector) {
-                Label("Inspector", systemImage: "sidebar.right")
+                Label(appModel.t(.toolbarInspector), systemImage: "sidebar.right")
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
-            .help("Show inspector")
+            .help(appModel.t(.toolbarShowInspector))
 
             Spacer(minLength: 0)
         }

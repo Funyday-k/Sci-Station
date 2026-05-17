@@ -3,6 +3,10 @@ import Foundation
 public nonisolated enum HomeWidgetSize: String, Codable, CaseIterable, Hashable, Sendable {
     /// 1 × 1 tile.
     case small
+    /// 1 × 2 (1 column wide, 2 rows tall) — opt-in per descriptor. Introduced
+    /// 2026-05-17 to give vertical lists (todos, projects, recent papers,
+    /// reading plan, quick actions) a denser single-column variant.
+    case tall
     /// 2 × 2 tile.
     case medium
     /// 3 × 3 tile.
@@ -12,7 +16,7 @@ public nonisolated enum HomeWidgetSize: String, Codable, CaseIterable, Hashable,
 
     public var columnSpan: Int {
         switch self {
-        case .small:
+        case .small, .tall:
             return 1
         case .medium:
             return 2
@@ -27,6 +31,8 @@ public nonisolated enum HomeWidgetSize: String, Codable, CaseIterable, Hashable,
         switch self {
         case .small:
             return 1
+        case .tall:
+            return 2
         case .medium:
             return 2
         case .large:
@@ -99,7 +105,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetToday,
             category: .research,
             defaultSize: .medium,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
             defaultOrder: 0,
             requiredModuleIDs: ["tasks"],
             systemImage: "sun.max"
@@ -109,7 +115,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetActiveProjects,
             category: .project,
             defaultSize: .medium,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
             defaultOrder: 1,
             requiredModuleIDs: ["projects"],
             systemImage: "folder"
@@ -119,7 +125,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetAIReview,
             category: .ai,
             defaultSize: .medium,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
             defaultOrder: 2,
             requiredModuleIDs: ["ai-lab"],
             systemImage: "brain"
@@ -129,6 +135,8 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetCalendar,
             category: .calendar,
             defaultSize: .large,
+            // Calendar uses a 2D month grid, the 1×2 narrow form factor would
+            // squash it; intentionally opt out of `.tall`.
             supportedSizes: [.small, .medium, .large, .wide],
             defaultOrder: 3,
             requiredModuleIDs: ["calendar"],
@@ -139,7 +147,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetRecentPapers,
             category: .library,
             defaultSize: .medium,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
             defaultOrder: 4,
             requiredModuleIDs: ["paper-library"],
             systemImage: "doc.richtext"
@@ -149,7 +157,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetReadingPlan,
             category: .library,
             defaultSize: .medium,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
             defaultOrder: 5,
             requiredModuleIDs: ["paper-library"],
             systemImage: "books.vertical"
@@ -159,6 +167,8 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetProjectHealth,
             category: .project,
             defaultSize: .small,
+            // Health is a horizontal metric strip; `.tall` would only stretch
+            // empty space, so leave it out.
             supportedSizes: [.small, .medium, .large, .wide],
             defaultOrder: 6,
             requiredModuleIDs: ["projects"],
@@ -169,7 +179,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetQuickActions,
             category: .research,
             defaultSize: .medium,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
             defaultOrder: 7,
             systemImage: "bolt"
         )
@@ -274,6 +284,41 @@ public nonisolated struct HomeWidgetLayout: Codable, Hashable, Sendable {
         repack(descriptors: descriptors, columns: columns, updatedAt: updatedAt)
     }
 
+    /// Drop-target semantic: place `source` at the slot currently occupied by
+    /// `target`, pushing `target` the other way. This is the operation a user
+    /// expects when they drag widget A onto widget B's tile.
+    ///
+    /// `moveWidget(_:before:)` is asymmetric — for forward drags
+    /// (`sourceIndex < targetIndex`) it only nudges source one step toward
+    /// target, never swapping into target's slot, so dragging the leftmost
+    /// widget rightward over a neighbour produces an unexpected result. The
+    /// `onto:` variant unifies both directions: the final post-drop array
+    /// always has `source` exactly at `targetIndex` (in the pre-drop sort
+    /// order), which is what touch / pointer drag-and-drop UIs convey.
+    public mutating func moveWidget(_ sourceWidgetID: String, onto targetWidgetID: String, descriptors: [HomeWidgetDescriptor], columns: Int, updatedAt: Date = Date()) {
+        normalizeInPlace(descriptors: descriptors, columns: columns, updatedAt: updatedAt)
+        var ordered = items.sorted(by: Self.positionSort)
+        guard let sourceIndex = ordered.firstIndex(where: { $0.widgetID == sourceWidgetID }),
+              let targetIndex = ordered.firstIndex(where: { $0.widgetID == targetWidgetID }),
+              sourceIndex != targetIndex else {
+            return
+        }
+        let source = ordered.remove(at: sourceIndex)
+        // After removal:
+        //   - sourceIndex < targetIndex (forward drag): target shifted left
+        //     by one to targetIndex - 1. Inserting source at targetIndex
+        //     places it AFTER target, effectively pushing target left.
+        //   - sourceIndex > targetIndex (backward drag): target's index is
+        //     unchanged. Inserting source at targetIndex places it BEFORE
+        //     target, effectively pushing target right.
+        // Either way, the post-insert position of source is exactly the
+        // pre-drop targetIndex.
+        let insertionIndex = min(targetIndex, ordered.count)
+        ordered.insert(source, at: insertionIndex)
+        items = ordered
+        repack(descriptors: descriptors, columns: columns, updatedAt: updatedAt)
+    }
+
     public mutating func moveWidget(_ widgetID: String, offset: Int, descriptors: [HomeWidgetDescriptor], columns: Int, updatedAt: Date = Date()) {
         normalizeInPlace(descriptors: descriptors, columns: columns, updatedAt: updatedAt)
         var ordered = items.sorted(by: Self.positionSort)
@@ -316,9 +361,23 @@ public nonisolated struct HomeWidgetLayout: Codable, Hashable, Sendable {
     }
 
     private mutating func repack(descriptors: [HomeWidgetDescriptor], columns: Int, updatedAt: Date) {
+        // IMPORTANT: do NOT sort by position here. `repack` is invoked from
+        // `moveWidget(_:before:...)` and `moveWidget(_:offset:...)` AFTER the
+        // caller has reordered `items` in the array but BEFORE we have
+        // recomputed each item's column/row. At that point the items still
+        // carry their pre-move `(column, row)` values, so any sort-by-position
+        // would silently restore the OLD order — the move-then-snap-back
+        // regression confirmed in `app_events.jsonl` at 2026-05-17T09:13:18Z
+        // (move ai_review before active_projects) where the saved YAML showed
+        // the unchanged ordering.
+        //
+        // The array order IS the source of truth for the user's intended
+        // sequence; `HomeWidgetGridPlanner.repackedItems` lays items down
+        // greedily in that order at the next free cell, which is exactly the
+        // behavior we want.
         let descriptorMap = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
         let planned = HomeWidgetGridPlanner.repackedItems(
-            items.sorted(by: Self.positionSort),
+            items,
             descriptorsByID: descriptorMap,
             columns: columns
         )

@@ -147,6 +147,7 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case homeWidgetDisabled
     case homeWidgetUnavailableModulesFormat
     case homeWidgetSizeSmall
+    case homeWidgetSizeTall
     case homeWidgetSizeMedium
     case homeWidgetSizeLarge
     case homeWidgetSizeWide
@@ -376,6 +377,7 @@ public nonisolated enum L10n {
         .homeWidgetDisabled: "Disabled",
         .homeWidgetUnavailableModulesFormat: "Requires modules: %@",
         .homeWidgetSizeSmall: "Small (1×1)",
+        .homeWidgetSizeTall: "Tall (1×2)",
         .homeWidgetSizeMedium: "Medium (2×2)",
         .homeWidgetSizeLarge: "Large (3×3)",
         .homeWidgetSizeWide: "Extra Large (4×4)",
@@ -532,6 +534,7 @@ public nonisolated enum L10n {
         .homeWidgetDisabled: "未启用",
         .homeWidgetUnavailableModulesFormat: "需要模块：%@",
         .homeWidgetSizeSmall: "小 (1×1)",
+        .homeWidgetSizeTall: "竖向 (1×2)",
         .homeWidgetSizeMedium: "中 (2×2)",
         .homeWidgetSizeLarge: "大 (3×3)",
         .homeWidgetSizeWide: "超大 (4×4)",
