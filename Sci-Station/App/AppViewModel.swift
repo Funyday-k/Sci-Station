@@ -4114,7 +4114,7 @@ final class AppViewModel: ObservableObject {
         updateWorkspacePreferences { preferences in
             preferences.agentDebugLoggingEnabled = isEnabled
         }
-        recordAppDebugEvent("debug_mode_changed", payload: .object([
+        recordAppDebugEvent(AppDebugEventName.debugModeChanged.rawValue, payload: .object([
             "enabled": .bool(isEnabled)
         ]), force: true)
         agentStatusMessage = isEnabled
@@ -4152,7 +4152,7 @@ final class AppViewModel: ObservableObject {
         }
         let directory = currentResearchRoot.directoryURL(for: ".sci-station/debug")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        recordAppDebugEvent("debug_log_opened")
+        recordAppDebugEvent(AppDebugEventName.debugLogOpened.rawValue)
         NSWorkspace.shared.activateFileViewerSelecting([directory])
     }
 
@@ -6334,6 +6334,11 @@ final class AppViewModel: ObservableObject {
     private func loadResearchRoot(in workspace: ResearchWorkspace, compatibility: ResearchRootCompatibility?) async throws {
         let root = ResearchRoot(rootURL: workspace.rootURL)
         currentResearchRoot = root
+
+        // P-AT.1d: in DEBUG, start streaming SwiftUI runtime issues to a
+        // workspace-local log so the AI usage-test orchestrator can read
+        // them as an independent assertion channel. Idempotent.
+        _ = SwiftUIRuntimeWarningCapture.shared.install(rootURL: workspace.rootURL)
 
         let moduleConfiguration = try await workspaceModuleConfigurationStore.load(in: root)
         applyWorkspaceModuleConfiguration(moduleConfiguration, in: root)

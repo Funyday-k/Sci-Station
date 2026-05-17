@@ -163,11 +163,13 @@ struct QueueTabView: View {
                         },
                         onRemove: { appModel.removeResearchQueueEntry(id: entry.id) }
                     )
+                    .accessibilityIdentifier(UITestAccessibilityID.Queue.row(entry.id))
                     Divider()
                 }
             }
             .padding(.vertical, 4)
         }
+        .accessibilityIdentifier(UITestAccessibilityID.Queue.list)
     }
 
     private var onboardingState: some View {

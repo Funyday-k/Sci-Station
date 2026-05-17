@@ -327,6 +327,7 @@ private struct TopSidebarRow: View {
                         ? appModel.t(.sidebarProjectTreeCollapsedByPolicy)
                         : (isProjectTreeExpanded ? appModel.t(.sidebarCollapseProjectTree) : appModel.t(.sidebarExpandProjectTree))
                 )
+                .accessibilityIdentifier(UITestAccessibilityID.Sidebar.projectTreeToggle)
             }
 
             Button(action: action) {
@@ -341,6 +342,7 @@ private struct TopSidebarRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(UITestAccessibilityID.Sidebar.tab(item.top.rawValue))
 
             if showsProjectCreateButton {
                 Button {
@@ -354,6 +356,7 @@ private struct TopSidebarRow: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help(appModel.t(.sidebarCreateResearchProject))
+                .accessibilityIdentifier(UITestAccessibilityID.Sidebar.projectCreateButton)
             }
         }
         .padding(.vertical, 7)
@@ -391,22 +394,28 @@ private struct SidebarSettingsButton: View {
         Button {
             appModel.selectTopLevelRoute(.settings)
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "gearshape")
-                    .frame(width: 18)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                Text(appModel.t(.routeSettings))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 7)
-            .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
+            settingsRowLabel
         }
         .buttonStyle(.plain)
         .help(appModel.t(.routeSettings))
         .onHover { isHovering = $0 }
+        .accessibilityIdentifier(UITestAccessibilityID.Sidebar.tab(WorkspaceRoute.Top.settings.rawValue))
+    }
+
+    @ViewBuilder
+    private var settingsRowLabel: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "gearshape")
+                .frame(width: 18)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            Text(appModel.t(.routeSettings))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var rowBackground: Color {

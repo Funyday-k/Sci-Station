@@ -192,6 +192,7 @@ struct HomeWidgetDashboardView: View {
                             )
                             .zIndex(isDragging ? 10 : 0)
                             .transition(.scale(scale: 0.96).combined(with: .opacity))
+                            .accessibilityIdentifier(UITestAccessibilityID.Home.widget(item.widgetID))
                         }
                     }
                 }

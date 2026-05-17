@@ -392,6 +392,7 @@ private struct LibraryPaperTableView: View {
                 }
             }
             .alternatingRowBackgrounds()
+            .accessibilityIdentifier(UITestAccessibilityID.Library.list)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onKeyPress(.space) {
@@ -533,6 +534,7 @@ private struct LibraryPaperTableView: View {
             .onTapGesture(count: 2) {
                 appModel.openPaperReader(row.paper)
             }
+            .accessibilityIdentifier(UITestAccessibilityID.Library.paper(row.id))
     }
 
     private func binding(for column: LibraryColumn) -> Binding<Bool> {

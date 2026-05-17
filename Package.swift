@@ -7,7 +7,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "SciStationCore", targets: ["SciStationCore"]),
-        .executable(name: "SciStationCoreTestRunner", targets: ["SciStationCoreTestRunner"])
+        .executable(name: "SciStationCoreTestRunner", targets: ["SciStationCoreTestRunner"]),
+        .executable(name: "SciStationUIProbe", targets: ["SciStationUIProbe"])
     ],
     targets: [
         .target(
@@ -78,7 +79,8 @@ let package = Package(
                 "UI/Shell/TopSidebarBuilder.swift",
                 "UI/Shell/ProjectSpaceTabsBuilder.swift",
                 "UI/Shell/ProjectSpaceTabIcon.swift",
-                "UI/Shell/RoutePersistence.swift"
+                "UI/Shell/RoutePersistence.swift",
+                "Testing"
             ],
             swiftSettings: [
                 .unsafeFlags(["-default-isolation", "MainActor"])
@@ -91,6 +93,10 @@ let package = Package(
             swiftSettings: [
                 .unsafeFlags(["-default-isolation", "MainActor"])
             ]
+        ),
+        .executableTarget(
+            name: "SciStationUIProbe",
+            path: "Tools/SciStationUIProbe"
         )
     ]
 )

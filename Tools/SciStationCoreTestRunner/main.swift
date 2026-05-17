@@ -63,6 +63,12 @@ private struct CoreVerificationSuite {
         try projectSpaceContentRouterMapsAllKnownTabs()
         try agentLoopBudgetDefaultsAreExpanded()
         try await appDebugEventLoggerPersistsRedactedEvents()
+        try appDebugEventNameRegistryCoversAllEmittedEvents()
+        try appDebugEventNameRegistryFollowsNamingConvention()
+        try uitestAccessibilityIDFactoriesProduceValidIdentifiers()
+        try uitestAccessibilityIDValidatorRejectsIllegalShapes()
+        try swiftUIRuntimeWarningCaptureFormatsOneLinePerEntry()
+        try swiftUIRuntimeWarningCaptureSanitisesEmbeddedSeparators()
         try await homeAggregatorReturnsEmptyDataForBlankWorkspace()
         try await homeAggregatorRespectsCacheTTL()
         try await homeAggregatorInvalidatesOnDraftInboxChange()
@@ -1261,6 +1267,215 @@ private struct CoreVerificationSuite {
         try expect(firstPayload["api_key"] == .string("[REDACTED]"), "Debug event logger should redact API keys.")
         try expect(firstPayload["prompt"] == .string("read [PATH]"), "Debug event logger should redact private paths.")
         try expect(FileManager.default.fileExists(atPath: root.fileURL(for: AppDebugEventLogger.relativePath).path), "Debug event logger should write a workspace-local JSONL file.")
+    }
+
+    /// The AI Usage Test orchestrator (`Proposal-AT.md` §P-AT.1) treats
+    /// `AppDebugEventName.allCases` as the source-of-truth registry of every
+    /// debug event the App may emit. The hard-coded list below is the set of
+    /// event names that current call sites in the codebase emit. If you add
+    /// a new `recordAppDebugEvent("...")` / `AppDebugEvent(event: ...)` /
+    /// `emit("...")` call site, you MUST:
+    ///   1. Add a matching case to `AppDebugEventName`.
+    ///   2. Append the raw value to the `emittedEventAllowList` below.
+    ///
+    /// Keeping these two surfaces aligned guarantees the Python uitest
+    /// orchestrator can enumerate every event it might see in
+    /// `app_events.jsonl` and that nothing slips through without review.
+    private func appDebugEventNameRegistryCoversAllEmittedEvents() throws {
+        let registered = Set(AppDebugEventName.allCases.map(\.rawValue))
+        let emittedEventAllowList: [String] = [
+            // Route persistence
+            "route.persist", "route.persist.fallback", "route.persist.error",
+            // Project space / shell
+            "project_space.tab_change", "project_space.builder_warn",
+            "shell.right_rail.change", "shell.ai_panel.open", "shell.responsive_policy.apply",
+            "toolbar.policy.resolve", "sidebar.render",
+            // Project lifecycle
+            "project.archive.requested", "project.delete.requested",
+            // Wiki / Markdown
+            "wiki.file.create", "wiki.file.rename", "wiki.file.archive",
+            "markdown.editor.save_state", "paper_markdown.open_direct",
+            // Agent
+            "agent.prompt_submitted", "agent.run_completed", "agent.run_failed",
+            "agent.run_cancelled", "agent.run_opened", "agent.runtime_selection_changed",
+            "agent.stop_requested", "agent.context_changed",
+            "agent.thread_started", "agent.thread_selected", "agent.thread_archived",
+            "agent.thread_draft_discarded", "agent.archived_thread_selection_blocked",
+            "agent.tools_execution_started", "agent.tools_execution_completed",
+            "agent.tools_execution_failed", "agent.tools_resume_completed",
+            "agent.tool.graph_query", "agent.tool.graph_result_size", "agent.tool.graph_error",
+            "agent.tool.graph_insight_draft", "agent.tool.graph_blocked_by_module",
+            "agent.intent.graph_routed",
+            // AI Lab UX / permissions
+            "ai.mode.change", "ai.timeline.project", "ai.toolset.unavailable",
+            "ai.permission.inline_decision", "ai.draft_review.rewrite_requested",
+            // Appearance / l10n
+            "appearance.liquid_glass_tint.change", "l10n.language.change",
+            // Debug
+            "debug.mode.changed", "debug.log.opened",
+            // Home / Project Dashboard
+            "home.aggregate", "home.aggregate.error", "home.cache.invalidate",
+            "home.panel.action", "home.widget.gallery",
+            "home.widget.layout_enter_edit", "home.widget.layout_exit_edit",
+            "home.widget.move", "home.widget.resize", "home.widget.toggle",
+            "home.widget.reset_default",
+            "project_dashboard.render", "project_dashboard.stage_inferred",
+            // PDF annotations
+            "pdf.annotation.create", "pdf.annotation.update",
+            "pdf.annotation.delete", "pdf.annotation.duplicate_skipped",
+            // Research Queue (P48)
+            "queue.load", "queue.load.error", "queue.append", "queue.reorder",
+            "queue.remove", "queue.status_change", "queue.save_error",
+            "queue.ingest_error", "queue.ingest_scanned", "queue.ingest_from_recommendation",
+            // Module settings
+            "module_settings.toggle", "module_settings.toggle_chain", "module_settings.pin",
+            // Graph (P44–P47)
+            "graph.indexer.rebuild_started", "graph.indexer.rebuild_finished",
+            "graph.indexer.incremental_skip",
+            "graph.repository.loaded", "graph.repository.write",
+            "graph.repository.compact", "graph.repository.compact.error",
+            "graph.repository.replay_skip",
+            "citation.edge_upsert", "citation.edge_tombstone",
+            "citation.parse.bibtex", "citation.parse.markdown", "citation.resolve_unmatched"
+        ]
+
+        let missing = emittedEventAllowList.filter { !registered.contains($0) }
+        try expect(
+            missing.isEmpty,
+            "AppDebugEventName is missing case(s) for emitted event(s): \(missing.sorted().joined(separator: ", ")). " +
+            "Add them to Sci-Station/Agent/AppDebugEventName.swift so the AI uitest orchestrator can enumerate them."
+        )
+
+        // Sanity: the registry must not shrink unexpectedly. We bake in the
+        // approximate floor so accidental case deletions are caught.
+        try expect(
+            AppDebugEventName.allCases.count >= emittedEventAllowList.count,
+            "AppDebugEventName.allCases.count (\(AppDebugEventName.allCases.count)) dropped below the emitted-event allow-list size (\(emittedEventAllowList.count))."
+        )
+    }
+
+    /// Lint: every registered event name must follow the
+    /// `<domain>.<entity>(.<verb>)?` snake_case convention so the orchestrator
+    /// can pattern-match domain/entity buckets when grouping scenarios.
+    private func appDebugEventNameRegistryFollowsNamingConvention() throws {
+        for event in AppDebugEventName.allCases {
+            try expect(
+                AppDebugEventName.isValidEventName(event.rawValue),
+                "AppDebugEventName.\(event) raw value '\(event.rawValue)' violates snake_case <domain>.<entity>(.<verb>)? convention."
+            )
+        }
+
+        let rawValues = AppDebugEventName.allCases.map(\.rawValue)
+        try expect(
+            Set(rawValues).count == rawValues.count,
+            "AppDebugEventName raw values must be unique; found duplicates."
+        )
+    }
+
+    /// `UITestAccessibilityID` is a thin namespace, but the AI uitest
+    /// orchestrator depends on every factory output being machine-readable.
+    /// This test covers the four high-traffic surfaces wired in P-AT.1c so
+    /// future refactors that drop the strict format fail loudly.
+    private func uitestAccessibilityIDFactoriesProduceValidIdentifiers() throws {
+        let identifiers: [String] = [
+            UITestAccessibilityID.Sidebar.tab("library"),
+            UITestAccessibilityID.Sidebar.tab("settings"),
+            UITestAccessibilityID.Sidebar.projectTreeToggle,
+            UITestAccessibilityID.Sidebar.projectCreateButton,
+            UITestAccessibilityID.Home.widget("today"),
+            UITestAccessibilityID.Home.widget("active_projects"),
+            UITestAccessibilityID.Library.list,
+            UITestAccessibilityID.Library.importButton,
+            UITestAccessibilityID.Library.paper("arxiv-2604.22012"),
+            UITestAccessibilityID.Queue.list,
+            UITestAccessibilityID.Queue.row("queue:workspace:paper-1")
+        ]
+        for identifier in identifiers {
+            try expect(
+                UITestAccessibilityID.isValidIdentifier(identifier),
+                "UITestAccessibilityID factory produced invalid identifier: '\(identifier)'."
+            )
+        }
+    }
+
+    private func uitestAccessibilityIDValidatorRejectsIllegalShapes() throws {
+        let illegal: [String] = [
+            "",
+            "no_dot",
+            "Library.Paper",            // capital letters
+            "library..paper",            // empty segment
+            ".leading.dot",
+            "trailing.dot.",
+            "library paper",             // space in non-terminal
+            "library.pa per",            // space in terminal
+            "library.paper.\u{4F60}\u{597D}" // non-ASCII (中文)
+        ]
+        for raw in illegal {
+            try expect(
+                !UITestAccessibilityID.isValidIdentifier(raw),
+                "UITestAccessibilityID validator should reject malformed identifier: '\(raw)'."
+            )
+        }
+    }
+
+    /// The orchestrator parses ``swiftui_warnings.log`` by splitting on
+    /// newlines and then tabs, so the formatter must emit exactly five
+    /// tab-separated fields per record. This test pins the contract.
+    private func swiftUIRuntimeWarningCaptureFormatsOneLinePerEntry() throws {
+        let date = Date(timeIntervalSince1970: 1_777_700_000)
+        let line = SwiftUIRuntimeWarningCapture.formatLine(
+            timestamp: date,
+            subsystem: "com.apple.runtime-issues",
+            category: "SwiftUI",
+            process: "Sci-Station",
+            message: "Modifying state during view update."
+        )
+        let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+        try expect(
+            fields.count == 5,
+            "SwiftUIRuntimeWarningCapture.formatLine should emit 5 tab-separated fields, got \(fields.count) in '\(line)'."
+        )
+        try expect(
+            String(fields[1]) == "com.apple.runtime-issues",
+            "Second field should be the subsystem."
+        )
+        try expect(
+            String(fields[2]) == "SwiftUI",
+            "Third field should be the category."
+        )
+        try expect(
+            String(fields[3]) == "Sci-Station",
+            "Fourth field should be the process."
+        )
+        try expect(
+            String(fields[4]) == "Modifying state during view update.",
+            "Fifth field should be the message."
+        )
+    }
+
+    /// Embedded newlines / tabs in OS log messages would break the
+    /// one-record-per-line invariant. The formatter must collapse them.
+    private func swiftUIRuntimeWarningCaptureSanitisesEmbeddedSeparators() throws {
+        let date = Date(timeIntervalSince1970: 1_777_700_001)
+        let line = SwiftUIRuntimeWarningCapture.formatLine(
+            timestamp: date,
+            subsystem: "com.apple.runtime-issues",
+            category: "SwiftUI",
+            process: "Sci-Station",
+            message: "first line\nsecond line\twith tab\rand cr"
+        )
+        try expect(
+            !line.contains("\n"),
+            "Formatter must strip embedded newlines."
+        )
+        try expect(
+            line.split(separator: "\t", omittingEmptySubsequences: false).count == 5,
+            "Tab count must stay at 4 separators (5 fields) after sanitisation."
+        )
+        try expect(
+            !line.contains("\r"),
+            "Formatter must strip embedded carriage returns."
+        )
     }
 
     private func homeAggregatorReturnsEmptyDataForBlankWorkspace() async throws {

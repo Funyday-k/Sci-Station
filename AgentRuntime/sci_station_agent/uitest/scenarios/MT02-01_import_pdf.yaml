@@ -1,0 +1,59 @@
+id: MT02-01
+title: Import a PDF from the Library toolbar
+tags: [P02, library, import, smoke]
+setup:
+  research_root_required: true
+  preconditions:
+    - description: Workspace is open with the Library route active.
+steps:
+  - kind: click
+    target: sidebar.tab.library
+    description: Switch to the Library route.
+  - kind: click
+    target: library.import.button
+    description: Open the import dialog.
+  - kind: test_bridge
+    command: library.import.attachFixturePDF
+    args:
+      fixture_id: import-smoke-01
+    description: |
+      Inject a fixture PDF via the Test Bridge so the scenario stays
+      deterministic and bypasses the file picker. Bridge is debug-only;
+      see Proposal-AT.md §P-AT.1e.
+  - kind: wait_for_event
+    event: queue.append
+    timeout_seconds: 10.0
+    description: Wait for the queue ingestor to record the import.
+assertions:
+  - channel: event
+    description: A queue.append event records the imported paper.
+    args:
+      event: queue.append
+      payload_contains:
+        source: library.import
+      min_count: 1
+  - channel: file
+    description: The imported paper appears in the workspace queue YAML.
+    args:
+      path: research-root/queue/queue.yaml
+      loader: yaml
+      expected_subset:
+        entries:
+          - paperID: import-smoke-01
+  - channel: file
+    description: |
+      Library list rendered without SwiftUI runtime warnings during the
+      scenario. Backed by `swiftui_warnings.log` produced by
+      `SwiftUIRuntimeWarningCapture` (P-AT.1d). The file is created empty
+      on workspace open in DEBUG, so equality with "" is the strongest
+      "no warning regression" assertion we can make without a dedicated
+      visual channel (P-AT.4).
+    args:
+      path: .sci-station/debug/swiftui_warnings.log
+      loader: text
+      expected_equals: ""
+  - channel: visual
+    description: Library list visual baseline diff (deferred to P-AT.4).
+    args:
+      baseline: MT02-01/library_after_import.png
+    expect_pass: true
