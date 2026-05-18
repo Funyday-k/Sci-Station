@@ -49,6 +49,12 @@ from sci_station_agent.uitest.runner import (
     ScenarioRunResult,
     ScenarioRunner,
 )
+from sci_station_agent.uitest.test_bridge import (
+    StubTestBridgeClient,
+    TestBridgeClient,
+    TestBridgeError,
+    UnixSocketTestBridgeClient,
+)
 
 __all__ = [
     "AccessibilityDriver",
@@ -69,10 +75,14 @@ __all__ = [
     "ScenarioRunner",
     "Step",
     "StubTransport",
+    "StubTestBridgeClient",
     "SubprocessTransport",
     "SwiftUIWarning",
+    "TestBridgeClient",
+    "TestBridgeError",
     "Transport",
     "UIDriver",
+    "UnixSocketTestBridgeClient",
     "load_scenario",
     "parse_swiftui_warnings_log",
 ]

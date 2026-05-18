@@ -1,6 +1,6 @@
 {
   "id": "MT02-01",
-  "title": "Import a PDF from the Library toolbar",
+  "title": "Import a PDF fixture through the Test Bridge",
   "tags": ["P02", "library", "import", "smoke"],
   "setup": {
     "research_root_required": true,
@@ -15,15 +15,10 @@
       "description": "Switch to the Library route."
     },
     {
-      "kind": "click",
-      "target": "library.import.button",
-      "description": "Open the import dialog."
-    },
-    {
       "kind": "test_bridge",
       "command": "library.import.attachFixturePDF",
       "args": {"fixture_id": "import-smoke-01"},
-      "description": "Inject a fixture PDF via the Test Bridge so the scenario stays deterministic. Debug-only; see Proposal-AT.md P-AT.1e."
+      "description": "Inject a fixture PDF via the Test Bridge so the scenario stays deterministic and bypasses the file picker. Debug-only; see Proposal-AT.md P-AT.1e."
     },
     {
       "kind": "wait_for_event",
@@ -38,7 +33,7 @@
       "description": "A queue.append event records the imported paper.",
       "args": {
         "event": "queue.append",
-        "payload_contains": {"source": "library.import"},
+        "payload_contains": {"source": "manual"},
         "min_count": 1
       }
     },
@@ -46,11 +41,11 @@
       "channel": "file",
       "description": "The imported paper appears in the workspace queue YAML.",
       "args": {
-        "path": "research-root/queue/queue.yaml",
+        "path": "library/queue.yaml",
         "loader": "yaml",
         "expected_subset": {
           "entries": [
-            {"paperID": "import-smoke-01"}
+            {"paper_id": "unknownxxxx-import-smoke-01"}
           ]
         }
       }

@@ -356,6 +356,9 @@ final class AppViewModel: ObservableObject {
     private var researchQueueAgentRunIngestTask: Task<Void, Never>?
     private var researchQueueChangeWatchTask: Task<Void, Never>?
     @Published private(set) var researchQueueScopes: [String: [ResearchQueueEntry]] = [:]
+#if DEBUG
+    private var uiTestBridgeServer: UITestBridgeServer?
+#endif
 
     var identifierImportInputs: [String] {
         batchImportInputParser.parse(identifierImportInput)
@@ -824,6 +827,9 @@ final class AppViewModel: ObservableObject {
         self.wikiPageGenerator = WikiPageGenerator(paperRepository: resolvedPaperRepository)
         self.pdfOpeningService = pdfOpeningService ?? SystemPDFOpeningService()
         self.librarySearchService = LibrarySearchService()
+#if DEBUG
+        installUITestBridgeIfRequested()
+#endif
     }
 
     var filteredPapers: [Paper] {
@@ -8176,6 +8182,302 @@ final class AppViewModel: ObservableObject {
 
         return panel.url
     }
+
+#if DEBUG
+    private func installUITestBridgeIfRequested() {
+        guard let configuration = UITestBridgeConfiguration.fromProcessInfo() else {
+            return
+        }
+        let server = UITestBridgeServer(socketURL: configuration.socketURL) { [weak self] command in
+            guard let self else {
+                throw UITestBridgeCommandError.unavailable
+            }
+            return try await self.handleUITestBridgeCommand(command)
+        }
+        do {
+            try server.start()
+            uiTestBridgeServer = server
+        } catch {
+            NSLog("Sci-Station UI test bridge failed to start: \\(error.localizedDescription)")
+        }
+    }
+
+    private func handleUITestBridgeCommand(_ command: UITestBridgeCommand) async throws -> UITestBridgeCommandResult {
+        recordUITestBridgeEvent(.uitestBridgeCommandReceived, command: command.name)
+        do {
+            let result: UITestBridgeCommandResult
+            switch command.name {
+            case "ping":
+                result = UITestBridgeCommandResult(fields: [
+                    "socket_path": .string(uiTestBridgeServer?.socketURL.path ?? ""),
+                    "workspace_open": .bool(currentWorkspace != nil),
+                    "selected_section": .string(selectedSection?.rawValue ?? "")
+                ])
+            case "workspace.open":
+                let path = try bridgeString(command.args, keys: ["path", "root", "root_path"])
+                let workspace = try await openWorkspaceForUITestBridge(rootURL: URL(fileURLWithPath: NSString(string: path).expandingTildeInPath))
+                result = UITestBridgeCommandResult(fields: [
+                    "workspace_id": .string(workspace.id.path),
+                    "root_path": .string(workspace.rootURL.path)
+                ])
+            case "route.select":
+                let sectionRaw = try bridgeString(command.args, keys: ["section", "route"])
+                guard let section = WorkspaceSection(rawValue: sectionRaw) else {
+                    throw UITestBridgeCommandError.invalidArgument("section", sectionRaw)
+                }
+                selectSection(section)
+                result = UITestBridgeCommandResult(fields: [
+                    "selected_section": .string(selectedSection?.rawValue ?? section.rawValue)
+                ])
+            case "library.import.attachFixturePDF":
+                result = try await importFixturePDFForUITestBridge(args: command.args)
+            case "queue.append":
+                result = try await appendQueueEntryForUITestBridge(args: command.args)
+            default:
+                throw UITestBridgeCommandError.unknownCommand(command.name)
+            }
+            recordUITestBridgeEvent(.uitestBridgeCommandCompleted, command: command.name)
+            return result
+        } catch {
+            recordUITestBridgeEvent(.uitestBridgeCommandFailed, command: command.name, error: error.localizedDescription)
+            throw error
+        }
+    }
+
+    private func openWorkspaceForUITestBridge(rootURL: URL) async throws -> ResearchWorkspace {
+        isWorking = true
+        defer { isWorking = false }
+        let compatibility = ResearchRoot.compatibility(at: rootURL)
+        let workspace = try await workspaceService.openWorkspace(at: rootURL)
+        currentWorkspace = workspace
+        try await loadWorkspaceData(
+            in: workspace,
+            selectingPaper: nil,
+            selectingMarkdown: nil,
+            rootCompatibility: compatibility
+        )
+        if selectedSection == nil {
+            selectedSection = .projects
+        }
+        return workspace
+    }
+
+    private func importFixturePDFForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
+        let sourceURL = try fixturePDFURLForUITestBridge(args: args)
+        let collectionPath = bridgeOptionalString(args, keys: ["collection_path", "collection"]) ?? selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
+        let shouldAppendQueue = bridgeBool(args, key: "append_queue", defaultValue: true)
+        let importedPaper = try await importPDFForUITestBridge(from: sourceURL, collectionPath: collectionPath)
+        var fields: [String: JSONValue] = [
+            "paper_id": .string(importedPaper.id),
+            "title": .string(importedPaper.displayTitle),
+            "pdf_path": .string(sourceURL.path)
+        ]
+        if shouldAppendQueue {
+            let appended = try await appendQueueEntryForUITestBridge(
+                paperID: importedPaper.id,
+                externalKey: nil,
+                displayTitle: importedPaper.displayTitle,
+                scope: .workspace,
+                source: .manual
+            )
+            fields["queue_entry_id"] = .string(appended.id)
+            fields["queue_duplicate"] = .bool(appended.duplicate)
+        }
+        return UITestBridgeCommandResult(fields: fields)
+    }
+
+    private func importPDFForUITestBridge(from pdfURL: URL, collectionPath: String) async throws -> Paper {
+        guard let currentWorkspace else {
+            throw UITestBridgeCommandError.missingWorkspace
+        }
+        isImportingPDF = true
+        defer { isImportingPDF = false }
+        var importedPaper = try await pdfImportService.importPDF(
+            from: pdfURL,
+            into: currentWorkspace,
+            existingPapers: papers,
+            collectionPath: collectionPath
+        )
+        if let selectedLibraryProjectID,
+           !importedPaper.projectIDs.contains(selectedLibraryProjectID) {
+            importedPaper.projectIDs.append(selectedLibraryProjectID)
+            importedPaper = try await paperRepository.save(importedPaper, in: currentWorkspace)
+        }
+        try await loadWorkspaceData(
+            in: currentWorkspace,
+            selectingPaper: importedPaper.id,
+            selectingMarkdown: selectedMarkdownID
+        )
+        selectedSection = .library
+        selectedProjectSpaceProjectID = nil
+        persistWorkspaceRoute(WorkspaceRoute(top: .library))
+        startMarkdownConversion(for: [importedPaper], in: currentWorkspace, statusSurface: .workspace)
+        return importedPaper
+    }
+
+    private func appendQueueEntryForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
+        let paperID = bridgeOptionalString(args, keys: ["paper_id", "paperID"])
+        let externalKey = bridgeOptionalString(args, keys: ["external_key", "externalKey"])
+        guard paperID != nil || externalKey != nil else {
+            throw UITestBridgeCommandError.missingArgument("paper_id or external_key")
+        }
+        let title = bridgeOptionalString(args, keys: ["display_title", "title"])
+            ?? paperID.flatMap { id in papers.first(where: { $0.id == id })?.displayTitle }
+            ?? externalKey
+            ?? "Untitled queue entry"
+        let scope = QueueScope(identifier: bridgeOptionalString(args, keys: ["scope"]) ?? "workspace") ?? .workspace
+        let source = QueueSource(rawValue: bridgeOptionalString(args, keys: ["source"]) ?? QueueSource.manual.rawValue) ?? .manual
+        let appended = try await appendQueueEntryForUITestBridge(
+            paperID: paperID,
+            externalKey: externalKey,
+            displayTitle: title,
+            scope: scope,
+            source: source
+        )
+        return UITestBridgeCommandResult(fields: [
+            "entry_id": .string(appended.id),
+            "duplicate": .bool(appended.duplicate),
+            "scope": .string(scope.identifier)
+        ])
+    }
+
+    private func appendQueueEntryForUITestBridge(
+        paperID: String?,
+        externalKey: String?,
+        displayTitle: String,
+        scope: QueueScope,
+        source: QueueSource
+    ) async throws -> (id: String, duplicate: Bool) {
+        guard let store = researchQueueStore else {
+            throw UITestBridgeCommandError.missingWorkspace
+        }
+        let stableKey = paperID ?? externalKey ?? UUID().uuidString.lowercased()
+        let entryID = "queue:\(scope.identifier):\(stableKey)"
+        let now = Date()
+        let entry = ResearchQueueEntry(
+            id: entryID,
+            paperID: paperID,
+            externalKey: externalKey,
+            displayTitle: displayTitle,
+            scope: scope,
+            status: .queued,
+            source: source,
+            order: 0,
+            addedAt: now,
+            lastTouchedAt: now,
+            sourceRefs: ["uitest.bridge"]
+        )
+        do {
+            try await store.append(entry)
+            await refreshResearchQueueSnapshot()
+            return (entryID, false)
+        } catch ResearchQueueStoreError.duplicateID {
+            await refreshResearchQueueSnapshot()
+            return (entryID, true)
+        }
+    }
+
+    private func fixturePDFURLForUITestBridge(args: [String: JSONValue]) throws -> URL {
+        if let path = bridgeOptionalString(args, keys: ["fixture_path", "path", "pdf_path"]) {
+            let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw UITestBridgeCommandError.invalidArgument("fixture_path", path)
+            }
+            return url
+        }
+        let fixtureID = bridgeOptionalString(args, keys: ["fixture_id", "id"]) ?? "fixture"
+        let sanitized = fixtureID
+            .map { character -> Character in
+                character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+            }
+        let fileName = String(sanitized).trimmingCharacters(in: CharacterSet(charactersIn: "-_")).nilIfBlank ?? "fixture"
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sci-station-uitest-fixtures", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(fileName, isDirectory: false).appendingPathExtension("pdf")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try minimalFixturePDF(named: fileName).write(to: url, options: .atomic)
+        }
+        return url
+    }
+
+    private func minimalFixturePDF(named title: String) -> Data {
+        let escapedTitle = title.replacingOccurrences(of: "(", with: "\\(").replacingOccurrences(of: ")", with: "\\)")
+        let text = """
+        %PDF-1.1
+        1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+        2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+        3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj
+        4 0 obj << /Length 64 >> stream
+        BT /F1 12 Tf 72 720 Td (Sci-Station UI test fixture: \(escapedTitle)) Tj ET
+        endstream endobj
+        trailer << /Root 1 0 R >>
+        %%EOF
+        """
+        return Data(text.utf8)
+    }
+
+    private func recordUITestBridgeEvent(_ event: AppDebugEventName, command: String, error: String? = nil) {
+        var payload: [String: JSONValue] = ["command": .string(command)]
+        if let error {
+            payload["error"] = .string(error)
+        }
+        recordAppDebugEvent(event.rawValue, payload: .object(payload), force: true)
+    }
+
+    private func bridgeString(_ args: [String: JSONValue], keys: [String]) throws -> String {
+        guard let value = bridgeOptionalString(args, keys: keys) else {
+            throw UITestBridgeCommandError.missingArgument(keys.joined(separator: " / "))
+        }
+        return value
+    }
+
+    private func bridgeOptionalString(_ args: [String: JSONValue], keys: [String]) -> String? {
+        for key in keys {
+            if let value = args[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+            if case let .number(value)? = args[key], !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func bridgeBool(_ args: [String: JSONValue], key: String, defaultValue: Bool) -> Bool {
+        switch args[key] {
+        case .bool(let value):
+            return value
+        case .string(let value):
+            return ["1", "true", "yes"].contains(value.lowercased())
+        default:
+            return defaultValue
+        }
+    }
+
+    private enum UITestBridgeCommandError: LocalizedError {
+        case unavailable
+        case missingWorkspace
+        case missingArgument(String)
+        case invalidArgument(String, String)
+        case unknownCommand(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unavailable:
+                return "UI test bridge is unavailable."
+            case .missingWorkspace:
+                return "Open a workspace before using this UI test bridge command."
+            case .missingArgument(let name):
+                return "Missing UI test bridge argument: \(name)."
+            case .invalidArgument(let name, let value):
+                return "Invalid UI test bridge argument \(name): \(value)."
+            case .unknownCommand(let command):
+                return "Unknown UI test bridge command: \(command)."
+            }
+        }
+    }
+#endif
 
     private static func defaultPanelDirectoryURL() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first

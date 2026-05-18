@@ -26,6 +26,7 @@ from sci_station_agent.uitest.drivers.accessibility import (
     StubTransport,
 )
 from sci_station_agent.uitest.drivers.base import DriverError
+from sci_station_agent.uitest.test_bridge import StubTestBridgeClient, TestBridgeError
 
 
 @pytest.fixture()
@@ -121,11 +122,40 @@ def test_drag_is_not_implemented_yet(stub_driver) -> None:
     assert "drag" in str(exc_info.value).lower()
 
 
-def test_send_test_bridge_is_not_implemented_yet(stub_driver) -> None:
+def test_send_test_bridge_requires_client(stub_driver) -> None:
     driver, _ = stub_driver
     with pytest.raises(DriverError) as exc_info:
         driver.send_test_bridge("library.import.attachFixturePDF", {"id": "x"})
-    assert "Test Bridge" in str(exc_info.value)
+    assert "TestBridgeClient" in str(exc_info.value)
+
+
+def test_send_test_bridge_delegates_to_client() -> None:
+    bridge = StubTestBridgeClient(results=[{"paper_id": "p1"}])
+    driver = AccessibilityDriver(
+        transport=StubTransport(),
+        bundle_id="com.example.Test",
+        test_bridge=bridge,
+    )
+
+    driver.send_test_bridge("library.import.attachFixturePDF", {"fixture_id": "p1"})
+
+    assert bridge.sent == [
+        ("library.import.attachFixturePDF", {"fixture_id": "p1"})
+    ]
+
+
+def test_send_test_bridge_maps_bridge_error_to_driver_error() -> None:
+    bridge = StubTestBridgeClient(errors=[TestBridgeError("boom")])
+    driver = AccessibilityDriver(
+        transport=StubTransport(),
+        bundle_id="com.example.Test",
+        test_bridge=bridge,
+    )
+
+    with pytest.raises(DriverError) as exc_info:
+        driver.send_test_bridge("queue.append", {"paper_id": "p1"})
+
+    assert "boom" in str(exc_info.value)
 
 
 def test_close_marks_transport_closed_when_owned() -> None:

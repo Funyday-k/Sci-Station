@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, IO, Mapping, Protocol
 
 from sci_station_agent.uitest.drivers.base import DriverError
+from sci_station_agent.uitest.test_bridge import TestBridgeClient, TestBridgeError
 
 
 DEFAULT_BUNDLE_ID = "Lingyu-Xia.Sci-Station"
@@ -225,6 +226,7 @@ class AccessibilityDriver:
     bundle_id: str = DEFAULT_BUNDLE_ID
     default_timeout_ms: int = DEFAULT_TIMEOUT_MS
     transport: Transport | None = None
+    test_bridge: TestBridgeClient | None = None
     probe_path: Path | None = None
     _owns_transport: bool = field(default=False, init=False, repr=False)
 
@@ -261,10 +263,15 @@ class AccessibilityDriver:
         )
 
     def send_test_bridge(self, command: str, args: Mapping[str, Any]) -> None:
-        raise DriverError(
-            "AccessibilityDriver cannot deliver test_bridge commands; the "
-            "in-app Test Bridge socket (P-AT.1e) is not implemented yet."
-        )
+        if self.test_bridge is None:
+            raise DriverError(
+                "AccessibilityDriver requires a TestBridgeClient for "
+                "test_bridge commands. Pass test_bridge=UnixSocketTestBridgeClient(...)."
+            )
+        try:
+            self.test_bridge.send(command, args)
+        except TestBridgeError as exc:
+            raise DriverError(f"test_bridge({command}) failed: {exc}") from exc
 
     # -- additional helpers (not part of UIDriver) ---------------------------
 

@@ -25,7 +25,7 @@ def test_loads_canonical_json_scenario_round_trip() -> None:
     scenario = load_scenario(SCENARIO_DIR / "MT02-01_import_pdf.json")
     assert scenario.id == "MT02-01"
     assert "library" in scenario.tags
-    assert len(scenario.steps) == 4
+    assert len(scenario.steps) == 3
     assert scenario.steps[0].kind == "click"
     assert scenario.steps[0].target == "sidebar.tab.library"
     # Assertions cover all three channels we ship with this slice.

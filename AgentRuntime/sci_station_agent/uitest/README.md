@@ -64,13 +64,25 @@ scenarios/     YAML / JSON 场景库（与 DOC/manual-tests/MT-*.md 一对一）
    # → System Settings → Privacy & Security → Accessibility 勾选
    ```
 
-3. 在场景里换驱动：
+3. 启动 App 时打开 Debug-only Test Bridge（P-AT.1e），并在场景里换驱动：
 
    ```python
-   from sci_station_agent.uitest import AccessibilityDriver, ScenarioRunner, load_scenario
+   from sci_station_agent.uitest import (
+       AccessibilityDriver,
+       ScenarioRunner,
+       UnixSocketTestBridgeClient,
+       load_scenario,
+   )
 
-   driver = AccessibilityDriver(bundle_id="Lingyu-Xia.Sci-Station")
-   driver.launch(wait=True)            # 启动 Sci-Station.app
+   socket_path = "/tmp/sci-station-uitest.sock"
+   driver = AccessibilityDriver(
+       bundle_id="Lingyu-Xia.Sci-Station",
+       test_bridge=UnixSocketTestBridgeClient(socket_path),
+   )
+   driver.launch(
+       args=["--uitest-bridge", "--uitest-bridge-socket", socket_path],
+       wait=True,
+   )
    runner = ScenarioRunner(research_root, driver=driver)
    result = runner.run(load_scenario("scenarios/MT02-01_import_pdf.yaml"))
    driver.terminate()
@@ -85,8 +97,8 @@ scenarios/     YAML / JSON 场景库（与 DOC/manual-tests/MT-*.md 一对一）
 ```text
 - drag 暂未实现（CGEvent 链路留 P-AT.3b）；
   AccessibilityDriver.drag() 抛 DriverError。
-- send_test_bridge 抛 DriverError；
-  需 P-AT.1e Test Bridge socket 落地。
+- send_test_bridge 需要传入 TestBridgeClient；
+  当前实现支持 UnixSocketTestBridgeClient。
 - 视觉通道：visual assertion 恒 fail；
   SwiftUI runtime warning 已通过 file 通道断言（参考
   MT02-01 第 3 条 assertion）。完整 baseline diff 等 P-AT.4。
