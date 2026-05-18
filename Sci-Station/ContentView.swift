@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var launchCoordinator: SciStationLaunchCoordinator
     @AppStorage("sciStation.shellRightRailWidth") private var shellRightRailWidth = 360.0
     @State private var mainColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
@@ -52,6 +53,7 @@ struct ContentView: View {
                 }
             }
         }
+        .background(SciStationMainWindowGate(isLaunching: launchCoordinator.isLaunching))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if isPrimaryToolbarAction(.workspaceMenu) {
@@ -234,6 +236,7 @@ struct ContentView: View {
             await appModel.restoreLastWorkspaceIfNeeded()
             appModel.applyRightRailRouteSuggestion()
             appModel.recordToolbarPolicyChange(appModel.toolbarModel)
+            launchCoordinator.markAppPreparationFinished()
         }
         .background {
             GeometryReader { proxy in
@@ -487,5 +490,6 @@ struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
             .environmentObject(AppViewModel())
+            .environmentObject(SciStationLaunchCoordinator())
     }
 }

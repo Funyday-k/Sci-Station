@@ -430,6 +430,7 @@ private struct QueueEntryRow: View {
             .buttonStyle(.borderless)
             .disabled(isFirst)
             .help(appModel.localized("上移", "Move up"))
+            .accessibilityIdentifier(UITestAccessibilityID.Queue.moveUp(entry.id))
 
             Button(action: onMoveDown) {
                 Image(systemName: "arrow.down")
@@ -437,6 +438,7 @@ private struct QueueEntryRow: View {
             .buttonStyle(.borderless)
             .disabled(isLast)
             .help(appModel.localized("下移", "Move down"))
+            .accessibilityIdentifier(UITestAccessibilityID.Queue.moveDown(entry.id))
 
             Menu {
                 Section(appModel.localized("状态", "Status")) {

@@ -1,0 +1,61 @@
+id: MT19-P48-06
+title: Reading Queue row reorder writes queue.reorder
+tags: [P48, queue, reorder, smoke]
+setup:
+  research_root_required: true
+  preconditions:
+    - Standard workspace is open and contains at least one active research project.
+steps:
+  - kind: test_bridge
+    command: project.select_first
+    description: Select the first available project.
+  - kind: test_bridge
+    command: project.tab.select
+    args:
+      tab_id: queue
+    description: Open the ProjectSpace Queue tab.
+  - kind: test_bridge
+    command: queue.append
+    args:
+      external_key: queue-smoke-a
+      display_title: Queue Smoke A
+      scope: workspace
+      source: manual
+    description: Seed the first deterministic workspace queue row.
+  - kind: test_bridge
+    command: queue.append
+    args:
+      external_key: queue-smoke-b
+      display_title: Queue Smoke B
+      scope: workspace
+      source: manual
+    description: Seed the second deterministic workspace queue row.
+  - kind: test_bridge
+    command: queue.reorder
+    args:
+      scope: workspace
+      ordered_external_keys: [queue-smoke-b, queue-smoke-a]
+    description: Reorder the two seeded rows deterministically through the debug bridge.
+  - kind: wait_for_event
+    event: queue.reorder
+    timeout_seconds: 10.0
+    description: Wait for the reorder event emitted by ResearchQueueStore.
+assertions:
+  - channel: event
+    description: Queue reorder event is recorded for the workspace scope.
+    args:
+      event: queue.reorder
+      payload_contains:
+        scope: workspace
+      min_count: 1
+  - channel: file
+    description: The two seeded queue rows are persisted in library/queue.yaml.
+    args:
+      path: library/queue.yaml
+      loader: yaml
+      expected_subset:
+        entries:
+          - id: queue:workspace:queue-smoke-a
+            external_key: queue-smoke-a
+          - id: queue:workspace:queue-smoke-b
+            external_key: queue-smoke-b

@@ -41,6 +41,22 @@ def test_loads_yaml_scenario_when_pyyaml_present() -> None:
     assert scenario.steps[-1].event == "queue.append"
 
 
+def test_smoke_yaml_scenario_library_loads_and_covers_drag() -> None:
+    pytest.importorskip("yaml")
+    scenario_paths = sorted(SCENARIO_DIR.glob("*.yaml"))
+    scenarios = [load_scenario(path) for path in scenario_paths]
+
+    assert len(scenarios) >= 5
+    ids = [scenario.id for scenario in scenarios]
+    assert len(ids) == len(set(ids))
+    assert {"MT02-01", "MT18-P43.9-03", "MT19-P48-06", "MT03-01", "MT07-03"}.issubset(ids)
+    assert any(step.kind == "drag" for scenario in scenarios for step in scenario.steps)
+    supported_steps = {"click", "type", "drag", "wait_for_event", "sleep", "test_bridge"}
+    assert {
+        step.kind for scenario in scenarios for step in scenario.steps
+    }.issubset(supported_steps)
+
+
 def test_rejects_scenario_without_steps() -> None:
     payload = """
     {

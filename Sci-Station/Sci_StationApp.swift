@@ -10,11 +10,14 @@ import SwiftUI
 @main
 struct Sci_StationApp: App {
     @StateObject private var appModel = AppViewModel()
+    @StateObject private var launchCoordinator = SciStationLaunchCoordinator()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appModel)
+                .environmentObject(launchCoordinator)
+                .onAppear(perform: launchCoordinator.start)
         }
         .defaultSize(width: 1360, height: 860)
         .commands {

@@ -8229,10 +8229,34 @@ final class AppViewModel: ObservableObject {
                 result = UITestBridgeCommandResult(fields: [
                     "selected_section": .string(selectedSection?.rawValue ?? section.rawValue)
                 ])
+            case "project.select_first":
+                result = try selectFirstProjectForUITestBridge()
+            case "project.tab.select":
+                result = try selectProjectTabForUITestBridge(args: command.args)
+            case "home.layout.enter_edit":
+                selectSection(.dashboard)
+                enterHomeLayoutEdit()
+                result = UITestBridgeCommandResult(fields: [
+                    "selected_section": .string(selectedSection?.rawValue ?? ""),
+                    "is_editing": .bool(isEditingHomeLayout)
+                ])
+            case "home.layout.exit_edit":
+                exitHomeLayoutEdit()
+                result = UITestBridgeCommandResult(fields: [
+                    "is_editing": .bool(isEditingHomeLayout)
+                ])
             case "library.import.attachFixturePDF":
                 result = try await importFixturePDFForUITestBridge(args: command.args)
             case "queue.append":
                 result = try await appendQueueEntryForUITestBridge(args: command.args)
+            case "queue.reorder":
+                result = try await reorderQueueForUITestBridge(args: command.args)
+            case "wiki.page.create":
+                result = try await createWikiPageForUITestBridge(args: command.args)
+            case "wiki.page.rename_selected":
+                result = try await renameSelectedWikiPageForUITestBridge(args: command.args)
+            case "agent.prompt.set":
+                result = try await setAgentPromptForUITestBridge(args: command.args)
             default:
                 throw UITestBridgeCommandError.unknownCommand(command.name)
             }
@@ -8260,6 +8284,30 @@ final class AppViewModel: ObservableObject {
             selectedSection = .projects
         }
         return workspace
+    }
+
+    private func selectFirstProjectForUITestBridge() throws -> UITestBridgeCommandResult {
+        guard let project = activeResearchProjects.first ?? researchProjects.first else {
+            throw UITestBridgeCommandError.missingArgument("project")
+        }
+        selectResearchProject(project.id, section: .projects)
+        return UITestBridgeCommandResult(fields: [
+            "project_id": .string(project.id),
+            "selected_section": .string(selectedSection?.rawValue ?? ""),
+            "project_tab_id": .string(selectedProjectSpaceTabID)
+        ])
+    }
+
+    private func selectProjectTabForUITestBridge(args: [String: JSONValue]) throws -> UITestBridgeCommandResult {
+        if selectedProjectSpaceProjectID == nil {
+            _ = try selectFirstProjectForUITestBridge()
+        }
+        let tabID = try bridgeString(args, keys: ["tab_id", "tab", "id"])
+        selectProjectSpaceTab(tabID)
+        return UITestBridgeCommandResult(fields: [
+            "project_id": .string(selectedProjectSpaceProjectID ?? ""),
+            "project_tab_id": .string(selectedProjectSpaceTabID)
+        ])
     }
 
     private func importFixturePDFForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
@@ -8377,6 +8425,92 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    private func reorderQueueForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
+        guard let store = researchQueueStore else {
+            throw UITestBridgeCommandError.missingWorkspace
+        }
+        let scope = QueueScope(identifier: bridgeOptionalString(args, keys: ["scope"]) ?? QueueScope.workspace.identifier) ?? .workspace
+        let orderedIDs = bridgeStringArray(args, key: "ordered_ids")
+        let orderedExternalKeys = bridgeStringArray(args, key: "ordered_external_keys")
+        let resolvedIDs = orderedIDs.isEmpty
+            ? orderedExternalKeys.map { "queue:\(scope.identifier):\($0)" }
+            : orderedIDs
+        guard !resolvedIDs.isEmpty else {
+            throw UITestBridgeCommandError.missingArgument("ordered_ids or ordered_external_keys")
+        }
+        try await store.reorder(scope: scope, orderedIDs: resolvedIDs)
+        await refreshResearchQueueSnapshot()
+        return UITestBridgeCommandResult(fields: [
+            "scope": .string(scope.identifier),
+            "count": .number(String(resolvedIDs.count))
+        ])
+    }
+
+    private func createWikiPageForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
+        guard let currentWorkspace else {
+            throw UITestBridgeCommandError.missingWorkspace
+        }
+        let name = bridgeOptionalString(args, keys: ["name", "title"]) ?? "UITest Smoke Page"
+        let relativePath = bridgeOptionalString(args, keys: ["relative_path", "path"])
+            ?? wikiManagedRelativePath(from: name, defaultFileName: "uitest_smoke_page.md")
+        let contents = bridgeOptionalString(args, keys: ["contents", "body"])
+            ?? "# \(markdownTitle(from: name))\n"
+        let document: MarkdownDocument
+        do {
+            document = try await markdownRepository.createDocument(relativePath: relativePath, contents: contents, in: currentWorkspace)
+        } catch MarkdownRepositoryError.destinationAlreadyExists(_) {
+            document = try await markdownRepository.loadDocument(relativePath: relativePath, in: currentWorkspace)
+        }
+        recordAppDebugEvent("wiki.file.create", payload: .object(["relative_path": .string(document.relativePath)]))
+        try await loadMarkdownDocuments(in: currentWorkspace, selecting: document.id)
+        selectedSection = .wiki
+        return UITestBridgeCommandResult(fields: [
+            "relative_path": .string(document.relativePath),
+            "selected_markdown_id": .string(selectedMarkdownID ?? "")
+        ])
+    }
+
+    private func renameSelectedWikiPageForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
+        guard let currentWorkspace, let selectedMarkdownDraft else {
+            throw UITestBridgeCommandError.missingArgument("selected markdown")
+        }
+        let newFileName = try bridgeString(args, keys: ["new_file_name", "file_name", "name"])
+        let oldPath = selectedMarkdownDraft.relativePath
+        let document = try await markdownRepository.renameDocument(relativePath: oldPath, toFileName: newFileName, in: currentWorkspace)
+        recordAppDebugEvent("wiki.file.rename", payload: .object([
+            "from": .string(oldPath),
+            "to": .string(document.relativePath)
+        ]))
+        try await loadMarkdownDocuments(in: currentWorkspace, selecting: document.id)
+        selectedSection = .wiki
+        return UITestBridgeCommandResult(fields: [
+            "from": .string(oldPath),
+            "to": .string(document.relativePath)
+        ])
+    }
+
+    private func setAgentPromptForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
+        guard let currentWorkspace else {
+            throw UITestBridgeCommandError.missingWorkspace
+        }
+        let text = try bridgeString(args, keys: ["text", "prompt", "goal"])
+        selectSection(.llmLab)
+        if bridgeBool(args, key: "new_thread", defaultValue: true) {
+            startNewAgentConversation()
+        }
+        agentGoal = text
+        let projectID = agentDraftProjectIDForCurrentConversation
+        let threadID = activeAgentThreadID
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        try await agentService.saveDraft(text, projectID: projectID, threadID: threadID, in: root)
+        agentGoalDrafts[agentDraftKey(projectID: projectID, threadID: threadID)] = text
+        return UITestBridgeCommandResult(fields: [
+            "project_id": .string(projectID ?? ""),
+            "thread_id": .string(threadID ?? ""),
+            "text_length": .number(String(text.count))
+        ])
+    }
+
     private func fixturePDFURLForUITestBridge(args: [String: JSONValue]) throws -> URL {
         if let path = bridgeOptionalString(args, keys: ["fixture_path", "path", "pdf_path"]) {
             let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
@@ -8442,6 +8576,15 @@ final class AppViewModel: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func bridgeStringArray(_ args: [String: JSONValue], key: String) -> [String] {
+        guard let values = args[key]?.arrayValue else {
+            return []
+        }
+        return values.compactMap { value in
+            value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+        }
     }
 
     private func bridgeBool(_ args: [String: JSONValue], key: String, defaultValue: Bool) -> Bool {

@@ -115,11 +115,20 @@ def test_non_json_response_is_reported_clearly(stub_driver) -> None:
     assert "non-object JSON" in str(exc_info.value) or "non-JSON" in str(exc_info.value)
 
 
-def test_drag_is_not_implemented_yet(stub_driver) -> None:
-    driver, _ = stub_driver
-    with pytest.raises(DriverError) as exc_info:
-        driver.drag("queue.row.a", "queue.row.b")
-    assert "drag" in str(exc_info.value).lower()
+def test_drag_emits_well_formed_request(stub_driver) -> None:
+    driver, transport = stub_driver
+    transport.enqueue({"ok": True})
+
+    driver.drag("queue.row.a", "queue.row.b")
+
+    assert transport.sent == [
+        {
+            "cmd": "drag",
+            "bundle": "com.example.Test",
+            "source_axid": "queue.row.a",
+            "target_axid": "queue.row.b",
+        }
+    ]
 
 
 def test_send_test_bridge_requires_client(stub_driver) -> None:

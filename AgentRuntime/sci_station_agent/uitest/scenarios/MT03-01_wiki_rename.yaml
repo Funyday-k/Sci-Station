@@ -1,0 +1,46 @@
+id: MT03-01
+title: Wiki page create and rename persists the renamed file
+tags: [wiki, markdown, rename, smoke]
+setup:
+  research_root_required: true
+  preconditions:
+    - Standard workspace is open.
+steps:
+  - kind: test_bridge
+    command: route.select
+    args:
+      section: wiki
+    description: Switch to Wiki.
+  - kind: test_bridge
+    command: wiki.page.create
+    args:
+      relative_path: wiki/uitest_smoke_original.md
+      contents: |
+        # UITest Smoke Original
+
+        Created by the AI usage smoke suite.
+    description: Create or select a deterministic smoke wiki page.
+  - kind: test_bridge
+    command: wiki.page.rename_selected
+    args:
+      new_file_name: uitest_smoke_renamed.md
+    description: Rename the selected smoke wiki page.
+  - kind: wait_for_event
+    event: wiki.file.rename
+    timeout_seconds: 10.0
+    description: Wait for the wiki rename event.
+assertions:
+  - channel: event
+    description: Wiki rename event records the old and new relative paths.
+    args:
+      event: wiki.file.rename
+      payload_contains:
+        from: wiki/uitest_smoke_original.md
+        to: wiki/uitest_smoke_renamed.md
+      min_count: 1
+  - channel: file
+    description: The renamed wiki file exists with the original contents.
+    args:
+      path: wiki/uitest_smoke_renamed.md
+      loader: text
+      expected_contains_text: UITest Smoke Original

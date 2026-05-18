@@ -22,6 +22,7 @@ SCENARIO_PAYLOAD = """
   "title": "Runner smoke test",
   "steps": [
     {"kind": "click", "target": "library.import.button"},
+    {"kind": "drag", "target": "queue.row.a", "to": "queue.row.b"},
     {"kind": "test_bridge", "command": "library.import.attachFixturePDF",
      "args": {"fixture_id": "import-smoke-01"}},
     {"kind": "wait_for_event", "event": "queue.append", "timeout_seconds": 0.5}
@@ -104,7 +105,7 @@ def test_runner_records_driver_actions(tmp_path: Path) -> None:
     actions = runner.driver.actions  # type: ignore[attr-defined]
 
     kinds = [action[0] for action in actions]
-    assert kinds == ["click", "send_test_bridge"]
+    assert kinds == ["click", "drag", "send_test_bridge"]
 
 
 def test_render_markdown_summarises_run(tmp_path: Path) -> None:

@@ -357,6 +357,7 @@ struct HomeWidgetDashboardView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+                .accessibilityIdentifier(UITestAccessibilityID.Home.gallery)
 
                 Button {
                     appModel.resetHomeWidgetLayout(columns: columns)
@@ -365,6 +366,7 @@ struct HomeWidgetDashboardView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+                .accessibilityIdentifier(UITestAccessibilityID.Home.resetDefault)
 
                 Button {
                     appModel.exitHomeLayoutEdit()
@@ -373,6 +375,7 @@ struct HomeWidgetDashboardView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
+                .accessibilityIdentifier(UITestAccessibilityID.Home.doneEditing)
             } else {
                 Button {
                     appModel.enterHomeLayoutEdit()
@@ -381,6 +384,7 @@ struct HomeWidgetDashboardView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+                .accessibilityIdentifier(UITestAccessibilityID.Home.editLayout)
             }
         }
     }

@@ -76,6 +76,7 @@
 
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import Foundation
 
 let VERSION = "0.1.0"
@@ -122,6 +123,71 @@ private func stringAttribute(_ element: AXUIElement, _ name: String) -> String? 
 
 private func children(_ element: AXUIElement) -> [AXUIElement] {
     (attributeValue(element, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+}
+
+private func firstString(_ request: [String: Any], _ keys: String...) -> String? {
+    for key in keys {
+        if let value = request[key] as? String, !value.isEmpty {
+            return value
+        }
+    }
+    return nil
+}
+
+private func numberValue(_ value: Any?) -> NSNumber? {
+    if let number = value as? NSNumber {
+        return number
+    }
+    if let string = value as? String, let double = Double(string) {
+        return NSNumber(value: double)
+    }
+    return nil
+}
+
+private func axPoint(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
+    guard let rawValue = attributeValue(element, attribute) else {
+        return nil
+    }
+    guard CFGetTypeID(rawValue) == AXValueGetTypeID() else {
+        return nil
+    }
+    let value = rawValue as! AXValue
+    guard AXValueGetType(value) == .cgPoint else {
+        return nil
+    }
+    var point = CGPoint.zero
+    guard AXValueGetValue(value, .cgPoint, &point) else {
+        return nil
+    }
+    return point
+}
+
+private func axSize(_ element: AXUIElement, _ attribute: String) -> CGSize? {
+    guard let rawValue = attributeValue(element, attribute) else {
+        return nil
+    }
+    guard CFGetTypeID(rawValue) == AXValueGetTypeID() else {
+        return nil
+    }
+    let value = rawValue as! AXValue
+    guard AXValueGetType(value) == .cgSize else {
+        return nil
+    }
+    var size = CGSize.zero
+    guard AXValueGetValue(value, .cgSize, &size) else {
+        return nil
+    }
+    return size
+}
+
+private func elementCenter(_ element: AXUIElement) -> CGPoint? {
+    guard let origin = axPoint(element, kAXPositionAttribute as String),
+          let size = axSize(element, kAXSizeAttribute as String),
+          size.width > 0,
+          size.height > 0 else {
+        return nil
+    }
+    return CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
 }
 
 private func findByIdentifier(
@@ -330,6 +396,63 @@ private func handleType(_ request: [String: Any]) {
     }
 }
 
+private func handleDrag(_ request: [String: Any]) {
+    guard let bundle = firstString(request, "bundle"),
+          let sourceID = firstString(request, "source_axid", "axid"),
+          let targetID = firstString(request, "target_axid", "to_axid", "to") else {
+        writeError("missing 'bundle', 'source_axid' or 'target_axid'")
+        return
+    }
+    let timeoutMs = (request["timeout_ms"] as? Int) ?? 4000
+    guard let sourceElement = findByIdentifierWithRetry(bundle: bundle, axid: sourceID, timeoutMs: timeoutMs) else {
+        writeError("source element not found for axid '\(sourceID)'")
+        return
+    }
+    guard let targetElement = findByIdentifierWithRetry(bundle: bundle, axid: targetID, timeoutMs: timeoutMs) else {
+        writeError("target element not found for axid '\(targetID)'")
+        return
+    }
+    guard let start = elementCenter(sourceElement) else {
+        writeError("source element has no usable frame for axid '\(sourceID)'")
+        return
+    }
+    guard let end = elementCenter(targetElement) else {
+        writeError("target element has no usable frame for axid '\(targetID)'")
+        return
+    }
+    let requestedSteps = numberValue(request["steps"])?.intValue ?? 24
+    let steps = max(2, min(requestedSteps, 120))
+    let requestedDuration = numberValue(request["duration_seconds"])?.doubleValue ?? 0.35
+    let duration = max(0.05, min(requestedDuration, 5.0))
+    guard let source = CGEventSource(stateID: .combinedSessionState),
+          let mouseDown = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else {
+        writeError("failed to create drag mouseDown event")
+        return
+    }
+    runningApp(bundle: bundle)?.activate()
+    mouseDown.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: min(0.08, duration / 2))
+    for index in 1...steps {
+        let fraction = CGFloat(index) / CGFloat(steps)
+        let point = CGPoint(
+            x: start.x + (end.x - start.x) * fraction,
+            y: start.y + (end.y - start.y) * fraction
+        )
+        guard let drag = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left) else {
+            writeError("failed to create drag mouseDragged event")
+            return
+        }
+        drag.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: duration / Double(steps))
+    }
+    guard let mouseUp = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left) else {
+        writeError("failed to create drag mouseUp event")
+        return
+    }
+    mouseUp.post(tap: .cghidEventTap)
+    writeResponse(["ok": true])
+}
+
 private func handleTree(_ request: [String: Any]) {
     guard let bundle = request["bundle"] as? String else {
         writeError("missing 'bundle'")
@@ -376,6 +499,7 @@ private func dispatch(_ raw: String) -> Bool {
     case "find":         handleFind(parsed)
     case "click":        handleClick(parsed)
     case "type":         handleType(parsed)
+    case "drag":         handleDrag(parsed)
     case "tree":         handleTree(parsed)
     case "quit":
         writeResponse(["ok": true])

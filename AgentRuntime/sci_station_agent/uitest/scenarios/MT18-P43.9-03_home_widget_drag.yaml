@@ -1,0 +1,42 @@
+id: MT18-P43.9-03
+title: Home widget drag commits a persisted layout move
+tags: [P43.9, home, widgets, drag, smoke]
+setup:
+  research_root_required: true
+  preconditions:
+    - Standard workspace is open with default Home widgets enabled.
+steps:
+  - kind: test_bridge
+    command: route.select
+    args:
+      section: dashboard
+    description: Switch to Home.
+  - kind: test_bridge
+    command: home.layout.enter_edit
+    description: Enter Home layout edit mode without relying on localized button text.
+  - kind: drag
+    target: home.widget.ai_review
+    to: home.widget.active_projects
+    description: Drag AI Review onto Active Projects.
+  - kind: wait_for_event
+    event: home.widget.move
+    timeout_seconds: 10.0
+    description: Wait for the layout move event emitted by the drag handler.
+  - kind: test_bridge
+    command: home.layout.exit_edit
+    description: Exit edit mode after the drag.
+assertions:
+  - channel: event
+    description: Drag-and-drop committed as an onto-style widget move.
+    args:
+      event: home.widget.move
+      payload_contains:
+        widget_id: ai_review
+        onto: active_projects
+      min_count: 1
+  - channel: file
+    description: Home drag produced no SwiftUI runtime warning.
+    args:
+      path: .sci-station/debug/swiftui_warnings.log
+      loader: text
+      expected_equals: ""

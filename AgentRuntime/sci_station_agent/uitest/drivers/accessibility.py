@@ -257,9 +257,13 @@ class AccessibilityDriver:
         )
 
     def drag(self, source_id: str, target_id: str) -> None:
-        raise DriverError(
-            "AccessibilityDriver does not implement drag yet; "
-            "drag-and-drop scenarios are deferred to P-AT.3b."
+        self._call(
+            {
+                "cmd": "drag",
+                "bundle": self.bundle_id,
+                "source_axid": source_id,
+                "target_axid": target_id,
+            }
         )
 
     def send_test_bridge(self, command: str, args: Mapping[str, Any]) -> None:

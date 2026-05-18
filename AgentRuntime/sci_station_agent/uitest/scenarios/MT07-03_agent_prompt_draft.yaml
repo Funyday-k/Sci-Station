@@ -1,0 +1,38 @@
+id: MT07-03
+title: AI Lab new chat prompt draft is persisted without running tools
+tags: [ai-lab, agent, draft, smoke]
+setup:
+  research_root_required: true
+  preconditions:
+    - Standard workspace is open.
+steps:
+  - kind: test_bridge
+    command: route.select
+    args:
+      section: llmLab
+    description: Switch to AI Lab.
+  - kind: test_bridge
+    command: agent.prompt.set
+    args:
+      prompt: Summarize the current reading queue for tomorrow.
+      new_thread: true
+    description: Start a new AI Lab draft chat and persist the composer text.
+  - kind: wait_for_event
+    event: agent.thread_started
+    timeout_seconds: 10.0
+    description: Wait for the new draft thread event.
+assertions:
+  - channel: event
+    description: Starting the draft chat emits agent.thread_started.
+    args:
+      event: agent.thread_started
+      min_count: 1
+  - channel: file
+    description: The prompt draft is saved under the agent draft store.
+    args:
+      path: .sci-station/agent/drafts.json
+      loader: json
+      expected_subset:
+        schema_version: 1
+        drafts:
+          - text: Summarize the current reading queue for tomorrow.

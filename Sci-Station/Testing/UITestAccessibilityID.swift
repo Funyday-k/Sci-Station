@@ -38,6 +38,10 @@ public nonisolated enum UITestAccessibilityID {
         /// The widget container in the Home dashboard. Suffix is the
         /// `HomeWidgetID.rawValue` (e.g. `today`, `active_projects`).
         public static func widget(_ widgetID: String) -> String { "home.widget.\(widgetID)" }
+        public static let editLayout = "home.layout.edit"
+        public static let doneEditing = "home.layout.done"
+        public static let resetDefault = "home.layout.reset"
+        public static let gallery = "home.layout.gallery"
     }
 
     // MARK: - Library
@@ -53,6 +57,8 @@ public nonisolated enum UITestAccessibilityID {
     public enum Queue {
         /// A row in the Reading Queue, suffix is the `ResearchQueueEntry.id`.
         public static func row(_ entryID: String) -> String { "queue.row.\(entryID)" }
+        public static func moveUp(_ entryID: String) -> String { "queue.row.move_up.\(entryID)" }
+        public static func moveDown(_ entryID: String) -> String { "queue.row.move_down.\(entryID)" }
         public static let list = "queue.list"
         public static let emptyState = "queue.empty_state"
     }
