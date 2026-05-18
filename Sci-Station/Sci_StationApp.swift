@@ -14,10 +14,14 @@ struct Sci_StationApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appModel)
-                .environmentObject(launchCoordinator)
-                .onAppear(perform: launchCoordinator.start)
+            LaunchSplashGate(launchCoordinator: launchCoordinator) {
+                ContentView()
+                    .environmentObject(appModel)
+                    .environmentObject(launchCoordinator)
+            }
+            .onAppear {
+                launchCoordinator.start(appModel: appModel)
+            }
         }
         .defaultSize(width: 1360, height: 860)
         .commands {
