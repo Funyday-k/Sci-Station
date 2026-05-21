@@ -81,7 +81,7 @@ public nonisolated struct RecommendationConfigStore {
             } else if trimmed.hasPrefix("top_k:") {
                 let raw = value(after: "top_k:", in: trimmed)
                 guard let topK = Int(raw) else { throw RecommendationConfigStoreError.invalidTopK(raw) }
-                config.topK = min(max(topK, 1), 50)
+                config.topK = min(max(topK, 1), 100)
             } else if trimmed.hasPrefix("external_network_enabled:") {
                 config.externalNetworkEnabled = bool(value(after: "external_network_enabled:", in: trimmed))
             } else if trimmed.hasPrefix("max_daily_candidates:") {

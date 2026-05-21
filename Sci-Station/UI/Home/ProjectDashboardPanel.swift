@@ -122,61 +122,35 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("阅读队列", "Reading Queue"), systemImage: "tray.full") {
-                        if snapshot.readingQueuePreview.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(appModel.localized("还没有论文进入项目阅读队。从 Library / Graph 右键“Add to Project Queue”开始。", "Add a paper from Library / Graph to start your queue."))
+                    ProjectDashboardCard(title: appModel.localized("Reading", "Reading"), systemImage: "book") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let plan = snapshot.activeReadingPlan {
+                                ProjectDashboardReadingPlanSummary(plan: plan)
+                            }
+                            if snapshot.readingQueuePreview.isEmpty {
+                                Text(appModel.localized("还没有论文进入 Reading。从 Library 添加，或打开 arXiv 推荐。", "Add a paper from Library, or open arXiv Recommendations."))
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
-                                Button {
-                                    recordAction("open_queue_tab_empty", targetID: snapshot.projectID)
-                                    appModel.selectProjectSpaceTab("queue")
-                                } label: {
-                                    Label(appModel.localized("打开 Queue 页", "Open Queue Tab"), systemImage: "tray.full")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                        } else {
-                            VStack(alignment: .leading, spacing: 6) {
+                            } else {
                                 ForEach(snapshot.readingQueuePreview) { entry in
                                     Button {
                                         recordAction("open_queue_entry", targetID: entry.id)
                                         if let paperID = entry.paperID {
                                             appModel.selectPaper(id: paperID)
                                         }
-                                        appModel.selectProjectSpaceTab("queue")
+                                        appModel.selectProjectSpaceTab("reading")
                                     } label: {
                                         ProjectDashboardQueueRow(entry: entry)
                                     }
                                     .buttonStyle(.plain)
                                 }
-                                if snapshot.readingQueuePreview.count >= 3 {
-                                    Button {
-                                        recordAction("open_queue_tab_more", targetID: snapshot.projectID)
-                                        appModel.selectProjectSpaceTab("queue")
-                                    } label: {
-                                        Label(appModel.localized("查看全部队列", "View full queue"), systemImage: "arrow.up.right")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
                             }
-                        }
-                    }
-
-                    ProjectDashboardCard(title: appModel.localized("Current Reading Plan", "Current Reading Plan"), systemImage: "list.bullet.rectangle") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(snapshot.currentReadingPlan ?? appModel.localized("Reading Plan 数据源将在 P50 接入。", "Reading Plan data arrives in P50."))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
                             Button {
-                                recordAction("open_reading_plan_placeholder", targetID: snapshot.projectID)
-                                appModel.selectResearchProject(snapshot.projectID, section: .library)
+                                recordAction("open_reading", targetID: snapshot.projectID)
+                                appModel.selectProjectSpaceTab("reading")
                             } label: {
-                                Label(appModel.localized("查看项目论文", "View Project Papers"), systemImage: "books.vertical")
+                                Label(appModel.localized("打开 Reading", "Open Reading"), systemImage: "book")
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -209,6 +183,9 @@ struct ProjectDashboardPanel: View {
         .onChange(of: appModel.researchQueueScopes) { _, _ in
             Task { await reload(invalidating: true) }
         }
+        .onChange(of: appModel.readingPlanScopes) { _, _ in
+            Task { await reload(invalidating: true) }
+        }
     }
 
     @MainActor
@@ -226,7 +203,8 @@ struct ProjectDashboardPanel: View {
                 markdownDocuments: appModel.markdownDocuments,
                 agentRuns: agentRunsForAggregation,
                 unsupportedClaims: unsupportedClaimsForAggregation,
-                queueEntries: Array(appModel.researchQueueScopes.values.joined())
+                queueEntries: Array(appModel.researchQueueScopes.values.joined()),
+                activeReadingPlan: appModel.currentProjectID.map { appModel.activeReadingPlanSummary(in: .project($0)) } ?? nil
             )
             let nextSnapshot = try await aggregator.snapshot(input: input)
             snapshot = nextSnapshot
@@ -333,6 +311,35 @@ private struct ProjectDashboardQueueRow: View {
         case .manual: break
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+private struct ProjectDashboardReadingPlanSummary: View {
+    let plan: ReadingPlanSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("\(plan.completedSlotCount)/\(plan.totalSlotCount)")
+                    .font(.headline.monospacedDigit())
+                Text("finished")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text("\(plan.estimatedMinutes)m")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(plan.slots.prefix(3)) { slot in
+                HStack(spacing: 6) {
+                    Image(systemName: slot.status == .finished ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(slot.status == .finished ? .green : .secondary)
+                    Text(slot.displayTitle)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 }
 

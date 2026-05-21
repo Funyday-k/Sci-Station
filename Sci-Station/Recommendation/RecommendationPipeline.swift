@@ -34,7 +34,12 @@ public actor RecommendationPipeline {
         config: RecommendationConfig = RecommendationConfig(),
         trigger: RecommendationTriggerReason = .manual,
         locale: RecommendationLocale = .en,
-        persistSnapshot: Bool = true
+        persistSnapshot: Bool = true,
+        force: Bool = false,
+        query: String = "",
+        categories: [String] = [],
+        sourceDate: Date? = nil,
+        sourceNote: String? = nil
     ) async throws -> RecommendationRunResult? {
         await scorer.updateConfig(config)
         var resolvedContext = context
@@ -49,7 +54,8 @@ public actor RecommendationPipeline {
         )
         let hash = Self.candidateHash(candidates)
         let now = dateProvider()
-        if let lastCandidateHash,
+        if !force,
+           let lastCandidateHash,
            let lastRunAt,
            lastCandidateHash == hash,
            now.timeIntervalSince(lastRunAt) < 30 * 60 {
@@ -65,7 +71,11 @@ public actor RecommendationPipeline {
             contextProjectID: context.projectID,
             generatedAt: now,
             candidateCount: candidates.count,
-            scores: topK
+            scores: topK,
+            query: query,
+            categories: categories,
+            sourceDate: sourceDate,
+            sourceNote: sourceNote
         )
 
         if persistSnapshot {
@@ -130,7 +140,41 @@ public actor RecommendationPipeline {
         return "rec-\(datePart)-\(hash.prefix(8))"
     }
 
-    private func persist(_ result: RecommendationRunResult, candidateHash: String, workspace: ResearchWorkspace) throws {
+    public func loadHistory(workspace: ResearchWorkspace, limit: Int = 20) throws -> [RecommendationRunResult] {
+        let notesDirectory = workspace.fileURL(for: Self.notesRelativeDirectory)
+        guard fileManager.fileExists(atPath: notesDirectory.path) else {
+            return []
+        }
+        let urls = try fileManager.contentsOfDirectory(at: notesDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension.lowercased() == "json" }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try urls.compactMap { url in
+            let data = try Data(contentsOf: url)
+            return try? decoder.decode(RecommendationRunResult.self, from: data)
+        }
+        .sorted { lhs, rhs in
+            lhs.generatedAt > rhs.generatedAt
+        }
+        .prefix(max(limit, 1))
+        .map { $0 }
+    }
+
+    public func recommendedCandidateKeys(workspace: ResearchWorkspace) throws -> Set<String> {
+        let history = try loadHistory(workspace: workspace, limit: 200)
+        return Set(history.flatMap { result in
+            result.scores.flatMap { score in
+                [
+                    score.id,
+                    score.candidate.canonicalID,
+                    score.candidate.externalKey
+                ]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            }
+        })
+    }
+
+    public func persistSnapshot(_ result: RecommendationRunResult, workspace: ResearchWorkspace) throws {
         let notesDirectory = workspace.fileURL(for: Self.notesRelativeDirectory)
         try fileManager.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
         let snapshotURL = notesDirectory.appendingPathComponent("\(result.id).json", isDirectory: false)
@@ -138,6 +182,10 @@ public actor RecommendationPipeline {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(result).write(to: snapshotURL, options: .atomic)
+    }
+
+    private func persist(_ result: RecommendationRunResult, candidateHash: String, workspace: ResearchWorkspace) throws {
+        try persistSnapshot(result, workspace: workspace)
 
         let historyURL = workspace.fileURL(for: Self.historyRelativePath)
         try fileManager.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, IO, Mapping, Protocol
@@ -46,6 +48,7 @@ from sci_station_agent.uitest.test_bridge import TestBridgeClient, TestBridgeErr
 
 DEFAULT_BUNDLE_ID = "Lingyu-Xia.Sci-Station"
 DEFAULT_TIMEOUT_MS = 4_000
+DEFAULT_PROBE_READ_TIMEOUT_S = 8.0
 
 
 class Transport(Protocol):
@@ -66,12 +69,18 @@ class Transport(Protocol):
 class SubprocessTransport:
     """Spawns the SciStationUIProbe binary and pipes its stdio."""
 
-    def __init__(self, probe_path: Path) -> None:
+    def __init__(
+        self,
+        probe_path: Path,
+        *,
+        read_timeout_s: float = DEFAULT_PROBE_READ_TIMEOUT_S,
+    ) -> None:
         if not probe_path.exists():
             raise FileNotFoundError(
                 f"SciStationUIProbe binary not found at '{probe_path}'."
                 " Build it with: swift build --product SciStationUIProbe"
             )
+        self._read_timeout_s = read_timeout_s
         self._process = subprocess.Popen(  # noqa: S603 - probe path is validated
             [str(probe_path)],
             stdin=subprocess.PIPE,
@@ -85,48 +94,93 @@ class SubprocessTransport:
         assert self._process.stdout is not None
         self._stdin: IO[bytes] = self._process.stdin
         self._stdout: IO[bytes] = self._process.stdout
+        self._stdout_fd = self._stdout.fileno()
+        self._read_buffer = bytearray()
         self._lock = threading.Lock()
 
     def send_line(self, line: str) -> None:
         with self._lock:
             payload = line.rstrip("\n").encode("utf-8") + b"\n"
-            self._stdin.write(payload)
-            self._stdin.flush()
+            try:
+                self._stdin.write(payload)
+                self._stdin.flush()
+            except BrokenPipeError as exc:
+                raise DriverError("SciStationUIProbe stdin closed unexpectedly") from exc
 
     def recv_line(self) -> str:
-        raw = self._stdout.readline()
-        if not raw:
-            stderr = b""
-            if self._process.stderr is not None:
-                try:
-                    stderr = self._process.stderr.read()
-                except Exception:
-                    stderr = b""
-            raise DriverError(
-                "SciStationUIProbe closed its stdout unexpectedly"
-                + (f"; stderr={stderr.decode('utf-8', errors='replace')!r}" if stderr else "")
-            )
-        return raw.decode("utf-8").rstrip("\n")
+        deadline = time.monotonic() + self._read_timeout_s
+        while True:
+            newline_index = self._read_buffer.find(b"\n")
+            if newline_index >= 0:
+                raw = bytes(self._read_buffer[:newline_index])
+                del self._read_buffer[: newline_index + 1]
+                return raw.decode("utf-8", errors="replace").rstrip("\r")
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DriverError(
+                    "SciStationUIProbe timed out after "
+                    f"{self._read_timeout_s:.1f}s waiting for a response line"
+                )
+
+            try:
+                ready, _, _ = select.select([self._stdout_fd], [], [], remaining)
+            except (OSError, ValueError) as exc:
+                raise DriverError(f"SciStationUIProbe stdout is not readable: {exc}") from exc
+            if not ready:
+                raise DriverError(
+                    "SciStationUIProbe timed out after "
+                    f"{self._read_timeout_s:.1f}s waiting for a response line"
+                )
+            try:
+                chunk = os.read(self._stdout_fd, 4096)
+            except OSError as exc:
+                raise DriverError(f"SciStationUIProbe stdout read failed: {exc}") from exc
+            if not chunk:
+                stderr = self._read_available_stderr()
+                raise DriverError(
+                    "SciStationUIProbe closed its stdout unexpectedly"
+                    + (
+                        f"; stderr={stderr.decode('utf-8', errors='replace')!r}"
+                        if stderr
+                        else ""
+                    )
+                )
+            self._read_buffer.extend(chunk)
+
+    def _read_available_stderr(self) -> bytes:
+        if self._process.stderr is None:
+            return b""
+        fd = self._process.stderr.fileno()
+        chunks: list[bytes] = []
+        while True:
+            try:
+                ready, _, _ = select.select([fd], [], [], 0)
+            except (OSError, ValueError):
+                break
+            if not ready:
+                break
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     def close(self) -> None:
         if self._process.poll() is not None:
             return
+        self._process.terminate()
         try:
-            self.send_line(json.dumps({"cmd": "quit"}))
-            # Drain the goodbye response then wait briefly.
+            self._process.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
             try:
-                _ = self.recv_line()
-            except DriverError:
-                pass
-        finally:
-            try:
-                self._process.wait(timeout=2.0)
+                self._process.wait(timeout=0.5)
             except subprocess.TimeoutExpired:
-                self._process.terminate()
-                try:
-                    self._process.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    self._process.kill()
+                pass
 
 
 class PipeTransport:
@@ -228,6 +282,7 @@ class AccessibilityDriver:
     transport: Transport | None = None
     test_bridge: TestBridgeClient | None = None
     probe_path: Path | None = None
+    probe_read_timeout_s: float = DEFAULT_PROBE_READ_TIMEOUT_S
     _owns_transport: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -238,7 +293,10 @@ class AccessibilityDriver:
                     "SciStationUIProbe binary could not be located. Pass "
                     "probe_path=… or set SCI_STATION_UI_PROBE."
                 )
-            self.transport = SubprocessTransport(probe)
+            self.transport = SubprocessTransport(
+                probe,
+                read_timeout_s=self.probe_read_timeout_s,
+            )
             self._owns_transport = True
 
     # -- protocol surface ----------------------------------------------------
@@ -281,6 +339,12 @@ class AccessibilityDriver:
 
     def ping(self) -> str:
         return str(self._call({"cmd": "ping"})["version"])
+
+    def list_running(self) -> list[dict[str, Any]]:
+        apps = self._call({"cmd": "list_running"}).get("apps")
+        if not isinstance(apps, list):
+            return []
+        return [dict(app) for app in apps if isinstance(app, dict)]
 
     def is_trusted(self) -> bool:
         return bool(self._call({"cmd": "permission"})["trusted"])

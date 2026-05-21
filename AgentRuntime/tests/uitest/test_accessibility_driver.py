@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ from sci_station_agent.uitest.drivers.accessibility import (
     AccessibilityDriver,
     DEFAULT_BUNDLE_ID,
     StubTransport,
+    SubprocessTransport,
 )
 from sci_station_agent.uitest.drivers.base import DriverError
 from sci_station_agent.uitest.test_bridge import StubTestBridgeClient, TestBridgeError
@@ -174,6 +176,22 @@ def test_close_marks_transport_closed_when_owned() -> None:
     driver._owns_transport = True  # type: ignore[attr-defined]
     driver.close()
     assert transport.closed is True
+
+
+def test_subprocess_transport_times_out_when_probe_does_not_reply(tmp_path) -> None:
+    probe = tmp_path / "silent-probe"
+    probe.write_text("#!/bin/sh\nsleep 10\n")
+    probe.chmod(0o755)
+    transport = SubprocessTransport(probe, read_timeout_s=0.1)
+
+    started = time.monotonic()
+    with pytest.raises(DriverError) as exc_info:
+        transport.recv_line()
+    elapsed = time.monotonic() - started
+    transport.close()
+
+    assert "timed out" in str(exc_info.value)
+    assert elapsed < 1.0
 
 
 def test_default_bundle_id_constant_matches_app() -> None:

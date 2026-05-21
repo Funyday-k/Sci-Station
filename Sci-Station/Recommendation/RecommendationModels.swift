@@ -129,7 +129,7 @@ public nonisolated struct RecommendationConfig: Codable, Hashable, Sendable {
         self.schemaVersion = schemaVersion
         self.cadence = cadence
         self.scope = scope
-        self.topK = min(max(topK, 1), 50)
+        self.topK = min(max(topK, 1), 100)
         self.externalNetworkEnabled = externalNetworkEnabled
         self.maxDailyCandidates = min(max(maxDailyCandidates, 1), 500)
         self.libraryRecentDays = max(libraryRecentDays, 1)
@@ -166,6 +166,7 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
     public var addedToLibraryAt: Date?
     public var citedByCorePaperIDs: Set<String>
     public var abstractText: String?
+    public var publishedAt: Date?
 
     public init(
         canonicalID: String,
@@ -181,7 +182,8 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
         categories: [String] = [],
         addedToLibraryAt: Date? = nil,
         citedByCorePaperIDs: Set<String> = [],
-        abstractText: String? = nil
+        abstractText: String? = nil,
+        publishedAt: Date? = nil
     ) {
         self.canonicalID = canonicalID
         self.paperID = paperID
@@ -197,6 +199,7 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
         self.addedToLibraryAt = addedToLibraryAt
         self.citedByCorePaperIDs = citedByCorePaperIDs
         self.abstractText = abstractText
+        self.publishedAt = publishedAt
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -213,6 +216,8 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
         case categories
         case addedToLibraryAt = "added_to_library_at"
         case citedByCorePaperIDs = "cited_by_core_paper_ids"
+        case abstractText = "abstract_text"
+        case publishedAt = "published_at"
     }
 
     public init(from decoder: Decoder) throws {
@@ -230,7 +235,8 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
         categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
         addedToLibraryAt = try container.decodeIfPresent(Date.self, forKey: .addedToLibraryAt)
         citedByCorePaperIDs = Set(try container.decodeIfPresent([String].self, forKey: .citedByCorePaperIDs) ?? [])
-        abstractText = nil
+        abstractText = try container.decodeIfPresent(String.self, forKey: .abstractText)
+        publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -248,6 +254,8 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
         try container.encode(categories, forKey: .categories)
         try container.encodeIfPresent(addedToLibraryAt, forKey: .addedToLibraryAt)
         try container.encode(citedByCorePaperIDs.sorted(), forKey: .citedByCorePaperIDs)
+        try container.encodeIfPresent(abstractText, forKey: .abstractText)
+        try container.encodeIfPresent(publishedAt, forKey: .publishedAt)
     }
 }
 
@@ -352,6 +360,27 @@ public nonisolated struct RecommendationScore: Codable, Hashable, Sendable, Iden
     }
 }
 
+public nonisolated struct RecommendationAIEvaluation: Codable, Hashable, Sendable {
+    public var model: String
+    public var overall: String
+    public var commentsByScoreID: [String: String]
+    public var generatedAt: Date
+
+    public init(model: String, overall: String, commentsByScoreID: [String: String], generatedAt: Date) {
+        self.model = model
+        self.overall = overall
+        self.commentsByScoreID = commentsByScoreID
+        self.generatedAt = generatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case model
+        case overall
+        case commentsByScoreID = "comments_by_score_id"
+        case generatedAt = "generated_at"
+    }
+}
+
 public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, Identifiable {
     public var id: String
     public var trigger: RecommendationTriggerReason
@@ -359,6 +388,11 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
     public var generatedAt: Date
     public var candidateCount: Int
     public var scores: [RecommendationScore]
+    public var query: String
+    public var categories: [String]
+    public var sourceDate: Date?
+    public var sourceNote: String?
+    public var aiEvaluation: RecommendationAIEvaluation?
 
     public init(
         id: String,
@@ -366,7 +400,12 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         contextProjectID: String?,
         generatedAt: Date,
         candidateCount: Int,
-        scores: [RecommendationScore]
+        scores: [RecommendationScore],
+        query: String = "",
+        categories: [String] = [],
+        sourceDate: Date? = nil,
+        sourceNote: String? = nil,
+        aiEvaluation: RecommendationAIEvaluation? = nil
     ) {
         self.id = id
         self.trigger = trigger
@@ -374,6 +413,11 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         self.generatedAt = generatedAt
         self.candidateCount = candidateCount
         self.scores = scores
+        self.query = query
+        self.categories = categories
+        self.sourceDate = sourceDate
+        self.sourceNote = sourceNote
+        self.aiEvaluation = aiEvaluation
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -383,5 +427,40 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         case generatedAt = "generated_at"
         case candidateCount = "candidate_count"
         case scores
+        case query
+        case categories
+        case sourceDate = "source_date"
+        case sourceNote = "source_note"
+        case aiEvaluation = "ai_evaluation"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        trigger = try container.decode(RecommendationTriggerReason.self, forKey: .trigger)
+        contextProjectID = try container.decodeIfPresent(String.self, forKey: .contextProjectID)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        candidateCount = try container.decode(Int.self, forKey: .candidateCount)
+        scores = try container.decode([RecommendationScore].self, forKey: .scores)
+        query = try container.decodeIfPresent(String.self, forKey: .query) ?? ""
+        categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
+        sourceDate = try container.decodeIfPresent(Date.self, forKey: .sourceDate)
+        sourceNote = try container.decodeIfPresent(String.self, forKey: .sourceNote)
+        aiEvaluation = try container.decodeIfPresent(RecommendationAIEvaluation.self, forKey: .aiEvaluation)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(trigger, forKey: .trigger)
+        try container.encodeIfPresent(contextProjectID, forKey: .contextProjectID)
+        try container.encode(generatedAt, forKey: .generatedAt)
+        try container.encode(candidateCount, forKey: .candidateCount)
+        try container.encode(scores, forKey: .scores)
+        try container.encode(query, forKey: .query)
+        try container.encode(categories, forKey: .categories)
+        try container.encodeIfPresent(sourceDate, forKey: .sourceDate)
+        try container.encodeIfPresent(sourceNote, forKey: .sourceNote)
+        try container.encodeIfPresent(aiEvaluation, forKey: .aiEvaluation)
     }
 }

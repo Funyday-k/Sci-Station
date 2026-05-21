@@ -130,6 +130,17 @@ struct DeepSeekModelOption: Identifiable, Hashable {
     }
 }
 
+private enum RecommendationAIEvaluationError: LocalizedError {
+    case missingAPIKey
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey:
+            return "LLM API key is missing."
+        }
+    }
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
@@ -308,6 +319,8 @@ final class AppViewModel: ObservableObject {
     private let systemCalendarService: SystemCalendarService
     private let pdfReadingStateService: PDFReadingStateService
     private let remoteImportService: RemoteImportService
+    private let arxivRecommendationClient = ArxivRecommendationClient()
+    private let recommendationPipeline = RecommendationPipeline()
     private let llmConfigurationStore: LLMConfigurationStore
     private let apiKeyStore: KeychainAPIKeyStore
     private let openAIProvider: OpenAICompatibleProvider
@@ -356,8 +369,25 @@ final class AppViewModel: ObservableObject {
     private var researchQueueAgentRunIngestTask: Task<Void, Never>?
     private var researchQueueChangeWatchTask: Task<Void, Never>?
     @Published private(set) var researchQueueScopes: [String: [ResearchQueueEntry]] = [:]
+    private var readingPlanStore: ReadingPlanStore?
+    private var readingPlanWorkspaceID: URL?
+    private var readingPlanChangeWatchTask: Task<Void, Never>?
+    @Published private(set) var readingPlanScopes: [String: [ReadingPlan]] = [:]
+    @Published private(set) var recommendationRunResult: RecommendationRunResult?
+    @Published private(set) var recommendationHistory: [RecommendationRunResult] = []
+    @Published private(set) var recommendationCandidateCount: Int = 0
+    @Published private(set) var isRefreshingRecommendations: Bool = false
+    @Published private(set) var isEvaluatingRecommendationsWithAI: Bool = false
+    @Published private(set) var recommendationErrorMessage: String?
+    @Published private(set) var recommendationAIEvaluationStatusMessage: String?
 #if DEBUG
     private var uiTestBridgeServer: UITestBridgeServer?
+    /// When the UI test bridge is active, all `recordAppDebugEvent` calls are
+    /// forced regardless of the per-workspace ``agentDebugLoggingEnabled``
+    /// preference. Scenarios depend on domain events (e.g. ``wiki.file.rename``)
+    /// landing in ``.sci-station/debug/app_events.jsonl`` even on a fresh
+    /// workspace where the user has not opted into verbose logging.
+    private var uiTestBridgeForceDebugLogging: Bool = false
 #endif
 
     var identifierImportInputs: [String] {
@@ -628,6 +658,24 @@ final class AppViewModel: ObservableObject {
             configuration: effectiveModuleConfiguration(for: projectID),
             pinnedOrder: workspacePreferences.projectSpacePinnedOrder
         )
+    }
+
+    var activeReadingPlanSummaryForHome: ReadingPlanSummary? {
+        if let currentProjectID,
+           let summary = activeReadingPlanSummary(in: .project(currentProjectID)) {
+            return summary
+        }
+        return activeReadingPlanSummary(in: .workspace)
+    }
+
+    func activeReadingPlanSummary(in scope: ReadingPlanScope) -> ReadingPlanSummary? {
+        readingPlanScopes[scope.identifier]?
+            .first { $0.status == .active }
+            .map { ReadingPlanSummary(plan: $0, slotLimit: 5) }
+    }
+
+    func readingPlans(in scope: ReadingPlanScope) -> [ReadingPlan] {
+        readingPlanScopes[scope.identifier] ?? []
     }
 
     func isWorkspaceSectionAvailable(_ section: WorkspaceSection) -> Bool {
@@ -6320,6 +6368,7 @@ final class AppViewModel: ObservableObject {
         try await loadResearchRoot(in: workspace, compatibility: rootCompatibility)
         try await loadWorkspacePreferences(in: workspace)
         await setupResearchQueueIfNeeded(in: workspace)
+        await setupReadingPlanIfNeeded(in: workspace)
         try await loadLibrary(in: workspace, selecting: paperID)
         try await loadLegacyPaperMigrationPlan(in: workspace)
         try await loadCollections(in: workspace)
@@ -6562,6 +6611,11 @@ final class AppViewModel: ObservableObject {
         }
 
         let availableTabs = projectSpaceTabs(for: projectID)
+        if ["queue", "reading-plan"].contains(selectedProjectSpaceTabID),
+           availableTabs.contains(where: { $0.id == "reading" }) {
+            selectedProjectSpaceTabID = "reading"
+            return
+        }
         if !availableTabs.contains(where: { $0.id == selectedProjectSpaceTabID }) {
             let hiddenTabID = selectedProjectSpaceTabID
             selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
@@ -6604,7 +6658,9 @@ final class AppViewModel: ObservableObject {
                 currentProjectID = projectID
                 selectedProjectSpaceProjectID = projectID
                 let availableTabIDs = Set(projectSpaceTabs(for: projectID).map(\.id))
-                selectedProjectSpaceTabID = availableTabIDs.contains(route.projectTabID ?? "") ? (route.projectTabID ?? ProjectSpaceTabsBuilder.overviewTabID) : ProjectSpaceTabsBuilder.overviewTabID
+                let restoredTabID = route.projectTabID ?? ProjectSpaceTabsBuilder.overviewTabID
+                let migratedTabID = ["queue", "reading-plan"].contains(restoredTabID) ? "reading" : restoredTabID
+                selectedProjectSpaceTabID = availableTabIDs.contains(migratedTabID) ? migratedTabID : ProjectSpaceTabsBuilder.overviewTabID
                 if selectedProjectSpaceTabID == "papers" {
                     selectedLibraryProjectID = projectID
                     selectedCollectionPath = nil
@@ -6917,7 +6973,13 @@ final class AppViewModel: ObservableObject {
         threadID: String? = nil,
         force: Bool = false
     ) {
-        guard force || workspacePreferences.agentDebugLoggingEnabled else {
+        let bridgeForced: Bool
+        #if DEBUG
+        bridgeForced = uiTestBridgeForceDebugLogging
+        #else
+        bridgeForced = false
+        #endif
+        guard force || bridgeForced || workspacePreferences.agentDebugLoggingEnabled else {
             return
         }
         guard let currentWorkspace else {
@@ -7138,7 +7200,7 @@ final class AppViewModel: ObservableObject {
     /// Append an external paper (DOI / arXiv / placeholder) without a
     /// `paperID`. Used by graph or recommendation entry points before the
     /// paper is imported into the library.
-    func addExternalPaperToResearchQueue(externalKey: String, displayTitle: String, scope: QueueScope, source: QueueSource = .manual, sourceRefs: [String] = []) {
+    func addExternalPaperToResearchQueue(externalKey: String, displayTitle: String, scope: QueueScope, source: QueueSource = .manual, noteSummary: String? = nil, sourceRefs: [String] = []) {
         guard let store = researchQueueStore else {
             return
         }
@@ -7156,7 +7218,7 @@ final class AppViewModel: ObservableObject {
             startedAt: nil,
             finishedAt: nil,
             lastTouchedAt: now,
-            noteSummary: nil,
+            noteSummary: noteSummary,
             sourceRefs: sourceRefs
         )
         Task {
@@ -7227,6 +7289,476 @@ final class AppViewModel: ObservableObject {
             } catch {
                 self.present(error)
             }
+        }
+    }
+
+    func loadRecommendationHistory(limit: Int = 20) {
+        guard let workspace = currentWorkspace else {
+            return
+        }
+
+        Task {
+            do {
+                recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: limit)
+            } catch {
+                recordAppDebugEvent("recommendation.error", payload: .object([
+                    "phase": .string("history_load"),
+                    "reason": .string(error.localizedDescription)
+                ]))
+            }
+        }
+    }
+
+    func selectRecommendationHistory(_ result: RecommendationRunResult) {
+        recommendationRunResult = result
+        recommendationCandidateCount = result.candidateCount
+        recommendationErrorMessage = nil
+        recommendationAIEvaluationStatusMessage = nil
+    }
+
+    func refreshArxivRecommendations(project: ResearchProject?, query: String, categories: [String], topK: Int, aiModel: String = "deepseek-v4-flash") {
+        guard let workspace = currentWorkspace else {
+            return
+        }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedCategories = categories.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let categoriesForRequest = resolvedCategories.isEmpty ? defaultArxivRecommendationCategories(in: workspace) : resolvedCategories
+        let requestedTopK = min(max(topK, 1), 100)
+        let selectedAIModel = aiModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "deepseek-v4-flash" : aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        isRefreshingRecommendations = true
+        recommendationErrorMessage = nil
+        recommendationAIEvaluationStatusMessage = nil
+
+        Task {
+            defer {
+                isRefreshingRecommendations = false
+            }
+            do {
+                var config = arxivOnlyRecommendationConfig(in: workspace, topK: requestedTopK)
+                let daily = try await fetchDailyArxivRecommendationCandidates(
+                    query: trimmedQuery,
+                    categories: categoriesForRequest,
+                    topK: requestedTopK,
+                    config: config,
+                    workspace: workspace
+                )
+                config.maxDailyCandidates = min(max(config.maxDailyCandidates, requestedTopK * 5), 100)
+                let context = RecommendationContext(
+                    projectID: project?.id,
+                    corePaperIDs: [],
+                    queueStatusByID: recommendationQueueStatusIndex(),
+                    openGapKeywords: recommendationKeywords(query: trimmedQuery, project: project, categories: categoriesForRequest),
+                    interestPapers: [],
+                    evaluatedAt: Date()
+                )
+                let result = try await recommendationPipeline.run(
+                    workspace: workspace,
+                    papers: [],
+                    queueEntries: [],
+                    dailyFeedCandidates: daily.candidates,
+                    graph: nil,
+                    context: context,
+                    config: config,
+                    trigger: .manual,
+                    locale: appLanguage == .english ? .en : .zh,
+                    force: true,
+                    query: trimmedQuery,
+                    categories: categoriesForRequest,
+                    sourceDate: daily.sourceDate,
+                    sourceNote: daily.sourceNote
+                )
+                recommendationCandidateCount = daily.candidates.count
+                if var result {
+                    recommendationRunResult = result
+                    showShellStatus(localized("已从 arXiv 获取 \(result.scores.count) 条推荐。", "Fetched \(result.scores.count) arXiv recommendations."))
+                    recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
+                    if !result.scores.isEmpty {
+                        isEvaluatingRecommendationsWithAI = true
+                        do {
+                            result.aiEvaluation = try await evaluateRecommendationsWithAI(result, model: selectedAIModel)
+                            try await recommendationPipeline.persistSnapshot(result, workspace: workspace)
+                            recommendationRunResult = result
+                            recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
+                            recommendationAIEvaluationStatusMessage = localized("AI 已完成推荐评价。", "AI evaluation completed.")
+                        } catch {
+                            recommendationAIEvaluationStatusMessage = localized("AI 评价暂不可用：\(error.localizedDescription)", "AI evaluation unavailable: \(error.localizedDescription)")
+                        }
+                        isEvaluatingRecommendationsWithAI = false
+                    }
+                } else {
+                    showShellStatus(localized("arXiv 推荐没有变化。", "arXiv recommendations are unchanged."))
+                }
+                recordAppDebugEvent("recommendation.arxiv_refresh", payload: .object([
+                    "candidate_count": .number(String(daily.candidates.count)),
+                    "top_k": .number(String(result?.scores.count ?? 0)),
+                    "source_note": .string(daily.sourceNote),
+                    "scope": .string(project.map { "project:\($0.id)" } ?? "workspace")
+                ]))
+            } catch {
+                isEvaluatingRecommendationsWithAI = false
+                recommendationErrorMessage = error.localizedDescription
+                recordAppDebugEvent("recommendation.error", payload: .object([
+                    "phase": .string("arxiv_refresh"),
+                    "reason": .string(error.localizedDescription)
+                ]))
+                present(error)
+            }
+        }
+    }
+
+    func addRecommendationToReadingList(_ score: RecommendationScore, scope: QueueScope) {
+        guard let externalKey = score.candidate.externalKey else {
+            return
+        }
+        addExternalPaperToResearchQueue(
+            externalKey: externalKey,
+            displayTitle: score.candidate.displayTitle,
+            scope: scope,
+            source: .recommendation,
+            noteSummary: score.reason,
+            sourceRefs: ["recommendation:\(recommendationRunResult?.id ?? score.id)", "arxiv:\(externalKey)"]
+        )
+        showShellStatus(localized("已加入 Reading。", "Added to Reading."))
+    }
+
+    func isRecommendationInReadingList(_ score: RecommendationScore, scope: QueueScope) -> Bool {
+        let keys = recommendationCandidateKeys(score.candidate)
+        return researchQueueEntries(in: scope).contains { entry in
+            let entryKeys = [entry.paperID, entry.externalKey, Optional(entry.id)]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            return !keys.isDisjoint(with: Set(entryKeys))
+        }
+    }
+
+    private func arxivOnlyRecommendationConfig(in workspace: ResearchWorkspace, topK: Int) -> RecommendationConfig {
+        var config = (try? RecommendationConfigStore().load(in: workspace)) ?? RecommendationConfig()
+        config.topK = min(max(topK, 1), 100)
+        config.externalNetworkEnabled = true
+        config.weights = RecommendationWeights(
+            citedByCore: 0,
+            libraryInterestSimilarity: 0,
+            recency: 0.35,
+            openGapCoverage: 0.45,
+            authorOverlapWithCore: 0,
+            queuePressurePenalty: 0.80
+        )
+        return config
+    }
+
+    private func fetchDailyArxivRecommendationCandidates(
+        query: String,
+        categories: [String],
+        topK: Int,
+        config: RecommendationConfig,
+        workspace: ResearchWorkspace
+    ) async throws -> (candidates: [RecommendationCandidate], sourceDate: Date, sourceNote: String) {
+        let maxResults = min(max(config.maxDailyCandidates, topK * 5), 100)
+        let todayStart = startOfUTCRecommendationDay(Date())
+        let tomorrowStart = utcRecommendationDay(offset: 1, from: todayStart)
+        let todayCandidates = try await arxivRecommendationClient.fetch(ArxivRecommendationRequest(
+            query: query,
+            categories: categories,
+            maxResults: maxResults,
+            submittedAfter: todayStart,
+            submittedBefore: tomorrowStart
+        ))
+        if !todayCandidates.isEmpty {
+            return (todayCandidates, todayStart, localized("当天 arXiv 论文", "Today's arXiv papers"))
+        }
+
+        let yesterdayStart = utcRecommendationDay(offset: -1, from: todayStart)
+        let yesterdayCandidates = try await arxivRecommendationClient.fetch(ArxivRecommendationRequest(
+            query: query,
+            categories: categories,
+            maxResults: maxResults,
+            submittedAfter: yesterdayStart,
+            submittedBefore: todayStart
+        ))
+        let historyKeys = try await recommendationPipeline.recommendedCandidateKeys(workspace: workspace)
+        let unrecommended = yesterdayCandidates.filter { candidate in
+            recommendationCandidateKeys(candidate).isDisjoint(with: historyKeys)
+        }
+        return (unrecommended, yesterdayStart, localized("当天没有匹配论文，已延顺昨日未推荐论文", "No matching papers today; using unrecommended papers from yesterday"))
+    }
+
+    private func startOfUTCRecommendationDay(_ date: Date) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.startOfDay(for: date)
+    }
+
+    private func utcRecommendationDay(offset: Int, from date: Date) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(byAdding: .day, value: offset, to: date) ?? date.addingTimeInterval(Double(offset) * 86_400)
+    }
+
+    private func defaultArxivRecommendationCategories(in workspace: ResearchWorkspace) -> [String] {
+        let config = (try? RecommendationConfigStore().load(in: workspace)) ?? RecommendationConfig()
+        let arxivCategories = config.dailySources.first { $0.kind == .arxiv }?.categories ?? []
+        return arxivCategories.isEmpty ? ["cs.AI", "cs.CL", "cs.CV", "cs.LG"] : arxivCategories
+    }
+
+    private func recommendationKeywords(query: String, project: ResearchProject?, categories: [String]) -> [String] {
+        let text = query.isEmpty ? (project?.name ?? "") : query
+        let tokens = RecommendationTextSimilarity.tokens(text)
+        return (tokens + categories.map { $0.lowercased() }).filter { !$0.isEmpty }
+    }
+
+    private func recommendationQueueStatusIndex() -> [String: QueueStatus] {
+        var index: [String: QueueStatus] = [:]
+        for entry in researchQueueScopes.values.joined() {
+            for key in [entry.paperID, entry.externalKey, Optional(entry.id)].compactMap({ $0 }) {
+                let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !normalized.isEmpty else {
+                    continue
+                }
+                index[normalized] = entry.status
+                index["external:\(normalized)"] = entry.status
+                index["paper:\(normalized)"] = entry.status
+            }
+        }
+        return index
+    }
+
+    private func recommendationCandidateKeys(_ candidate: RecommendationCandidate) -> Set<String> {
+        Set([candidate.paperID, candidate.externalKey, Optional(candidate.canonicalID)]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .flatMap { key in [key, "external:\(key)", "paper:\(key)"] })
+    }
+
+    private func evaluateRecommendationsWithAI(_ result: RecommendationRunResult, model: String) async throws -> RecommendationAIEvaluation {
+        let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            throw RecommendationAIEvaluationError.missingAPIKey
+        }
+        var configuration = llmConfiguration
+        configuration.model = model
+        configuration.temperature = 0.2
+        configuration.maxTokens = 4096
+        let response = try await openAIProvider.complete(
+            prompt: recommendationAIEvaluationPrompt(for: result),
+            configuration: configuration,
+            apiKey: apiKey
+        )
+        return parseRecommendationAIEvaluationResponse(response, model: model, result: result)
+    }
+
+    private func recommendationAIEvaluationPrompt(for result: RecommendationRunResult) -> String {
+        let language = appLanguage == .english ? "English" : "Chinese"
+        let papers = result.scores.map { score in
+            """
+            ID: \(score.id)
+            Title: \(score.candidate.displayTitle)
+            Abstract: \(score.candidate.abstractText ?? "")
+            """
+        }
+        .joined(separator: "\n\n")
+        return """
+        You are evaluating paper recommendations for a research workflow. Use only each paper title and abstract. Return strict JSON with this shape:
+        {"overall":"one concise overall evaluation in \(language)","comments":[{"id":"paper id","comment":"one short recommendation opinion in \(language)"}]}
+
+        Papers:
+        \(papers)
+        """
+    }
+
+    private func parseRecommendationAIEvaluationResponse(_ response: String, model: String, result: RecommendationRunResult) -> RecommendationAIEvaluation {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let jsonText = recommendationEvaluationJSONText(from: trimmed)
+        var overall = trimmed
+        var commentsByID: [String: String] = [:]
+        if let data = jsonText.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            overall = (object["overall"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? overall
+            if let comments = object["comments"] as? [[String: Any]] {
+                for comment in comments {
+                    guard let id = (comment["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          let text = (comment["comment"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !id.isEmpty,
+                          !text.isEmpty else {
+                        continue
+                    }
+                    commentsByID[id] = text
+                }
+            }
+        }
+        return RecommendationAIEvaluation(model: model, overall: overall, commentsByScoreID: commentsByID, generatedAt: Date())
+    }
+
+    private func recommendationEvaluationJSONText(from response: String) -> String {
+        if let open = response.firstIndex(of: "{"),
+           let close = response.lastIndex(of: "}"),
+           open <= close {
+            return String(response[open...close])
+        }
+        return response
+    }
+
+    private func setupReadingPlanIfNeeded(in workspace: ResearchWorkspace) async {
+        if readingPlanWorkspaceID == workspace.id, readingPlanStore != nil {
+            return
+        }
+
+        if let existing = readingPlanStore {
+            await existing.close()
+        }
+        readingPlanChangeWatchTask?.cancel()
+        readingPlanChangeWatchTask = nil
+        readingPlanStore = nil
+        readingPlanScopes = [:]
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+        let store = ReadingPlanStore(
+            workspace: workspace,
+            researchRoot: root,
+            debugLogger: appDebugEventLogger
+        )
+        do {
+            try await store.open(projectIDs: researchProjects.map(\.id))
+        } catch {
+            try? await appDebugEventLogger.append(AppDebugEvent(
+                event: "reading_plan.load.error",
+                workspaceID: workspace.rootURL.path,
+                payload: .object([
+                    "scope": .string("workspace"),
+                    "reason": .string("open_failed")
+                ])
+            ), in: root)
+            return
+        }
+
+        readingPlanStore = store
+        readingPlanWorkspaceID = workspace.id
+        await refreshReadingPlanSnapshot()
+        readingPlanChangeWatchTask = Task { [weak self] in
+            guard let stream = await self?.readingPlanStore?.subscribeChanges() else { return }
+            for await _ in stream {
+                if Task.isCancelled { break }
+                await self?.refreshReadingPlanSnapshot()
+            }
+        }
+    }
+
+    private func refreshReadingPlanSnapshot() async {
+        guard let store = readingPlanStore else {
+            readingPlanScopes = [:]
+            return
+        }
+        let snapshot = await store.snapshot()
+        readingPlanScopes = snapshot.plansByScope
+    }
+
+    func generateReadingPlan(scope: ReadingPlanScope, weekStart: Date = Date()) {
+        guard let store = readingPlanStore else {
+            return
+        }
+        let generator = ReadingPlanGenerator()
+        let queueEntries = queueEntriesForReadingPlan(scope: scope)
+        let existingPlans = readingPlans(in: scope)
+        let input = ReadingPlanGenerationInput(
+            scope: scope,
+            weekStart: generator.normalizedWeekStart(weekStart),
+            queueEntries: queueEntries,
+            existingPlans: existingPlans,
+            settings: ReadingPlanSettings(),
+            now: Date()
+        )
+        let plan = generator.generate(input: input)
+        Task {
+            do {
+                try await store.save(plan)
+                await refreshReadingPlanSnapshot()
+                showShellStatus(localized("已生成本周阅读计划草稿。", "Generated this week's reading plan draft."))
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    func activateReadingPlan(planID: String, scope: ReadingPlanScope) {
+        guard let store = readingPlanStore else {
+            return
+        }
+        Task {
+            do {
+                try await store.activate(planID: planID, in: scope)
+                await refreshReadingPlanSnapshot()
+                showShellStatus(localized("阅读计划已激活。", "Reading plan activated."))
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    func archiveReadingPlan(planID: String, scope: ReadingPlanScope) {
+        guard let store = readingPlanStore else {
+            return
+        }
+        Task {
+            do {
+                try await store.archive(planID: planID, in: scope)
+                await refreshReadingPlanSnapshot()
+                showShellStatus(localized("阅读计划已归档。", "Reading plan archived."))
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    func updateReadingPlanSlotStatus(planID: String, slotID: String, status: ReadingPlanSlotStatus, actualMinutes: Int? = nil) {
+        guard let store = readingPlanStore else {
+            return
+        }
+        let queueEntryID = readingPlanScopes.values
+            .joined()
+            .first { $0.id == planID }?
+            .slots
+            .first { $0.id == slotID }?
+            .queueEntryID
+        Task {
+            do {
+                try await store.updateSlotStatus(planID: planID, slotID: slotID, status: status, actualMinutes: actualMinutes)
+                if let queueEntryID {
+                    try await syncQueueEntryStatusForReadingPlanSlot(queueEntryID: queueEntryID, slotStatus: status)
+                }
+                await refreshReadingPlanSnapshot()
+            } catch {
+                self.present(error)
+            }
+        }
+    }
+
+    private func syncQueueEntryStatusForReadingPlanSlot(queueEntryID: String, slotStatus: ReadingPlanSlotStatus) async throws {
+        guard let store = researchQueueStore else {
+            return
+        }
+        switch slotStatus {
+        case .reading:
+            try await store.updateStatus(id: queueEntryID, status: .reading, at: nil)
+        case .finished:
+            try await store.updateStatus(id: queueEntryID, status: .finished, at: nil)
+        case .planned, .skipped, .carriedOver:
+            return
+        }
+    }
+
+    private func queueEntriesForReadingPlan(scope: ReadingPlanScope) -> [ResearchQueueEntry] {
+        switch scope {
+        case .workspace:
+            return researchQueueEntries(in: .workspace)
+        case .project(let projectID):
+            let projectEntries = researchQueueEntries(in: .project(projectID))
+            let projectPaperIDs = Set(papers.filter { $0.projectIDs.contains(projectID) }.map(\.id))
+            let workspaceEntries = researchQueueEntries(in: .workspace).filter { entry in
+                guard let paperID = entry.paperID else {
+                    return false
+                }
+                return projectPaperIDs.contains(paperID)
+            }
+            let merged = projectEntries + workspaceEntries
+            var seen: Set<String> = []
+            return merged.filter { seen.insert($0.id).inserted }
         }
     }
 
@@ -8197,8 +8729,9 @@ final class AppViewModel: ObservableObject {
         do {
             try server.start()
             uiTestBridgeServer = server
+            uiTestBridgeForceDebugLogging = true
         } catch {
-            NSLog("Sci-Station UI test bridge failed to start: \\(error.localizedDescription)")
+            NSLog("Sci-Station UI test bridge failed to start: %@", String(describing: error))
         }
     }
 

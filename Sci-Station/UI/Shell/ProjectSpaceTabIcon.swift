@@ -13,8 +13,12 @@ public enum ProjectSpaceTabIcon {
             return "square.grid.2x2"
         case "papers":
             return "books.vertical"
+        case "reading":
+            return "book"
         case "queue":
             return "tray.full"
+        case "reading-plan":
+            return "list.bullet.rectangle"
         case "wiki":
             return "doc.text"
         case "tasks":

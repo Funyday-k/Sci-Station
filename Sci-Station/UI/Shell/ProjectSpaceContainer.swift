@@ -37,7 +37,10 @@ struct ProjectSpaceContainer: View {
         .padding(12)
         .background(ProjectSpaceBackground())
         .onAppear {
-            if !tabs.contains(where: { $0.id == appModel.selectedProjectSpaceTabID }) {
+            if ["queue", "reading-plan"].contains(appModel.selectedProjectSpaceTabID),
+               tabs.contains(where: { $0.id == "reading" }) {
+                appModel.selectProjectSpaceTab("reading")
+            } else if !tabs.contains(where: { $0.id == appModel.selectedProjectSpaceTabID }) {
                 appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.overviewTabID)
             }
         }

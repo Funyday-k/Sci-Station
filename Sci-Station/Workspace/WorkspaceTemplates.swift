@@ -680,7 +680,8 @@ public nonisolated enum WorkspaceModuleRegistry {
         "calendar",
         "pdf-reader",
         "ai-lab",
-        "citation-graph"
+        "citation-graph",
+        "recommendation"
     ]
 
     public static let workflowRequirements: [String: Set<String>] = [
@@ -706,14 +707,15 @@ public nonisolated enum WorkspaceModuleRegistry {
         "graph_insight_draft": ["citation-graph", "ai-lab"],
         // P47 calls out that research_queue_update needs both recommendation
         // and citation-graph because the queue is derived from graph metrics.
-        "research_queue_update": ["recommendation", "citation-graph"],
+        "research_queue_update": ["recommendation"],
         "outline_to_manuscript": ["writing", "ai-lab"],
         "claim_citation_check": ["writing", "paper-library", "ai-lab"],
         "definition_extraction": ["theory-notes", "paper-library"],
         "theorem_dependency_map": ["theory-notes", "wiki"],
         // P48 — manual queue curation workflow lives entirely under paper-library.
         // AI-driven queue ingest still runs through `research_queue_update` above.
-        "reading_queue_curate": ["paper-library"]
+        "reading_queue_curate": ["paper-library"],
+        "weekly_reading_plan": ["paper-library"]
     ]
 
     public static let builtInModules: [WorkspaceModule] = [
@@ -733,11 +735,11 @@ public nonisolated enum WorkspaceModuleRegistry {
             title: "Paper Library",
             directories: [directory("library/papers", required: true), directory("library/refs", required: true)],
             routes: [route("library", "/library")],
-            projectTabs: [tab("papers", "Papers"), tab("queue", "Queue")],
-            workflows: ["paper_reading", "related_work", "reading_queue_curate"],
-            artifactKinds: ["paper_reading_note", "related_work", "reading_queue_entry"],
+            projectTabs: [tab("papers", "Papers"), tab("reading", "Reading")],
+            workflows: ["paper_reading", "related_work", "reading_queue_curate", "weekly_reading_plan"],
+            artifactKinds: ["paper_reading_note", "related_work", "reading_queue_entry", "weekly_review"],
             approvalScopes: ["artifact_save", "wiki_write"],
-            writePaths: ["library/papers/", "library/refs/", "library/queue.yaml", "projects/*/queue.yaml"]
+            writePaths: ["library/papers/", "library/refs/", "library/queue.yaml", "projects/*/queue.yaml", ".sci-station/reading-plans/", "projects/*/reading-plans/"]
         ),
         module(
             id: "wiki",
@@ -877,8 +879,8 @@ public nonisolated enum WorkspaceModuleRegistry {
         module(
             id: "recommendation",
             title: "Recommendation",
-            enabled: false,
-            dependencies: ["paper-library", "citation-graph", "ai-lab"],
+            enabled: true,
+            dependencies: ["paper-library"],
             directories: [directory(".sci-station/recommendations")],
             routes: [route("recommendation", "/recommendations")],
             projectTabs: [tab("recommendations", "Recommendations")],

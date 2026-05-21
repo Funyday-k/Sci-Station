@@ -53,6 +53,7 @@ struct ContentView: View {
                 }
             }
         }
+        .background(SciStationMainWindowGate(isLaunching: launchCoordinator.isLaunching))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if isPrimaryToolbarAction(.workspaceMenu) {
@@ -231,6 +232,12 @@ struct ContentView: View {
                 Text(appModel.errorMessage ?? appModel.t(.appUnknownError))
             }
         )
+        .task {
+            await appModel.restoreLastWorkspaceIfNeeded()
+            appModel.applyRightRailRouteSuggestion()
+            appModel.recordToolbarPolicyChange(appModel.toolbarModel)
+            launchCoordinator.markAppPreparationFinished()
+        }
         .background {
             GeometryReader { proxy in
                 Color.clear

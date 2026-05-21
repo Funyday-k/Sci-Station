@@ -1,3 +1,6 @@
+# Temporary build/validation artifacts
+.tmp/
+
 # Xcode
 *.xcuserstate
 *.xcbkptlist

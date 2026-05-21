@@ -39,8 +39,8 @@ struct TodayPanelView: View {
                 }
 
                 HomeSignalCard(
-                    title: appModel.localized("阅读队列", "Reading Queue"),
-                    systemImage: "books.vertical",
+                    title: appModel.localized("Reading", "Reading"),
+                    systemImage: "book",
                     count: data.readingQueueEntries.isEmpty ? data.readingQueue.count : data.readingQueueEntries.count
                 ) {
                     if !snapshot.moduleAvailability.libraryEnabled {
@@ -63,7 +63,7 @@ struct TodayPanelView: View {
                         }
                     } else if data.readingQueue.isEmpty {
                         HomeEmptyState(
-                            message: appModel.localized("还没有论文进入阅读队列。", "No papers are queued for reading yet."),
+                            message: appModel.localized("还没有论文进入 Reading。", "No papers are in Reading yet."),
                             actionTitle: appModel.localized("添加论文", "Add Paper"),
                             systemImage: "plus"
                         ) {

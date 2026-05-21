@@ -14,8 +14,8 @@ struct ProjectSpaceContentRouter: View {
                 ProjectOverviewView(workspace: workspace)
             case "papers":
                 LibraryProjectView(workspace: workspace, project: project)
-            case "queue":
-                QueueTabView(workspace: workspace, project: project)
+            case "reading", "queue", "reading-plan":
+                ReadingView(workspace: workspace, project: project)
             case "wiki":
                 WikiProjectView(workspace: workspace, project: project)
             case "tasks":
@@ -37,7 +37,7 @@ struct ProjectSpaceContentRouter: View {
             case "experiments":
                 ProjectSpacePlaceholderView(title: "Experiments", systemImage: tab.systemImage, message: "Experiment workflows land in P55.")
             case "recommendations":
-                ProjectSpacePlaceholderView(title: "Recommendations", systemImage: tab.systemImage, message: "Recommendation workflows land after the graph foundation.")
+                RecommendationView(workspace: workspace, project: project)
             case "writing":
                 ProjectSpacePlaceholderView(title: "Writing", systemImage: tab.systemImage, message: "Writing and manuscript workflows land in P56.")
             case "theory":

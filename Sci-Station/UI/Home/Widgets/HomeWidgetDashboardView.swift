@@ -895,7 +895,7 @@ private struct HomeWidgetContentView: View {
             case HomeWidgetID.recentPapers:
                 RecentPapersWidgetContent(size: size)
             case HomeWidgetID.readingPlan:
-                ReadingPlanWidgetContent(papers: snapshot.today.readingQueue, size: size)
+                ReadingPlanWidgetContent(plan: snapshot.today.activeReadingPlan, papers: snapshot.today.readingQueue, size: size)
             case HomeWidgetID.projectHealth:
                 ProjectHealthWidgetContent(snapshot: snapshot, size: size)
             case HomeWidgetID.quickActions:
@@ -1781,6 +1781,7 @@ private struct RecentPapersWidgetContent: View {
 
 private struct ReadingPlanWidgetContent: View {
     @EnvironmentObject private var appModel: AppViewModel
+    let plan: ReadingPlanSummary?
     let papers: [PaperSummary]
     let size: HomeWidgetSize
 
@@ -1788,17 +1789,17 @@ private struct ReadingPlanWidgetContent: View {
         switch size {
         case .small:
             HomeSmallList(
-                count: papers.count,
+                count: plan?.totalSlotCount ?? papers.count,
                 caption: appModel.t(.homeWidgetReadingPlan),
                 tint: .teal,
                 systemImage: "books.vertical",
-                firstLine: papers.first?.title,
+                firstLine: plan?.slots.first?.displayTitle ?? papers.first?.title,
                 action: { appModel.selectSection(.library) }
             )
         case .tall:
             VStack(alignment: .leading, spacing: 8) {
                 HomeWidgetTallCount(
-                    count: papers.count,
+                    count: plan?.totalSlotCount ?? papers.count,
                     caption: appModel.t(.homeWidgetReadingPlan),
                     tint: .teal,
                     systemImage: "books.vertical"
@@ -1817,7 +1818,35 @@ private struct ReadingPlanWidgetContent: View {
     @ViewBuilder
     private func list(limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if papers.isEmpty {
+            if let plan {
+                HStack(spacing: 8) {
+                    Text("\(plan.completedSlotCount)/\(plan.totalSlotCount)")
+                        .font(.headline.monospacedDigit())
+                    Text(appModel.localized("完成", "finished"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Text("\(plan.estimatedMinutes)m")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(plan.slots.prefix(limit)) { slot in
+                    HomeWidgetTextRow(
+                        title: slot.displayTitle,
+                        detail: [slot.plannedDay, slot.status.rawValue.replacingOccurrences(of: "_", with: " ")].compactMap { $0 }.joined(separator: " · "),
+                        systemImage: slot.status == .finished ? "checkmark.circle" : "circle"
+                    ) {
+                        if let paperID = slot.paperID {
+                            appModel.selectPaper(id: paperID)
+                            appModel.selectSection(.library)
+                        } else if let projectID = plan.projectID {
+                            appModel.selectResearchProject(projectID)
+                            appModel.selectProjectSpaceTab("reading")
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            } else if papers.isEmpty {
                 Text(appModel.t(.homeReadingPlanEmpty))
                     .font(.callout)
                     .foregroundStyle(.secondary)

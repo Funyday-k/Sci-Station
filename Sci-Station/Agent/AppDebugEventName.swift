@@ -114,6 +114,16 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case queueIngestError = "queue.ingest_error"
     case queueIngestScanned = "queue.ingest_scanned"
     case queueIngestFromRecommendation = "queue.ingest_from_recommendation"
+    case readingPlanLoad = "reading_plan.load"
+    case readingPlanLoadError = "reading_plan.load.error"
+    case readingPlanSave = "reading_plan.save"
+    case readingPlanSaveError = "reading_plan.save_error"
+    case readingPlanActivate = "reading_plan.activate"
+    case readingPlanArchive = "reading_plan.archive"
+    case readingPlanReorder = "reading_plan.reorder"
+    case readingPlanSlotStatusChange = "reading_plan.slot_status_change"
+    case recommendationArxivRefresh = "recommendation.arxiv_refresh"
+    case recommendationError = "recommendation.error"
 
     // MARK: - Module Settings
     case moduleSettingsToggle = "module_settings.toggle"

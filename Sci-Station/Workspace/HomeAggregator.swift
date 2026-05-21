@@ -16,6 +16,7 @@ public nonisolated struct HomeAggregationInput: Sendable {
     /// workspace and project. Optional; default empty for callers that have
     /// not yet wired the queue store.
     public var queueEntries: [ResearchQueueEntry]
+    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         workspaceID: String,
@@ -29,7 +30,8 @@ public nonisolated struct HomeAggregationInput: Sendable {
         retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot = AgentEmbeddingIndexStatusSnapshot.disabled(),
         moduleConfiguration: WorkspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration(),
         failureReason: String? = nil,
-        queueEntries: [ResearchQueueEntry] = []
+        queueEntries: [ResearchQueueEntry] = [],
+        activeReadingPlan: ReadingPlanSummary? = nil
     ) {
         self.workspaceID = workspaceID
         self.currentProjectID = currentProjectID
@@ -43,6 +45,7 @@ public nonisolated struct HomeAggregationInput: Sendable {
         self.moduleConfiguration = moduleConfiguration
         self.failureReason = failureReason
         self.queueEntries = queueEntries
+        self.activeReadingPlan = activeReadingPlan
     }
 
     public var signature: Int {
@@ -115,6 +118,7 @@ public nonisolated struct HomeAggregationInput: Sendable {
             hasher.combine(entry.lastTouchedAt)
             hasher.combine(entry.scope.identifier)
         }
+        hasher.combine(activeReadingPlan)
         return hasher.finalize()
     }
 }
@@ -278,7 +282,8 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             readingQueue: readingQueue,
             upcomingDeadlines: upcomingDeadlines,
             pendingDrafts: pendingDrafts,
-            readingQueueEntries: readingQueueEntries
+            readingQueueEntries: readingQueueEntries,
+            activeReadingPlan: input.activeReadingPlan
         )
     }
 

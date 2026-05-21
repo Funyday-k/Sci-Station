@@ -7,34 +7,81 @@ public nonisolated struct RequestRecommendationRefreshAgentTool: AgentTool {
         AgentToolDefinition(
             name: "request_recommendation_refresh",
             displayName: "Request Recommendation Refresh",
-            summary: "Request a local recommendation refresh and return only the generated candidate count.",
-            inputSchema: #"{"scope":"workspace|active_project optional","top_k":10}"#,
-            risk: .readOnly,
-            requiresConfirmation: false,
-            permissionKey: "recommendation.read",
-            outputPolicy: AgentToolOutputPolicy(maxCharacters: 2000),
-            examples: [#"{"scope":"active_project","top_k":8}"#]
+            summary: "Fetch arXiv-only paper recommendations and return queue-ready candidates for the unified Reading workflow.",
+            inputSchema: #"{"query":"optional keywords","categories":["cs.AI","cs.CL"],"scope":"workspace|active_project optional","top_k":10}"#,
+            risk: .network,
+            permissionKey: "recommendation.network",
+            outputPolicy: AgentToolOutputPolicy(maxCharacters: 12000),
+            examples: [#"{"query":"scientific agents","categories":["cs.AI","cs.CL"],"scope":"active_project","top_k":8}"#]
         )
     }
 
     public func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
-        let papers = try await PaperRepository().loadPapers(in: context.workspace)
         let config = (try? RecommendationConfigStore().load(in: context.workspace)) ?? RecommendationConfig()
-        let scopedPapers = context.currentProjectID.map { projectID in
-            papers.filter { $0.projectIDs.contains(projectID) || $0.coreProjectIDs.contains(projectID) }
-        } ?? papers
-        let candidateCount = min(scopedPapers.count, config.topK)
+        let arguments = (try? JSONDecoder().decode(RecommendationRefreshArguments.self, from: Data(argumentsJSON.utf8))) ?? RecommendationRefreshArguments()
+        let topK = min(max(arguments.topK ?? config.topK, 1), 100)
+        let configuredCategories = config.dailySources.first { $0.kind == .arxiv }?.categories ?? []
+        let categories = arguments.categories?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? configuredCategories
+        let request = ArxivRecommendationRequest(
+            query: arguments.query ?? "",
+            categories: categories.isEmpty ? ["cs.AI", "cs.CL", "cs.CV", "cs.LG"] : categories,
+            maxResults: min(max(topK * 3, config.maxDailyCandidates), 100)
+        )
+        let candidates = try await ArxivRecommendationClient().fetch(request)
+        let selectedCandidates = Array(candidates.prefix(topK))
+        let queueScope = arguments.scope == "active_project"
+            ? context.currentProjectID.map { "project:\($0)" } ?? "workspace"
+            : "workspace"
         return AgentToolResult(
             callID: "",
             toolName: definition.name,
             succeeded: true,
-            message: "Recommendation refresh prepared \(candidateCount) local candidate(s). Review Recommendations to approve queue additions.",
+            message: "Fetched \(selectedCandidates.count) arXiv candidate(s). Add them to unified Reading after approval.",
             payload: .object([
                 "schema_version": .number("1"),
-                "kind": .string("recommendation_refresh_requested"),
-                "candidate_count": .number(String(candidateCount)),
-                "scope": .string(context.currentProjectID.map { "project:\($0)" } ?? "workspace")
+                "kind": .string("recommendation_note"),
+                "artifact_kind": .string("recommendation_note"),
+                "candidate_count": .number(String(selectedCandidates.count)),
+                "queue_scope": .string(queueScope),
+                "source": .string("arxiv"),
+                "queue_candidates": .array(selectedCandidates.map(queueCandidatePayload(_:)))
             ])
         )
+    }
+
+    private nonisolated func queueCandidatePayload(_ candidate: RecommendationCandidate) -> JSONValue {
+        var payload: [String: JSONValue] = [
+            "display_title": .string(candidate.displayTitle),
+            "reason": .string("arXiv-only recommendation"),
+            "source": .string("arxiv")
+        ]
+        if let paperID = candidate.paperID {
+            payload["paper_id"] = .string(paperID)
+        }
+        if let externalKey = candidate.externalKey {
+            payload["external_key"] = .string(externalKey)
+        }
+        return .object(payload)
+    }
+}
+
+private nonisolated struct RecommendationRefreshArguments: Decodable {
+    var query: String?
+    var categories: [String]?
+    var scope: String?
+    var topK: Int?
+
+    init(query: String? = nil, categories: [String]? = nil, scope: String? = nil, topK: Int? = nil) {
+        self.query = query
+        self.categories = categories
+        self.scope = scope
+        self.topK = topK
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case query
+        case categories
+        case scope
+        case topK = "top_k"
     }
 }

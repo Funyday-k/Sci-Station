@@ -151,8 +151,12 @@ private struct CoreVerificationSuite {
         try await researchQueueIngestorAppliesPaperStatusDiffsToStore()
         try await researchQueueIngestorPersistsCursorAcrossReopen()
         try await researchQueueFixtureRoundTripsFiveDiverseEntries()
+        try readingPlanYAMLCodecRoundTripsActivePlan()
+        try readingPlanGeneratorBuildsDeterministicWeeklySlots()
+        try await readingPlanStorePersistsActivatesAndUpdatesSlots()
         try recommendationConfigYAMLRoundTripsDailySourceSettings()
         try dailyFeedCandidateImporterMapsExternalArxivCandidates()
+        try arxivRecommendationParserMapsAtomFeedCandidates()
         try await recommendationCandidateGathererDedupsDailyFeedAndQueueTail()
         try await recommendationScorerRanksByLibraryInterestAndSuppressesFinished()
         try await recommendationPipelineWritesSnapshotAndQueuePayload()
@@ -751,8 +755,8 @@ private struct CoreVerificationSuite {
         let homeContext = WorkspaceContextSnapshot(topLevelSectionID: "home")
         let libraryRoute = WorkspaceRoute(top: .library)
         let libraryContext = WorkspaceContextSnapshot(topLevelSectionID: "library")
-        let projectsRoute = WorkspaceRoute(top: .projects, projectID: "proj-1", projectTabID: "queue")
-        let projectsContext = WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "proj-1", projectTabID: "queue")
+        let projectsRoute = WorkspaceRoute(top: .projects, projectID: "proj-1", projectTabID: "reading")
+        let projectsContext = WorkspaceContextSnapshot(topLevelSectionID: "projects", projectID: "proj-1", projectTabID: "reading")
 
         // 2026-05-17 UI Bug Bash: the right rail policy is now fully sticky —
         // suggestedMode echoes preferredMode back so user-driven toggles win.
@@ -760,7 +764,7 @@ private struct CoreVerificationSuite {
         // only consulted when seeding an untouched workspace's initial state.
         try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .inspector) == .inspector, "User-pinned inspector mode must survive a Home route refresh.")
         try expect(RightRailPolicy.suggestedMode(route: libraryRoute, context: libraryContext, preferredMode: .hidden) == .hidden, "User-hidden right rail must stay hidden across route changes (sticky preference).")
-        try expect(RightRailPolicy.suggestedMode(route: projectsRoute, context: projectsContext, preferredMode: .inspector) == .inspector, "User-opened inspector must stay open on routes that previously hinted .hidden (queue tab regression).")
+        try expect(RightRailPolicy.suggestedMode(route: projectsRoute, context: projectsContext, preferredMode: .inspector) == .inspector, "User-opened inspector must stay open on routes that previously hinted .hidden (Reading tab regression).")
         try expect(RightRailPolicy.suggestedMode(route: homeRoute, context: homeContext, preferredMode: .ai) == .ai, "An open AI rail should stay open across route context updates.")
 
         // `defaultMode(for:)` keeps the legacy auto-hide intent for workspace
@@ -1103,6 +1107,10 @@ private struct CoreVerificationSuite {
 
         try expect(ids.contains("overview"), "ProjectSpace tabs should include Overview from the projects module.")
         try expect(ids.contains("papers"), "ProjectSpace tabs should include Papers from the paper-library module.")
+        try expect(ids.contains("reading"), "ProjectSpace tabs should include unified Reading from the paper-library module.")
+        try expect(ids.contains("recommendations"), "ProjectSpace tabs should include arXiv Recommendations from the recommendation module.")
+        try expect(!ids.contains("queue"), "ProjectSpace tabs should not expose Queue as a separate tab after Reading consolidation.")
+        try expect(!ids.contains("reading-plan"), "ProjectSpace tabs should not expose Reading Plan as a separate tab after Reading consolidation.")
         try expect(ids.contains("wiki"), "ProjectSpace tabs should include Wiki from the wiki module.")
         try expect(ids.contains("tasks"), "ProjectSpace tabs should include Tasks from the tasks module.")
         try expect(ids.contains("calendar"), "ProjectSpace tabs should include Calendar from the calendar module.")
@@ -1327,6 +1335,10 @@ private struct CoreVerificationSuite {
             "queue.load", "queue.load.error", "queue.append", "queue.reorder",
             "queue.remove", "queue.status_change", "queue.save_error",
             "queue.ingest_error", "queue.ingest_scanned", "queue.ingest_from_recommendation",
+            "reading_plan.load", "reading_plan.load.error", "reading_plan.save",
+            "reading_plan.save_error", "reading_plan.activate", "reading_plan.archive",
+            "reading_plan.reorder", "reading_plan.slot_status_change",
+            "recommendation.arxiv_refresh", "recommendation.error",
             // Module settings
             "module_settings.toggle", "module_settings.toggle_chain", "module_settings.pin",
             // Graph (P44–P47)
@@ -3561,6 +3573,155 @@ private struct CoreVerificationSuite {
         try expect(secondCount == 1, "Reopened ingestor must read the persisted cursor and skip the already-scanned tool call.")
     }
 
+    private func readingPlanYAMLCodecRoundTripsActivePlan() throws {
+        let baseDate = Date(timeIntervalSince1970: 1_777_600_000)
+        let plan = ReadingPlan(
+            id: "reading-plan-project-alpha-2026-05-18",
+            scope: .project("project-alpha"),
+            weekStart: Date(timeIntervalSince1970: 1_779_062_400),
+            status: .active,
+            slots: [
+                ReadingPlanSlot(
+                    id: "slot-a",
+                    queueEntryID: "queue:project:project-alpha:p-a",
+                    paperID: "p-a",
+                    displayTitle: "First Reading",
+                    status: .reading,
+                    plannedDay: "Mon",
+                    estimatedMinutes: 45,
+                    actualMinutes: nil,
+                    order: 1,
+                    sourceRefs: ["queue:project:project-alpha:p-a"],
+                    createdAt: baseDate,
+                    updatedAt: baseDate
+                ),
+                ReadingPlanSlot(
+                    id: "slot-b",
+                    queueEntryID: "queue:project:project-alpha:p-b",
+                    paperID: "p-b",
+                    displayTitle: "Second Reading",
+                    status: .finished,
+                    plannedDay: "Wed",
+                    estimatedMinutes: 60,
+                    actualMinutes: 55,
+                    order: 2,
+                    sourceRefs: [],
+                    createdAt: baseDate,
+                    updatedAt: baseDate.addingTimeInterval(60)
+                )
+            ],
+            sourceRefs: ["queue:project:project-alpha:p-a", "queue:project:project-alpha:p-b"],
+            createdAt: baseDate,
+            updatedAt: baseDate.addingTimeInterval(120),
+            activatedAt: baseDate.addingTimeInterval(30)
+        )
+
+        let yaml = ReadingPlanYAMLCodec.encode(plans: [plan], scope: .project("project-alpha"), generatedAt: baseDate)
+        let decoded = ReadingPlanYAMLCodec.decode(contents: yaml)
+
+        try expect(decoded.skippedPlanCount == 0, "ReadingPlan YAML round-trip should not skip valid plans.")
+        let loaded = try require(decoded.plans.first, "ReadingPlan YAML round-trip should decode one plan.")
+        try expect(loaded.id == plan.id, "ReadingPlan YAML should preserve plan id.")
+        try expect(loaded.scope == .project("project-alpha"), "ReadingPlan YAML should preserve project scope.")
+        try expect(loaded.status == .active, "ReadingPlan YAML should preserve plan status.")
+        try expect(loaded.slots.map(\.id) == ["slot-a", "slot-b"], "ReadingPlan YAML should preserve slot order.")
+        try expect(loaded.slots.last?.actualMinutes == 55, "ReadingPlan YAML should preserve actual minutes.")
+    }
+
+    private func readingPlanGeneratorBuildsDeterministicWeeklySlots() throws {
+        let now = Date(timeIntervalSince1970: 1_777_600_000)
+        let generator = ReadingPlanGenerator()
+        let entries = [
+            sampleQueueEntry(
+                id: "queue:project:p1:later",
+                scope: .project("p1"),
+                order: 3,
+                status: .queued,
+                paperID: "later",
+                displayTitle: "Later Paper",
+                lastTouchedAt: now.addingTimeInterval(300)
+            ),
+            sampleQueueEntry(
+                id: "queue:project:p1:reading",
+                scope: .project("p1"),
+                order: 2,
+                status: .reading,
+                paperID: "reading",
+                displayTitle: "Already Reading",
+                lastTouchedAt: now.addingTimeInterval(100)
+            ),
+            sampleQueueEntry(
+                id: "queue:project:p1:finished",
+                scope: .project("p1"),
+                order: 1,
+                status: .finished,
+                paperID: "finished",
+                displayTitle: "Finished Paper",
+                lastTouchedAt: now.addingTimeInterval(500)
+            )
+        ]
+        let plan = generator.generate(input: ReadingPlanGenerationInput(
+            scope: .project("p1"),
+            weekStart: Date(timeIntervalSince1970: 1_779_148_800),
+            queueEntries: entries,
+            settings: ReadingPlanSettings(weeklyCapacityMinutes: 120, defaultSlotMinutes: 60, maxPapersPerWeek: 4, preferredReadingDays: ["Tue", "Thu"]),
+            now: now
+        ))
+
+        try expect(plan.id == "reading-plan-project-p1-2026-05-18", "Generator should produce a stable weekly plan id.")
+        try expect(plan.status == .draft, "Generated plans should start as draft.")
+        try expect(plan.slots.map(\.displayTitle) == ["Already Reading", "Later Paper"], "Generator should prefer reading entries then queued entries and skip finished entries.")
+        try expect(plan.slots.map(\.plannedDay) == ["Tue", "Thu"], "Generator should assign preferred reading days deterministically.")
+        try expect(plan.slots.map(\.estimatedMinutes) == [60, 60], "Generator should use the configured slot minutes.")
+    }
+
+    private func readingPlanStorePersistsActivatesAndUpdatesSlots() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("ReadingPlanStoreWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let baseDate = Date(timeIntervalSince1970: 1_777_600_000)
+        let store = ReadingPlanStore(workspace: workspace, dateProvider: { baseDate })
+        try await store.open(projectIDs: ["project-alpha"])
+        let plan = ReadingPlan(
+            id: "reading-plan-project-alpha-2026-05-18",
+            scope: .project("project-alpha"),
+            weekStart: Date(timeIntervalSince1970: 1_779_062_400),
+            status: .draft,
+            slots: [
+                ReadingPlanSlot(
+                    id: "slot-a",
+                    queueEntryID: "queue:project:project-alpha:p-a",
+                    paperID: "p-a",
+                    displayTitle: "Persisted Slot",
+                    estimatedMinutes: 60,
+                    order: 1,
+                    createdAt: baseDate,
+                    updatedAt: baseDate
+                )
+            ],
+            createdAt: baseDate,
+            updatedAt: baseDate
+        )
+
+        try await store.save(plan)
+        try await store.activate(planID: plan.id, in: .project("project-alpha"), at: baseDate.addingTimeInterval(60))
+        try await store.updateSlotStatus(planID: plan.id, slotID: "slot-a", status: .finished, actualMinutes: 50, at: baseDate.addingTimeInterval(120))
+        let active = try require(await store.activePlan(in: .project("project-alpha")), "Store should expose the activated plan.")
+        try expect(active.status == .active, "Activating a plan should update status.")
+        try expect(active.slots.first?.status == .finished, "Slot status updates should be applied in memory.")
+        try expect(active.slots.first?.actualMinutes == 50, "Slot status updates should persist actual minutes.")
+
+        await store.close()
+
+        let reopened = ReadingPlanStore(workspace: workspace)
+        try await reopened.open(projectIDs: ["project-alpha"])
+        let reloaded = try require(await reopened.activePlan(in: .project("project-alpha")), "Reopened store should reload the active plan.")
+        try expect(reloaded.slots.first?.displayTitle == "Persisted Slot", "Reopened store should preserve slot title.")
+        try expect(reloaded.slots.first?.status == .finished, "Reopened store should preserve slot status.")
+        let yamlURL = workspace.fileURL(for: "projects/project-alpha/reading-plans/plans.yaml")
+        try expect(FileManager.default.fileExists(atPath: yamlURL.path), "ReadingPlanStore should persist project plans under projects/<id>/reading-plans/plans.yaml.")
+    }
+
     private func recommendationConfigYAMLRoundTripsDailySourceSettings() throws {
         var config = RecommendationConfig()
         config.cadence = .daily
@@ -3600,6 +3761,34 @@ private struct CoreVerificationSuite {
         try expect(candidate.publishedYear == 2026, "Importer should derive published year.")
         try expect(candidate.sourceTags == [.dailyFeed], "Importer should mark daily feed source.")
         try expect(candidate.abstractText?.contains("Graph retrieval") == true, "Importer should keep abstract in memory for scoring.")
+    }
+
+    private func arxivRecommendationParserMapsAtomFeedCandidates() throws {
+        let atom = """
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <id>http://arxiv.org/abs/2604.22012v1</id>
+            <updated>2026-04-21T00:00:00Z</updated>
+            <published>2026-04-20T00:00:00Z</published>
+            <title>Graph Retrieval for Scientific Agents</title>
+            <summary>Graph retrieval agents use arXiv recommendations.</summary>
+            <author><name>Ada Lovelace</name></author>
+            <author><name>Grace Hopper</name></author>
+            <category term="cs.AI"/>
+            <category term="cs.CL"/>
+          </entry>
+        </feed>
+        """
+        let candidate = try require(ArxivRecommendationParser.parseAtom(atom).first, "arXiv Atom parser should return one candidate.")
+
+        try expect(candidate.canonicalID == "external:arxiv:2604.22012", "arXiv Atom parser should canonicalize versioned ids.")
+        try expect(candidate.externalKey == "arxiv:2604.22012", "arXiv Atom parser should emit arXiv external keys.")
+        try expect(candidate.sourceName == "arXiv", "arXiv Atom parser should label candidates as arXiv.")
+        try expect(candidate.sourceURL == "https://arxiv.org/abs/2604.22012", "arXiv Atom parser should produce abs URLs.")
+        try expect(candidate.pdfURL == "https://arxiv.org/pdf/2604.22012.pdf", "arXiv Atom parser should produce pdf URLs.")
+        try expect(candidate.authors == ["Ada Lovelace", "Grace Hopper"], "arXiv Atom parser should preserve author order.")
+        try expect(candidate.categories == ["cs.AI", "cs.CL"], "arXiv Atom parser should preserve categories.")
+        try expect(candidate.abstractText?.contains("arXiv recommendations") == true, "arXiv Atom parser should preserve summaries.")
     }
 
     private func recommendationCandidateGathererDedupsDailyFeedAndQueueTail() async throws {
@@ -6571,7 +6760,9 @@ private struct CoreVerificationSuite {
         try expect(module.workflows.contains("reading_queue_curate"), "paper-library should declare the reading_queue_curate workflow.")
         try expect(module.permissions.writePaths.contains("library/queue.yaml"), "paper-library should permit writes to library/queue.yaml.")
         try expect(module.permissions.writePaths.contains("projects/*/queue.yaml"), "paper-library should permit writes to projects/*/queue.yaml.")
-        try expect(module.projectTabs.contains(where: { $0.id == "queue" }), "paper-library should contribute the Queue project-space tab.")
+        try expect(module.projectTabs.contains(where: { $0.id == "reading" }), "paper-library should contribute the unified Reading project-space tab.")
+        try expect(!module.projectTabs.contains(where: { $0.id == "queue" }), "paper-library should no longer contribute a separate Queue project-space tab.")
+        try expect(!module.projectTabs.contains(where: { $0.id == "reading-plan" }), "paper-library should no longer contribute a separate Reading Plan project-space tab.")
 
         let descriptor = WorkspaceModuleRegistry.artifactKindDescriptor(for: "reading_queue_entry", in: WorkspaceModuleRegistry.defaultConfiguration())
         try expect(descriptor.isKnown && descriptor.moduleID == "paper-library", "reading_queue_entry should resolve to paper-library via the artifact kind descriptor.")
@@ -6589,9 +6780,11 @@ private struct CoreVerificationSuite {
         try expect(!noLibraryWorkflows.contains("reading_queue_curate"), "reading_queue_curate should hide when paper-library is disabled.")
 
         let availableProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: defaultConfiguration).map(\.id))
-        try expect(availableProjectTabs.contains("queue"), "Queue tab should be available when paper-library is enabled.")
+        try expect(availableProjectTabs.contains("reading"), "Unified Reading tab should be available when paper-library is enabled.")
+        try expect(!availableProjectTabs.contains("queue"), "Queue tab should not remain available after Reading consolidation.")
+        try expect(!availableProjectTabs.contains("reading-plan"), "Reading Plan tab should not remain available after Reading consolidation.")
         let noLibraryProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: noLibraryConfiguration).map(\.id))
-        try expect(!noLibraryProjectTabs.contains("queue"), "Queue tab should disappear when paper-library is disabled.")
+        try expect(!noLibraryProjectTabs.contains("reading"), "Unified Reading tab should disappear when paper-library is disabled.")
 
         let requirements = try require(WorkspaceModuleRegistry.workflowRequirements["reading_queue_curate"], "reading_queue_curate should declare workflow requirements.")
         try expect(requirements == ["paper-library"], "reading_queue_curate should require exactly paper-library; AI ingest stays under research_queue_update.")
@@ -6599,13 +6792,13 @@ private struct CoreVerificationSuite {
 
             private func moduleSettingsViewModelEnableModuleRequiresDependencies() throws {
                 let configuration = WorkspaceModuleRegistry.defaultConfiguration(
-                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["citation-graph"])
+                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["paper-library"])
                 )
                 do {
                     _ = try WorkspaceModuleSettingsMutation.setModule("recommendation", enabled: true, in: configuration)
-                    try expect(false, "Enabling recommendation should require citation-graph first.")
+                    try expect(false, "Enabling recommendation should require paper-library first.")
                 } catch ModuleSettingsError.dependencyMissing(let missing) {
-                    try expect(missing == ["citation-graph"], "Recommendation should report citation-graph as the missing dependency.")
+                    try expect(missing == ["paper-library"], "Recommendation should report paper-library as the missing dependency.")
                 } catch {
                     throw error
                 }
@@ -6613,14 +6806,14 @@ private struct CoreVerificationSuite {
 
             private func moduleSettingsViewModelEnableDependenciesEnablesAllAncestors() throws {
                 let configuration = WorkspaceModuleRegistry.defaultConfiguration(
-                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["citation-graph"])
+                    enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["paper-library", "recommendation"])
                 )
                 let result = try WorkspaceModuleSettingsMutation.enableModuleAndDependencies("recommendation", in: configuration)
                 let enabledIDs = result.configuration.enabledModuleIDs
 
-                try expect(enabledIDs.contains("citation-graph"), "Enable Dependencies should enable recommendation ancestors.")
+                try expect(enabledIDs.contains("paper-library"), "Enable Dependencies should enable recommendation ancestors.")
                 try expect(enabledIDs.contains("recommendation"), "Enable Dependencies should enable the requested module.")
-                try expect(result.enabledChain == ["citation-graph", "recommendation"], "Dependency chain should be deterministic and dependency-first.")
+                try expect(result.enabledChain == ["paper-library", "recommendation"], "Dependency chain should be deterministic and dependency-first.")
             }
 
             private func moduleSettingsViewModelTogglePinPersistsOrder() async throws {

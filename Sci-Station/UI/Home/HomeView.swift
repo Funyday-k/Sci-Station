@@ -24,6 +24,9 @@ struct HomeView: View {
             .onChange(of: appModel.researchQueueScopes) { _, _ in
                 Task { await reloadHome(invalidating: true, reason: "queue_change") }
             }
+            .onChange(of: appModel.readingPlanScopes) { _, _ in
+                Task { await reloadHome(invalidating: true, reason: "reading_plan_change") }
+            }
     }
 
     private var contentWithPrimaryWatchers: some View {
@@ -193,7 +196,8 @@ struct HomeView: View {
             sessionEvents: appModel.agentSessionEvents,
             retrievalIndexStatus: appModel.agentRetrievalIndexStatus,
             moduleConfiguration: appModel.workspaceModuleConfiguration,
-            queueEntries: Array(appModel.researchQueueScopes.values.joined())
+            queueEntries: Array(appModel.researchQueueScopes.values.joined()),
+            activeReadingPlan: appModel.activeReadingPlanSummaryForHome
         )
     }
 

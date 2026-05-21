@@ -67,19 +67,22 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
     public var pendingDrafts: [DraftSummary]
     /// P48 真实 queue 投影。非空时 UI 优先渲染此列；为空时回退到 `readingQueue`。
     public var readingQueueEntries: [ReadingQueueEntrySummary]
+    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         dueTodos: [TodoSummary] = [],
         readingQueue: [PaperSummary] = [],
         upcomingDeadlines: [DeadlineSummary] = [],
         pendingDrafts: [DraftSummary] = [],
-        readingQueueEntries: [ReadingQueueEntrySummary] = []
+        readingQueueEntries: [ReadingQueueEntrySummary] = [],
+        activeReadingPlan: ReadingPlanSummary? = nil
     ) {
         self.dueTodos = dueTodos
         self.readingQueue = readingQueue
         self.upcomingDeadlines = upcomingDeadlines
         self.pendingDrafts = pendingDrafts
         self.readingQueueEntries = readingQueueEntries
+        self.activeReadingPlan = activeReadingPlan
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -88,6 +91,7 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
         case upcomingDeadlines
         case pendingDrafts
         case readingQueueEntries
+        case activeReadingPlan
     }
 
     public init(from decoder: Decoder) throws {
@@ -97,6 +101,7 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
         self.upcomingDeadlines = try container.decodeIfPresent([DeadlineSummary].self, forKey: .upcomingDeadlines) ?? []
         self.pendingDrafts = try container.decodeIfPresent([DraftSummary].self, forKey: .pendingDrafts) ?? []
         self.readingQueueEntries = try container.decodeIfPresent([ReadingQueueEntrySummary].self, forKey: .readingQueueEntries) ?? []
+        self.activeReadingPlan = try container.decodeIfPresent(ReadingPlanSummary.self, forKey: .activeReadingPlan)
     }
 }
 
@@ -392,6 +397,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
     /// P48 — Top 3 active queue entries scoped to this project (project queue
     /// plus the workspace-queue rows whose paper is linked to the project).
     public var readingQueuePreview: [ReadingQueueEntrySummary]
+    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         projectID: String,
@@ -406,7 +412,8 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         openTodoCount: Int,
         builtAt: Date,
         generationDuration: TimeInterval,
-        readingQueuePreview: [ReadingQueueEntrySummary] = []
+        readingQueuePreview: [ReadingQueueEntrySummary] = [],
+        activeReadingPlan: ReadingPlanSummary? = nil
     ) {
         self.projectID = projectID
         self.projectTitle = projectTitle
@@ -421,6 +428,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.builtAt = builtAt
         self.generationDuration = generationDuration
         self.readingQueuePreview = readingQueuePreview
+        self.activeReadingPlan = activeReadingPlan
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -437,6 +445,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         case builtAt
         case generationDuration
         case readingQueuePreview
+        case activeReadingPlan
     }
 
     public init(from decoder: Decoder) throws {
@@ -454,6 +463,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.builtAt = try container.decode(Date.self, forKey: .builtAt)
         self.generationDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .generationDuration) ?? 0
         self.readingQueuePreview = try container.decodeIfPresent([ReadingQueueEntrySummary].self, forKey: .readingQueuePreview) ?? []
+        self.activeReadingPlan = try container.decodeIfPresent(ReadingPlanSummary.self, forKey: .activeReadingPlan)
     }
 
     public var debugPayload: JSONValue {
@@ -462,7 +472,8 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
             "duration_ms": .number(String(Int((generationDuration * 1000).rounded()))),
             "stage": .string(stage.rawValue),
             "recent_artifacts_count": .number(String(recentArtifacts.count)),
-            "reading_queue_preview_count": .number(String(readingQueuePreview.count))
+            "reading_queue_preview_count": .number(String(readingQueuePreview.count)),
+            "active_reading_plan_present": .bool(activeReadingPlan != nil)
         ])
     }
 }

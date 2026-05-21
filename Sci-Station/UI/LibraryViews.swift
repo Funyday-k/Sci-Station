@@ -675,7 +675,7 @@ private struct LibraryPaperTableView: View {
 
             let queueScopes = appModel.availableResearchQueueScopes
             if !queueScopes.isEmpty {
-                Menu("Add to Queue") {
+                Menu("Add to Reading") {
                     ForEach(queueScopes, id: \.identifier) { scope in
                         Button {
                             for paper in appModel.selectedLibraryPapers {
@@ -686,7 +686,7 @@ private struct LibraryPaperTableView: View {
                                 )
                             }
                         } label: {
-                            Label(scopeLabel(for: scope), systemImage: "tray.and.arrow.down")
+                            Label(scopeLabel(for: scope), systemImage: "book")
                         }
                     }
                 }
@@ -772,7 +772,7 @@ private struct LibraryPaperTableView: View {
         if scopes.isEmpty {
             EmptyView()
         } else {
-            Menu("Reading Queue") {
+            Menu("Reading") {
                 ForEach(scopes, id: \.identifier) { scope in
                     readingQueueScopeButton(for: paper, scope: scope)
                 }
@@ -816,7 +816,7 @@ private struct LibraryPaperTableView: View {
         } label: {
             Label(
                 inQueue ? "Remove from \(scopeLabel(for: scope))" : "Add to \(scopeLabel(for: scope))",
-                systemImage: inQueue ? "checkmark.circle.fill" : "tray.and.arrow.down"
+                systemImage: inQueue ? "checkmark.circle.fill" : "book"
             )
         }
     }
@@ -830,12 +830,12 @@ private struct LibraryPaperTableView: View {
     private func scopeLabel(for scope: QueueScope) -> String {
         switch scope {
         case .workspace:
-            return "Workspace Queue"
+            return "Workspace Reading"
         case .project(let projectID):
             if let project = appModel.researchProjects.first(where: { $0.id == projectID }) {
-                return "\(project.name) Queue"
+                return "\(project.name) Reading"
             }
-            return "Project Queue"
+            return "Project Reading"
         }
     }
 }

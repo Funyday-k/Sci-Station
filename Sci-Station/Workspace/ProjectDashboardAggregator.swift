@@ -13,6 +13,7 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
     /// interest before rendering. Default empty for callers that have not yet
     /// wired the queue store.
     public var queueEntries: [ResearchQueueEntry]
+    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         workspaceID: String,
@@ -22,7 +23,8 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
         markdownDocuments: [MarkdownDocument] = [],
         agentRuns: [AgentRun] = [],
         unsupportedClaims: [ClaimSummary] = [],
-        queueEntries: [ResearchQueueEntry] = []
+        queueEntries: [ResearchQueueEntry] = [],
+        activeReadingPlan: ReadingPlanSummary? = nil
     ) {
         self.workspaceID = workspaceID
         self.project = project
@@ -32,6 +34,7 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
         self.agentRuns = agentRuns
         self.unsupportedClaims = unsupportedClaims
         self.queueEntries = queueEntries
+        self.activeReadingPlan = activeReadingPlan
     }
 
     public var signature: Int {
@@ -89,6 +92,7 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
             hasher.combine(entry.lastTouchedAt)
             hasher.combine(entry.scope.identifier)
         }
+        hasher.combine(activeReadingPlan)
         return hasher.finalize()
     }
 }
@@ -212,7 +216,8 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             openTodoCount: openTodoCount,
             builtAt: now,
             generationDuration: Date().timeIntervalSince(start),
-            readingQueuePreview: readingQueuePreview
+            readingQueuePreview: readingQueuePreview,
+            activeReadingPlan: input.activeReadingPlan
         )
     }
 
