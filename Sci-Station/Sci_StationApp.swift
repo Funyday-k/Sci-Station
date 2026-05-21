@@ -12,6 +12,10 @@ struct Sci_StationApp: App {
     @StateObject private var appModel = AppViewModel()
     @StateObject private var launchCoordinator = SciStationLaunchCoordinator()
 
+    init() {
+        SciStationWindowRestoration.clearMainWindowState()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -19,7 +23,14 @@ struct Sci_StationApp: App {
                 .environmentObject(launchCoordinator)
                 .onAppear(perform: launchCoordinator.start)
         }
-        .defaultSize(width: 1360, height: 860)
+        .defaultSize(width: 1180, height: 740)
+        .defaultWindowPlacement { content, context in
+            let visibleRect = context.defaultDisplay.visibleRect
+            let width = min(1180, max(320, visibleRect.width - 48))
+            let height = min(740, max(320, visibleRect.height - 48))
+            return WindowPlacement(size: CGSize(width: width, height: height))
+        }
+        .restorationBehavior(.disabled)
         .commands {
             CommandMenu(appModel.t(.toolbarWorkspace)) {
                 Button(appModel.t(.toolbarCreateWorkspace), action: appModel.createWorkspace)

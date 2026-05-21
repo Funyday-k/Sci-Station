@@ -26,6 +26,7 @@ struct ReadingView: View {
             toolbar
             Divider()
             content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 24)
@@ -215,6 +216,7 @@ struct ReadingView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -271,6 +273,7 @@ struct ReadingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(.top, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -307,6 +310,7 @@ struct ReadingView: View {
                 }
                 .padding(.bottom, 18)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 Label(appModel.localized("选择或生成一个计划", "Select or generate a plan"), systemImage: "list.bullet.rectangle")

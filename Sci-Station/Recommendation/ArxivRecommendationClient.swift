@@ -54,8 +54,17 @@ public actor ArxivRecommendationClient {
             clauses.append(request.categories.map { "cat:\($0)" }.joined(separator: " OR "))
         }
         if !request.query.isEmpty {
-            let escapedQuery = request.query.replacingOccurrences(of: "\"", with: " ")
-            clauses.append("all:\"\(escapedQuery)\"")
+            let terms = request.query
+                .replacingOccurrences(of: "\"", with: " ")
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+                .prefix(8)
+            if terms.count == 1, let term = terms.first {
+                clauses.append("all:\(term)")
+            } else if !terms.isEmpty {
+                clauses.append(terms.map { "all:\($0)" }.joined(separator: " AND "))
+            }
         }
         if let submittedAfter = request.submittedAfter, let submittedBefore = request.submittedBefore {
             clauses.append("submittedDate:[\(arxivDate(submittedAfter)) TO \(arxivDate(submittedBefore))]")

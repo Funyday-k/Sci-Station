@@ -531,6 +531,9 @@ private struct LibraryPaperTableView: View {
     private func valueView(column: LibraryColumn, row: LibraryPaperTableRow) -> some View {
         LibraryColumnValueView(column: column, row: row)
             .contentShape(Rectangle())
+            .onTapGesture {
+                appModel.selectPaper(id: row.paper.id)
+            }
             .onTapGesture(count: 2) {
                 appModel.openPaperReader(row.paper)
             }

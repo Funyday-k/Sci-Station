@@ -11,8 +11,10 @@ struct RecommendationView: View {
     @State private var selectedCategories: Set<String>
     @State private var topK: Int = 10
     @State private var selectedAIModel: String = "deepseek-v4-flash"
-    @State private var selectedScopeIdentifier: String
     @State private var isCategorySelectorPresented = false
+    @State private var isPaperSelectorPresented = false
+    @State private var isHistoryExpanded = false
+    @State private var selectedReferencePaperIDs: Set<Paper.ID> = []
 
     private static let categoryGroups: [RecommendationCategoryGroup] = [
         RecommendationCategoryGroup(
@@ -231,22 +233,28 @@ struct RecommendationView: View {
     init(workspace: ResearchWorkspace, project: ResearchProject) {
         self.workspace = workspace
         self.project = project
-        _query = State(initialValue: project.name)
+        _query = State(initialValue: "")
         _selectedCategories = State(initialValue: Set(["cs.AI", "cs.CL", "cs.CV", "cs.LG"]))
-        _selectedScopeIdentifier = State(initialValue: QueueScope.project(project.id).identifier)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            controls
-            Divider()
-            content
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    controls
+                    Divider()
+                    content(availableHeight: contentAvailableHeight(for: proxy.size.height))
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.horizontal, 24)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 24)
-        .padding(.top, 18)
-        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $isCategorySelectorPresented) {
             RecommendationCategorySelectorSheet(
@@ -254,6 +262,16 @@ struct RecommendationView: View {
                 selectedCategories: $selectedCategories,
                 onDone: {
                     isCategorySelectorPresented = false
+                }
+            )
+            .environmentObject(appModel)
+        }
+        .sheet(isPresented: $isPaperSelectorPresented) {
+            RecommendationReferencePaperSheet(
+                project: project,
+                selectedPaperIDs: $selectedReferencePaperIDs,
+                onDone: {
+                    isPaperSelectorPresented = false
                 }
             )
             .environmentObject(appModel)
@@ -266,18 +284,16 @@ struct RecommendationView: View {
         }
     }
 
+    private func contentAvailableHeight(for viewHeight: CGFloat) -> CGFloat {
+        max(220, min(viewHeight - 190, 520))
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Label(appModel.localized("论文推荐", "Paper Recommendations"), systemImage: ProjectSpaceTabIcon.systemImage(for: "recommendations"))
-                    .font(.largeTitle.weight(.semibold))
+                    .font(.title2.weight(.semibold))
                 Spacer(minLength: 0)
-                Button {
-                    appModel.selectProjectSpaceTab("reading")
-                } label: {
-                    Label(appModel.localized("打开 Reading", "Open Reading"), systemImage: ProjectSpaceTabIcon.systemImage(for: "reading"))
-                }
-                .buttonStyle(.bordered)
                 Button(action: refresh) {
                     if appModel.isRefreshingRecommendations || appModel.isEvaluatingRecommendationsWithAI {
                         ProgressView()
@@ -290,95 +306,156 @@ struct RecommendationView: View {
                 .disabled(appModel.isRefreshingRecommendations)
             }
             Text(appModel.localized(
-                "推荐只从 arXiv 获取候选，不再从本地文库、图谱或旧队列生成候选。你可以把结果直接加入统一的 Reading。",
-                "Recommendations fetch candidates only from arXiv, not from the local library, graph, or old queue. Add results directly to unified Reading."
+                "AI 会先读取关键词、领域和参考论文生成 arXiv 搜索策略，再把候选推荐加入统一的 Reading。",
+                "AI first reads the keywords, fields, and reference papers to plan arXiv searches, then recommendations can be added to unified Reading."
             ))
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.bottom, 12)
+        .padding(.bottom, 8)
     }
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                TextField(appModel.localized("关键词，例如 diffusion planning", "Keywords, e.g. diffusion planning"), text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 280)
-
-                Stepper(value: $topK, in: 1...100) {
-                    Text(appModel.localized("推荐 \(topK) 篇", "Recommend \(topK) papers"))
-                        .font(.callout.monospacedDigit())
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    queryField
+                    topKStepper
+                    aiModelPicker
                 }
-                .frame(width: 170)
 
-                Picker(appModel.localized("AI 模型", "AI model"), selection: $selectedAIModel) {
-                    ForEach(aiModelOptions) { option in
-                        Text(option.title).tag(option.id)
+                VStack(alignment: .leading, spacing: 8) {
+                    queryField
+                    HStack(spacing: 12) {
+                        topKStepper
+                        aiModelPicker
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(width: 190)
             }
 
-            HStack(spacing: 12) {
-                Picker(appModel.localized("加入范围", "Add scope"), selection: $selectedScopeIdentifier) {
-                    ForEach(availableScopes, id: \.identifier) { scope in
-                        Text(scopeLabel(for: scope)).tag(scope.identifier)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 280)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    selectionBoxes
 
-                if appModel.recommendationCandidateCount > 0 {
-                    Label(appModel.localized("候选 \(appModel.recommendationCandidateCount) 篇", "\(appModel.recommendationCandidateCount) candidates"), systemImage: "doc.text.magnifyingglass")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    recommendationStatusBadges
+
+                    Spacer(minLength: 0)
                 }
 
-                if let result = appModel.recommendationRunResult {
-                    Label(result.generatedAt.formatted(date: .abbreviated, time: .shortened), systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    selectionBoxes
+                    recommendationStatusBadges
                 }
-
-                Spacer(minLength: 0)
             }
-
-            categorySelectionSummary
         }
         .padding(.bottom, 8)
     }
 
-    private var categorySelectionSummary: some View {
-        HStack(spacing: 10) {
-            Label(appModel.localized("领域 \(selectedCategories.count) 项", "\(selectedCategories.count) fields"), systemImage: "tag")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private var queryField: some View {
+        TextField(appModel.localized("关键词，例如 diffusion planning", "Keywords, e.g. diffusion planning"), text: $query)
+            .textFieldStyle(.roundedBorder)
+            .frame(minWidth: 180, maxWidth: .infinity)
+    }
 
-            Text(selectedCategorySummary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-
-            Button {
-                isCategorySelectorPresented = true
-            } label: {
-                Label(appModel.localized("选择领域", "Choose Fields"), systemImage: "list.bullet.rectangle")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+    private var topKStepper: some View {
+        Stepper(value: $topK, in: 1...100) {
+            Text(appModel.localized("推荐 \(topK) 篇", "Recommend \(topK) papers"))
+                .font(.callout.monospacedDigit())
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(width: 150)
+    }
+
+    private var aiModelPicker: some View {
+        Picker(appModel.localized("AI 模型", "AI model"), selection: $selectedAIModel) {
+            ForEach(aiModelOptions) { option in
+                Text(option.title).tag(option.id)
+            }
+        }
+        .pickerStyle(.menu)
+        .frame(width: 170)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var recommendationStatusBadges: some View {
+        HStack(spacing: 12) {
+            if appModel.recommendationCandidateCount > 0 {
+                Label(appModel.localized("候选 \(appModel.recommendationCandidateCount) 篇", "\(appModel.recommendationCandidateCount) candidates"), systemImage: "doc.text.magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let result = appModel.recommendationRunResult {
+                Label(result.generatedAt.formatted(date: .abbreviated, time: .shortened), systemImage: "clock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var selectionBoxes: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                fieldsSelectionBox
+                papersSelectionBox
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                fieldsSelectionBox
+                papersSelectionBox
+            }
+        }
+    }
+
+    private var fieldsSelectionBox: some View {
+        compactSelectionBox(
+            title: appModel.localized("领域", "Fields"),
+            systemImage: "tag",
+            countText: appModel.localized("\(selectedCategories.count) 项", "\(selectedCategories.count) selected"),
+            detailText: selectedCategorySummary
+        ) {
+            isCategorySelectorPresented = true
+        }
+    }
+
+    private var papersSelectionBox: some View {
+        compactSelectionBox(
+            title: appModel.localized("论文", "Papers"),
+            systemImage: "books.vertical",
+            countText: appModel.localized("\(selectedReferencePaperIDs.count) 篇", "\(selectedReferencePaperIDs.count) selected"),
+            detailText: referencePaperSummaryText
+        ) {
+            isPaperSelectorPresented = true
+        }
+    }
+
+    private func compactSelectionBox(title: String, systemImage: String, countText: String, detailText: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                    Spacer(minLength: 0)
+                    Text(countText)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Text(detailText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(minWidth: 150, idealWidth: 180, maxWidth: 220, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func content(availableHeight: CGFloat) -> some View {
         if let error = appModel.recommendationErrorMessage, !error.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Label(appModel.localized("推荐刷新失败", "Recommendation refresh failed"), systemImage: "exclamationmark.triangle")
@@ -395,48 +472,146 @@ struct RecommendationView: View {
             }
             .padding(.top, 20)
         } else {
-            HStack(alignment: .top, spacing: 16) {
-                resultsPane
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                historyPane
-                    .frame(width: 240, alignment: .top)
-                    .frame(maxHeight: 360, alignment: .top)
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            recommendationColumns(availableHeight: availableHeight)
         }
+    }
+
+    private func recommendationColumns(availableHeight: CGFloat) -> some View {
+        let paneHeight = hasScrollableRecommendationResults ? max(260, min(availableHeight - 14, 520)) : 0
+        let stackedResultsHeight = hasScrollableRecommendationResults ? max(220, min(paneHeight, 360)) : 0
+        let historyHeight = max(140, min(availableHeight - 14, 260))
+        let stackedHistoryHeight = max(140, min(availableHeight - stackedResultsHeight - 30, 260))
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 16) {
+                resultsColumn(maxHeight: paneHeight)
+                    .frame(minWidth: 360, maxWidth: .infinity, alignment: .topLeading)
+                if shouldShowHistoryControl {
+                    if isHistoryExpanded {
+                        historyPane(maxHeight: hasScrollableRecommendationResults ? paneHeight : historyHeight)
+                        .frame(width: 220, alignment: .top)
+                    } else {
+                        collapsedHistoryButton
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                resultsColumn(maxHeight: stackedResultsHeight)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                if shouldShowHistoryControl {
+                    if isHistoryExpanded {
+                        historyPane(maxHeight: stackedHistoryHeight)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    } else {
+                        collapsedHistoryButton
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.top, 14)
+    }
+
+    private func resultsColumn(maxHeight: CGFloat) -> some View {
+        Group {
+            if hasScrollableRecommendationResults {
+                ScrollView {
+                    resultsPane
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .frame(height: maxHeight, alignment: .topLeading)
+            } else {
+                resultsPane
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var hasScrollableRecommendationResults: Bool {
+        guard let result = appModel.recommendationRunResult else {
+            return false
+        }
+        return !result.scores.isEmpty
+    }
+
+    private var shouldShowHistoryControl: Bool {
+        isHistoryExpanded || !appModel.recommendationHistory.isEmpty
     }
 
     @ViewBuilder
     private var resultsPane: some View {
         if let result = appModel.recommendationRunResult, !result.scores.isEmpty {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    resultSummary(result)
-                    ForEach(result.scores) { score in
-                        RecommendationScoreRow(
-                            score: score,
-                            scope: selectedScope,
-                            aiComment: result.aiEvaluation?.commentsByScoreID[score.id],
-                            onAdd: {
-                                appModel.addRecommendationToReadingList(score, scope: selectedScope)
-                            },
-                            isAdded: appModel.isRecommendationInReadingList(score, scope: selectedScope)
-                        )
-                    }
+            LazyVStack(alignment: .leading, spacing: 12) {
+                resultSummary(result)
+                ForEach(result.scores) { score in
+                    RecommendationScoreRow(
+                        score: score,
+                        scope: selectedScope,
+                        aiComment: result.aiEvaluation?.commentsByScoreID[score.id],
+                        onAdd: {
+                            appModel.addRecommendationToReadingList(score, scope: selectedScope)
+                        },
+                        isAdded: appModel.isRecommendationInReadingList(score, scope: selectedScope)
+                    )
                 }
-                .padding(.vertical, 14)
             }
+            .padding(.vertical, 2)
+        } else if let result = appModel.recommendationRunResult {
+            zeroRecommendationState(result)
         } else {
             emptyRecommendationState
         }
     }
 
+    private func zeroRecommendationState(_ result: RecommendationRunResult) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(appModel.localized("本次没有可显示推荐", "No displayable recommendations"), systemImage: "exclamationmark.magnifyingglass")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.orange)
+            Text(result.sourceNote ?? appModel.localized("arXiv 未返回候选论文。", "arXiv returned no candidates."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(appModel.localized("候选：\(result.candidateCount) 篇；推荐：\(result.scores.count) 篇", "\(result.candidateCount) candidates; \(result.scores.count) recommendations"))
+                Text(appModel.localized("关键词：\(result.query.isEmpty ? "（空）" : result.query)", "Query: \(result.query.isEmpty ? "(empty)" : result.query)"))
+                Text(appModel.localized("领域：\(result.categories.prefix(10).joined(separator: " · "))", "Fields: \(result.categories.prefix(10).joined(separator: " · "))"))
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+            HStack(spacing: 10) {
+                Button(action: refresh) {
+                    Label(appModel.localized("重试", "Retry"), systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(appModel.isRefreshingRecommendations)
+                Button {
+                    query = ""
+                    refresh()
+                } label: {
+                    Label(appModel.localized("清空关键词后重试", "Retry without keywords"), systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(appModel.isRefreshingRecommendations || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
     private var emptyRecommendationState: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(appModel.localized("还没有 arXiv 推荐", "No arXiv recommendations yet"), systemImage: "sparkles")
+            Label(appModel.localized("还没有 AI/arXiv 推荐", "No AI/arXiv recommendations yet"), systemImage: "sparkles")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Text(appModel.localized("选择推荐方向和数量后点击推荐。默认优先读取当天论文；当天没有匹配结果时，会延顺昨日未推荐论文。", "Choose directions and a count, then recommend. Today's papers are used first; if none match, unrecommended papers from yesterday are used."))
+            Text(appModel.localized("选择领域、关键词和参考论文后点击推荐。AI 会先生成搜索策略，再由 arXiv 返回候选论文。", "Choose fields, keywords, and reference papers, then recommend. AI first plans the searches, then arXiv returns candidate papers."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -446,8 +621,7 @@ struct RecommendationView: View {
             .buttonStyle(.borderedProminent)
             .disabled(appModel.isRefreshingRecommendations)
         }
-        .frame(maxWidth: 620, alignment: .leading)
-        .padding(.top, 24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func resultSummary(_ result: RecommendationRunResult) -> some View {
@@ -488,11 +662,18 @@ struct RecommendationView: View {
         }
     }
 
-    private var historyPane: some View {
+    private func historyPane(maxHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label(appModel.localized("历史推荐", "History"), systemImage: "clock.arrow.circlepath")
-                    .font(.headline)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isHistoryExpanded.toggle()
+                    }
+                } label: {
+                    Label(appModel.localized("历史推荐", "History"), systemImage: isHistoryExpanded ? "chevron.down" : "chevron.right")
+                        .font(.headline)
+                }
+                .buttonStyle(.plain)
                 Spacer(minLength: 0)
                 Button {
                     appModel.loadRecommendationHistory()
@@ -502,53 +683,82 @@ struct RecommendationView: View {
                 .buttonStyle(.borderless)
             }
 
-            if appModel.recommendationHistory.isEmpty {
-                Text(appModel.localized("暂无历史记录", "No history yet"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(appModel.recommendationHistory) { result in
-                            Button {
-                                appModel.selectRecommendationHistory(result)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(result.generatedAt.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption.weight(.semibold))
-                                    Text(result.categories.prefix(4).joined(separator: " · "))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                    Text(appModel.localized("\(result.scores.count) 篇推荐", "\(result.scores.count) recommendations"))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                                .background(appModel.recommendationRunResult?.id == result.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            if isHistoryExpanded {
+                if appModel.recommendationHistory.isEmpty {
+                    Text(appModel.localized("暂无历史记录", "No history yet"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(appModel.recommendationHistory) { result in
+                                historyRow(result)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .frame(maxHeight: max(120, maxHeight - 46))
                 }
             }
         }
         .padding(12)
+        .frame(height: maxHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var availableScopes: [QueueScope] {
-        appModel.availableResearchQueueScopes
+    private var collapsedHistoryButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isHistoryExpanded = true
+            }
+        } label: {
+            Label(appModel.localized("历史推荐", "History"), systemImage: "clock.arrow.circlepath")
+                .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.borderless)
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func historyRow(_ result: RecommendationRunResult) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Button {
+                appModel.selectRecommendationHistory(result)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(result.generatedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption.weight(.semibold))
+                    Text(result.categories.prefix(4).joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(appModel.localized("\(result.scores.count) 篇推荐 · 参考 \(result.referencePaperIDs.count) 篇", "\(result.scores.count) recommendations · \(result.referencePaperIDs.count) refs"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                appModel.archiveRecommendationHistory(result)
+            } label: {
+                Image(systemName: "archivebox")
+            }
+            .buttonStyle(.borderless)
+            .help(appModel.localized("归档这条历史推荐", "Archive this recommendation"))
+        }
+        .padding(10)
+        .background(appModel.recommendationRunResult?.id == result.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var selectedScope: QueueScope {
-        QueueScope(identifier: selectedScopeIdentifier) ?? .project(project.id)
+        .project(project.id)
     }
 
     private func refresh() {
-        appModel.refreshArxivRecommendations(project: project, query: query, categories: parsedCategories, topK: topK, aiModel: selectedAIModel)
+        appModel.refreshArxivRecommendations(project: project, query: query, categories: parsedCategories, topK: topK, aiModel: selectedAIModel, referencePaperIDs: selectedReferencePaperIDs)
     }
 
     private var parsedCategories: [String] {
@@ -579,14 +789,18 @@ struct RecommendationView: View {
         return visible
     }
 
-    private func scopeLabel(for scope: QueueScope) -> String {
-        switch scope {
-        case .workspace:
-            return appModel.localized("工作区", "Workspace")
-        case .project:
-            return project.name
+    private var referencePaperSummaryText: String {
+        let selected = appModel.papers.filter { selectedReferencePaperIDs.contains($0.id) }
+        guard !selected.isEmpty else {
+            return appModel.localized("选择论文作为推荐参考", "Select papers as recommendation references")
         }
+        let visible = selected.prefix(3).map(\.displayTitle).joined(separator: " · ")
+        if selected.count > 3 {
+            return appModel.localized("\(visible) 等 \(selected.count) 篇", "\(visible) and \(selected.count - 3) more")
+        }
+        return visible
     }
+
 }
 
 private struct RecommendationCategoryGroup: Identifiable, Hashable {
@@ -645,7 +859,7 @@ private struct RecommendationCategorySelectorSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 900, height: 640)
+        .frame(minWidth: 640, idealWidth: 900, maxWidth: 900, minHeight: 460, idealHeight: 640, maxHeight: 640)
     }
 
     private var normalizedSearchText: String {
@@ -771,6 +985,121 @@ private struct RecommendationCategorySelectorSheet: View {
     }
 }
 
+private struct RecommendationReferencePaperSheet: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let project: ResearchProject
+    @Binding var selectedPaperIDs: Set<Paper.ID>
+    let onDone: () -> Void
+
+    @State private var searchText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Label(appModel.localized("选择相关论文", "Select Related Papers"), systemImage: "books.vertical")
+                    .font(.title2.weight(.semibold))
+                Spacer(minLength: 0)
+                Text(appModel.localized("已选 \(selectedPaperIDs.count) 篇", "\(selectedPaperIDs.count) selected"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button(appModel.localized("完成", "Done"), action: onDone)
+                    .buttonStyle(.borderedProminent)
+            }
+
+            HStack(spacing: 10) {
+                TextField(appModel.localized("搜索标题、作者、标签", "Search title, author, tag"), text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+
+                Button(appModel.localized("选择筛选结果", "Select Filtered")) {
+                    selectedPaperIDs.formUnion(filteredPapers.map(\.id))
+                }
+                .buttonStyle(.bordered)
+                .disabled(filteredPapers.isEmpty)
+
+                Button(appModel.localized("清空", "Clear")) {
+                    selectedPaperIDs.removeAll()
+                }
+                .buttonStyle(.bordered)
+                .disabled(selectedPaperIDs.isEmpty)
+            }
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(filteredPapers) { paper in
+                        paperRow(paper)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 620, idealWidth: 820, maxWidth: 820, minHeight: 460, idealHeight: 620, maxHeight: 620)
+    }
+
+    private var filteredPapers: [Paper] {
+        let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return appModel.papers.filter { paper in
+            guard !normalizedSearch.isEmpty else {
+                return true
+            }
+            let haystack = [
+                paper.displayTitle,
+                paper.authorsDisplay,
+                paper.tags.joined(separator: " "),
+                paper.categories.joined(separator: " ")
+            ]
+            .joined(separator: " ")
+            .lowercased()
+            return haystack.contains(normalizedSearch)
+        }
+    }
+
+    private func paperRow(_ paper: Paper) -> some View {
+        Button {
+            toggle(paper.id)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: selectedPaperIDs.contains(paper.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectedPaperIDs.contains(paper.id) ? Color.accentColor : .secondary)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(paper.displayTitle)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(2)
+                    HStack(spacing: 8) {
+                        if let year = paper.year {
+                            Label(String(year), systemImage: "calendar")
+                        }
+                        Text(paper.authorsDisplay)
+                            .lineLimit(1)
+                        if !paper.projectIDs.isEmpty {
+                            Text(paper.projectIDs.map(appModel.projectName(for:)).joined(separator: " · "))
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .background(selectedPaperIDs.contains(paper.id) ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func toggle(_ id: Paper.ID) {
+        if selectedPaperIDs.contains(id) {
+            selectedPaperIDs.remove(id)
+        } else {
+            selectedPaperIDs.insert(id)
+        }
+    }
+}
+
 private struct RecommendationScoreRow: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -856,8 +1185,10 @@ private struct RecommendationScoreRow: View {
             }
 
             VStack(spacing: 8) {
+                featureRow(appModel.localized("相关论文匹配", "Related-paper match"), value: score.features.libraryInterestSimilarity)
                 featureRow(appModel.localized("arXiv 新鲜度", "arXiv recency"), value: score.features.recency)
                 featureRow(appModel.localized("关键词覆盖", "Keyword coverage"), value: score.features.openGapCoverage)
+                featureRow(appModel.localized("作者重叠", "Author overlap"), value: score.features.authorOverlapWithCore)
                 featureRow(appModel.localized("Reading 去重惩罚", "Reading duplicate penalty"), value: score.features.queuePressurePenalty)
             }
             .padding(.leading, 66)

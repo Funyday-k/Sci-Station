@@ -34,6 +34,7 @@ struct TopSidebarView: View {
                 }
                 .padding(.horizontal, 10)
             }
+            .frame(minHeight: 0, maxHeight: .infinity)
 
             if workspace != nil {
                 SidebarSettingsButton(isSelected: appModel.selectedSection == .settings)
@@ -268,9 +269,6 @@ private struct SidebarProjectTreeRow: View {
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onTapGesture {
-            appModel.focusResearchProject(project.id)
-        }
-        .onTapGesture(count: 2) {
             appModel.selectResearchProject(project.id)
         }
         .onHover { isHovering = $0 }
@@ -365,8 +363,6 @@ private struct TopSidebarRow: View {
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
         .help(appModel.t(L10n.key(for: item.top)))
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: isSelected)
-        .animation(.easeOut(duration: 0.14), value: isHovering)
     }
 
     private var isProjectTreeExpanded: Bool {

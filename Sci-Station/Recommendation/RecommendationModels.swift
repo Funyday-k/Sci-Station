@@ -392,6 +392,7 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
     public var categories: [String]
     public var sourceDate: Date?
     public var sourceNote: String?
+    public var referencePaperIDs: [String]
     public var aiEvaluation: RecommendationAIEvaluation?
 
     public init(
@@ -405,6 +406,7 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         categories: [String] = [],
         sourceDate: Date? = nil,
         sourceNote: String? = nil,
+        referencePaperIDs: [String] = [],
         aiEvaluation: RecommendationAIEvaluation? = nil
     ) {
         self.id = id
@@ -417,6 +419,7 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         self.categories = categories
         self.sourceDate = sourceDate
         self.sourceNote = sourceNote
+        self.referencePaperIDs = referencePaperIDs
         self.aiEvaluation = aiEvaluation
     }
 
@@ -431,6 +434,7 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         case categories
         case sourceDate = "source_date"
         case sourceNote = "source_note"
+        case referencePaperIDs = "reference_paper_ids"
         case aiEvaluation = "ai_evaluation"
     }
 
@@ -446,6 +450,7 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
         sourceDate = try container.decodeIfPresent(Date.self, forKey: .sourceDate)
         sourceNote = try container.decodeIfPresent(String.self, forKey: .sourceNote)
+        referencePaperIDs = try container.decodeIfPresent([String].self, forKey: .referencePaperIDs) ?? []
         aiEvaluation = try container.decodeIfPresent(RecommendationAIEvaluation.self, forKey: .aiEvaluation)
     }
 
@@ -461,6 +466,7 @@ public nonisolated struct RecommendationRunResult: Codable, Hashable, Sendable, 
         try container.encode(categories, forKey: .categories)
         try container.encodeIfPresent(sourceDate, forKey: .sourceDate)
         try container.encodeIfPresent(sourceNote, forKey: .sourceNote)
+        try container.encode(referencePaperIDs, forKey: .referencePaperIDs)
         try container.encodeIfPresent(aiEvaluation, forKey: .aiEvaluation)
     }
 }

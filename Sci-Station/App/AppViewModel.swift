@@ -141,6 +141,12 @@ private enum RecommendationAIEvaluationError: LocalizedError {
     }
 }
 
+private struct RecommendationAISearchStrategy: Hashable {
+    var query: String
+    var categories: [String]
+    var source: String
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
@@ -347,6 +353,7 @@ final class AppViewModel: ObservableObject {
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
     private var agentPlanningTask: Task<Void, Never>?
+    private var agentContextRefreshTask: Task<Void, Never>?
     private var agentLiveRunID: String?
     private var agentLiveEventRefreshTask: Task<Void, Never>?
     private var agentRetrySourceRunID: String?
@@ -1986,6 +1993,13 @@ final class AppViewModel: ObservableObject {
             ]))
         }
 
+        if selectedSection == .projects,
+           selectedProjectSpaceProjectID == projectID,
+           selectedProjectSpaceTabID == resolvedTabID {
+            return
+        }
+
+        let previousFocusedProjectID = currentProjectID
         let previousTabID = selectedProjectSpaceTabID
         currentProjectID = projectID
         selectedProjectSpaceProjectID = projectID
@@ -1999,7 +2013,9 @@ final class AppViewModel: ObservableObject {
             selectedTagName = nil
         }
 
-        persistLastOpenedProject(projectID)
+        if previousFocusedProjectID != projectID {
+            persistLastOpenedProject(projectID)
+        }
         persistWorkspaceRoute(WorkspaceRoute(top: .projects, projectID: projectID, projectTabID: resolvedTabID))
         recordShellDebugEvent("project_space.tab_change", payload: .object([
             "project_id": .string(projectID),
@@ -2017,7 +2033,9 @@ final class AppViewModel: ObservableObject {
                 }
             }
         }
-        refreshAgentContext()
+        if previousFocusedProjectID != projectID || resolvedTabID == "ai-drafts" {
+            refreshAgentContext()
+        }
     }
 
     func moveTopSidebarItem(_ itemID: String, before targetID: String) {
@@ -3898,9 +3916,13 @@ final class AppViewModel: ObservableObject {
         }
 
         isRefreshingAgentContext = true
-        Task {
+        agentContextRefreshTask?.cancel()
+        agentContextRefreshTask = Task {
             defer {
                 isRefreshingAgentContext = false
+            }
+            guard !Task.isCancelled else {
+                return
             }
             await refreshAgentState(in: currentWorkspace)
         }
@@ -6495,7 +6517,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func recordShellDebugEvent(_ event: String, payload: JSONValue = .object([:])) {
-        recordAppDebugEvent(event, payload: payload, force: true)
+        recordAppDebugEvent(event, payload: payload)
     }
 
     private func applyWorkspaceModuleConfiguration(_ configuration: WorkspaceModuleConfiguration, in root: ResearchRoot) {
@@ -6690,6 +6712,10 @@ final class AppViewModel: ObservableObject {
     }
 
     private func persistWorkspaceRoute(_ route: WorkspaceRoute) {
+        if workspacePreferences.lastRoute == route,
+           workspacePreferences.recentSection == recentSectionValue(for: route) {
+            return
+        }
         updateWorkspacePreferences { preferences in
             preferences.lastRoute = route
             preferences.recentSection = recentSectionValue(for: route)
@@ -6948,6 +6974,9 @@ final class AppViewModel: ObservableObject {
     private func updateWorkspacePreferences(_ mutate: (inout WorkspacePreferences) -> Void) {
         var preferences = workspacePreferences
         mutate(&preferences)
+        guard preferences != workspacePreferences else {
+            return
+        }
         workspacePreferences = preferences
         persistWorkspacePreferences(preferences)
     }
@@ -7167,6 +7196,12 @@ final class AppViewModel: ObservableObject {
     /// returns if the paper is already in that scope's queue.
     func addPaperToResearchQueue(paperID: String, displayTitle: String, scope: QueueScope) {
         guard let store = researchQueueStore else {
+            recommendationErrorMessage = localized("无法推送论文：Reading 队列尚未初始化，请重新打开工作区后重试。", "Could not push paper: Reading queue is not initialized. Reopen the workspace and try again.")
+            recordAppDebugEvent("reading.push.error", payload: .object([
+                "phase": .string("store_unavailable"),
+                "paper_id": .string(paperID),
+                "scope": .string(scope.identifier)
+            ]))
             return
         }
         let now = Date()
@@ -7189,9 +7224,21 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await store.append(entry)
+                self.showShellStatus(self.localized("已加入 Reading。", "Added to Reading."))
             } catch ResearchQueueStoreError.duplicateID {
-                // Already in queue — leave the existing row in place.
+                self.showShellStatus(self.localized("该论文已在 Reading 中。", "This paper is already in Reading."))
+                self.recordAppDebugEvent("reading.push.duplicate", payload: .object([
+                    "paper_id": .string(paperID),
+                    "scope": .string(scope.identifier)
+                ]))
             } catch {
+                self.recommendationErrorMessage = self.localized("无法推送论文：\(error.localizedDescription)", "Could not push paper: \(error.localizedDescription)")
+                self.recordAppDebugEvent("reading.push.error", payload: .object([
+                    "phase": .string("append_failed"),
+                    "paper_id": .string(paperID),
+                    "scope": .string(scope.identifier),
+                    "reason": .string(error.localizedDescription)
+                ]))
                 self.present(error)
             }
         }
@@ -7202,6 +7249,12 @@ final class AppViewModel: ObservableObject {
     /// paper is imported into the library.
     func addExternalPaperToResearchQueue(externalKey: String, displayTitle: String, scope: QueueScope, source: QueueSource = .manual, noteSummary: String? = nil, sourceRefs: [String] = []) {
         guard let store = researchQueueStore else {
+            recommendationErrorMessage = localized("无法推送论文：Reading 队列尚未初始化，请重新打开工作区后重试。", "Could not push paper: Reading queue is not initialized. Reopen the workspace and try again.")
+            recordAppDebugEvent("reading.push.error", payload: .object([
+                "phase": .string("store_unavailable"),
+                "external_key": .string(externalKey),
+                "scope": .string(scope.identifier)
+            ]))
             return
         }
         let now = Date()
@@ -7224,9 +7277,21 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await store.append(entry)
+                self.showShellStatus(self.localized("已加入 Reading。", "Added to Reading."))
             } catch ResearchQueueStoreError.duplicateID {
-                // Already in queue.
+                self.showShellStatus(self.localized("该论文已在 Reading 中。", "This paper is already in Reading."))
+                self.recordAppDebugEvent("reading.push.duplicate", payload: .object([
+                    "external_key": .string(externalKey),
+                    "scope": .string(scope.identifier)
+                ]))
             } catch {
+                self.recommendationErrorMessage = self.localized("无法推送论文：\(error.localizedDescription)", "Could not push paper: \(error.localizedDescription)")
+                self.recordAppDebugEvent("reading.push.error", payload: .object([
+                    "phase": .string("append_failed"),
+                    "external_key": .string(externalKey),
+                    "scope": .string(scope.identifier),
+                    "reason": .string(error.localizedDescription)
+                ]))
                 self.present(error)
             }
         }
@@ -7316,7 +7381,7 @@ final class AppViewModel: ObservableObject {
         recommendationAIEvaluationStatusMessage = nil
     }
 
-    func refreshArxivRecommendations(project: ResearchProject?, query: String, categories: [String], topK: Int, aiModel: String = "deepseek-v4-flash") {
+    func refreshArxivRecommendations(project: ResearchProject?, query: String, categories: [String], topK: Int, aiModel: String = "deepseek-v4-flash", referencePaperIDs: Set<Paper.ID> = []) {
         guard let workspace = currentWorkspace else {
             return
         }
@@ -7325,6 +7390,9 @@ final class AppViewModel: ObservableObject {
         let categoriesForRequest = resolvedCategories.isEmpty ? defaultArxivRecommendationCategories(in: workspace) : resolvedCategories
         let requestedTopK = min(max(topK, 1), 100)
         let selectedAIModel = aiModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "deepseek-v4-flash" : aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let referencePapers = recommendationReferencePapers(ids: referencePaperIDs)
+        let referenceIDs = referencePapers.map(\.id)
+        let referenceIDSet = Set(referenceIDs)
         isRefreshingRecommendations = true
         recommendationErrorMessage = nil
         recommendationAIEvaluationStatusMessage = nil
@@ -7335,27 +7403,30 @@ final class AppViewModel: ObservableObject {
             }
             do {
                 var config = arxivOnlyRecommendationConfig(in: workspace, topK: requestedTopK)
-                let daily = try await fetchDailyArxivRecommendationCandidates(
+                let search = try await fetchArxivRecommendationCandidates(
                     query: trimmedQuery,
                     categories: categoriesForRequest,
                     topK: requestedTopK,
                     config: config,
-                    workspace: workspace
+                    workspace: workspace,
+                    project: project,
+                    referencePapers: referencePapers,
+                    aiModel: selectedAIModel
                 )
                 config.maxDailyCandidates = min(max(config.maxDailyCandidates, requestedTopK * 5), 100)
                 let context = RecommendationContext(
                     projectID: project?.id,
-                    corePaperIDs: [],
+                    corePaperIDs: referenceIDSet,
                     queueStatusByID: recommendationQueueStatusIndex(),
                     openGapKeywords: recommendationKeywords(query: trimmedQuery, project: project, categories: categoriesForRequest),
-                    interestPapers: [],
+                    interestPapers: referencePapers,
                     evaluatedAt: Date()
                 )
                 let result = try await recommendationPipeline.run(
                     workspace: workspace,
                     papers: [],
                     queueEntries: [],
-                    dailyFeedCandidates: daily.candidates,
+                    dailyFeedCandidates: search.candidates,
                     graph: nil,
                     context: context,
                     config: config,
@@ -7364,13 +7435,22 @@ final class AppViewModel: ObservableObject {
                     force: true,
                     query: trimmedQuery,
                     categories: categoriesForRequest,
-                    sourceDate: daily.sourceDate,
-                    sourceNote: daily.sourceNote
+                    referencePaperIDs: referenceIDs,
+                    sourceDate: search.sourceDate,
+                    sourceNote: search.sourceNote
                 )
-                recommendationCandidateCount = daily.candidates.count
+                recommendationCandidateCount = search.candidates.count
                 if var result {
                     recommendationRunResult = result
-                    showShellStatus(localized("已从 arXiv 获取 \(result.scores.count) 条推荐。", "Fetched \(result.scores.count) arXiv recommendations."))
+                    if result.scores.isEmpty {
+                        recommendationAIEvaluationStatusMessage = localized(
+                            "本次 AI/arXiv 搜索没有可显示推荐。候选 \(result.candidateCount) 篇，来源：\(search.sourceNote)。",
+                            "No displayable recommendations for this AI/arXiv search. \(result.candidateCount) candidates, source: \(search.sourceNote)."
+                        )
+                        showShellStatus(localized("AI/arXiv 本次没有返回可显示推荐。", "AI/arXiv returned no displayable recommendations."))
+                    } else {
+                        showShellStatus(localized("已获取 \(result.scores.count) 条 AI 辅助推荐。", "Fetched \(result.scores.count) AI-assisted recommendations."))
+                    }
                     recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
                     if !result.scores.isEmpty {
                         isEvaluatingRecommendationsWithAI = true
@@ -7389,9 +7469,10 @@ final class AppViewModel: ObservableObject {
                     showShellStatus(localized("arXiv 推荐没有变化。", "arXiv recommendations are unchanged."))
                 }
                 recordAppDebugEvent("recommendation.arxiv_refresh", payload: .object([
-                    "candidate_count": .number(String(daily.candidates.count)),
+                    "candidate_count": .number(String(search.candidates.count)),
                     "top_k": .number(String(result?.scores.count ?? 0)),
-                    "source_note": .string(daily.sourceNote),
+                    "reference_paper_count": .number(String(referenceIDs.count)),
+                    "source_note": .string(search.sourceNote),
                     "scope": .string(project.map { "project:\($0.id)" } ?? "workspace")
                 ]))
             } catch {
@@ -7408,6 +7489,11 @@ final class AppViewModel: ObservableObject {
 
     func addRecommendationToReadingList(_ score: RecommendationScore, scope: QueueScope) {
         guard let externalKey = score.candidate.externalKey else {
+            recommendationErrorMessage = localized("无法推送论文：推荐结果缺少 arXiv/外部标识。", "Could not push paper: the recommendation is missing an arXiv/external identifier.")
+            recordAppDebugEvent("recommendation.push.error", payload: .object([
+                "phase": .string("missing_external_key"),
+                "score_id": .string(score.id)
+            ]))
             return
         }
         addExternalPaperToResearchQueue(
@@ -7418,7 +7504,33 @@ final class AppViewModel: ObservableObject {
             noteSummary: score.reason,
             sourceRefs: ["recommendation:\(recommendationRunResult?.id ?? score.id)", "arxiv:\(externalKey)"]
         )
-        showShellStatus(localized("已加入 Reading。", "Added to Reading."))
+    }
+
+    func archiveRecommendationHistory(_ result: RecommendationRunResult) {
+        guard let workspace = currentWorkspace else {
+            return
+        }
+        Task {
+            do {
+                try await recommendationPipeline.archiveSnapshot(id: result.id, workspace: workspace)
+                recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
+                if recommendationRunResult?.id == result.id {
+                    recommendationRunResult = recommendationHistory.first
+                }
+                showShellStatus(localized("历史推荐已归档。", "Recommendation history archived."))
+                recordAppDebugEvent("recommendation.archive", payload: .object([
+                    "snapshot_id": .string(result.id)
+                ]))
+            } catch {
+                recommendationErrorMessage = localized("归档历史推荐失败：\(error.localizedDescription)", "Failed to archive recommendation history: \(error.localizedDescription)")
+                recordAppDebugEvent("recommendation.error", payload: .object([
+                    "phase": .string("archive"),
+                    "snapshot_id": .string(result.id),
+                    "reason": .string(error.localizedDescription)
+                ]))
+                present(error)
+            }
+        }
     }
 
     func isRecommendationInReadingList(_ score: RecommendationScore, scope: QueueScope) -> Bool {
@@ -7436,49 +7548,265 @@ final class AppViewModel: ObservableObject {
         config.externalNetworkEnabled = true
         config.weights = RecommendationWeights(
             citedByCore: 0,
-            libraryInterestSimilarity: 0,
-            recency: 0.35,
-            openGapCoverage: 0.45,
-            authorOverlapWithCore: 0,
+            libraryInterestSimilarity: 0.35,
+            recency: 0.25,
+            openGapCoverage: 0.30,
+            authorOverlapWithCore: 0.10,
             queuePressurePenalty: 0.80
         )
         return config
     }
 
-    private func fetchDailyArxivRecommendationCandidates(
+    private func fetchArxivRecommendationCandidates(
         query: String,
         categories: [String],
         topK: Int,
         config: RecommendationConfig,
-        workspace: ResearchWorkspace
+        workspace: ResearchWorkspace,
+        project: ResearchProject?,
+        referencePapers: [Paper],
+        aiModel: String
     ) async throws -> (candidates: [RecommendationCandidate], sourceDate: Date, sourceNote: String) {
         let maxResults = min(max(config.maxDailyCandidates, topK * 5), 100)
-        let todayStart = startOfUTCRecommendationDay(Date())
-        let tomorrowStart = utcRecommendationDay(offset: 1, from: todayStart)
-        let todayCandidates = try await arxivRecommendationClient.fetch(ArxivRecommendationRequest(
-            query: query,
-            categories: categories,
-            maxResults: maxResults,
-            submittedAfter: todayStart,
-            submittedBefore: tomorrowStart
-        ))
-        if !todayCandidates.isEmpty {
-            return (todayCandidates, todayStart, localized("当天 arXiv 论文", "Today's arXiv papers"))
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var strategies: [RecommendationAISearchStrategy] = []
+        var statusNotes: [String] = []
+        if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            recommendationAIEvaluationStatusMessage = localized(
+                "正在把项目、关键词和 \(referencePapers.count) 篇参考论文提交给 AI 生成 arXiv 搜索策略…",
+                "Submitting the project, keywords, and \(referencePapers.count) reference papers to AI for arXiv search planning…"
+            )
+            do {
+                let aiStrategies = try await recommendationAISearchStrategies(
+                    query: trimmedQuery,
+                    categories: categories,
+                    project: project,
+                    referencePapers: referencePapers,
+                    topK: topK,
+                    model: aiModel
+                )
+                strategies.append(contentsOf: aiStrategies)
+                if !aiStrategies.isEmpty {
+                    statusNotes.append(localized("AI 已生成 \(aiStrategies.count) 个搜索策略", "AI generated \(aiStrategies.count) search strategies"))
+                }
+            } catch {
+                statusNotes.append(localized("AI 搜索策略不可用：\(error.localizedDescription)", "AI search planning unavailable: \(error.localizedDescription)"))
+                recordAppDebugEvent("recommendation.ai_search.error", payload: .object([
+                    "phase": .string("strategy"),
+                    "reason": .string(error.localizedDescription)
+                ]))
+            }
+        } else {
+            statusNotes.append(localized("未配置 AI API Key，已回退到直接 arXiv 搜索", "No AI API key configured; falling back to direct arXiv search"))
         }
 
-        let yesterdayStart = utcRecommendationDay(offset: -1, from: todayStart)
-        let yesterdayCandidates = try await arxivRecommendationClient.fetch(ArxivRecommendationRequest(
-            query: query,
-            categories: categories,
-            maxResults: maxResults,
-            submittedAfter: yesterdayStart,
-            submittedBefore: todayStart
-        ))
-        let historyKeys = try await recommendationPipeline.recommendedCandidateKeys(workspace: workspace)
-        let unrecommended = yesterdayCandidates.filter { candidate in
-            recommendationCandidateKeys(candidate).isDisjoint(with: historyKeys)
+        if !trimmedQuery.isEmpty {
+            strategies.append(RecommendationAISearchStrategy(query: trimmedQuery, categories: categories, source: "manual"))
         }
-        return (unrecommended, yesterdayStart, localized("当天没有匹配论文，已延顺昨日未推荐论文", "No matching papers today; using unrecommended papers from yesterday"))
+        strategies.append(RecommendationAISearchStrategy(query: "", categories: categories, source: "category"))
+
+        var candidatesByKey: [String: RecommendationCandidate] = [:]
+        var usedStrategies: [RecommendationAISearchStrategy] = []
+        for strategy in uniqueRecommendationSearchStrategies(strategies) {
+            let candidates = try await arxivRecommendationClient.fetch(ArxivRecommendationRequest(
+                query: strategy.query,
+                categories: strategy.categories.isEmpty ? categories : strategy.categories,
+                maxResults: maxResults
+            ))
+            if !candidates.isEmpty {
+                usedStrategies.append(strategy)
+            }
+            for candidate in candidates {
+                let key = candidate.externalKey ?? candidate.paperID ?? candidate.canonicalID
+                if candidatesByKey[key] == nil {
+                    candidatesByKey[key] = candidate
+                }
+            }
+            if candidatesByKey.count >= maxResults {
+                break
+            }
+        }
+
+        let candidates = Array(candidatesByKey.values)
+            .sorted { lhs, rhs in
+                if lhs.publishedAt == rhs.publishedAt {
+                    return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+                }
+                return (lhs.publishedAt ?? .distantPast) > (rhs.publishedAt ?? .distantPast)
+            }
+            .prefix(maxResults)
+            .map { $0 }
+        let strategySummary = usedStrategies
+            .prefix(3)
+            .map { strategy in
+                strategy.query.isEmpty ? strategy.categories.prefix(4).joined(separator: " · ") : strategy.query
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        if candidates.isEmpty {
+            return (
+                [],
+                Date(),
+                (statusNotes + [localized("arXiv 没有返回候选论文。请减少关键词或更换领域。", "arXiv returned no candidate papers. Try fewer keywords or different fields.")]).joined(separator: "；")
+            )
+        }
+        return (
+            candidates,
+            Date(),
+            (statusNotes + [localized("arXiv 返回 \(candidates.count) 篇候选", "arXiv returned \(candidates.count) candidates"), strategySummary]).filter { !$0.isEmpty }.joined(separator: "；")
+        )
+    }
+
+    private func recommendationAISearchStrategies(
+        query: String,
+        categories: [String],
+        project: ResearchProject?,
+        referencePapers: [Paper],
+        topK: Int,
+        model: String
+    ) async throws -> [RecommendationAISearchStrategy] {
+        let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            throw RecommendationAIEvaluationError.missingAPIKey
+        }
+        var configuration = llmConfiguration
+        configuration.model = model
+        configuration.temperature = 0.15
+        configuration.maxTokens = 1600
+        let response = try await openAIProvider.complete(
+            prompt: recommendationAISearchPrompt(
+                query: query,
+                categories: categories,
+                project: project,
+                referencePapers: referencePapers,
+                topK: topK
+            ),
+            configuration: configuration,
+            apiKey: apiKey
+        )
+        return parseRecommendationAISearchStrategies(response, fallbackCategories: categories)
+    }
+
+    private func recommendationAISearchPrompt(
+        query: String,
+        categories: [String],
+        project: ResearchProject?,
+        referencePapers: [Paper],
+        topK: Int
+    ) -> String {
+        let projectText = project.map { project in
+            """
+            Name: \(project.name)
+            Description: \(project.description)
+            """
+        } ?? "No active project."
+        let references = referencePapers.prefix(8).map { paper in
+            """
+            ID: \(paper.id)
+            Title: \(paper.displayTitle)
+            Authors: \(paper.authors.prefix(8).joined(separator: ", "))
+            Year: \(paper.year.map(String.init) ?? "")
+            Categories: \(paper.categories.joined(separator: ", "))
+            Abstract: \(limitedRecommendationText(paper.abstract, maxCharacters: 900))
+            """
+        }
+        .joined(separator: "\n\n")
+        let referenceText = references.isEmpty ? "No reference papers selected." : references
+        return """
+        You are an AI literature search planner for arXiv. The app will execute your searches against the arXiv API and then recommend papers to the user.
+
+        Return strict JSON only:
+        {"searches":[{"query":"2 to 6 English keywords, no boolean operators","categories":["arXiv category ids"],"reason":"short reason"}]}
+
+        Requirements:
+        - Generate 3 to 5 complementary arXiv searches for finding recommendation candidates.
+        - Use the selected reference papers as the main relevance signal.
+        - Keep queries broad enough to return papers. Do not use full titles as queries.
+        - Prefer the user-selected categories, but you may include closely related arXiv categories.
+        - The user asked for \(topK) recommendations.
+
+        User query:
+        \(query.isEmpty ? "(empty)" : query)
+
+        Selected arXiv categories:
+        \(categories.joined(separator: ", "))
+
+        Project:
+        \(projectText)
+
+        Reference papers submitted by the user:
+        \(referenceText)
+        """
+    }
+
+    private func parseRecommendationAISearchStrategies(_ response: String, fallbackCategories: [String]) -> [RecommendationAISearchStrategy] {
+        let jsonText = recommendationEvaluationJSONText(from: response.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let data = jsonText.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+        let rawSearches = object["searches"] as? [[String: Any]]
+            ?? object["queries"] as? [[String: Any]]
+            ?? []
+        return rawSearches.compactMap { item in
+            let query = ((item["query"] as? String) ?? (item["keywords"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let categories = recommendationStringList(from: item["categories"])
+                .prefix(6)
+                .map { $0 }
+            let resolvedCategories = categories.isEmpty ? fallbackCategories : categories
+            guard !query.isEmpty || !resolvedCategories.isEmpty else {
+                return nil
+            }
+            return RecommendationAISearchStrategy(
+                query: String(query.prefix(120)),
+                categories: resolvedCategories,
+                source: "ai"
+            )
+        }
+        .prefix(5)
+        .map { $0 }
+    }
+
+    private func uniqueRecommendationSearchStrategies(_ strategies: [RecommendationAISearchStrategy]) -> [RecommendationAISearchStrategy] {
+        var seen: Set<String> = []
+        var unique: [RecommendationAISearchStrategy] = []
+        for strategy in strategies {
+            let query = strategy.query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let categories = strategy.categories.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            guard !query.isEmpty || !categories.isEmpty else {
+                continue
+            }
+            let key = ([query.lowercased()] + categories.map { $0.lowercased() }.sorted()).joined(separator: "|")
+            if seen.insert(key).inserted {
+                unique.append(RecommendationAISearchStrategy(query: query, categories: categories, source: strategy.source))
+            }
+        }
+        return unique
+    }
+
+    private func recommendationStringList(from value: Any?) -> [String] {
+        if let strings = value as? [String] {
+            return strings.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        if let string = value as? String {
+            return string
+                .components(separatedBy: CharacterSet(charactersIn: ",;|"))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        return []
+    }
+
+    private func limitedRecommendationText(_ value: String?, maxCharacters: Int) -> String {
+        guard let value else {
+            return ""
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count <= maxCharacters {
+            return trimmed
+        }
+        return String(trimmed.prefix(maxCharacters))
     }
 
     private func startOfUTCRecommendationDay(_ date: Date) -> Date {
@@ -7503,6 +7831,10 @@ final class AppViewModel: ObservableObject {
         let text = query.isEmpty ? (project?.name ?? "") : query
         let tokens = RecommendationTextSimilarity.tokens(text)
         return (tokens + categories.map { $0.lowercased() }).filter { !$0.isEmpty }
+    }
+
+    private func recommendationReferencePapers(ids: Set<Paper.ID>) -> [Paper] {
+        papers.filter { ids.contains($0.id) }
     }
 
     private func recommendationQueueStatusIndex() -> [String: QueueStatus] {
@@ -7546,7 +7878,21 @@ final class AppViewModel: ObservableObject {
 
     private func recommendationAIEvaluationPrompt(for result: RecommendationRunResult) -> String {
         let language = appLanguage == .english ? "English" : "Chinese"
-        let papers = result.scores.map { score in
+        let referencePapers = result.referencePaperIDs.compactMap { referenceID in
+            self.papers.first(where: { $0.id == referenceID })
+        }
+        let references = referencePapers.prefix(8).map { paper in
+            """
+            ID: \(paper.id)
+            Title: \(paper.displayTitle)
+            Authors: \(paper.authors.prefix(8).joined(separator: ", "))
+            Year: \(paper.year.map(String.init) ?? "")
+            Categories: \(paper.categories.joined(separator: ", "))
+            Abstract: \(limitedRecommendationText(paper.abstract, maxCharacters: 900))
+            """
+        }
+        .joined(separator: "\n\n")
+        let candidatePapers = result.scores.map { score in
             """
             ID: \(score.id)
             Title: \(score.candidate.displayTitle)
@@ -7555,11 +7901,20 @@ final class AppViewModel: ObservableObject {
         }
         .joined(separator: "\n\n")
         return """
-        You are evaluating paper recommendations for a research workflow. Use only each paper title and abstract. Return strict JSON with this shape:
+        You are evaluating paper recommendations for a research workflow. Use the user query, selected reference papers, and each candidate paper title and abstract. Return strict JSON with this shape:
         {"overall":"one concise overall evaluation in \(language)","comments":[{"id":"paper id","comment":"one short recommendation opinion in \(language)"}]}
 
-        Papers:
-        \(papers)
+        User query:
+        \(result.query.isEmpty ? "(empty)" : result.query)
+
+        Categories:
+        \(result.categories.joined(separator: ", "))
+
+        Reference papers submitted by the user:
+        \(references.isEmpty ? "No reference papers selected." : references)
+
+        Candidate papers:
+        \(candidatePapers)
         """
     }
 

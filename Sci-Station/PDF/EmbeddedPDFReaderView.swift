@@ -243,17 +243,6 @@ struct EmbeddedPDFReaderView: View {
             .help("Open in default viewer")
             .accessibilityLabel("Open PDF in default viewer")
 
-            Button {
-                if appModel.effectiveRightRailMode == .inspector {
-                    appModel.hideRightRail(source: "pdf_toolbar")
-                } else {
-                    appModel.showContextInspector(source: "pdf_toolbar")
-                }
-            } label: {
-                Image(systemName: appModel.effectiveRightRailMode == .inspector ? "sidebar.trailing" : "sidebar.right")
-            }
-            .help("Toggle PDF inspector")
-            .accessibilityLabel("Toggle PDF inspector")
         }
         .controlSize(.small)
         .padding(.horizontal, 10)
@@ -393,6 +382,7 @@ private struct PDFReaderMetadataPanel: View {
     @State private var activeNotesTab = PDFReaderNotesTab.pdfMarks
     @State private var annotationSearchQuery = ""
     @State private var pendingAnnotationDelete: PDFAnnotationRecord?
+    @State private var selectedCitationFormat = CitationFormat.bibTeX
 
     var body: some View {
         ScrollView {
@@ -666,8 +656,15 @@ private struct PDFReaderMetadataPanel: View {
 
     private var citationsPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Picker("Format", selection: $selectedCitationFormat) {
+                ForEach(CitationFormat.allCases) { format in
+                    Text(format.rawValue).tag(format)
+                }
+            }
+            .pickerStyle(.menu)
+
             ScrollView {
-                Text(bibTeXText)
+                Text(citationText)
                     .font(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -678,14 +675,16 @@ private struct PDFReaderMetadataPanel: View {
 
             HStack(spacing: 10) {
                 Button("Copy") {
-                    appModel.copyBibTeX(for: paper)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(citationText, forType: .string)
                 }
                 .buttonStyle(.bordered)
 
-                Button("Export") {
+                Button("Export BibTeX") {
                     appModel.exportBibTeX(for: paper)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(selectedCitationFormat != .bibTeX)
             }
         }
     }
@@ -722,8 +721,8 @@ private struct PDFReaderMetadataPanel: View {
         appModel.todos.filter { $0.relatedPaperIDs.contains(paper.id) }
     }
 
-    private var bibTeXText: String {
-        BibTeXFormatter.bibTeX(for: paper)
+    private var citationText: String {
+        BibTeXFormatter.citation(for: paper, format: selectedCitationFormat)
     }
 
     private var paperLinks: [PDFReaderExternalLink] {

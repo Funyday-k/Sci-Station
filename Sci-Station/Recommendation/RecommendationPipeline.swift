@@ -3,6 +3,7 @@ import Foundation
 
 public actor RecommendationPipeline {
     public static let notesRelativeDirectory = ".sci-station/recommendations/notes"
+    public static let archivedNotesRelativeDirectory = ".sci-station/recommendations/archived"
     public static let historyRelativePath = ".sci-station/recommendations/history.jsonl"
 
     private let gatherer: RecommendationCandidateGatherer
@@ -38,6 +39,7 @@ public actor RecommendationPipeline {
         force: Bool = false,
         query: String = "",
         categories: [String] = [],
+        referencePaperIDs: [String] = [],
         sourceDate: Date? = nil,
         sourceNote: String? = nil
     ) async throws -> RecommendationRunResult? {
@@ -75,7 +77,8 @@ public actor RecommendationPipeline {
             query: query,
             categories: categories,
             sourceDate: sourceDate,
-            sourceNote: sourceNote
+            sourceNote: sourceNote,
+            referencePaperIDs: referencePaperIDs
         )
 
         if persistSnapshot {
@@ -182,6 +185,25 @@ public actor RecommendationPipeline {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(result).write(to: snapshotURL, options: .atomic)
+    }
+
+    public func archiveSnapshot(id: String, workspace: ResearchWorkspace) throws {
+        let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedID.isEmpty else {
+            return
+        }
+        let notesDirectory = workspace.fileURL(for: Self.notesRelativeDirectory)
+        let archivedDirectory = workspace.fileURL(for: Self.archivedNotesRelativeDirectory)
+        let sourceURL = notesDirectory.appendingPathComponent("\(trimmedID).json", isDirectory: false)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            return
+        }
+        try fileManager.createDirectory(at: archivedDirectory, withIntermediateDirectories: true)
+        let destinationURL = archivedDirectory.appendingPathComponent("\(trimmedID).json", isDirectory: false)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        try fileManager.moveItem(at: sourceURL, to: destinationURL)
     }
 
     private func persist(_ result: RecommendationRunResult, candidateHash: String, workspace: ResearchWorkspace) throws {

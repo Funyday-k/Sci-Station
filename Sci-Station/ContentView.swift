@@ -12,48 +12,56 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @EnvironmentObject private var launchCoordinator: SciStationLaunchCoordinator
     @AppStorage("sciStation.shellRightRailWidth") private var shellRightRailWidth = 360.0
-    @State private var mainColumnVisibility: NavigationSplitViewVisibility = .all
+    @State private var mainColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
-        Group {
-            if appModel.selectedSection == .pdfReader, appModel.currentWorkspace != nil {
-                NavigationSplitView(columnVisibility: $readerColumnVisibility) {
-                    SidebarView(workspace: appModel.currentWorkspace)
-                        .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
-                } detail: {
-                    HStack(spacing: 0) {
-                        PDFReaderWorkspaceView(workspace: appModel.currentWorkspace)
+        GeometryReader { proxy in
+            Group {
+                if appModel.selectedSection == .pdfReader, appModel.currentWorkspace != nil {
+                    NavigationSplitView(columnVisibility: $readerColumnVisibility) {
+                        SidebarView(workspace: appModel.currentWorkspace)
+                            .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
+                    } detail: {
+                        HStack(spacing: 0) {
+                            PDFReaderWorkspaceView(workspace: appModel.currentWorkspace)
 
-                        Divider()
-
-                        resizableRightRail
+                            if shouldShowRightRail {
+                                Divider()
+                                resizableRightRail
+                            }
+                        }
                     }
-                }
-            } else {
-                NavigationSplitView(columnVisibility: $mainColumnVisibility) {
-                    SidebarView(workspace: appModel.currentWorkspace)
-                        .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
-                } content: {
-                    WorkspaceContentView(
-                        workspace: appModel.currentWorkspace,
-                        selectedSection: appModel.selectedSection,
-                        isWorking: appModel.isWorking,
-                        createWorkspace: appModel.createWorkspace,
-                        openWorkspace: appModel.openWorkspace
-                    )
-                    .navigationSplitViewColumnWidth(min: 560, ideal: 760)
-                } detail: {
-                    resizableRightRail
+                } else if !shouldShowRightRail {
+                    NavigationSplitView(columnVisibility: $mainColumnVisibility) {
+                        SidebarView(workspace: appModel.currentWorkspace)
+                            .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
+                    } detail: {
+                        workspaceContent
+                    }
+                } else {
+                    NavigationSplitView(columnVisibility: $mainColumnVisibility) {
+                        SidebarView(workspace: appModel.currentWorkspace)
+                            .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
+                    } content: {
+                        workspaceContent
+                    } detail: {
+                        resizableRightRail
                         .navigationSplitViewColumnWidth(
                             min: rightRailColumnWidth.min,
                             ideal: rightRailColumnWidth.ideal,
                             max: rightRailColumnWidth.max
                         )
+                    }
                 }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .background(SciStationMainWindowGate(isLaunching: launchCoordinator.isLaunching))
+        .frame(minWidth: 700, minHeight: 480)
+        .background(alignment: .topLeading) {
+            SciStationMainWindowGate(isLaunching: launchCoordinator.isLaunching)
+                .frame(width: 0, height: 0)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if isPrimaryToolbarAction(.workspaceMenu) {
@@ -290,13 +298,25 @@ struct ContentView: View {
         }
     }
 
+    private var workspaceContent: some View {
+        WorkspaceContentView(
+            workspace: appModel.currentWorkspace,
+            selectedSection: appModel.selectedSection,
+            isWorking: appModel.isWorking,
+            createWorkspace: appModel.createWorkspace,
+            openWorkspace: appModel.openWorkspace
+        )
+        .navigationSplitViewColumnWidth(min: 360, ideal: 700)
+    }
+
     private var resizableRightRail: some View {
         ResizableRightRailColumn(
             width: $shellRightRailWidth,
             minWidth: rightRailColumnWidth.min,
             idealWidth: rightRailColumnWidth.ideal,
             maxWidth: rightRailColumnWidth.max,
-            isResizable: appModel.effectiveRightRailMode != .hidden
+            isResizable: shouldShowRightRail,
+            usesFixedWidth: appModel.selectedSection == .pdfReader
         ) {
             ShellRightRailView(workspace: appModel.currentWorkspace)
         }
@@ -305,14 +325,24 @@ struct ContentView: View {
     private var rightRailColumnWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) {
         switch appModel.effectiveRightRailMode {
         case .hidden:
-            return (44, 48, 52)
+            return (0, 0, 0)
         case .inspector:
-            let ideal = min(max(CGFloat(shellRightRailWidth), 300), 640)
-            return (280, ideal, 640)
+            let ideal = min(max(CGFloat(shellRightRailWidth), 240), 560)
+            return (200, ideal, 560)
         case .ai:
-            let ideal = min(max(CGFloat(shellRightRailWidth), 340), 680)
-            return (320, ideal, 680)
+            let ideal = min(max(CGFloat(shellRightRailWidth), 280), 640)
+            return (240, ideal, 640)
         }
+    }
+
+    private var shouldShowRightRail: Bool {
+        guard appModel.effectiveRightRailMode != .hidden else {
+            return false
+        }
+        if appModel.selectedProjectSpaceTabID == "recommendations", appModel.shellWindowWidth < 1280 {
+            return false
+        }
+        return true
     }
 
     private func isPrimaryToolbarAction(_ id: ToolbarActionID) -> Bool {
@@ -415,9 +445,11 @@ private struct ResizableRightRailColumn<Content: View>: View {
     let idealWidth: CGFloat
     let maxWidth: CGFloat
     let isResizable: Bool
+    let usesFixedWidth: Bool
     let content: Content
 
     @State private var dragStartWidth: Double?
+    private let handleWidth: CGFloat = 8
 
     init(
         width: Binding<Double>,
@@ -425,6 +457,7 @@ private struct ResizableRightRailColumn<Content: View>: View {
         idealWidth: CGFloat,
         maxWidth: CGFloat,
         isResizable: Bool,
+        usesFixedWidth: Bool,
         @ViewBuilder content: () -> Content
     ) {
         self._width = width
@@ -432,45 +465,77 @@ private struct ResizableRightRailColumn<Content: View>: View {
         self.idealWidth = idealWidth
         self.maxWidth = maxWidth
         self.isResizable = isResizable
+        self.usesFixedWidth = usesFixedWidth
         self.content = content()
     }
 
     var body: some View {
+        Group {
+            if usesFixedWidth {
+                fixedWidthBody
+            } else {
+                flexibleWidthBody
+            }
+        }
+        .clipped()
+        .animation(.easeInOut(duration: 0.18), value: isResizable)
+        .onAppear(perform: clampStoredWidth)
+        .onChange(of: isResizable) { _, _ in clampStoredWidth() }
+        .onChange(of: idealWidth) { _, _ in clampStoredWidth() }
+    }
+
+    private var fixedWidthBody: some View {
         HStack(spacing: 0) {
             if isResizable {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: 6)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                if dragStartWidth == nil {
-                                    dragStartWidth = clampedWidth
-                                }
-                                let proposed = (dragStartWidth ?? clampedWidth) - value.translation.width
-                                width = min(max(proposed, Double(minWidth)), Double(maxWidth))
-                            }
-                            .onEnded { _ in
-                                dragStartWidth = nil
-                            }
-                    )
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.resizeLeftRight.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                resizeHandle
             }
 
             content
                 .frame(width: CGFloat(clampedWidth))
         }
-        .frame(width: CGFloat(clampedWidth) + (isResizable ? 6 : 0))
-        .onAppear(perform: clampStoredWidth)
-        .onChange(of: isResizable) { _, _ in clampStoredWidth() }
-        .onChange(of: idealWidth) { _, _ in clampStoredWidth() }
+        .frame(width: CGFloat(clampedWidth) + (isResizable ? handleWidth : 0))
+    }
+
+    private var flexibleWidthBody: some View {
+        HStack(spacing: 0) {
+            if isResizable {
+                resizeHandle
+            }
+
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(minWidth: minWidth + (isResizable ? handleWidth : 0),
+               idealWidth: idealWidth + (isResizable ? handleWidth : 0),
+               maxWidth: maxWidth + (isResizable ? handleWidth : 0),
+               maxHeight: .infinity)
+    }
+
+    private var resizeHandle: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: handleWidth)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if dragStartWidth == nil {
+                            dragStartWidth = clampedWidth
+                        }
+                        let proposed = (dragStartWidth ?? clampedWidth) - value.translation.width
+                        width = min(max(proposed, Double(minWidth)), Double(maxWidth))
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
     }
 
     private var clampedWidth: Double {

@@ -16,10 +16,7 @@ struct ShellRightRailView: View {
                 case .ai:
                     GlobalAISidePanel(workspace: workspace, context: appModel.currentWorkspaceContextSnapshot)
                 case .hidden:
-                    CollapsedShellRailRestoreButton(
-                        showAI: { appModel.openGlobalAIPanel(source: "collapsed_rail") },
-                        showInspector: { appModel.showContextInspector(source: "collapsed_rail") }
-                    )
+                    EmptyView()
                 }
             }
             .background(ShellRailBackground())
@@ -241,6 +238,7 @@ private struct PDFReaderContextRail: View {
     @State private var newTaskDueDate = Calendar.current.startOfDay(for: Date())
     @State private var newTaskPriority = Priority.medium
     @State private var newTaskNotes = ""
+    @State private var selectedCitationFormat = CitationFormat.bibTeX
 
     var body: some View {
         ScrollView {
@@ -475,8 +473,15 @@ private struct PDFReaderContextRail: View {
 
     private func citationsPanel(_ paper: Paper) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            Picker("Format", selection: $selectedCitationFormat) {
+                ForEach(CitationFormat.allCases) { format in
+                    Text(format.rawValue).tag(format)
+                }
+            }
+            .pickerStyle(.menu)
+
             ScrollView {
-                Text(BibTeXFormatter.bibTeX(for: paper))
+                Text(BibTeXFormatter.citation(for: paper, format: selectedCitationFormat))
                     .font(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -486,10 +491,14 @@ private struct PDFReaderContextRail: View {
             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             HStack(spacing: 8) {
-                Button("Copy") { appModel.copyBibTeX(for: paper) }
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(BibTeXFormatter.citation(for: paper, format: selectedCitationFormat), forType: .string)
+                }
                     .buttonStyle(.bordered)
-                Button("Export") { appModel.exportBibTeX(for: paper) }
+                Button("Export BibTeX") { appModel.exportBibTeX(for: paper) }
                     .buttonStyle(.borderedProminent)
+                    .disabled(selectedCitationFormat != .bibTeX)
             }
         }
     }
@@ -739,35 +748,6 @@ struct GlobalAIContextActionBar: View {
             lines.append("Selected text preview:\n\(selectedText)")
         }
         return lines.joined(separator: "\n")
-    }
-}
-
-private struct CollapsedShellRailRestoreButton: View {
-    @EnvironmentObject private var appModel: AppViewModel
-
-    let showAI: () -> Void
-    let showInspector: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Button(action: showAI) {
-                Label("AI", systemImage: "sparkles")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help(appModel.t(.toolbarOpenAI))
-
-            Button(action: showInspector) {
-                Label(appModel.t(.toolbarInspector), systemImage: "sidebar.right")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help(appModel.t(.toolbarShowInspector))
-
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

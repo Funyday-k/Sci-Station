@@ -12,6 +12,10 @@ final class SciStationLaunchCoordinator: ObservableObject {
     private var didReachMinimumDuration = false
     private var didFinishAppPreparation = false
 
+    init() {
+        SciStationWindowRestoration.clearMainWindowState()
+    }
+
     func start() {
         guard !didStart else { return }
         didStart = true
@@ -71,8 +75,25 @@ final class SciStationLaunchCoordinator: ObservableObject {
             }
         }
     }
+
 }
 
+enum SciStationWindowRestoration {
+    static func clearMainWindowState() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys {
+            let isMainWindowFrame = key.hasPrefix("NSWindow Frame ")
+                && key.contains("AppWindow")
+                && key.contains("Sci_Station")
+            let isMainSplitViewFrame = key.hasPrefix("NSSplitView Subview Frames ")
+                && key.contains("SidebarNavigationSplitView")
+                && key.contains("Sci_Station")
+            if isMainWindowFrame || isMainSplitViewFrame {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+}
 struct SciStationMainWindowGate: NSViewRepresentable {
     let isLaunching: Bool
 
@@ -115,8 +136,9 @@ final class MainWindowGateView: NSView {
         guard !didRevealWindow else { return }
         didRevealWindow = true
         window.alphaValue = 0
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        constrainMainWindow(window)
+        constrainMainWindowAfterLayout(window)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
@@ -128,5 +150,53 @@ final class MainWindowGateView: NSView {
         window.styleMask.insert(.resizable)
         window.collectionBehavior.remove(.fullScreenNone)
         window.collectionBehavior.insert(.fullScreenPrimary)
+        window.isRestorable = false
+        window.setFrameAutosaveName("")
+        window.contentMinSize = NSSize(width: 0, height: 0)
+        constrainMainWindow(window)
+    }
+
+    private func constrainMainWindowAfterLayout(_ window: NSWindow) {
+        for delay in [0.2, 0.8, 1.6, 3.0, 5.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.constrainMainWindow(window)
+            }
+        }
+    }
+
+    private func constrainMainWindow(_ window: NSWindow) {
+        guard !window.styleMask.contains(.fullScreen) else {
+            return
+        }
+        if window.isZoomed {
+            window.zoom(nil)
+        }
+        guard let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame else {
+            return
+        }
+        let maxWidth = max(visibleFrame.width - 32, 640)
+        let maxHeight = max(visibleFrame.height - 32, 420)
+        let launchWidth = min(1180, maxWidth)
+        let launchHeight = min(740, maxHeight)
+        let allowedMinSize = NSSize(width: min(700, maxWidth), height: min(480, maxHeight))
+        window.contentMinSize = NSSize(width: 0, height: 0)
+        window.minSize = allowedMinSize
+        let currentFrame = window.frame
+        let targetWidth = min(max(currentFrame.width, window.minSize.width), launchWidth)
+        let targetHeight = min(max(currentFrame.height, window.minSize.height), launchHeight)
+        let isOutsideVisibleFrame = !visibleFrame.contains(currentFrame)
+        guard currentFrame.width != targetWidth || currentFrame.height != targetHeight || isOutsideVisibleFrame else {
+            return
+        }
+        let targetFrame = NSRect(
+            x: visibleFrame.midX - targetWidth / 2,
+            y: visibleFrame.midY - targetHeight / 2,
+            width: targetWidth,
+            height: targetHeight
+        )
+        window.setFrame(targetFrame, display: true)
+        window.contentMinSize = NSSize(width: 0, height: 0)
+        window.minSize = allowedMinSize
     }
 }
