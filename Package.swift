@@ -60,6 +60,8 @@ let package = Package(
             ],
             sources: [
                 "Workspace",
+                "Persistence",
+                "PluginKit",
                 "Library",
                 "Importer",
                 "PDF/Annotations",
@@ -83,6 +85,7 @@ let package = Package(
                 "UI/Shell/TopSidebarBuilder.swift",
                 "UI/Shell/ProjectSpaceTabsBuilder.swift",
                 "UI/Shell/ProjectSpaceTabIcon.swift",
+                "UI/Shell/ToolbarCommandCatalog.swift",
                 "UI/Shell/RoutePersistence.swift",
                 "Testing"
             ],

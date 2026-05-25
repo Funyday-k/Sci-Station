@@ -270,7 +270,7 @@ final class ModuleSettingsViewModel: ObservableObject {
     }
 
     private func refreshDerivedState(root: ResearchRoot?) {
-        availableModules = WorkspaceModuleRegistry.availableModules(in: configuration)
+        availableModules = PluginWorkspaceContributionCatalog(configuration: configuration).availableModules()
         pinnedOrder = WorkspaceModuleSettingsMutation.pinnedOrder(in: configuration)
         warningsByModuleID = Dictionary(grouping: WorkspaceModuleRegistry.warnings(for: configuration)) { warning in
             warning.moduleID ?? "_workspace"

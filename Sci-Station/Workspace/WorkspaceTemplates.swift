@@ -495,6 +495,7 @@ public nonisolated enum WorkspaceCreationWizard {
 
     public static func preview(for template: WorkspaceTemplate) -> WorkspaceCreationPreview {
         let configuration = WorkspaceModuleRegistry.configuration(for: template)
+        let catalog = PluginWorkspaceContributionCatalog(configuration: configuration)
         let enabledModules = configuration.modules.filter(\.enabled)
         let disabledModules = configuration.modules.filter { !$0.enabled }
         return WorkspaceCreationPreview(
@@ -504,9 +505,9 @@ public nonisolated enum WorkspaceCreationWizard {
             disabledModules: disabledModules,
             directoryItems: directoryItems(for: template, configuration: configuration),
             settingsFiles: template.settingsFiles.sorted(),
-            routes: WorkspaceModuleRegistry.availableRoutes(in: configuration),
-            projectTabs: WorkspaceModuleRegistry.availableProjectTabs(in: configuration),
-            workflows: WorkspaceModuleRegistry.availableWorkflows(in: configuration),
+            routes: catalog.availableRoutes(),
+            projectTabs: catalog.availableProjectTabs(),
+            workflows: catalog.availableWorkflows(),
             warnings: WorkspaceModuleRegistry.warnings(for: configuration)
         )
     }
@@ -609,7 +610,7 @@ public nonisolated enum WorkspaceCreationWizard {
     }
 
     private static func directoryItems(for template: WorkspaceTemplate, configuration: WorkspaceModuleConfiguration) -> [WorkspaceCreationDirectoryPreviewItem] {
-        let enabledModules = WorkspaceModuleRegistry.availableModules(in: configuration)
+        let enabledModules = PluginWorkspaceContributionCatalog(configuration: configuration).availableModules()
         var records: [String: (required: Bool, repairable: Bool, moduleTitles: Set<String>)] = [:]
 
         for path in template.previewDirectories {
@@ -960,58 +961,27 @@ public nonisolated enum WorkspaceModuleRegistry {
     }
 
     public static func availableModules(in configuration: WorkspaceModuleConfiguration) -> [WorkspaceModule] {
-        let enabledIDs = configuration.enabledModuleIDs
-        return configuration.modules.filter { module in
-            module.enabled && module.dependencies.allSatisfy { enabledIDs.contains($0) }
-        }
+        PluginWorkspaceContributionCatalog(configuration: configuration).availableModules()
     }
 
     public static func availableRoutes(in configuration: WorkspaceModuleConfiguration) -> [WorkspaceModuleRoute] {
-        availableModules(in: configuration).flatMap(\.routes)
+        PluginWorkspaceContributionCatalog(configuration: configuration).availableRoutes()
     }
 
     public static func availableProjectTabs(in configuration: WorkspaceModuleConfiguration) -> [WorkspaceModuleProjectTab] {
-        availableModules(in: configuration).flatMap(\.projectTabs)
+        PluginWorkspaceContributionCatalog(configuration: configuration).availableProjectTabs()
     }
 
     public static func availableWorkflows(in configuration: WorkspaceModuleConfiguration) -> [String] {
-        let modules = availableModules(in: configuration)
-        let availableIDs = Set(modules.map(\.id))
-        let declaredWorkflows = modules.flatMap(\.workflows)
-        let filteredWorkflows = declaredWorkflows.filter { workflowID in
-            guard let requirements = workflowRequirements[workflowID] else {
-                return true
-            }
-            return requirements.isSubset(of: availableIDs)
-        }
-        return Array(Set(filteredWorkflows)).sorted()
+        PluginWorkspaceContributionCatalog(configuration: configuration).availableWorkflows()
     }
 
     public static func artifactKindDescriptors(in configuration: WorkspaceModuleConfiguration) -> [WorkspaceModuleArtifactKindDescriptor] {
-        availableModules(in: configuration)
-            .flatMap { module in
-                module.artifactKinds.map { kind in
-                    WorkspaceModuleArtifactKindDescriptor(
-                        kind: kind,
-                        title: artifactKindTitle(kind),
-                        moduleID: module.id,
-                        moduleTitle: module.title,
-                        isKnown: true
-                    )
-                }
-            }
-            .uniquedByKind()
-            .sorted { $0.kind < $1.kind }
+        PluginWorkspaceContributionCatalog(configuration: configuration).artifactKindDescriptors()
     }
 
     public static func artifactKindDescriptor(for kind: String, in configuration: WorkspaceModuleConfiguration) -> WorkspaceModuleArtifactKindDescriptor {
-        artifactKindDescriptors(in: configuration).first { $0.kind == kind } ?? WorkspaceModuleArtifactKindDescriptor(
-            kind: kind,
-            title: artifactKindTitle(kind),
-            moduleID: nil,
-            moduleTitle: nil,
-            isKnown: false
-        )
+        PluginWorkspaceContributionCatalog(configuration: configuration).artifactKindDescriptor(for: kind)
     }
 
     public static func warnings(for configuration: WorkspaceModuleConfiguration) -> [WorkspaceModuleWarning] {

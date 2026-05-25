@@ -45,10 +45,22 @@ public nonisolated enum ProjectSpaceTabsBuilder {
         configuration: WorkspaceModuleConfiguration,
         pinnedOrder: [String]
     ) -> [ProjectSpaceTab] {
+        tabs(
+            for: projectID,
+            catalog: PluginWorkspaceContributionCatalog(configuration: configuration),
+            pinnedOrder: pinnedOrder
+        )
+    }
+
+    public static func tabs(
+        for projectID: String,
+        catalog: PluginWorkspaceContributionCatalog,
+        pinnedOrder: [String]
+    ) -> [ProjectSpaceTab] {
         var uniqueTabs: [ProjectSpaceTab] = []
         var seenIDs: Set<String> = []
 
-        for module in WorkspaceModuleRegistry.availableModules(in: configuration) {
+        for module in catalog.availableModules() {
             for moduleTab in module.projectTabs where !seenIDs.contains(moduleTab.id) {
                 seenIDs.insert(moduleTab.id)
                 uniqueTabs.append(ProjectSpaceTab(

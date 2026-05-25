@@ -356,7 +356,7 @@ public actor GraphIndexer {
         }
 
         // Build a lookup from bibtex key to entry for matching papers.
-        let bibtexByKey = Dictionary(uniqueKeysWithValues: bibtexEntries.map { ($0.key, $0) })
+        let _ = Dictionary(uniqueKeysWithValues: bibtexEntries.map { ($0.key, $0) })
 
         // 2. For each paper, collect references from all sources and resolve.
         for paper in papers {

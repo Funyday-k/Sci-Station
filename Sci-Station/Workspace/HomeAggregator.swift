@@ -494,8 +494,9 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
     }
 
     private func moduleAvailability(in configuration: WorkspaceModuleConfiguration) -> HomeModuleAvailability {
-        let routeIDs = Set(WorkspaceModuleRegistry.availableRoutes(in: configuration).map(\.id))
-        let tabIDs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: configuration).map(\.id))
+        let catalog = PluginWorkspaceContributionCatalog(configuration: configuration)
+        let routeIDs = Set(catalog.availableRoutes().map(\.id))
+        let tabIDs = Set(catalog.availableProjectTabs().map(\.id))
         return HomeModuleAvailability(
             tasksEnabled: routeIDs.contains("tasks") || tabIDs.contains("tasks"),
             libraryEnabled: routeIDs.contains("library") || tabIDs.contains("papers"),

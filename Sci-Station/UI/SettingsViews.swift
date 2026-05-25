@@ -136,7 +136,7 @@ struct SettingsView: View {
                 }
 
                 GroupBox(appModel.t(.settingsWorkspaceModules)) {
-                    let availableModuleIDs = Set(WorkspaceModuleRegistry.availableModules(in: appModel.workspaceModuleConfiguration).map(\.id))
+                    let availableModuleIDs = Set(appModel.workspaceContributionCatalog(for: nil).availableModules().map(\.id))
                     VStack(alignment: .leading, spacing: 12) {
                         WorkspacePathRow(label: "Registry", value: appModel.workspaceModuleStatusSummary)
                         WorkspacePathRow(label: "Config", value: WorkspaceTemplateRepository.modulesRelativePath)

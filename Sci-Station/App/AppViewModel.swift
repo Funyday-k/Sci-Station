@@ -637,12 +637,12 @@ final class AppViewModel: ObservableObject {
     }
 
     var enabledAgentWorkflowIDs: Set<String> {
-        Set(WorkspaceModuleRegistry.availableWorkflows(in: effectiveModuleConfiguration(for: currentProjectID)))
+        Set(workspaceContributionCatalog(for: currentProjectID).availableWorkflows())
     }
 
     var workspaceModuleStatusSummary: String {
         let enabledCount = workspaceModuleConfiguration.modules.filter(\.enabled).count
-        let workspaceWorkflowCount = WorkspaceModuleRegistry.availableWorkflows(in: workspaceModuleConfiguration).count
+        let workspaceWorkflowCount = workspaceContributionCatalog(for: nil).availableWorkflows().count
         return "\(enabledCount)/\(workspaceModuleConfiguration.modules.count) modules enabled; \(workspaceWorkflowCount) workflows available"
     }
 
@@ -651,6 +651,10 @@ final class AppViewModel: ObservableObject {
             workspace: workspaceModuleConfiguration,
             override: projectID.flatMap { workspaceModuleOverrides[$0] }
         )
+    }
+
+    func workspaceContributionCatalog(for projectID: ResearchProject.ID?) -> PluginWorkspaceContributionCatalog {
+        PluginWorkspaceContributionCatalog(configuration: effectiveModuleConfiguration(for: projectID))
     }
 
     func visibleProjectSidebarSections(for projectID: ResearchProject.ID?) -> [WorkspaceSection] {
@@ -662,7 +666,7 @@ final class AppViewModel: ObservableObject {
     func projectSpaceTabs(for projectID: ResearchProject.ID) -> [ProjectSpaceTab] {
         ProjectSpaceTabsBuilder.tabs(
             for: projectID,
-            configuration: effectiveModuleConfiguration(for: projectID),
+            catalog: workspaceContributionCatalog(for: projectID),
             pinnedOrder: workspacePreferences.projectSpacePinnedOrder
         )
     }
@@ -692,22 +696,21 @@ final class AppViewModel: ObservableObject {
         guard let routeID = section.moduleRouteID else {
             return true
         }
-        return WorkspaceModuleRegistry.availableRoutes(in: workspaceModuleConfiguration).contains { $0.id == routeID }
+        return workspaceContributionCatalog(for: nil).availableRoutes().contains { $0.id == routeID }
     }
 
     func isWorkspaceProjectTabAvailable(_ section: WorkspaceSection, projectID: ResearchProject.ID? = nil) -> Bool {
         guard let tabID = section.moduleProjectTabID else {
             return true
         }
-        let configuration = effectiveModuleConfiguration(for: projectID ?? currentProjectID)
-        return WorkspaceModuleRegistry.availableProjectTabs(in: configuration).contains { $0.id == tabID }
+        return workspaceContributionCatalog(for: projectID ?? currentProjectID).availableProjectTabs().contains { $0.id == tabID }
     }
 
     func workspaceArtifactKindDescriptor(for kind: String?) -> WorkspaceModuleArtifactKindDescriptor? {
         guard let kind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
             return nil
         }
-        return WorkspaceModuleRegistry.artifactKindDescriptor(for: kind, in: effectiveModuleConfiguration(for: currentProjectID))
+        return workspaceContributionCatalog(for: currentProjectID).artifactKindDescriptor(for: kind)
     }
 
     private func orderedWorkspaceSections(_ sections: [WorkspaceSection], using configuration: WorkspaceModuleConfiguration) -> [WorkspaceSection] {

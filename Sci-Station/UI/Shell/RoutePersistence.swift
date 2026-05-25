@@ -61,6 +61,18 @@ public actor RoutePersistence {
         activeProjectIDs: Set<String>,
         configuration: WorkspaceModuleConfiguration
     ) -> RouteRestoreResult {
+        restoreResult(
+            candidate: candidate,
+            activeProjectIDs: activeProjectIDs,
+            catalog: PluginWorkspaceContributionCatalog(configuration: configuration)
+        )
+    }
+
+    public nonisolated static func restoreResult(
+        candidate: WorkspaceRoute?,
+        activeProjectIDs: Set<String>,
+        catalog: PluginWorkspaceContributionCatalog
+    ) -> RouteRestoreResult {
         guard let candidate else {
             return RouteRestoreResult(route: .home)
         }
@@ -73,7 +85,7 @@ public actor RoutePersistence {
             return RouteRestoreResult(route: WorkspaceRoute(top: .projects), fallbackReason: .projectMissing)
         }
 
-        let availableTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: configuration).map(\.id))
+        let availableTabs = Set(catalog.availableProjectTabs().map(\.id))
         if let tabID = candidate.projectTabID, !availableTabs.contains(tabID), tabID != ProjectSpaceTabsBuilder.overviewTabID {
             return RouteRestoreResult(
                 route: WorkspaceRoute(top: .projects, projectID: projectID, projectTabID: ProjectSpaceTabsBuilder.overviewTabID),

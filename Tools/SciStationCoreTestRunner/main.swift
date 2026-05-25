@@ -46,6 +46,7 @@ private struct CoreVerificationSuite {
         try toolbarPolicyHidesPaperActionsOnHome()
         try toolbarPolicyShowsPDFActionsOnlyInPDFReader()
         try toolbarPolicyShowsWikiActionsOnlyInWikiContext()
+        try await toolbarCommandCatalogMapsToolbarActionsToCommandContributions()
         try await projectTreeArchiveFallsBackToProjectsRoute()
         try await projectArchiveHidesProjectFromActiveList()
         try await projectRestoreReturnsProjectToActiveList()
@@ -54,6 +55,12 @@ private struct CoreVerificationSuite {
         try projectSpaceTabsBuilderRespectsPinnedOrder()
         try projectSpaceTabsBuilderRemovesDisabledModuleTabs()
         try projectSpaceTabsBuilderKeepsOverviewLeftmost()
+        try pluginManifestValidatorRejectsInvalidIDs()
+        try await pluginRegistryResolvesBuiltInWorkspaceModuleAdapters()
+        try pluginWorkspaceContributionCatalogResolvesBuiltInModules()
+        try await commandRegistryExecutesRegisteredContribution()
+        try await declarativePermissionBrokerEnforcesManifestPermissions()
+        try await workspaceFileSystemRejectsEscapingPathsAndWritesAtomically()
         try topSidebarBuilderProducesSixFixedItems()
         try await routePersistenceRoundTripsLastRoute()
         try routePersistenceFallsBackWhenProjectMissing()
@@ -88,6 +95,7 @@ private struct CoreVerificationSuite {
         try await markdownSnippetRepositoryLoadsWorkspaceSnippets()
         try await workspaceMaterialRepositoryLoadsOnlyUserMaterials()
         try batchImportInputParserSplitsMultipleIdentifiers()
+        try await paperImportPipelineDispatchesImporterAndMetadataProvider()
         try await vscodeBridgePreparesPythonRunTask()
         try citekeyGenerationUsesAuthorYearKeyword()
         try graphNodeIDDerivationFollowsPriorityOrder()
@@ -1018,6 +1026,31 @@ private struct CoreVerificationSuite {
         try expect(!libraryModel.contains(.wikiNewPage) && !libraryModel.contains(.wikiSave), "Library toolbar policy should not include Wiki actions.")
     }
 
+    private func toolbarCommandCatalogMapsToolbarActionsToCommandContributions() async throws {
+        let model = ToolbarPolicy.resolve(
+            route: WorkspaceRoute(top: .library),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "library")
+        )
+        let contributions = model.primaryCommandContributions
+        let ids = contributions.map(\.id)
+        let importContribution = try require(contributions.first { $0.id == "paper.importPDF" }, "Import PDF should be exposed as a command contribution.")
+        let registry = CommandRegistry()
+        try await registry.register(importContribution, pluginID: "sci.paper-library") { context in
+            CommandExecutionResult(succeeded: context.commandID == "paper.importPDF", message: context.pluginID)
+        }
+        let visible = await registry.contributions(placement: .toolbar)
+        let result = try await registry.execute(id: importContribution.id)
+
+        try expect(ids.contains("workspace.menu"), "Workspace menu should have a stable command id.")
+        try expect(ids.contains("shell.aiPanel"), "AI panel toolbar action should have a stable command id.")
+        try expect(ids.contains("paper.importByIdentifier"), "Identifier import toolbar action should have a stable command id.")
+        try expect(importContribution.title == model.action(.importPDF)?.title, "Command contribution should preserve toolbar action title.")
+        try expect(importContribution.systemImage == "doc.badge.plus", "Command contribution should preserve toolbar action image.")
+        try expect(ToolbarCommandCatalog.toolbarActionID(for: "paper.importPDF") == .importPDF, "Toolbar command catalog should map command ids back to action ids.")
+        try expect(visible.contains(importContribution), "Toolbar command contribution should register in the generic command registry.")
+        try expect(result.succeeded && result.message == "sci.paper-library", "Toolbar command contribution should execute through the generic command registry.")
+    }
+
     private func projectTreeArchiveFallsBackToProjectsRoute() async throws {
         let rootURL = temporaryDirectoryURL().appendingPathComponent("ProjectArchiveRouteWorkspace", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
@@ -1145,6 +1178,146 @@ private struct CoreVerificationSuite {
             pinnedOrder: ["tasks", "overview", "calendar"]
         )
         try expect(tabs.first?.id == "overview", "Overview should remain the leftmost ProjectSpace tab.")
+    }
+
+    private func pluginManifestValidatorRejectsInvalidIDs() throws {
+        let manifest = PluginManifest(
+            id: "Bad Plugin",
+            name: "",
+            version: "",
+            contributes: PluginContribution(commands: [
+                CommandContribution(id: "paper.import", title: "Import", placement: .toolbar),
+                CommandContribution(id: "paper.import", title: "Import Again", placement: .toolbar)
+            ])
+        )
+        let issues = PluginManifestValidator().validate(manifest)
+        let fields = Set(issues.map(\.field))
+
+        try expect(fields.contains("id"), "Plugin validator should reject unstable plugin ids.")
+        try expect(fields.contains("name"), "Plugin validator should require plugin names.")
+        try expect(fields.contains("version"), "Plugin validator should require plugin versions.")
+        try expect(fields.contains("contributes.commands"), "Plugin validator should reject duplicate command ids.")
+    }
+
+    private func pluginRegistryResolvesBuiltInWorkspaceModuleAdapters() async throws {
+        let manifests = WorkspaceModulePluginAdapter.builtInManifests()
+        let registry = try PluginRegistry(manifests: manifests)
+        let enabledIDs = try await registry.resolvedEnabledPluginIDs()
+        let commands = try await registry.commandContributions()
+        let modules = try await registry.workspaceModuleContributions().map(\.module)
+        let tabs = try await registry.projectTabContributions()
+        let workflows = try await registry.workflowContributions()
+        let paperLibrary = try require(manifests.first { $0.id == "sci.paper-library" }, "paper-library should adapt to a built-in plugin manifest.")
+
+        try expect(enabledIDs.contains("sci.projects"), "Built-in plugin registry should expose enabled Projects plugin.")
+        try expect(enabledIDs.contains("sci.paper-library"), "Built-in plugin registry should expose enabled Paper Library plugin.")
+        try expect(!enabledIDs.contains("sci.code"), "Disabled workspace modules should remain disabled as plugin manifests.")
+        try expect(commands.isEmpty, "Workspace module adapter should not invent command handlers before command migration.")
+        try expect(modules.contains { $0.id == "paper-library" }, "Workspace module adapter should preserve module contribution payloads.")
+        try expect(tabs.contains { $0.id == "papers" }, "Plugin registry should expose project tab contributions from enabled manifests.")
+        try expect(workflows.contains { $0.id == "paper_reading" }, "Plugin registry should expose workflow contributions from enabled manifests.")
+        try expect(paperLibrary.permissions.writePaths.contains("library/papers/"), "Workspace module adapter should preserve declared write paths.")
+        try expect(paperLibrary.contributes.routes.contains { $0.id == "library" }, "Workspace module adapter should expose route contributions.")
+    }
+
+    private func pluginWorkspaceContributionCatalogResolvesBuiltInModules() throws {
+        let configuration = WorkspaceModuleRegistry.defaultConfiguration(
+            enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["paper-library"])
+        )
+        let catalog = PluginWorkspaceContributionCatalog(configuration: configuration)
+        let routeIDs = Set(catalog.availableRoutes().map(\.id))
+        let tabIDs = Set(catalog.availableProjectTabs().map(\.id))
+        let workflows = Set(catalog.availableWorkflows())
+        let descriptor = catalog.artifactKindDescriptor(for: "research_plan")
+        let unknownDescriptor = catalog.artifactKindDescriptor(for: "future_plugin_artifact")
+
+        try expect(routeIDs.contains("projects"), "Plugin workspace catalog should expose enabled built-in routes.")
+        try expect(!routeIDs.contains("library"), "Plugin workspace catalog should hide disabled module routes.")
+        try expect(!routeIDs.contains("pdf-reader"), "Plugin workspace catalog should hide routes whose dependencies are disabled.")
+        try expect(tabIDs.contains("overview"), "Plugin workspace catalog should expose project tabs from enabled modules.")
+        try expect(!workflows.contains("paper_reading"), "Plugin workspace catalog should gate workflows by module requirements.")
+        try expect(descriptor.isKnown && descriptor.moduleID == "projects", "Plugin workspace catalog should resolve known artifact descriptors.")
+        try expect(!unknownDescriptor.isKnown && unknownDescriptor.title == "Future Plugin Artifact", "Plugin workspace catalog should fall back for unknown artifact descriptors.")
+    }
+
+    private func commandRegistryExecutesRegisteredContribution() async throws {
+        let registry = CommandRegistry()
+        let contribution = CommandContribution(
+            id: "paper.importPDF",
+            title: "Import PDF",
+            systemImage: "doc.badge.plus",
+            placement: .toolbar,
+            routePredicate: RoutePredicate(topLevelSectionIDs: ["library"])
+        )
+        try await registry.register(contribution, pluginID: "sci.paper-library") { context in
+            CommandExecutionResult(
+                succeeded: context.pluginID == "sci.paper-library" && context.commandID == "paper.importPDF",
+                message: "ok"
+            )
+        }
+        let visible = await registry.contributions(
+            placement: .toolbar,
+            context: WorkspaceContextSnapshot(topLevelSectionID: "library")
+        )
+        let hidden = await registry.contributions(
+            placement: .toolbar,
+            context: WorkspaceContextSnapshot(topLevelSectionID: "home")
+        )
+        let result = try await registry.execute(id: "paper.importPDF")
+
+        try expect(visible.map(\.id) == ["paper.importPDF"], "Command registry should expose route-matched toolbar commands.")
+        try expect(hidden.isEmpty, "Command registry should hide commands when route predicates do not match.")
+        try expect(result.succeeded && result.message == "ok", "Command registry should invoke registered command handlers.")
+    }
+
+    private func declarativePermissionBrokerEnforcesManifestPermissions() async throws {
+        let manifest = PluginManifest(
+            id: "sci.openalex",
+            name: "OpenAlex",
+            permissions: PluginPermissionSet(
+                readPaths: ["library/papers/"],
+                writePaths: ["projects/*/outputs/"],
+                networkHosts: ["api.openalex.org"],
+                secrets: ["openalex_api_key"]
+            )
+        )
+        let broker = DeclarativePermissionBroker(manifests: [manifest], fallbackDecision: .deny)
+        let allowedRead = try await broker.authorize(PermissionRequest(pluginID: "sci.openalex", action: .readFile, target: "library/papers/p1/paper.md", reason: "Read paper"))
+        let allowedWrite = try await broker.authorize(PermissionRequest(pluginID: "sci.openalex", action: .writeFile, target: "projects/demo/outputs/openalex.json", reason: "Write output"))
+        let allowedNetwork = try await broker.authorize(PermissionRequest(pluginID: "sci.openalex", action: .networkRequest, target: "https://api.openalex.org/works", reason: "Fetch metadata"))
+        let deniedWrite = try await broker.authorize(PermissionRequest(pluginID: "sci.openalex", action: .writeFile, target: "wiki/escape.md", reason: "Write wiki"))
+        let deniedSecret = try await broker.authorize(PermissionRequest(pluginID: "sci.openalex", action: .readSecret, target: "other_key", reason: "Read secret"))
+
+        try expect(allowedRead.kind == .allow, "Permission broker should allow manifest-declared read paths.")
+        try expect(allowedWrite.kind == .allow, "Permission broker should allow manifest-declared wildcard write paths.")
+        try expect(allowedNetwork.kind == .allow, "Permission broker should allow manifest-declared network hosts.")
+        try expect(deniedWrite.kind == .deny, "Permission broker should deny undeclared write paths when fallback is deny.")
+        try expect(deniedSecret.kind == .deny, "Permission broker should deny undeclared secrets when fallback is deny.")
+    }
+
+    private func workspaceFileSystemRejectsEscapingPathsAndWritesAtomically() async throws {
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("WorkspaceFileSystem", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let fileSystem = WorkspaceFileSystem(rootURL: rootURL)
+        let path = try WorkspaceRelativePath("projects/demo/wiki/note.md")
+
+        try await fileSystem.writeText("hello", to: path)
+        let loaded = try await fileSystem.readText(path)
+        let exists = await fileSystem.exists(path)
+
+        try expect(loaded == "hello", "WorkspaceFileSystem should write and read text within the research root.")
+        try expect(exists, "WorkspaceFileSystem should report existing managed paths.")
+        do {
+            _ = try WorkspaceRelativePath("../escape.md")
+            try expect(false, "WorkspaceRelativePath should reject parent traversal.")
+        } catch WorkspaceFileSystemError.invalidRelativePath {
+        }
+        do {
+            _ = try WorkspaceRelativePath("/tmp/escape.md")
+            try expect(false, "WorkspaceRelativePath should reject absolute paths.")
+        } catch WorkspaceFileSystemError.invalidRelativePath {
+        }
     }
 
     private func topSidebarBuilderProducesSixFixedItems() throws {
@@ -1974,6 +2147,28 @@ private struct CoreVerificationSuite {
             ],
             "Batch parser should split common pasted separators and remove duplicates."
         )
+    }
+
+    private func paperImportPipelineDispatchesImporterAndMetadataProvider() async throws {
+        let importer = RecordingPaperImporter()
+        let provider = RecordingPaperMetadataProvider()
+        let pipeline = PaperImportPipeline(importers: [importer], metadataProviders: [provider])
+        let context = PluginContext(pluginID: "sci.test")
+        let input = PaperImportInput(kind: .doi, value: "10.1234/example")
+        let result = try await pipeline.importPaper(input, context: context)
+        let candidates = try await pipeline.lookupMetadata(
+            MetadataLookupQuery(identifierKind: "doi", value: "10.1234/example"),
+            context: context
+        )
+        let handledValues = await importer.handledValues()
+        let lookupValues = await provider.lookupValues()
+
+        try expect(result.paperID == "paper:10.1234/example", "PaperImportPipeline should dispatch to the first matching importer.")
+        try expect(result.metadata?.doi == "10.1234/example", "PaperImportPipeline should preserve importer metadata output.")
+        try expect(candidates.map(\.providerID) == ["test.metadata"], "PaperImportPipeline should dispatch metadata lookup providers.")
+        try expect(candidates.first?.draft.title == "Metadata Candidate", "PaperImportPipeline should return provider candidates.")
+        try expect(handledValues == ["10.1234/example"], "Paper importer should observe the requested input value.")
+        try expect(lookupValues == ["10.1234/example"], "Metadata provider should observe the requested lookup value.")
     }
 
     private func vscodeBridgePreparesPythonRunTask() async throws {
@@ -10051,6 +10246,66 @@ private actor RecordingAgentTool: AgentTool {
 
     func invokedArguments() -> [String] {
         argumentsLog
+    }
+}
+
+private actor RecordingPaperImporter: PaperImporter {
+    nonisolated let contribution = ImporterContribution(id: "test.importer", title: "Test Importer", inputKinds: ["doi"])
+    private var values: [String] = []
+
+    nonisolated func canHandle(_ input: PaperImportInput) -> Bool {
+        input.kind == .doi
+    }
+
+    func importPaper(_ input: PaperImportInput, context: PluginContext) async throws -> PaperImportResult {
+        values.append(input.value)
+        let draft = PaperMetadataDraft(
+            title: "Imported Paper",
+            authors: ["Test Author"],
+            year: 2026,
+            venue: nil,
+            doi: input.value,
+            arxiv: nil,
+            inspireID: nil,
+            url: nil,
+            pdfURL: nil,
+            abstract: nil,
+            categories: [],
+            sourceProvider: context.pluginID
+        )
+        return PaperImportResult(paperID: "paper:\(input.value)", metadata: draft)
+    }
+
+    func handledValues() -> [String] {
+        values
+    }
+}
+
+private actor RecordingPaperMetadataProvider: PaperMetadataProviderPlugin {
+    nonisolated let contribution = MetadataProviderContribution(id: "test.metadata", title: "Test Metadata", supportedIdentifiers: ["doi"])
+    private var values: [String] = []
+
+    func lookup(_ query: MetadataLookupQuery, context: PluginContext) async throws -> [PaperMetadataCandidate] {
+        values.append(query.value)
+        let draft = PaperMetadataDraft(
+            title: "Metadata Candidate",
+            authors: ["Provider Author"],
+            year: 2026,
+            venue: nil,
+            doi: query.value,
+            arxiv: nil,
+            inspireID: nil,
+            url: nil,
+            pdfURL: nil,
+            abstract: nil,
+            categories: [],
+            sourceProvider: context.pluginID
+        )
+        return [PaperMetadataCandidate(draft: draft, providerID: contribution.id)]
+    }
+
+    func lookupValues() -> [String] {
+        values
     }
 }
 

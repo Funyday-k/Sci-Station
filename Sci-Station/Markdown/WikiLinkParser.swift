@@ -9,7 +9,7 @@ public struct WikiLinkParser {
     /// - `[[concept:dark-matter]]`       -> ns="concept", target="dark-matter"
     /// - `[[method:glauber|GM]]`         -> ns="method", target="glauber"
     /// - `[[concept:X#section]]`         -> ns="concept", target="X"
-    private static let pattern = #"\[\[(?:([A-Za-z][A-Za-z0-9_-]*):)?([^|#\]]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]"#
+    private nonisolated static let pattern = #"\[\[(?:([A-Za-z][A-Za-z0-9_-]*):)?([^|#\]]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]"#
 
     public nonisolated init() {}
 
