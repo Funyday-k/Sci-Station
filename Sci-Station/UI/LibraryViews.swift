@@ -1,11 +1,108 @@
 import AppKit
+import Combine
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
+
+private let libraryPerformanceLogger = Logger(subsystem: "Lingyu-Xia.Sci-Station", category: "Performance")
+
+@MainActor
+private final class LibraryListViewModel: ObservableObject {
+    @Published private(set) var rows: [LibraryPaperTableRow] = []
+    @Published var searchText = ""
+
+    private var rebuildTask: Task<Void, Never>?
+    private var searchCommitTask: Task<Void, Never>?
+    private let searchService = LibrarySearchService()
+
+    func syncSearchTextFromModel(_ value: String) {
+        guard searchText != value else {
+            return
+        }
+        searchCommitTask?.cancel()
+        searchText = value
+    }
+
+    func commitSearchText(appModel: AppViewModel) {
+        searchCommitTask?.cancel()
+        let nextValue = searchText
+        searchCommitTask = Task { @MainActor [weak appModel] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled, let appModel else {
+                return
+            }
+            if appModel.librarySearchText != nextValue {
+                appModel.librarySearchText = nextValue
+            }
+        }
+    }
+
+    func flushSearchText(appModel: AppViewModel) {
+        searchCommitTask?.cancel()
+        if appModel.librarySearchText != searchText {
+            appModel.librarySearchText = searchText
+        }
+    }
+
+    func scheduleRebuild(appModel: AppViewModel, workspace: ResearchWorkspace, debounce: Bool = false) {
+        rebuildTask?.cancel()
+        guard debounce else {
+            rebuild(appModel: appModel, workspace: workspace)
+            return
+        }
+        rebuildTask = Task { @MainActor [weak self, weak appModel] in
+            try? await Task.sleep(nanoseconds: 90_000_000)
+            guard !Task.isCancelled, let self, let appModel else {
+                return
+            }
+            self.rebuild(appModel: appModel, workspace: workspace)
+        }
+    }
+
+    private func rebuild(appModel: AppViewModel, workspace: ResearchWorkspace) {
+        let startedAt = Date()
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let projectNamesByID = Dictionary(uniqueKeysWithValues: appModel.researchProjects.map { ($0.id, $0.name) })
+        let matchingPapers = appModel.papers.filter { paper in
+            let matchesProject = appModel.selectedLibraryProjectID.map { projectID in
+                paper.projectIDs.contains(projectID)
+            } ?? true
+            let matchesCollection = appModel.selectedCollectionPath.map { selectedPath in
+                guard let collectionPath = paper.collectionPath else {
+                    return false
+                }
+
+                return collectionPath == selectedPath || collectionPath.hasPrefix(selectedPath + "/")
+            } ?? true
+            let matchesTag = appModel.selectedTagName.map { paper.tags.contains($0) } ?? true
+            let matchesQuery = query.isEmpty || searchService.matches(paper, query: query)
+
+            return matchesProject && matchesCollection && matchesTag && matchesQuery
+        }
+        let sortedPapers = appModel.librarySortState.sorted(matchingPapers)
+        let nextRows = sortedPapers.map { paper in
+            let hasWiki = appModel.paperHasWikiPage(paper, in: workspace)
+            return LibraryPaperTableRow(
+                paper: paper,
+                projectNames: paper.projectIDs.map { projectNamesByID[$0] ?? $0 }.joined(separator: ", "),
+                coreProjectNames: paper.coreProjectIDs.map { projectNamesByID[$0] ?? $0 }.joined(separator: ", "),
+                wikiStatus: hasWiki ? "Ready" : "Missing",
+                hasWiki: hasWiki,
+                markdownConversionState: appModel.paperMarkdownConversionState(for: paper),
+                markdownConversionMessage: appModel.paperMarkdownConversionMessage(for: paper)
+            )
+        }
+        rows = nextRows
+        let durationMS = Date().timeIntervalSince(startedAt) * 1000
+        libraryPerformanceLogger.debug("library.rows.rebuild rows=\(nextRows.count, privacy: .public) papers=\(appModel.papers.count, privacy: .public) duration_ms=\(durationMS, privacy: .public)")
+    }
+}
 
 struct LibraryListView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    @StateObject private var viewModel = LibraryListViewModel()
     @State private var isTargetedForDrop = false
     @State private var isShowingCollectionManager = false
     @State private var isShowingTagManager = false
@@ -23,7 +120,7 @@ struct LibraryListView: View {
             }
 
             HStack(spacing: 12) {
-                TextField("Search title, author, tag, identifier, abstract", text: $appModel.librarySearchText)
+                TextField("Search title, author, tag, identifier, abstract", text: $viewModel.searchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 240, idealWidth: 360, maxWidth: 420)
                     .focused($isSearchFocused)
@@ -67,13 +164,13 @@ struct LibraryListView: View {
             }
 
             HStack(spacing: 10) {
-                Text("\(appModel.filteredPapers.count) / \(appModel.papers.count) papers in \(workspace.displayName)")
+                Text("\(viewModel.rows.count) / \(appModel.papers.count) papers in \(workspace.displayName)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                LibraryFilterChips()
+                LibraryFilterChips(searchText: viewModel.searchText)
 
-                if appModel.selectedCollectionPath != nil || appModel.selectedTagName != nil || !appModel.librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if appModel.selectedCollectionPath != nil || appModel.selectedTagName != nil || !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button("Clear Filters", action: appModel.clearLibraryFilters)
                         .buttonStyle(.link)
                 }
@@ -83,11 +180,15 @@ struct LibraryListView: View {
                 ProgressView("Importing PDF…")
             }
 
-            if appModel.filteredPapers.isEmpty {
+            if viewModel.rows.isEmpty {
                 LibraryEmptyStateView(hasAnyPaper: !appModel.papers.isEmpty)
             } else {
                 LibraryPaperTableView(
                     workspace: workspace,
+                    rows: viewModel.rows,
+                    flushSearchText: {
+                        viewModel.flushSearchText(appModel: appModel)
+                    },
                     visibleColumnStorage: Binding(
                         get: { appModel.libraryVisibleColumnStorage },
                         set: appModel.updateLibraryVisibleColumns(storageValue:)
@@ -128,9 +229,46 @@ struct LibraryListView: View {
             if appModel.librarySearchFocusRequest > 0 {
                 isSearchFocused = true
             }
+            viewModel.syncSearchTextFromModel(appModel.librarySearchText)
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
         }
         .onChange(of: appModel.librarySearchFocusRequest) { _, _ in
             isSearchFocused = true
+        }
+        .onChange(of: viewModel.searchText) { _, _ in
+            viewModel.commitSearchText(appModel: appModel)
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace, debounce: true)
+        }
+        .onChange(of: appModel.librarySearchText) { _, searchText in
+            viewModel.syncSearchTextFromModel(searchText)
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace, debounce: true)
+        }
+        .onChange(of: appModel.papers) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.researchProjects) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.selectedLibraryProjectID) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.selectedCollectionPath) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.selectedTagName) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.librarySortState) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.paperMarkdownConversionStates) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.paperMarkdownConversionMessages) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
+        }
+        .onChange(of: appModel.markdownDocuments) { _, _ in
+            viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
         }
         .sheet(isPresented: $isShowingCollectionManager) {
             CollectionManagerView()
@@ -222,6 +360,8 @@ struct LibraryListView: View {
 private struct LibraryFilterChips: View {
     @EnvironmentObject private var appModel: AppViewModel
 
+    let searchText: String
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(chips, id: \.self) { chip in
@@ -245,7 +385,7 @@ private struct LibraryFilterChips: View {
         if let selectedTagName = appModel.selectedTagName {
             values.append("Tag: \(selectedTagName)")
         }
-        let query = appModel.librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
             values.append("Search: \(query)")
         }
@@ -326,6 +466,8 @@ private struct LibraryPaperTableView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    let rows: [LibraryPaperTableRow]
+    let flushSearchText: () -> Void
     @Binding var visibleColumnStorage: String
 
     private var visibleColumns: [LibraryColumn] {
@@ -334,20 +476,6 @@ private struct LibraryPaperTableView: View {
 
     private var displayColumns: [LibraryColumn] {
         visibleColumns
-    }
-
-    private var rows: [LibraryPaperTableRow] {
-        appModel.filteredPapers.map { paper in
-            LibraryPaperTableRow(
-                paper: paper,
-                projectNames: appModel.projectNames(for: paper).joined(separator: ", "),
-                coreProjectNames: appModel.coreProjectNames(for: paper).joined(separator: ", "),
-                wikiStatus: appModel.paperWikiStatusText(for: paper, in: workspace),
-                hasWiki: appModel.paperHasWikiPage(paper, in: workspace),
-                markdownConversionState: appModel.paperMarkdownConversionState(for: paper),
-                markdownConversionMessage: appModel.paperMarkdownConversionMessage(for: paper)
-            )
-        }
     }
 
     var body: some View {
@@ -404,7 +532,10 @@ private struct LibraryPaperTableView: View {
     private var selectionBinding: Binding<Set<Paper.ID>> {
         Binding(
             get: { appModel.selectedLibraryPaperIDs },
-            set: appModel.updateLibrarySelection
+            set: { selection in
+                flushSearchText()
+                appModel.updateLibrarySelection(selection)
+            }
         )
     }
 

@@ -13,8 +13,9 @@ struct RecommendationView: View {
     @State private var selectedAIModel: String = "deepseek-v4-flash"
     @State private var isCategorySelectorPresented = false
     @State private var isPaperSelectorPresented = false
-    @State private var isHistoryExpanded = false
+    @State private var isHistoryManagerPresented = false
     @State private var selectedReferencePaperIDs: Set<Paper.ID> = []
+    @State private var didInitializeReferencePapers = false
 
     private static let categoryGroups: [RecommendationCategoryGroup] = [
         RecommendationCategoryGroup(
@@ -230,29 +231,32 @@ struct RecommendationView: View {
         )
     ]
 
+    private static let defaultCategoryIDs: Set<String> = ["cs.AI", "cs.CL", "cs.CV", "cs.LG"]
+
+    private static var allCategoryIDs: Set<String> {
+        Set(categoryGroups.flatMap(\.options).map(\.id))
+    }
+
     init(workspace: ResearchWorkspace, project: ResearchProject) {
         self.workspace = workspace
         self.project = project
         _query = State(initialValue: "")
-        _selectedCategories = State(initialValue: Set(["cs.AI", "cs.CL", "cs.CV", "cs.LG"]))
+        _selectedCategories = State(initialValue: Self.defaultCategoryIDs)
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                    controls
-                    Divider()
-                    content(availableHeight: contentAvailableHeight(for: proxy.size.height))
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 24)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                controls
+                Divider()
+                content
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 24)
+            .padding(.top, 10)
+            .padding(.bottom, 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -276,16 +280,27 @@ struct RecommendationView: View {
             )
             .environmentObject(appModel)
         }
-        .onAppear {
-            if appModel.currentProjectID != project.id {
-                appModel.focusResearchProject(project.id)
-            }
-            appModel.loadRecommendationHistory()
+        .sheet(isPresented: $isHistoryManagerPresented) {
+            RecommendationHistoryManagerSheet(
+                onSelect: { result in
+                    appModel.selectRecommendationHistory(result)
+                    isHistoryManagerPresented = false
+                },
+                onDone: {
+                    isHistoryManagerPresented = false
+                }
+            )
+            .environmentObject(appModel)
         }
-    }
-
-    private func contentAvailableHeight(for viewHeight: CGFloat) -> CGFloat {
-        max(220, min(viewHeight - 190, 520))
+        .onAppear {
+            initializeRecommendationState()
+        }
+        .onChange(of: selectedCategories) { _, _ in
+            persistSelectedCategories()
+        }
+        .onChange(of: appModel.papers.map(\.id)) { _, _ in
+            applyDefaultReferencePapersIfNeeded()
+        }
     }
 
     private var header: some View {
@@ -398,11 +413,13 @@ struct RecommendationView: View {
             HStack(spacing: 10) {
                 fieldsSelectionBox
                 papersSelectionBox
+                historySelectionBox
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 fieldsSelectionBox
                 papersSelectionBox
+                historySelectionBox
             }
         }
     }
@@ -426,6 +443,17 @@ struct RecommendationView: View {
             detailText: referencePaperSummaryText
         ) {
             isPaperSelectorPresented = true
+        }
+    }
+
+    private var historySelectionBox: some View {
+        compactSelectionBox(
+            title: appModel.localized("历史", "History"),
+            systemImage: "clock.arrow.circlepath",
+            countText: appModel.localized("\(appModel.recommendationHistory.count) 条", "\(appModel.recommendationHistory.count) runs"),
+            detailText: recommendationHistorySummaryText
+        ) {
+            isHistoryManagerPresented = true
         }
     }
 
@@ -455,7 +483,7 @@ struct RecommendationView: View {
     }
 
     @ViewBuilder
-    private func content(availableHeight: CGFloat) -> some View {
+    private var content: some View {
         if let error = appModel.recommendationErrorMessage, !error.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Label(appModel.localized("推荐刷新失败", "Recommendation refresh failed"), systemImage: "exclamationmark.triangle")
@@ -472,77 +500,19 @@ struct RecommendationView: View {
             }
             .padding(.top, 20)
         } else {
-            recommendationColumns(availableHeight: availableHeight)
+            resultsColumn
         }
     }
 
-    private func recommendationColumns(availableHeight: CGFloat) -> some View {
-        let paneHeight = hasScrollableRecommendationResults ? max(260, min(availableHeight - 14, 520)) : 0
-        let stackedResultsHeight = hasScrollableRecommendationResults ? max(220, min(paneHeight, 360)) : 0
-        let historyHeight = max(140, min(availableHeight - 14, 260))
-        let stackedHistoryHeight = max(140, min(availableHeight - stackedResultsHeight - 30, 260))
-
-        return ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 16) {
-                resultsColumn(maxHeight: paneHeight)
-                    .frame(minWidth: 360, maxWidth: .infinity, alignment: .topLeading)
-                if shouldShowHistoryControl {
-                    if isHistoryExpanded {
-                        historyPane(maxHeight: hasScrollableRecommendationResults ? paneHeight : historyHeight)
-                        .frame(width: 220, alignment: .top)
-                    } else {
-                        collapsedHistoryButton
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 16) {
-                resultsColumn(maxHeight: stackedResultsHeight)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                if shouldShowHistoryControl {
-                    if isHistoryExpanded {
-                        historyPane(maxHeight: stackedHistoryHeight)
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
-                    } else {
-                        collapsedHistoryButton
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.top, 14)
-    }
-
-    private func resultsColumn(maxHeight: CGFloat) -> some View {
-        Group {
-            if hasScrollableRecommendationResults {
-                ScrollView {
-                    resultsPane
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .frame(height: maxHeight, alignment: .topLeading)
-            } else {
-                resultsPane
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var hasScrollableRecommendationResults: Bool {
-        guard let result = appModel.recommendationRunResult else {
-            return false
-        }
-        return !result.scores.isEmpty
-    }
-
-    private var shouldShowHistoryControl: Bool {
-        isHistoryExpanded || !appModel.recommendationHistory.isEmpty
+    private var resultsColumn: some View {
+        resultsPane
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.top, 14)
     }
 
     @ViewBuilder
@@ -662,97 +632,6 @@ struct RecommendationView: View {
         }
     }
 
-    private func historyPane(maxHeight: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        isHistoryExpanded.toggle()
-                    }
-                } label: {
-                    Label(appModel.localized("历史推荐", "History"), systemImage: isHistoryExpanded ? "chevron.down" : "chevron.right")
-                        .font(.headline)
-                }
-                .buttonStyle(.plain)
-                Spacer(minLength: 0)
-                Button {
-                    appModel.loadRecommendationHistory()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-            }
-
-            if isHistoryExpanded {
-                if appModel.recommendationHistory.isEmpty {
-                    Text(appModel.localized("暂无历史记录", "No history yet"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(appModel.recommendationHistory) { result in
-                                historyRow(result)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: max(120, maxHeight - 46))
-                }
-            }
-        }
-        .padding(12)
-        .frame(height: maxHeight, alignment: .topLeading)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var collapsedHistoryButton: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                isHistoryExpanded = true
-            }
-        } label: {
-            Label(appModel.localized("历史推荐", "History"), systemImage: "clock.arrow.circlepath")
-                .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.borderless)
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private func historyRow(_ result: RecommendationRunResult) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Button {
-                appModel.selectRecommendationHistory(result)
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(result.generatedAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption.weight(.semibold))
-                    Text(result.categories.prefix(4).joined(separator: " · "))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Text(appModel.localized("\(result.scores.count) 篇推荐 · 参考 \(result.referencePaperIDs.count) 篇", "\(result.scores.count) recommendations · \(result.referencePaperIDs.count) refs"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                appModel.archiveRecommendationHistory(result)
-            } label: {
-                Image(systemName: "archivebox")
-            }
-            .buttonStyle(.borderless)
-            .help(appModel.localized("归档这条历史推荐", "Archive this recommendation"))
-        }
-        .padding(10)
-        .background(appModel.recommendationRunResult?.id == result.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
     private var selectedScope: QueueScope {
         .project(project.id)
     }
@@ -790,7 +669,7 @@ struct RecommendationView: View {
     }
 
     private var referencePaperSummaryText: String {
-        let selected = appModel.papers.filter { selectedReferencePaperIDs.contains($0.id) }
+        let selected = projectReferencePapers.filter { selectedReferencePaperIDs.contains($0.id) }
         guard !selected.isEmpty else {
             return appModel.localized("选择论文作为推荐参考", "Select papers as recommendation references")
         }
@@ -799,6 +678,59 @@ struct RecommendationView: View {
             return appModel.localized("\(visible) 等 \(selected.count) 篇", "\(visible) and \(selected.count - 3) more")
         }
         return visible
+    }
+
+    private var recommendationHistorySummaryText: String {
+        guard let latest = appModel.recommendationHistory.first else {
+            return appModel.localized("管理历史推荐", "Manage recommendation history")
+        }
+        let categories = latest.categories.prefix(3).joined(separator: " · ")
+        let categoryText = categories.isEmpty ? appModel.localized("未记录领域", "No fields recorded") : categories
+        return appModel.localized(
+            "\(latest.scores.count) 篇 · \(categoryText)",
+            "\(latest.scores.count) papers · \(categoryText)"
+        )
+    }
+
+    private var projectReferencePapers: [Paper] {
+        appModel.papers(for: project.id)
+    }
+
+    private func initializeRecommendationState() {
+        if appModel.currentProjectID != project.id {
+            appModel.focusResearchProject(project.id)
+        }
+        selectedCategories = persistedSelectedCategories()
+        applyDefaultReferencePapersIfNeeded()
+        appModel.loadRecommendationHistory()
+    }
+
+    private func applyDefaultReferencePapersIfNeeded() {
+        guard !didInitializeReferencePapers else {
+            return
+        }
+        let projectPaperIDs = Set(projectReferencePapers.map(\.id))
+        guard !projectPaperIDs.isEmpty else {
+            return
+        }
+        selectedReferencePaperIDs = projectPaperIDs
+        didInitializeReferencePapers = true
+    }
+
+    private func persistSelectedCategories() {
+        let categories = parsedCategories
+        UserDefaults.standard.set(categories, forKey: recommendationCategoryDefaultsKey)
+    }
+
+    private func persistedSelectedCategories() -> Set<String> {
+        guard let values = UserDefaults.standard.array(forKey: recommendationCategoryDefaultsKey) as? [String] else {
+            return Self.defaultCategoryIDs
+        }
+        return Set(values).intersection(Self.allCategoryIDs)
+    }
+
+    private var recommendationCategoryDefaultsKey: String {
+        "sciStation.recommendation.categories.\(workspace.rootURL.path).\(project.id)"
     }
 
 }
@@ -1011,6 +943,12 @@ private struct RecommendationReferencePaperSheet: View {
                 TextField(appModel.localized("搜索标题、作者、标签", "Search title, author, tag"), text: $searchText)
                     .textFieldStyle(.roundedBorder)
 
+                Button(appModel.localized("全选项目论文", "Select Project")) {
+                    selectedPaperIDs = Set(projectPapers.map(\.id))
+                }
+                .buttonStyle(.bordered)
+                .disabled(projectPapers.isEmpty || selectedPaperIDs == Set(projectPapers.map(\.id)))
+
                 Button(appModel.localized("选择筛选结果", "Select Filtered")) {
                     selectedPaperIDs.formUnion(filteredPapers.map(\.id))
                 }
@@ -1039,7 +977,7 @@ private struct RecommendationReferencePaperSheet: View {
 
     private var filteredPapers: [Paper] {
         let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return appModel.papers.filter { paper in
+        return projectPapers.filter { paper in
             guard !normalizedSearch.isEmpty else {
                 return true
             }
@@ -1053,6 +991,10 @@ private struct RecommendationReferencePaperSheet: View {
             .lowercased()
             return haystack.contains(normalizedSearch)
         }
+    }
+
+    private var projectPapers: [Paper] {
+        appModel.papers(for: project.id)
     }
 
     private func paperRow(_ paper: Paper) -> some View {
@@ -1097,6 +1039,134 @@ private struct RecommendationReferencePaperSheet: View {
         } else {
             selectedPaperIDs.insert(id)
         }
+    }
+}
+
+private struct RecommendationHistoryManagerSheet: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let onSelect: (RecommendationRunResult) -> Void
+    let onDone: () -> Void
+
+    @State private var searchText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Label(appModel.localized("管理历史推荐", "Manage Recommendation History"), systemImage: "clock.arrow.circlepath")
+                    .font(.title2.weight(.semibold))
+                Spacer(minLength: 0)
+                Text(appModel.localized("\(filteredHistory.count) 条记录", "\(filteredHistory.count) runs"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button {
+                    appModel.loadRecommendationHistory()
+                } label: {
+                    Label(appModel.localized("刷新", "Refresh"), systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                Button(appModel.localized("完成", "Done"), action: onDone)
+                    .buttonStyle(.borderedProminent)
+            }
+
+            TextField(appModel.localized("搜索关键词、领域或来源", "Search query, field, or source"), text: $searchText)
+                .textFieldStyle(.roundedBorder)
+
+            if filteredHistory.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(appModel.localized("暂无历史推荐", "No recommendation history yet"), systemImage: "tray")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Text(appModel.localized("点击推荐后，结果会出现在这里，之后可从历史记录恢复或归档。", "After fetching recommendations, results will appear here and can be restored or archived."))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(filteredHistory) { result in
+                            historyRow(result)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 640, idealWidth: 820, maxWidth: 920, minHeight: 420, idealHeight: 600, maxHeight: 680)
+    }
+
+    private var normalizedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var filteredHistory: [RecommendationRunResult] {
+        guard !normalizedSearchText.isEmpty else {
+            return appModel.recommendationHistory
+        }
+        return appModel.recommendationHistory.filter { result in
+            let haystack = [
+                result.query,
+                result.categories.joined(separator: " "),
+                result.sourceNote ?? "",
+                result.generatedAt.formatted(date: .abbreviated, time: .shortened)
+            ]
+            .joined(separator: " ")
+            .lowercased()
+            return haystack.contains(normalizedSearchText)
+        }
+    }
+
+    private func historyRow(_ result: RecommendationRunResult) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                onSelect(result)
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(result.generatedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.callout.weight(.semibold))
+                        if appModel.recommendationRunResult?.id == result.id {
+                            Label(appModel.localized("当前", "Current"), systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    Text(result.query.isEmpty ? appModel.localized("无关键词", "No query") : result.query)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(result.categories.prefix(8).joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    HStack(spacing: 10) {
+                        Label(appModel.localized("\(result.scores.count) 篇推荐", "\(result.scores.count) recommendations"), systemImage: "sparkles")
+                        Label(appModel.localized("参考 \(result.referencePaperIDs.count) 篇", "\(result.referencePaperIDs.count) refs"), systemImage: "books.vertical")
+                        if let sourceNote = result.sourceNote {
+                            Text(sourceNote)
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                appModel.archiveRecommendationHistory(result)
+            } label: {
+                Label(appModel.localized("归档", "Archive"), systemImage: "archivebox")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help(appModel.localized("归档这条历史推荐", "Archive this recommendation"))
+        }
+        .padding(12)
+        .background(appModel.recommendationRunResult?.id == result.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

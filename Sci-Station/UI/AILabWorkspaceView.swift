@@ -599,7 +599,8 @@ struct AgentPanelView: View {
                         .frame(height: 1)
                         .id(timelineBottomID)
                 }
-                .onChange(of: appModel.agentTimelineItems.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: appModel.agentSessionEvents.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: appModel.agentRunHistory.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: appModel.agentPendingUserPrompt) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: appModel.isPlanningAgentRun) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: appModel.agentCurrentRun?.id) { _, _ in scrollToBottom(proxy) }

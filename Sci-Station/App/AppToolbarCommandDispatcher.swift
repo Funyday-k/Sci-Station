@@ -39,6 +39,7 @@ struct AppToolbarCommandDispatcher {
     }
 
     let appModel: AppViewModel
+    let effectiveRightRailMode: RightRailMode
 
     private var handlersByCommandID: [String: Handler] {
         [
@@ -109,7 +110,7 @@ struct AppToolbarCommandDispatcher {
     }
 
     func systemImage(for action: ToolbarAction) -> String {
-        if action.id == .inspector, appModel.effectiveRightRailMode == .inspector {
+        if action.id == .inspector, effectiveRightRailMode == .inspector {
             return "sidebar.trailing"
         }
         return action.systemImage
@@ -118,11 +119,11 @@ struct AppToolbarCommandDispatcher {
     func help(for actionID: ToolbarActionID, fallbackTitle: String) -> String {
         switch actionID {
         case .aiPanel:
-            return appModel.effectiveRightRailMode == .ai
+            return effectiveRightRailMode == .ai
                 ? appModel.localized("收起 AI", "Hide AI")
                 : appModel.t(.toolbarOpenAI)
         case .inspector:
-            return appModel.effectiveRightRailMode == .inspector
+            return effectiveRightRailMode == .inspector
                 ? appModel.localized("收起检查器", "Hide inspector")
                 : appModel.t(.toolbarShowInspector)
         case .refresh:

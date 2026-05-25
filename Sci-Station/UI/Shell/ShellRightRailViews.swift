@@ -2,19 +2,20 @@ import AppKit
 import SwiftUI
 
 struct ShellRightRailView: View {
-    @EnvironmentObject private var appModel: AppViewModel
-
     let workspace: ResearchWorkspace?
+    let mode: RightRailMode
+    let context: WorkspaceContextSnapshot
+    let selectedSection: WorkspaceSection?
 
     @ViewBuilder
     var body: some View {
         if let workspace {
             Group {
-                switch appModel.effectiveRightRailMode {
+                switch mode {
                 case .inspector:
-                    ContextInspectorRail(workspace: workspace)
+                    ContextInspectorRail(workspace: workspace, context: context, selectedSection: selectedSection)
                 case .ai:
-                    GlobalAISidePanel(workspace: workspace, context: appModel.currentWorkspaceContextSnapshot)
+                    GlobalAISidePanel(workspace: workspace, context: context)
                 case .hidden:
                     EmptyView()
                 }
@@ -30,12 +31,14 @@ struct ContextInspectorRail: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    let context: WorkspaceContextSnapshot
+    let selectedSection: WorkspaceSection?
 
     var body: some View {
         VStack(spacing: 0) {
             ShellRailHeader(
                 title: inspectorTitle,
-                subtitle: appModel.currentWorkspaceContextSnapshot.displayTitle
+                subtitle: context.displayTitle
             )
 
             Divider()
@@ -50,28 +53,28 @@ struct ContextInspectorRail: View {
             PaperInspectorView(workspace: workspace)
         } else if shouldShowWikiInspector {
             WikiInspectorView(workspace: workspace)
-        } else if appModel.selectedSection == .pdfReader || appModel.currentWorkspaceContextSnapshot.projectTabID == "pdf-reader" {
-            PDFReaderContextRail(workspace: workspace)
+        } else if selectedSection == .pdfReader || context.projectTabID == "pdf-reader" {
+            PDFReaderContextRail(workspace: workspace, context: context)
         } else {
-            ContextActionsRail(workspace: workspace)
+            ContextActionsRail(workspace: workspace, context: context, selectedSection: selectedSection)
         }
     }
 
     private var inspectorTitle: String {
         if shouldShowPaperInspector { return appModel.localized("论文检查器", "Paper Inspector") }
         if shouldShowWikiInspector { return appModel.localized("Wiki 检查器", "Wiki Inspector") }
-        if appModel.selectedSection == .pdfReader || appModel.currentWorkspaceContextSnapshot.projectTabID == "pdf-reader" {
+        if selectedSection == .pdfReader || context.projectTabID == "pdf-reader" {
             return appModel.localized("PDF 上下文", "PDF Context")
         }
         return appModel.localized("上下文", "Context")
     }
 
     private var shouldShowPaperInspector: Bool {
-        appModel.selectedSection == .library || appModel.currentWorkspaceContextSnapshot.projectTabID == "papers"
+        selectedSection == .library || context.projectTabID == "papers"
     }
 
     private var shouldShowWikiInspector: Bool {
-        appModel.selectedSection == .wiki || appModel.currentWorkspaceContextSnapshot.projectTabID == "wiki"
+        selectedSection == .wiki || context.projectTabID == "wiki"
     }
 }
 
@@ -126,6 +129,8 @@ private struct ContextActionsRail: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    let context: WorkspaceContextSnapshot
+    let selectedSection: WorkspaceSection?
 
     var body: some View {
         ScrollView {
@@ -151,7 +156,7 @@ private struct ContextActionsRail: View {
                 }
                 .buttonStyle(.bordered)
 
-                if appModel.selectedSection == .projects {
+                if selectedSection == .projects {
                     Button {
                         appModel.beginCreatingResearchProject()
                     } label: {
@@ -161,7 +166,7 @@ private struct ContextActionsRail: View {
                     .buttonStyle(.bordered)
                 }
 
-                if appModel.selectedSection == .calendar || appModel.selectedSection == .tasks {
+                if selectedSection == .calendar || selectedSection == .tasks {
                     Button {
                         appModel.selectGlobalTodos()
                     } label: {
@@ -186,11 +191,11 @@ private struct ContextActionsRail: View {
 
     private var compactContextBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(appModel.currentWorkspaceContextSnapshot.topLevelSectionID)
+            Text(context.topLevelSectionID)
                 .font(.caption.weight(.semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(.secondary)
-            Text(appModel.currentWorkspaceContextSnapshot.displayTitle)
+            Text(context.displayTitle)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
             Text(workspace.displayName)
@@ -230,6 +235,7 @@ private struct PDFReaderContextRail: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let workspace: ResearchWorkspace
+    let context: WorkspaceContextSnapshot
     @State private var selectedPanel = PDFContextPanel.notes
     @State private var annotationSearchText = ""
     @State private var pendingDelete: PDFAnnotationRecord?
@@ -528,7 +534,7 @@ private struct PDFReaderContextRail: View {
 
     private var aiPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            GlobalAIContextActionBar(context: appModel.currentWorkspaceContextSnapshot)
+            GlobalAIContextActionBar(context: context)
             AgentPanelView(workspace: workspace, isCompact: true)
                 .frame(minHeight: 520)
         }

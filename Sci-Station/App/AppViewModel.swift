@@ -147,6 +147,21 @@ private struct RecommendationAISearchStrategy: Hashable {
     var source: String
 }
 
+struct AppShellRenderState {
+    var currentWorkspace: ResearchWorkspace?
+    var selectedSection: WorkspaceSection?
+    var selectedProjectSpaceTabID: String
+    var selectedPaperTitle: String?
+    var selectedPaperAuthors: String?
+    var isWorking: Bool
+    var shellWindowWidth: Double
+    var route: WorkspaceRoute
+    var context: WorkspaceContextSnapshot
+    var toolbarModel: ToolbarModel
+    var responsiveModel: ResponsiveShellModel
+    var effectiveRightRailMode: RightRailMode
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var currentWorkspace: ResearchWorkspace?
@@ -523,8 +538,35 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var shellRenderState: AppShellRenderState {
+        let route = currentWorkspaceRoute
+        let context = workspaceContextSnapshot(for: route)
+        let baseToolbarModel = ToolbarPolicy.resolve(route: route, context: context, language: appLanguage)
+        let toolbarModel = ResponsiveShellPolicy.toolbarModel(baseToolbarModel, width: shellWindowWidth)
+        let responsiveModel = responsiveShellModel(route: route, context: context)
+        let effectiveRightRailMode = effectiveRightRailMode(responsiveModel: responsiveModel, selectedSection: selectedSection)
+        return AppShellRenderState(
+            currentWorkspace: currentWorkspace,
+            selectedSection: selectedSection,
+            selectedProjectSpaceTabID: selectedProjectSpaceTabID,
+            selectedPaperTitle: selectedPaperDraft?.displayTitle,
+            selectedPaperAuthors: selectedPaperDraft?.authorsDisplay,
+            isWorking: isWorking,
+            shellWindowWidth: shellWindowWidth,
+            route: route,
+            context: context,
+            toolbarModel: toolbarModel,
+            responsiveModel: responsiveModel,
+            effectiveRightRailMode: effectiveRightRailMode
+        )
+    }
+
     var currentWorkspaceContextSnapshot: WorkspaceContextSnapshot {
         let route = currentWorkspaceRoute
+        return workspaceContextSnapshot(for: route)
+    }
+
+    private func workspaceContextSnapshot(for route: WorkspaceRoute) -> WorkspaceContextSnapshot {
         let projectID = route.projectID
         let project = projectID.flatMap { id in activeResearchProjects.first { $0.id == id } }
         let selectedDateRange: DateInterval? = route.top == .calendar ? calendarDayRange(for: selectedDashboardDate) : nil
@@ -547,15 +589,21 @@ final class AppViewModel: ObservableObject {
     }
 
     var toolbarModel: ToolbarModel {
-        let model = ToolbarPolicy.resolve(route: currentWorkspaceRoute, context: currentWorkspaceContextSnapshot, language: appLanguage)
+        let route = currentWorkspaceRoute
+        let model = ToolbarPolicy.resolve(route: route, context: workspaceContextSnapshot(for: route), language: appLanguage)
         return ResponsiveShellPolicy.toolbarModel(model, width: shellWindowWidth)
     }
 
     var responsiveShellModel: ResponsiveShellModel {
+        let route = currentWorkspaceRoute
+        return responsiveShellModel(route: route, context: workspaceContextSnapshot(for: route))
+    }
+
+    private func responsiveShellModel(route: WorkspaceRoute, context: WorkspaceContextSnapshot) -> ResponsiveShellModel {
         ResponsiveShellPolicy.resolve(
             width: shellWindowWidth,
-            route: currentWorkspaceRoute,
-            context: currentWorkspaceContextSnapshot,
+            route: route,
+            context: context,
             preferredRightRailMode: workspacePreferences.rightRailMode
         )
     }
@@ -564,11 +612,22 @@ final class AppViewModel: ObservableObject {
         guard currentWorkspace != nil else {
             return .hidden
         }
-        let mode = responsiveShellModel.effectiveRightRailMode
-        return mode == .inspector && !rightRailHasContent ? .hidden : mode
+        return effectiveRightRailMode(responsiveModel: responsiveShellModel, selectedSection: selectedSection)
+    }
+
+    private func effectiveRightRailMode(responsiveModel: ResponsiveShellModel, selectedSection: WorkspaceSection?) -> RightRailMode {
+        guard currentWorkspace != nil else {
+            return .hidden
+        }
+        let mode = responsiveModel.effectiveRightRailMode
+        return mode == .inspector && !rightRailHasContent(for: selectedSection) ? .hidden : mode
     }
 
     var rightRailHasContent: Bool {
+        rightRailHasContent(for: selectedSection)
+    }
+
+    private func rightRailHasContent(for selectedSection: WorkspaceSection?) -> Bool {
         switch selectedSection {
         case .some(.library), .some(.wiki), .some(.dashboard), .some(.projects), .some(.calendar), .some(.tasks), .some(.pdfReader):
             return true
@@ -8204,7 +8263,7 @@ final class AppViewModel: ObservableObject {
                 } catch {
                     // Best-effort UI refresh; the final run refresh remains authoritative.
                 }
-                try? await Task.sleep(nanoseconds: 300_000_000)
+                try? await Task.sleep(nanoseconds: 700_000_000)
             }
         }
     }
@@ -8219,8 +8278,11 @@ final class AppViewModel: ObservableObject {
 
     private func makeAgentSessionEventHandler() -> (@Sendable (AgentSessionEvent) async -> Void) {
         { [weak self] event in
+            guard let self else {
+                return
+            }
             await MainActor.run {
-                self?.appendAgentLiveSessionEvent(event)
+                self.appendAgentLiveSessionEvent(event)
             }
         }
     }
@@ -8241,7 +8303,7 @@ final class AppViewModel: ObservableObject {
         for event in events {
             eventsByID[event.id] = event
         }
-        agentSessionEvents = eventsByID.values.sorted(by: agentSessionEventSort)
+        let sortedEvents = eventsByID.values.sorted(by: agentSessionEventSort)
 
         if agentLiveRunID == nil,
            let liveEvent = events.sorted(by: { $0.createdAt < $1.createdAt }).first(where: { event in
@@ -8249,6 +8311,10 @@ final class AppViewModel: ObservableObject {
            }) {
             agentLiveRunID = liveEvent.sessionID
         }
+        guard sortedEvents != agentSessionEvents else {
+            return
+        }
+        agentSessionEvents = sortedEvents
         rebuildAgentHookActivitySummary()
     }
 
@@ -8429,7 +8495,7 @@ final class AppViewModel: ObservableObject {
 
         let generation = agentStreamingRenderGeneration
         agentStreamingRenderTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 33_000_000)
+            try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else {
                 return
             }

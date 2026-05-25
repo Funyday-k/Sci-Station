@@ -132,7 +132,7 @@ struct HomeWidgetDashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.smooth(duration: 0.28), value: appModel.isShowingHomeWidgetGallery)
         .animation(.smooth(duration: 0.28), value: appModel.isEditingHomeLayout)
-        .animation(.smooth(duration: 0.32), value: visibleItems)
+        .animation(appModel.isEditingHomeLayout ? .smooth(duration: 0.32) : nil, value: visibleItems)
         .onChange(of: appModel.isEditingHomeLayout) { _, isEditing in
             // Cancel any in-flight drag if the user exits edit mode mid-drag.
             if !isEditing {
@@ -191,7 +191,7 @@ struct HomeWidgetDashboardView: View {
                                 y: metrics.y + (isDragging ? dragController.translation.height : 0)
                             )
                             .zIndex(isDragging ? 10 : 0)
-                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                            .transition(appModel.isEditingHomeLayout ? .scale(scale: 0.96).combined(with: .opacity) : .identity)
                             .accessibilityIdentifier(UITestAccessibilityID.Home.widget(item.widgetID))
                         }
                     }
@@ -395,7 +395,6 @@ struct HomeWidgetDashboardView: View {
 private struct HomeWidgetCard: View {
     @EnvironmentObject private var appModel: AppViewModel
     @Environment(\.colorScheme) private var colorScheme
-    @State private var isHovering = false
 
     let item: HomeWidgetLayoutItem
     let descriptor: HomeWidgetDescriptor
@@ -433,7 +432,6 @@ private struct HomeWidgetCard: View {
     private var tintOpacity: Double {
         if isBeingDragged { return 0.10 }
         if appModel.isEditingHomeLayout { return 0.045 }
-        if isHovering { return 0.035 }
         return 0.025
     }
 
@@ -517,16 +515,14 @@ private struct HomeWidgetCard: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: cardCorner, style: .continuous))
         .shadow(
-            color: .black.opacity(isBeingDragged ? 0.18 : (isHovering ? 0.07 : 0.04)),
-            radius: isBeingDragged ? 18 : (isHovering ? 12 : 8),
+            color: .black.opacity(isBeingDragged ? 0.18 : 0.04),
+            radius: isBeingDragged ? 18 : 8,
             x: 0,
-            y: isBeingDragged ? 10 : (isHovering ? 6 : 4)
+            y: isBeingDragged ? 10 : 4
         )
         .scaleEffect(isBeingDragged ? 1.03 : 1.0)
-        .animation(.smooth(duration: 0.22), value: isHovering)
         .animation(.smooth(duration: 0.18), value: isBeingDragged)
         .onHover { hovering in
-            isHovering = hovering
             updateCursor(hovering: hovering)
         }
         // Custom DragGesture is more reliable than `.onDrag` for SwiftUI views

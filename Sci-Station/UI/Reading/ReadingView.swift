@@ -21,17 +21,19 @@ struct ReadingView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            toolbar
-            Divider()
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                toolbar
+                Divider()
+                content
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 18)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 24)
-        .padding(.top, 18)
-        .padding(.bottom, 12)
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $isShowingLibraryPicker) {
             ReadingAddFromLibrarySheet(workspace: workspace, scope: selectedQueueScope, isPresented: $isShowingLibraryPicker)
@@ -198,25 +200,22 @@ struct ReadingView: View {
             .frame(maxWidth: 420, alignment: .leading)
             .padding(.top, 18)
         } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredEntries) { entry in
-                        ReadingEntryRow(
-                            entry: entry,
-                            isFirst: filteredEntries.first?.id == entry.id,
-                            isLast: filteredEntries.last?.id == entry.id,
-                            onOpen: { open(entry) },
-                            onMoveUp: { appModel.moveResearchQueueEntry(id: entry.id, in: selectedQueueScope, offset: -1) },
-                            onMoveDown: { appModel.moveResearchQueueEntry(id: entry.id, in: selectedQueueScope, offset: 1) },
-                            onStatusChange: { appModel.updateResearchQueueEntryStatus(id: entry.id, status: $0) },
-                            onRemove: { appModel.removeResearchQueueEntry(id: entry.id) }
-                        )
-                        Divider()
-                    }
+            LazyVStack(spacing: 0) {
+                ForEach(filteredEntries) { entry in
+                    ReadingEntryRow(
+                        entry: entry,
+                        isFirst: filteredEntries.first?.id == entry.id,
+                        isLast: filteredEntries.last?.id == entry.id,
+                        onOpen: { open(entry) },
+                        onMoveUp: { appModel.moveResearchQueueEntry(id: entry.id, in: selectedQueueScope, offset: -1) },
+                        onMoveDown: { appModel.moveResearchQueueEntry(id: entry.id, in: selectedQueueScope, offset: 1) },
+                        onStatusChange: { appModel.updateResearchQueueEntryStatus(id: entry.id, status: $0) },
+                        onRemove: { appModel.removeResearchQueueEntry(id: entry.id) }
+                    )
+                    Divider()
                 }
-                .padding(.vertical, 4)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 4)
         }
     }
 
@@ -250,67 +249,62 @@ struct ReadingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(plans) { plan in
-                                Button {
-                                    selectedPlanID = plan.id
-                                } label: {
-                                    ReadingPlanListCard(plan: plan, isSelected: selectedPlan?.id == plan.id)
-                                }
-                                .buttonStyle(.plain)
+                    LazyVStack(spacing: 8) {
+                        ForEach(plans) { plan in
+                            Button {
+                                selectedPlanID = plan.id
+                            } label: {
+                                ReadingPlanListCard(plan: plan, isSelected: selectedPlan?.id == plan.id)
                             }
+                            .buttonStyle(.plain)
                         }
-                        .padding(.vertical, 2)
                     }
+                    .padding(.vertical, 2)
                 }
             }
-            .frame(minWidth: 250, idealWidth: 300, maxWidth: 340, maxHeight: .infinity, alignment: .top)
+            .frame(minWidth: 250, idealWidth: 300, maxWidth: 340, alignment: .top)
 
             Divider()
 
             planDetail
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .padding(.top, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
     private var planDetail: some View {
         if let selectedPlan {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    selectedPlanHeader(selectedPlan)
-                    if selectedPlan.slots.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(appModel.localized("Reading 中暂无可计划条目", "No Reading items available"), systemImage: "tray")
-                                .font(.headline)
-                            Text(appModel.localized("计划会选取 queued / reading 状态的论文。请先加入 Reading。", "Plans select queued or reading items. Add papers to Reading first."))
-                                .foregroundStyle(.secondary)
-                            Button {
-                                selectedMode = .list
-                            } label: {
-                                Label(appModel.localized("前往 Reading", "Go to Reading"), systemImage: "book")
-                            }
-                            .buttonStyle(.bordered)
+            VStack(alignment: .leading, spacing: 16) {
+                selectedPlanHeader(selectedPlan)
+                if selectedPlan.slots.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(appModel.localized("Reading 中暂无可计划条目", "No Reading items available"), systemImage: "tray")
+                            .font(.headline)
+                        Text(appModel.localized("计划会选取 queued / reading 状态的论文。请先加入 Reading。", "Plans select queued or reading items. Add papers to Reading first."))
+                            .foregroundStyle(.secondary)
+                        Button {
+                            selectedMode = .list
+                        } label: {
+                            Label(appModel.localized("前往 Reading", "Go to Reading"), systemImage: "book")
                         }
-                        .padding(18)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    } else {
-                        VStack(spacing: 10) {
-                            ForEach(selectedPlan.slots.sorted(by: slotSort)) { slot in
-                                ReadingPlanSlotCard(slot: slot, plan: selectedPlan, onOpen: { open(slot) }) { status in
-                                    appModel.updateReadingPlanSlotStatus(planID: selectedPlan.id, slotID: slot.id, status: status)
-                                }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(selectedPlan.slots.sorted(by: slotSort)) { slot in
+                            ReadingPlanSlotCard(slot: slot, plan: selectedPlan, onOpen: { open(slot) }) { status in
+                                appModel.updateReadingPlanSlotStatus(planID: selectedPlan.id, slotID: slot.id, status: status)
                             }
                         }
                     }
                 }
-                .padding(.bottom, 18)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 18)
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 Label(appModel.localized("选择或生成一个计划", "Select or generate a plan"), systemImage: "list.bullet.rectangle")

@@ -16,41 +16,42 @@ struct ContentView: View {
     @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
+        let shellState = appModel.shellRenderState
         GeometryReader { proxy in
             Group {
-                if appModel.selectedSection == .pdfReader, appModel.currentWorkspace != nil {
+                if shellState.selectedSection == .pdfReader, shellState.currentWorkspace != nil {
                     NavigationSplitView(columnVisibility: $readerColumnVisibility) {
-                        SidebarView(workspace: appModel.currentWorkspace)
+                        SidebarView(workspace: shellState.currentWorkspace)
                             .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
                     } detail: {
                         HStack(spacing: 0) {
-                            PDFReaderWorkspaceView(workspace: appModel.currentWorkspace)
+                            PDFReaderWorkspaceView(workspace: shellState.currentWorkspace)
 
-                            if shouldShowRightRail {
+                            if shouldShowRightRail(shellState) {
                                 Divider()
-                                resizableRightRail
+                                resizableRightRail(shellState)
                             }
                         }
                     }
-                } else if !shouldShowRightRail {
+                } else if !shouldShowRightRail(shellState) {
                     NavigationSplitView(columnVisibility: $mainColumnVisibility) {
-                        SidebarView(workspace: appModel.currentWorkspace)
+                        SidebarView(workspace: shellState.currentWorkspace)
                             .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
                     } detail: {
-                        workspaceContent
+                        workspaceContent(shellState)
                     }
                 } else {
                     NavigationSplitView(columnVisibility: $mainColumnVisibility) {
-                        SidebarView(workspace: appModel.currentWorkspace)
+                        SidebarView(workspace: shellState.currentWorkspace)
                             .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
                     } content: {
-                        workspaceContent
+                        workspaceContent(shellState)
                     } detail: {
-                        resizableRightRail
+                        resizableRightRail(shellState)
                         .navigationSplitViewColumnWidth(
-                            min: rightRailColumnWidth.min,
-                            ideal: rightRailColumnWidth.ideal,
-                            max: rightRailColumnWidth.max
+                            min: rightRailColumnWidth(shellState).min,
+                            ideal: rightRailColumnWidth(shellState).ideal,
+                            max: rightRailColumnWidth(shellState).max
                         )
                     }
                 }
@@ -64,14 +65,14 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                ForEach(appModel.toolbarModel.primaryActions) { action in
-                    toolbarControl(for: action, source: .primary)
+                ForEach(shellState.toolbarModel.primaryActions) { action in
+                    toolbarControl(for: action, source: .primary, shellState: shellState)
                 }
 
-                if !appModel.toolbarModel.overflowActions.isEmpty, appModel.currentWorkspace != nil {
+                if !shellState.toolbarModel.overflowActions.isEmpty, shellState.currentWorkspace != nil {
                     Menu {
-                        ForEach(appModel.toolbarModel.overflowActions) { action in
-                            toolbarOverflowControl(for: action)
+                        ForEach(shellState.toolbarModel.overflowActions) { action in
+                            toolbarOverflowControl(for: action, shellState: shellState)
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -80,14 +81,14 @@ struct ContentView: View {
                 }
             }
 
-            if appModel.selectedSection == .pdfReader, let paper = appModel.selectedPaperDraft {
+            if shellState.selectedSection == .pdfReader, let paperTitle = shellState.selectedPaperTitle {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
-                        Text(paper.displayTitle)
+                        Text(paperTitle)
                             .font(.headline)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Text(paper.authorsDisplay)
+                        Text(shellState.selectedPaperAuthors ?? "")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -109,7 +110,7 @@ struct ContentView: View {
         .task {
             await appModel.restoreLastWorkspaceIfNeeded()
             appModel.applyRightRailRouteSuggestion()
-            appModel.recordToolbarPolicyChange(appModel.toolbarModel)
+            appModel.recordToolbarPolicyChange(appModel.shellRenderState.toolbarModel)
             launchCoordinator.markAppPreparationFinished()
         }
         .background {
@@ -123,19 +124,19 @@ struct ContentView: View {
                     }
             }
         }
-        .onChange(of: appModel.selectedSection) { _, selectedSection in
+        .onChange(of: shellState.selectedSection) { _, selectedSection in
             if selectedSection == .pdfReader {
                 readerColumnVisibility = .detailOnly
             }
             appModel.applyRightRailRouteSuggestion()
         }
-        .onChange(of: appModel.selectedProjectSpaceTabID) { _, _ in
+        .onChange(of: shellState.selectedProjectSpaceTabID) { _, _ in
             appModel.applyRightRailRouteSuggestion()
         }
-        .onChange(of: appModel.currentWorkspaceContextSnapshot) { _, _ in
+        .onChange(of: shellState.context) { _, _ in
             appModel.recordGlobalAIContextUpdate()
         }
-        .onChange(of: appModel.toolbarModel) { _, model in
+        .onChange(of: shellState.toolbarModel) { _, model in
             appModel.recordToolbarPolicyChange(model)
         }
         .onChange(of: appModel.inspectorFocusRequest) { _, _ in
@@ -164,32 +165,37 @@ struct ContentView: View {
         }
     }
 
-    private var workspaceContent: some View {
+    private func workspaceContent(_ shellState: AppShellRenderState) -> some View {
         WorkspaceContentView(
-            workspace: appModel.currentWorkspace,
-            selectedSection: appModel.selectedSection,
-            isWorking: appModel.isWorking,
+            workspace: shellState.currentWorkspace,
+            selectedSection: shellState.selectedSection,
+            isWorking: shellState.isWorking,
             createWorkspace: appModel.createWorkspace,
             openWorkspace: appModel.openWorkspace
         )
         .navigationSplitViewColumnWidth(min: 360, ideal: 700)
     }
 
-    private var resizableRightRail: some View {
+    private func resizableRightRail(_ shellState: AppShellRenderState) -> some View {
         ResizableRightRailColumn(
             width: $shellRightRailWidth,
-            minWidth: rightRailColumnWidth.min,
-            idealWidth: rightRailColumnWidth.ideal,
-            maxWidth: rightRailColumnWidth.max,
-            isResizable: shouldShowRightRail,
-            usesFixedWidth: appModel.selectedSection == .pdfReader
+            minWidth: rightRailColumnWidth(shellState).min,
+            idealWidth: rightRailColumnWidth(shellState).ideal,
+            maxWidth: rightRailColumnWidth(shellState).max,
+            isResizable: shouldShowRightRail(shellState),
+            usesFixedWidth: shellState.selectedSection == .pdfReader
         ) {
-            ShellRightRailView(workspace: appModel.currentWorkspace)
+            ShellRightRailView(
+                workspace: shellState.currentWorkspace,
+                mode: shellState.effectiveRightRailMode,
+                context: shellState.context,
+                selectedSection: shellState.selectedSection
+            )
         }
     }
 
-    private var rightRailColumnWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) {
-        switch appModel.effectiveRightRailMode {
+    private func rightRailColumnWidth(_ shellState: AppShellRenderState) -> (min: CGFloat, ideal: CGFloat, max: CGFloat) {
+        switch shellState.effectiveRightRailMode {
         case .hidden:
             return (0, 0, 0)
         case .inspector:
@@ -201,41 +207,41 @@ struct ContentView: View {
         }
     }
 
-    private var shouldShowRightRail: Bool {
-        guard appModel.effectiveRightRailMode != .hidden else {
+    private func shouldShowRightRail(_ shellState: AppShellRenderState) -> Bool {
+        guard shellState.effectiveRightRailMode != .hidden else {
             return false
         }
-        if appModel.selectedProjectSpaceTabID == "recommendations", appModel.shellWindowWidth < 1280 {
+        if shellState.selectedProjectSpaceTabID == "recommendations", shellState.shellWindowWidth < 1280 {
             return false
         }
         return true
     }
 
-    private var toolbarDispatcher: AppToolbarCommandDispatcher {
-        AppToolbarCommandDispatcher(appModel: appModel)
+    private func toolbarDispatcher(_ shellState: AppShellRenderState) -> AppToolbarCommandDispatcher {
+        AppToolbarCommandDispatcher(appModel: appModel, effectiveRightRailMode: shellState.effectiveRightRailMode)
     }
 
     @ViewBuilder
-    private func toolbarControl(for action: ToolbarAction, source: AppToolbarCommandDispatcher.Source) -> some View {
+    private func toolbarControl(for action: ToolbarAction, source: AppToolbarCommandDispatcher.Source, shellState: AppShellRenderState) -> some View {
         if action.id == .workspaceMenu {
-            workspaceToolbarMenu(title: action.title, systemImage: action.systemImage)
-        } else if appModel.currentWorkspace != nil {
+            workspaceToolbarMenu(title: action.title, systemImage: action.systemImage, hasWorkspace: shellState.currentWorkspace != nil)
+        } else if shellState.currentWorkspace != nil {
             Button {
-                toolbarDispatcher.perform(action.commandID, source: source)
+                toolbarDispatcher(shellState).perform(action.commandID, source: source)
             } label: {
-                Label(action.title, systemImage: toolbarDispatcher.systemImage(for: action))
+                Label(action.title, systemImage: toolbarDispatcher(shellState).systemImage(for: action))
             }
-            .disabled(toolbarDispatcher.isDisabled(action.id))
-            .help(toolbarDispatcher.help(for: action.id, fallbackTitle: action.title))
+            .disabled(toolbarDispatcher(shellState).isDisabled(action.id))
+            .help(toolbarDispatcher(shellState).help(for: action.id, fallbackTitle: action.title))
         }
     }
 
-    private func workspaceToolbarMenu(title: String, systemImage: String) -> some View {
+    private func workspaceToolbarMenu(title: String, systemImage: String, hasWorkspace: Bool) -> some View {
         Menu {
             Button(appModel.t(.toolbarCreateWorkspace), action: appModel.createWorkspace)
             Button(appModel.t(.toolbarOpenWorkspace), action: appModel.openWorkspace)
 
-            if appModel.currentWorkspace != nil {
+            if hasWorkspace {
                 Divider()
                 Button(appModel.t(.toolbarRevealInFinder), action: appModel.revealCurrentWorkspaceInFinder)
                 Button(appModel.t(.toolbarSettings)) {
@@ -247,13 +253,13 @@ struct ContentView: View {
         }
     }
 
-    private func toolbarOverflowControl(for action: ToolbarAction) -> some View {
+    private func toolbarOverflowControl(for action: ToolbarAction, shellState: AppShellRenderState) -> some View {
         Button {
-            toolbarDispatcher.perform(action.commandID, source: .overflow)
+            toolbarDispatcher(shellState).perform(action.commandID, source: .overflow)
         } label: {
-            Label(action.title, systemImage: toolbarDispatcher.systemImage(for: action))
+            Label(action.title, systemImage: toolbarDispatcher(shellState).systemImage(for: action))
         }
-        .disabled(toolbarDispatcher.isDisabled(action.id))
+        .disabled(toolbarDispatcher(shellState).isDisabled(action.id))
     }
 }
 

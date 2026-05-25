@@ -1,4 +1,7 @@
+import OSLog
 import SwiftUI
+
+private let homePerformanceLogger = Logger(subsystem: "Lingyu-Xia.Sci-Station", category: "Performance")
 
 struct HomeView: View {
     @EnvironmentObject private var appModel: AppViewModel
@@ -9,23 +12,25 @@ struct HomeView: View {
     @State private var snapshot: HomeSnapshot?
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var reloadTask: Task<Void, Never>?
+    @State private var pendingInvalidationReasons: Set<String> = []
 
     var body: some View {
         contentWithPrimaryWatchers
             .onChange(of: appModel.agentSessionEvents) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "agent_event_change") }
+                scheduleReload(reason: "agent_event_change")
             }
             .onChange(of: appModel.agentRetrievalIndexStatus) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "retrieval_change") }
+                scheduleReload(reason: "retrieval_change")
             }
             .onChange(of: appModel.workspaceModuleConfiguration) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "module_config_change") }
+                scheduleReload(reason: "module_config_change")
             }
             .onChange(of: appModel.researchQueueScopes) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "queue_change") }
+                scheduleReload(reason: "queue_change")
             }
             .onChange(of: appModel.readingPlanScopes) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "reading_plan_change") }
+                scheduleReload(reason: "reading_plan_change")
             }
     }
 
@@ -35,22 +40,27 @@ struct HomeView: View {
                 await reloadHome(invalidating: false, reason: "appear")
             }
             .onChange(of: appModel.todos) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "todo_change") }
+                scheduleReload(reason: "todo_change")
             }
             .onChange(of: appModel.papers) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "paper_change") }
+                scheduleReload(reason: "paper_change")
             }
             .onChange(of: appModel.researchProjects) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "project_change") }
+                scheduleReload(reason: "project_change")
             }
             .onChange(of: appModel.markdownDocuments) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "wiki_change") }
+                scheduleReload(reason: "wiki_change")
             }
             .onChange(of: appModel.agentRunHistory) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "draft_change") }
+                scheduleReload(reason: "draft_change")
             }
             .onChange(of: appModel.agentCurrentRun) { _, _ in
-                Task { await reloadHome(invalidating: true, reason: "draft_change") }
+                scheduleReload(reason: "draft_change")
+            }
+            .onDisappear {
+                reloadTask?.cancel()
+                reloadTask = nil
+                pendingInvalidationReasons.removeAll()
             }
     }
 
@@ -158,7 +168,23 @@ struct HomeView: View {
     }
 
     @MainActor
+    private func scheduleReload(reason: String) {
+        pendingInvalidationReasons.insert(reason)
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            let reasons = pendingInvalidationReasons.sorted()
+            pendingInvalidationReasons.removeAll()
+            await reloadHome(invalidating: true, reason: reasons.isEmpty ? reason : reasons.joined(separator: ","))
+        }
+    }
+
+    @MainActor
     private func reloadHome(invalidating: Bool, reason: String) async {
+        let startedAt = Date()
         if invalidating {
             await aggregator.invalidate(reason: reason)
             appModel.recordHomeDebugEvent("home.cache.invalidate", payload: .object([
@@ -182,6 +208,8 @@ struct HomeView: View {
                 "reason": .string(error.localizedDescription)
             ]))
         }
+        let durationMS = Date().timeIntervalSince(startedAt) * 1000
+        homePerformanceLogger.debug("home.reload invalidating=\(invalidating, privacy: .public) reason=\(reason, privacy: .public) duration_ms=\(durationMS, privacy: .public)")
     }
 
     private var aggregationInput: HomeAggregationInput {
