@@ -168,6 +168,11 @@ private struct CoreVerificationSuite {
         try await recommendationCandidateGathererDedupsDailyFeedAndQueueTail()
         try await recommendationScorerRanksByLibraryInterestAndSuppressesFinished()
         try await recommendationPipelineWritesSnapshotAndQueuePayload()
+        try recommendationPipelineHonorsCategoryHardBoundary()
+        try await recommendationScorerV2SignalsKeywordSeedAndRecency()
+        try await recommendationFeedbackStorePersistsJSONLAndBuildsProfile()
+        try recommendationPipelineMMRDiversifiesNearDuplicateResults()
+        try recommendationRunResultDecodesLegacySnapshotWithV2Defaults()
         try identifierParserRecognizesSupportedKinds()
         try metadataProviderBuildsStableLookupURLs()
         try arxivEntryParserExtractsMetadataDraft()
@@ -1511,7 +1516,9 @@ private struct CoreVerificationSuite {
             "reading_plan.load", "reading_plan.load.error", "reading_plan.save",
             "reading_plan.save_error", "reading_plan.activate", "reading_plan.archive",
             "reading_plan.reorder", "reading_plan.slot_status_change",
-            "recommendation.arxiv_refresh", "recommendation.error",
+            "recommendation.arxiv_refresh", "recommendation.archive",
+            "recommendation.ai_search.error", "recommendation.error",
+            "recommendation.feedback", "recommendation.push.error",
             // Module settings
             "module_settings.toggle", "module_settings.toggle_chain", "module_settings.pin",
             // Graph (P44–P47)
@@ -4120,6 +4127,192 @@ private struct CoreVerificationSuite {
         try expect(payloadObject["queue_scope"]?.stringValue == "workspace", "Payload should include queue_scope for P48 ingestion.")
         try expect(firstCandidate["external_key"]?.stringValue == "arxiv:2604.22012", "Payload should preserve external_key for queue ingestion.")
         try expect(firstCandidate["display_title"]?.stringValue == "Graph Retrieval Agents for Daily Literature", "Payload should preserve display_title.")
+    }
+
+    private func recommendationPipelineHonorsCategoryHardBoundary() throws {
+        let crossListed = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.00002",
+            externalKey: "arxiv:2604.00002",
+            displayTitle: "Cross-listed Optimization Paper",
+            categories: ["cs.AI", "math.OC"],
+            primaryCategory: "cs.AI"
+        )
+        let primaryMatch = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.00003",
+            externalKey: "arxiv:2604.00003",
+            displayTitle: "Primary Optimization Paper",
+            categories: ["math.OC", "cs.AI"],
+            primaryCategory: "math.OC"
+        )
+
+        let crossListOn = RecommendationPipeline.filterCategoryBoundary(
+            [crossListed, primaryMatch],
+            selectedCategories: ["math.OC"],
+            includeCrossList: true
+        )
+        let crossListOff = RecommendationPipeline.filterCategoryBoundary(
+            [crossListed, primaryMatch],
+            selectedCategories: ["math.OC"],
+            includeCrossList: false
+        )
+
+        try expect(Set(crossListOn.map(\.id)) == Set([crossListed.id, primaryMatch.id]), "Cross-list mode should allow any selected category match.")
+        try expect(crossListOff.map(\.id) == [primaryMatch.id], "Primary-only mode should reject cross-listed non-primary matches.")
+    }
+
+    private func recommendationScorerV2SignalsKeywordSeedAndRecency() async throws {
+        var seed = samplePaper(id: "seed-diffusion")
+        seed.title = "Diffusion Planning Agents"
+        seed.abstract = "Diffusion planning agents optimize long horizon scientific workflows."
+        seed.updatedAt = Date(timeIntervalSince1970: 1_777_500_000)
+
+        let candidate = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.00004",
+            externalKey: "arxiv:2604.00004",
+            displayTitle: "Diffusion Planning Agents for Scientific Workflows",
+            authors: ["Ada Lovelace"],
+            sourceTags: [.dailyFeed],
+            categories: ["cs.AI"],
+            abstractText: "Diffusion planning agents optimize experiments and scientific workflows with long horizon decisions.",
+            publishedAt: Date(timeIntervalSince1970: 1_777_590_000)
+        )
+        let context = RecommendationContext(
+            corePaperIDs: [seed.id],
+            openGapKeywords: ["diffusion", "planning"],
+            weightedKeywords: [WeightedKeyword(text: "diffusion planning", weight: 2)],
+            interestPapers: [seed],
+            seedPapers: [seed],
+            projectContextTexts: ["scientific workflow planning agents"],
+            noveltyReferenceTexts: ["older graph retrieval survey"],
+            evaluatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+
+        let score = await RecommendationScorer().scoreOne(candidate, context: context)
+
+        try expect(score.features.keywordRelevance > 0.8, "V2 scorer should reward weighted keyword phrase matches.")
+        try expect(score.features.seedSimilarity > 0.4, "V2 scorer should compute seed-paper similarity.")
+        try expect(score.features.projectContextSimilarity > 0, "V2 scorer should use project context text.")
+        try expect(score.features.recency > 0.8, "V2 recency should use publishedAt day-level decay.")
+        try expect(score.total > 0.5, "V2 normalized total should remain strong for matched recommendations.")
+    }
+
+    private func recommendationFeedbackStorePersistsJSONLAndBuildsProfile() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("RecommendationFeedbackWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let candidate = RecommendationCandidate(
+            canonicalID: "external:arxiv:2604.00005",
+            externalKey: "arxiv:2604.00005",
+            displayTitle: "Graph Retrieval Feedback Paper",
+            categories: ["cs.AI"],
+            abstractText: "Graph retrieval recommendations adapt to local feedback."
+        )
+        let store = RecommendationFeedbackStore(dateProvider: { Date(timeIntervalSince1970: 1_777_600_000) })
+        try await store.record(candidate: candidate, type: .like, projectID: "proj", recommendationRunID: "run-1", in: workspace)
+        let records = try await store.load(in: workspace)
+        let score = RecommendationScore(
+            id: candidate.id,
+            candidate: candidate,
+            features: RecommendationFeatureBreakdown(),
+            total: 0.8,
+            evaluatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
+        let profile = RecommendationFeedbackStore.profile(records: records, scores: [score], projectID: "proj")
+
+        try expect(records.count == 1, "Feedback store should persist JSONL records.")
+        try expect(records.first?.feedbackType == .like, "Feedback store should preserve feedback type.")
+        try expect(profile.positiveTexts.first?.contains("Graph Retrieval Feedback") == true, "Feedback profile should include positive candidate text.")
+        try expect(profile.feedbackByPaperKey["arxiv:2604.00005"] == .like, "Feedback profile should index latest feedback by paper key.")
+    }
+
+    private func recommendationPipelineMMRDiversifiesNearDuplicateResults() throws {
+        let first = recommendationScoreForMMR(
+            id: "external:arxiv:2604.00006",
+            title: "Graph Retrieval Agents for Literature Maps",
+            abstract: "Graph retrieval agents build literature maps.",
+            total: 0.90
+        )
+        let duplicate = recommendationScoreForMMR(
+            id: "external:arxiv:2604.00007",
+            title: "Graph Retrieval Agents for Literature Mapping",
+            abstract: "Graph retrieval agents build literature maps.",
+            total: 0.89
+        )
+        let diverse = recommendationScoreForMMR(
+            id: "external:arxiv:2604.00008",
+            title: "Quantum Control for Detector Calibration",
+            abstract: "Quantum control calibrates detector systems.",
+            total: 0.88
+        )
+
+        let reranked = RecommendationPipeline.rerankByMMR([first, duplicate, diverse], limit: 2, lambda: 0.5)
+
+        try expect(reranked.map(\.id) == [first.id, diverse.id], "MMR should prefer a slightly lower-scored diverse paper over a near duplicate.")
+        try expect(reranked[0].rank == 1 && reranked[1].rank == 2, "MMR reranking should rewrite display ranks.")
+    }
+
+    private func recommendationRunResultDecodesLegacySnapshotWithV2Defaults() throws {
+        let json = """
+        {
+          "id": "rec-legacy",
+          "trigger": "manual",
+          "context_project_id": "proj",
+          "generated_at": "2026-04-20T00:00:00Z",
+          "candidate_count": 1,
+          "scores": [
+            {
+              "id": "external:arxiv:2604.00009",
+              "candidate": {
+                "canonical_id": "external:arxiv:2604.00009",
+                "external_key": "arxiv:2604.00009",
+                "display_title": "Legacy Recommendation Paper",
+                "categories": ["cs.AI"],
+                "source_tags": ["daily_feed"]
+              },
+              "features": {
+                "library_interest_similarity": 0.5,
+                "recency": 1.0,
+                "open_gap_coverage": 0.25,
+                "author_overlap_with_core": 0.0,
+                "queue_pressure_penalty": 0.0
+              },
+              "total": 0.7,
+              "rank": 1,
+              "reason": "legacy",
+              "reason_keys": ["library_interest_similarity"],
+              "evaluated_at": "2026-04-20T00:00:00Z"
+            }
+          ],
+          "query": "diffusion planning",
+          "categories": ["cs.AI"],
+          "source_note": "legacy"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let result = try decoder.decode(RecommendationRunResult.self, from: Data(json.utf8))
+
+        try expect(result.keywords.map(\.text) == ["diffusion planning"], "Legacy snapshots should synthesize V2 weighted keywords from query.")
+        try expect(result.includeCrossList == true, "Legacy snapshots should default include_cross_list to true.")
+        try expect(result.scores.first?.candidate.primaryCategory == "cs.AI", "Legacy candidates should fall back to the first category as primary.")
+        try expect(result.scores.first?.features.seedSimilarity == 0, "Legacy feature breakdown should decode missing V2 fields as zero.")
+    }
+
+    private func recommendationScoreForMMR(id: String, title: String, abstract: String, total: Double) -> RecommendationScore {
+        let candidate = RecommendationCandidate(
+            canonicalID: id,
+            externalKey: id.replacingOccurrences(of: "external:", with: ""),
+            displayTitle: title,
+            categories: ["cs.AI"],
+            abstractText: abstract
+        )
+        return RecommendationScore(
+            id: id,
+            candidate: candidate,
+            features: RecommendationFeatureBreakdown(),
+            total: total,
+            evaluatedAt: Date(timeIntervalSince1970: 1_777_600_000)
+        )
     }
 
         private func identifierParserRecognizesSupportedKinds() throws {

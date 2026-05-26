@@ -117,6 +117,7 @@ public nonisolated enum ArxivRecommendationParser {
             sourceURL: sourceURL,
             pdfURL: pdfURL,
             categories: categories,
+            primaryCategory: categories.first,
             abstractText: text(for: "summary", in: block)?.singleSpaced,
             publishedAt: publishedAt
         )

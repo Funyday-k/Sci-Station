@@ -123,7 +123,11 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case readingPlanReorder = "reading_plan.reorder"
     case readingPlanSlotStatusChange = "reading_plan.slot_status_change"
     case recommendationArxivRefresh = "recommendation.arxiv_refresh"
+    case recommendationArchive = "recommendation.archive"
+    case recommendationAISearchError = "recommendation.ai_search.error"
     case recommendationError = "recommendation.error"
+    case recommendationFeedback = "recommendation.feedback"
+    case recommendationPushError = "recommendation.push.error"
 
     // MARK: - Module Settings
     case moduleSettingsToggle = "module_settings.toggle"

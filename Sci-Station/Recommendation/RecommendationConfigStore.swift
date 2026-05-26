@@ -40,10 +40,18 @@ public nonisolated struct RecommendationConfigStore {
         lines.append("weights:")
         lines.append("  cited_by_core: \(format(config.weights.citedByCore))")
         lines.append("  library_interest_similarity: \(format(config.weights.libraryInterestSimilarity))")
+        lines.append("  keyword_relevance: \(format(config.weights.keywordRelevance))")
+        lines.append("  seed_similarity: \(format(config.weights.seedSimilarity))")
+        lines.append("  project_context_similarity: \(format(config.weights.projectContextSimilarity))")
         lines.append("  recency: \(format(config.weights.recency))")
+        lines.append("  novelty: \(format(config.weights.novelty))")
+        lines.append("  quality: \(format(config.weights.quality))")
+        lines.append("  ai_score: \(format(config.weights.aiScore))")
+        lines.append("  feedback: \(format(config.weights.feedback))")
         lines.append("  open_gap_coverage: \(format(config.weights.openGapCoverage))")
         lines.append("  author_overlap_with_core: \(format(config.weights.authorOverlapWithCore))")
         lines.append("  queue_pressure_penalty: \(format(config.weights.queuePressurePenalty))")
+        lines.append("  duplicate_penalty: \(format(config.weights.duplicatePenalty))")
         lines.append("daily_sources:")
         if config.dailySources.isEmpty {
             lines.append("  []")
@@ -127,10 +135,18 @@ public nonisolated struct RecommendationConfigStore {
                 switch pair.key {
                 case "cited_by_core": weights.citedByCore = number
                 case "library_interest_similarity": weights.libraryInterestSimilarity = number
+                case "keyword_relevance": weights.keywordRelevance = number
+                case "seed_similarity": weights.seedSimilarity = number
+                case "project_context_similarity": weights.projectContextSimilarity = number
                 case "recency": weights.recency = number
+                case "novelty": weights.novelty = number
+                case "quality": weights.quality = number
+                case "ai_score": weights.aiScore = number
+                case "feedback": weights.feedback = number
                 case "open_gap_coverage": weights.openGapCoverage = number
                 case "author_overlap_with_core": weights.authorOverlapWithCore = number
                 case "queue_pressure_penalty": weights.queuePressurePenalty = number
+                case "duplicate_penalty": weights.duplicatePenalty = number
                 default: break
                 }
             }

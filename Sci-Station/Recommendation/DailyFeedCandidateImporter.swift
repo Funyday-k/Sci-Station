@@ -61,6 +61,9 @@ public nonisolated struct DailyFeedCandidateImporter {
             fallback: displayTitle
         )
         let categories = stringArray(object["categories"]) + stringArray(object["category"])
+        let primaryCategory = object["primary_category"]?.stringValue
+            ?? object["primaryCategory"]?.stringValue
+            ?? categories.first
         let publishedYear = object["published_year"]?.stringValue.flatMap(Int.init)
             ?? object["year"]?.stringValue.flatMap(Int.init)
             ?? year(from: object["published"]?.stringValue ?? object["published_date"]?.stringValue)
@@ -76,6 +79,7 @@ public nonisolated struct DailyFeedCandidateImporter {
             sourceURL: object["url"]?.stringValue ?? object["source_url"]?.stringValue,
             pdfURL: object["pdf_url"]?.stringValue,
             categories: Array(Set(categories)).sorted(),
+            primaryCategory: primaryCategory,
             abstractText: object["abstract"]?.stringValue ?? object["summary"]?.stringValue
         )
     }

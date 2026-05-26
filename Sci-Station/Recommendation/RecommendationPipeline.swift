@@ -40,13 +40,16 @@ public actor RecommendationPipeline {
         query: String = "",
         categories: [String] = [],
         referencePaperIDs: [String] = [],
+        keywords: [WeightedKeyword] = [],
+        includeCrossList: Bool = true,
+        aiModel: String? = nil,
         sourceDate: Date? = nil,
         sourceNote: String? = nil
     ) async throws -> RecommendationRunResult? {
         await scorer.updateConfig(config)
         var resolvedContext = context
         resolvedContext.evaluatedAt = context.evaluatedAt
-        let candidates = await gatherer.gather(
+        let gatheredCandidates = await gatherer.gather(
             papers: papers,
             queueEntries: queueEntries,
             dailyFeedCandidates: dailyFeedCandidates,
@@ -54,6 +57,34 @@ public actor RecommendationPipeline {
             context: resolvedContext,
             config: config
         )
+        let candidates = Self.filterCategoryBoundary(
+            gatheredCandidates,
+            selectedCategories: categories,
+            includeCrossList: includeCrossList
+        )
+        let history = (try? loadHistory(workspace: workspace, limit: 200)) ?? []
+        resolvedContext.duplicateCandidateKeys.formUnion(Set(papers.flatMap { paper in
+            [
+                "paper:\(paper.id.lowercased())",
+                paper.id.lowercased(),
+                paper.arxiv.map { "arxiv:\($0.lowercased())" },
+                paper.doi.map { "doi:\($0.lowercased())" }
+            ].compactMap { $0 }
+        }))
+        resolvedContext.duplicateCandidateKeys.formUnion(Set(queueEntries.flatMap { entry in
+            [entry.paperID, entry.externalKey, Optional(entry.id)]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        }))
+        resolvedContext.duplicateCandidateKeys.formUnion(Set(history.flatMap { result in
+            result.scores.flatMap { RecommendationFeedbackStore.candidateKeys($0.candidate) }
+        }))
+        if resolvedContext.noveltyReferenceTexts.isEmpty {
+            resolvedContext.noveltyReferenceTexts = Self.noveltyReferenceTexts(
+                papers: papers,
+                queueEntries: queueEntries,
+                history: history
+            )
+        }
         let hash = Self.candidateHash(candidates)
         let now = dateProvider()
         if !force,
@@ -65,7 +96,7 @@ public actor RecommendationPipeline {
         }
 
         let scores = await scorer.score(candidates, context: resolvedContext, locale: locale)
-        let topK = Array(scores.prefix(config.topK))
+        let topK = Self.rerankByMMR(scores, limit: config.topK)
         let snapshotID = Self.snapshotID(date: now, hash: hash)
         let result = RecommendationRunResult(
             id: snapshotID,
@@ -78,7 +109,10 @@ public actor RecommendationPipeline {
             categories: categories,
             sourceDate: sourceDate,
             sourceNote: sourceNote,
-            referencePaperIDs: referencePaperIDs
+            referencePaperIDs: referencePaperIDs,
+            keywords: keywords.isEmpty ? WeightedKeyword.parse(query) : keywords,
+            includeCrossList: includeCrossList,
+            aiModel: aiModel
         )
 
         if persistSnapshot {
@@ -134,6 +168,53 @@ public actor RecommendationPipeline {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    public nonisolated static func passesCategoryBoundary(
+        _ candidate: RecommendationCandidate,
+        selectedCategories: [String],
+        includeCrossList: Bool
+    ) -> Bool {
+        let selected = Set(selectedCategories.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
+        guard !selected.isEmpty else {
+            return true
+        }
+        if includeCrossList {
+            return candidate.categories.contains { selected.contains($0.lowercased()) }
+                || candidate.primaryCategory.map { selected.contains($0.lowercased()) } == true
+        }
+        guard let primary = candidate.primaryCategory?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !primary.isEmpty else {
+            return false
+        }
+        return selected.contains(primary)
+    }
+
+    public nonisolated static func filterCategoryBoundary(
+        _ candidates: [RecommendationCandidate],
+        selectedCategories: [String],
+        includeCrossList: Bool
+    ) -> [RecommendationCandidate] {
+        candidates.filter { passesCategoryBoundary($0, selectedCategories: selectedCategories, includeCrossList: includeCrossList) }
+    }
+
+    public nonisolated static func rerankByMMR(
+        _ scores: [RecommendationScore],
+        limit: Int,
+        lambda: Double = 0.75
+    ) -> [RecommendationScore] {
+        var remaining = Array(scores.prefix(min(50, scores.count)))
+        var selected: [RecommendationScore] = []
+        while !remaining.isEmpty, selected.count < limit {
+            let nextIndex = remaining.indices.max { lhs, rhs in
+                mmrScore(remaining[lhs], selected: selected, lambda: lambda) < mmrScore(remaining[rhs], selected: selected, lambda: lambda)
+            } ?? remaining.startIndex
+            selected.append(remaining.remove(at: nextIndex))
+        }
+        return selected.enumerated().map { index, score in
+            var ranked = score
+            ranked.rank = index + 1
+            return ranked
+        }
+    }
+
     public nonisolated static func snapshotID(date: Date, hash: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
@@ -141,6 +222,27 @@ public actor RecommendationPipeline {
             .replacingOccurrences(of: ":", with: "")
             .replacingOccurrences(of: "-", with: "")
         return "rec-\(datePart)-\(hash.prefix(8))"
+    }
+
+    private nonisolated static func mmrScore(_ score: RecommendationScore, selected: [RecommendationScore], lambda: Double) -> Double {
+        let selectedTexts = selected.map { RecommendationScorer.candidateText($0.candidate) }
+        let similarity = RecommendationTextSimilarity.maxSimilarity(RecommendationScorer.candidateText(score.candidate), corpusTexts: selectedTexts)
+        return lambda * score.total - (1 - lambda) * similarity
+    }
+
+    private nonisolated static func noveltyReferenceTexts(
+        papers: [Paper],
+        queueEntries: [ResearchQueueEntry],
+        history: [RecommendationRunResult]
+    ) -> [String] {
+        let paperTexts = papers.map(RecommendationScorer.paperText(_:))
+        let queueTexts = queueEntries.map(\.displayTitle)
+        let historyTexts = history.flatMap { result in
+            result.scores.map { RecommendationScorer.candidateText($0.candidate) }
+        }
+        return (paperTexts + queueTexts + historyTexts)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     public func loadHistory(workspace: ResearchWorkspace, limit: Int = 20) throws -> [RecommendationRunResult] {

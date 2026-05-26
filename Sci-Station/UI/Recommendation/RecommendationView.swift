@@ -10,6 +10,7 @@ struct RecommendationView: View {
     @State private var query: String
     @State private var selectedCategories: Set<String>
     @State private var topK: Int = 10
+    @State private var includeCrossList: Bool = true
     @State private var selectedAIModel: String = "deepseek-v4-flash"
     @State private var isCategorySelectorPresented = false
     @State private var isPaperSelectorPresented = false
@@ -233,6 +234,14 @@ struct RecommendationView: View {
 
     private static let defaultCategoryIDs: Set<String> = ["cs.AI", "cs.CL", "cs.CV", "cs.LG"]
 
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     private static var allCategoryIDs: Set<String> {
         Set(categoryGroups.flatMap(\.options).map(\.id))
     }
@@ -337,6 +346,7 @@ struct RecommendationView: View {
                 HStack(spacing: 12) {
                     queryField
                     topKStepper
+                    includeCrossListToggle
                     aiModelPicker
                 }
 
@@ -344,6 +354,7 @@ struct RecommendationView: View {
                     queryField
                     HStack(spacing: 12) {
                         topKStepper
+                        includeCrossListToggle
                         aiModelPicker
                     }
                 }
@@ -389,6 +400,13 @@ struct RecommendationView: View {
         }
         .pickerStyle(.menu)
         .frame(width: 170)
+    }
+
+    private var includeCrossListToggle: some View {
+        Toggle(appModel.localized("包含 cross-list", "Include cross-list"), isOn: $includeCrossList)
+            .toggleStyle(.switch)
+            .help(appModel.localized("开启时允许论文的交叉分类命中所选领域；关闭时仅接受 primary category 命中。", "When enabled, cross-listed categories can match selected fields; when disabled, only primary category matches pass."))
+            .frame(width: 160)
     }
 
     @ViewBuilder
@@ -524,9 +542,17 @@ struct RecommendationView: View {
                     RecommendationScoreRow(
                         score: score,
                         scope: selectedScope,
-                        aiComment: result.aiEvaluation?.commentsByScoreID[score.id],
+                        aiComment: aiComment(for: score, evaluation: result.aiEvaluation),
+                        aiReview: aiReview(for: score, evaluation: result.aiEvaluation),
+                        feedback: appModel.recommendationFeedbackType(for: score),
                         onAdd: {
                             appModel.addRecommendationToReadingList(score, scope: selectedScope)
+                        },
+                        onFeedback: { type in
+                            appModel.recordRecommendationFeedback(type, for: score, scope: selectedScope)
+                        },
+                        onOpenReading: {
+                            appModel.openRecommendationReadingQueue()
                         },
                         isAdded: appModel.isRecommendationInReadingList(score, scope: selectedScope)
                     )
@@ -553,6 +579,7 @@ struct RecommendationView: View {
                 Text(appModel.localized("候选：\(result.candidateCount) 篇；推荐：\(result.scores.count) 篇", "\(result.candidateCount) candidates; \(result.scores.count) recommendations"))
                 Text(appModel.localized("关键词：\(result.query.isEmpty ? "（空）" : result.query)", "Query: \(result.query.isEmpty ? "(empty)" : result.query)"))
                 Text(appModel.localized("领域：\(result.categories.prefix(10).joined(separator: " · "))", "Fields: \(result.categories.prefix(10).joined(separator: " · "))"))
+                Text(appModel.localized("Cross-list：\(result.includeCrossList ? "包含" : "仅 Primary")", "Cross-list: \(result.includeCrossList ? "included" : "primary only")"))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -599,8 +626,9 @@ struct RecommendationView: View {
             HStack(spacing: 10) {
                 Label(result.sourceNote ?? appModel.localized("arXiv 推荐", "arXiv recommendations"), systemImage: "calendar.badge.clock")
                 if let sourceDate = result.sourceDate {
-                    Text(sourceDate.formatted(date: .abbreviated, time: .omitted))
+                    Text(Self.dayFormatter.string(from: sourceDate))
                 }
+                Text(result.includeCrossList ? appModel.localized("含 cross-list", "cross-list on") : appModel.localized("仅 primary", "primary only"))
                 Spacer(minLength: 0)
                 Text(appModel.localized("共 \(result.scores.count) 篇", "\(result.scores.count) papers"))
                     .foregroundStyle(.secondary)
@@ -611,19 +639,6 @@ struct RecommendationView: View {
                 Label(appModel.localized("AI 正在阅读标题和摘要并生成评价…", "AI is reading titles and abstracts for evaluation…"), systemImage: "sparkles")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else if let evaluation = result.aiEvaluation {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(appModel.localized("AI 总评", "AI evaluation"), systemImage: "sparkles")
-                        .font(.caption.weight(.semibold))
-                    Text(evaluation.overall)
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(evaluation.model)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(12)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else if let status = appModel.recommendationAIEvaluationStatusMessage {
                 Text(status)
                     .font(.caption)
@@ -637,7 +652,7 @@ struct RecommendationView: View {
     }
 
     private func refresh() {
-        appModel.refreshArxivRecommendations(project: project, query: query, categories: parsedCategories, topK: topK, aiModel: selectedAIModel, referencePaperIDs: selectedReferencePaperIDs)
+        appModel.refreshArxivRecommendations(project: project, query: query, categories: parsedCategories, topK: topK, includeCrossList: includeCrossList, aiModel: selectedAIModel, referencePaperIDs: selectedReferencePaperIDs)
     }
 
     private var parsedCategories: [String] {
@@ -651,6 +666,145 @@ struct RecommendationView: View {
         DeepSeekModelOption.presets.filter { option in
             option.id == "deepseek-v4-flash" || option.id == "deepseek-v4-pro"
         }
+    }
+
+    private func aiComment(for score: RecommendationScore, evaluation: RecommendationAIEvaluation?) -> String? {
+        guard let evaluation else {
+            return nil
+        }
+        let aliases = aiAliases(for: score)
+        if let existing = aliases.compactMap({ evaluation.commentsByScoreID[$0]?.recommendationNonEmptyText }).first {
+            return existing
+        }
+        if let object = aiEvaluationObject(from: evaluation.overall),
+           let comments = object["comments"] as? [[String: Any]],
+           let comment = comments.compactMap({ item -> String? in
+               guard let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                     aliases.contains(aiNormalizedIdentifier(id)) else {
+                   return nil
+               }
+               return ((item["comment"] as? String) ?? (item["recommendation_comment"] as? String))?
+                   .trimmingCharacters(in: .whitespacesAndNewlines)
+                   .recommendationNonEmptyText
+           }).first {
+            return comment
+        }
+        return aiReview(for: score, evaluation: evaluation)?.recommendationComment.recommendationNonEmptyText
+    }
+
+    private func aiReview(for score: RecommendationScore, evaluation: RecommendationAIEvaluation?) -> RecommendationAIReview? {
+        guard let evaluation else {
+            return nil
+        }
+        let aliases = aiAliases(for: score)
+        if let existing = aliases.compactMap({ evaluation.reviewsByScoreID[$0] }).first {
+            return existing
+        }
+        guard let object = aiEvaluationObject(from: evaluation.overall),
+              let reviews = object["reviews"] as? [[String: Any]] else {
+            return nil
+        }
+        return reviews.compactMap { item -> RecommendationAIReview? in
+            guard let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  aliases.contains(aiNormalizedIdentifier(id)) else {
+                return nil
+            }
+            return RecommendationAIReview(
+                relevance: aiDouble(item["relevance"]),
+                novelty: aiDouble(item["novelty"]),
+                methodSoundness: aiDouble(item["method_soundness"] ?? item["methodSoundness"]),
+                usefulness: aiDouble(item["usefulness"]),
+                risk: aiDouble(item["risk"]),
+                summary: ((item["summary"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                recommendationComment: ((item["recommendation_comment"] as? String) ?? (item["comment"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                suitableFor: aiStringList(item["suitable_for"]),
+                possibleWeaknesses: aiStringList(item["possible_weaknesses"])
+            )
+        }.first
+    }
+
+    private func aiAliases(for score: RecommendationScore) -> Set<String> {
+        var aliases: Set<String> = []
+        let rawValues = [
+            score.id,
+            score.candidate.canonicalID,
+            score.candidate.externalKey,
+            score.candidate.paperID,
+            score.candidate.sourceURL
+        ].compactMap { $0?.recommendationNonEmptyText }
+        for value in rawValues {
+            let normalized = aiNormalizedIdentifier(value)
+            aliases.insert(normalized)
+            if normalized.hasPrefix("external:") {
+                aliases.insert(String(normalized.dropFirst("external:".count)))
+            }
+            if normalized.hasPrefix("paper:") {
+                aliases.insert(String(normalized.dropFirst("paper:".count)))
+            }
+            if normalized.hasPrefix("arxiv:") {
+                aliases.insert("external:\(normalized)")
+                aliases.insert(String(normalized.dropFirst("arxiv:".count)))
+            }
+        }
+        return aliases
+    }
+
+    private func aiNormalizedIdentifier(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            return ""
+        }
+        if let url = URL(string: trimmed),
+           let last = url.pathComponents.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !last.isEmpty {
+            if url.host?.contains("arxiv.org") == true {
+                return "arxiv:\(last.replacingOccurrences(of: ".pdf", with: ""))"
+            }
+            return last
+        }
+        return trimmed
+    }
+
+    private func aiEvaluationObject(from text: String) -> [String: Any]? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let jsonText: String
+        if let open = trimmed.firstIndex(of: "{"),
+           let close = trimmed.lastIndex(of: "}"),
+           open <= close {
+            jsonText = String(trimmed[open...close])
+        } else {
+            jsonText = trimmed
+        }
+        guard let data = jsonText.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private func aiDouble(_ value: Any?) -> Double {
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? Int {
+            return Double(value)
+        }
+        if let value = value as? String {
+            return Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        }
+        return 0
+    }
+
+    private func aiStringList(_ value: Any?) -> [String] {
+        if let values = value as? [String] {
+            return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        if let value = value as? String {
+            return value
+                .components(separatedBy: CharacterSet(charactersIn: ",;；\n"))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        return []
     }
 
     private var selectedCategorySummary: String {
@@ -1176,8 +1330,13 @@ private struct RecommendationScoreRow: View {
     let score: RecommendationScore
     let scope: QueueScope
     let aiComment: String?
+    let aiReview: RecommendationAIReview?
+    let feedback: RecommendationFeedbackType?
     let onAdd: () -> Void
+    let onFeedback: (RecommendationFeedbackType) -> Void
+    let onOpenReading: () -> Void
     let isAdded: Bool
+    @State private var isShowingScoreDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1211,8 +1370,8 @@ private struct RecommendationScoreRow: View {
                     }
 
                     HStack(spacing: 8) {
-                        if let year = score.candidate.publishedYear {
-                            Label(String(year), systemImage: "calendar")
+                        if let dateText = publicationDateText {
+                            Label(dateText, systemImage: "calendar")
                         }
                         if !score.candidate.categories.isEmpty {
                             Text(score.candidate.categories.prefix(4).joined(separator: " · "))
@@ -1229,7 +1388,11 @@ private struct RecommendationScoreRow: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if let aiComment, !aiComment.isEmpty {
+                    mainScoreChips
+
+                    if let aiReview {
+                        aiReviewSection(aiReview)
+                    } else if let aiComment, !aiComment.isEmpty {
                         Label(aiComment, systemImage: "sparkles")
                             .font(.callout)
                             .foregroundStyle(.primary)
@@ -1244,6 +1407,11 @@ private struct RecommendationScoreRow: View {
                         Label(appModel.localized("已在 Reading", "In Reading"), systemImage: "checkmark.circle.fill")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.green)
+                        Button(action: onOpenReading) {
+                            Label(appModel.localized("查看计划", "View plan"), systemImage: "calendar")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     } else {
                         Button(action: onAdd) {
                             Label(appModel.localized("加入 Reading", "Add to Reading"), systemImage: "plus.circle")
@@ -1251,21 +1419,155 @@ private struct RecommendationScoreRow: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                     }
+                    feedbackButtons
                 }
             }
 
-            VStack(spacing: 8) {
-                featureRow(appModel.localized("相关论文匹配", "Related-paper match"), value: score.features.libraryInterestSimilarity)
-                featureRow(appModel.localized("arXiv 新鲜度", "arXiv recency"), value: score.features.recency)
-                featureRow(appModel.localized("关键词覆盖", "Keyword coverage"), value: score.features.openGapCoverage)
-                featureRow(appModel.localized("作者重叠", "Author overlap"), value: score.features.authorOverlapWithCore)
-                featureRow(appModel.localized("Reading 去重惩罚", "Reading duplicate penalty"), value: score.features.queuePressurePenalty)
+            DisclosureGroup(isExpanded: $isShowingScoreDetails) {
+                LazyVGrid(columns: Self.detailScoreColumns, alignment: .leading, spacing: 8) {
+                    ForEach(detailScoreItems, id: \.title) { item in
+                        scoreBlock(item.title, value: item.value)
+                    }
+                }
+                .padding(.top, 6)
+            } label: {
+                Text(appModel.localized("详细评分", "Score details"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
             .padding(.leading, 66)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var publicationDateText: String? {
+        if let publishedAt = score.candidate.publishedAt {
+            return Self.paperDateFormatter.string(from: publishedAt)
+        }
+        if let year = score.candidate.publishedYear {
+            return String(year)
+        }
+        return nil
+    }
+
+    private var mainScoreChips: some View {
+        HStack(spacing: 6) {
+            scoreChip(appModel.localized("关键词", "Keyword"), value: score.features.keywordRelevance)
+            scoreChip(appModel.localized("参考", "Seed"), value: score.features.seedSimilarity)
+            scoreChip(appModel.localized("新鲜", "Recent"), value: score.features.recency)
+            scoreChip(appModel.localized("新颖", "Novel"), value: score.features.novelty)
+            if score.features.aiScore > 0 {
+                scoreChip("AI", value: score.features.aiScore)
+            }
+        }
+    }
+
+    private func scoreChip(_ title: String, value: Double) -> some View {
+        VStack(spacing: 1) {
+            Text("\(Int((value * 100).rounded()))")
+                .font(.caption.monospacedDigit().weight(.semibold))
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 44)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private var detailScoreItems: [(title: String, value: Double)] {
+        [
+            (appModel.localized("关键词相关", "Keyword"), score.features.keywordRelevance),
+            (appModel.localized("参考相似", "Seed"), score.features.seedSimilarity),
+            (appModel.localized("项目上下文", "Project"), score.features.projectContextSimilarity),
+            (appModel.localized("arXiv 新鲜度", "Recency"), score.features.recency),
+            (appModel.localized("新颖度", "Novelty"), score.features.novelty),
+            (appModel.localized("质量信号", "Quality"), score.features.quality),
+            (appModel.localized("AI 评分", "AI"), score.features.aiScore),
+            (appModel.localized("反馈偏好", "Feedback"), score.features.feedback),
+            (appModel.localized("相关论文", "Related"), score.features.libraryInterestSimilarity),
+            (appModel.localized("作者重叠", "Authors"), score.features.authorOverlapWithCore),
+            (appModel.localized("Reading 惩罚", "Reading penalty"), score.features.queuePressurePenalty),
+            (appModel.localized("重复惩罚", "Duplicate"), score.features.duplicatePenalty)
+        ]
+    }
+
+    private func scoreBlock(_ title: String, value: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(Int((value * 100).rounded()))")
+                .font(.headline.monospacedDigit().weight(.semibold))
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var feedbackButtons: some View {
+        HStack(spacing: 6) {
+            Button {
+                onFeedback(.like)
+            } label: {
+                Image(systemName: feedback == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
+            }
+            .help(appModel.localized("喜欢：强化类似推荐", "Like: prefer similar papers"))
+
+            Button {
+                onFeedback(.dislike)
+            } label: {
+                Image(systemName: feedback == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+            }
+            .help(appModel.localized("不感兴趣：降低类似推荐", "Dislike: reduce similar papers"))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private func aiReviewSection(_ review: RecommendationAIReview) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Label(appModel.localized("AI 逐篇评价", "AI paper review"), systemImage: "sparkles")
+                    .font(.caption.weight(.semibold))
+                Text(appModel.localized("风险 \(Int((review.risk * 100).rounded()))%", "Risk \(Int((review.risk * 100).rounded()))%"))
+                    .font(.caption2.monospacedDigit())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(review.risk > 0.65 ? Color.orange.opacity(0.18) : Color.green.opacity(0.16), in: Capsule())
+            }
+            if !review.recommendationComment.isEmpty {
+                Text(review.recommendationComment)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !review.summary.isEmpty {
+                Text(review.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                featurePill(appModel.localized("相关", "Rel"), value: review.relevance)
+                featurePill(appModel.localized("新颖", "Nov"), value: review.novelty)
+                featurePill(appModel.localized("方法", "Method"), value: review.methodSoundness)
+                featurePill(appModel.localized("有用", "Use"), value: review.usefulness)
+            }
+        }
+        .padding(10)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func featurePill(_ title: String, value: Double) -> some View {
+        Text("\(title) \(Int((value * 100).rounded()))")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
     }
 
     private func featureRow(_ title: String, value: Double) -> some View {
@@ -1289,9 +1591,26 @@ private struct RecommendationScoreRow: View {
         }
         NSWorkspace.shared.open(url)
     }
+
+    private static let paperDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let detailScoreColumns = [
+        GridItem(.adaptive(minimum: 92, maximum: 140), spacing: 8, alignment: .leading)
+    ]
 }
 
 private extension String {
+    var recommendationNonEmptyText: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     var recommendationArxivURLString: String? {
         let lowered = lowercased()
         guard lowered.hasPrefix("arxiv:") else {

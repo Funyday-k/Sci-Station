@@ -132,19 +132,42 @@ struct DeepSeekModelOption: Identifiable, Hashable {
 
 private enum RecommendationAIEvaluationError: LocalizedError {
     case missingAPIKey
+    case timedOut(TimeInterval)
 
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
             return "LLM API key is missing."
+        case .timedOut(let seconds):
+            return "AI request timed out after \(Int(seconds)) seconds."
         }
     }
 }
 
-private struct RecommendationAISearchStrategy: Hashable {
+private struct RecommendationAISearchStrategy: Hashable, Sendable {
     var query: String
     var categories: [String]
     var source: String
+}
+
+private func recommendationWithTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(max(seconds, 1) * 1_000_000_000))
+            throw RecommendationAIEvaluationError.timedOut(seconds)
+        }
+        guard let value = try await group.next() else {
+            throw RecommendationAIEvaluationError.timedOut(seconds)
+        }
+        group.cancelAll()
+        return value
+    }
 }
 
 struct AppShellRenderState {
@@ -395,8 +418,10 @@ final class AppViewModel: ObservableObject {
     private var readingPlanWorkspaceID: URL?
     private var readingPlanChangeWatchTask: Task<Void, Never>?
     @Published private(set) var readingPlanScopes: [String: [ReadingPlan]] = [:]
+    private let recommendationFeedbackStore = RecommendationFeedbackStore()
     @Published private(set) var recommendationRunResult: RecommendationRunResult?
     @Published private(set) var recommendationHistory: [RecommendationRunResult] = []
+    @Published private(set) var recommendationFeedbackByScoreID: [String: RecommendationFeedbackType] = [:]
     @Published private(set) var recommendationCandidateCount: Int = 0
     @Published private(set) var isRefreshingRecommendations: Bool = false
     @Published private(set) var isEvaluatingRecommendationsWithAI: Bool = false
@@ -7441,9 +7466,12 @@ final class AppViewModel: ObservableObject {
         recommendationCandidateCount = result.candidateCount
         recommendationErrorMessage = nil
         recommendationAIEvaluationStatusMessage = nil
+        Task {
+            await refreshRecommendationFeedbackState(for: result)
+        }
     }
 
-    func refreshArxivRecommendations(project: ResearchProject?, query: String, categories: [String], topK: Int, aiModel: String = "deepseek-v4-flash", referencePaperIDs: Set<Paper.ID> = []) {
+    func refreshArxivRecommendations(project: ResearchProject?, query: String, categories: [String], topK: Int, includeCrossList: Bool = true, aiModel: String = "deepseek-v4-flash", referencePaperIDs: Set<Paper.ID> = []) {
         guard let workspace = currentWorkspace else {
             return
         }
@@ -7455,6 +7483,16 @@ final class AppViewModel: ObservableObject {
         let referencePapers = recommendationReferencePapers(ids: referencePaperIDs)
         let referenceIDs = referencePapers.map(\.id)
         let referenceIDSet = Set(referenceIDs)
+        let weightedKeywords = WeightedKeyword.parse(trimmedQuery)
+        let request = PaperRecommendationRequest(
+            arxivCategories: categoriesForRequest,
+            includeCrossList: includeCrossList,
+            keywords: weightedKeywords,
+            seedPaperIDs: referenceIDs,
+            projectID: project?.id,
+            limit: requestedTopK,
+            aiModel: selectedAIModel
+        )
         isRefreshingRecommendations = true
         recommendationErrorMessage = nil
         recommendationAIEvaluationStatusMessage = nil
@@ -7473,15 +7511,27 @@ final class AppViewModel: ObservableObject {
                     workspace: workspace,
                     project: project,
                     referencePapers: referencePapers,
+                    includeCrossList: request.includeCrossList,
                     aiModel: selectedAIModel
                 )
                 config.maxDailyCandidates = min(max(config.maxDailyCandidates, requestedTopK * 5), 100)
+                let existingHistory = (try? await recommendationPipeline.loadHistory(workspace: workspace, limit: 200)) ?? recommendationHistory
+                let feedbackRecords = (try? await recommendationFeedbackStore.load(in: workspace)) ?? []
+                let feedbackProfile = RecommendationFeedbackStore.profile(
+                    records: feedbackRecords,
+                    scores: existingHistory.flatMap(\.scores),
+                    projectID: project?.id
+                )
                 let context = RecommendationContext(
                     projectID: project?.id,
                     corePaperIDs: referenceIDSet,
                     queueStatusByID: recommendationQueueStatusIndex(),
                     openGapKeywords: recommendationKeywords(query: trimmedQuery, project: project, categories: categoriesForRequest),
+                    weightedKeywords: weightedKeywords,
                     interestPapers: referencePapers,
+                    seedPapers: referencePapers,
+                    projectContextTexts: recommendationProjectContextTexts(project: project),
+                    feedbackProfile: feedbackProfile,
                     evaluatedAt: Date()
                 )
                 let result = try await recommendationPipeline.run(
@@ -7498,12 +7548,16 @@ final class AppViewModel: ObservableObject {
                     query: trimmedQuery,
                     categories: categoriesForRequest,
                     referencePaperIDs: referenceIDs,
+                    keywords: weightedKeywords,
+                    includeCrossList: request.includeCrossList,
+                    aiModel: selectedAIModel,
                     sourceDate: search.sourceDate,
                     sourceNote: search.sourceNote
                 )
                 recommendationCandidateCount = search.candidates.count
                 if var result {
                     recommendationRunResult = result
+                    await refreshRecommendationFeedbackState(for: result)
                     if result.scores.isEmpty {
                         recommendationAIEvaluationStatusMessage = localized(
                             "本次 AI/arXiv 搜索没有可显示推荐。候选 \(result.candidateCount) 篇，来源：\(search.sourceNote)。",
@@ -7520,6 +7574,7 @@ final class AppViewModel: ObservableObject {
                             result.aiEvaluation = try await evaluateRecommendationsWithAI(result, model: selectedAIModel)
                             try await recommendationPipeline.persistSnapshot(result, workspace: workspace)
                             recommendationRunResult = result
+                            await refreshRecommendationFeedbackState(for: result)
                             recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
                             recommendationAIEvaluationStatusMessage = localized("AI 已完成推荐评价。", "AI evaluation completed.")
                         } catch {
@@ -7534,6 +7589,7 @@ final class AppViewModel: ObservableObject {
                     "candidate_count": .number(String(search.candidates.count)),
                     "top_k": .number(String(result?.scores.count ?? 0)),
                     "reference_paper_count": .number(String(referenceIDs.count)),
+                    "include_cross_list": .bool(request.includeCrossList),
                     "source_note": .string(search.sourceNote),
                     "scope": .string(project.map { "project:\($0.id)" } ?? "workspace")
                 ]))
@@ -7566,6 +7622,48 @@ final class AppViewModel: ObservableObject {
             noteSummary: score.reason,
             sourceRefs: ["recommendation:\(recommendationRunResult?.id ?? score.id)", "arxiv:\(externalKey)"]
         )
+        recordRecommendationFeedback(.addToQueue, for: score, scope: scope)
+    }
+
+    func recommendationFeedbackType(for score: RecommendationScore) -> RecommendationFeedbackType? {
+        recommendationFeedbackByScoreID[score.id]
+    }
+
+    func recordRecommendationFeedback(_ type: RecommendationFeedbackType, for score: RecommendationScore, scope: QueueScope? = nil) {
+        guard let workspace = currentWorkspace else {
+            return
+        }
+        let runID = recommendationRunResult?.id ?? score.id
+        let projectID = scope?.projectIDForRecommendationFeedback ?? recommendationRunResult?.contextProjectID ?? currentProjectID
+        Task {
+            do {
+                try await recommendationFeedbackStore.record(
+                    candidate: score.candidate,
+                    type: type,
+                    projectID: projectID,
+                    recommendationRunID: runID,
+                    in: workspace
+                )
+                recommendationFeedbackByScoreID[score.id] = type
+                recordAppDebugEvent("recommendation.feedback", payload: .object([
+                    "score_id": .string(score.id),
+                    "feedback_type": .string(type.rawValue),
+                    "run_id": .string(runID),
+                    "project_id_present": .bool(projectID != nil)
+                ]))
+            } catch {
+                recommendationErrorMessage = localized("保存推荐反馈失败：\(error.localizedDescription)", "Failed to save recommendation feedback: \(error.localizedDescription)")
+                recordAppDebugEvent("recommendation.error", payload: .object([
+                    "phase": .string("feedback_save"),
+                    "score_id": .string(score.id),
+                    "reason": .string(error.localizedDescription)
+                ]))
+            }
+        }
+    }
+
+    func openRecommendationReadingQueue() {
+        selectProjectSpaceTab("queue")
     }
 
     func archiveRecommendationHistory(_ result: RecommendationRunResult) {
@@ -7610,11 +7708,19 @@ final class AppViewModel: ObservableObject {
         config.externalNetworkEnabled = true
         config.weights = RecommendationWeights(
             citedByCore: 0,
-            libraryInterestSimilarity: 0.35,
-            recency: 0.25,
-            openGapCoverage: 0.30,
+            libraryInterestSimilarity: 0.10,
+            keywordRelevance: 0.20,
+            seedSimilarity: 0.25,
+            projectContextSimilarity: 0.15,
+            recency: 0.15,
+            novelty: 0.10,
+            quality: 0.05,
+            aiScore: 0.10,
+            feedback: 0.05,
+            openGapCoverage: 0.10,
             authorOverlapWithCore: 0.10,
-            queuePressurePenalty: 0.80
+            queuePressurePenalty: 0.80,
+            duplicatePenalty: 0.90
         )
         return config
     }
@@ -7627,6 +7733,7 @@ final class AppViewModel: ObservableObject {
         workspace: ResearchWorkspace,
         project: ResearchProject?,
         referencePapers: [Paper],
+        includeCrossList: Bool,
         aiModel: String
     ) async throws -> (candidates: [RecommendationCandidate], sourceDate: Date, sourceNote: String) {
         let maxResults = min(max(config.maxDailyCandidates, topK * 5), 100)
@@ -7644,6 +7751,7 @@ final class AppViewModel: ObservableObject {
                     categories: categories,
                     project: project,
                     referencePapers: referencePapers,
+                    includeCrossList: includeCrossList,
                     topK: topK,
                     model: aiModel
                 )
@@ -7670,11 +7778,25 @@ final class AppViewModel: ObservableObject {
         var candidatesByKey: [String: RecommendationCandidate] = [:]
         var usedStrategies: [RecommendationAISearchStrategy] = []
         for strategy in uniqueRecommendationSearchStrategies(strategies) {
-            let candidates = try await arxivRecommendationClient.fetch(ArxivRecommendationRequest(
+            let request = ArxivRecommendationRequest(
                 query: strategy.query,
                 categories: strategy.categories.isEmpty ? categories : strategy.categories,
                 maxResults: maxResults
-            ))
+            )
+            let candidates: [RecommendationCandidate]
+            do {
+                let client = arxivRecommendationClient
+                candidates = try await recommendationWithTimeout(seconds: 20) {
+                    try await client.fetch(request)
+                }
+            } catch {
+                statusNotes.append(localized("一个 arXiv 搜索已跳过：\(error.localizedDescription)", "Skipped one arXiv search: \(error.localizedDescription)"))
+                recordAppDebugEvent("recommendation.error", payload: .object([
+                    "phase": .string("arxiv_fetch"),
+                    "reason": .string(error.localizedDescription)
+                ]))
+                continue
+            }
             if !candidates.isEmpty {
                 usedStrategies.append(strategy)
             }
@@ -7689,7 +7811,11 @@ final class AppViewModel: ObservableObject {
             }
         }
 
-        let candidates = Array(candidatesByKey.values)
+        let candidates = RecommendationPipeline.filterCategoryBoundary(
+            Array(candidatesByKey.values),
+            selectedCategories: categories,
+            includeCrossList: includeCrossList
+        )
             .sorted { lhs, rhs in
                 if lhs.publishedAt == rhs.publishedAt {
                     return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
@@ -7724,6 +7850,7 @@ final class AppViewModel: ObservableObject {
         categories: [String],
         project: ResearchProject?,
         referencePapers: [Paper],
+        includeCrossList: Bool,
         topK: Int,
         model: String
     ) async throws -> [RecommendationAISearchStrategy] {
@@ -7735,17 +7862,22 @@ final class AppViewModel: ObservableObject {
         configuration.model = model
         configuration.temperature = 0.15
         configuration.maxTokens = 1600
-        let response = try await openAIProvider.complete(
-            prompt: recommendationAISearchPrompt(
-                query: query,
-                categories: categories,
-                project: project,
-                referencePapers: referencePapers,
-                topK: topK
-            ),
-            configuration: configuration,
-            apiKey: apiKey
+        let prompt = recommendationAISearchPrompt(
+            query: query,
+            categories: categories,
+            project: project,
+            referencePapers: referencePapers,
+            includeCrossList: includeCrossList,
+            topK: topK
         )
+        let provider = openAIProvider
+        let response = try await recommendationWithTimeout(seconds: 20) {
+            try await provider.complete(
+                prompt: prompt,
+                configuration: configuration,
+                apiKey: apiKey
+            )
+        }
         return parseRecommendationAISearchStrategies(response, fallbackCategories: categories)
     }
 
@@ -7754,6 +7886,7 @@ final class AppViewModel: ObservableObject {
         categories: [String],
         project: ResearchProject?,
         referencePapers: [Paper],
+        includeCrossList: Bool,
         topK: Int
     ) -> String {
         let projectText = project.map { project in
@@ -7784,7 +7917,8 @@ final class AppViewModel: ObservableObject {
         - Generate 3 to 5 complementary arXiv searches for finding recommendation candidates.
         - Use the selected reference papers as the main relevance signal.
         - Keep queries broad enough to return papers. Do not use full titles as queries.
-        - Prefer the user-selected categories, but you may include closely related arXiv categories.
+        - Treat the selected arXiv categories as a hard boundary. Only return categories from the selected list.
+        - include_cross_list is \(includeCrossList ? "true" : "false"): if false, candidates must have one selected category as their primary arXiv category.
         - The user asked for \(topK) recommendations.
 
         User query:
@@ -7813,9 +7947,11 @@ final class AppViewModel: ObservableObject {
         return rawSearches.compactMap { item in
             let query = ((item["query"] as? String) ?? (item["keywords"] as? String) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let categories = recommendationStringList(from: item["categories"])
+            let rawCategories = recommendationStringList(from: item["categories"])
                 .prefix(6)
                 .map { $0 }
+            let allowed = Set(fallbackCategories.map { $0.lowercased() })
+            let categories = rawCategories.filter { allowed.contains($0.lowercased()) }
             let resolvedCategories = categories.isEmpty ? fallbackCategories : categories
             guard !query.isEmpty || !resolvedCategories.isEmpty else {
                 return nil
@@ -7895,6 +8031,49 @@ final class AppViewModel: ObservableObject {
         return (tokens + categories.map { $0.lowercased() }).filter { !$0.isEmpty }
     }
 
+    private func recommendationProjectContextTexts(project: ResearchProject?) -> [String] {
+        var texts: [String] = []
+        if let project {
+            texts.append([project.name, project.description, project.defaultTags.joined(separator: " ")].joined(separator: " "))
+            texts.append(contentsOf: papers(for: project.id).prefix(20).map(RecommendationScorer.paperText(_:)))
+        } else {
+            texts.append(contentsOf: papers.prefix(20).map(RecommendationScorer.paperText(_:)))
+        }
+        return texts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func refreshRecommendationFeedbackState(for result: RecommendationRunResult) async {
+        guard let workspace = currentWorkspace else {
+            recommendationFeedbackByScoreID = [:]
+            return
+        }
+        do {
+            let records = try await recommendationFeedbackStore.load(in: workspace)
+            recommendationFeedbackByScoreID = recommendationFeedbackState(records: records, result: result)
+        } catch {
+            recommendationFeedbackByScoreID = [:]
+            recordAppDebugEvent("recommendation.error", payload: .object([
+                "phase": .string("feedback_load"),
+                "run_id": .string(result.id),
+                "reason": .string(error.localizedDescription)
+            ]))
+        }
+    }
+
+    private func recommendationFeedbackState(records: [RecommendationFeedbackRecord], result: RecommendationRunResult) -> [String: RecommendationFeedbackType] {
+        var state: [String: RecommendationFeedbackType] = [:]
+        let sortedRecords = records.sorted { $0.createdAt < $1.createdAt }
+        for score in result.scores {
+            let keys = RecommendationFeedbackStore.candidateKeys(score.candidate)
+            if let record = sortedRecords.last(where: { keys.contains($0.paperKey) && ($0.projectID == nil || $0.projectID == result.contextProjectID) }) {
+                state[score.id] = record.feedbackType
+            }
+        }
+        return state
+    }
+
     private func recommendationReferencePapers(ids: Set<Paper.ID>) -> [Paper] {
         papers.filter { ids.contains($0.id) }
     }
@@ -7929,12 +8108,16 @@ final class AppViewModel: ObservableObject {
         var configuration = llmConfiguration
         configuration.model = model
         configuration.temperature = 0.2
-        configuration.maxTokens = 4096
-        let response = try await openAIProvider.complete(
-            prompt: recommendationAIEvaluationPrompt(for: result),
-            configuration: configuration,
-            apiKey: apiKey
-        )
+        configuration.maxTokens = 3200
+        let prompt = recommendationAIEvaluationPrompt(for: result)
+        let provider = openAIProvider
+        let response = try await recommendationWithTimeout(seconds: 45) {
+            try await provider.complete(
+                prompt: prompt,
+                configuration: configuration,
+                apiKey: apiKey
+            )
+        }
         return parseRecommendationAIEvaluationResponse(response, model: model, result: result)
     }
 
@@ -7957,14 +8140,22 @@ final class AppViewModel: ObservableObject {
         let candidatePapers = result.scores.map { score in
             """
             ID: \(score.id)
+            External key: \(score.candidate.externalKey ?? "")
+            Canonical key: \(score.candidate.canonicalID)
             Title: \(score.candidate.displayTitle)
             Abstract: \(score.candidate.abstractText ?? "")
             """
         }
         .joined(separator: "\n\n")
         return """
-        You are evaluating paper recommendations for a research workflow. Use the user query, selected reference papers, and each candidate paper title and abstract. Return strict JSON with this shape:
-        {"overall":"one concise overall evaluation in \(language)","comments":[{"id":"paper id","comment":"one short recommendation opinion in \(language)"}]}
+        You are evaluating individual paper recommendations for a research workflow. Use the user query, selected reference papers, and each candidate paper title and abstract.
+        Do not write an overall evaluation. Return strict JSON only with this shape:
+        {"reviews":[{"id":"copy the exact candidate ID","relevance":0.0,"novelty":0.0,"method_soundness":0.0,"usefulness":0.0,"risk":0.0,"summary":"one sentence in \(language)","recommendation_comment":"one decision-oriented comment in \(language)","suitable_for":["short use case"],"possible_weaknesses":["short weakness"]}]}
+
+        Requirements:
+        - Return one review for each candidate paper.
+        - The id field must exactly copy the candidate ID line, not the arXiv URL and not a rewritten title.
+        - Keep every text field concise.
 
         User query:
         \(result.query.isEmpty ? "(empty)" : result.query)
@@ -7983,24 +8174,108 @@ final class AppViewModel: ObservableObject {
     private func parseRecommendationAIEvaluationResponse(_ response: String, model: String, result: RecommendationRunResult) -> RecommendationAIEvaluation {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         let jsonText = recommendationEvaluationJSONText(from: trimmed)
-        var overall = trimmed
+        let idAliasMap = recommendationScoreIDAliasMap(result)
+        var overall = ""
         var commentsByID: [String: String] = [:]
+        var reviewsByID: [String: RecommendationAIReview] = [:]
         if let data = jsonText.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            overall = (object["overall"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? overall
+            overall = (object["overall"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? ""
             if let comments = object["comments"] as? [[String: Any]] {
                 for comment in comments {
-                    guard let id = (comment["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    guard let rawID = (comment["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                           let text = (comment["comment"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                          !id.isEmpty,
+                          let id = idAliasMap[recommendationNormalizedAIIdentifier(rawID)],
                           !text.isEmpty else {
                         continue
                     }
                     commentsByID[id] = text
                 }
             }
+            if let reviews = object["reviews"] as? [[String: Any]] {
+                for review in reviews {
+                    guard let rawID = (review["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          let id = idAliasMap[recommendationNormalizedAIIdentifier(rawID)] else {
+                        continue
+                    }
+                    let parsed = RecommendationAIReview(
+                        relevance: recommendationDouble(from: review["relevance"]),
+                        novelty: recommendationDouble(from: review["novelty"]),
+                        methodSoundness: recommendationDouble(from: review["method_soundness"] ?? review["methodSoundness"]),
+                        usefulness: recommendationDouble(from: review["usefulness"]),
+                        risk: recommendationDouble(from: review["risk"]),
+                        summary: ((review["summary"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                        recommendationComment: ((review["recommendation_comment"] as? String) ?? (review["comment"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                        suitableFor: recommendationStringList(from: review["suitable_for"]),
+                        possibleWeaknesses: recommendationStringList(from: review["possible_weaknesses"])
+                    )
+                    reviewsByID[id] = parsed
+                    if commentsByID[id] == nil {
+                        commentsByID[id] = parsed.recommendationComment.nilIfEmpty ?? parsed.summary
+                    }
+                }
+            }
+        } else {
+            overall = trimmed.hasPrefix("{") || trimmed.hasPrefix("[") ? "" : trimmed
         }
-        return RecommendationAIEvaluation(model: model, overall: overall, commentsByScoreID: commentsByID, generatedAt: Date())
+        return RecommendationAIEvaluation(model: model, overall: overall, commentsByScoreID: commentsByID, reviewsByScoreID: reviewsByID, generatedAt: Date())
+    }
+
+    private func recommendationScoreIDAliasMap(_ result: RecommendationRunResult) -> [String: String] {
+        var aliases: [String: String] = [:]
+        for score in result.scores {
+            let rawKeys = [
+                score.id,
+                score.candidate.canonicalID,
+                score.candidate.externalKey,
+                score.candidate.paperID,
+                score.candidate.sourceURL
+            ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+            for key in rawKeys {
+                let normalized = recommendationNormalizedAIIdentifier(key)
+                aliases[normalized] = score.id
+                if normalized.hasPrefix("external:") {
+                    aliases[String(normalized.dropFirst("external:".count))] = score.id
+                }
+                if normalized.hasPrefix("paper:") {
+                    aliases[String(normalized.dropFirst("paper:".count))] = score.id
+                }
+                if normalized.hasPrefix("arxiv:") {
+                    aliases["external:\(normalized)"] = score.id
+                    aliases[String(normalized.dropFirst("arxiv:".count))] = score.id
+                }
+            }
+        }
+        return aliases
+    }
+
+    private func recommendationNormalizedAIIdentifier(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            return ""
+        }
+        if let url = URL(string: trimmed),
+           let last = url.pathComponents.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !last.isEmpty {
+            if url.host?.contains("arxiv.org") == true {
+                return "arxiv:\(last.replacingOccurrences(of: ".pdf", with: ""))"
+            }
+            return last
+        }
+        return trimmed
+    }
+
+    private func recommendationDouble(from value: Any?) -> Double {
+        if let double = value as? Double {
+            return double
+        }
+        if let int = value as? Int {
+            return Double(int)
+        }
+        if let string = value as? String, let double = Double(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return double
+        }
+        return 0
     }
 
     private func recommendationEvaluationJSONText(from response: String) -> String {
@@ -9594,5 +9869,16 @@ private extension String {
     var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension QueueScope {
+    var projectIDForRecommendationFeedback: String? {
+        switch self {
+        case .workspace:
+            return nil
+        case .project(let projectID):
+            return projectID
+        }
     }
 }
