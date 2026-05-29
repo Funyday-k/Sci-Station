@@ -52,6 +52,85 @@ public actor WorkspaceService {
         return try await openWorkspace(at: rootURL)
     }
 
+    /// Create a workspace pre-populated with example research content so a
+    /// first-time tester immediately sees a realistic Library / Wiki / project
+    /// instead of an empty shell. Example files only; no network access.
+    public func createSampleWorkspace(at rootURL: URL) async throws -> ResearchWorkspace {
+        let workspace = try await createWorkspace(at: rootURL, template: WorkspaceTemplateRegistry.literatureReview)
+        try seedSampleContent(into: workspace)
+        return workspace
+    }
+
+    private func seedSampleContent(into workspace: ResearchWorkspace) throws {
+        let sampleFiles: [(relativePath: String, contents: String)] = [
+            (
+                "shared_research.md",
+                """
+                # Shared Research Context (Sample)
+
+                This is an example Research Root created by Sci-Station so you can
+                explore the app with realistic content. Everything here lives only
+                in this local folder — delete it any time.
+
+                ## Current Focus
+                - Survey efficient attention mechanisms for long-context models.
+                - Compare memory/compute trade-offs across recent papers.
+
+                ## Reusable Prompts
+                - "Summarize this paper's method in 3 bullets and list its key assumption."
+                - "Contrast this paper with the core papers in the project canon."
+                """
+            ),
+            (
+                "wiki/concepts/attention-mechanism.md",
+                """
+                # Attention Mechanism (Sample)
+
+                Concept note demonstrating how Sci-Station stores knowledge pages.
+
+                ## Definition
+                A mechanism that weights input tokens by learned relevance so a
+                model can focus on the most informative context.
+
+                ## Why It Matters
+                Quadratic cost in sequence length motivates the efficiency work
+                tracked in `shared_research.md`.
+
+                ## Related
+                - See `wiki/papers/example-paper-note.md` for a worked example.
+                """
+            ),
+            (
+                "wiki/papers/example-paper-note.md",
+                """
+                # Example Paper Note (Sample)
+
+                Reading note showing the per-paper structure Sci-Station expects.
+
+                ## Citation
+                Placeholder et al., *An Example Paper on Efficient Attention*, 2026.
+
+                ## Contribution
+                Introduces a linear-time attention approximation.
+
+                ## Method
+                - Replace the full softmax attention with a kernel feature map.
+                - Maintain a running state to avoid storing the full matrix.
+
+                ## My Take
+                Strong fit for the long-context focus; verify the accuracy claims
+                against the benchmarks before adding to the core canon.
+                """
+            )
+        ]
+
+        for file in sampleFiles {
+            let fileURL = workspace.fileURL(for: file.relativePath)
+            try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(file.contents.utf8).write(to: fileURL, options: .atomic)
+        }
+    }
+
     public func openWorkspace(at rootURL: URL) async throws -> ResearchWorkspace {
         guard rootURL.isFileURL else {
             throw WorkspaceError.invalidRootURL

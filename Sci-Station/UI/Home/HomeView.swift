@@ -17,7 +17,7 @@ struct HomeView: View {
 
     var body: some View {
         contentWithPrimaryWatchers
-            .onChange(of: appModel.homeAggregationRevision) { _, _ in
+            .onReceive(appModel.homeDashboardStore.$homeAggregationRevision) { _ in
                 scheduleReload(reason: "home_model_change")
             }
     }
@@ -133,7 +133,7 @@ struct HomeView: View {
 
     private var workflowReadyText: String {
         workflowReady
-            ? appModel.localized("Workflow Ready", "Workflow Ready")
+            ? appModel.localized("工作流就绪", "Workflow Ready")
             : appModel.localized("无可用工作流", "No workflows available")
     }
 

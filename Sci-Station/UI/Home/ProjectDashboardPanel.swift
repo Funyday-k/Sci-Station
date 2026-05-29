@@ -13,7 +13,7 @@ struct ProjectDashboardPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(appModel.localized("Project Dashboard", "Project Dashboard"))
+                    Text(appModel.localized("项目仪表盘", "Project Dashboard"))
                         .font(.title2)
                         .fontWeight(.semibold)
                     Text(appModel.localized("阶段、缺口、artifact、deadline 与阅读 Todo。", "Stage, gaps, artifacts, deadlines, and reading todos."))
@@ -39,7 +39,7 @@ struct ProjectDashboardPanel: View {
                 }
             } else if let snapshot {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], alignment: .leading, spacing: 12) {
-                    ProjectDashboardCard(title: appModel.localized("Project Stage", "Project Stage"), systemImage: "gauge.with.dots.needle.33percent") {
+                    ProjectDashboardCard(title: appModel.localized("项目阶段", "Project Stage"), systemImage: "gauge.with.dots.needle.33percent") {
                         VStack(alignment: .leading, spacing: 8) {
                             StageBadge(stage: snapshot.stage, rule: snapshot.stageRule)
                             Text(snapshot.stageRule)
@@ -49,7 +49,7 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("Core Papers", "Core Papers"), systemImage: "star") {
+                    ProjectDashboardCard(title: appModel.localized("核心论文", "Core Papers"), systemImage: "star") {
                         if snapshot.corePapers.isEmpty {
                             ProjectDashboardEmptyText(appModel.localized("还没有核心论文。", "No core papers yet."))
                         } else {
@@ -65,7 +65,7 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("Open Gaps", "Open Gaps"), systemImage: "scope") {
+                    ProjectDashboardCard(title: appModel.localized("开放缺口", "Open Gaps"), systemImage: "scope") {
                         if snapshot.openGaps.isEmpty {
                             ProjectDashboardEmptyText(appModel.localized("没有登记的 research gap。", "No research gaps are registered."))
                         } else {
@@ -84,7 +84,7 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("Recent Artifacts", "Recent Artifacts"), systemImage: "shippingbox") {
+                    ProjectDashboardCard(title: appModel.localized("近期 Artifact", "Recent Artifacts"), systemImage: "shippingbox") {
                         if snapshot.recentArtifacts.isEmpty {
                             ProjectDashboardEmptyText(appModel.localized("暂无近期 artifact。", "No recent artifacts yet."))
                         } else {
@@ -107,7 +107,7 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("Next Deadline", "Next Deadline"), systemImage: "calendar.badge.clock") {
+                    ProjectDashboardCard(title: appModel.localized("下一截止", "Next Deadline"), systemImage: "calendar.badge.clock") {
                         if let deadline = snapshot.nextDeadline {
                             ProjectDashboardButtonRow(
                                 title: deadline.title,
@@ -165,7 +165,7 @@ struct ProjectDashboardPanel: View {
         .task(id: appModel.currentProjectID ?? "__none__") {
             await reload(invalidating: true)
         }
-        .onChange(of: appModel.projectDashboardRevision) { _, _ in
+        .onReceive(appModel.homeDashboardStore.$projectDashboardRevision) { _ in
             Task { await reload(invalidating: true) }
         }
     }

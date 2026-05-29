@@ -8,7 +8,7 @@ struct TodayPanelView: View {
 
     var body: some View {
         HomePanelSection(
-            title: appModel.localized("Today", "Today"),
+            title: appModel.localized("今日", "Today"),
             subtitle: appModel.localized("今日待处理、阅读、deadline 与 AI 草稿。", "Todos, reading, deadlines, and AI drafts for today.")
         ) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], alignment: .leading, spacing: 12) {
@@ -162,7 +162,7 @@ struct ActiveProjectsPanelView: View {
 
     var body: some View {
         HomePanelSection(
-            title: appModel.localized("Active Projects", "Active Projects"),
+            title: appModel.localized("活跃项目", "Active Projects"),
             subtitle: appModel.localized("阶段、核心论文、近期 artifact 与下个 milestone。", "Stage, core papers, recent artifacts, and next milestones.")
         ) {
             if !moduleAvailability.projectsEnabled {
@@ -208,7 +208,7 @@ struct AIReviewPanelView: View {
 
     var body: some View {
         HomePanelSection(
-            title: appModel.localized("AI Review", "AI Review"),
+            title: appModel.localized("AI 审查", "AI Review"),
             subtitle: appModel.localized("审批、unsupported claim 与 stale evidence 预警。", "Approval, unsupported claim, and stale evidence queues.")
         ) {
             if !moduleAvailability.aiLabEnabled && !moduleAvailability.draftInboxEnabled {
@@ -218,7 +218,7 @@ struct AIReviewPanelView: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12)], alignment: .leading, spacing: 12) {
                     ReviewColumn(
-                        title: appModel.localized("Needs Approval", "Needs Approval"),
+                        title: appModel.localized("待审批", "Needs Approval"),
                         systemImage: "checkmark.seal",
                         emptyMessage: appModel.localized("没有待审批草稿。", "No drafts need approval."),
                         count: aiReview.needsApproval.count
@@ -231,7 +231,7 @@ struct AIReviewPanelView: View {
                     }
 
                     ReviewColumn(
-                        title: appModel.localized("Unsupported Claims", "Unsupported Claims"),
+                        title: appModel.localized("缺乏支撑的论断", "Unsupported Claims"),
                         systemImage: "quote.bubble",
                         emptyMessage: appModel.localized("没有 unsupported claim。", "No unsupported claims."),
                         count: aiReview.unsupportedClaims.count
@@ -249,7 +249,7 @@ struct AIReviewPanelView: View {
                     }
 
                     ReviewColumn(
-                        title: appModel.localized("Stale Evidence", "Stale Evidence"),
+                        title: appModel.localized("过期证据", "Stale Evidence"),
                         systemImage: "exclamationmark.triangle",
                         emptyMessage: appModel.localized("没有 stale evidence warning。", "No stale evidence warnings."),
                         count: aiReview.staleEvidenceWarnings.count
@@ -311,10 +311,10 @@ private struct ActiveProjectRow: View {
                     Spacer(minLength: 0)
 
                     HStack(spacing: 8) {
-                        HomeMetricPill(label: appModel.localized("Core", "Core"), value: "\(project.coreCount)")
-                        HomeMetricPill(label: appModel.localized("Recent", "Recent"), value: "\(project.recentPaperCount)")
-                        HomeMetricPill(label: appModel.localized("Gaps", "Gaps"), value: "\(project.openGapsCount)")
-                        HomeMetricPill(label: appModel.localized("Open", "Open"), value: "\(project.openTodoCount)")
+                        HomeMetricPill(label: appModel.localized("核心", "Core"), value: "\(project.coreCount)")
+                        HomeMetricPill(label: appModel.localized("近期", "Recent"), value: "\(project.recentPaperCount)")
+                        HomeMetricPill(label: appModel.localized("缺口", "Gaps"), value: "\(project.openGapsCount)")
+                        HomeMetricPill(label: appModel.localized("未完成", "Open"), value: "\(project.openTodoCount)")
                     }
                 }
             }

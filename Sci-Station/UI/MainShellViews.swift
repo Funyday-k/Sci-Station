@@ -1044,6 +1044,7 @@ struct WorkspaceInspectorView: View {
 }
 
 private struct EmptyWorkspaceView: View {
+    @EnvironmentObject private var appModel: AppViewModel
     let isWorking: Bool
     let createWorkspace: () -> Void
     let openWorkspace: () -> Void
@@ -1053,48 +1054,80 @@ private struct EmptyWorkspaceView: View {
             Text("Sci-Station")
                 .font(.system(size: 42, weight: .bold, design: .rounded))
 
-            Text("Local-first research workstation for PDFs, Markdown knowledge pages, and LLM-assisted synthesis.")
+            Text(appModel.localized(
+                "面向本地的科研工作站：管理 PDF、Markdown 知识页与 LLM 协助的综述。",
+                "Local-first research workstation for PDFs, Markdown knowledge pages, and LLM-assisted synthesis."
+            ))
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
-                Button("Create Workspace", action: createWorkspace)
+                Button(appModel.localized("创建 Workspace", "Create Workspace"), action: createWorkspace)
                     .buttonStyle(.borderedProminent)
-                Button("Open Existing Workspace", action: openWorkspace)
+                Button(appModel.localized("打开已有 Workspace", "Open Existing Workspace"), action: openWorkspace)
                     .buttonStyle(.bordered)
+                Button(appModel.localized("试用示例 Workspace", "Try Sample Workspace")) {
+                    appModel.createSampleWorkspace()
+                }
+                .buttonStyle(.bordered)
             }
+
+            Text(appModel.localized(
+                "示例 Workspace 会创建一个带有示例 Wiki 与研究笔记的本地文件夹，便于立即体验。",
+                "The sample workspace creates a local folder seeded with example wiki pages and research notes so you can explore right away."
+            ))
+                .font(.callout)
+                .foregroundStyle(.secondary)
 
             if isWorking {
-                ProgressView("Preparing workspace…")
+                ProgressView(appModel.localized("正在准备 workspace…", "Preparing workspace…"))
             }
 
-            GroupBox("Quick Start") {
+            GroupBox(appModel.localized("快速开始", "Quick Start")) {
                 VStack(alignment: .leading, spacing: 12) {
                     TrialStepRow(
                         index: "1",
-                        title: "Create a Research Root",
-                        detail: "Choose an empty local folder outside this source repo. Sci-Station creates the library, projects, wiki, tasks, settings, and agent state there."
+                        title: appModel.localized("创建 Research Root", "Create a Research Root"),
+                        detail: appModel.localized(
+                            "选择源码仓库之外的一个空文件夹。Sci-Station 会在其中创建 library、projects、wiki、tasks、settings 与 agent 状态。",
+                            "Choose an empty local folder outside this source repo. Sci-Station creates the library, projects, wiki, tasks, settings, and agent state there."
+                        )
                     )
                     TrialStepRow(
                         index: "2",
-                        title: "Import Papers",
-                        detail: "Use Import PDF, drag in a PDF, or paste DOI/arXiv/PDF links with Add by Identifier."
+                        title: appModel.localized("导入论文", "Import Papers"),
+                        detail: appModel.localized(
+                            "使用 Import PDF、拖入 PDF，或通过 Add by Identifier 粘贴 DOI/arXiv/PDF 链接。",
+                            "Use Import PDF, drag in a PDF, or paste DOI/arXiv/PDF links with Add by Identifier."
+                        )
                     )
                     TrialStepRow(
                         index: "3",
-                        title: "Work In Projects",
-                        detail: "Create a project, edit its Project Brief, collect core papers, and keep data, code, figures, and outputs under Materials."
+                        title: appModel.localized("在项目中工作", "Work In Projects"),
+                        detail: appModel.localized(
+                            "创建项目、编辑 Project Brief、收集核心论文，并把数据、代码、图表与产出放在 Materials 下。",
+                            "Create a project, edit its Project Brief, collect core papers, and keep data, code, figures, and outputs under Materials."
+                        )
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
 
-            GroupBox("Privacy") {
+            GroupBox(appModel.localized("隐私", "Privacy")) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("All workspace files stay in the selected Research Root.", systemImage: "folder")
-                    Label("LLM and MinerU tokens are optional and saved to macOS Keychain.", systemImage: "key")
-                    Label("Before sharing a Research Root, check papers, notes, data, and agent logs for private content.", systemImage: "checkmark.shield")
+                    Label(appModel.localized(
+                        "所有 workspace 文件都保存在你选择的 Research Root 内。",
+                        "All workspace files stay in the selected Research Root."
+                    ), systemImage: "folder")
+                    Label(appModel.localized(
+                        "LLM 与 MinerU 令牌是可选的，且保存在 macOS 钥匙串。",
+                        "LLM and MinerU tokens are optional and saved to macOS Keychain."
+                    ), systemImage: "key")
+                    Label(appModel.localized(
+                        "在分享 Research Root 前，请检查论文、笔记、数据与 agent 日志中是否含有隐私内容。",
+                        "Before sharing a Research Root, check papers, notes, data, and agent logs for private content."
+                    ), systemImage: "checkmark.shield")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)

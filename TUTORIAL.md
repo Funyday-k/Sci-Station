@@ -2,7 +2,7 @@
 
 This tutorial walks through Sci-Station as a product: a local-first research workstation for macOS. It is intended for first-time testers running the app from source.
 
-> Prefer Chinese? Read [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md). For the product overview, see [README.md](README.md) or [README.zh-CN.md](README.zh-CN.md).
+> Prefer Chinese? Read [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md). For the product overview, see [README.en.md](README.en.md) or the Chinese-first [README.md](README.md).
 
 ## 1. Prepare The Environment
 

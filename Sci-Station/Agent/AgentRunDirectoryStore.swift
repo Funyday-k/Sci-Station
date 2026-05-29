@@ -443,6 +443,14 @@ public actor AgentRunDirectoryStore {
         redactSensitiveTextInternal(text)
     }
 
+    /// Public path-aware redactor. Collapses the home directory to `~`, strips
+    /// absolute paths, and removes secret-looking tokens. Used to sanitise the
+    /// top-level identifier fields of `AppDebugEvent` so the user's absolute
+    /// workspace path never reaches `app_events.jsonl`.
+    public nonisolated static func redactPathLikeTextPublic(_ text: String) -> String {
+        redactPathLikeText(text)
+    }
+
     private nonisolated static func redactSensitiveTextInternal(_ text: String) -> String {
         var redacted = text.replacingOccurrences(of: #"sk-[A-Za-z0-9_\-]+"#, with: "[REDACTED]", options: .regularExpression)
         redacted = redacted.replacingOccurrences(of: #"(?i)(api[_-]?key|token|secret|password|bearer|authorization|cookie|session|jwt)\s*[:=]\s*[^\s,}\]]+"#, with: "$1=[REDACTED]", options: .regularExpression)

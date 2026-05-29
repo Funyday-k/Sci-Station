@@ -1,106 +1,122 @@
 # Sci-Station
 
-**Sci-Station is a local-first research workstation for macOS.** It gives researchers a single place to collect papers, organize project knowledge, inspect PDFs, manage materials and tasks, and optionally run auditable AI-assisted research workflows while keeping the research root on the local file system.
+> 当前版本：Beta 0.0.1
+> 面向平台：macOS
+> 当前状态：本地测试版，已可打包 DMG，尚未作为公证后的公开发行版发布。
 
-> Prefer Chinese? Read [README.zh-CN.md](README.zh-CN.md). The hands-on tutorial is available in [English](TUTORIAL.md) and [Chinese](TUTORIAL.zh-CN.md).
+Sci-Station 是一个面向科研工作的本地优先工作站。它把论文库、项目知识、PDF 阅读、材料文件、任务日历和可选 AI 实验室放在同一个 macOS 应用里，并把主要数据保存到用户选择的本地科研根目录中。
 
-## Product Idea
+英文文档见 [README.en.md](README.en.md)。完整中文教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)。
 
-Most research projects begin as scattered PDFs, notes, code folders, todo lists, browser links, and half-written proposals. Sci-Station treats that mess as a product problem: it creates a visible Research Root, then turns the local folder into an organized workspace for literature review, project planning, evidence tracking, and day-to-day research work.
+## 截图
 
-Sci-Station is built around three principles:
+待补：建议放一张干净的首屏或工作区截图，用来展示论文库、项目空间、PDF 阅读器或 AI 实验室的整体形态。截图前请隐藏私人论文题目、本地路径、API 配置和未公开研究内容。
 
-- **Local-first ownership**: papers, notes, project files, task lists, AI run logs, and generated artifacts live in a folder you choose.
-- **Research-native structure**: the app starts from papers, projects, wiki pages, materials, figures, outputs, tasks, and citations instead of generic file management.
-- **Auditable AI assistance**: optional LLM and agent workflows are designed around explicit settings, Keychain-backed secrets, permission review, evidence references, and reproducible run logs.
+## 基本介绍
 
-## What Makes It Different
+科研项目常常散落在 PDF、笔记、代码、数据、图表、任务、链接和研究计划草稿里。Sci-Station 的目标是把这些内容收束成一个可见、可审计、可带走的本地科研工作区：用户选择一个科研根目录，应用在其中组织论文、项目、知识库、材料、任务和 AI 运行记录。
 
-- **One Research Root instead of another silo**: the workspace is a normal directory tree that can be inspected in Finder, opened in VS Code, backed up, or versioned selectively.
-- **Paper library plus project context**: imported PDFs receive metadata, notes, citation data, wiki pages, and project links so a library can become a living research plan.
-- **Markdown as the knowledge layer**: project briefs, paper notes, concepts, methods, gaps, and shared research context remain editable Markdown files.
-- **Materials for real working files**: data, code, figures, scripts, prompts, and outputs can be previewed from the app and opened in VS Code or external tools.
-- **PDF reading tied to research actions**: the built-in reader connects metadata, notes, tasks, citations, links, abstract, and files around the current paper.
-- **Optional AI Lab with boundaries**: AI settings are user-provided, sensitive values are stored in Keychain, write actions stay behind the permission layer, and run artifacts are logged for review.
+核心原则：
 
-## Current Capabilities
+- **本地优先**：论文、笔记、项目文件、任务和运行日志保存在用户自己的目录中。
+- **科研原生**：围绕论文、项目、引用、材料、图表、输出和实验记录组织信息。
+- **可审计 AI**：AI 是可选能力；凭据进入 macOS 钥匙串，写入动作经过权限确认，运行结果可回看。
 
-Sci-Station currently includes:
+## 基本功能
 
-- macOS SwiftUI app with a three-column workspace interface.
-- Local Research Root creation, opening, repair, and security-scoped bookmark restore.
-- Paper import from PDF drag/drop, file picker, DOI, arXiv, PDF URL, and general links.
-- Paper metadata editing with `meta.yaml`, BibTeX support, tags, reading status, priority, rating, abstract, identifiers, and publication fields.
-- Library table with search, sorting, configurable columns, multi-selection, batch metadata operations, citation copying, and PDF preview/opening.
-- Project overview with project brief, core papers, project documents, research workflow links, and task summary.
-- Markdown wiki editor with Source, Preview, Split modes, YAML frontmatter, `[[wikilink]]`, backlinks, snippets, GFM tables, code blocks, images, and KaTeX rendering.
-- Materials browser for Markdown, Python, text, image, PDF, data, code, figure, output, script, and prompt files.
-- VS Code / VSCodium bridge for opening workspace files and preparing Python run tasks.
-- Local todo and calendar views with optional Apple Calendar / Reminders integration.
-- PDF Reader with search, navigation, zoom, notes, linked tasks, citations, links, abstract, and file panel.
-- AI Lab V1 with project-scoped conversations, plan review, permission dock, run/thread history, hook activity, MCP preset display, runtime selector foundation, and audit logs.
-- SwiftPM core validation runner plus Python sidecar test suite for agent runtime contracts.
+- **工作区管理**：创建、打开、修复科研根目录，并恢复最近使用的工作区。
+- **论文库**：支持 PDF 拖入、文件选择、DOI、arXiv、PDF 链接和普通链接导入。
+- **元数据管理**：保存标题、作者、年份、摘要、标签、阅读状态、优先级、评分、BibTeX 和标识符。
+- **PDF Reader**：支持搜索、翻页、缩放、论文笔记、相关任务、引用、链接和文件面板。
+- **项目空间**：为每个研究项目维护项目简介、核心论文、项目文档、任务和研究流程。
+- **Markdown 知识库**：支持源码、预览、分屏、元信息、`[[wikilink]]`、反向链接、表格、代码块、图片和 KaTeX。
+- **材料区**：统一管理数据、代码、图表、脚本、提示词、输出等真实工作文件，并可从应用打开到 VS Code 或外部工具。
+- **任务与日历**：提供本地待办、日历视图，并可选接入 Apple Calendar / Reminders。
+- **AI 实验室 V1**：支持项目会话、计划审查、权限面板、运行历史、钩子、MCP 预设展示和审计日志。
+- **打包测试**：提供测试版 DMG 打包脚本，便于上传到发布页做小范围测试。
 
-The app is still a trial/development build, not a notarized public release.
+## 当前测试状态
 
-## Quick Start
+- 当前版本定为 **Beta 0.0.1**。
+- 已完成可分发 DMG 打包流程，默认输出为 `.tmp/beta-package/Sci-Station-beta.dmg`。
+- 该版本适合内部测试和手动回归，不建议作为公开稳定版使用。
+- 未公证或 ad-hoc/development 签名的构建首次打开时可能触发 Gatekeeper 提醒，测试者需要右键选择 `Open`。
+- AI、MinerU、Crossref、arXiv、INSPIRE 等联网能力依赖用户自己的配置和第三方服务可用性。
 
-Requirements:
+## 版本管理
 
-- macOS 14 or later
-- Xcode 15 or later
+从 Beta 0.0.1 开始，建议后续每次测试包都固定以下信息：
 
-Run the app from source:
+- App 展示版本：例如 `0.0.1`、`0.0.2`。
+- Release 标题：例如 `Sci-Station Beta 0.0.1`。
+- DMG 文件：上传对应版本的测试包。
+- 变更说明：记录新增功能、修复问题、已知限制和测试建议。
+- 手动测试记录：发布前按 `DOC/manual-tests/` 中的协议完成重点流程检查。
+
+## 接下来会开发
+
+- **正式版本管理流程**：补充变更日志、发布检查清单、标签规范和构建号管理。
+- **签名与公证**：完善 Developer ID 签名、公证和 Gatekeeper 友好的分发流程。
+- **AI 实验室深化**：继续接入边车运行时、工具权限、证据引用、产物和调试包。
+- **论文图谱与推荐**：增强论文关系、研究队列、阅读计划和推荐工作流。
+- **工作区模板**：提供更清晰的项目模板、模块设置和初始化流程。
+- **导入与转换质量**：继续提升 DOI、arXiv、网页导入、PDF 转 Markdown 和元数据补全。
+- **稳定性与本地化**：扩大手动回归覆盖，完善中英文文案、教程和测试数据。
+
+## 快速开始
+
+使用测试版 DMG：
+
+1. 从 Release 下载 `Sci-Station-beta.dmg`。
+2. 打开 DMG，将 `Sci-Station.app` 拖入 `/Applications`。
+3. 如果 macOS 提示无法验证开发者，右键应用并选择 `Open`。
+4. 首次启动后选择 `Create Workspace`，创建一个空文件夹作为科研根目录。
+5. 在 Library 导入 PDF，或用 DOI、arXiv、PDF URL、网页链接添加论文。
+6. 创建项目，在项目概览中开始写项目简介、笔记和任务。
+
+从源码运行：
 
 ```bash
 open Sci-Station.xcodeproj
 ```
 
-In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command + R`.
+在 Xcode 中选择 `Sci-Station` scheme，运行目标选择 `My Mac`，按 `Command + R`。
 
-First launch:
+生成测试 DMG：
 
-1. Click `Create Workspace`.
-2. Choose an empty folder as the Research Root. Do not choose the source repository itself.
-3. Open Library and import a PDF, drag in a PDF, or use `Add by Identifier` for a DOI, arXiv ID, PDF URL, or web link.
-4. Create a project, open its Project Overview, and start writing the project brief or core paper notes.
-5. Use Materials for data, code, figures, scripts, prompts, and outputs.
-6. Configure AI only when needed from `Settings -> AI Lab` with your own OpenAI-compatible provider.
+```bash
+Tools/scripts/package-beta.sh
+```
 
-For a fuller walkthrough, read [TUTORIAL.md](TUTORIAL.md).
+没有 Apple Developer 账号或本机签名证书时，可使用 ad-hoc 打包：
 
-## Workspace Layout
+```bash
+SCI_STATION_SIGNING=adhoc Tools/scripts/package-beta.sh
+```
 
-A Research Root is intentionally readable:
+## 工作区结构
+
+科研根目录是一个普通本地目录，主要结构如下：
 
 ```text
 ResearchRoot/
 ├── .sci-station/
-│   ├── project_registry.yaml
-│   └── agent/
 ├── library/
-│   ├── papers/
-│   │   └── {paper-id}/
-│   │       ├── paper.pdf
-│   │       ├── paper.md
-│   │       ├── meta.yaml
-│   │       ├── annotations.md
-│   │       └── figures/
-│   ├── refs/
-│   ├── paper_index.yaml
-│   └── project_paper_links.yaml
-├── projects/
-│   └── {project-id}/
-│       ├── project.yaml
-│       ├── shared_research.md
-│       ├── wiki/
-│       ├── tasks/
-│       ├── data/
-│       ├── code/
-│       ├── figures/
-│       └── outputs/
-├── inbox/
-├── raw/
+│   └── papers/{paper-id}/
+│       ├── paper.pdf
+│       ├── paper.md
+│       ├── meta.yaml
+│       ├── annotations.md
+│       └── figures/
+├── projects/{project-id}/
+│   ├── project.yaml
+│   ├── shared_research.md
+│   ├── wiki/
+│   ├── tasks/
+│   ├── data/
+│   ├── code/
+│   ├── figures/
+│   └── outputs/
 ├── wiki/
 ├── refs/
 ├── settings/
@@ -116,107 +132,41 @@ ResearchRoot/
 └── researchflow.sqlite
 ```
 
-Most files are plain Markdown, YAML, PDF, BibTeX, source code, images, or data files. This keeps the workspace useful outside the app.
+大多数内容是 Markdown、YAML、PDF、BibTeX、源码、图片或数据文件。即使离开应用，用户也可以用 Finder、VS Code、Git 或备份工具继续管理这些文件。
 
-## Privacy And Credentials
+## 隐私与凭据
 
-- The repository and build products must not include API keys, OAuth tokens, refresh tokens, client secrets, private keys, machine-local MCP configuration, or private research data.
-- LLM API keys and MinerU API tokens are entered through secure fields and saved to macOS Keychain.
-- `settings.yaml` stores non-sensitive provider settings such as base URL, model, temperature, and token limits.
-- Papers, notes, tasks, agent logs, and generated files stay inside the user-selected Research Root.
-- `.sci-ai/sci-station/` is for versionable product presets, schemas, skills, hooks, commands, MCP templates, and secret references only.
-- `.sci-ai/workspace.local/`, `.claude/`, `.mcp.json`, `.env*`, packaged builds, and machine-local research data should remain outside Git.
+- 仓库和构建产物不应包含 API Key、OAuth token、refresh token、client secret、private key、本机 MCP 配置或私人研究数据。
+- LLM API Key 和 MinerU API Token 通过安全输入保存到 macOS 钥匙串。
+- `settings.yaml` 只保存 base URL、model、temperature、max tokens 等非敏感设置。
+- 论文、笔记、任务、Agent 日志和生成文件保存在用户选择的科研根目录中。
+- `.env*`、本机配置、打包产物和私人科研根目录不应提交到 Git。
 
-## AI Configuration Layers
+## 开发验证
 
-The repository separates product AI presets from machine-local bridge configuration:
-
-- `.sci-ai/sci-station/`: versionable Sci-Station presets and templates.
-- `.sci-ai/workspace.local/`: local checkout configuration that should not be committed.
-- `.claude/` and `.mcp.json`: local bridge files for external agent tools that expect fixed paths.
-
-AI features are optional. Core library, wiki, materials, PDF reading, and task workflows work without an LLM provider.
-
-## Development Validation
-
-Run the core validation runner:
+核心验证：
 
 ```bash
 swift run SciStationCoreTestRunner
 ```
 
-Expected output:
-
-```text
-All SciStation core checks passed.
-```
-
-Build the macOS app:
+App 构建：
 
 ```bash
 xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
 ```
 
-Run the Python sidecar tests when touching `AgentRuntime/`:
+Python sidecar 测试：
 
 ```bash
 python -m pytest AgentRuntime/tests
 ```
 
-## Manual Trial Checklist
+## 相关文档
 
-- Create a fresh Research Root and restart the app to confirm bookmark restore.
-- Import a PDF and inspect `paper.pdf`, `paper.md`, `meta.yaml`, and `annotations.md`.
-- Add a DOI, arXiv ID, PDF URL, or multiple pasted identifiers through `Add by Identifier`.
-- Create a project, edit its brief, and confirm Project Overview updates.
-- Open Wiki in Source, Preview, and Split modes; test `Cmd+S` and snippets such as `;eq`.
-- Browse Materials, preview Markdown/Python/images/PDFs, and open a file in VS Code.
-- Use Library search, sorting, column configuration, multi-select, and citation copying.
-- Open a PDF, search with `Cmd+F`, write notes, create a linked task, and export BibTeX.
-- Configure AI Lab only with test credentials you are comfortable using, then verify that secrets are not written to workspace files.
-
-## Roadmap Boundaries
-
-Active development is focused on making Sci-Station a stronger local research operating system. Near-term work includes live sidecar runtime wiring, evidence navigation, debug bundles, workspace templates/modules, retrieval index health, richer graph/recommendation workflows, and deeper manual regression coverage.
-
-Known trial limitations:
-
-- The app is local-first and not yet notarized for public distribution.
-- LLM, MinerU, Crossref, arXiv, INSPIRE, and other network features depend on user configuration and third-party availability.
-- High-quality PDF-to-Markdown conversion depends on MinerU; without a token, local PDFKit extraction is used as a fallback.
-- Apple Reminders support currently focuses on publishing and local mapping; full bidirectional sync is still future work.
-- MCP server execution is still guarded by templates, status display, and the permission model.
-
-## Repository Map
-
-```text
-Sci-Station/
-├── App/                App state and view model
-├── Agent/              Agent models, tools, runtime bridge, permissions, hooks, MCP schema
-├── Calendar/           Local calendar event models and repositories
-├── Collections/        Paper collection management
-├── Import/             DOI/arXiv/INSPIRE/URL import services
-├── Importer/           PDF import pipeline
-├── Library/            Paper model, metadata, repository, search, annotations
-├── LLM/                LLM configuration and provider abstractions
-├── Markdown/           Markdown, frontmatter, wikilink, backlink support
-├── MetadataProviders/  DOI, arXiv, and INSPIRE providers
-├── PDF/                PDFKit reader support
-├── Tags/               Tag models and repository
-├── Tasks/              Todo models and repository
-├── UI/                 SwiftUI views
-├── Wiki/               Wiki page generation and editing
-└── Workspace/          Workspace model, preferences, bookmarks, creation/repair
-AgentRuntime/           Python sidecar runtime prototype and tests
-Tools/                  SwiftPM validation tools
-DOC/                    Iteration proposals and manual test protocol
-```
-
-## Related Documents
-
-- [TUTORIAL.md](TUTORIAL.md): English hands-on tutorial.
-- [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md): Chinese hands-on tutorial.
-- [README.zh-CN.md](README.zh-CN.md): Chinese product overview.
-- [.sci-ai/README.md](.sci-ai/README.md): AI configuration boundary.
-- [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md): Built-in AI preset notes.
-- `DOC/`: development proposals, task books, and manual testing notes for contributors.
+- [README.en.md](README.en.md)：英文项目介绍。
+- [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)：中文试用教程。
+- [TUTORIAL.md](TUTORIAL.md)：英文试用教程。
+- [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
+- [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
+- `DOC/`：开发任务书、提案和手动测试记录。

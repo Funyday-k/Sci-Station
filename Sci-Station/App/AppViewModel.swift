@@ -267,8 +267,13 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var shellWindowWidth: Double = 1440
     @Published var isEditingHomeLayout = false
     @Published var isShowingHomeWidgetGallery = false
-    @Published private(set) var homeAggregationRevision = 0
-    @Published private(set) var projectDashboardRevision = 0
+    /// Home / Project Dashboard reload signals live on a focused store so their
+    /// frequent bumps no longer fire the app-wide `objectWillChange`. The Home
+    /// and Dashboard views observe `homeDashboardStore` directly. See
+    /// `HomeDashboardStore` (Performance Phase 3, step 1).
+    let homeDashboardStore = HomeDashboardStore()
+    var homeAggregationRevision: Int { homeDashboardStore.homeAggregationRevision }
+    var projectDashboardRevision: Int { homeDashboardStore.projectDashboardRevision }
     @Published var isShowingWorkspaceCreationWizard = false
     @Published private(set) var workspaceCreationDraft = WorkspaceCreationDraft()
     @Published var selectedSettingsCategory: SettingsCategory = .workspace
@@ -699,12 +704,11 @@ final class AppViewModel: ObservableObject {
     }
 
     private func markHomeAggregationChanged() {
-        homeAggregationRevision &+= 1
+        homeDashboardStore.markHomeAggregationChanged()
     }
 
     private func markWorkspaceDashboardChanged() {
-        projectDashboardRevision &+= 1
-        markHomeAggregationChanged()
+        homeDashboardStore.markProjectDashboardChanged()
     }
 
     var effectiveRightRailMode: RightRailMode {
@@ -2002,6 +2006,19 @@ final class AppViewModel: ObservableObject {
 
     func createWorkspace() {
         beginWorkspaceCreation(template: WorkspaceTemplateRegistry.literatureReview)
+    }
+
+    /// One-click sample workspace for first-run onboarding: pick an empty folder,
+    /// then create a workspace pre-seeded with example research content.
+    func createSampleWorkspace() {
+        guard let destinationURL = Self.selectCreateWorkspaceURL(suggestedName: "Sci-Station Sample") else {
+            return
+        }
+
+        let compatibility = ResearchRoot.compatibility(at: destinationURL)
+        runWorkspaceTask(compatibilityHint: compatibility) {
+            try await self.workspaceService.createSampleWorkspace(at: destinationURL)
+        }
     }
 
     func createWorkspace(template: WorkspaceTemplate) {
@@ -4493,6 +4510,78 @@ final class AppViewModel: ObservableObject {
                 agentErrorMessage = error.localizedDescription
             }
         }
+    }
+
+    /// User-facing scrubbed diagnostics export. Collects app/OS/config context
+    /// plus recent debug events, runs everything through the path-aware redactor
+    /// (home dir, absolute paths, API keys, tokens), and writes a plain-text file
+    /// the tester can attach to a beta bug report.
+    func exportDiagnosticsReport() {
+        Task {
+            let report = await buildDiagnosticsReport()
+            await MainActor.run {
+                let panel = NSSavePanel()
+                panel.title = self.localized("导出诊断包", "Export Diagnostics")
+                panel.prompt = self.localized("导出", "Export")
+                panel.canCreateDirectories = true
+                panel.nameFieldStringValue = "sci-station-diagnostics.txt"
+                panel.allowedContentTypes = [.plainText]
+                guard panel.runModal() == .OK, let destinationURL = panel.url else {
+                    self.shellStatusMessage = self.localized("诊断导出已取消。", "Diagnostics export cancelled.")
+                    return
+                }
+                do {
+                    try Data(report.utf8).write(to: destinationURL, options: .atomic)
+                    NSWorkspace.shared.activateFileViewerSelecting([destinationURL])
+                    self.shellStatusMessage = self.localized(
+                        "已导出脱敏诊断包（不含绝对路径与密钥）。",
+                        "Exported scrubbed diagnostics (no absolute paths or secrets)."
+                    )
+                } catch {
+                    self.present(error)
+                }
+            }
+        }
+    }
+
+    private func buildDiagnosticsReport() async -> String {
+        let info = Bundle.main.infoDictionary
+        let version = (info?["CFBundleShortVersionString"] as? String) ?? "?"
+        let build = (info?["CFBundleVersion"] as? String) ?? "?"
+        let prefs = workspacePreferences
+
+        var lines: [String] = []
+        lines.append("Sci-Station Diagnostics")
+        lines.append("generated_at: \(ISO8601DateFormatter().string(from: Date()))")
+        lines.append("app_version: \(version) (\(build))")
+        lines.append("os: \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        lines.append("language: \(prefs.appLanguage.rawValue)")
+        lines.append("agent_runtime: \(prefs.agentRuntimeSelection.rawValue)")
+        lines.append("agent_debug_logging: \(prefs.agentDebugLoggingEnabled)")
+        lines.append("workspace_open: \(currentWorkspace != nil)")
+        lines.append("modules: \(workspaceModuleStatusSummary)")
+        lines.append("")
+        lines.append("== Recent debug events (scrubbed) ==")
+        if let root = currentResearchRoot {
+            let logger = AppDebugEventLogger()
+            if let events = try? await logger.events(in: root, limit: 100) {
+                let encoder = AgentRunDirectoryStore.encoder()
+                for event in events {
+                    if let data = try? encoder.encode(event), let line = String(data: data, encoding: .utf8) {
+                        lines.append(line)
+                    }
+                }
+            } else {
+                lines.append("(no debug events available)")
+            }
+        } else {
+            lines.append("(no workspace open)")
+        }
+
+        let raw = lines.joined(separator: "\n") + "\n"
+        // Defense in depth: scrub the entire report even though events are
+        // already redacted at write time.
+        return AgentRunDirectoryStore.redactPathLikeTextPublic(raw)
     }
 
     private func confirmAgentDebugBundleExport(_ preview: AgentDebugBundlePreview) -> Bool {

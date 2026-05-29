@@ -160,6 +160,7 @@ private struct CoreVerificationSuite {
         try await researchQueueIngestorPersistsCursorAcrossReopen()
         try await researchQueueFixtureRoundTripsFiveDiverseEntries()
         try readingPlanYAMLCodecRoundTripsActivePlan()
+        try readingPlanYAMLCodecSkipsMalformedPlans()
         try readingPlanGeneratorBuildsDeterministicWeeklySlots()
         try await readingPlanStorePersistsActivatesAndUpdatesSlots()
         try recommendationConfigYAMLRoundTripsDailySourceSettings()
@@ -3829,6 +3830,33 @@ private struct CoreVerificationSuite {
         try expect(loaded.status == .active, "ReadingPlan YAML should preserve plan status.")
         try expect(loaded.slots.map(\.id) == ["slot-a", "slot-b"], "ReadingPlan YAML should preserve slot order.")
         try expect(loaded.slots.last?.actualMinutes == 55, "ReadingPlan YAML should preserve actual minutes.")
+    }
+
+    private func readingPlanYAMLCodecSkipsMalformedPlans() throws {
+        let yaml = """
+        schema_version: 1
+        scope: "workspace"
+        generated_at: "2026-05-18T12:00:00Z"
+        plans:
+          - id: "plan-valid"
+            scope: "workspace"
+            week_start: "2026-05-18"
+            status: active
+            created_at: "2026-05-18T12:00:00Z"
+            updated_at: "2026-05-18T12:00:00Z"
+            activated_at: ""
+            archived_at: ""
+            source_refs: []
+            slots: []
+          - id: "plan-broken"
+            status: active
+            source_refs: []
+            slots: []
+        """
+
+        let decoded = ReadingPlanYAMLCodec.decode(contents: yaml)
+        try expect(decoded.skippedPlanCount == 1, "Reading plan block missing required fields should be skipped, not crash.")
+        try expect(decoded.plans.map(\.id) == ["plan-valid"], "Valid reading plan should survive while malformed block is skipped.")
     }
 
     private func readingPlanGeneratorBuildsDeterministicWeeklySlots() throws {

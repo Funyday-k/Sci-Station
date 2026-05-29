@@ -465,6 +465,15 @@ struct SettingsView: View {
                             } label: {
                                 Label("Logs", systemImage: "doc.text.magnifyingglass")
                             }
+                            Button {
+                                appModel.exportDiagnosticsReport()
+                            } label: {
+                                Label(appModel.localized("诊断包", "Diagnostics"), systemImage: "stethoscope")
+                            }
+                            .help(appModel.localized(
+                                "导出脱敏诊断包（不含绝对路径与密钥），便于反馈问题。",
+                                "Export a scrubbed diagnostics file (no absolute paths or secrets) for bug reports."
+                            ))
                             Button(role: .destructive) {
                                 appModel.disableSidecarForWorkspace()
                             } label: {

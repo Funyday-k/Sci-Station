@@ -156,10 +156,14 @@ public nonisolated struct AppDebugEvent: Codable, Hashable, Sendable, Identifiab
         self.id = id
         self.timestamp = timestamp
         self.event = event
-        self.workspaceID = workspaceID
-        self.projectID = projectID
-        self.threadID = threadID
-        self.runID = runID
+        // Top-level identifier fields are written verbatim into
+        // `app_events.jsonl`; several call sites pass `workspace.rootURL.path`,
+        // so redact them through the same path-aware scrubber as the payload to
+        // keep absolute user paths out of the debug log.
+        self.workspaceID = workspaceID.map(AgentRunDirectoryStore.redactPathLikeTextPublic)
+        self.projectID = projectID.map(AgentRunDirectoryStore.redactPathLikeTextPublic)
+        self.threadID = threadID.map(AgentRunDirectoryStore.redactPathLikeTextPublic)
+        self.runID = runID.map(AgentRunDirectoryStore.redactPathLikeTextPublic)
         self.payload = AgentRunDirectoryStore.redactedDebugPayload(payload)
     }
 }
