@@ -8,7 +8,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
     public var todos: [TodoItem]
     public var markdownDocuments: [MarkdownDocument]
     public var agentRuns: [AgentRun]
-    public var sessionEvents: [AgentSessionEvent]
     public var retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot
     public var moduleConfiguration: WorkspaceModuleConfiguration
     public var failureReason: String?
@@ -26,7 +25,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
         todos: [TodoItem] = [],
         markdownDocuments: [MarkdownDocument] = [],
         agentRuns: [AgentRun] = [],
-        sessionEvents: [AgentSessionEvent] = [],
         retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot = AgentEmbeddingIndexStatusSnapshot.disabled(),
         moduleConfiguration: WorkspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration(),
         failureReason: String? = nil,
@@ -40,7 +38,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
         self.todos = todos
         self.markdownDocuments = markdownDocuments
         self.agentRuns = agentRuns
-        self.sessionEvents = sessionEvents
         self.retrievalIndexStatus = retrievalIndexStatus
         self.moduleConfiguration = moduleConfiguration
         self.failureReason = failureReason
@@ -100,12 +97,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
                 hasher.combine(result.modifiedPaths.sorted())
                 hasher.combine(result.payload?.canonicalJSON)
             }
-        }
-        for event in sessionEvents.sorted(by: { $0.id < $1.id }) {
-            hasher.combine(event.id)
-            hasher.combine(event.sessionID)
-            hasher.combine(event.createdAt)
-            hasher.combine(event.kind.rawValue)
         }
         hasher.combine(retrievalIndexStatus)
         hasher.combine(moduleConfiguration)

@@ -12,8 +12,21 @@ struct ProjectOverviewView: View {
     @State private var projectMaterials: [WorkspaceMaterial] = []
     @State private var materialErrorMessage: String?
     @State private var isEditingBriefInline = false
+    @State private var isEditingProjectWidgetLayout = false
+    @State private var isShowingProjectWidgetGallery = false
+    @State private var projectWidgetLayout = HomeWidgetLayout.defaultLayout(
+        descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors,
+        columns: 4
+    )
+    @State private var draggedProjectWidgetID: String?
+    @State private var projectWidgetDragTranslation: CGSize = .zero
+    @State private var projectWidgetDragPreviewLayout: HomeWidgetLayout?
+    @State private var projectWidgetDragBaseLayout: HomeWidgetLayout?
 
     private let materialRepository = WorkspaceMaterialRepository()
+    private let projectWidgetSpacing: CGFloat = 14
+    private let projectWidgetRowHeight: CGFloat = 152
+    private static let projectWidgetGridCoordinateSpace = "project-overview-widget-grid"
 
     private var projectOverviewPath: String {
         projectWikiPath("projects/project_overview.md")
@@ -30,23 +43,13 @@ struct ProjectOverviewView: View {
         .task(id: appModel.currentProjectID ?? "__none__") {
             await refreshProjectWidgets(invalidating: true)
         }
-        .onChange(of: appModel.papers) { _, _ in
+        .onChange(of: appModel.projectDashboardRevision) { _, _ in
             Task { await reloadDashboard(invalidating: true) }
         }
-        .onChange(of: appModel.todos) { _, _ in
-            Task { await reloadDashboard(invalidating: true) }
-        }
-        .onChange(of: appModel.markdownDocuments) { _, _ in
-            Task { await reloadDashboard(invalidating: true) }
-        }
-        .onChange(of: appModel.agentRunHistory) { _, _ in
-            Task { await reloadDashboard(invalidating: true) }
-        }
-        .onChange(of: appModel.agentCurrentRun) { _, _ in
-            Task { await reloadDashboard(invalidating: true) }
-        }
-        .onChange(of: appModel.researchQueueScopes) { _, _ in
-            Task { await reloadDashboard(invalidating: true) }
+        .onChange(of: isEditingProjectWidgetLayout) { _, isEditing in
+            if !isEditing {
+                clearProjectWidgetDrag()
+            }
         }
     }
 
@@ -80,41 +83,379 @@ struct ProjectOverviewView: View {
     }
 
     private var projectWidgetBoard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 14) {
-                    projectStatusWidget
-                        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
-                    projectBriefWidget
-                        .frame(maxWidth: .infinity)
-                }
+        let columns = max(1, appModel.responsiveShellModel.homeWidgetColumns)
+        let normalizedLayout = projectWidgetLayout.normalized(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+        let renderLayout = projectWidgetDragPreviewLayout ?? normalizedLayout
+        let visibleItems = renderLayout.visibleItems(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
 
-                VStack(alignment: .leading, spacing: 14) {
-                    projectStatusWidget
-                    projectBriefWidget
-                }
+        return VStack(alignment: .leading, spacing: 14) {
+            projectWidgetToolbar(visibleCount: visibleItems.count, columns: columns)
+
+            if isShowingProjectWidgetGallery {
+                projectWidgetGallery(layout: normalizedLayout, columns: columns)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 14)], alignment: .leading, spacing: 14) {
-                researchQuestionsWidget
-                corePapersWidget
-                currentTasksWidget
-                materialsWidget
-                knowledgeGapsWidget
-                recentActivityWidget
-                projectDocumentsWidget
-                workflowWidget
+            if visibleItems.isEmpty {
+                projectWidgetEmptyState(columns: columns)
+            } else {
+                projectWidgetGrid(visibleItems: visibleItems, columns: columns)
             }
+        }
+        .animation(.smooth(duration: 0.25), value: isEditingProjectWidgetLayout)
+        .animation(.smooth(duration: 0.25), value: isShowingProjectWidgetGallery)
+        .animation(isEditingProjectWidgetLayout ? .smooth(duration: 0.28) : nil, value: visibleItems)
+    }
+
+    private func projectWidgetToolbar(visibleCount: Int, columns: Int) -> some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text(appModel.localized("项目小组件", "Project Widgets"))
+                    .font(.title3.weight(.semibold))
+                Text("\(visibleCount)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
+            }
+
+            Spacer(minLength: 0)
+
+            if isEditingProjectWidgetLayout {
+                Button {
+                    isShowingProjectWidgetGallery.toggle()
+                } label: {
+                    Label(appModel.localized("小组件", "Widgets"), systemImage: "rectangle.grid.2x2")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
+                    projectWidgetLayout.reset(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+                } label: {
+                    Label(appModel.localized("重置", "Reset"), systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            Button {
+                isEditingProjectWidgetLayout.toggle()
+                if !isEditingProjectWidgetLayout {
+                    isShowingProjectWidgetGallery = false
+                }
+            } label: {
+                Label(
+                    isEditingProjectWidgetLayout ? appModel.localized("完成", "Done") : appModel.localized("编辑布局", "Edit Layout"),
+                    systemImage: isEditingProjectWidgetLayout ? "checkmark" : "slider.horizontal.3"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 
-    private var projectStatusWidget: some View {
+    private func projectWidgetGallery(layout: HomeWidgetLayout, columns: Int) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
+            ForEach(ProjectOverviewWidgetRegistry.descriptors) { descriptor in
+                let isEnabled = layout.items.first(where: { $0.widgetID == descriptor.id })?.isEnabled ?? true
+                HStack(spacing: 10) {
+                    Image(systemName: descriptor.systemImage)
+                        .foregroundStyle(descriptor.accent)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(descriptor.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        Text(isEnabled ? appModel.localized("已显示", "Visible") : appModel.localized("已隐藏", "Hidden"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: Binding(
+                        get: { isEnabled },
+                        set: { projectWidgetLayout.setWidget(descriptor.id, isEnabled: $0, descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                .padding(12)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+        .padding(12)
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.025)), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func projectWidgetEmptyState(columns: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProjectOverviewInlineMessage(
+                message: appModel.localized("当前没有显示的小组件。", "No widgets are currently visible."),
+                systemImage: "rectangle.grid.2x2",
+                color: .secondary
+            )
+            Button {
+                projectWidgetLayout.reset(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+            } label: {
+                Label(appModel.localized("恢复默认布局", "Restore Default Layout"), systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.025)), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func projectWidgetGrid(visibleItems: [HomeWidgetLayoutItem], columns: Int) -> some View {
+        let gridHeight = projectWidgetGridHeight(for: visibleItems, columns: columns)
+
+        return GeometryReader { proxy in
+            let columnWidth = projectWidgetColumnWidth(containerWidth: proxy.size.width, columns: columns)
+
+            ZStack(alignment: .topLeading) {
+                if isEditingProjectWidgetLayout {
+                    projectWidgetGridBackdrop(columnWidth: columnWidth, columns: columns, rows: max(1, projectWidgetTotalRows(for: visibleItems, columns: columns)))
+                }
+
+                ForEach(visibleItems) { item in
+                    if let descriptor = ProjectOverviewWidgetRegistry.descriptor(id: item.widgetID) {
+                        let isDragging = draggedProjectWidgetID == item.widgetID
+                        let positionItem = isDragging ? (projectWidgetDragBaseLayout?.items.first { $0.widgetID == item.widgetID } ?? item) : item
+                        let metrics = projectWidgetCellMetrics(for: positionItem, columnWidth: columnWidth, columns: columns)
+                        projectWidgetCell(
+                            item: item,
+                            descriptor: descriptor,
+                            columns: columns,
+                            isDragging: isDragging,
+                            onDragBegan: {
+                                beginProjectWidgetDrag(item: item, columns: columns)
+                            },
+                            onDragChanged: { value in
+                                updateProjectWidgetDrag(value: value, columnWidth: columnWidth, columns: columns)
+                            },
+                            onDragEnded: { value in
+                                endProjectWidgetDrag(value: value, columnWidth: columnWidth, columns: columns)
+                            }
+                        )
+                            .frame(width: metrics.width, height: metrics.height)
+                            .offset(x: metrics.x, y: metrics.y)
+                            .offset(
+                                x: isDragging ? projectWidgetDragTranslation.width : 0,
+                                y: isDragging ? projectWidgetDragTranslation.height : 0
+                            )
+                            .zIndex(isDragging ? 10 : 0)
+                    }
+                }
+            }
+            .frame(width: proxy.size.width, height: gridHeight, alignment: .topLeading)
+        }
+        .frame(height: gridHeight)
+        .coordinateSpace(name: Self.projectWidgetGridCoordinateSpace)
+    }
+
+    private func projectWidgetCell(
+        item: HomeWidgetLayoutItem,
+        descriptor: ProjectOverviewWidgetDescriptor,
+        columns: Int,
+        isDragging: Bool,
+        onDragBegan: @escaping () -> Void,
+        onDragChanged: @escaping (DragGesture.Value) -> Void,
+        onDragEnded: @escaping (DragGesture.Value) -> Void
+    ) -> some View {
+        ZStack(alignment: .topTrailing) {
+            projectWidgetContent(id: item.widgetID, size: item.size)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(!isEditingProjectWidgetLayout)
+                .opacity(isEditingProjectWidgetLayout ? 0.88 : 1)
+
+            if isEditingProjectWidgetLayout {
+                projectWidgetEditControls(item: item, descriptor: descriptor, columns: columns)
+                    .padding(8)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .scaleEffect(isDragging ? 1.02 : 1)
+        .shadow(color: .black.opacity(isDragging ? 0.16 : 0), radius: isDragging ? 18 : 0, x: 0, y: isDragging ? 10 : 0)
+        .animation(.smooth(duration: 0.18), value: isDragging)
+        .modifier(ProjectOverviewWidgetDragGestureModifier(
+            enabled: isEditingProjectWidgetLayout,
+            isDragging: isDragging,
+            onBegan: onDragBegan,
+            onChanged: onDragChanged,
+            onEnded: onDragEnded
+        ))
+    }
+
+    private func beginProjectWidgetDrag(item: HomeWidgetLayoutItem, columns: Int) {
+        guard isEditingProjectWidgetLayout else { return }
+        let baseLayout = projectWidgetLayout.normalized(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+        draggedProjectWidgetID = item.widgetID
+        projectWidgetDragTranslation = .zero
+        projectWidgetDragBaseLayout = baseLayout
+        projectWidgetDragPreviewLayout = baseLayout
+    }
+
+    private func updateProjectWidgetDrag(value: DragGesture.Value, columnWidth: CGFloat, columns: Int) {
+        guard let sourceID = draggedProjectWidgetID else { return }
+        let baseLayout = projectWidgetDragBaseLayout ?? projectWidgetLayout.normalized(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+        var preview = baseLayout
+        if let targetID = projectWidgetID(at: value.location, columnWidth: columnWidth, columns: columns, layout: baseLayout),
+           targetID != sourceID {
+            preview.moveWidget(sourceID, onto: targetID, descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+        }
+        projectWidgetDragTranslation = value.translation
+        projectWidgetDragPreviewLayout = preview
+    }
+
+    private func endProjectWidgetDrag(value: DragGesture.Value, columnWidth: CGFloat, columns: Int) {
+        defer { clearProjectWidgetDrag() }
+        guard let sourceID = draggedProjectWidgetID else { return }
+        let baseLayout = projectWidgetDragBaseLayout ?? projectWidgetLayout.normalized(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+        guard let targetID = projectWidgetID(at: value.location, columnWidth: columnWidth, columns: columns, layout: baseLayout),
+              targetID != sourceID else {
+            return
+        }
+        projectWidgetLayout.moveWidget(sourceID, onto: targetID, descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+    }
+
+    private func clearProjectWidgetDrag() {
+        draggedProjectWidgetID = nil
+        projectWidgetDragTranslation = .zero
+        projectWidgetDragPreviewLayout = nil
+        projectWidgetDragBaseLayout = nil
+    }
+
+    private func projectWidgetID(at point: CGPoint, columnWidth: CGFloat, columns: Int, layout: HomeWidgetLayout) -> String? {
+        guard point.x >= 0, point.y >= 0 else { return nil }
+        let pitchX = columnWidth + projectWidgetSpacing
+        let pitchY = projectWidgetRowHeight + projectWidgetSpacing
+        let column = min(columns - 1, max(0, Int(point.x / pitchX)))
+        let row = max(0, Int(point.y / pitchY))
+        let candidates = layout.visibleItems(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+        for item in candidates {
+            let columnSpan = min(columns, max(1, item.size.columnSpan))
+            let rowSpan = max(1, item.size.rowSpan)
+            if column >= item.column && column < item.column + columnSpan && row >= item.row && row < item.row + rowSpan {
+                return item.widgetID
+            }
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func projectWidgetContent(id: String, size: HomeWidgetSize) -> some View {
+        switch id {
+        case ProjectOverviewWidgetID.status:
+            projectStatusWidget(size: size)
+        case ProjectOverviewWidgetID.brief:
+            projectBriefWidget(size: size)
+        case ProjectOverviewWidgetID.questions:
+            researchQuestionsWidget(size: size)
+        case ProjectOverviewWidgetID.corePapers:
+            corePapersWidget(size: size)
+        case ProjectOverviewWidgetID.tasks:
+            currentTasksWidget(size: size)
+        case ProjectOverviewWidgetID.materials:
+            materialsWidget(size: size)
+        case ProjectOverviewWidgetID.gaps:
+            knowledgeGapsWidget(size: size)
+        case ProjectOverviewWidgetID.activity:
+            recentActivityWidget(size: size)
+        case ProjectOverviewWidgetID.documents:
+            projectDocumentsWidget(size: size)
+        case ProjectOverviewWidgetID.workflow:
+            workflowWidget(size: size)
+        default:
+            ProjectOverviewInlineMessage(message: id, systemImage: "questionmark.square", color: .secondary)
+        }
+    }
+
+    private func projectWidgetEditControls(item: HomeWidgetLayoutItem, descriptor: ProjectOverviewWidgetDescriptor, columns: Int) -> some View {
+        HStack(spacing: 6) {
+            Menu {
+                ForEach(HomeWidgetSize.allCases.filter { descriptor.supportedSizes.contains($0) }, id: \.self) { size in
+                    Button {
+                        projectWidgetLayout.resizeWidget(item.widgetID, to: size, descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+                    } label: {
+                        Label(size.projectOverviewLabel(appModel), systemImage: item.size == size ? "checkmark" : size.projectOverviewSystemImage)
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .frame(width: 24, height: 24)
+            }
+            .menuStyle(.borderlessButton)
+            .help(appModel.localized("调整小组件尺寸", "Resize widget"))
+
+            Button {
+                projectWidgetLayout.setWidget(item.widgetID, isEnabled: false, descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.borderless)
+            .help(appModel.localized("隐藏小组件", "Hide widget"))
+        }
+        .padding(4)
+        .background(.regularMaterial, in: Capsule())
+    }
+
+    @ViewBuilder
+    private func projectWidgetGridBackdrop(columnWidth: CGFloat, columns: Int, rows: Int) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(0..<rows, id: \.self) { row in
+                ForEach(0..<columns, id: \.self) { column in
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.05), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        .frame(width: columnWidth, height: projectWidgetRowHeight)
+                        .offset(
+                            x: CGFloat(column) * (columnWidth + projectWidgetSpacing),
+                            y: CGFloat(row) * (projectWidgetRowHeight + projectWidgetSpacing)
+                        )
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func projectWidgetGridHeight(for items: [HomeWidgetLayoutItem], columns: Int) -> CGFloat {
+        let rows = projectWidgetTotalRows(for: items, columns: columns)
+        guard rows > 0 else { return 0 }
+        return CGFloat(rows) * projectWidgetRowHeight + CGFloat(max(0, rows - 1)) * projectWidgetSpacing
+    }
+
+    private func projectWidgetTotalRows(for items: [HomeWidgetLayoutItem], columns: Int) -> Int {
+        items
+            .map { item in
+                item.row + max(1, item.size.rowSpan)
+            }
+            .max() ?? 0
+    }
+
+    private func projectWidgetColumnWidth(containerWidth: CGFloat, columns: Int) -> CGFloat {
+        let totalSpacing = CGFloat(max(0, columns - 1)) * projectWidgetSpacing
+        return max(80, (containerWidth - totalSpacing) / CGFloat(max(1, columns)))
+    }
+
+    private func projectWidgetCellMetrics(for item: HomeWidgetLayoutItem, columnWidth: CGFloat, columns: Int) -> (x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+        let columnSpan = min(columns, max(1, item.size.columnSpan))
+        let rowSpan = max(1, item.size.rowSpan)
+        let x = CGFloat(item.column) * (columnWidth + projectWidgetSpacing)
+        let y = CGFloat(item.row) * (projectWidgetRowHeight + projectWidgetSpacing)
+        let width = CGFloat(columnSpan) * columnWidth + CGFloat(max(0, columnSpan - 1)) * projectWidgetSpacing
+        let height = CGFloat(rowSpan) * projectWidgetRowHeight + CGFloat(max(0, rowSpan - 1)) * projectWidgetSpacing
+        return (x, y, width, height)
+    }
+
+    private func projectStatusWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("项目状态", "Project Status"),
-            subtitle: appModel.localized("阶段、指标和下个 deadline。", "Stage, metrics, and the next deadline."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("阶段、指标和下个 deadline。", "Stage, metrics, and the next deadline."),
             systemImage: "gauge.with.dots.needle.33percent",
             accent: .accentColor,
-            minHeight: 220
+            minHeight: 0
         ) {
             if let dashboardErrorMessage {
                 ProjectOverviewInlineMessage(
@@ -129,11 +470,13 @@ struct ProjectOverviewView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], alignment: .leading, spacing: 8) {
                         ProjectOverviewMetricPill(title: appModel.localized("论文", "Papers"), value: "\(projectPapers.count)", systemImage: "books.vertical")
                         ProjectOverviewMetricPill(title: appModel.localized("核心", "Core"), value: "\(corePapers.count)", systemImage: "star")
-                        ProjectOverviewMetricPill(title: appModel.localized("文档", "Docs"), value: "\(projectDocuments.count)", systemImage: "doc.text")
-                        ProjectOverviewMetricPill(title: appModel.localized("任务", "Open"), value: "\(openTodosCount)", systemImage: "checklist")
+                        if !size.isProjectOverviewCompact {
+                            ProjectOverviewMetricPill(title: appModel.localized("文档", "Docs"), value: "\(projectDocuments.count)", systemImage: "doc.text")
+                            ProjectOverviewMetricPill(title: appModel.localized("任务", "Open"), value: "\(openTodosCount)", systemImage: "checklist")
+                        }
                     }
 
-                    if let deadline = dashboardSnapshot.nextDeadline {
+                    if !size.isProjectOverviewCompact, let deadline = dashboardSnapshot.nextDeadline {
                         ProjectOverviewPlainRow(
                             title: deadline.title,
                             detail: deadline.dueDate.formatted(date: .abbreviated, time: .omitted),
@@ -156,25 +499,25 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var projectBriefWidget: some View {
+    private func projectBriefWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("项目 Brief", "Project Brief"),
-            subtitle: appModel.localized("可在概览页内快速编辑 living proposal。", "Inline-edit the living proposal from the overview."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("可在概览页内快速编辑 living proposal。", "Inline-edit the living proposal from the overview."),
             systemImage: "doc.text",
             accent: .blue,
-            minHeight: 260
+            minHeight: 0
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 if let document = projectOverviewDocument {
                     if isEditingBriefInline, appModel.selectedMarkdownDraft?.relativePath == document.relativePath {
                         TextEditor(text: briefEditorBinding(for: document))
                             .font(.system(.body, design: .monospaced))
-                            .frame(minHeight: 190)
+                            .frame(minHeight: size.projectOverviewPreviewHeight)
                             .scrollContentBackground(.hidden)
                             .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
                     } else {
                         MarkdownPreviewView(markdown: briefPreviewMarkdown(for: document), baseURL: document.fileURL.deletingLastPathComponent())
-                            .frame(minHeight: 170, maxHeight: 240)
+                            .frame(minHeight: min(120, size.projectOverviewPreviewHeight), maxHeight: size.projectOverviewPreviewHeight)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
@@ -186,16 +529,18 @@ struct ProjectOverviewView: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button {
-                        beginBriefInlineEditing()
-                    } label: {
-                        Label(appModel.localized("内联编辑", "Edit Inline"), systemImage: "pencil")
+                    if !size.isProjectOverviewCompact {
+                        Button {
+                            beginBriefInlineEditing()
+                        } label: {
+                            Label(appModel.localized("内联编辑", "Edit Inline"), systemImage: "pencil")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(projectOverviewDocument == nil)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(projectOverviewDocument == nil)
 
-                    if isEditingBriefInline {
+                    if isEditingBriefInline, !size.isProjectOverviewCompact {
                         Button {
                             appModel.saveSelectedMarkdownChanges()
                             isEditingBriefInline = false
@@ -227,13 +572,13 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var researchQuestionsWidget: some View {
+    private func researchQuestionsWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("研究问题", "Research Questions"),
-            subtitle: appModel.localized("从 Project Brief 中提取。", "Extracted from the project brief."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("从 Project Brief 中提取。", "Extracted from the project brief."),
             systemImage: "questionmark.bubble",
             accent: .teal,
-            minHeight: 220
+            minHeight: 0
         ) {
             if researchQuestions.isEmpty {
                 ProjectOverviewEmptyState(
@@ -245,7 +590,7 @@ struct ProjectOverviewView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(Array(researchQuestions.prefix(5).enumerated()), id: \.offset) { _, question in
+                    ForEach(Array(researchQuestions.prefix(size.projectOverviewListLimit).enumerated()), id: \.offset) { _, question in
                         ProjectOverviewTextBullet(text: question, systemImage: "questionmark.circle")
                     }
                 }
@@ -253,13 +598,13 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var corePapersWidget: some View {
+    private func corePapersWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("核心论文", "Core Papers"),
-            subtitle: appModel.localized("按核心标记、优先级和评分排序。", "Sorted by core mark, priority, and rating."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("按核心标记、优先级和评分排序。", "Sorted by core mark, priority, and rating."),
             systemImage: "star",
             accent: .indigo,
-            minHeight: 280
+            minHeight: 0
         ) {
             if corePapers.isEmpty {
                 ProjectOverviewEmptyState(
@@ -271,7 +616,7 @@ struct ProjectOverviewView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(corePapers.prefix(8)) { paper in
+                    ForEach(corePapers.prefix(size.projectOverviewListLimit)) { paper in
                         ProjectOverviewPaperRow(paper: paper, canRead: appModel.canOpenPDF(for: paper)) {
                             appModel.selectPaper(id: paper.id)
                             openProjectTab("papers")
@@ -284,16 +629,16 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var currentTasksWidget: some View {
+    private func currentTasksWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("当前任务", "Current Tasks"),
-            subtitle: appModel.localized("项目待办和核心论文阅读动作。", "Project todos and core-paper reading actions."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("项目待办和核心论文阅读动作。", "Project todos and core-paper reading actions."),
             systemImage: "checklist",
             accent: .orange,
-            minHeight: 280
+            minHeight: 0
         ) {
             VStack(alignment: .leading, spacing: 11) {
-                if unreadCorePapersCount > 0 {
+                if unreadCorePapersCount > 0, !size.isProjectOverviewCompact {
                     ProjectOverviewPlainRow(
                         title: appModel.localized("阅读 \(unreadCorePapersCount) 篇未读核心论文", "Read \(unreadCorePapersCount) unread core papers"),
                         detail: appModel.localized("从核心论文队列开始", "Start from the core paper queue"),
@@ -314,31 +659,33 @@ struct ProjectOverviewView: View {
                         openProjectTab("tasks")
                     }
                 } else {
-                    ForEach(currentProjectTodos.prefix(5)) { todo in
+                    ForEach(currentProjectTodos.prefix(size.projectOverviewListLimit)) { todo in
                         ProjectOverviewTodoRow(todo: todo) {
                             appModel.toggleTodo(todo)
                         }
                     }
 
-                    Button {
+                    if !size.isProjectOverviewCompact {
+                        Button {
                         openProjectTab("tasks")
-                    } label: {
-                        Label(appModel.localized("查看全部任务", "View All Tasks"), systemImage: "arrow.right")
+                        } label: {
+                            Label(appModel.localized("查看全部任务", "View All Tasks"), systemImage: "arrow.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
         }
     }
 
-    private var materialsWidget: some View {
+    private func materialsWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("材料", "Materials"),
-            subtitle: appModel.localized("近期 data、code、figures 和 outputs。", "Recent data, code, figures, and outputs."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("近期 data、code、figures 和 outputs。", "Recent data, code, figures, and outputs."),
             systemImage: "shippingbox",
             accent: .green,
-            minHeight: 280
+            minHeight: 0
         ) {
             if let materialErrorMessage {
                 ProjectOverviewInlineMessage(message: materialErrorMessage, systemImage: "exclamationmark.triangle", color: .orange)
@@ -352,31 +699,33 @@ struct ProjectOverviewView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(recentMaterials.prefix(5)) { material in
+                    ForEach(recentMaterials.prefix(size.projectOverviewListLimit)) { material in
                         ProjectOverviewMaterialRow(material: material) {
                             appModel.openWorkspaceRelativePath(material.relativePath)
                         }
                     }
 
-                    Button {
+                    if !size.isProjectOverviewCompact {
+                        Button {
                         openProjectTab("materials")
-                    } label: {
-                        Label(appModel.localized("查看材料库", "View Materials"), systemImage: "arrow.right")
+                        } label: {
+                            Label(appModel.localized("查看材料库", "View Materials"), systemImage: "arrow.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
         }
     }
 
-    private var knowledgeGapsWidget: some View {
+    private func knowledgeGapsWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("知识缺口", "Knowledge Gaps"),
-            subtitle: appModel.localized("来自 wiki/gaps 和项目上下文。", "From wiki/gaps and project context."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("来自 wiki/gaps 和项目上下文。", "From wiki/gaps and project context."),
             systemImage: "scope",
             accent: .purple,
-            minHeight: 240
+            minHeight: 0
         ) {
             let gaps = dashboardSnapshot?.openGaps ?? []
             if gaps.isEmpty {
@@ -389,7 +738,7 @@ struct ProjectOverviewView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(gaps.prefix(5)) { gap in
+                    ForEach(gaps.prefix(size.projectOverviewListLimit)) { gap in
                         ProjectOverviewPlainRow(title: gap.title, detail: gap.relativePath ?? "wiki/gaps", systemImage: "questionmark.bubble") {
                             if let relativePath = gap.relativePath {
                                 appModel.openMarkdownDocument(relativePath: relativePath)
@@ -403,13 +752,13 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var recentActivityWidget: some View {
+    private func recentActivityWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("近期活动", "Recent Activity"),
-            subtitle: appModel.localized("论文、材料和 AI artifact 的最新信号。", "Latest signals from papers, materials, and AI artifacts."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("论文、材料和 AI artifact 的最新信号。", "Latest signals from papers, materials, and AI artifacts."),
             systemImage: "clock.arrow.circlepath",
             accent: .red,
-            minHeight: 280
+            minHeight: 0
         ) {
             if recentActivityItems.isEmpty {
                 ProjectOverviewInlineMessage(
@@ -419,7 +768,7 @@ struct ProjectOverviewView: View {
                 )
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(recentActivityItems) { item in
+                    ForEach(recentActivityItems.prefix(size.projectOverviewListLimit)) { item in
                         ProjectOverviewActivityRow(item: item) {
                             performActivityAction(item.action)
                         }
@@ -429,13 +778,13 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var projectDocumentsWidget: some View {
+    private func projectDocumentsWidget(size: HomeWidgetSize) -> some View {
         ProjectOverviewWidgetCard(
             title: appModel.localized("项目文档", "Project Docs"),
-            subtitle: appModel.localized("项目 wiki/projects 下的 Markdown。", "Markdown under the project wiki/projects folder."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("项目 wiki/projects 下的 Markdown。", "Markdown under the project wiki/projects folder."),
             systemImage: "doc.on.doc",
             accent: .cyan,
-            minHeight: 240
+            minHeight: 0
         ) {
             if projectDocuments.isEmpty {
                 ProjectOverviewEmptyState(
@@ -447,7 +796,7 @@ struct ProjectOverviewView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(projectDocuments.prefix(6)) { document in
+                    ForEach(projectDocuments.prefix(size.projectOverviewListLimit)) { document in
                         ProjectOverviewPlainRow(
                             title: document.title,
                             detail: document.relativePath,
@@ -461,38 +810,18 @@ struct ProjectOverviewView: View {
         }
     }
 
-    private var workflowWidget: some View {
-        ProjectOverviewWidgetCard(
+    private func workflowWidget(size: HomeWidgetSize) -> some View {
+        let shortcuts = projectWorkflowShortcuts
+        return ProjectOverviewWidgetCard(
             title: appModel.localized("工作流", "Workflow"),
-            subtitle: appModel.localized("把项目内容快速切到行动入口。", "Jump from project context to action surfaces."),
+            subtitle: size.isProjectOverviewCompact ? "" : appModel.localized("把项目内容快速切到行动入口。", "Jump from project context to action surfaces."),
             systemImage: "square.grid.2x2",
             accent: .yellow,
-            minHeight: 260
+            minHeight: 0
         ) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], alignment: .leading, spacing: 8) {
-                ProjectOverviewShortcutButton(title: appModel.localized("Brief", "Brief"), systemImage: "doc.text") {
-                    appModel.openMarkdownDocument(relativePath: projectOverviewPath)
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("论文", "Papers"), systemImage: "books.vertical") {
-                    openProjectTab("papers")
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("Wiki", "Wiki"), systemImage: "text.book.closed") {
-                    openProjectTab("wiki")
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("任务", "Tasks"), systemImage: "checklist") {
-                    openProjectTab("tasks")
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("材料", "Materials"), systemImage: "shippingbox") {
-                    openProjectTab("materials")
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("AI Lab", "AI Lab"), systemImage: "brain") {
-                    openProjectTab("ai-drafts")
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("PDF", "PDF"), systemImage: "doc.viewfinder") {
-                    openProjectTab("pdf-reader")
-                }
-                ProjectOverviewShortcutButton(title: appModel.localized("共享上下文", "Shared"), systemImage: "square.stack.3d.up") {
-                    NSWorkspace.shared.open(projectSharedResearchURL)
+                ForEach(Array(shortcuts.prefix(size.projectOverviewListLimit + 2).enumerated()), id: \.offset) { _, shortcut in
+                    ProjectOverviewShortcutButton(title: shortcut.title, systemImage: shortcut.systemImage, action: shortcut.action)
                 }
             }
         }
@@ -620,7 +949,6 @@ struct ProjectOverviewView: View {
             todos: appModel.todos,
             markdownDocuments: appModel.markdownDocuments,
             agentRuns: agentRunsForAggregation,
-            sessionEvents: appModel.agentSessionEvents,
             retrievalIndexStatus: appModel.agentRetrievalIndexStatus,
             moduleConfiguration: appModel.workspaceModuleConfiguration
         )
@@ -730,6 +1058,35 @@ struct ProjectOverviewView: View {
         }
 
         return workspace.sharedResearchURL
+    }
+
+    private var projectWorkflowShortcuts: [ProjectOverviewShortcut] {
+        [
+            ProjectOverviewShortcut(title: appModel.localized("Brief", "Brief"), systemImage: "doc.text") {
+                appModel.openMarkdownDocument(relativePath: projectOverviewPath)
+            },
+            ProjectOverviewShortcut(title: appModel.localized("论文", "Papers"), systemImage: "books.vertical") {
+                openProjectTab("papers")
+            },
+            ProjectOverviewShortcut(title: appModel.localized("Wiki", "Wiki"), systemImage: "text.book.closed") {
+                openProjectTab("wiki")
+            },
+            ProjectOverviewShortcut(title: appModel.localized("任务", "Tasks"), systemImage: "checklist") {
+                openProjectTab("tasks")
+            },
+            ProjectOverviewShortcut(title: appModel.localized("材料", "Materials"), systemImage: "shippingbox") {
+                openProjectTab("materials")
+            },
+            ProjectOverviewShortcut(title: appModel.localized("AI Lab", "AI Lab"), systemImage: "brain") {
+                openProjectTab("ai-drafts")
+            },
+            ProjectOverviewShortcut(title: appModel.localized("PDF", "PDF"), systemImage: "doc.viewfinder") {
+                openProjectTab("pdf-reader")
+            },
+            ProjectOverviewShortcut(title: appModel.localized("共享上下文", "Shared"), systemImage: "square.stack.3d.up") {
+                NSWorkspace.shared.open(projectSharedResearchURL)
+            }
+        ]
     }
 
     private func projectWikiPath(_ suffix: String) -> String {
@@ -885,6 +1242,148 @@ private struct ProjectOverviewActivityItem: Identifiable {
     let action: ProjectOverviewActivityAction
 }
 
+private struct ProjectOverviewShortcut {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+}
+
+private enum ProjectOverviewWidgetID {
+    static let status = "project_status"
+    static let brief = "project_brief"
+    static let questions = "research_questions"
+    static let corePapers = "core_papers"
+    static let tasks = "current_tasks"
+    static let materials = "materials"
+    static let gaps = "knowledge_gaps"
+    static let activity = "recent_activity"
+    static let documents = "project_documents"
+    static let workflow = "workflow"
+}
+
+private struct ProjectOverviewWidgetDescriptor: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let accent: Color
+    let defaultSize: HomeWidgetSize
+    let supportedSizes: Set<HomeWidgetSize>
+    let defaultOrder: Int
+
+    var layoutDescriptor: HomeWidgetDescriptor {
+        HomeWidgetDescriptor(
+            id: id,
+            titleKey: .routeProjects,
+            category: .project,
+            defaultSize: defaultSize,
+            supportedSizes: supportedSizes,
+            defaultOrder: defaultOrder,
+            systemImage: systemImage
+        )
+    }
+}
+
+private enum ProjectOverviewWidgetRegistry {
+    static let descriptors: [ProjectOverviewWidgetDescriptor] = [
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.status,
+            title: "项目状态",
+            systemImage: "gauge.with.dots.needle.33percent",
+            accent: .accentColor,
+            defaultSize: .small,
+            supportedSizes: [.small, .medium, .large, .wide],
+            defaultOrder: 0
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.brief,
+            title: "项目 Brief",
+            systemImage: "doc.text",
+            accent: .blue,
+            defaultSize: .medium,
+            supportedSizes: [.medium, .large, .wide],
+            defaultOrder: 2
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.questions,
+            title: "研究问题",
+            systemImage: "questionmark.bubble",
+            accent: .teal,
+            defaultSize: .small,
+            supportedSizes: [.small, .tall, .medium, .large],
+            defaultOrder: 1
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.corePapers,
+            title: "核心论文",
+            systemImage: "star",
+            accent: .indigo,
+            defaultSize: .medium,
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
+            defaultOrder: 3
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.tasks,
+            title: "当前任务",
+            systemImage: "checklist",
+            accent: .orange,
+            defaultSize: .medium,
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
+            defaultOrder: 4
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.materials,
+            title: "材料",
+            systemImage: "shippingbox",
+            accent: .green,
+            defaultSize: .small,
+            supportedSizes: [.small, .tall, .medium, .large],
+            defaultOrder: 5
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.gaps,
+            title: "知识缺口",
+            systemImage: "scope",
+            accent: .purple,
+            defaultSize: .small,
+            supportedSizes: [.small, .tall, .medium, .large],
+            defaultOrder: 6
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.activity,
+            title: "近期活动",
+            systemImage: "clock.arrow.circlepath",
+            accent: .red,
+            defaultSize: .medium,
+            supportedSizes: [.small, .tall, .medium, .large, .wide],
+            defaultOrder: 7
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.documents,
+            title: "项目文档",
+            systemImage: "doc.on.doc",
+            accent: .cyan,
+            defaultSize: .medium,
+            supportedSizes: [.small, .tall, .medium, .large],
+            defaultOrder: 8
+        ),
+        ProjectOverviewWidgetDescriptor(
+            id: ProjectOverviewWidgetID.workflow,
+            title: "工作流",
+            systemImage: "square.grid.2x2",
+            accent: .yellow,
+            defaultSize: .medium,
+            supportedSizes: [.small, .tall, .medium, .large],
+            defaultOrder: 9
+        )
+    ]
+
+    static let layoutDescriptors: [HomeWidgetDescriptor] = descriptors.map(\.layoutDescriptor)
+
+    static func descriptor(id: String) -> ProjectOverviewWidgetDescriptor? {
+        descriptors.first { $0.id == id }
+    }
+}
+
 private struct ProjectOverviewWidgetCard<Content: View>: View {
     @EnvironmentObject private var appModel: AppViewModel
     @Environment(\.colorScheme) private var colorScheme
@@ -940,7 +1439,8 @@ private struct ProjectOverviewWidgetCard<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .padding(16)
-        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(minHeight: minHeight, alignment: .topLeading)
         .glassEffect(
             .regular.tint(appModel.liquidGlassTintColor.opacity(isHovering ? 0.04 : 0.025)),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -1241,5 +1741,96 @@ private struct ProjectOverviewShortcutButton: View {
             .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct ProjectOverviewWidgetDragGestureModifier: ViewModifier {
+    let enabled: Bool
+    let isDragging: Bool
+    let onBegan: () -> Void
+    let onChanged: (DragGesture.Value) -> Void
+    let onEnded: (DragGesture.Value) -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.gesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .named("project-overview-widget-grid"))
+                    .onChanged { value in
+                        if !isDragging {
+                            onBegan()
+                        }
+                        onChanged(value)
+                    }
+                    .onEnded(onEnded)
+            )
+        } else {
+            content
+        }
+    }
+}
+
+private extension HomeWidgetSize {
+    var isProjectOverviewCompact: Bool {
+        self == .small
+    }
+
+    var projectOverviewListLimit: Int {
+        switch self {
+        case .small:
+            return 1
+        case .tall:
+            return 3
+        case .medium:
+            return 4
+        case .large:
+            return 8
+        case .wide:
+            return 10
+        }
+    }
+
+    var projectOverviewPreviewHeight: CGFloat {
+        switch self {
+        case .small:
+            return 86
+        case .tall:
+            return 180
+        case .medium:
+            return 220
+        case .large:
+            return 360
+        case .wide:
+            return 520
+        }
+    }
+
+    var projectOverviewSystemImage: String {
+        switch self {
+        case .small:
+            return "square"
+        case .tall:
+            return "rectangle.portrait"
+        case .medium:
+            return "square.grid.2x2"
+        case .large:
+            return "square.grid.3x3"
+        case .wide:
+            return "rectangle.grid.3x2"
+        }
+    }
+
+    func projectOverviewLabel(_ appModel: AppViewModel) -> String {
+        switch self {
+        case .small:
+            return appModel.t(.homeWidgetSizeSmall)
+        case .tall:
+            return appModel.t(.homeWidgetSizeTall)
+        case .medium:
+            return appModel.t(.homeWidgetSizeMedium)
+        case .large:
+            return appModel.t(.homeWidgetSizeLarge)
+        case .wide:
+            return appModel.t(.homeWidgetSizeWide)
+        }
     }
 }

@@ -16,7 +16,7 @@ struct ProjectDashboardPanel: View {
                     Text(appModel.localized("Project Dashboard", "Project Dashboard"))
                         .font(.title2)
                         .fontWeight(.semibold)
-                    Text(appModel.localized("阶段、缺口、artifact、deadline 与阅读计划。", "Stage, gaps, artifacts, deadlines, and reading plan."))
+                    Text(appModel.localized("阶段、缺口、artifact、deadline 与阅读 Todo。", "Stage, gaps, artifacts, deadlines, and reading todos."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -122,13 +122,13 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("Reading", "Reading"), systemImage: "book") {
+                    ProjectDashboardCard(title: appModel.localized("阅读 Todo", "Reading Todo"), systemImage: "book") {
                         VStack(alignment: .leading, spacing: 8) {
                             if let plan = snapshot.activeReadingPlan {
                                 ProjectDashboardReadingPlanSummary(plan: plan)
                             }
                             if snapshot.readingQueuePreview.isEmpty {
-                                Text(appModel.localized("还没有论文进入 Reading。从 Library 添加，或打开 arXiv 推荐。", "Add a paper from Library, or open arXiv Recommendations."))
+                                Text(appModel.localized("还没有论文进入阅读 Todo。从 Library 添加，或打开 arXiv 推荐。", "Add a paper from Library, or open arXiv Recommendations."))
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -139,7 +139,7 @@ struct ProjectDashboardPanel: View {
                                         if let paperID = entry.paperID {
                                             appModel.selectPaper(id: paperID)
                                         }
-                                        appModel.selectProjectSpaceTab("reading")
+                                        appModel.selectProjectSpaceTab("tasks")
                                     } label: {
                                         ProjectDashboardQueueRow(entry: entry)
                                     }
@@ -148,9 +148,9 @@ struct ProjectDashboardPanel: View {
                             }
                             Button {
                                 recordAction("open_reading", targetID: snapshot.projectID)
-                                appModel.selectProjectSpaceTab("reading")
+                                appModel.selectProjectSpaceTab("tasks")
                             } label: {
-                                Label(appModel.localized("打开 Reading", "Open Reading"), systemImage: "book")
+                                Label(appModel.localized("打开阅读 Todo", "Open Reading Todo"), systemImage: "book")
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -165,25 +165,7 @@ struct ProjectDashboardPanel: View {
         .task(id: appModel.currentProjectID ?? "__none__") {
             await reload(invalidating: true)
         }
-        .onChange(of: appModel.papers) { _, _ in
-            Task { await reload(invalidating: true) }
-        }
-        .onChange(of: appModel.todos) { _, _ in
-            Task { await reload(invalidating: true) }
-        }
-        .onChange(of: appModel.markdownDocuments) { _, _ in
-            Task { await reload(invalidating: true) }
-        }
-        .onChange(of: appModel.agentRunHistory) { _, _ in
-            Task { await reload(invalidating: true) }
-        }
-        .onChange(of: appModel.agentCurrentRun) { _, _ in
-            Task { await reload(invalidating: true) }
-        }
-        .onChange(of: appModel.researchQueueScopes) { _, _ in
-            Task { await reload(invalidating: true) }
-        }
-        .onChange(of: appModel.readingPlanScopes) { _, _ in
+        .onChange(of: appModel.projectDashboardRevision) { _, _ in
             Task { await reload(invalidating: true) }
         }
     }
@@ -242,7 +224,6 @@ struct ProjectDashboardPanel: View {
             todos: appModel.todos,
             markdownDocuments: appModel.markdownDocuments,
             agentRuns: agentRunsForAggregation,
-            sessionEvents: appModel.agentSessionEvents,
             retrievalIndexStatus: appModel.agentRetrievalIndexStatus,
             moduleConfiguration: appModel.workspaceModuleConfiguration
         )

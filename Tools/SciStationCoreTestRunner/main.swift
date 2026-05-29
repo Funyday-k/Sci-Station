@@ -1145,8 +1145,9 @@ private struct CoreVerificationSuite {
 
         try expect(ids.contains("overview"), "ProjectSpace tabs should include Overview from the projects module.")
         try expect(ids.contains("papers"), "ProjectSpace tabs should include Papers from the paper-library module.")
-        try expect(ids.contains("reading"), "ProjectSpace tabs should include unified Reading from the paper-library module.")
+    try expect(!ids.contains("reading"), "ProjectSpace tabs should not expose Reading after it is merged into Tasks.")
         try expect(ids.contains("recommendations"), "ProjectSpace tabs should include arXiv Recommendations from the recommendation module.")
+    try expect(tabs.first(where: { $0.id == "recommendations" })?.title == "论文推荐", "Recommendation project tab should use the Chinese title.")
         try expect(!ids.contains("queue"), "ProjectSpace tabs should not expose Queue as a separate tab after Reading consolidation.")
         try expect(!ids.contains("reading-plan"), "ProjectSpace tabs should not expose Reading Plan as a separate tab after Reading consolidation.")
         try expect(ids.contains("wiki"), "ProjectSpace tabs should include Wiki from the wiki module.")
@@ -7148,7 +7149,7 @@ private struct CoreVerificationSuite {
         try expect(module.workflows.contains("reading_queue_curate"), "paper-library should declare the reading_queue_curate workflow.")
         try expect(module.permissions.writePaths.contains("library/queue.yaml"), "paper-library should permit writes to library/queue.yaml.")
         try expect(module.permissions.writePaths.contains("projects/*/queue.yaml"), "paper-library should permit writes to projects/*/queue.yaml.")
-        try expect(module.projectTabs.contains(where: { $0.id == "reading" }), "paper-library should contribute the unified Reading project-space tab.")
+        try expect(!module.projectTabs.contains(where: { $0.id == "reading" }), "paper-library should no longer contribute Reading after it is merged into Tasks.")
         try expect(!module.projectTabs.contains(where: { $0.id == "queue" }), "paper-library should no longer contribute a separate Queue project-space tab.")
         try expect(!module.projectTabs.contains(where: { $0.id == "reading-plan" }), "paper-library should no longer contribute a separate Reading Plan project-space tab.")
 
@@ -7168,11 +7169,12 @@ private struct CoreVerificationSuite {
         try expect(!noLibraryWorkflows.contains("reading_queue_curate"), "reading_queue_curate should hide when paper-library is disabled.")
 
         let availableProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: defaultConfiguration).map(\.id))
-        try expect(availableProjectTabs.contains("reading"), "Unified Reading tab should be available when paper-library is enabled.")
+    try expect(!availableProjectTabs.contains("reading"), "Reading tab should not remain available after it is merged into Tasks.")
+    try expect(availableProjectTabs.contains("tasks"), "Tasks tab should remain the project-space destination for reading todos.")
         try expect(!availableProjectTabs.contains("queue"), "Queue tab should not remain available after Reading consolidation.")
         try expect(!availableProjectTabs.contains("reading-plan"), "Reading Plan tab should not remain available after Reading consolidation.")
         let noLibraryProjectTabs = Set(WorkspaceModuleRegistry.availableProjectTabs(in: noLibraryConfiguration).map(\.id))
-        try expect(!noLibraryProjectTabs.contains("reading"), "Unified Reading tab should disappear when paper-library is disabled.")
+    try expect(!noLibraryProjectTabs.contains("reading"), "Reading tab should stay hidden when paper-library is disabled.")
 
         let requirements = try require(WorkspaceModuleRegistry.workflowRequirements["reading_queue_curate"], "reading_queue_curate should declare workflow requirements.")
         try expect(requirements == ["paper-library"], "reading_queue_curate should require exactly paper-library; AI ingest stays under research_queue_update.")

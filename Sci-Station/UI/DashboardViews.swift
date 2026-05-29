@@ -294,6 +294,34 @@ private enum TodoDisplayMode: String, CaseIterable {
     }
 }
 
+private enum TodoKindFilter: String, CaseIterable {
+    case all
+    case general
+    case reading
+
+    func includes(_ kind: TodoKind) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .general:
+            return kind == .general
+        case .reading:
+            return kind == .reading
+        }
+    }
+
+    func label(appModel: AppViewModel) -> String {
+        switch self {
+        case .all:
+            return appModel.localized("全部", "All")
+        case .general:
+            return appModel.localized(TodoKind.general.label, TodoKind.general.englishLabel)
+        case .reading:
+            return appModel.localized(TodoKind.reading.label, TodoKind.reading.englishLabel)
+        }
+    }
+}
+
 private struct TodoProjectColumn: Identifiable {
     let id: String
     let title: String
@@ -307,18 +335,10 @@ struct TasksWorkspaceView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tasks")
-                        .font(.largeTitle)
-                        .fontWeight(.semibold)
-                    Text(appModel.isViewingGlobalTodos ? "Review todos across all projects." : "Manage due dates and reading todos for \(appModel.currentResearchProject?.name ?? "the active project").")
-                        .foregroundStyle(.secondary)
-                }
-
+            VStack(alignment: .leading, spacing: 12) {
                 TodoDashboardWidget(scope: appModel.isViewingGlobalTodos ? .global : .currentProject)
             }
-            .padding(24)
+            .padding(16)
         }
     }
 }
@@ -329,83 +349,53 @@ struct TodoDashboardWidget: View {
     @State private var newTodoTitle = ""
     @State private var newTodoHasDueDate = true
     @State private var newTodoDueDate = Calendar.current.startOfDay(for: Date())
+    @State private var newTodoKind = TodoKind.general
     @State private var newTodoPriority = Priority.medium
     @State private var newTodoNotes = ""
     @State private var newTodoProjectIDs: [ResearchProject.ID] = []
     @State private var isShowingCompleted = false
     @State private var displayMode = TodoDisplayMode.list
+    @State private var kindFilter = TodoKindFilter.all
+    @State private var isShowingTodoComposer = false
 
     var scope: TodoDashboardScope = .selectedDate
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                todoComposer
+        VStack(alignment: .leading, spacing: 12) {
+            todoToolbar
 
-                HStack(spacing: 10) {
-                    Button {
-                        appModel.requestSystemCalendarAccess()
-                    } label: {
-                        Label(appModel.systemCalendarAccessState.label, systemImage: "calendar.badge.plus")
-                    }
-                    .help("Request access to Apple Calendar and Reminders")
-                    .disabled(appModel.systemCalendarAccessState == .authorized)
+            if !displayedWorkspaceEvents.isEmpty || !displayedSystemItems.isEmpty {
+                ScheduleAgendaView(
+                    workspaceEvents: displayedWorkspaceEvents,
+                    systemItems: displayedSystemItems
+                )
+            }
 
-                    Button {
-                        appModel.refreshSystemSchedule(around: appModel.selectedDashboardDate)
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("Refresh Apple Calendar and Reminders")
-                    .disabled(!appModel.systemCalendarAccessState.canReadSchedule)
-
-                    if appModel.isLoadingSystemSchedule {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Spacer()
-                }
-                .controlSize(.small)
-
-                if !displayedWorkspaceEvents.isEmpty || !displayedSystemItems.isEmpty {
-                    ScheduleAgendaView(
-                        workspaceEvents: displayedWorkspaceEvents,
-                        systemItems: displayedSystemItems
-                    )
-                }
-
-                if displayedTodos.isEmpty && displayedWorkspaceEvents.isEmpty && displayedSystemItems.isEmpty {
-                    Text(isShowingCompleted ? "No completed todos in this view." : "No open todos in this view.")
+            if displayedTodos.isEmpty && displayedWorkspaceEvents.isEmpty && displayedSystemItems.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(isShowingCompleted ? appModel.localized("当前视图没有已完成任务。", "No completed todos in this view.") : appModel.localized("当前视图没有打开中的任务。", "No open todos in this view."))
                         .foregroundStyle(.secondary)
-                } else {
-                    todoContent
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                Text(title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                Spacer(minLength: 0)
-
-                if scope == .global {
-                    Picker("View", selection: $displayMode) {
-                        ForEach(TodoDisplayMode.allCases, id: \.self) { mode in
-                            Text(mode.label).tag(mode)
-                        }
+                    Button {
+                        isShowingTodoComposer = true
+                    } label: {
+                        Label(appModel.localized("新建任务", "New Task"), systemImage: "plus")
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 160)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-
-                Button(isShowingCompleted ? "Open Todos" : "Completed") {
-                    isShowingCompleted.toggle()
-                }
-                .buttonStyle(.bordered)
+            } else {
+                todoContent
             }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.secondary.opacity(0.10), lineWidth: 1)
+        )
+        .sheet(isPresented: $isShowingTodoComposer) {
+            todoComposerSheet
         }
         .onAppear {
             newTodoHasDueDate = scope == .selectedDate
@@ -419,39 +409,133 @@ struct TodoDashboardWidget: View {
         }
     }
 
+    private var todoToolbar: some View {
+        HStack(alignment: .center, spacing: 8) {
+            if scope == .global {
+                Picker("View", selection: $displayMode) {
+                    ForEach(TodoDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode == .list ? appModel.localized("列表", "List") : appModel.localized("卡片", "Boxes")).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 132)
+            }
+
+            Picker(appModel.localized("类型", "Kind"), selection: $kindFilter) {
+                ForEach(TodoKindFilter.allCases, id: \.self) { filter in
+                    Text(filter.label(appModel: appModel)).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 228)
+
+            Button {
+                isShowingCompleted.toggle()
+            } label: {
+                Label(
+                    isShowingCompleted ? appModel.localized("打开中", "Open") : appModel.localized("已完成", "Completed"),
+                    systemImage: isShowingCompleted ? "circle" : "checkmark.circle"
+                )
+            }
+            .buttonStyle(.bordered)
+
+            Spacer(minLength: 0)
+
+            Button {
+                appModel.requestSystemCalendarAccess()
+            } label: {
+                Label(appModel.systemCalendarAccessState.label, systemImage: "calendar.badge.plus")
+            }
+            .buttonStyle(.bordered)
+            .help(appModel.localized("连接 Apple 日历与提醒事项", "Connect Apple Calendar and Reminders"))
+            .disabled(appModel.systemCalendarAccessState == .authorized)
+
+            Button {
+                appModel.refreshSystemSchedule(around: appModel.selectedDashboardDate)
+            } label: {
+                Label(appModel.localized("刷新", "Refresh"), systemImage: "arrow.clockwise")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.bordered)
+            .help(appModel.localized("刷新日历和提醒事项", "Refresh calendar and reminders"))
+            .disabled(!appModel.systemCalendarAccessState.canReadSchedule)
+
+            if appModel.isLoadingSystemSchedule {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Button {
+                isShowingTodoComposer = true
+            } label: {
+                Label(appModel.localized("新建任务", "New Task"), systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .controlSize(.small)
+    }
+
+    private var todoComposerSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(appModel.localized("新建任务", "New Task"))
+                    .font(.title3.weight(.semibold))
+                Spacer(minLength: 0)
+                Button {
+                    isShowingTodoComposer = false
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            todoComposer
+        }
+        .padding(20)
+        .frame(minWidth: 640, idealWidth: 720, alignment: .topLeading)
+    }
+
     private var todoComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
-                TextField("New Reminder", text: $newTodoTitle)
+                TextField(appModel.localized("新任务", "New Todo"), text: $newTodoTitle)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(addTodo)
 
                 Button {
                     addTodo()
                 } label: {
-                    Label("Add", systemImage: "plus.circle.fill")
+                    Label(appModel.localized("添加", "Add"), systemImage: "plus.circle.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(addTodoDisabledReason != nil)
-                .help(addTodoDisabledReason ?? "Create todo")
+                .help(addTodoDisabledReason ?? appModel.localized("创建任务", "Create todo"))
             }
 
             HStack(alignment: .center, spacing: 12) {
-                Toggle("Date", isOn: $newTodoHasDueDate)
+                Toggle(appModel.localized("日期", "Date"), isOn: $newTodoHasDueDate)
                     .toggleStyle(.checkbox)
 
                 HStack(spacing: 6) {
-                    Text("Due")
+                    Text(appModel.localized("到期", "Due"))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
-                    DatePicker("Due Date", selection: $newTodoDueDate, displayedComponents: .date)
+                    DatePicker(appModel.localized("到期日期", "Due Date"), selection: $newTodoDueDate, displayedComponents: .date)
                         .labelsHidden()
                         .disabled(!newTodoHasDueDate)
                 }
 
-                Picker("Priority", selection: $newTodoPriority) {
+                Picker(appModel.localized("类型", "Kind"), selection: $newTodoKind) {
+                    ForEach(TodoKind.allCases, id: \.self) { kind in
+                        Text(appModel.localized(kind.label, kind.englishLabel)).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(minWidth: 120, alignment: .leading)
+
+                Picker(appModel.localized("优先级", "Priority"), selection: $newTodoPriority) {
                     ForEach(Priority.allCases, id: \.self) { priority in
-                        Text(priority.label).tag(priority)
+                        Text(appModel.localized(priority.label, priority.englishLabel)).tag(priority)
                     }
                 }
                 .pickerStyle(.menu)
@@ -468,20 +552,20 @@ struct TodoDashboardWidget: View {
 
                     if !newTodoProjectIDs.isEmpty {
                         Divider()
-                        Button("Clear Project Assignment") {
+                        Button(appModel.localized("清除项目归属", "Clear Project Assignment")) {
                             newTodoProjectIDs = []
                         }
                     }
                 } label: {
                     Label(newTodoProjectMenuTitle, systemImage: "folder")
                 }
-                .help("Choose which project owns this todo")
+                .help(appModel.localized("选择此任务所属项目", "Choose which project owns this todo"))
                 .frame(minWidth: 150, alignment: .leading)
             }
             .controlSize(.small)
 
             HStack(alignment: .center, spacing: 10) {
-                TextField("Notes", text: $newTodoNotes)
+                TextField(appModel.localized("备注", "Notes"), text: $newTodoNotes)
                     .textFieldStyle(.roundedBorder)
 
                 if let addTodoDisabledReason {
@@ -499,7 +583,7 @@ struct TodoDashboardWidget: View {
 
     private var addTodoDisabledReason: String? {
         if newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Enter a reminder title before adding."
+            return appModel.localized("请输入任务标题。", "Enter a todo title before adding.")
         }
         return nil
     }
@@ -544,6 +628,7 @@ struct TodoDashboardWidget: View {
 
         return baseTodos
             .filter { isShowingCompleted ? isCompleted($0) : !isCompleted($0) }
+            .filter { kindFilter.includes($0.kind) }
             .sorted(by: todoSort)
     }
 
@@ -558,7 +643,7 @@ struct TodoDashboardWidget: View {
 
         let unassignedTodos = displayedTodos.filter(\.projectIDs.isEmpty)
         if !unassignedTodos.isEmpty, appModel.activeResearchProjects.count > 1 {
-            columns.append(TodoProjectColumn(id: "unassigned", title: "Unassigned", todos: unassignedTodos))
+            columns.append(TodoProjectColumn(id: "unassigned", title: appModel.localized("未分配", "Unassigned"), todos: unassignedTodos))
         }
 
         return columns
@@ -577,18 +662,6 @@ struct TodoDashboardWidget: View {
         scope == .selectedDate ? appModel.selectedDateSystemScheduleItems : []
     }
 
-    private var title: String {
-        switch scope {
-        case .selectedDate:
-            let formatted = appModel.selectedDashboardDate.formatted(date: .abbreviated, time: .omitted)
-            return "Todos for \(formatted)"
-        case .global:
-            return "All Project Todos"
-        case .currentProject:
-            return "\(appModel.currentResearchProject?.name ?? "Current Project") Todos"
-        }
-    }
-
     private func addTodo() {
         let trimmed = newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -596,12 +669,14 @@ struct TodoDashboardWidget: View {
         appModel.addTodo(
             title: trimmed,
             dueDate: dueDate,
+            kind: newTodoKind,
             priority: newTodoPriority,
             notes: newTodoNotes,
             projectIDs: newTodoProjectIDs
         )
         newTodoTitle = ""
         newTodoNotes = ""
+        isShowingTodoComposer = false
     }
 
     private func isCompleted(_ todo: TodoItem) -> Bool {
@@ -648,14 +723,14 @@ struct TodoDashboardWidget: View {
 
     private var newTodoProjectMenuTitle: String {
         if newTodoProjectIDs.isEmpty {
-            return "Unassigned"
+            return appModel.localized("未分配", "Unassigned")
         }
 
         if newTodoProjectIDs.count == 1 {
             return appModel.projectName(for: newTodoProjectIDs[0])
         }
 
-        return "\(newTodoProjectIDs.count) Projects"
+        return appModel.localized("\(newTodoProjectIDs.count) 个项目", "\(newTodoProjectIDs.count) Projects")
     }
 }
 
@@ -666,6 +741,7 @@ private struct TodoRowView: View {
 
     @State private var isEditing = false
     @State private var editedTitle: String
+    @State private var editedKind: TodoKind
     @State private var editedStatus: TodoStatus
     @State private var editedHasDueDate: Bool
     @State private var editedDueDate: Date
@@ -676,6 +752,7 @@ private struct TodoRowView: View {
     init(todo: TodoItem) {
         self.todo = todo
         _editedTitle = State(initialValue: todo.title)
+        _editedKind = State(initialValue: todo.kind)
         _editedStatus = State(initialValue: todo.status)
         _editedHasDueDate = State(initialValue: todo.dueDate != nil)
         _editedDueDate = State(initialValue: todo.dueDate ?? Calendar.current.startOfDay(for: Date()))
@@ -688,28 +765,35 @@ private struct TodoRowView: View {
         VStack(alignment: .leading, spacing: 8) {
             if isEditing {
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("Todo title", text: $editedTitle)
+                    TextField(appModel.localized("任务标题", "Todo title"), text: $editedTitle)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(saveEdits)
 
                     HStack(spacing: 12) {
-                        Picker("Status", selection: $editedStatus) {
+                        Picker(appModel.localized("状态", "Status"), selection: $editedStatus) {
                             ForEach(TodoStatus.allCases, id: \.self) { status in
-                                Text(status.label).tag(status)
+                                Text(appModel.localized(status.label, status.englishLabel)).tag(status)
                             }
                         }
                         .pickerStyle(.menu)
 
-                        Toggle("Due", isOn: $editedHasDueDate)
+                        Picker(appModel.localized("类型", "Kind"), selection: $editedKind) {
+                            ForEach(TodoKind.allCases, id: \.self) { kind in
+                                Text(appModel.localized(kind.label, kind.englishLabel)).tag(kind)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Toggle(appModel.localized("到期", "Due"), isOn: $editedHasDueDate)
                             .toggleStyle(.checkbox)
 
-                        DatePicker("Due Date", selection: $editedDueDate, displayedComponents: .date)
+                        DatePicker(appModel.localized("到期日期", "Due Date"), selection: $editedDueDate, displayedComponents: .date)
                             .labelsHidden()
                             .disabled(!editedHasDueDate)
 
-                        Picker("Priority", selection: $editedPriority) {
+                        Picker(appModel.localized("优先级", "Priority"), selection: $editedPriority) {
                             ForEach(Priority.allCases, id: \.self) { priority in
-                                Text(priority.label).tag(priority)
+                                Text(appModel.localized(priority.label, priority.englishLabel)).tag(priority)
                             }
                         }
                         .pickerStyle(.menu)
@@ -725,7 +809,7 @@ private struct TodoRowView: View {
 
                             if !editedProjectIDs.isEmpty {
                                 Divider()
-                                Button("Clear Project Assignment") {
+                                Button(appModel.localized("清除项目归属", "Clear Project Assignment")) {
                                     editedProjectIDs = []
                                 }
                             }
@@ -737,14 +821,14 @@ private struct TodoRowView: View {
                     }
                     .controlSize(.small)
 
-                    TextField("Notes", text: $editedNotes)
+                    TextField(appModel.localized("备注", "Notes"), text: $editedNotes)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(saveEdits)
 
                     HStack {
-                        Button("Save", action: saveEdits)
+                        Button(appModel.localized("保存", "Save"), action: saveEdits)
                             .buttonStyle(.borderedProminent)
-                        Button("Cancel") {
+                        Button(appModel.localized("取消", "Cancel")) {
                             resetEdits(from: todo)
                             isEditing = false
                         }
@@ -759,13 +843,14 @@ private struct TodoRowView: View {
                         Image(systemName: todo.status == .done ? "checkmark.circle.fill" : "circle")
                     }
                     .buttonStyle(.plain)
-                    .help(todo.status == .done ? "Mark todo as open" : "Mark todo as done")
+                    .help(todo.status == .done ? appModel.localized("标记为打开中", "Mark todo as open") : appModel.localized("标记为已完成", "Mark todo as done"))
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             Text(todo.title)
                                 .fontWeight(.medium)
                                 .strikethrough(todo.status == .done)
+                            TodoKindBadge(kind: todo.kind)
                             TodoPriorityBadge(priority: todo.priority)
                         }
 
@@ -778,7 +863,7 @@ private struct TodoRowView: View {
                                     .foregroundStyle(.secondary)
                                     .background(Color.secondary.opacity(0.10), in: Capsule())
                             }
-                            Text(todo.status.label)
+                            Text(appModel.localized(todo.status.label, todo.status.englishLabel))
                             if let dueDate = todo.dueDate {
                                 Text(dueDate.formatted(date: .abbreviated, time: .omitted))
                             }
@@ -787,7 +872,7 @@ private struct TodoRowView: View {
                                     .lineLimit(1)
                             }
                             if todo.externalSource == "apple_reminders" {
-                                Label("Reminder", systemImage: "bell")
+                                Label(appModel.localized("提醒事项", "Reminder"), systemImage: "bell")
                             }
                         }
                         .font(.caption)
@@ -796,23 +881,39 @@ private struct TodoRowView: View {
 
                     Spacer()
 
-                    if todo.externalIdentifier == nil {
-                        Button("Publish") {
-                            appModel.publishTodoToAppleReminders(todo)
+                    HStack(spacing: 4) {
+                        if todo.externalIdentifier == nil {
+                            Button {
+                                appModel.publishTodoToAppleReminders(todo)
+                            } label: {
+                                Image(systemName: "arrow.up.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(appModel.localized("发布到提醒事项", "Publish to Reminders"))
                         }
-                        .buttonStyle(.link)
-                    }
 
-                    Button("Edit") {
-                        resetEdits(from: todo)
-                        isEditing = true
-                    }
-                    .buttonStyle(.link)
+                        Button {
+                            resetEdits(from: todo)
+                            isEditing = true
+                        } label: {
+                            Image(systemName: "pencil")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(appModel.localized("编辑任务", "Edit task"))
 
-                    Button("Delete") {
-                        appModel.deleteTodo(todo)
+                        Menu {
+                            Button(role: .destructive) {
+                                appModel.deleteTodo(todo)
+                            } label: {
+                                Label(appModel.localized("删除", "Delete"), systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .help(appModel.localized("更多操作", "More actions"))
                     }
-                    .buttonStyle(.link)
+                    .controlSize(.small)
                 }
             }
         }
@@ -828,6 +929,7 @@ private struct TodoRowView: View {
         appModel.updateTodo(
             todo,
             title: editedTitle,
+            kind: editedKind,
             status: editedStatus,
             dueDate: editedHasDueDate ? editedDueDate : nil,
             priority: editedPriority,
@@ -839,6 +941,7 @@ private struct TodoRowView: View {
 
     private func resetEdits(from todo: TodoItem) {
         editedTitle = todo.title
+        editedKind = todo.kind
         editedStatus = todo.status
         editedHasDueDate = todo.dueDate != nil
         editedDueDate = todo.dueDate ?? Calendar.current.startOfDay(for: Date())
@@ -857,7 +960,7 @@ private struct TodoRowView: View {
 
     private var projectMenuTitle: String {
         if editedProjectIDs.isEmpty {
-            return "Unassigned"
+            return appModel.localized("未分配", "Unassigned")
         }
 
         if editedProjectIDs.count == 1,
@@ -865,12 +968,12 @@ private struct TodoRowView: View {
             return projectName
         }
 
-        return "\(editedProjectIDs.count) Projects"
+        return appModel.localized("\(editedProjectIDs.count) 个项目", "\(editedProjectIDs.count) Projects")
     }
 
     private var projectLabels: [String] {
         guard !todo.projectIDs.isEmpty else {
-            return ["Unassigned"]
+            return [appModel.localized("未分配", "Unassigned")]
         }
 
         return todo.projectIDs.map { projectID in
@@ -943,12 +1046,13 @@ private struct TodoCardView: View {
             }
 
             HStack(spacing: 8) {
+                TodoKindBadge(kind: todo.kind)
                 TodoPriorityBadge(priority: todo.priority)
                 if let dueDate = todo.dueDate {
                     Label(dueDate.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
                 }
                 if todo.externalSource == "apple_reminders" {
-                    Label("Reminder", systemImage: "bell")
+                    Label(appModel.localized("提醒事项", "Reminder"), systemImage: "bell")
                 }
             }
             .font(.caption)
@@ -976,7 +1080,7 @@ private struct TodoCardView: View {
 
     private var projectLabels: [String] {
         guard !todo.projectIDs.isEmpty else {
-            return ["Unassigned"]
+            return [appModel.localized("未分配", "Unassigned")]
         }
 
         return todo.projectIDs.map { projectID in
@@ -985,11 +1089,29 @@ private struct TodoCardView: View {
     }
 }
 
+private struct TodoKindBadge: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let kind: TodoKind
+
+    var body: some View {
+        Label(appModel.localized(kind.label, kind.englishLabel), systemImage: kind == .reading ? "book" : "checklist")
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(kind == .reading ? Color.blue : Color.secondary)
+            .background((kind == .reading ? Color.blue : Color.secondary).opacity(0.12), in: Capsule())
+            .labelStyle(.titleAndIcon)
+    }
+}
+
 private struct TodoPriorityBadge: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
     let priority: Priority
 
     var body: some View {
-        Text(priority.label)
+        Text(appModel.localized(priority.label, priority.englishLabel))
             .font(.caption2)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

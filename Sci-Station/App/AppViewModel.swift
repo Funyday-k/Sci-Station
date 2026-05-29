@@ -72,6 +72,20 @@ private enum GraphExternalPaperImportError: LocalizedError {
     }
 }
 
+private enum RecommendationReadingTodoError: LocalizedError {
+    case missingWorkspace
+    case missingImportIdentifier
+
+    var errorDescription: String? {
+        switch self {
+        case .missingWorkspace:
+            return "请先打开工作区，再加入推荐论文。"
+        case .missingImportIdentifier:
+            return "无法加入推荐论文：缺少 arXiv、PDF 或来源链接。"
+        }
+    }
+}
+
 private struct PendingMarkdownConversionRequest {
     var papers: [Paper]
     var workspace: ResearchWorkspace
@@ -187,14 +201,28 @@ struct AppShellRenderState {
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    private static let arxivRecommendationTag = "arXiv 推荐"
+
     @Published private(set) var currentWorkspace: ResearchWorkspace?
     @Published private(set) var currentResearchRoot: ResearchRoot?
-    @Published private(set) var workspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
+    @Published private(set) var workspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration() {
+        didSet {
+            markHomeAggregationChanged()
+        }
+    }
     @Published private(set) var workspaceModuleWarnings: [WorkspaceModuleWarning] = []
     @Published private(set) var workspaceModuleDirectoryStatuses: [WorkspaceModuleDirectoryStatus] = []
     @Published private(set) var workspaceModuleOverrides: [String: WorkspaceModuleOverride] = [:]
-    @Published private(set) var researchProjects: [ResearchProject] = []
-    @Published private(set) var currentProjectID: ResearchProject.ID?
+    @Published private(set) var researchProjects: [ResearchProject] = [] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
+    @Published private(set) var currentProjectID: ResearchProject.ID? {
+        didSet {
+            markHomeAggregationChanged()
+        }
+    }
     @Published private(set) var selectedProjectSpaceProjectID: ResearchProject.ID?
     @Published private(set) var selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.overviewTabID
     @Published private(set) var isViewingGlobalTodos = false
@@ -211,7 +239,11 @@ final class AppViewModel: ObservableObject {
     @Published var isShowingError = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var isWorking = false
-    @Published private(set) var papers: [Paper] = []
+    @Published private(set) var papers: [Paper] = [] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     @Published private(set) var projectPaperLinks: [ProjectPaperLink] = []
     @Published private(set) var legacyPaperMigrationPlan = LegacyPaperMigrationPlan.empty
     @Published private(set) var legacyPaperMigrationReport: LegacyPaperMigrationReport?
@@ -219,7 +251,11 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isRunningLegacyPaperMigration = false
     @Published private(set) var collections: [PaperCollection] = []
     @Published private(set) var tagDefinitions: [TagDefinition] = []
-    @Published private(set) var todos: [TodoItem] = []
+    @Published private(set) var todos: [TodoItem] = [] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     @Published private(set) var calendarEvents: [CalendarEvent] = []
     @Published private(set) var systemScheduleItems: [SystemScheduleItem] = []
     @Published private(set) var systemCalendarAccessState: SystemCalendarAccessState = .notDetermined
@@ -231,6 +267,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var shellWindowWidth: Double = 1440
     @Published var isEditingHomeLayout = false
     @Published var isShowingHomeWidgetGallery = false
+    @Published private(set) var homeAggregationRevision = 0
+    @Published private(set) var projectDashboardRevision = 0
     @Published var isShowingWorkspaceCreationWizard = false
     @Published private(set) var workspaceCreationDraft = WorkspaceCreationDraft()
     @Published var selectedSettingsCategory: SettingsCategory = .workspace
@@ -289,12 +327,20 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentWorkspaceSnapshot: AgentWorkspaceSnapshot?
     @Published private(set) var agentToolDefinitions: [AgentToolDefinition] = []
     @Published private(set) var agentDisabledToolNames: Set<String> = []
-    @Published private(set) var agentCurrentRun: AgentRun?
+    @Published private(set) var agentCurrentRun: AgentRun? {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     @Published private(set) var agentToolApprovals: Set<String> = []
     @Published private(set) var agentToolDenials: Set<String> = []
     @Published private(set) var agentToolSessionApprovalDrafts: Set<String> = []
     @Published private(set) var agentToolCorrectionFeedback: [String: String] = [:]
-    @Published private(set) var agentRunHistory: [AgentRun] = []
+    @Published private(set) var agentRunHistory: [AgentRun] = [] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     @Published private(set) var agentSessionEvents: [AgentSessionEvent] = []
     @Published private(set) var agentTimelineVisibleLimit = 160
     @Published private(set) var agentThreads: [AgentThread] = []
@@ -312,7 +358,11 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
-    @Published private(set) var agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot.disabled()
+    @Published private(set) var agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot.disabled() {
+        didSet {
+            markHomeAggregationChanged()
+        }
+    }
     @Published private(set) var paperMarkdownQualityReport: PaperMarkdownQualityReport?
     @Published private(set) var isCheckingPaperMarkdownQuality = false
     @Published private(set) var agentDisabledHookIDs: Set<String> = []
@@ -335,7 +385,11 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var paperMarkdownConversionMessages: [Paper.ID: String] = [:]
     @Published var isShowingMarkdownOverwriteConfirmation = false
     @Published private(set) var isGeneratingWikiPage = false
-    @Published private(set) var markdownDocuments: [MarkdownDocument] = []
+    @Published private(set) var markdownDocuments: [MarkdownDocument] = [] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     @Published private(set) var selectedMarkdownID: String?
     @Published private(set) var selectedMarkdownDraft: MarkdownDocument?
     @Published var isShowingUnsavedMarkdownConfirmation = false
@@ -363,6 +417,7 @@ final class AppViewModel: ObservableObject {
     private let systemCalendarService: SystemCalendarService
     private let pdfReadingStateService: PDFReadingStateService
     private let remoteImportService: RemoteImportService
+    private let pdfDownloadService: DownloadService
     private let arxivRecommendationClient = ArxivRecommendationClient()
     private let recommendationPipeline = RecommendationPipeline()
     private let llmConfigurationStore: LLMConfigurationStore
@@ -413,11 +468,19 @@ final class AppViewModel: ObservableObject {
     private var researchQueueIngestTask: Task<Void, Never>?
     private var researchQueueAgentRunIngestTask: Task<Void, Never>?
     private var researchQueueChangeWatchTask: Task<Void, Never>?
-    @Published private(set) var researchQueueScopes: [String: [ResearchQueueEntry]] = [:]
+    @Published private(set) var researchQueueScopes: [String: [ResearchQueueEntry]] = [:] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     private var readingPlanStore: ReadingPlanStore?
     private var readingPlanWorkspaceID: URL?
     private var readingPlanChangeWatchTask: Task<Void, Never>?
-    @Published private(set) var readingPlanScopes: [String: [ReadingPlan]] = [:]
+    @Published private(set) var readingPlanScopes: [String: [ReadingPlan]] = [:] {
+        didSet {
+            markWorkspaceDashboardChanged()
+        }
+    }
     private let recommendationFeedbackStore = RecommendationFeedbackStore()
     @Published private(set) var recommendationRunResult: RecommendationRunResult?
     @Published private(set) var recommendationHistory: [RecommendationRunResult] = []
@@ -427,6 +490,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isEvaluatingRecommendationsWithAI: Bool = false
     @Published private(set) var recommendationErrorMessage: String?
     @Published private(set) var recommendationAIEvaluationStatusMessage: String?
+    @Published private(set) var recommendationLibraryImportScoreIDs: Set<String> = []
+    @Published private(set) var recommendationReadingTodoImportScoreIDs: Set<String> = []
 #if DEBUG
     private var uiTestBridgeServer: UITestBridgeServer?
     /// When the UI test bridge is active, all `recordAppDebugEvent` calls are
@@ -631,6 +696,15 @@ final class AppViewModel: ObservableObject {
             context: context,
             preferredRightRailMode: workspacePreferences.rightRailMode
         )
+    }
+
+    private func markHomeAggregationChanged() {
+        homeAggregationRevision &+= 1
+    }
+
+    private func markWorkspaceDashboardChanged() {
+        projectDashboardRevision &+= 1
+        markHomeAggregationChanged()
     }
 
     var effectiveRightRailMode: RightRailMode {
@@ -882,6 +956,7 @@ final class AppViewModel: ObservableObject {
         systemCalendarService: SystemCalendarService? = nil,
         pdfReadingStateService: PDFReadingStateService? = nil,
         remoteImportService: RemoteImportService? = nil,
+        pdfDownloadService: DownloadService? = nil,
         llmConfigurationStore: LLMConfigurationStore? = nil,
         apiKeyStore: KeychainAPIKeyStore? = nil,
         openAIProvider: OpenAICompatibleProvider? = nil,
@@ -955,6 +1030,7 @@ final class AppViewModel: ObservableObject {
         self.systemCalendarAccessState = resolvedSystemCalendarService.accessState
         self.pdfReadingStateService = resolvedPDFReadingStateService
         self.remoteImportService = resolvedRemoteImportService
+        self.pdfDownloadService = pdfDownloadService ?? DownloadService()
         self.llmConfigurationStore = resolvedLLMConfigurationStore
         self.apiKeyStore = resolvedAPIKeyStore
         self.openAIProvider = resolvedOpenAIProvider
@@ -2067,15 +2143,16 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        let requestedTabID = ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(tabID) ? ProjectSpaceTabsBuilder.mergedReadingTabID : tabID
         let availableTabs = projectSpaceTabs(for: projectID)
         let resolvedTabID: String
-        if availableTabs.contains(where: { $0.id == tabID }) {
-            resolvedTabID = tabID
+        if availableTabs.contains(where: { $0.id == requestedTabID }) {
+            resolvedTabID = requestedTabID
         } else {
             resolvedTabID = ProjectSpaceTabsBuilder.overviewTabID
             recordShellDebugEvent("project_space.builder_warn", payload: .object([
                 "project_id": .string(projectID),
-                "hidden_tabs": jsonStringArray([tabID]),
+                "hidden_tabs": jsonStringArray([requestedTabID]),
                 "reason": .string("module_disabled")
             ]))
         }
@@ -3403,24 +3480,85 @@ final class AppViewModel: ObservableObject {
     }
 
     func canOpenPDF(for paper: Paper) -> Bool {
-        guard let currentWorkspace, let pdfURL = paper.pdfURL(in: currentWorkspace) else {
-            return false
-        }
-
-        return FileManager.default.fileExists(atPath: pdfURL.path)
+        guard let currentWorkspace else { return false }
+        return localPDFURL(for: paper, in: currentWorkspace) != nil || remotePDFURL(for: paper) != nil
     }
 
     func openPaperReader(_ paper: Paper) {
         let returnRoute = currentWorkspaceRoute
         selectPaper(id: paper.id)
-        guard canOpenPDF(for: paper) else {
+        guard let currentWorkspace else { return }
+
+        if localPDFURL(for: paper, in: currentWorkspace) != nil {
+            activatePaperReader(returnRoute: returnRoute)
             return
         }
 
+        guard remotePDFURL(for: paper) != nil else {
+            libraryBatchStatusMessage = localized("没有可打开的 PDF。", "No PDF is available to open.")
+            return
+        }
+
+        Task {
+            do {
+                showShellStatus(localized("正在下载 PDF…", "Downloading PDF…"))
+                let updatedPaper = try await ensureLocalPDFAvailable(for: paper, in: currentWorkspace)
+                selectPaper(id: updatedPaper.id)
+                activatePaperReader(returnRoute: returnRoute)
+                showShellStatus(localized("PDF 已下载并打开。", "PDF downloaded and opened."))
+            } catch {
+                libraryBatchStatusMessage = localized("无法打开 PDF：\(error.localizedDescription)", "Could not open PDF: \(error.localizedDescription)")
+                present(error)
+            }
+        }
+    }
+
+    private func activatePaperReader(returnRoute: WorkspaceRoute) {
         paperReaderReturnRoute = returnRoute
         selectedSection = .pdfReader
         showContextInspector(source: "paper_reader_open")
         persistWorkspaceRoute(currentWorkspaceRoute)
+    }
+
+    private func localPDFURL(for paper: Paper, in workspace: ResearchWorkspace) -> URL? {
+        guard let pdfURL = paper.pdfURL(in: workspace), FileManager.default.fileExists(atPath: pdfURL.path) else {
+            return nil
+        }
+        return pdfURL
+    }
+
+    private func remotePDFURL(for paper: Paper) -> URL? {
+        guard let value = paper.pdfURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+              let url = URL(string: value),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme) else {
+            return nil
+        }
+        return url
+    }
+
+    private func ensureLocalPDFAvailable(for paper: Paper, in workspace: ResearchWorkspace) async throws -> Paper {
+        if localPDFURL(for: paper, in: workspace) != nil {
+            return paper
+        }
+        guard let remoteURL = remotePDFURL(for: paper) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        let downloadedURL = try await pdfDownloadService.downloadPDF(from: remoteURL)
+        var updatedPaper = papers.first(where: { $0.id == paper.id }) ?? paper
+        let directoryURL = workspace.directoryURL(for: updatedPaper.paperDirectoryRelativePath)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let targetURL = directoryURL.appendingPathComponent("paper.pdf", isDirectory: false)
+        if FileManager.default.fileExists(atPath: targetURL.path) {
+            try FileManager.default.removeItem(at: targetURL)
+        }
+        try FileManager.default.moveItem(at: downloadedURL, to: targetURL)
+        updatedPaper.pdfRelativePath = "paper.pdf"
+        updatedPaper.updatedAt = Date()
+        let savedPaper = try await paperRepository.save(updatedPaper, in: workspace)
+        try await loadWorkspaceData(in: workspace, selectingPaper: savedPaper.id, selectingMarkdown: selectedMarkdownID)
+        return savedPaper
     }
 
     func returnFromPaperReader() {
@@ -3499,12 +3637,22 @@ final class AppViewModel: ObservableObject {
     }
 
     func openPaperPDF(_ paper: Paper) {
-        guard let currentWorkspace, let pdfURL = paper.pdfURL(in: currentWorkspace) else {
+        guard let currentWorkspace else {
             return
         }
 
         Task {
             do {
+                let pdfURL: URL
+                if let localURL = localPDFURL(for: paper, in: currentWorkspace) {
+                    pdfURL = localURL
+                } else {
+                    let updatedPaper = try await ensureLocalPDFAvailable(for: paper, in: currentWorkspace)
+                    guard let localURL = localPDFURL(for: updatedPaper, in: currentWorkspace) else {
+                        return
+                    }
+                    pdfURL = localURL
+                }
                 try await pdfOpeningService.openPDF(at: pdfURL, page: nil)
             } catch {
                 present(error)
@@ -5887,6 +6035,7 @@ final class AppViewModel: ObservableObject {
     func addTodo(
         title: String,
         dueDate: Date?,
+        kind: TodoKind = .general,
         priority: Priority = .medium,
         notes: String? = nil,
         projectIDs: [ResearchProject.ID]? = nil
@@ -5904,6 +6053,7 @@ final class AppViewModel: ObservableObject {
         var todo = TodoItem(
             id: "todo-\(UUID().uuidString.lowercased())",
             title: trimmedTitle,
+            kind: kind,
             status: .open,
             dueDate: dueDate.map { Calendar.current.startOfDay(for: $0) },
             priority: priority,
@@ -5931,6 +6081,7 @@ final class AppViewModel: ObservableObject {
     func updateTodo(
         _ todo: TodoItem,
         title: String,
+        kind: TodoKind? = nil,
         status: TodoStatus,
         dueDate: Date?,
         priority: Priority,
@@ -5948,6 +6099,7 @@ final class AppViewModel: ObservableObject {
 
         var updatedTodo = todo
         updatedTodo.title = trimmedTitle
+        updatedTodo.kind = kind ?? updatedTodo.kind
         updatedTodo.status = status
         updatedTodo.dueDate = dueDate.map { Calendar.current.startOfDay(for: $0) }
         updatedTodo.priority = priority
@@ -6502,7 +6654,13 @@ final class AppViewModel: ObservableObject {
         // P-AT.1d: in DEBUG, start streaming SwiftUI runtime issues to a
         // workspace-local log so the AI usage-test orchestrator can read
         // them as an independent assertion channel. Idempotent.
-        _ = SwiftUIRuntimeWarningCapture.shared.install(rootURL: workspace.rootURL)
+        #if DEBUG
+        if uiTestBridgeForceDebugLogging {
+            _ = SwiftUIRuntimeWarningCapture.shared.install(rootURL: workspace.rootURL)
+        } else {
+            SwiftUIRuntimeWarningCapture.shared.stop()
+        }
+        #endif
 
         let moduleConfiguration = try await workspaceModuleConfigurationStore.load(in: root)
         applyWorkspaceModuleConfiguration(moduleConfiguration, in: root)
@@ -6600,7 +6758,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func recordHomeDebugEvent(_ event: String, payload: JSONValue = .object([:])) {
-        recordAppDebugEvent(event, payload: payload, force: true)
+        recordAppDebugEvent(event, payload: payload)
     }
 
     func recordShellDebugEvent(_ event: String, payload: JSONValue = .object([:])) {
@@ -6720,9 +6878,9 @@ final class AppViewModel: ObservableObject {
         }
 
         let availableTabs = projectSpaceTabs(for: projectID)
-        if ["queue", "reading-plan"].contains(selectedProjectSpaceTabID),
-           availableTabs.contains(where: { $0.id == "reading" }) {
-            selectedProjectSpaceTabID = "reading"
+        if ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(selectedProjectSpaceTabID),
+           availableTabs.contains(where: { $0.id == ProjectSpaceTabsBuilder.mergedReadingTabID }) {
+            selectedProjectSpaceTabID = ProjectSpaceTabsBuilder.mergedReadingTabID
             return
         }
         if !availableTabs.contains(where: { $0.id == selectedProjectSpaceTabID }) {
@@ -6768,7 +6926,7 @@ final class AppViewModel: ObservableObject {
                 selectedProjectSpaceProjectID = projectID
                 let availableTabIDs = Set(projectSpaceTabs(for: projectID).map(\.id))
                 let restoredTabID = route.projectTabID ?? ProjectSpaceTabsBuilder.overviewTabID
-                let migratedTabID = ["queue", "reading-plan"].contains(restoredTabID) ? "reading" : restoredTabID
+                let migratedTabID = ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(restoredTabID) ? ProjectSpaceTabsBuilder.mergedReadingTabID : restoredTabID
                 selectedProjectSpaceTabID = availableTabIDs.contains(migratedTabID) ? migratedTabID : ProjectSpaceTabsBuilder.overviewTabID
                 if selectedProjectSpaceTabID == "papers" {
                     selectedLibraryProjectID = projectID
@@ -7605,28 +7763,82 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func addRecommendationToReadingList(_ score: RecommendationScore, scope: QueueScope) {
-        guard let externalKey = score.candidate.externalKey else {
-            recommendationErrorMessage = localized("无法推送论文：推荐结果缺少 arXiv/外部标识。", "Could not push paper: the recommendation is missing an arXiv/external identifier.")
-            recordAppDebugEvent("recommendation.push.error", payload: .object([
-                "phase": .string("missing_external_key"),
-                "score_id": .string(score.id)
-            ]))
+    func addRecommendationToLibrary(_ score: RecommendationScore, scope: QueueScope) {
+        guard let workspace = currentWorkspace else {
+            recommendationErrorMessage = RecommendationReadingTodoError.missingWorkspace.localizedDescription
             return
         }
-        addExternalPaperToResearchQueue(
-            externalKey: externalKey,
-            displayTitle: score.candidate.displayTitle,
-            scope: scope,
-            source: .recommendation,
-            noteSummary: score.reason,
-            sourceRefs: ["recommendation:\(recommendationRunResult?.id ?? score.id)", "arxiv:\(externalKey)"]
-        )
-        recordRecommendationFeedback(.addToQueue, for: score, scope: scope)
+        guard !recommendationLibraryImportScoreIDs.contains(score.id) else {
+            return
+        }
+        recommendationLibraryImportScoreIDs.insert(score.id)
+
+        Task {
+            defer { recommendationLibraryImportScoreIDs.remove(score.id) }
+            do {
+                let paper = try await importRecommendationCandidateToLibrary(score.candidate, scope: scope, in: workspace)
+                try await loadWorkspaceData(in: workspace, selectingPaper: paper.id, selectingMarkdown: selectedMarkdownID)
+                recordRecommendationFeedback(.save, for: score, scope: scope)
+                showShellStatus(localized("已加入论文库，并自动添加 arXiv 推荐标签。", "Added to Library with the arXiv recommendation tag."))
+            } catch {
+                recommendationErrorMessage = localized("无法加入论文库：\(error.localizedDescription)", "Could not add to Library: \(error.localizedDescription)")
+                recordAppDebugEvent("recommendation.push.error", payload: .object([
+                    "phase": .string("library_import"),
+                    "score_id": .string(score.id),
+                    "scope": .string(scope.identifier),
+                    "reason": .string(error.localizedDescription)
+                ]))
+                present(error)
+            }
+        }
+    }
+
+    func addRecommendationToReadingTodo(_ score: RecommendationScore, scope: QueueScope) {
+        guard let workspace = currentWorkspace else {
+            recommendationErrorMessage = RecommendationReadingTodoError.missingWorkspace.localizedDescription
+            return
+        }
+        guard !recommendationReadingTodoImportScoreIDs.contains(score.id) else {
+            return
+        }
+        recommendationReadingTodoImportScoreIDs.insert(score.id)
+
+        Task {
+            defer { recommendationReadingTodoImportScoreIDs.remove(score.id) }
+            do {
+                let paper = try await importRecommendationCandidateToLibrary(score.candidate, scope: scope, in: workspace)
+                try await upsertReadingTodo(for: paper, score: score, scope: scope, in: workspace)
+                await appendRecommendationPaperToResearchQueue(paper, score: score, scope: scope)
+                try await loadWorkspaceData(in: workspace, selectingPaper: paper.id, selectingMarkdown: selectedMarkdownID)
+                recordRecommendationFeedback(.addToQueue, for: score, scope: scope)
+                showShellStatus(localized("已创建阅读 Todo，可在任务页继续安排阅读。", "Created a reading todo; continue from Tasks."))
+            } catch {
+                recommendationErrorMessage = localized("无法创建阅读 Todo：\(error.localizedDescription)", "Could not create reading todo: \(error.localizedDescription)")
+                recordAppDebugEvent("recommendation.push.error", payload: .object([
+                    "phase": .string("reading_todo_import"),
+                    "score_id": .string(score.id),
+                    "scope": .string(scope.identifier),
+                    "reason": .string(error.localizedDescription)
+                ]))
+                present(error)
+            }
+        }
+    }
+
+    func addRecommendationToReadingList(_ score: RecommendationScore, scope: QueueScope) {
+        addRecommendationToReadingTodo(score, scope: scope)
     }
 
     func recommendationFeedbackType(for score: RecommendationScore) -> RecommendationFeedbackType? {
         recommendationFeedbackByScoreID[score.id]
+    }
+
+    func isAddingRecommendationToLibrary(_ score: RecommendationScore) -> Bool {
+        recommendationLibraryImportScoreIDs.contains(score.id)
+    }
+
+    func isAddingRecommendationToReadingTodo(_ score: RecommendationScore) -> Bool {
+        recommendationReadingTodoImportScoreIDs.contains(score.id)
     }
 
     func recordRecommendationFeedback(_ type: RecommendationFeedbackType, for score: RecommendationScore, scope: QueueScope? = nil) {
@@ -7663,7 +7875,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func openRecommendationReadingQueue() {
-        selectProjectSpaceTab("queue")
+        selectProjectSpaceTab("tasks")
     }
 
     func archiveRecommendationHistory(_ result: RecommendationRunResult) {
@@ -7695,10 +7907,193 @@ final class AppViewModel: ObservableObject {
 
     func isRecommendationInReadingList(_ score: RecommendationScore, scope: QueueScope) -> Bool {
         let keys = recommendationCandidateKeys(score.candidate)
-        return researchQueueEntries(in: scope).contains { entry in
-            let entryKeys = [entry.paperID, entry.externalKey, Optional(entry.id)]
+        return todos.contains { todo in
+            guard todo.kind == .reading, todoMatchesScope(todo, scope: scope) else {
+                return false
+            }
+            let paperKeys = todo.relatedPaperIDs.flatMap { paperID -> [String] in
+                [paperID, "paper:\(paperID)"]
+            }
+            let externalKeys = [todo.externalIdentifier, Optional(todo.id)]
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            return !keys.isDisjoint(with: Set(entryKeys))
+            return !keys.isDisjoint(with: Set(paperKeys.map { $0.lowercased() } + externalKeys))
+        }
+    }
+
+    func isRecommendationInLibrary(_ score: RecommendationScore) -> Bool {
+        existingPaper(matchingRecommendationCandidate: score.candidate) != nil
+    }
+
+    private func importRecommendationCandidateToLibrary(_ candidate: RecommendationCandidate, scope: QueueScope, in workspace: ResearchWorkspace) async throws -> Paper {
+        if var existing = existingPaper(matchingRecommendationCandidate: candidate) {
+            existing = applyRecommendationLibraryMetadata(to: existing, candidate: candidate, scope: scope)
+            return try await paperRepository.save(existing, in: workspace)
+        }
+
+        guard let importIdentifier = recommendationImportIdentifier(for: candidate) else {
+            throw RecommendationReadingTodoError.missingImportIdentifier
+        }
+
+        let collectionPath = selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
+        var importedPaper = try await remoteImportService.importItem(
+            from: importIdentifier,
+            draftPreview: recommendationMetadataDraft(for: candidate),
+            into: workspace,
+            existingPapers: papers,
+            collectionPath: collectionPath,
+            tags: [Self.arxivRecommendationTag]
+        )
+        importedPaper = applyRecommendationLibraryMetadata(to: importedPaper, candidate: candidate, scope: scope)
+        return try await paperRepository.save(importedPaper, in: workspace)
+    }
+
+    private func applyRecommendationLibraryMetadata(to paper: Paper, candidate: RecommendationCandidate, scope: QueueScope) -> Paper {
+        var updatedPaper = paper
+        updatedPaper.tags = uniqueOrdered(updatedPaper.tags + [Self.arxivRecommendationTag])
+        if let projectID = scope.projectID, !updatedPaper.projectIDs.contains(projectID) {
+            updatedPaper.projectIDs.append(projectID)
+        }
+        if updatedPaper.abstract == nil {
+            updatedPaper.abstract = candidate.abstractText
+        }
+        if updatedPaper.pdfURL == nil {
+            updatedPaper.pdfURL = candidate.pdfURL
+        }
+        if updatedPaper.url == nil {
+            updatedPaper.url = candidate.sourceURL
+        }
+        if updatedPaper.categories.isEmpty {
+            updatedPaper.categories = candidate.categories
+        }
+        return updatedPaper
+    }
+
+    private func recommendationMetadataDraft(for candidate: RecommendationCandidate) -> PaperMetadataDraft? {
+        let arxivID = PaperIdentityGenerator.normalizedArxiv(candidate.externalKey) ?? PaperIdentityGenerator.normalizedArxiv(candidate.canonicalID)
+        let sourceURL = candidate.sourceURL ?? arxivID.map { "https://arxiv.org/abs/\($0)" }
+        let pdfURL = candidate.pdfURL ?? arxivID.map { "https://arxiv.org/pdf/\($0).pdf" }
+        return PaperMetadataDraft(
+            title: candidate.displayTitle,
+            authors: candidate.authors,
+            year: candidate.publishedYear,
+            venue: candidate.sourceName ?? "arXiv",
+            doi: nil,
+            arxiv: arxivID,
+            inspireID: nil,
+            url: sourceURL,
+            pdfURL: pdfURL,
+            abstract: candidate.abstractText,
+            categories: candidate.categories,
+            sourceProvider: "recommendation-arxiv"
+        )
+    }
+
+    private func recommendationImportIdentifier(for candidate: RecommendationCandidate) -> String? {
+        [candidate.externalKey, candidate.sourceURL, candidate.pdfURL, Optional(candidate.canonicalID)]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+            .first
+    }
+
+    private func existingPaper(matchingRecommendationCandidate candidate: RecommendationCandidate) -> Paper? {
+        if let paperID = candidate.paperID, let paper = papers.first(where: { $0.id == paperID }) {
+            return paper
+        }
+        let arxivID = PaperIdentityGenerator.normalizedArxiv(candidate.externalKey) ?? PaperIdentityGenerator.normalizedArxiv(candidate.canonicalID)
+        if let arxivID, let paper = papers.first(where: { PaperIdentityGenerator.normalizedArxiv($0.arxiv) == arxivID || $0.resolvedGraphNodeID == "arxiv:\(arxivID)" }) {
+            return paper
+        }
+        return nil
+    }
+
+    private func upsertReadingTodo(for paper: Paper, score: RecommendationScore, scope: QueueScope, in workspace: ResearchWorkspace) async throws {
+        let now = Date()
+        let projectIDs = scope.projectID.map { [$0] } ?? []
+        let loadedTodos = try await todoRepository.loadTodos(in: workspace)
+        var todo = loadedTodos.first { existing in
+            existing.id == readingTodoID(for: paper.id, scope: scope)
+                || (existing.kind == .reading && existing.relatedPaperIDs.contains(paper.id) && todoMatchesScope(existing, scope: scope))
+        } ?? TodoItem(
+            id: readingTodoID(for: paper.id, scope: scope),
+            title: localized("阅读：\(paper.displayTitle)", "Read: \(paper.displayTitle)"),
+            kind: .reading,
+            status: .open,
+            dueDate: nil,
+            priority: .medium,
+            projectIDs: projectIDs,
+            tags: [Self.arxivRecommendationTag],
+            relatedPaperIDs: [paper.id],
+            notes: score.reason,
+            externalSource: "sci_station_recommendation",
+            externalIdentifier: score.candidate.externalKey ?? score.candidate.canonicalID,
+            createdAt: now,
+            updatedAt: now
+        )
+
+        todo.kind = .reading
+        todo.projectIDs = uniqueOrdered(todo.projectIDs + projectIDs)
+        todo.tags = uniqueOrdered(todo.tags + [Self.arxivRecommendationTag])
+        todo.relatedPaperIDs = uniqueOrdered(todo.relatedPaperIDs + [paper.id])
+        todo.notes = todo.notes ?? score.reason
+        todo.externalSource = todo.externalSource ?? "sci_station_recommendation"
+        todo.externalIdentifier = todo.externalIdentifier ?? score.candidate.externalKey ?? score.candidate.canonicalID
+        todo.updatedAt = now
+        try await todoRepository.upsert(todo, in: workspace)
+    }
+
+    private func appendRecommendationPaperToResearchQueue(_ paper: Paper, score: RecommendationScore, scope: QueueScope) async {
+        guard let store = researchQueueStore else {
+            return
+        }
+        let now = Date()
+        let entry = ResearchQueueEntry(
+            id: "queue:\(scope.identifier):\(paper.id)",
+            paperID: paper.id,
+            externalKey: score.candidate.externalKey,
+            displayTitle: paper.displayTitle,
+            scope: scope,
+            status: .queued,
+            source: .recommendation,
+            order: 0,
+            addedAt: now,
+            startedAt: nil,
+            finishedAt: nil,
+            lastTouchedAt: now,
+            noteSummary: score.reason,
+            sourceRefs: ["recommendation:\(recommendationRunResult?.id ?? score.id)", "paper:\(paper.id)"]
+        )
+        do {
+            try await store.append(entry)
+            await refreshResearchQueueSnapshot()
+        } catch ResearchQueueStoreError.duplicateID {
+            await refreshResearchQueueSnapshot()
+        } catch {
+            recordAppDebugEvent("reading.push.error", payload: .object([
+                "phase": .string("recommendation_queue_append_failed"),
+                "paper_id": .string(paper.id),
+                "scope": .string(scope.identifier),
+                "reason": .string(error.localizedDescription)
+            ]))
+        }
+    }
+
+    private func readingTodoID(for paperID: Paper.ID, scope: QueueScope) -> String {
+        "todo-reading-\(sanitizedTodoIDComponent(scope.identifier))-\(sanitizedTodoIDComponent(paperID))"
+    }
+
+    private func sanitizedTodoIDComponent(_ value: String) -> String {
+        value.map { character in
+            character.isLetter || character.isNumber ? character : "-"
+        }
+        .reduce(into: "") { $0.append($1) }
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private func todoMatchesScope(_ todo: TodoItem, scope: QueueScope) -> Bool {
+        switch scope {
+        case .workspace:
+            return todo.projectIDs.isEmpty
+        case .project(let projectID):
+            return todo.projectIDs.contains(projectID)
         }
     }
 
@@ -9429,6 +9824,9 @@ final class AppViewModel: ObservableObject {
             try server.start()
             uiTestBridgeServer = server
             uiTestBridgeForceDebugLogging = true
+            if let currentWorkspace {
+                _ = SwiftUIRuntimeWarningCapture.shared.install(rootURL: currentWorkspace.rootURL)
+            }
         } catch {
             NSLog("Sci-Station UI test bridge failed to start: %@", String(describing: error))
         }

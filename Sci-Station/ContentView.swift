@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -225,6 +226,8 @@ struct ContentView: View {
     private func toolbarControl(for action: ToolbarAction, source: AppToolbarCommandDispatcher.Source, shellState: AppShellRenderState) -> some View {
         if action.id == .workspaceMenu {
             workspaceToolbarMenu(title: action.title, systemImage: action.systemImage, hasWorkspace: shellState.currentWorkspace != nil)
+        } else if action.id == .projectActions {
+            projectToolbarMenu(shellState: shellState)
         } else if shellState.currentWorkspace != nil {
             Button {
                 toolbarDispatcher(shellState).perform(action.commandID, source: source)
@@ -234,6 +237,33 @@ struct ContentView: View {
             .disabled(toolbarDispatcher(shellState).isDisabled(action.id))
             .help(toolbarDispatcher(shellState).help(for: action.id, fallbackTitle: action.title))
         }
+    }
+
+    private func projectToolbarMenu(shellState: AppShellRenderState) -> some View {
+        Menu {
+            Button(appModel.localized("项目概览", "Project Overview")) {
+                appModel.openCurrentProjectOverviewPage()
+            }
+            Button(appModel.localized("编辑项目信息", "Edit Project Info")) {
+                if let projectID = shellState.context.projectID {
+                    appModel.beginEditingResearchProject(projectID)
+                }
+            }
+            Divider()
+            Button(appModel.localized("在 Finder 中显示项目文件夹", "Reveal Project Folder")) {
+                if let workspace = shellState.currentWorkspace,
+                   let project = appModel.selectedProjectSpaceProject {
+                    NSWorkspace.shared.open(workspace.directoryURL(for: project.relativePath))
+                }
+            }
+            Button(appModel.localized("打开 Wiki 文件夹", "Open Wiki Folder")) {
+                appModel.openWikiFolder()
+            }
+        } label: {
+            Label(appModel.localized("项目操作", "Project Actions"), systemImage: "ellipsis.circle")
+        }
+        .help(appModel.localized("项目操作", "Project actions"))
+        .disabled(shellState.context.projectID == nil)
     }
 
     private func workspaceToolbarMenu(title: String, systemImage: String, hasWorkspace: Bool) -> some View {

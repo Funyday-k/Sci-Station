@@ -688,31 +688,31 @@ struct CalendarSelectedDateDetailView: View {
                             appModel.selectGlobalTodos()
                         }
                     } label: {
-                        Label("Open Tasks", systemImage: "checklist")
+                        Label(appModel.localized("打开任务", "Open Tasks"), systemImage: "checklist")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
 
                 if todos.isEmpty, workspaceEvents.isEmpty, systemItems.isEmpty {
-                    Label("No items for this date.", systemImage: "calendar")
+                    Label(appModel.localized("这一天没有日程项。", "No items for this date."), systemImage: "calendar")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 10)
                 } else {
-                    detailSection(title: "Todos", systemImage: "checklist", count: todos.count) {
+                    detailSection(title: appModel.localized("任务", "Todos"), systemImage: "checklist", count: todos.count) {
                         ForEach(todos.prefix(6)) { todo in
                             CalendarTodoDetailRow(todo: todo)
                         }
                     }
 
-                    detailSection(title: "Project Events", systemImage: "flag", count: workspaceEvents.count) {
+                    detailSection(title: appModel.localized("项目事件", "Project Events"), systemImage: "flag", count: workspaceEvents.count) {
                         ForEach(workspaceEvents.prefix(6)) { event in
                             CalendarEventDetailRow(event: event)
                         }
                     }
 
-                    detailSection(title: "System Schedule", systemImage: "calendar.badge.clock", count: systemItems.count) {
+                    detailSection(title: appModel.localized("系统日程", "System Schedule"), systemImage: "calendar.badge.clock", count: systemItems.count) {
                         ForEach(systemItems.prefix(6)) { item in
                             CalendarSystemScheduleRow(item: item)
                         }
@@ -721,7 +721,7 @@ struct CalendarSelectedDateDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
-            Label("Selected Date", systemImage: "calendar")
+            Label(appModel.localized("所选日期", "Selected Date"), systemImage: "calendar")
                 .font(.headline)
         }
     }
@@ -772,7 +772,7 @@ struct CalendarSelectedDateDetailView: View {
 
     private var summaryText: String {
         let count = todos.count + workspaceEvents.count + systemItems.count
-        return count == 1 ? "1 scheduled item" : "\(count) scheduled items"
+        return count == 1 ? appModel.localized("1 个日程项", "1 scheduled item") : appModel.localized("\(count) 个日程项", "\(count) scheduled items")
     }
 }
 
@@ -793,7 +793,7 @@ private struct CalendarTodoDetailRow: View {
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    Text([todo.priority.label, projectText].filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text([appModel.localized(todo.priority.label, todo.priority.englishLabel), projectText].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

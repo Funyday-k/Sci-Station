@@ -17,6 +17,7 @@ struct RecommendationView: View {
     @State private var isHistoryManagerPresented = false
     @State private var selectedReferencePaperIDs: Set<Paper.ID> = []
     @State private var didInitializeReferencePapers = false
+    @State private var didSelectDefaultHistory = false
 
     private static let categoryGroups: [RecommendationCategoryGroup] = [
         RecommendationCategoryGroup(
@@ -310,6 +311,9 @@ struct RecommendationView: View {
         .onChange(of: appModel.papers.map(\.id)) { _, _ in
             applyDefaultReferencePapersIfNeeded()
         }
+        .onChange(of: appModel.recommendationHistory) { _, _ in
+            selectTodaysRecommendationHistoryIfNeeded()
+        }
     }
 
     private var header: some View {
@@ -330,8 +334,8 @@ struct RecommendationView: View {
                 .disabled(appModel.isRefreshingRecommendations)
             }
             Text(appModel.localized(
-                "AI 会先读取关键词、领域和参考论文生成 arXiv 搜索策略，再把候选推荐加入统一的 Reading。",
-                "AI first reads the keywords, fields, and reference papers to plan arXiv searches, then recommendations can be added to unified Reading."
+                "AI 会先读取关键词、领域和参考论文生成 arXiv 搜索策略；推荐加入时会先进入论文库，再创建阅读 Todo。",
+                "AI first reads the keywords, fields, and reference papers to plan arXiv searches; adding a recommendation saves it to Library first, then creates a reading todo."
             ))
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -536,17 +540,22 @@ struct RecommendationView: View {
     @ViewBuilder
     private var resultsPane: some View {
         if let result = appModel.recommendationRunResult, !result.scores.isEmpty {
+            let sortedScores = sortedRecommendationScores(result.scores)
             LazyVStack(alignment: .leading, spacing: 12) {
                 resultSummary(result)
-                ForEach(result.scores) { score in
+                ForEach(Array(sortedScores.enumerated()), id: \.element.id) { index, score in
                     RecommendationScoreRow(
                         score: score,
+                        displayRank: index + 1,
                         scope: selectedScope,
                         aiComment: aiComment(for: score, evaluation: result.aiEvaluation),
                         aiReview: aiReview(for: score, evaluation: result.aiEvaluation),
                         feedback: appModel.recommendationFeedbackType(for: score),
-                        onAdd: {
-                            appModel.addRecommendationToReadingList(score, scope: selectedScope)
+                        onAddToLibrary: {
+                            appModel.addRecommendationToLibrary(score, scope: selectedScope)
+                        },
+                        onAddReadingTodo: {
+                            appModel.addRecommendationToReadingTodo(score, scope: selectedScope)
                         },
                         onFeedback: { type in
                             appModel.recordRecommendationFeedback(type, for: score, scope: selectedScope)
@@ -554,7 +563,10 @@ struct RecommendationView: View {
                         onOpenReading: {
                             appModel.openRecommendationReadingQueue()
                         },
-                        isAdded: appModel.isRecommendationInReadingList(score, scope: selectedScope)
+                        isInLibrary: appModel.isRecommendationInLibrary(score),
+                        isInReadingTodo: appModel.isRecommendationInReadingList(score, scope: selectedScope),
+                        isAddingToLibrary: appModel.isAddingRecommendationToLibrary(score),
+                        isAddingReadingTodo: appModel.isAddingRecommendationToReadingTodo(score)
                     )
                 }
             }
@@ -563,6 +575,18 @@ struct RecommendationView: View {
             zeroRecommendationState(result)
         } else {
             emptyRecommendationState
+        }
+    }
+
+    private func sortedRecommendationScores(_ scores: [RecommendationScore]) -> [RecommendationScore] {
+        scores.sorted { lhs, rhs in
+            if lhs.total != rhs.total {
+                return lhs.total > rhs.total
+            }
+            if lhs.rank != rhs.rank {
+                return lhs.rank < rhs.rank
+            }
+            return lhs.candidate.displayTitle.localizedStandardCompare(rhs.candidate.displayTitle) == .orderedAscending
         }
     }
 
@@ -857,6 +881,27 @@ struct RecommendationView: View {
         selectedCategories = persistedSelectedCategories()
         applyDefaultReferencePapersIfNeeded()
         appModel.loadRecommendationHistory()
+        selectTodaysRecommendationHistoryIfNeeded()
+    }
+
+    private func selectTodaysRecommendationHistoryIfNeeded() {
+        guard !didSelectDefaultHistory,
+              appModel.recommendationRunResult == nil,
+              let result = appModel.recommendationHistory.first(where: isTodaysRecommendationResult) else {
+            return
+        }
+        didSelectDefaultHistory = true
+        appModel.selectRecommendationHistory(result)
+    }
+
+    private func isTodaysRecommendationResult(_ result: RecommendationRunResult) -> Bool {
+        guard !result.scores.isEmpty else { return false }
+        if let contextProjectID = result.contextProjectID, contextProjectID != project.id {
+            return false
+        }
+        let calendar = Calendar.current
+        let date = result.sourceDate ?? result.generatedAt
+        return calendar.isDateInToday(date)
     }
 
     private func applyDefaultReferencePapersIfNeeded() {
@@ -1328,21 +1373,26 @@ private struct RecommendationScoreRow: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     let score: RecommendationScore
+    let displayRank: Int
     let scope: QueueScope
     let aiComment: String?
     let aiReview: RecommendationAIReview?
     let feedback: RecommendationFeedbackType?
-    let onAdd: () -> Void
+    let onAddToLibrary: () -> Void
+    let onAddReadingTodo: () -> Void
     let onFeedback: (RecommendationFeedbackType) -> Void
     let onOpenReading: () -> Void
-    let isAdded: Bool
+    let isInLibrary: Bool
+    let isInReadingTodo: Bool
+    let isAddingToLibrary: Bool
+    let isAddingReadingTodo: Bool
     @State private var isShowingScoreDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(spacing: 2) {
-                    Text("#\(score.rank)")
+                    Text("#\(displayRank)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text("\(Int((score.total * 100).rounded()))")
@@ -1403,21 +1453,50 @@ private struct RecommendationScoreRow: View {
                 Spacer(minLength: 12)
 
                 VStack(alignment: .trailing, spacing: 8) {
-                    if isAdded {
-                        Label(appModel.localized("已在 Reading", "In Reading"), systemImage: "checkmark.circle.fill")
+                    if isInReadingTodo {
+                        Label(appModel.localized("已在阅读 Todo", "In Reading Todo"), systemImage: "checkmark.circle.fill")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.green)
                         Button(action: onOpenReading) {
-                            Label(appModel.localized("查看计划", "View plan"), systemImage: "calendar")
+                            Label(appModel.localized("查看任务", "View task"), systemImage: "checklist")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                    } else {
-                        Button(action: onAdd) {
-                            Label(appModel.localized("加入 Reading", "Add to Reading"), systemImage: "plus.circle")
+                    } else if isInLibrary {
+                        Label(appModel.localized("已在论文库", "In Library"), systemImage: "books.vertical.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.green)
+                        Button(action: onAddReadingTodo) {
+                            if isAddingReadingTodo {
+                                Label {
+                                    Text(appModel.localized("加入中", "Adding"))
+                                } icon: {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                            } else {
+                                Label(appModel.localized("加入阅读 Todo", "Add Reading Todo"), systemImage: "book.badge.plus")
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
+                        .disabled(isAddingReadingTodo)
+                    } else {
+                        Button(action: onAddToLibrary) {
+                            if isAddingToLibrary {
+                                Label {
+                                    Text(appModel.localized("加入中", "Adding"))
+                                } icon: {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                            } else {
+                                Label(appModel.localized("加入论文库", "Add to Library"), systemImage: "tray.and.arrow.down")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(isAddingToLibrary)
                     }
                     feedbackButtons
                 }

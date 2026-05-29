@@ -39,7 +39,7 @@ struct TodayPanelView: View {
                 }
 
                 HomeSignalCard(
-                    title: appModel.localized("Reading", "Reading"),
+                    title: appModel.localized("阅读 Todo", "Reading Todo"),
                     systemImage: "book",
                     count: data.readingQueueEntries.isEmpty ? data.readingQueue.count : data.readingQueueEntries.count
                 ) {
@@ -63,7 +63,7 @@ struct TodayPanelView: View {
                         }
                     } else if data.readingQueue.isEmpty {
                         HomeEmptyState(
-                            message: appModel.localized("还没有论文进入 Reading。", "No papers are in Reading yet."),
+                            message: appModel.localized("还没有论文进入阅读 Todo。", "No papers are in Reading Todo yet."),
                             actionTitle: appModel.localized("添加论文", "Add Paper"),
                             systemImage: "plus"
                         ) {

@@ -5,6 +5,8 @@ public nonisolated enum ToolbarCommandCatalog {
         switch actionID {
         case .workspaceMenu:
             return "workspace.menu"
+        case .projectActions:
+            return "project.actions"
         case .aiPanel:
             return "shell.aiPanel"
         case .inspector:

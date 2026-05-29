@@ -112,6 +112,7 @@ public nonisolated enum RightRailPolicy {
 
 public nonisolated enum ToolbarActionID: String, Codable, CaseIterable, Hashable, Sendable {
     case workspaceMenu = "workspace_menu"
+    case projectActions = "project_actions"
     case aiPanel = "ai_panel"
     case inspector
     case refresh
@@ -203,6 +204,11 @@ public nonisolated enum ToolbarPolicy {
 
         if route.top == .projects, context.projectTabID == nil {
             overflowActions.append(ToolbarAction(id: .allTodos, title: L10n.text(.toolbarAllTodos, language: language), systemImage: "checklist"))
+        }
+
+        if route.top == .projects, context.projectID != nil {
+            let title = language == .simplifiedChinese ? "项目" : "Project"
+            globalActions.insert(ToolbarAction(id: .projectActions, title: title, systemImage: "ellipsis.circle"), at: 1)
         }
 
         return ToolbarModel(globalActions: globalActions, pageActions: pageActions, overflowActions: overflowActions)

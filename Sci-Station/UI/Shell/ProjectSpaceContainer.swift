@@ -37,9 +37,8 @@ struct ProjectSpaceContainer: View {
         .padding(12)
         .background(ProjectSpaceBackground())
         .onAppear {
-            if ["queue", "reading-plan"].contains(appModel.selectedProjectSpaceTabID),
-               tabs.contains(where: { $0.id == "reading" }) {
-                appModel.selectProjectSpaceTab("reading")
+            if ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(appModel.selectedProjectSpaceTabID) {
+                appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.mergedReadingTabID)
             } else if !tabs.contains(where: { $0.id == appModel.selectedProjectSpaceTabID }) {
                 appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.overviewTabID)
             }
@@ -47,76 +46,26 @@ struct ProjectSpaceContainer: View {
     }
 
     private var header: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                Button {
-                    appModel.selectTopLevelRoute(.projects)
-                } label: {
-                    Label(appModel.t(.routeProjects), systemImage: "chevron.left")
-                }
-                .buttonStyle(.borderless)
-                .help(appModel.t(.projectSpaceBackToProjects))
-
-                Image(systemName: project.iconName.isEmpty ? "folder" : project.iconName)
-                    .font(.headline)
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(Color.primary.opacity(0.78))
-                    .background(Color(hex: project.colorHex).opacity(0.18), in: RoundedRectangle(cornerRadius: 7))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(project.description.isEmpty ? project.relativePath : project.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                StageBadge(stage: stageDecision.stage, rule: stageDecision.rule)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    appModel.focusSearchForCurrentSection()
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderless)
-                .help("Search current project context")
-
-                Menu {
-                    Button("Project Overview") {
-                        appModel.openCurrentProjectOverviewPage()
-                    }
-                    Button("Edit Project Info") {
-                        appModel.beginEditingResearchProject(project.id)
-                    }
-                    Divider()
-                    Button("Reveal Project Folder") {
-                        NSWorkspace.shared.open(workspace.directoryURL(for: project.relativePath))
-                    }
-                    Button("Open Wiki Folder") {
-                        appModel.openWikiFolder()
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .help("Project actions")
-            }
-
+        HStack(spacing: 8) {
             ProjectSpaceTabStrip(
                 tabs: tabs,
                 selectedTabID: appModel.selectedProjectSpaceTabID,
                 select: appModel.selectProjectSpaceTab,
                 move: appModel.moveProjectSpaceTab
             )
+            .layoutPriority(1)
+
+            Button {
+                appModel.focusSearchForCurrentSection()
+            } label: {
+                Label(appModel.localized("搜索", "Search"), systemImage: "magnifyingglass")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help(appModel.localized("搜索当前项目", "Search current project"))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .sciStationPanel()
     }
 

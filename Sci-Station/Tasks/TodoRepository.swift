@@ -51,6 +51,7 @@ public actor TodoRepository {
             var lines = [
                 "  - id: \(quoted(todo.id))",
                 "    title: \(quoted(todo.title))",
+                "    kind: \(todo.kind.rawValue)",
                 "    status: \(todo.status.rawValue)",
                 "    due: \(todo.dueDate.map { dayFormatter.string(from: $0) } ?? "")",
                 "    due_time: \(todo.dueTime.map(quoted) ?? "")",
@@ -106,6 +107,7 @@ public actor TodoRepository {
 
             let id = unquoted(trimmedLine.replacingOccurrences(of: "- id:", with: "").trimmingCharacters(in: .whitespaces))
             var title = ""
+            var kind = TodoKind.general
             var status = TodoStatus.open
             var dueDate: Date?
             var priority = Priority.medium
@@ -134,6 +136,8 @@ public actor TodoRepository {
                 }
                 if trimmed.hasPrefix("title:") {
                     title = unquoted(trimmed.replacingOccurrences(of: "title:", with: "").trimmingCharacters(in: .whitespaces))
+                } else if trimmed.hasPrefix("kind:") {
+                    kind = TodoKind(rawValue: trimmed.replacingOccurrences(of: "kind:", with: "").trimmingCharacters(in: .whitespaces)) ?? .general
                 } else if trimmed.hasPrefix("status:") {
                     status = TodoStatus(rawValue: trimmed.replacingOccurrences(of: "status:", with: "").trimmingCharacters(in: .whitespaces)) ?? .open
                 } else if trimmed.hasPrefix("due:") {
@@ -176,6 +180,7 @@ public actor TodoRepository {
                 TodoItem(
                     id: id,
                     title: title,
+                    kind: kind,
                     status: status,
                     dueDate: dueDate,
                     priority: priority,

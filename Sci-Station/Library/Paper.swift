@@ -360,6 +360,19 @@ public enum Priority: String, Codable, CaseIterable, Sendable {
     case urgent
 
     public var label: String {
+        switch self {
+        case .low:
+            return "低"
+        case .medium:
+            return "中"
+        case .high:
+            return "高"
+        case .urgent:
+            return "紧急"
+        }
+    }
+
+    public var englishLabel: String {
         rawValue.capitalized
     }
 }

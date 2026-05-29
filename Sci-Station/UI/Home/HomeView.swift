@@ -17,20 +17,8 @@ struct HomeView: View {
 
     var body: some View {
         contentWithPrimaryWatchers
-            .onChange(of: appModel.agentSessionEvents) { _, _ in
-                scheduleReload(reason: "agent_event_change")
-            }
-            .onChange(of: appModel.agentRetrievalIndexStatus) { _, _ in
-                scheduleReload(reason: "retrieval_change")
-            }
-            .onChange(of: appModel.workspaceModuleConfiguration) { _, _ in
-                scheduleReload(reason: "module_config_change")
-            }
-            .onChange(of: appModel.researchQueueScopes) { _, _ in
-                scheduleReload(reason: "queue_change")
-            }
-            .onChange(of: appModel.readingPlanScopes) { _, _ in
-                scheduleReload(reason: "reading_plan_change")
+            .onChange(of: appModel.homeAggregationRevision) { _, _ in
+                scheduleReload(reason: "home_model_change")
             }
     }
 
@@ -38,24 +26,6 @@ struct HomeView: View {
         content
             .task(id: workspace.id) {
                 await reloadHome(invalidating: false, reason: "appear")
-            }
-            .onChange(of: appModel.todos) { _, _ in
-                scheduleReload(reason: "todo_change")
-            }
-            .onChange(of: appModel.papers) { _, _ in
-                scheduleReload(reason: "paper_change")
-            }
-            .onChange(of: appModel.researchProjects) { _, _ in
-                scheduleReload(reason: "project_change")
-            }
-            .onChange(of: appModel.markdownDocuments) { _, _ in
-                scheduleReload(reason: "wiki_change")
-            }
-            .onChange(of: appModel.agentRunHistory) { _, _ in
-                scheduleReload(reason: "draft_change")
-            }
-            .onChange(of: appModel.agentCurrentRun) { _, _ in
-                scheduleReload(reason: "draft_change")
             }
             .onDisappear {
                 reloadTask?.cancel()
@@ -221,7 +191,6 @@ struct HomeView: View {
             todos: appModel.todos,
             markdownDocuments: appModel.markdownDocuments,
             agentRuns: agentRunsForAggregation,
-            sessionEvents: appModel.agentSessionEvents,
             retrievalIndexStatus: appModel.agentRetrievalIndexStatus,
             moduleConfiguration: appModel.workspaceModuleConfiguration,
             queueEntries: Array(appModel.researchQueueScopes.values.joined()),

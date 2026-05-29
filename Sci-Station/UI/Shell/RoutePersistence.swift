@@ -86,6 +86,14 @@ public actor RoutePersistence {
         }
 
         let availableTabs = Set(catalog.availableProjectTabs().map(\.id))
+        if let tabID = candidate.projectTabID, ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(tabID) {
+            let migratedTabID = availableTabs.contains(ProjectSpaceTabsBuilder.mergedReadingTabID) ? ProjectSpaceTabsBuilder.mergedReadingTabID : ProjectSpaceTabsBuilder.overviewTabID
+            return RouteRestoreResult(
+                route: WorkspaceRoute(top: .projects, projectID: projectID, projectTabID: migratedTabID),
+                fallbackReason: .moduleDisabled
+            )
+        }
+
         if let tabID = candidate.projectTabID, !availableTabs.contains(tabID), tabID != ProjectSpaceTabsBuilder.overviewTabID {
             return RouteRestoreResult(
                 route: WorkspaceRoute(top: .projects, projectID: projectID, projectTabID: ProjectSpaceTabsBuilder.overviewTabID),

@@ -34,9 +34,11 @@ public nonisolated struct ProjectSpaceTab: Identifiable, Hashable, Sendable {
 
 public nonisolated enum ProjectSpaceTabsBuilder {
     public static let overviewTabID = "overview"
+    public static let mergedReadingTabID = "tasks"
+    public static let retiredReadingTabIDs: Set<String> = ["reading", "queue", "reading-plan"]
 
     public static let defaultOrder: [String] = [
-        "overview", "papers", "reading", "recommendations", "wiki", "tasks", "calendar", "ai-drafts", "graph",
+        "overview", "papers", "recommendations", "wiki", "tasks", "calendar", "ai-drafts", "graph",
         "code", "data", "experiments", "materials", "pdf-reader", "writing", "theory"
     ]
 
@@ -61,7 +63,7 @@ public nonisolated enum ProjectSpaceTabsBuilder {
         var seenIDs: Set<String> = []
 
         for module in catalog.availableModules() {
-            for moduleTab in module.projectTabs where !seenIDs.contains(moduleTab.id) {
+            for moduleTab in module.projectTabs where !seenIDs.contains(moduleTab.id) && !retiredReadingTabIDs.contains(moduleTab.id) {
                 seenIDs.insert(moduleTab.id)
                 uniqueTabs.append(ProjectSpaceTab(
                     id: moduleTab.id,
@@ -115,6 +117,8 @@ public nonisolated enum ProjectSpaceTabsBuilder {
             return "AI Workflows"
         case "data":
             return "Data"
+        case "recommendations":
+            return "论文推荐"
         default:
             return moduleTab.title
         }

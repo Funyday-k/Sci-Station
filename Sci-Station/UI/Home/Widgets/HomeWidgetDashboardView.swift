@@ -1837,7 +1837,7 @@ private struct ReadingPlanWidgetContent: View {
                             appModel.selectSection(.library)
                         } else if let projectID = plan.projectID {
                             appModel.selectResearchProject(projectID)
-                            appModel.selectProjectSpaceTab("reading")
+                            appModel.selectProjectSpaceTab("tasks")
                         }
                     }
                 }
