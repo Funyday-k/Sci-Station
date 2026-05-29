@@ -2,7 +2,7 @@
 
 This tutorial walks through Sci-Station as a product: a local-first research workstation for macOS. It is intended for first-time testers running the app from source.
 
-> Prefer Chinese? Read [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md). For the product overview, see [README.en.md](README.en.md) or the Chinese-first [README.md](README.md).
+> Prefer Chinese? Read [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md). For the product overview, see [README.en.md](README.en.md) or the Chinese-first [../README.md](../README.md).
 
 ## 1. Prepare The Environment
 
@@ -155,7 +155,7 @@ Before sharing a checkout or Research Root, run:
 git status --short
 swift run SciStationCoreTestRunner
 xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!DOC/**'
+git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!docs/development/**'
 ```
 
 Confirm that the shared package does not include real credentials, local research data, `.env*`, `.mcp.json`, `.claude/`, `.sci-ai/workspace.local/`, DerivedData, archives, `.app`, `.zip`, `.dSYM`, or `.xcresult` files.

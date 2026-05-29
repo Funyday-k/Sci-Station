@@ -1,12 +1,12 @@
 # Sci-Station
 
-> Current version: Beta 0.0.1
+> Current version: Beta 0.1.0
 > Platform: macOS
-> Status: local testing build with DMG packaging support. This is not yet a notarized public release.
+> Status: in development. Test builds will be published through Releases.
 
 Sci-Station is a local-first research workstation for macOS. It brings a paper library, project knowledge, PDF reading, working materials, tasks, calendar views, and optional AI Lab workflows into one app while keeping core data inside a user-selected local Research Root.
 
-The primary project README is now Chinese-first: [README.md](README.md). A hands-on Chinese tutorial is available at [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md).
+The primary project README is Chinese-first: [../README.md](../README.md). A hands-on Chinese tutorial is available at [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md).
 
 ## Overview
 
@@ -31,16 +31,14 @@ Core principles:
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
 - Beta DMG packaging for tester handoff.
 
-## Beta 0.0.1 Status
+## Beta 0.1.0 Status
 
-- The current version is **Beta 0.0.1**.
-- The packaging script outputs `.tmp/beta-package/Sci-Station-beta.dmg`.
-- This build is intended for internal testing and manual regression, not for a stable public release.
-- Ad-hoc or development-signed builds are not notarized, so testers may need to right-click the app and choose `Open` on first launch.
+- The current version is **Beta 0.1.0**.
+- Test builds will be published through Releases, like a normal macOS app download.
+- The project is still in development, and features, UI, and documentation will continue to change.
 
 ## Roadmap
 
-- Release versioning, changelog, release checklist, tag convention, and build number management.
 - Developer ID signing, notarization, and cleaner Gatekeeper-friendly distribution.
 - Deeper AI Lab sidecar runtime integration, tool permissions, evidence references, artifacts, and debug bundles.
 - Paper graph, recommendation workflows, research queue, and reading plan improvements.
@@ -52,7 +50,7 @@ Core principles:
 
 Use a beta DMG:
 
-1. Download `Sci-Station-beta.dmg` from the Release page.
+1. Download the Sci-Station DMG from the Release page.
 2. Open the DMG and drag `Sci-Station.app` into `/Applications`.
 3. If macOS cannot verify the developer, right-click the app and choose `Open`.
 4. On first launch, choose `Create Workspace` and select an empty folder as the Research Root.
@@ -66,43 +64,12 @@ open Sci-Station.xcodeproj
 
 In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command + R`.
 
-Create a beta DMG:
-
-```bash
-Tools/scripts/package-beta.sh
-```
-
-Package without an Apple Developer account or local signing certificate:
-
-```bash
-SCI_STATION_SIGNING=adhoc Tools/scripts/package-beta.sh
-```
-
-## Development Validation
-
-Run the core validation runner:
-
-```bash
-swift run SciStationCoreTestRunner
-```
-
-Build the macOS app:
-
-```bash
-xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-```
-
-Run Python sidecar tests:
-
-```bash
-python -m pytest AgentRuntime/tests
-```
-
 ## Related Documents
 
-- [README.md](README.md): Chinese project overview.
+- [../README.md](../README.md): Chinese project overview.
 - [TUTORIAL.md](TUTORIAL.md): English hands-on tutorial.
 - [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md): Chinese hands-on tutorial.
-- [.sci-ai/README.md](.sci-ai/README.md): AI configuration boundary.
-- [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md): Built-in AI preset notes.
-- `DOC/`: development proposals, task books, and manual testing notes.
+- [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
+- [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
+- [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
+- [development/](development/): development proposals, task books, and manual testing notes.

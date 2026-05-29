@@ -1143,7 +1143,7 @@ public actor AgentLoopRunner {
         do {
             // Hard timeout per tool so a wedged graph query, PDF reader, or
             // stuck embedding store cannot wedge the whole loop. See
-            // DOC/comment.md §1.5.
+            // docs/development/comment.md §1.5.
             let capturedHost = toolHost
             let capturedCall = call
             let capturedContext = toolContext

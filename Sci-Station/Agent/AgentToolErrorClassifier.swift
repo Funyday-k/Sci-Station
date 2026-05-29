@@ -10,7 +10,7 @@ public nonisolated enum AgentToolErrorCode: String, Codable, Sendable {
     case providerFailed = "provider_failed"
     case invalidArguments = "invalid_arguments"
     case toolFailed = "tool_failed"
-    // P47-enabling additions. See DOC/comment.md §1.6.
+    // P47-enabling additions. See docs/development/comment.md §1.6.
     case timeout = "timeout"
     case cancelled = "cancelled"
     case network = "network"

@@ -2,7 +2,7 @@ import Foundation
 
 /// Bridges P49 (Recommendation Engine) and P48.10 (paper status auto-flips)
 /// into `ResearchQueueStore`. The ingestor never subscribes to any artifact
-/// approval stream (none exists today — see `DOC/Proposal48.md` §0.5).
+/// approval stream (none exists today — see `docs/development/Proposal48.md` §0.5).
 /// Instead the calling layer (`AppViewModel`) forwards two deterministic
 /// inputs after each `@Published` change:
 ///

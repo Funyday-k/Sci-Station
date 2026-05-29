@@ -88,9 +88,7 @@ release/
 /*.sqlite
 /*.sqlite-shm
 /*.sqlite-wal
-/DOC/
 /awesome-design-md-main/
-/.github/
 
 # Reference open-source repos
 /claude-code-main/
@@ -114,4 +112,3 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
-.github/skills/task-book-iteration/SKILL.md

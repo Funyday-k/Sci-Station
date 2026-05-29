@@ -13,7 +13,7 @@ Complete one full task-book-driven iteration. A complete iteration starts by rea
 ## When to Use
 
 - The user asks to work from a task book, proposal, iteration plan, or next-step document.
-- The workspace contains task documents such as `DOC/Next-Step-Task-Book.md` or `DOC/Proposal*.md`.
+- The workspace contains task documents such as `docs/development/Next-Step-Task-Book.md` or `docs/development/Proposal*.md`.
 - The user asks to continue, complete, review, revise, or plan the next round of Sci-Station work.
 
 ## Required Workflow
@@ -21,7 +21,7 @@ Complete one full task-book-driven iteration. A complete iteration starts by rea
 1. Locate the task book.
    - Prefer an explicit path from the user.
    - If no path is provided, prefer the active editor document when it is a task/proposal document.
-   - Otherwise inspect `DOC/Next-Step-Task-Book.md`, then the latest relevant `DOC/Proposal*.md`.
+   - Otherwise inspect `docs/development/Next-Step-Task-Book.md`, then the latest relevant `docs/development/Proposal*.md`.
 
 2. Read and understand the task book before doing implementation work.
    - Read the whole task book, not only the current visible section.
@@ -52,10 +52,10 @@ Complete one full task-book-driven iteration. A complete iteration starts by rea
    - Record any skipped validation with the reason.
 
 7. Write the next task book before ending the iteration.
-   - Check if a next task book already exists in the repository (e.g. the next numbered `DOC/Proposal*.md`).
+   - Check if a next task book already exists in the repository (e.g. the next numbered `docs/development/Proposal*.md`).
    - If a next task book exists, update it with a summary of the completed round, verified state, remaining risks, and any adjustments needed based on what was learned during implementation.
    - If no next task book exists, ask the user whether to create one or defer.
-   - Do NOT create a `DOC/Next-Step-Task-Book.md` file. The canonical location for task books is `DOC/Proposal<N>.md`.
+   - Do NOT create a `docs/development/Next-Step-Task-Book.md` file. The canonical location for task books is `docs/development/Proposal<N>.md`.
    - Include a `Question` section with actionable choices or prompts for the user. These Questions must guide the next round's broad direction and important details.
 
 8. Finalize the round.

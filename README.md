@@ -1,16 +1,16 @@
 # Sci-Station
 
-> 当前版本：Beta 0.0.1
+> 当前版本：Beta 0.1.0
 > 面向平台：macOS
-> 当前状态：本地测试版，已可打包 DMG，尚未作为公证后的公开发行版发布。
+> 当前状态：正在开发中，测试版会放在 Release 中供下载和测试。
 
 Sci-Station 是一个面向科研工作的本地优先工作站。它把论文库、项目知识、PDF 阅读、材料文件、任务日历和可选 AI 实验室放在同一个 macOS 应用里，并把主要数据保存到用户选择的本地科研根目录中。
 
-英文文档见 [README.en.md](README.en.md)。完整中文教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)。
+英文文档见 [docs/README.en.md](docs/README.en.md)。完整中文教程见 [docs/TUTORIAL.zh-CN.md](docs/TUTORIAL.zh-CN.md)。
 
 ## 截图
 
-待补：建议放一张干净的首屏或工作区截图，用来展示论文库、项目空间、PDF 阅读器或 AI 实验室的整体形态。截图前请隐藏私人论文题目、本地路径、API 配置和未公开研究内容。
+![Sci-Station 首页截图](docs/assets/screenshots/home.png)
 
 ## 基本介绍
 
@@ -33,29 +33,16 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 - **材料区**：统一管理数据、代码、图表、脚本、提示词、输出等真实工作文件，并可从应用打开到 VS Code 或外部工具。
 - **任务与日历**：提供本地待办、日历视图，并可选接入 Apple Calendar / Reminders。
 - **AI 实验室 V1**：支持项目会话、计划审查、权限面板、运行历史、钩子、MCP 预设展示和审计日志。
-- **打包测试**：提供测试版 DMG 打包脚本，便于上传到发布页做小范围测试。
+- **发布测试**：测试版会放在 Release 中，就像普通 macOS 软件一样下载、安装和测试。
 
-## 当前测试状态
+## 当前状态
 
-- 当前版本定为 **Beta 0.0.1**。
-- 已完成可分发 DMG 打包流程，默认输出为 `.tmp/beta-package/Sci-Station-beta.dmg`。
-- 该版本适合内部测试和手动回归，不建议作为公开稳定版使用。
-- 未公证或 ad-hoc/development 签名的构建首次打开时可能触发 Gatekeeper 提醒，测试者需要右键选择 `Open`。
-- AI、MinerU、Crossref、arXiv、INSPIRE 等联网能力依赖用户自己的配置和第三方服务可用性。
-
-## 版本管理
-
-从 Beta 0.0.1 开始，建议后续每次测试包都固定以下信息：
-
-- App 展示版本：例如 `0.0.1`、`0.0.2`。
-- Release 标题：例如 `Sci-Station Beta 0.0.1`。
-- DMG 文件：上传对应版本的测试包。
-- 变更说明：记录新增功能、修复问题、已知限制和测试建议。
-- 手动测试记录：发布前按 `DOC/manual-tests/` 中的协议完成重点流程检查。
+- 当前版本为 **Beta 0.1.0**。
+- 软件会放在 Release 中，用户可以像安装普通 macOS 软件一样下载 DMG 并安装。
+- 项目仍在开发中，功能、界面和文档会持续更新。
 
 ## 接下来会开发
 
-- **正式版本管理流程**：补充变更日志、发布检查清单、标签规范和构建号管理。
 - **签名与公证**：完善 Developer ID 签名、公证和 Gatekeeper 友好的分发流程。
 - **AI 实验室深化**：继续接入边车运行时、工具权限、证据引用、产物和调试包。
 - **论文图谱与推荐**：增强论文关系、研究队列、阅读计划和推荐工作流。
@@ -65,34 +52,14 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 
 ## 快速开始
 
-使用测试版 DMG：
+使用测试版：
 
-1. 从 Release 下载 `Sci-Station-beta.dmg`。
+1. 从 Release 下载 Sci-Station 的 DMG。
 2. 打开 DMG，将 `Sci-Station.app` 拖入 `/Applications`。
 3. 如果 macOS 提示无法验证开发者，右键应用并选择 `Open`。
 4. 首次启动后选择 `Create Workspace`，创建一个空文件夹作为科研根目录。
 5. 在 Library 导入 PDF，或用 DOI、arXiv、PDF URL、网页链接添加论文。
 6. 创建项目，在项目概览中开始写项目简介、笔记和任务。
-
-从源码运行：
-
-```bash
-open Sci-Station.xcodeproj
-```
-
-在 Xcode 中选择 `Sci-Station` scheme，运行目标选择 `My Mac`，按 `Command + R`。
-
-生成测试 DMG：
-
-```bash
-Tools/scripts/package-beta.sh
-```
-
-没有 Apple Developer 账号或本机签名证书时，可使用 ad-hoc 打包：
-
-```bash
-SCI_STATION_SIGNING=adhoc Tools/scripts/package-beta.sh
-```
 
 ## 工作区结构
 
@@ -142,31 +109,12 @@ ResearchRoot/
 - 论文、笔记、任务、Agent 日志和生成文件保存在用户选择的科研根目录中。
 - `.env*`、本机配置、打包产物和私人科研根目录不应提交到 Git。
 
-## 开发验证
-
-核心验证：
-
-```bash
-swift run SciStationCoreTestRunner
-```
-
-App 构建：
-
-```bash
-xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-```
-
-Python sidecar 测试：
-
-```bash
-python -m pytest AgentRuntime/tests
-```
-
 ## 相关文档
 
-- [README.en.md](README.en.md)：英文项目介绍。
-- [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)：中文试用教程。
-- [TUTORIAL.md](TUTORIAL.md)：英文试用教程。
+- [docs/README.en.md](docs/README.en.md)：英文项目介绍。
+- [docs/TUTORIAL.zh-CN.md](docs/TUTORIAL.zh-CN.md)：中文试用教程。
+- [docs/TUTORIAL.md](docs/TUTORIAL.md)：英文试用教程。
+- [docs/DEVELOPER.md](docs/DEVELOPER.md)：开发者文档。
 - [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
 - [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
-- `DOC/`：开发任务书、提案和手动测试记录。
+- [docs/development/](docs/development/)：开发任务书、提案和手动测试记录。

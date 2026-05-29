@@ -2,7 +2,7 @@
 
 Python 编排器，驱动 Sci-Station App 跑 manual-test 用例并比对 3 条独立断言通道（事件 / 文件 / 视觉）。
 
-完整设计见 `DOC/Proposal-AT.md`。该 README 只负责让一个新加入的人在 5 分钟内把测试跑起来。
+完整设计见 `docs/development/Proposal-AT.md`。该 README 只负责让一个新加入的人在 5 分钟内把测试跑起来。
 
 ## 安装
 
@@ -25,7 +25,7 @@ cd AgentRuntime
 ## 写一个新场景
 
 1. 在 `sci_station_agent/uitest/scenarios/MT-xx-YY_<slug>.yaml` 新建文件，
-   schema 见 `DOC/Proposal-AT.md` §5。
+   schema 见 `docs/development/Proposal-AT.md` §5。
 2. 用到的 accessibility identifier 必须先在
    `Sci-Station/Testing/UITestAccessibilityID.swift` 登记。
 3. 期待的事件必须先在
@@ -43,9 +43,9 @@ scenario.py    Scenario / Step / Assertion 数据类 + JSON/YAML loader
 events.py      EventLogProbe (read app_events.jsonl)
 files.py       FileProbe (read workspace yaml/jsonl/md, 子集匹配)
 runner.py      ScenarioRunner: 驱动 step + 串联 probe + 出 result
-report.py      渲染 markdown 报告（DOC/manual-tests/runs/...md）
+report.py      渲染 markdown 报告（docs/development/manual-tests/runs/...md）
 drivers/       UIDriver 协议 + NullDriver；P-AT.3 加 Accessibility/XCUITest
-scenarios/     YAML / JSON 场景库（与 DOC/manual-tests/MT-*.md 一对一）
+scenarios/     YAML / JSON 场景库（与 docs/development/manual-tests/MT-*.md 一对一）
 ```
 
 ## 使用真驱动 (P-AT.3a)

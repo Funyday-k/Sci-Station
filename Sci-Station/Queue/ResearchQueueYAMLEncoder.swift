@@ -3,7 +3,7 @@ import Foundation
 /// Hand-written YAML encoder/decoder for `library/queue.yaml` and
 /// `projects/<id>/queue.yaml`. We deliberately avoid third-party YAML libraries
 /// (matching `TodoRepository` and `CalendarRepository`) so that the disk
-/// schema stays auditable and round-trip stable. See `DOC/Proposal48.md` §5.3.
+/// schema stays auditable and round-trip stable. See `docs/development/Proposal48.md` §5.3.
 public nonisolated enum ResearchQueueYAMLEncoder {
     public static let schemaVersion: Int = 1
 

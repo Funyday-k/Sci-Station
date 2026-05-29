@@ -20,7 +20,7 @@ import Foundation
 ///   3. Be applied via the `.uitestID(_:)` view modifier defined in
 ///      `UITestAccessibilityIDViewModifier.swift`.
 ///
-/// See `DOC/Proposal-AT.md` §P-AT.1c.
+/// See `docs/development/Proposal-AT.md` §P-AT.1c.
 public nonisolated enum UITestAccessibilityID {
 
     // MARK: - Sidebar (top-level navigation)

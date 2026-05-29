@@ -4,7 +4,7 @@ import SwiftUI
 /// from `AppViewModel.researchQueueScopes` and routes mutations back through
 /// the model's queue helpers. Scope picker lets the user switch between the
 /// workspace queue and the current project's queue without losing context.
-/// See `DOC/Proposal48.md` §4.6.
+/// See `docs/development/Proposal48.md` §4.6.
 struct QueueTabView: View {
     @EnvironmentObject private var appModel: AppViewModel
 

@@ -15,7 +15,7 @@ A scenario is a deterministic recipe for one MT (manual test) case. It binds:
 
 The loader supports JSON natively and YAML when PyYAML is installed.
 
-See ``DOC/Proposal-AT.md`` §P-AT.2 for the schema rationale.
+See ``docs/development/Proposal-AT.md`` §P-AT.2 for the schema rationale.
 """
 
 from __future__ import annotations

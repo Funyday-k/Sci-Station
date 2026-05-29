@@ -3,7 +3,7 @@ import Foundation
 /// One row in a research reading queue. P48 Layer A is built directly out of
 /// these rows; Layer B (P49 recommendation ingest) feeds the same shape so
 /// that the queue file format stays stable across implementations. See
-/// `DOC/Proposal48.md` §5.1.
+/// `docs/development/Proposal48.md` §5.1.
 public nonisolated struct ResearchQueueEntry: Codable, Hashable, Sendable, Identifiable {
     public var id: String
     public var paperID: String?
@@ -140,7 +140,7 @@ public nonisolated enum QueueScope: Hashable, Sendable, Codable {
 }
 
 /// Status machine — `queued → reading → finished` is the happy path; the rest
-/// captures defer / dismiss / abandoned cases. See `DOC/Proposal48.md` §3.3.
+/// captures defer / dismiss / abandoned cases. See `docs/development/Proposal48.md` §3.3.
 public nonisolated enum QueueStatus: String, Codable, Hashable, Sendable, CaseIterable {
     case queued
     case reading

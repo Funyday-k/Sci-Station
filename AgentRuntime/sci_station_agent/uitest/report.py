@@ -1,6 +1,6 @@
 """Markdown report builder for scenario runs.
 
-Reports follow the layout described in ``DOC/Proposal-AT.md`` §P-AT.6 so
+Reports follow the layout described in ``docs/development/Proposal-AT.md`` §P-AT.6 so
 each run produces a self-contained file that links back to the scenario
 source, the App's research-root and the failing/passing channels.
 """

@@ -26,7 +26,7 @@ public nonisolated struct ResearchQueueSnapshot: Sendable, Hashable {
 /// Single source of truth for `library/queue.yaml` and
 /// `projects/<id>/queue.yaml`. All mutations are atomic at the file level
 /// (write to `.tmp` then rename) and emit `queue.*` debug events that strip
-/// any user-facing text. See `DOC/Proposal48.md` §4.2 / §5.2 / §8.
+/// any user-facing text. See `docs/development/Proposal48.md` §4.2 / §5.2 / §8.
 public actor ResearchQueueStore {
     private let workspace: ResearchWorkspace
     private let researchRoot: ResearchRoot
@@ -248,7 +248,7 @@ public actor ResearchQueueStore {
 
     /// Apply a deterministic transition derived from a `Paper.status` change.
     /// Idempotent: returns silently when no entry matches or when the rule
-    /// table maps to the entry's current status. See `DOC/Proposal48.md` §4.10.
+    /// table maps to the entry's current status. See `docs/development/Proposal48.md` §4.10.
     public func applyPaperStatusTransition(
         paperID: String,
         from previous: ReadingStatus?,
