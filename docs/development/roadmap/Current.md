@@ -16,17 +16,11 @@
 - 建立 `0.2.0` Proposal 和 release record。
 - 更新根 README / developer docs / AgentRuntime README 的旧路径引用。
 - Phase 0 地基（见 `proposals/Proposal-Phase0-Foundations.md`）：扩展设计 tokens、组件库，抽出 `TodoQueries` 与 `AgentStreamStore`。
-- AI/PDF UX 反馈修复（见 `../../user-feedback/`）：汉化 AI 模式标签、约束「思考过程」框宽度、隐藏工具调用行时间、右栏可见的拖拽手柄、选中文本「询问 AI」快捷动作。
-
-### 进行中
-
-- PDF 右栏 Tab 栏改为竖向图标样式。
-- 窄栏下 AI 对话输入框固定在底部，并做专门的窄布局优化。
+- AI/PDF UX 反馈修复（见 `../../user-feedback/`）：汉化 AI 模式标签、约束「思考过程」框宽度、隐藏工具调用行时间、右栏可见的拖拽手柄、选中文本「询问 AI」快捷动作、右栏改为竖向图标 Tab 栏、AI 输入框固定底部并适配窄栏。
+- 将 Xcode `MARKETING_VERSION` 升到 `0.2.0`、`CURRENT_PROJECT_VERSION` 升到 `2`。
 
 ### 可选
 
-- 递增 Xcode `MARKETING_VERSION` 到 `0.2.0`。
-- 递增 `CURRENT_PROJECT_VERSION`。
 - 添加 About/diagnostics 中更清晰的 beta 通道显示。
 
 ### 不做

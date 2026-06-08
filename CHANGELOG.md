@@ -41,6 +41,7 @@ This project follows the release process in `docs/development/versioning/Release
 - Updated root and developer documentation links to the new development documentation center.
 - AI Lab: localized assistant mode labels to `询问` / `助理` (`ask` / `agent`), constrained the reasoning (`思考过程`) box width, and removed the timestamp from tool-call rows.
 - PDF reader right rail: made the drag-to-resize handle visible and discoverable.
+- PDF reader right rail: replaced the segmented context picker with a vertical icon tab bar, and made the AI panel full-height so its composer stays pinned to the bottom (incl. narrow-rail layout).
 - Performance foundations: extracted `TodoQueries` (behavior-preserving todo filtering and sorting) and an `AgentStreamStore` that isolates high-frequency streaming-text updates from app-wide view invalidation.
 
 ### Fixed
@@ -50,8 +51,7 @@ This project follows the release process in `docs/development/versioning/Release
 
 ### Known Issues
 
-- App `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` are still unchanged until packaging is explicitly requested.
-- The PDF right-rail tab bar redesign (vertical icon style) and the pinned/narrow AI chat layout are still in progress.
+- App `MARKETING_VERSION` set to `0.2.0` and `CURRENT_PROJECT_VERSION` to `2`; packaging/signing/notarization not yet performed.
 
 ## [0.1.0] - 2026-06-08
 

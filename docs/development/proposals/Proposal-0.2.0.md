@@ -50,8 +50,8 @@ Establish the documentation, versioning and release-management foundation for th
 - [x] Define build number rule.
 - [x] Define branch and tag policy.
 - [x] Define release checklist.
-- [ ] Optionally bump Xcode `MARKETING_VERSION` to `0.2.0`.
-- [ ] Optionally bump Xcode `CURRENT_PROJECT_VERSION` to next build number.
+- [x] Bump Xcode `MARKETING_VERSION` to `0.2.0`.
+- [x] Bump Xcode `CURRENT_PROJECT_VERSION` to `2`.
 
 ### 4.3 AI workflow changes
 
@@ -80,8 +80,8 @@ Establish the documentation, versioning and release-management foundation for th
 - [x] Remove the timestamp from tool-call rows.
 - [x] Make the right-rail drag-to-resize handle visible.
 - [x] Add a `询问 AI` selection action that sends selected PDF text to the assistant.
-- [ ] Redesign the PDF right-rail tab bar to a vertical icon style.
-- [ ] Pin the AI chat input to the bottom and add a narrow-rail layout.
+- [x] Redesign the PDF right-rail tab bar to a vertical icon style.
+- [x] Pin the AI chat input to the bottom and add a narrow-rail layout.
 
 ## 5. Data and compatibility
 
@@ -115,7 +115,7 @@ AI should execute these steps:
 - [x] P0.2.0.6: Add Proposal/release/test templates.
 - [x] P0.2.0.7: Update stale documentation links.
 - [x] P0.2.0.8: Finalize changelog and release record.
-- [ ] P0.2.0.9: Optional app version/build bump.
+- [x] P0.2.0.9: App version/build bump (`MARKETING_VERSION` 0.2.0, build 2).
 - [x] P0.2.0.10: Run documentation validation and produce implementation summary.
 
 ## 8. Validation

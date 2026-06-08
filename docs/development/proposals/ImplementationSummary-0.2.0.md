@@ -18,7 +18,8 @@
 - Added root `CHANGELOG.md` with `0.1.0` baseline and `0.2.0` documentation reset entry.
 - Updated root README, developer docs and UI automation README references to the new structure.
 - Landed Phase 0 foundations: extended `SciStationDesignTokens`, added the `Sci*` component kit, and extracted `TodoQueries` and `AgentStreamStore` (see `Proposal-Phase0-Foundations.md`).
-- Landed AI Lab + PDF reader UX fixes: localized assistant mode labels (`询问`/`助理`), constrained the reasoning box width, removed tool-call row timestamps, made the right-rail resize handle visible, and added the `询问 AI` selection action.
+- Landed AI Lab + PDF reader UX fixes: localized assistant mode labels (`询问`/`助理`), constrained the reasoning box width, removed tool-call row timestamps, made the right-rail resize handle visible, added the `询问 AI` selection action, switched the right rail to a vertical icon tab bar, and pinned the AI composer with a narrow-rail layout.
+- Bumped app `MARKETING_VERSION` to `0.2.0` and `CURRENT_PROJECT_VERSION` to `2`; added `/.github/` to `.gitignore`.
 
 ## Files changed
 
@@ -58,7 +59,7 @@
 | Stale deleted-doc link scan | Passed | No remaining Markdown references to deleted old taskbook paths were found. |
 | `git diff --check` | Passed | No whitespace errors reported. |
 | `git status --short` | Passed | Shows expected doc deletions, new docs and reference updates. |
-| `swift run --quiet SciStationCoreTestRunner` | Pending | Run before packaging to cover the core (`AgentModels`, `TodoQueries`) changes. |
+| `swift run --quiet SciStationCoreTestRunner` | Passed | All SciStation core checks passed. |
 | `xcodebuild ... build` | Passed | macOS Debug `BUILD SUCCEEDED` after the AI Lab + rail + selection changes. |
 | AgentRuntime pytest | Not run | Only README text changed. Run if UI automation code changes. |
 | Manual regression | Not run | Not required for documentation-only restructure; run if app version/build is bumped. |
@@ -85,7 +86,7 @@
 
 ### Known Issues
 
-- App `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` remain unchanged until packaging is explicitly requested.
+- App `MARKETING_VERSION` is now `0.2.0` and `CURRENT_PROJECT_VERSION` is `2`; packaging/signing/notarization not yet performed.
 
 ## Release risks
 
@@ -94,6 +95,6 @@
 
 ## Follow-ups
 
-- Decide whether to bump `MARKETING_VERSION` to `0.2.0` and `CURRENT_PROJECT_VERSION` to the next build number.
+- App `MARKETING_VERSION` bumped to `0.2.0` and `CURRENT_PROJECT_VERSION` to `2`; packaging/notarization still pending.
 - Run full automated validation before creating a release tag or package.
 - Add release artifact metadata once packaging is performed.
