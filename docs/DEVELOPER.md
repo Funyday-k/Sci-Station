@@ -1,6 +1,6 @@
 # 开发者文档：软件架构与功能开发
 
-本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)，历史任务书和手动测试资料见 [development/](development/)。
+本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)，新版开发文档中心见 [development/](development/)。
 
 ## 总体架构
 
@@ -210,7 +210,7 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 python -m pytest AgentRuntime/tests
 ```
 
-手动测试协议在 [development/manual-tests/](development/manual-tests/)，自动化 UI 测试编排器说明在 [../AgentRuntime/sci_station_agent/uitest/README.md](../AgentRuntime/sci_station_agent/uitest/README.md)。
+测试策略在 [development/testing/](development/testing/)，版本管理在 [development/versioning/](development/versioning/)，自动化 UI 测试编排器说明在 [../AgentRuntime/sci_station_agent/uitest/README.md](../AgentRuntime/sci_station_agent/uitest/README.md)。
 
 ## 开发约束
 
