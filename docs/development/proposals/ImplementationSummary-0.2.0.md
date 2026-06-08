@@ -1,11 +1,11 @@
-# Implementation Summary: 0.1.1 Documentation Reset and Version Management
+# Implementation Summary: 0.2.0 Documentation Reset, Foundations and AI/PDF UX
 
 ## Metadata
 
-- Version: `0.1.1`
-- Branch: `release/0.1.1`
+- Version: `0.2.0`
+- Branch: `release/0.2.0`
 - Date: 2026-06-08
-- Proposal: `docs/development/proposals/Proposal-0.1.1.md`
+- Proposal: `docs/development/proposals/Proposal-0.2.0.md`
 - Commit range: pending
 
 ## Completed work
@@ -13,9 +13,12 @@
 - Rebuilt `docs/development/` as a clean development documentation center.
 - Removed the old taskbook-oriented development documentation tree.
 - Added architecture, module, process, testing, versioning, release, roadmap and template documentation.
-- Added `0.1.1` Proposal and release record.
-- Added root `CHANGELOG.md` with `0.1.0` baseline and `0.1.1` documentation reset entry.
+- Added `docs/user-feedback/` as a human-facing intake area, with local gitignored inbox/drafts/archive-local folders.
+- Added `0.2.0` Proposal and release record.
+- Added root `CHANGELOG.md` with `0.1.0` baseline and `0.2.0` documentation reset entry.
 - Updated root README, developer docs and UI automation README references to the new structure.
+- Landed Phase 0 foundations: extended `SciStationDesignTokens`, added the `Sci*` component kit, and extracted `TodoQueries` and `AgentStreamStore` (see `Proposal-Phase0-Foundations.md`).
+- Landed AI Lab + PDF reader UX fixes: localized assistant mode labels (`询问`/`助理`), constrained the reasoning box width, removed tool-call row timestamps, made the right-rail resize handle visible, and added the `询问 AI` selection action.
 
 ## Files changed
 
@@ -27,12 +30,16 @@
 - `docs/development/architecture/`
 - `docs/development/modules/`
 - `docs/development/process/`
+- `docs/user-feedback/`
 - `docs/development/proposals/`
 - `docs/development/releases/`
 - `docs/development/roadmap/`
 - `docs/development/templates/`
 - `docs/development/testing/`
 - `docs/development/versioning/`
+- `Sci-Station/UI/SciStationDesignTokens.swift`, `Sci-Station/UI/Components/SciStationComponents.swift`
+- `Sci-Station/Tasks/TodoQueries.swift`, `Sci-Station/App/AgentStreamStore.swift`
+- `Sci-Station/Agent/AgentModels.swift`, `Sci-Station/UI/AILabWorkspaceView.swift`, `Sci-Station/ContentView.swift`, `Sci-Station/UI/Shell/ShellRightRailViews.swift`
 
 ## Data and compatibility impact
 
@@ -46,12 +53,13 @@
 
 | Check | Result | Notes |
 |---|---:|---|
-| `find docs/development -maxdepth 3 -type f` | Passed | New structure contains 36 Markdown files after adding this summary. |
+| `find docs/development -maxdepth 3 -type f` | Passed | New structure contains 37 Markdown files after adding the feedback intake process. |
+| `.gitignore` feedback intake rules | Passed | Raw inbox/drafts/archive-local feedback paths are ignored. |
 | Stale deleted-doc link scan | Passed | No remaining Markdown references to deleted old taskbook paths were found. |
 | `git diff --check` | Passed | No whitespace errors reported. |
 | `git status --short` | Passed | Shows expected doc deletions, new docs and reference updates. |
-| `swift run --quiet SciStationCoreTestRunner` | Not run | No application code changed. Run before packaging. |
-| `xcodebuild ... build` | Not run | No application code changed. Run before packaging or version bump. |
+| `swift run --quiet SciStationCoreTestRunner` | Pending | Run before packaging to cover the core (`AgentModels`, `TodoQueries`) changes. |
+| `xcodebuild ... build` | Passed | macOS Debug `BUILD SUCCEEDED` after the AI Lab + rail + selection changes. |
 | AgentRuntime pytest | Not run | Only README text changed. Run if UI automation code changes. |
 | Manual regression | Not run | Not required for documentation-only restructure; run if app version/build is bumped. |
 
@@ -62,16 +70,18 @@
 - New development documentation center under `docs/development/`.
 - Architecture, module, process, testing, versioning, release, roadmap and template documentation.
 - AI-executable Proposal workflow and implementation-summary template.
-- `0.1.1` Proposal and release record.
+- Gitignored user feedback intake area for user requests, bugs, questions and feature ideas.
+- `0.2.0` Proposal and release record.
 
 ### Changed
 
 - Replaced historical taskbook-style development docs with a module/process/version/release structure.
+- Separated raw user feedback from AI-maintained development documentation.
 - Updated root and developer documentation links to the new development documentation center.
 
 ### Fixed
 
-- Added a formal version-management and release-process foundation for the `0.1.x` beta line.
+- Added a formal version-management and release-process foundation for the beta line.
 
 ### Known Issues
 
@@ -84,6 +94,6 @@
 
 ## Follow-ups
 
-- Decide whether to bump `MARKETING_VERSION` to `0.1.1` and `CURRENT_PROJECT_VERSION` to the next build number.
+- Decide whether to bump `MARKETING_VERSION` to `0.2.0` and `CURRENT_PROJECT_VERSION` to the next build number.
 - Run full automated validation before creating a release tag or package.
 - Add release artifact metadata once packaging is performed.

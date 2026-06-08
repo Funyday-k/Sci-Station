@@ -11,8 +11,9 @@
 
 ## 当前 Proposal
 
-- `Proposal-0.1.1.md`
-- `ImplementationSummary-0.1.1.md`
+- `Proposal-0.2.0.md`
+- `Proposal-Phase0-Foundations.md`
+- `ImplementationSummary-0.2.0.md`
 
 ## 模板
 

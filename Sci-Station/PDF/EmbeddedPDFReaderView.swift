@@ -648,7 +648,7 @@ private struct PDFReaderMetadataPanel: View {
     private var aiPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             GlobalAIContextActionBar(context: appModel.currentWorkspaceContextSnapshot)
-            AgentPanelView(workspace: workspace)
+            AgentPanelView(agentStreamStore: appModel.agentStreamStore, workspace: workspace)
                 .frame(minHeight: 520)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

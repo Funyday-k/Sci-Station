@@ -1498,9 +1498,9 @@ public nonisolated enum AgentVisibleMode: String, CaseIterable, Identifiable, Co
     public nonisolated var title: String {
         switch self {
         case .plan:
-            return "Plan"
+            return "询问"
         case .agent:
-            return "Agent"
+            return "助理"
         }
     }
 

@@ -29,6 +29,58 @@ enum SciStationDesign {
     }
 }
 
+// MARK: - Additive token scales (Phase 0 design system)
+//
+// These namespaces standardize spacing, corner radii, semantic colors and
+// typography roles so views can stop hand-coding magic opacities and radii.
+// They are additive: existing `SciStationDesign` members above are unchanged.
+
+extension SciStationDesign {
+    /// 4pt-based spacing scale.
+    enum Spacing {
+        static let xxs: CGFloat = 2
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 32
+    }
+
+    /// Unified corner radii (replaces ad-hoc 6/7/8/12 usage over time).
+    enum Radius {
+        static let control: CGFloat = 6
+        static let row: CGFloat = rowCornerRadius
+        static let compact: CGFloat = compactCornerRadius
+        static let card: CGFloat = 12
+    }
+
+    /// Semantic colors. Backed by `NSColor` system colors so they adapt to
+    /// light/dark automatically and match platform conventions.
+    enum Semantic {
+        static let success = Color(nsColor: .systemGreen)
+        static let warning = Color(nsColor: .systemOrange)
+        static let danger = Color(nsColor: .systemRed)
+        static let info = Color(nsColor: .systemBlue)
+        static let accent = Color.accentColor
+
+        /// A low-contrast tinted surface for badges/cards, derived from a role color.
+        static func surface(_ color: Color, opacity: Double = 0.12) -> Color {
+            color.opacity(opacity)
+        }
+    }
+
+    /// Typography roles. Centralizes the small set of fonts used across panels.
+    enum Typography {
+        static let sectionTitle = Font.headline.weight(.semibold)
+        static let cardTitle = Font.subheadline.weight(.semibold)
+        static let body = Font.body
+        static let metadata = Font.caption
+        static let metadataStrong = Font.caption.weight(.medium)
+        static let badge = Font.caption2.weight(.semibold)
+    }
+}
+
 struct SciStationPanelStyle: ViewModifier {
     var radius: CGFloat = SciStationDesign.compactCornerRadius
     var tint: Color = SciStationDesign.panelTint

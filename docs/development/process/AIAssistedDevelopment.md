@@ -7,6 +7,7 @@
 每次任务开始时提供：
 
 - 当前分支和目标版本。
+- 用户反馈 intake 摘要，或 `docs/user-feedback/inbox/` 中需要转换的原始条目。
 - `proposals/Proposal-<version>.md`。
 - 相关模块文档。
 - 已知 blocker / known issues。
@@ -16,21 +17,23 @@
 
 AI 必须：
 
-1. 先阅读 Proposal 和相关模块文档。
-2. 给出简短计划。
-3. 实现前定位权威代码入口。
-4. 小步修改，避免无关重构。
-5. 更新 Proposal 任务状态。
-6. 更新模块文档中的长期约束。
-7. 更新 `CHANGELOG.md` 的 Unreleased 部分。
-8. 更新 `releases/<version>.md` 的验证和变更记录。
-9. 输出实现总结。
+1. 如果任务来自用户反馈，先按 `UserFeedbackIntake.md` 将原始输入转换为正式开发文档。
+2. 先阅读 Proposal 和相关模块文档。
+3. 给出简短计划。
+4. 实现前定位权威代码入口。
+5. 小步修改，避免无关重构。
+6. 更新 Proposal 任务状态。
+7. 更新模块文档中的长期约束。
+8. 更新 `CHANGELOG.md` 的 Unreleased 部分。
+9. 更新 `releases/<version>.md` 的验证和变更记录。
+10. 输出实现总结。
 
 AI 不应：
 
 - 删除用户数据或 Research Root。
 - 修改无关功能。
 - 把 secret、API key、私人路径写入文档或日志。
+- 把 gitignored 用户反馈原文直接复制成可提交文档。
 - 在未说明兼容策略时改变持久化格式。
 
 ## 任务完成总结格式

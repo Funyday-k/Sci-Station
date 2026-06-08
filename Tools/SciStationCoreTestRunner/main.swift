@@ -174,6 +174,7 @@ private struct CoreVerificationSuite {
         try await recommendationFeedbackStorePersistsJSONLAndBuildsProfile()
         try recommendationPipelineMMRDiversifiesNearDuplicateResults()
         try recommendationRunResultDecodesLegacySnapshotWithV2Defaults()
+        try todoQueriesDeriveDateProjectSortAndOpenCount()
         try identifierParserRecognizesSupportedKinds()
         try metadataProviderBuildsStableLookupURLs()
         try arxivEntryParserExtractsMetadataDraft()
@@ -3002,6 +3003,65 @@ private struct CoreVerificationSuite {
                 try legacyContents.write(to: workspace.fileURL(for: "tasks/todos.yaml"), atomically: true, encoding: .utf8)
                 let legacyTodos = try await repository.loadTodos(in: workspace)
                 try expect(legacyTodos.first?.projectIDs == [], "Todo repository should treat legacy todos without project_ids as unassigned.")
+    }
+
+    // MARK: - Tasks (TodoQueries)
+
+    private func todoQueriesDeriveDateProjectSortAndOpenCount() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let day = try require(calendar.date(from: DateComponents(year: 2026, month: 6, day: 8)), "Should build the reference day.")
+        let otherDay = try require(calendar.date(from: DateComponents(year: 2026, month: 6, day: 9)), "Should build the next day.")
+
+        func makeTodo(
+            _ id: String,
+            status: TodoStatus = .open,
+            due: Date? = nil,
+            priority: Priority = .medium,
+            projects: [String] = [],
+            title: String = "T"
+        ) -> TodoItem {
+            TodoItem(
+                id: id,
+                title: title,
+                kind: .general,
+                status: status,
+                dueDate: due,
+                priority: priority,
+                projectIDs: projects,
+                tags: [],
+                relatedPaperIDs: [],
+                notes: nil,
+                createdAt: day,
+                updatedAt: day
+            )
+        }
+
+        let todayHigh = makeTodo("today-high", due: day, priority: .high)
+        let todayLow = makeTodo("today-low", due: day, priority: .low)
+        let tomorrow = makeTodo("tomorrow", due: otherDay, priority: .urgent)
+        let undated = makeTodo("undated", due: nil, priority: .urgent)
+
+        let dueToday = TodoQueries.dueOn([todayLow, undated, tomorrow, todayHigh], date: day, calendar: calendar)
+        try expect(dueToday.map(\.id) == ["today-high", "today-low"], "dueOn should keep same-day todos sorted by priority rank.")
+
+        let projA = makeTodo("proj-a", projects: ["alpha"])
+        let projB = makeTodo("proj-b", projects: ["beta"])
+        try expect(TodoQueries.forProject([projA, projB], projectID: "alpha").map(\.id) == ["proj-a"], "forProject should filter by project membership.")
+
+        let done = makeTodo("done", status: .done, due: day)
+        let cancelled = makeTodo("cancelled", status: .cancelled, due: day)
+        let inProgress = makeTodo("in-progress", status: .inProgress, due: day)
+        let mixed = [todayHigh, done, cancelled, inProgress]
+        try expect(TodoQueries.openCount(mixed) == 2, "openCount should count only non-done, non-cancelled todos.")
+        try expect(TodoQueries.isCompleted(done) && TodoQueries.isCompleted(cancelled), "Done and cancelled are completed.")
+        try expect(TodoQueries.isOpen(inProgress) && TodoQueries.isOpen(todayHigh), "Open and in-progress are open.")
+
+        let sorted = mixed.sorted(by: TodoQueries.listSort)
+        try expect(sorted.map(\.id) == ["cancelled", "done", "in-progress", "today-high"], "listSort should order by status (cancelled<done<inProgress<open) first.")
+
+        try expect(TodoQueries.priorityRank(.urgent) < TodoQueries.priorityRank(.high), "Urgent outranks high.")
+        try expect(TodoQueries.priorityRank(.high) < TodoQueries.priorityRank(.medium), "High outranks medium.")
+        try expect(TodoQueries.priorityRank(.medium) < TodoQueries.priorityRank(.low), "Medium outranks low.")
     }
 
     // MARK: - P48 Research Queue (Layer A: store + YAML)

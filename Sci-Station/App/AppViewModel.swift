@@ -381,7 +381,11 @@ final class AppViewModel: ObservableObject {
     @Published var isShowingAgentKnowledgeLibrary = false
     @Published var agentInteractionMode: AgentInteractionMode = .conversation
     @Published private(set) var agentPendingUserPrompt: String?
-    @Published private(set) var agentStreamingResponseText: String?
+    /// High-frequency streaming text lives on a focused store so per-tick
+    /// updates no longer fire the app-wide `objectWillChange`. AI Lab views
+    /// observe `agentStreamStore` directly. See `AgentStreamStore`.
+    let agentStreamStore = AgentStreamStore()
+    var agentStreamingResponseText: String? { agentStreamStore.streamingResponseText }
     @Published private(set) var isRefreshingAgentContext = false
     @Published private(set) var isPlanningAgentRun = false
     @Published private(set) var isExecutingAgentTools = false
@@ -1110,20 +1114,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var selectedDateTodos: [TodoItem] {
-        let calendar = Calendar.current
-        return todos.filter { todo in
-            guard let dueDate = todo.dueDate else {
-                return false
-            }
-
-            return calendar.isDate(dueDate, inSameDayAs: selectedDashboardDate)
-        }
-        .sorted { first, second in
-            if first.dueDate == second.dueDate {
-                return prioritySortValue(first.priority) < prioritySortValue(second.priority)
-            }
-            return (first.dueDate ?? .distantFuture) < (second.dueDate ?? .distantFuture)
-        }
+        TodoQueries.dueOn(todos, date: selectedDashboardDate)
     }
 
     var currentProjectTodos: [TodoItem] {
@@ -1135,20 +1126,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var currentProjectOpenTodos: [TodoItem] {
-        currentProjectTodos.filter { $0.status != .done && $0.status != .cancelled }
-    }
-
-    private func prioritySortValue(_ priority: Priority) -> Int {
-        switch priority {
-        case .urgent:
-            return 0
-        case .high:
-            return 1
-        case .medium:
-            return 2
-        case .low:
-            return 3
-        }
+        currentProjectTodos.filter(TodoQueries.isOpen)
     }
 
     var selectedDateWorkspaceEvents: [CalendarEvent] {
@@ -1429,11 +1407,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func todos(for projectID: ResearchProject.ID) -> [TodoItem] {
-        todos.filter { $0.projectIDs.contains(projectID) }
+        TodoQueries.forProject(todos, projectID: projectID)
     }
 
     func openTodos(for projectID: ResearchProject.ID) -> [TodoItem] {
-        todos(for: projectID).filter { $0.status != .done && $0.status != .cancelled }
+        todos(for: projectID).filter(TodoQueries.isOpen)
     }
 
     func coreProjectNames(for paper: Paper) -> [String] {
@@ -9303,7 +9281,7 @@ final class AppViewModel: ObservableObject {
                 guard self.agentStreamingResponseText != nextText else {
                     return
                 }
-                self.agentStreamingResponseText = nextText
+                self.agentStreamStore.streamingResponseText = nextText
             }
         }
     }

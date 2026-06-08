@@ -3,6 +3,7 @@
 ## 文档分层
 
 - 用户文档：`docs/README*.md`、`docs/TUTORIAL*.md`。
+- 用户反馈入口：`docs/user-feedback/`，其中原始 inbox/drafts/archive-local 被 Git 忽略。
 - 开发入口：`docs/DEVELOPER.md`、`docs/development/README.md`。
 - 模块文档：`docs/development/modules/`。
 - 版本与发布：`docs/development/versioning/`、`docs/development/releases/`。
@@ -38,5 +39,6 @@
 ## 禁止事项
 
 - 不在文档中保存 API key、token、私人文件路径或用户论文内容。
+- 不提交 `docs/user-feedback/inbox/`、`drafts/` 或 `archive-local/` 中的原始反馈。
 - 不把临时对话总结当作永久规范，除非已整理到模块文档。
 - 不让 Proposal 长期承担架构文档职责。

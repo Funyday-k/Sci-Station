@@ -101,6 +101,11 @@ release/
 .mcp.local.json
 .sci-ai/workspace.local/
 
+# Local user feedback intake drafts (converted by AI into docs/development)
+docs/user-feedback/inbox/
+docs/user-feedback/drafts/
+docs/user-feedback/archive-local/
+
 # CocoaPods (not used, but just in case)
 Pods/
 

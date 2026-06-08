@@ -8,6 +8,7 @@
 - Owner:
 - Date:
 - Status: Draft / In Progress / Ready for Review / Done
+- Source feedback: none / local user-feedback item summarized by AI
 
 ## 1. Goal
 

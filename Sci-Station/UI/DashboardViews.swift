@@ -77,7 +77,7 @@ private struct ResearchProjectsWidget: View {
         let scopedTodos = appModel.todos.filter { todo in
             todo.projectIDs.contains(project.id) || (todo.projectIDs.isEmpty && (isCurrent(project) || appModel.activeResearchProjects.count == 1))
         }
-        let openCount = scopedTodos.filter { $0.status != .done && $0.status != .cancelled }.count
+        let openCount = TodoQueries.openCount(scopedTodos)
         return "\(openCount)"
     }
 
@@ -627,9 +627,9 @@ struct TodoDashboardWidget: View {
         }
 
         return baseTodos
-            .filter { isShowingCompleted ? isCompleted($0) : !isCompleted($0) }
+            .filter { isShowingCompleted ? TodoQueries.isCompleted($0) : TodoQueries.isOpen($0) }
             .filter { kindFilter.includes($0.kind) }
-            .sorted(by: todoSort)
+            .sorted(by: TodoQueries.listSort)
     }
 
     private var projectColumns: [TodoProjectColumn] {
@@ -677,36 +677,6 @@ struct TodoDashboardWidget: View {
         newTodoTitle = ""
         newTodoNotes = ""
         isShowingTodoComposer = false
-    }
-
-    private func isCompleted(_ todo: TodoItem) -> Bool {
-        todo.status == .done || todo.status == .cancelled
-    }
-
-    private func todoSort(_ first: TodoItem, _ second: TodoItem) -> Bool {
-        if first.status != second.status {
-            return first.status.rawValue.localizedStandardCompare(second.status.rawValue) == .orderedAscending
-        }
-        if first.dueDate != second.dueDate {
-            return (first.dueDate ?? .distantFuture) < (second.dueDate ?? .distantFuture)
-        }
-        if first.priority != second.priority {
-            return prioritySortValue(first.priority) < prioritySortValue(second.priority)
-        }
-        return first.title.localizedStandardCompare(second.title) == .orderedAscending
-    }
-
-    private func prioritySortValue(_ priority: Priority) -> Int {
-        switch priority {
-        case .urgent:
-            return 0
-        case .high:
-            return 1
-        case .medium:
-            return 2
-        case .low:
-            return 3
-        }
     }
 
     private var defaultProjectIDs: [ResearchProject.ID] {
@@ -1060,12 +1030,7 @@ private struct TodoCardView: View {
 
             HStack(spacing: 6) {
                 ForEach(projectLabels, id: \.self) { label in
-                    Text(label)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .foregroundStyle(.secondary)
-                        .background(Color.secondary.opacity(0.10), in: Capsule())
+                    SciBadge(label)
                 }
             }
         }

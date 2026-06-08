@@ -93,7 +93,7 @@ struct GlobalAISidePanel: View {
 
             GlobalAIContextActionBar(context: context)
 
-            AgentPanelView(workspace: workspace, isCompact: true)
+            AgentPanelView(agentStreamStore: appModel.agentStreamStore, workspace: workspace, isCompact: true)
         }
     }
 }
@@ -229,6 +229,28 @@ private enum PDFContextPanel: String, CaseIterable, Identifiable {
         case .ai: return "AI"
         }
     }
+
+    var titleZh: String {
+        switch self {
+        case .paper: return "论文"
+        case .notes: return "笔记"
+        case .tasks: return "任务"
+        case .citations: return "引用"
+        case .files: return "文件"
+        case .ai: return "AI"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .paper: return "doc.text"
+        case .notes: return "highlighter"
+        case .tasks: return "checklist"
+        case .citations: return "text.quote"
+        case .files: return "folder"
+        case .ai: return "sparkles"
+        }
+    }
 }
 
 private struct PDFReaderContextRail: View {
@@ -247,37 +269,12 @@ private struct PDFReaderContextRail: View {
     @State private var selectedCitationFormat = CitationFormat.bibTeX
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Picker("PDF Context", selection: $selectedPanel) {
-                    ForEach(PDFContextPanel.allCases) { panel in
-                        Text(panel.title).tag(panel)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                if let paper = appModel.selectedPaperDraft {
-                    switch selectedPanel {
-                    case .paper:
-                        paperPanel(paper)
-                    case .notes:
-                        notesPanel(paper)
-                    case .tasks:
-                        tasksPanel(paper)
-                    case .citations:
-                        citationsPanel(paper)
-                    case .files:
-                        filesPanel(paper)
-                    case .ai:
-                        aiPanel
-                    }
-                } else {
-                    ContentUnavailableView("No PDF selected", systemImage: "doc.viewfinder", description: Text("Open a paper in the PDF reader to inspect notes, tasks, citations, and files."))
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 0) {
+            verticalTabBar
+            Divider()
+            panelContainer
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .confirmationDialog("Delete PDF annotation?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {
                 if let pendingDelete {
@@ -288,6 +285,71 @@ private struct PDFReaderContextRail: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("The sidecar record and in-memory PDF overlay will be removed.")
+        }
+    }
+
+    private var verticalTabBar: some View {
+        VStack(spacing: 4) {
+            ForEach(PDFContextPanel.allCases) { panel in
+                Button {
+                    selectedPanel = panel
+                } label: {
+                    Image(systemName: panel.systemImage)
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(width: 34, height: 34)
+                        .foregroundStyle(selectedPanel == panel ? Color.accentColor : Color.secondary)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(selectedPanel == panel ? Color.accentColor.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(appModel.localized(panel.titleZh, panel.title))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 5)
+        .frame(width: 44, alignment: .top)
+        .frame(maxHeight: .infinity)
+        .background(Color.secondary.opacity(0.05))
+    }
+
+    @ViewBuilder
+    private var panelContainer: some View {
+        if let paper = appModel.selectedPaperDraft {
+            if selectedPanel == .ai {
+                aiPanel
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        nonAIPanel(paper)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } else {
+            ContentUnavailableView("No PDF selected", systemImage: "doc.viewfinder", description: Text("Open a paper in the PDF reader to inspect notes, tasks, citations, and files."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func nonAIPanel(_ paper: Paper) -> some View {
+        switch selectedPanel {
+        case .paper:
+            paperPanel(paper)
+        case .notes:
+            notesPanel(paper)
+        case .tasks:
+            tasksPanel(paper)
+        case .citations:
+            citationsPanel(paper)
+        case .files:
+            filesPanel(paper)
+        case .ai:
+            EmptyView()
         }
     }
 
@@ -533,12 +595,13 @@ private struct PDFReaderContextRail: View {
     }
 
     private var aiPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             GlobalAIContextActionBar(context: context)
-            AgentPanelView(workspace: workspace, isCompact: true)
-                .frame(minHeight: 520)
+            Divider()
+            AgentPanelView(agentStreamStore: appModel.agentStreamStore, workspace: workspace, isCompact: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var filteredAnnotations: [PDFAnnotationRecord] {
@@ -696,7 +759,7 @@ struct GlobalAIContextActionBar: View {
         VStack(alignment: .leading, spacing: 0) {
             if let selectedTextPreview = context.selectedTextPreview {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Selected text from page \(context.pdfPageIndex.map(String.init) ?? "-")")
+                    Text(appModel.localized("第 \(context.pdfPageIndex.map(String.init) ?? "-") 页选中内容", "Selected text from page \(context.pdfPageIndex.map(String.init) ?? "-")"))
                         .font(.caption.weight(.semibold))
                     Text(selectedTextPreview)
                         .font(.caption2)
@@ -710,22 +773,32 @@ struct GlobalAIContextActionBar: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     Button {
-                        appModel.agentGoal = "Ask about this view.\n\n\(promptContext)"
+                        let instruction = appModel.localized("请解释下面这段选中的内容，并指出其中的关键点：", "Explain the selected text and highlight its key points:")
+                        appModel.agentGoal = "\(instruction)\n\n\(promptContext)"
+                        appModel.openGlobalAIPanel(source: "pdf_selection_ask")
+                        appModel.generateAgentPlan()
                     } label: {
-                        Label("Ask", systemImage: "bubble.left.and.text.bubble.right")
+                        Label(appModel.localized("询问 AI", "Ask AI"), systemImage: "sparkles")
+                    }
+                    .disabled(context.selectedTextPreview == nil || appModel.isPlanningAgentRun)
+
+                    Button {
+                        appModel.agentGoal = "\(appModel.localized("请基于当前视图回答我的问题。", "Ask about this view."))\n\n\(promptContext)"
+                    } label: {
+                        Label(appModel.localized("提问", "Ask"), systemImage: "bubble.left.and.text.bubble.right")
                     }
 
                     Button {
-                        appModel.agentGoal = "Summarize the current selection.\n\n\(promptContext)"
+                        appModel.agentGoal = "\(appModel.localized("请总结当前选中的内容。", "Summarize the current selection."))\n\n\(promptContext)"
                     } label: {
-                        Label("Summarize", systemImage: "text.quote")
+                        Label(appModel.localized("总结", "Summarize"), systemImage: "text.quote")
                     }
                     .disabled(context.selectedTextPreview == nil)
 
                     Button {
-                        appModel.agentGoal = "Draft a todo from the current selection. Do not write it yet.\n\n\(promptContext)"
+                        appModel.agentGoal = "\(appModel.localized("根据当前选中内容起草一个待办，暂时不要写入。", "Draft a todo from the current selection. Do not write it yet."))\n\n\(promptContext)"
                     } label: {
-                        Label("Todo Draft", systemImage: "checklist")
+                        Label(appModel.localized("待办草稿", "Todo Draft"), systemImage: "checklist")
                     }
                     .disabled(context.selectedTextPreview == nil)
                 }
