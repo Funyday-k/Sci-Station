@@ -104,10 +104,8 @@ release/
 # GitHub local config (skills/workflows kept local per owner request)
 /.github/
 
-# Local user feedback intake drafts (converted by AI into docs/development)
-docs/user-feedback/inbox/
-docs/user-feedback/drafts/
-docs/user-feedback/archive-local/
+# User feedback inbox/drafts (not for main branch)
+docs/user-feedback/
 
 # CocoaPods (not used, but just in case)
 Pods/
