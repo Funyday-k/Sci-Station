@@ -7,7 +7,7 @@ public nonisolated struct RequestRecommendationRefreshAgentTool: AgentTool {
         AgentToolDefinition(
             name: "request_recommendation_refresh",
             displayName: "Request Recommendation Refresh",
-            summary: "Fetch arXiv-only paper recommendations and return queue-ready candidates for the unified Reading workflow.",
+            summary: "Fetch arXiv-only paper recommendations and return candidates for the recommendation workflow.",
             inputSchema: #"{"query":"optional keywords","categories":["cs.AI","cs.CL"],"scope":"workspace|active_project optional","top_k":10}"#,
             risk: .network,
             permissionKey: "recommendation.network",
@@ -29,27 +29,27 @@ public nonisolated struct RequestRecommendationRefreshAgentTool: AgentTool {
         )
         let candidates = try await ArxivRecommendationClient().fetch(request)
         let selectedCandidates = Array(candidates.prefix(topK))
-        let queueScope = arguments.scope == "active_project"
+        let scope = arguments.scope == "active_project"
             ? context.currentProjectID.map { "project:\($0)" } ?? "workspace"
             : "workspace"
         return AgentToolResult(
             callID: "",
             toolName: definition.name,
             succeeded: true,
-            message: "Fetched \(selectedCandidates.count) arXiv candidate(s). Add them to unified Reading after approval.",
+            message: "Fetched \(selectedCandidates.count) arXiv candidate(s). Review them in the recommendation view after approval.",
             payload: .object([
                 "schema_version": .number("1"),
                 "kind": .string("recommendation_note"),
                 "artifact_kind": .string("recommendation_note"),
                 "candidate_count": .number(String(selectedCandidates.count)),
-                "queue_scope": .string(queueScope),
+                "scope": .string(scope),
                 "source": .string("arxiv"),
-                "queue_candidates": .array(selectedCandidates.map(queueCandidatePayload(_:)))
+                "candidates": .array(selectedCandidates.map(candidatePayload(_:)))
             ])
         )
     }
 
-    private nonisolated func queueCandidatePayload(_ candidate: RecommendationCandidate) -> JSONValue {
+    private nonisolated func candidatePayload(_ candidate: RecommendationCandidate) -> JSONValue {
         var payload: [String: JSONValue] = [
             "display_title": .string(candidate.displayTitle),
             "reason": .string("arXiv-only recommendation"),

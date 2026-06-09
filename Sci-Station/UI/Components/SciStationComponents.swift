@@ -108,7 +108,9 @@ struct SciEmptyState: View {
                     .multilineTextAlignment(.center)
             }
             if let actionTitle, let action {
-                Button(action: action) {
+                Button {
+                    action()
+                } label: {
                     Text(actionTitle)
                 }
                 .controlSize(.small)
@@ -134,10 +136,48 @@ struct SciActionButton: View {
     }
 
     var body: some View {
-        Button(role: role, action: action) {
+        Button(role: role) {
+            action()
+        } label: {
             Label(title, systemImage: systemImage)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
     }
 }
+
+#if DEBUG
+#Preview("Sci-Station Components") {
+    ScrollView {
+        VStack(alignment: .leading, spacing: SciStationDesign.Spacing.lg) {
+            HStack(spacing: SciStationDesign.Spacing.sm) {
+                SciBadge("Default")
+                SciBadge("Success", systemImage: "checkmark.circle", color: SciStationDesign.Semantic.success)
+                SciBadge("Warning", systemImage: "exclamationmark.triangle", color: SciStationDesign.Semantic.warning)
+                SciBadge("Danger", systemImage: "xmark.octagon", color: SciStationDesign.Semantic.danger)
+                SciBadge("Info", systemImage: "info.circle", color: SciStationDesign.Semantic.info)
+            }
+
+            SciSectionCard(title: "Section Card", systemImage: "square.grid.2x2") {
+                Text("A reusable titled card with a bordered surface, used to group panel content.")
+                    .font(SciStationDesign.Typography.body)
+                HStack(spacing: SciStationDesign.Spacing.sm) {
+                    SciActionButton("Primary", systemImage: "plus") {}
+                    SciActionButton("Delete", systemImage: "trash", role: .destructive) {}
+                }
+            }
+
+            SciSectionCard {
+                SciEmptyState(
+                    title: "Nothing here yet",
+                    message: "Empty-state placeholder with an optional call to action.",
+                    systemImage: "tray",
+                    actionTitle: "Create"
+                ) {}
+            }
+        }
+        .padding(SciStationDesign.Spacing.lg)
+    }
+    .frame(width: 520, height: 480)
+}
+#endif

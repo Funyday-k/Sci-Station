@@ -192,9 +192,7 @@ struct HomeView: View {
             markdownDocuments: appModel.markdownDocuments,
             agentRuns: agentRunsForAggregation,
             retrievalIndexStatus: appModel.agentRetrievalIndexStatus,
-            moduleConfiguration: appModel.workspaceModuleConfiguration,
-            queueEntries: Array(appModel.researchQueueScopes.values.joined()),
-            activeReadingPlan: appModel.activeReadingPlanSummaryForHome
+            moduleConfiguration: appModel.workspaceModuleConfiguration
         )
     }
 
@@ -274,3 +272,11 @@ struct HomeAuroraBackground: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Home") {
+    HomeView(workspace: PreviewFixtures.workspace)
+        .environmentObject(AppViewModel())
+        .frame(width: 1000, height: 720)
+}
+#endif

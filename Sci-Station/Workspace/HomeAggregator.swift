@@ -11,11 +11,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
     public var retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot
     public var moduleConfiguration: WorkspaceModuleConfiguration
     public var failureReason: String?
-    /// P48 — Real queue entries the AppViewModel has loaded for the active
-    /// workspace and project. Optional; default empty for callers that have
-    /// not yet wired the queue store.
-    public var queueEntries: [ResearchQueueEntry]
-    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         workspaceID: String,
@@ -27,9 +22,7 @@ public nonisolated struct HomeAggregationInput: Sendable {
         agentRuns: [AgentRun] = [],
         retrievalIndexStatus: AgentEmbeddingIndexStatusSnapshot = AgentEmbeddingIndexStatusSnapshot.disabled(),
         moduleConfiguration: WorkspaceModuleConfiguration = WorkspaceModuleRegistry.defaultConfiguration(),
-        failureReason: String? = nil,
-        queueEntries: [ResearchQueueEntry] = [],
-        activeReadingPlan: ReadingPlanSummary? = nil
+        failureReason: String? = nil
     ) {
         self.workspaceID = workspaceID
         self.currentProjectID = currentProjectID
@@ -41,8 +34,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
         self.retrievalIndexStatus = retrievalIndexStatus
         self.moduleConfiguration = moduleConfiguration
         self.failureReason = failureReason
-        self.queueEntries = queueEntries
-        self.activeReadingPlan = activeReadingPlan
     }
 
     public var signature: Int {
@@ -101,15 +92,6 @@ public nonisolated struct HomeAggregationInput: Sendable {
         hasher.combine(retrievalIndexStatus)
         hasher.combine(moduleConfiguration)
         hasher.combine(failureReason)
-        for entry in queueEntries.sorted(by: { $0.id < $1.id }) {
-            hasher.combine(entry.id)
-            hasher.combine(entry.status.rawValue)
-            hasher.combine(entry.source.rawValue)
-            hasher.combine(entry.order)
-            hasher.combine(entry.lastTouchedAt)
-            hasher.combine(entry.scope.identifier)
-        }
-        hasher.combine(activeReadingPlan)
         return hasher.finalize()
     }
 }
@@ -252,18 +234,6 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             .map { $0 } : []
 
         let readingQueue = moduleAvailability.libraryEnabled ? readingQueue(from: input.papers) : []
-        let readingQueueEntries: [ReadingQueueEntrySummary] = moduleAvailability.libraryEnabled
-            ? input.queueEntries
-                .filter { $0.status == .queued || $0.status == .reading }
-                .sorted { lhs, rhs in
-                    if lhs.lastTouchedAt != rhs.lastTouchedAt {
-                        return lhs.lastTouchedAt > rhs.lastTouchedAt
-                    }
-                    return lhs.order < rhs.order
-                }
-                .prefix(10)
-                .map(ReadingQueueEntrySummary.init(entry:))
-            : []
         let pendingDrafts = moduleAvailability.aiLabEnabled ? draftSummaries(from: input.agentRuns, projectID: input.currentProjectID)
             .prefix(6)
             .map { $0 } : []
@@ -272,9 +242,7 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             dueTodos: dueTodos,
             readingQueue: readingQueue,
             upcomingDeadlines: upcomingDeadlines,
-            pendingDrafts: pendingDrafts,
-            readingQueueEntries: readingQueueEntries,
-            activeReadingPlan: input.activeReadingPlan
+            pendingDrafts: pendingDrafts
         )
     }
 

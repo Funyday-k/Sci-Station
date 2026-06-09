@@ -122,35 +122,19 @@ struct ProjectDashboardPanel: View {
                         }
                     }
 
-                    ProjectDashboardCard(title: appModel.localized("阅读 Todo", "Reading Todo"), systemImage: "book") {
+                    ProjectDashboardCard(title: appModel.localized("任务", "Tasks"), systemImage: "checklist") {
                         VStack(alignment: .leading, spacing: 8) {
-                            if let plan = snapshot.activeReadingPlan {
-                                ProjectDashboardReadingPlanSummary(plan: plan)
-                            }
-                            if snapshot.readingQueuePreview.isEmpty {
-                                Text(appModel.localized("还没有论文进入阅读 Todo。从 Library 添加，或打开 arXiv 推荐。", "Add a paper from Library, or open arXiv Recommendations."))
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            } else {
-                                ForEach(snapshot.readingQueuePreview) { entry in
-                                    Button {
-                                        recordAction("open_queue_entry", targetID: entry.id)
-                                        if let paperID = entry.paperID {
-                                            appModel.selectPaper(id: paperID)
-                                        }
-                                        appModel.selectProjectSpaceTab("tasks")
-                                    } label: {
-                                        ProjectDashboardQueueRow(entry: entry)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
+                            Text(snapshot.openTodoCount == 0
+                                ? appModel.localized("暂无未完成任务。", "No open tasks.")
+                                : appModel.localized("\(snapshot.openTodoCount) 个未完成任务。", "\(snapshot.openTodoCount) open tasks."))
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                             Button {
-                                recordAction("open_reading", targetID: snapshot.projectID)
+                                recordAction("open_tasks", targetID: snapshot.projectID)
                                 appModel.selectProjectSpaceTab("tasks")
                             } label: {
-                                Label(appModel.localized("打开阅读 Todo", "Open Reading Todo"), systemImage: "book")
+                                Label(appModel.localized("打开任务", "Open Tasks"), systemImage: "checklist")
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -184,9 +168,7 @@ struct ProjectDashboardPanel: View {
                 todos: appModel.todos,
                 markdownDocuments: appModel.markdownDocuments,
                 agentRuns: agentRunsForAggregation,
-                unsupportedClaims: unsupportedClaimsForAggregation,
-                queueEntries: Array(appModel.researchQueueScopes.values.joined()),
-                activeReadingPlan: appModel.currentProjectID.map { appModel.activeReadingPlanSummary(in: .project($0)) } ?? nil
+                unsupportedClaims: unsupportedClaimsForAggregation
             )
             let nextSnapshot = try await aggregator.snapshot(input: input)
             snapshot = nextSnapshot
@@ -236,91 +218,6 @@ struct ProjectDashboardPanel: View {
             "action_id": .string(actionID),
             "target_id": .string(targetID)
         ]))
-    }
-}
-
-private struct ProjectDashboardQueueRow: View {
-    let entry: ReadingQueueEntrySummary
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: statusSystemImage)
-                .foregroundStyle(statusTint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.displayTitle)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                Text(subtitleText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var statusSystemImage: String {
-        switch entry.status {
-        case .queued: return "tray"
-        case .reading: return "book"
-        case .finished: return "checkmark.seal"
-        case .deferred: return "moon"
-        case .dismissed: return "xmark.circle"
-        }
-    }
-
-    private var statusTint: Color {
-        switch entry.status {
-        case .queued: return .blue
-        case .reading: return .orange
-        case .finished: return .green
-        case .deferred: return .purple
-        case .dismissed: return .secondary
-        }
-    }
-
-    private var subtitleText: String {
-        var parts: [String] = []
-        parts.append(entry.status == .reading ? "Reading" : "Queued")
-        if let externalKey = entry.externalKey, entry.paperID == nil {
-            parts.append("external: \(externalKey)")
-        }
-        switch entry.source {
-        case .recommendation: parts.append("from recommendation")
-        case .graphTool: parts.append("from graph tool")
-        case .paperStatus: parts.append("paper status sync")
-        case .manual: break
-        }
-        return parts.joined(separator: " · ")
-    }
-}
-
-private struct ProjectDashboardReadingPlanSummary: View {
-    let plan: ReadingPlanSummary
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text("\(plan.completedSlotCount)/\(plan.totalSlotCount)")
-                    .font(.headline.monospacedDigit())
-                Text("finished")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Text("\(plan.estimatedMinutes)m")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(plan.slots.prefix(3)) { slot in
-                HStack(spacing: 6) {
-                    Image(systemName: slot.status == .finished ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(slot.status == .finished ? .green : .secondary)
-                    Text(slot.displayTitle)
-                        .font(.caption)
-                        .lineLimit(1)
-                }
-            }
-        }
     }
 }
 

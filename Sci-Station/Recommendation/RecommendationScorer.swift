@@ -55,7 +55,6 @@ public actor RecommendationScorer {
             feedback: feedback(candidate, context: context),
             openGapCoverage: openGapCoverage(candidate, context: context),
             authorOverlapWithCore: authorOverlapWithCore(candidate, context: context),
-            queuePressurePenalty: queuePressurePenalty(candidate, context: context),
             duplicatePenalty: duplicatePenalty(candidate, context: context)
         )
         let total = weightedTotal(features, candidate: candidate, context: context)
@@ -222,32 +221,9 @@ public actor RecommendationScorer {
         return RecommendationTextSimilarity.clamp(Double(overlapCount) / Double(corePapers.count))
     }
 
-    public nonisolated func queuePressurePenalty(_ candidate: RecommendationCandidate, context: RecommendationContext) -> Double {
-        let keys = [candidate.paperID, candidate.externalKey, Optional(candidate.canonicalID)]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        let status = keys.compactMap { key in
-            context.queueStatusByID[key] ?? context.queueStatusByID["external:\(key)"] ?? context.queueStatusByID["paper:\(key)"]
-        }.first
-        switch status {
-        case .reading:
-            return 0.6
-        case .queued:
-            return 0.4
-        case .deferred:
-            return 0.2
-        case .finished, .dismissed:
-            return 0.95
-        case .none:
-            return 0
-        }
-    }
-
     public nonisolated func duplicatePenalty(_ candidate: RecommendationCandidate, context: RecommendationContext) -> Double {
         let keys = RecommendationFeedbackStore.candidateKeys(candidate)
         if !keys.isDisjoint(with: context.duplicateCandidateKeys) {
-            return 1
-        }
-        if queuePressurePenalty(candidate, context: context) >= 0.95 {
             return 1
         }
         return 0
@@ -281,7 +257,6 @@ public actor RecommendationScorer {
 
         let base = totalWeight > 0 ? weighted / totalWeight : 0
         let raw = base
-            - features.queuePressurePenalty * w.queuePressurePenalty
             - features.duplicatePenalty * w.duplicatePenalty
         return RecommendationTextSimilarity.clamp(raw)
     }

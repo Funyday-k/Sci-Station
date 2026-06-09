@@ -14,8 +14,6 @@ struct ProjectSpaceContentRouter: View {
                 ProjectOverviewView(workspace: workspace)
             case "papers":
                 LibraryProjectView(workspace: workspace, project: project)
-            case "reading", "queue", "reading-plan":
-                TasksProjectView(workspace: workspace, project: project)
             case "wiki":
                 WikiProjectView(workspace: workspace, project: project)
             case "tasks":

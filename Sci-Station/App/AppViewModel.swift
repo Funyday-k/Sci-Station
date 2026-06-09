@@ -468,28 +468,6 @@ final class AppViewModel: ObservableObject {
     private var shellStatusDismissTask: Task<Void, Never>?
     private var paperReaderReturnRoute: WorkspaceRoute?
 
-    // P48 Research Queue (Layer A store + Layer B ingestor). Both are lazily
-    // bound to the currently open workspace by `setupResearchQueueIfNeeded`.
-    private var researchQueueStore: ResearchQueueStore?
-    private var researchQueueIngestor: ResearchQueueIngestor?
-    private var researchQueueWorkspaceID: URL?
-    private var previousPapersForQueueIngest: [String: Paper] = [:]
-    private var researchQueueIngestTask: Task<Void, Never>?
-    private var researchQueueAgentRunIngestTask: Task<Void, Never>?
-    private var researchQueueChangeWatchTask: Task<Void, Never>?
-    @Published private(set) var researchQueueScopes: [String: [ResearchQueueEntry]] = [:] {
-        didSet {
-            markWorkspaceDashboardChanged()
-        }
-    }
-    private var readingPlanStore: ReadingPlanStore?
-    private var readingPlanWorkspaceID: URL?
-    private var readingPlanChangeWatchTask: Task<Void, Never>?
-    @Published private(set) var readingPlanScopes: [String: [ReadingPlan]] = [:] {
-        didSet {
-            markWorkspaceDashboardChanged()
-        }
-    }
     private let recommendationFeedbackStore = RecommendationFeedbackStore()
     @Published private(set) var recommendationRunResult: RecommendationRunResult?
     @Published private(set) var recommendationHistory: [RecommendationRunResult] = []
@@ -835,24 +813,6 @@ final class AppViewModel: ObservableObject {
             catalog: workspaceContributionCatalog(for: projectID),
             pinnedOrder: workspacePreferences.projectSpacePinnedOrder
         )
-    }
-
-    var activeReadingPlanSummaryForHome: ReadingPlanSummary? {
-        if let currentProjectID,
-           let summary = activeReadingPlanSummary(in: .project(currentProjectID)) {
-            return summary
-        }
-        return activeReadingPlanSummary(in: .workspace)
-    }
-
-    func activeReadingPlanSummary(in scope: ReadingPlanScope) -> ReadingPlanSummary? {
-        readingPlanScopes[scope.identifier]?
-            .first { $0.status == .active }
-            .map { ReadingPlanSummary(plan: $0, slotLimit: 5) }
-    }
-
-    func readingPlans(in scope: ReadingPlanScope) -> [ReadingPlan] {
-        readingPlanScopes[scope.identifier] ?? []
     }
 
     func isWorkspaceSectionAvailable(_ section: WorkspaceSection) -> Bool {
@@ -6695,8 +6655,6 @@ final class AppViewModel: ObservableObject {
     ) async throws {
         try await loadResearchRoot(in: workspace, compatibility: rootCompatibility)
         try await loadWorkspacePreferences(in: workspace)
-        await setupResearchQueueIfNeeded(in: workspace)
-        await setupReadingPlanIfNeeded(in: workspace)
         try await loadLibrary(in: workspace, selecting: paperID)
         try await loadLegacyPaperMigrationPlan(in: workspace)
         try await loadCollections(in: workspace)
@@ -6877,7 +6835,6 @@ final class AppViewModel: ObservableObject {
         projectPaperLinks = try await projectPaperLinkRepository.load(in: workspace)
         let loadedPapers = try await paperRepository.loadPapers(in: workspace)
         papers = loadedPapers
-        notifyResearchQueueOfPapers(loadedPapers)
 
         let nextSelectionID = paperID ?? selectedPaperID ?? loadedPapers.first?.id
         let nextSelectedPaper = loadedPapers.first(where: { $0.id == nextSelectionID })
@@ -7413,262 +7370,6 @@ final class AppViewModel: ObservableObject {
         "\(workspace.rootURL.path)#mineru-api"
     }
 
-    // MARK: - P48 Research Queue wiring
-
-    /// Bind a `ResearchQueueStore` + `ResearchQueueIngestor` pair to the
-    /// currently open workspace. Safe to call repeatedly; the bind is
-    /// reused as long as the workspace URL is unchanged.
-    private func setupResearchQueueIfNeeded(in workspace: ResearchWorkspace) async {
-        if researchQueueWorkspaceID == workspace.id, researchQueueStore != nil {
-            return
-        }
-
-        if let existing = researchQueueStore {
-            await existing.close()
-        }
-        researchQueueIngestTask?.cancel()
-        researchQueueIngestTask = nil
-        researchQueueAgentRunIngestTask?.cancel()
-        researchQueueAgentRunIngestTask = nil
-        researchQueueChangeWatchTask?.cancel()
-        researchQueueChangeWatchTask = nil
-        researchQueueStore = nil
-        researchQueueIngestor = nil
-        researchQueueScopes = [:]
-        previousPapersForQueueIngest.removeAll()
-
-        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
-        let logger = appDebugEventLogger
-        let store = ResearchQueueStore(
-            workspace: workspace,
-            researchRoot: root,
-            debugLogger: logger
-        )
-        do {
-            try await store.open()
-        } catch {
-            try? await logger.append(AppDebugEvent(
-                event: "queue.load.error",
-                workspaceID: workspace.rootURL.path,
-                payload: .object([
-                    "scope": .string("workspace"),
-                    "reason": .string("open_failed")
-                ])
-            ), in: root)
-            return
-        }
-
-        let ingestor = ResearchQueueIngestor(
-            store: store,
-            workspace: workspace,
-            researchRoot: root,
-            debugLogger: logger
-        )
-        await ingestor.start()
-
-        researchQueueStore = store
-        researchQueueIngestor = ingestor
-        researchQueueWorkspaceID = workspace.id
-
-        await refreshResearchQueueSnapshot()
-        researchQueueChangeWatchTask = Task { [weak self] in
-            guard let stream = await self?.researchQueueStore?.subscribeChanges() else { return }
-            for await _ in stream {
-                if Task.isCancelled { break }
-                await self?.refreshResearchQueueSnapshot()
-            }
-        }
-    }
-
-    private func refreshResearchQueueSnapshot() async {
-        guard let store = researchQueueStore else {
-            researchQueueScopes = [:]
-            return
-        }
-        let snapshot = await store.snapshot()
-        researchQueueScopes = snapshot.entriesByScope
-    }
-
-    /// Sorted list of entries for the given scope, taken straight from the
-    /// published snapshot. SwiftUI views should call this rather than poking
-    /// the store directly, so updates stay on the main actor.
-    func researchQueueEntries(in scope: QueueScope) -> [ResearchQueueEntry] {
-        researchQueueScopes[scope.identifier] ?? []
-    }
-
-    var availableResearchQueueScopes: [QueueScope] {
-        var scopes: [QueueScope] = [.workspace]
-        if let projectID = currentProjectID {
-            scopes.append(.project(projectID))
-        }
-        return scopes
-    }
-
-    /// Append a paper to the chosen queue scope. Idempotent: silently
-    /// returns if the paper is already in that scope's queue.
-    func addPaperToResearchQueue(paperID: String, displayTitle: String, scope: QueueScope) {
-        guard let store = researchQueueStore else {
-            recommendationErrorMessage = localized("无法推送论文：Reading 队列尚未初始化，请重新打开工作区后重试。", "Could not push paper: Reading queue is not initialized. Reopen the workspace and try again.")
-            recordAppDebugEvent("reading.push.error", payload: .object([
-                "phase": .string("store_unavailable"),
-                "paper_id": .string(paperID),
-                "scope": .string(scope.identifier)
-            ]))
-            return
-        }
-        let now = Date()
-        let entry = ResearchQueueEntry(
-            id: "queue:\(scope.identifier):\(paperID)",
-            paperID: paperID,
-            externalKey: nil,
-            displayTitle: displayTitle,
-            scope: scope,
-            status: .queued,
-            source: .manual,
-            order: 0,
-            addedAt: now,
-            startedAt: nil,
-            finishedAt: nil,
-            lastTouchedAt: now,
-            noteSummary: nil,
-            sourceRefs: []
-        )
-        Task {
-            do {
-                try await store.append(entry)
-                self.showShellStatus(self.localized("已加入 Reading。", "Added to Reading."))
-            } catch ResearchQueueStoreError.duplicateID {
-                self.showShellStatus(self.localized("该论文已在 Reading 中。", "This paper is already in Reading."))
-                self.recordAppDebugEvent("reading.push.duplicate", payload: .object([
-                    "paper_id": .string(paperID),
-                    "scope": .string(scope.identifier)
-                ]))
-            } catch {
-                self.recommendationErrorMessage = self.localized("无法推送论文：\(error.localizedDescription)", "Could not push paper: \(error.localizedDescription)")
-                self.recordAppDebugEvent("reading.push.error", payload: .object([
-                    "phase": .string("append_failed"),
-                    "paper_id": .string(paperID),
-                    "scope": .string(scope.identifier),
-                    "reason": .string(error.localizedDescription)
-                ]))
-                self.present(error)
-            }
-        }
-    }
-
-    /// Append an external paper (DOI / arXiv / placeholder) without a
-    /// `paperID`. Used by graph or recommendation entry points before the
-    /// paper is imported into the library.
-    func addExternalPaperToResearchQueue(externalKey: String, displayTitle: String, scope: QueueScope, source: QueueSource = .manual, noteSummary: String? = nil, sourceRefs: [String] = []) {
-        guard let store = researchQueueStore else {
-            recommendationErrorMessage = localized("无法推送论文：Reading 队列尚未初始化，请重新打开工作区后重试。", "Could not push paper: Reading queue is not initialized. Reopen the workspace and try again.")
-            recordAppDebugEvent("reading.push.error", payload: .object([
-                "phase": .string("store_unavailable"),
-                "external_key": .string(externalKey),
-                "scope": .string(scope.identifier)
-            ]))
-            return
-        }
-        let now = Date()
-        let entry = ResearchQueueEntry(
-            id: "queue:\(scope.identifier):\(externalKey)",
-            paperID: nil,
-            externalKey: externalKey,
-            displayTitle: displayTitle,
-            scope: scope,
-            status: .queued,
-            source: source,
-            order: 0,
-            addedAt: now,
-            startedAt: nil,
-            finishedAt: nil,
-            lastTouchedAt: now,
-            noteSummary: noteSummary,
-            sourceRefs: sourceRefs
-        )
-        Task {
-            do {
-                try await store.append(entry)
-                self.showShellStatus(self.localized("已加入 Reading。", "Added to Reading."))
-            } catch ResearchQueueStoreError.duplicateID {
-                self.showShellStatus(self.localized("该论文已在 Reading 中。", "This paper is already in Reading."))
-                self.recordAppDebugEvent("reading.push.duplicate", payload: .object([
-                    "external_key": .string(externalKey),
-                    "scope": .string(scope.identifier)
-                ]))
-            } catch {
-                self.recommendationErrorMessage = self.localized("无法推送论文：\(error.localizedDescription)", "Could not push paper: \(error.localizedDescription)")
-                self.recordAppDebugEvent("reading.push.error", payload: .object([
-                    "phase": .string("append_failed"),
-                    "external_key": .string(externalKey),
-                    "scope": .string(scope.identifier),
-                    "reason": .string(error.localizedDescription)
-                ]))
-                self.present(error)
-            }
-        }
-    }
-
-    func updateResearchQueueEntryStatus(id: String, status: QueueStatus) {
-        guard let store = researchQueueStore else {
-            return
-        }
-        Task {
-            do {
-                try await store.updateStatus(id: id, status: status, at: nil)
-            } catch ResearchQueueStoreError.unknownID {
-                return
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
-    func removeResearchQueueEntry(id: String) {
-        guard let store = researchQueueStore else {
-            return
-        }
-        Task {
-            do {
-                try await store.remove(id: id)
-            } catch ResearchQueueStoreError.unknownID {
-                return
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
-    /// Move a row up or down by 1, or to the top (`offset == .min`) / bottom
-    /// (`offset == .max`).
-    func moveResearchQueueEntry(id: String, in scope: QueueScope, offset: Int) {
-        guard let store = researchQueueStore else {
-            return
-        }
-        Task {
-            let entries = await store.entries(in: scope)
-            guard !entries.isEmpty else { return }
-            guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-            var ordered = entries.map(\.id)
-            let target: Int
-            if offset == Int.min {
-                target = 0
-            } else if offset == Int.max {
-                target = ordered.count - 1
-            } else {
-                target = max(0, min(ordered.count - 1, index + offset))
-            }
-            guard target != index else { return }
-            ordered.remove(at: index)
-            ordered.insert(id, at: target)
-            do {
-                try await store.reorder(scope: scope, orderedIDs: ordered)
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
     func loadRecommendationHistory(limit: Int = 20) {
         guard let workspace = currentWorkspace else {
             return
@@ -7750,7 +7451,6 @@ final class AppViewModel: ObservableObject {
                 let context = RecommendationContext(
                     projectID: project?.id,
                     corePaperIDs: referenceIDSet,
-                    queueStatusByID: recommendationQueueStatusIndex(),
                     openGapKeywords: recommendationKeywords(query: trimmedQuery, project: project, categories: categoriesForRequest),
                     weightedKeywords: weightedKeywords,
                     interestPapers: referencePapers,
@@ -7762,7 +7462,6 @@ final class AppViewModel: ObservableObject {
                 let result = try await recommendationPipeline.run(
                     workspace: workspace,
                     papers: [],
-                    queueEntries: [],
                     dailyFeedCandidates: search.candidates,
                     graph: nil,
                     context: context,
@@ -7830,7 +7529,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func addRecommendationToLibrary(_ score: RecommendationScore, scope: QueueScope) {
+    func addRecommendationToLibrary(_ score: RecommendationScore, scope: RecommendationTarget) {
         guard let workspace = currentWorkspace else {
             recommendationErrorMessage = RecommendationReadingTodoError.missingWorkspace.localizedDescription
             return
@@ -7860,7 +7559,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func addRecommendationToReadingTodo(_ score: RecommendationScore, scope: QueueScope) {
+    func addRecommendationToReadingTodo(_ score: RecommendationScore, scope: RecommendationTarget) {
         guard let workspace = currentWorkspace else {
             recommendationErrorMessage = RecommendationReadingTodoError.missingWorkspace.localizedDescription
             return
@@ -7875,9 +7574,8 @@ final class AppViewModel: ObservableObject {
             do {
                 let paper = try await importRecommendationCandidateToLibrary(score.candidate, scope: scope, in: workspace)
                 try await upsertReadingTodo(for: paper, score: score, scope: scope, in: workspace)
-                await appendRecommendationPaperToResearchQueue(paper, score: score, scope: scope)
                 try await loadWorkspaceData(in: workspace, selectingPaper: paper.id, selectingMarkdown: selectedMarkdownID)
-                recordRecommendationFeedback(.addToQueue, for: score, scope: scope)
+                recordRecommendationFeedback(.save, for: score, scope: scope)
                 showShellStatus(localized("已创建阅读 Todo，可在任务页继续安排阅读。", "Created a reading todo; continue from Tasks."))
             } catch {
                 recommendationErrorMessage = localized("无法创建阅读 Todo：\(error.localizedDescription)", "Could not create reading todo: \(error.localizedDescription)")
@@ -7892,7 +7590,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func addRecommendationToReadingList(_ score: RecommendationScore, scope: QueueScope) {
+    func addRecommendationToReadingList(_ score: RecommendationScore, scope: RecommendationTarget) {
         addRecommendationToReadingTodo(score, scope: scope)
     }
 
@@ -7908,7 +7606,7 @@ final class AppViewModel: ObservableObject {
         recommendationReadingTodoImportScoreIDs.contains(score.id)
     }
 
-    func recordRecommendationFeedback(_ type: RecommendationFeedbackType, for score: RecommendationScore, scope: QueueScope? = nil) {
+    func recordRecommendationFeedback(_ type: RecommendationFeedbackType, for score: RecommendationScore, scope: RecommendationTarget? = nil) {
         guard let workspace = currentWorkspace else {
             return
         }
@@ -7972,7 +7670,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func isRecommendationInReadingList(_ score: RecommendationScore, scope: QueueScope) -> Bool {
+    func isRecommendationInReadingList(_ score: RecommendationScore, scope: RecommendationTarget) -> Bool {
         let keys = recommendationCandidateKeys(score.candidate)
         return todos.contains { todo in
             guard todo.kind == .reading, todoMatchesScope(todo, scope: scope) else {
@@ -7991,7 +7689,7 @@ final class AppViewModel: ObservableObject {
         existingPaper(matchingRecommendationCandidate: score.candidate) != nil
     }
 
-    private func importRecommendationCandidateToLibrary(_ candidate: RecommendationCandidate, scope: QueueScope, in workspace: ResearchWorkspace) async throws -> Paper {
+    private func importRecommendationCandidateToLibrary(_ candidate: RecommendationCandidate, scope: RecommendationTarget, in workspace: ResearchWorkspace) async throws -> Paper {
         if var existing = existingPaper(matchingRecommendationCandidate: candidate) {
             existing = applyRecommendationLibraryMetadata(to: existing, candidate: candidate, scope: scope)
             return try await paperRepository.save(existing, in: workspace)
@@ -8014,7 +7712,7 @@ final class AppViewModel: ObservableObject {
         return try await paperRepository.save(importedPaper, in: workspace)
     }
 
-    private func applyRecommendationLibraryMetadata(to paper: Paper, candidate: RecommendationCandidate, scope: QueueScope) -> Paper {
+    private func applyRecommendationLibraryMetadata(to paper: Paper, candidate: RecommendationCandidate, scope: RecommendationTarget) -> Paper {
         var updatedPaper = paper
         updatedPaper.tags = uniqueOrdered(updatedPaper.tags + [Self.arxivRecommendationTag])
         if let projectID = scope.projectID, !updatedPaper.projectIDs.contains(projectID) {
@@ -8072,7 +7770,7 @@ final class AppViewModel: ObservableObject {
         return nil
     }
 
-    private func upsertReadingTodo(for paper: Paper, score: RecommendationScore, scope: QueueScope, in workspace: ResearchWorkspace) async throws {
+    private func upsertReadingTodo(for paper: Paper, score: RecommendationScore, scope: RecommendationTarget, in workspace: ResearchWorkspace) async throws {
         let now = Date()
         let projectIDs = scope.projectID.map { [$0] } ?? []
         let loadedTodos = try await todoRepository.loadTodos(in: workspace)
@@ -8107,43 +7805,7 @@ final class AppViewModel: ObservableObject {
         try await todoRepository.upsert(todo, in: workspace)
     }
 
-    private func appendRecommendationPaperToResearchQueue(_ paper: Paper, score: RecommendationScore, scope: QueueScope) async {
-        guard let store = researchQueueStore else {
-            return
-        }
-        let now = Date()
-        let entry = ResearchQueueEntry(
-            id: "queue:\(scope.identifier):\(paper.id)",
-            paperID: paper.id,
-            externalKey: score.candidate.externalKey,
-            displayTitle: paper.displayTitle,
-            scope: scope,
-            status: .queued,
-            source: .recommendation,
-            order: 0,
-            addedAt: now,
-            startedAt: nil,
-            finishedAt: nil,
-            lastTouchedAt: now,
-            noteSummary: score.reason,
-            sourceRefs: ["recommendation:\(recommendationRunResult?.id ?? score.id)", "paper:\(paper.id)"]
-        )
-        do {
-            try await store.append(entry)
-            await refreshResearchQueueSnapshot()
-        } catch ResearchQueueStoreError.duplicateID {
-            await refreshResearchQueueSnapshot()
-        } catch {
-            recordAppDebugEvent("reading.push.error", payload: .object([
-                "phase": .string("recommendation_queue_append_failed"),
-                "paper_id": .string(paper.id),
-                "scope": .string(scope.identifier),
-                "reason": .string(error.localizedDescription)
-            ]))
-        }
-    }
-
-    private func readingTodoID(for paperID: Paper.ID, scope: QueueScope) -> String {
+    private func readingTodoID(for paperID: Paper.ID, scope: RecommendationTarget) -> String {
         "todo-reading-\(sanitizedTodoIDComponent(scope.identifier))-\(sanitizedTodoIDComponent(paperID))"
     }
 
@@ -8155,7 +7817,7 @@ final class AppViewModel: ObservableObject {
         .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    private func todoMatchesScope(_ todo: TodoItem, scope: QueueScope) -> Bool {
+    private func todoMatchesScope(_ todo: TodoItem, scope: RecommendationTarget) -> Bool {
         switch scope {
         case .workspace:
             return todo.projectIDs.isEmpty
@@ -8181,7 +7843,6 @@ final class AppViewModel: ObservableObject {
             feedback: 0.05,
             openGapCoverage: 0.10,
             authorOverlapWithCore: 0.10,
-            queuePressurePenalty: 0.80,
             duplicatePenalty: 0.90
         )
         return config
@@ -8540,22 +8201,6 @@ final class AppViewModel: ObservableObject {
         papers.filter { ids.contains($0.id) }
     }
 
-    private func recommendationQueueStatusIndex() -> [String: QueueStatus] {
-        var index: [String: QueueStatus] = [:]
-        for entry in researchQueueScopes.values.joined() {
-            for key in [entry.paperID, entry.externalKey, Optional(entry.id)].compactMap({ $0 }) {
-                let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                guard !normalized.isEmpty else {
-                    continue
-                }
-                index[normalized] = entry.status
-                index["external:\(normalized)"] = entry.status
-                index["paper:\(normalized)"] = entry.status
-            }
-        }
-        return index
-    }
-
     private func recommendationCandidateKeys(_ candidate: RecommendationCandidate) -> Set<String> {
         Set([candidate.paperID, candidate.externalKey, Optional(candidate.canonicalID)]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -8749,206 +8394,6 @@ final class AppViewModel: ObservableObject {
         return response
     }
 
-    private func setupReadingPlanIfNeeded(in workspace: ResearchWorkspace) async {
-        if readingPlanWorkspaceID == workspace.id, readingPlanStore != nil {
-            return
-        }
-
-        if let existing = readingPlanStore {
-            await existing.close()
-        }
-        readingPlanChangeWatchTask?.cancel()
-        readingPlanChangeWatchTask = nil
-        readingPlanStore = nil
-        readingPlanScopes = [:]
-
-        let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
-        let store = ReadingPlanStore(
-            workspace: workspace,
-            researchRoot: root,
-            debugLogger: appDebugEventLogger
-        )
-        do {
-            try await store.open(projectIDs: researchProjects.map(\.id))
-        } catch {
-            try? await appDebugEventLogger.append(AppDebugEvent(
-                event: "reading_plan.load.error",
-                workspaceID: workspace.rootURL.path,
-                payload: .object([
-                    "scope": .string("workspace"),
-                    "reason": .string("open_failed")
-                ])
-            ), in: root)
-            return
-        }
-
-        readingPlanStore = store
-        readingPlanWorkspaceID = workspace.id
-        await refreshReadingPlanSnapshot()
-        readingPlanChangeWatchTask = Task { [weak self] in
-            guard let stream = await self?.readingPlanStore?.subscribeChanges() else { return }
-            for await _ in stream {
-                if Task.isCancelled { break }
-                await self?.refreshReadingPlanSnapshot()
-            }
-        }
-    }
-
-    private func refreshReadingPlanSnapshot() async {
-        guard let store = readingPlanStore else {
-            readingPlanScopes = [:]
-            return
-        }
-        let snapshot = await store.snapshot()
-        readingPlanScopes = snapshot.plansByScope
-    }
-
-    func generateReadingPlan(scope: ReadingPlanScope, weekStart: Date = Date()) {
-        guard let store = readingPlanStore else {
-            return
-        }
-        let generator = ReadingPlanGenerator()
-        let queueEntries = queueEntriesForReadingPlan(scope: scope)
-        let existingPlans = readingPlans(in: scope)
-        let input = ReadingPlanGenerationInput(
-            scope: scope,
-            weekStart: generator.normalizedWeekStart(weekStart),
-            queueEntries: queueEntries,
-            existingPlans: existingPlans,
-            settings: ReadingPlanSettings(),
-            now: Date()
-        )
-        let plan = generator.generate(input: input)
-        Task {
-            do {
-                try await store.save(plan)
-                await refreshReadingPlanSnapshot()
-                showShellStatus(localized("已生成本周阅读计划草稿。", "Generated this week's reading plan draft."))
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
-    func activateReadingPlan(planID: String, scope: ReadingPlanScope) {
-        guard let store = readingPlanStore else {
-            return
-        }
-        Task {
-            do {
-                try await store.activate(planID: planID, in: scope)
-                await refreshReadingPlanSnapshot()
-                showShellStatus(localized("阅读计划已激活。", "Reading plan activated."))
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
-    func archiveReadingPlan(planID: String, scope: ReadingPlanScope) {
-        guard let store = readingPlanStore else {
-            return
-        }
-        Task {
-            do {
-                try await store.archive(planID: planID, in: scope)
-                await refreshReadingPlanSnapshot()
-                showShellStatus(localized("阅读计划已归档。", "Reading plan archived."))
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
-    func updateReadingPlanSlotStatus(planID: String, slotID: String, status: ReadingPlanSlotStatus, actualMinutes: Int? = nil) {
-        guard let store = readingPlanStore else {
-            return
-        }
-        let queueEntryID = readingPlanScopes.values
-            .joined()
-            .first { $0.id == planID }?
-            .slots
-            .first { $0.id == slotID }?
-            .queueEntryID
-        Task {
-            do {
-                try await store.updateSlotStatus(planID: planID, slotID: slotID, status: status, actualMinutes: actualMinutes)
-                if let queueEntryID {
-                    try await syncQueueEntryStatusForReadingPlanSlot(queueEntryID: queueEntryID, slotStatus: status)
-                }
-                await refreshReadingPlanSnapshot()
-            } catch {
-                self.present(error)
-            }
-        }
-    }
-
-    private func syncQueueEntryStatusForReadingPlanSlot(queueEntryID: String, slotStatus: ReadingPlanSlotStatus) async throws {
-        guard let store = researchQueueStore else {
-            return
-        }
-        switch slotStatus {
-        case .reading:
-            try await store.updateStatus(id: queueEntryID, status: .reading, at: nil)
-        case .finished:
-            try await store.updateStatus(id: queueEntryID, status: .finished, at: nil)
-        case .planned, .skipped, .carriedOver:
-            return
-        }
-    }
-
-    private func queueEntriesForReadingPlan(scope: ReadingPlanScope) -> [ResearchQueueEntry] {
-        switch scope {
-        case .workspace:
-            return researchQueueEntries(in: .workspace)
-        case .project(let projectID):
-            let projectEntries = researchQueueEntries(in: .project(projectID))
-            let projectPaperIDs = Set(papers.filter { $0.projectIDs.contains(projectID) }.map(\.id))
-            let workspaceEntries = researchQueueEntries(in: .workspace).filter { entry in
-                guard let paperID = entry.paperID else {
-                    return false
-                }
-                return projectPaperIDs.contains(paperID)
-            }
-            let merged = projectEntries + workspaceEntries
-            var seen: Set<String> = []
-            return merged.filter { seen.insert($0.id).inserted }
-        }
-    }
-
-    /// Forward the latest `papers` snapshot to the ingestor so it can run
-    /// the §4.10 `Paper.status` → queue entry transition rules. Diffing
-    /// happens inside the ingestor; we just hand it the prior snapshot.
-    private func notifyResearchQueueOfPapers(_ loadedPapers: [Paper]) {
-        guard let ingestor = researchQueueIngestor else {
-            // Cache the snapshot so the next setup pass has a baseline and
-            // does not flag the initial load as a transition burst.
-            previousPapersForQueueIngest = Dictionary(uniqueKeysWithValues: loadedPapers.map { ($0.id, $0) })
-            return
-        }
-        let previous = previousPapersForQueueIngest
-        previousPapersForQueueIngest = Dictionary(uniqueKeysWithValues: loadedPapers.map { ($0.id, $0) })
-
-        researchQueueIngestTask?.cancel()
-        researchQueueIngestTask = Task {
-            await ingestor.ingest(papers: loadedPapers, previous: previous)
-        }
-    }
-
-    /// Forward the latest `agentRunHistory` snapshot to the ingestor. The
-    /// ingestor itself de-duplicates by `(runID, callID)` via a persistent
-    /// cursor so calling this on every refresh is safe.
-    private func notifyResearchQueueOfAgentRuns(_ runs: [AgentRun]) {
-        guard let ingestor = researchQueueIngestor else {
-            return
-        }
-        let snapshot = runs
-        researchQueueAgentRunIngestTask?.cancel()
-        researchQueueAgentRunIngestTask = Task {
-            await ingestor.ingest(runs: snapshot)
-        }
-    }
-
     private func refreshAgentState(in workspace: ResearchWorkspace) async {
         do {
             let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
@@ -8962,7 +8407,6 @@ final class AppViewModel: ObservableObject {
             )
             agentToolDefinitions = await agentService.toolDefinitions()
             agentRunHistory = try await agentService.recentRuns(in: root, limit: 1000)
-            notifyResearchQueueOfAgentRuns(agentRunHistory)
             allAgentThreads = try await agentService.allThreads(in: root)
             applyAgentThreadFilterForCurrentScope()
             restorePersistedAgentDraft(projectID: agentConversationProjectID, threadID: activeAgentThreadID)
@@ -9944,10 +9388,6 @@ final class AppViewModel: ObservableObject {
                 ])
             case "library.import.attachFixturePDF":
                 result = try await importFixturePDFForUITestBridge(args: command.args)
-            case "queue.append":
-                result = try await appendQueueEntryForUITestBridge(args: command.args)
-            case "queue.reorder":
-                result = try await reorderQueueForUITestBridge(args: command.args)
             case "wiki.page.create":
                 result = try await createWikiPageForUITestBridge(args: command.args)
             case "wiki.page.rename_selected":
@@ -10010,24 +9450,12 @@ final class AppViewModel: ObservableObject {
     private func importFixturePDFForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
         let sourceURL = try fixturePDFURLForUITestBridge(args: args)
         let collectionPath = bridgeOptionalString(args, keys: ["collection_path", "collection"]) ?? selectedCollectionPath ?? workspacePreferences.defaultCollectionPath ?? "Uncategorized"
-        let shouldAppendQueue = bridgeBool(args, key: "append_queue", defaultValue: true)
         let importedPaper = try await importPDFForUITestBridge(from: sourceURL, collectionPath: collectionPath)
-        var fields: [String: JSONValue] = [
+        let fields: [String: JSONValue] = [
             "paper_id": .string(importedPaper.id),
             "title": .string(importedPaper.displayTitle),
             "pdf_path": .string(sourceURL.path)
         ]
-        if shouldAppendQueue {
-            let appended = try await appendQueueEntryForUITestBridge(
-                paperID: importedPaper.id,
-                externalKey: nil,
-                displayTitle: importedPaper.displayTitle,
-                scope: .workspace,
-                source: .manual
-            )
-            fields["queue_entry_id"] = .string(appended.id)
-            fields["queue_duplicate"] = .bool(appended.duplicate)
-        }
         return UITestBridgeCommandResult(fields: fields)
     }
 
@@ -10058,89 +9486,6 @@ final class AppViewModel: ObservableObject {
         persistWorkspaceRoute(WorkspaceRoute(top: .library))
         startMarkdownConversion(for: [importedPaper], in: currentWorkspace, statusSurface: .workspace)
         return importedPaper
-    }
-
-    private func appendQueueEntryForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
-        let paperID = bridgeOptionalString(args, keys: ["paper_id", "paperID"])
-        let externalKey = bridgeOptionalString(args, keys: ["external_key", "externalKey"])
-        guard paperID != nil || externalKey != nil else {
-            throw UITestBridgeCommandError.missingArgument("paper_id or external_key")
-        }
-        let title = bridgeOptionalString(args, keys: ["display_title", "title"])
-            ?? paperID.flatMap { id in papers.first(where: { $0.id == id })?.displayTitle }
-            ?? externalKey
-            ?? "Untitled queue entry"
-        let scope = QueueScope(identifier: bridgeOptionalString(args, keys: ["scope"]) ?? "workspace") ?? .workspace
-        let source = QueueSource(rawValue: bridgeOptionalString(args, keys: ["source"]) ?? QueueSource.manual.rawValue) ?? .manual
-        let appended = try await appendQueueEntryForUITestBridge(
-            paperID: paperID,
-            externalKey: externalKey,
-            displayTitle: title,
-            scope: scope,
-            source: source
-        )
-        return UITestBridgeCommandResult(fields: [
-            "entry_id": .string(appended.id),
-            "duplicate": .bool(appended.duplicate),
-            "scope": .string(scope.identifier)
-        ])
-    }
-
-    private func appendQueueEntryForUITestBridge(
-        paperID: String?,
-        externalKey: String?,
-        displayTitle: String,
-        scope: QueueScope,
-        source: QueueSource
-    ) async throws -> (id: String, duplicate: Bool) {
-        guard let store = researchQueueStore else {
-            throw UITestBridgeCommandError.missingWorkspace
-        }
-        let stableKey = paperID ?? externalKey ?? UUID().uuidString.lowercased()
-        let entryID = "queue:\(scope.identifier):\(stableKey)"
-        let now = Date()
-        let entry = ResearchQueueEntry(
-            id: entryID,
-            paperID: paperID,
-            externalKey: externalKey,
-            displayTitle: displayTitle,
-            scope: scope,
-            status: .queued,
-            source: source,
-            order: 0,
-            addedAt: now,
-            lastTouchedAt: now,
-            sourceRefs: ["uitest.bridge"]
-        )
-        do {
-            try await store.append(entry)
-            await refreshResearchQueueSnapshot()
-            return (entryID, false)
-        } catch ResearchQueueStoreError.duplicateID {
-            await refreshResearchQueueSnapshot()
-            return (entryID, true)
-        }
-    }
-
-    private func reorderQueueForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
-        guard let store = researchQueueStore else {
-            throw UITestBridgeCommandError.missingWorkspace
-        }
-        let scope = QueueScope(identifier: bridgeOptionalString(args, keys: ["scope"]) ?? QueueScope.workspace.identifier) ?? .workspace
-        let orderedIDs = bridgeStringArray(args, key: "ordered_ids")
-        let orderedExternalKeys = bridgeStringArray(args, key: "ordered_external_keys")
-        let resolvedIDs = orderedIDs.isEmpty
-            ? orderedExternalKeys.map { "queue:\(scope.identifier):\($0)" }
-            : orderedIDs
-        guard !resolvedIDs.isEmpty else {
-            throw UITestBridgeCommandError.missingArgument("ordered_ids or ordered_external_keys")
-        }
-        try await store.reorder(scope: scope, orderedIDs: resolvedIDs)
-        await refreshResearchQueueSnapshot()
-        return UITestBridgeCommandResult(fields: [
-            "scope": .string(scope.identifier),
-            "count": .number(String(resolvedIDs.count))
-        ])
     }
 
     private func createWikiPageForUITestBridge(args: [String: JSONValue]) async throws -> UITestBridgeCommandResult {
@@ -10334,16 +9679,5 @@ private extension String {
     var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private extension QueueScope {
-    var projectIDForRecommendationFeedback: String? {
-        switch self {
-        case .workspace:
-            return nil
-        case .project(let projectID):
-            return projectID
-        }
     }
 }

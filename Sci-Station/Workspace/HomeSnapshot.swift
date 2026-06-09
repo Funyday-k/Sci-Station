@@ -65,24 +65,17 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
     public var readingQueue: [PaperSummary]
     public var upcomingDeadlines: [DeadlineSummary]
     public var pendingDrafts: [DraftSummary]
-    /// P48 真实 queue 投影。非空时 UI 优先渲染此列；为空时回退到 `readingQueue`。
-    public var readingQueueEntries: [ReadingQueueEntrySummary]
-    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         dueTodos: [TodoSummary] = [],
         readingQueue: [PaperSummary] = [],
         upcomingDeadlines: [DeadlineSummary] = [],
-        pendingDrafts: [DraftSummary] = [],
-        readingQueueEntries: [ReadingQueueEntrySummary] = [],
-        activeReadingPlan: ReadingPlanSummary? = nil
+        pendingDrafts: [DraftSummary] = []
     ) {
         self.dueTodos = dueTodos
         self.readingQueue = readingQueue
         self.upcomingDeadlines = upcomingDeadlines
         self.pendingDrafts = pendingDrafts
-        self.readingQueueEntries = readingQueueEntries
-        self.activeReadingPlan = activeReadingPlan
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -90,8 +83,6 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
         case readingQueue
         case upcomingDeadlines
         case pendingDrafts
-        case readingQueueEntries
-        case activeReadingPlan
     }
 
     public init(from decoder: Decoder) throws {
@@ -100,8 +91,6 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
         self.readingQueue = try container.decodeIfPresent([PaperSummary].self, forKey: .readingQueue) ?? []
         self.upcomingDeadlines = try container.decodeIfPresent([DeadlineSummary].self, forKey: .upcomingDeadlines) ?? []
         self.pendingDrafts = try container.decodeIfPresent([DraftSummary].self, forKey: .pendingDrafts) ?? []
-        self.readingQueueEntries = try container.decodeIfPresent([ReadingQueueEntrySummary].self, forKey: .readingQueueEntries) ?? []
-        self.activeReadingPlan = try container.decodeIfPresent(ReadingPlanSummary.self, forKey: .activeReadingPlan)
     }
 }
 
@@ -394,10 +383,6 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
     public var openTodoCount: Int
     public var builtAt: Date
     public var generationDuration: TimeInterval
-    /// P48 — Top 3 active queue entries scoped to this project (project queue
-    /// plus the workspace-queue rows whose paper is linked to the project).
-    public var readingQueuePreview: [ReadingQueueEntrySummary]
-    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         projectID: String,
@@ -411,9 +396,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         currentReadingPlan: String?,
         openTodoCount: Int,
         builtAt: Date,
-        generationDuration: TimeInterval,
-        readingQueuePreview: [ReadingQueueEntrySummary] = [],
-        activeReadingPlan: ReadingPlanSummary? = nil
+        generationDuration: TimeInterval
     ) {
         self.projectID = projectID
         self.projectTitle = projectTitle
@@ -427,8 +410,6 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.openTodoCount = openTodoCount
         self.builtAt = builtAt
         self.generationDuration = generationDuration
-        self.readingQueuePreview = readingQueuePreview
-        self.activeReadingPlan = activeReadingPlan
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -444,8 +425,6 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         case openTodoCount
         case builtAt
         case generationDuration
-        case readingQueuePreview
-        case activeReadingPlan
     }
 
     public init(from decoder: Decoder) throws {
@@ -462,8 +441,6 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.openTodoCount = try container.decodeIfPresent(Int.self, forKey: .openTodoCount) ?? 0
         self.builtAt = try container.decode(Date.self, forKey: .builtAt)
         self.generationDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .generationDuration) ?? 0
-        self.readingQueuePreview = try container.decodeIfPresent([ReadingQueueEntrySummary].self, forKey: .readingQueuePreview) ?? []
-        self.activeReadingPlan = try container.decodeIfPresent(ReadingPlanSummary.self, forKey: .activeReadingPlan)
     }
 
     public var debugPayload: JSONValue {
@@ -471,9 +448,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
             "project_id": .string(projectID),
             "duration_ms": .number(String(Int((generationDuration * 1000).rounded()))),
             "stage": .string(stage.rawValue),
-            "recent_artifacts_count": .number(String(recentArtifacts.count)),
-            "reading_queue_preview_count": .number(String(readingQueuePreview.count)),
-            "active_reading_plan_present": .bool(activeReadingPlan != nil)
+            "recent_artifacts_count": .number(String(recentArtifacts.count))
         ])
     }
 }

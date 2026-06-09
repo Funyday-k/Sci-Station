@@ -25,20 +25,19 @@ def test_loads_canonical_json_scenario_round_trip() -> None:
     scenario = load_scenario(SCENARIO_DIR / "MT02-01_import_pdf.json")
     assert scenario.id == "MT02-01"
     assert "library" in scenario.tags
-    assert len(scenario.steps) == 3
+    assert len(scenario.steps) == 2
     assert scenario.steps[0].kind == "click"
     assert scenario.steps[0].target == "sidebar.tab.library"
-    # Assertions cover all three channels we ship with this slice.
     channels = {assertion.channel for assertion in scenario.assertions}
-    assert {"event", "file"}.issubset(channels)
+    assert {"file"}.issubset(channels)
 
 
 def test_loads_yaml_scenario_when_pyyaml_present() -> None:
     pytest.importorskip("yaml")
     scenario = load_scenario(SCENARIO_DIR / "MT02-01_import_pdf.yaml")
     assert scenario.id == "MT02-01"
-    assert scenario.steps[-1].kind == "wait_for_event"
-    assert scenario.steps[-1].event == "queue.append"
+    assert scenario.steps[-1].kind == "test_bridge"
+    assert scenario.steps[-1].command == "library.import.attachFixturePDF"
 
 
 def test_smoke_yaml_scenario_library_loads_and_covers_drag() -> None:
@@ -46,10 +45,10 @@ def test_smoke_yaml_scenario_library_loads_and_covers_drag() -> None:
     scenario_paths = sorted(SCENARIO_DIR.glob("*.yaml"))
     scenarios = [load_scenario(path) for path in scenario_paths]
 
-    assert len(scenarios) >= 5
+    assert len(scenarios) >= 4
     ids = [scenario.id for scenario in scenarios]
     assert len(ids) == len(set(ids))
-    assert {"MT02-01", "MT18-P43.9-03", "MT19-P48-06", "MT03-01", "MT07-03"}.issubset(ids)
+    assert {"MT02-01", "MT18-P43.9-03", "MT03-01", "MT07-03"}.issubset(ids)
     assert any(step.kind == "drag" for scenario in scenarios for step in scenario.steps)
     supported_steps = {"click", "type", "drag", "wait_for_event", "sleep", "test_bridge"}
     assert {
