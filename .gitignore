@@ -112,3 +112,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# User feedback inbox (not for main branch)
+docs/user-feedback/
