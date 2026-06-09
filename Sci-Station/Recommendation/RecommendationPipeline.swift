@@ -28,7 +28,6 @@ public actor RecommendationPipeline {
     public func run(
         workspace: ResearchWorkspace,
         papers: [Paper],
-        queueEntries: [ResearchQueueEntry] = [],
         dailyFeedCandidates: [RecommendationCandidate] = [],
         graph: GraphReadModel? = nil,
         context: RecommendationContext,
@@ -51,7 +50,6 @@ public actor RecommendationPipeline {
         resolvedContext.evaluatedAt = context.evaluatedAt
         let gatheredCandidates = await gatherer.gather(
             papers: papers,
-            queueEntries: queueEntries,
             dailyFeedCandidates: dailyFeedCandidates,
             graph: graph,
             context: resolvedContext,
@@ -71,17 +69,12 @@ public actor RecommendationPipeline {
                 paper.doi.map { "doi:\($0.lowercased())" }
             ].compactMap { $0 }
         }))
-        resolvedContext.duplicateCandidateKeys.formUnion(Set(queueEntries.flatMap { entry in
-            [entry.paperID, entry.externalKey, Optional(entry.id)]
-                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        }))
         resolvedContext.duplicateCandidateKeys.formUnion(Set(history.flatMap { result in
             result.scores.flatMap { RecommendationFeedbackStore.candidateKeys($0.candidate) }
         }))
         if resolvedContext.noveltyReferenceTexts.isEmpty {
             resolvedContext.noveltyReferenceTexts = Self.noveltyReferenceTexts(
                 papers: papers,
-                queueEntries: queueEntries,
                 history: history
             )
         }
@@ -125,16 +118,16 @@ public actor RecommendationPipeline {
 
     public nonisolated static func recommendationNotePayload(
         for result: RecommendationRunResult,
-        queueScope: QueueScope
+        target: RecommendationTarget
     ) -> JSONValue {
         .object([
             "schema_version": .number("1"),
             "kind": .string("recommendation_note"),
             "artifact_kind": .string("recommendation_note"),
-            "queue_scope": .string(queueScope.identifier),
+            "scope": .string(target.identifier),
             "snapshot_id": .string(result.id),
             "trigger": .string(result.trigger.rawValue),
-            "queue_candidates": .array(result.scores.map { score in
+            "candidates": .array(result.scores.map { score in
                 var object: [String: JSONValue] = [
                     "canonical_id": .string(score.id),
                     "display_title": .string(score.candidate.displayTitle),
@@ -232,15 +225,13 @@ public actor RecommendationPipeline {
 
     private nonisolated static func noveltyReferenceTexts(
         papers: [Paper],
-        queueEntries: [ResearchQueueEntry],
         history: [RecommendationRunResult]
     ) -> [String] {
         let paperTexts = papers.map(RecommendationScorer.paperText(_:))
-        let queueTexts = queueEntries.map(\.displayTitle)
         let historyTexts = history.flatMap { result in
             result.scores.map { RecommendationScorer.candidateText($0.candidate) }
         }
-        return (paperTexts + queueTexts + historyTexts)
+        return (paperTexts + historyTexts)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }

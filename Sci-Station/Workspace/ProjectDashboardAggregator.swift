@@ -8,12 +8,6 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
     public var markdownDocuments: [MarkdownDocument]
     public var agentRuns: [AgentRun]
     public var unsupportedClaims: [ClaimSummary]
-    /// P48 — Queue entries the AppViewModel exposes for the workspace plus all
-    /// active projects. The snapshot builder filters down to the project of
-    /// interest before rendering. Default empty for callers that have not yet
-    /// wired the queue store.
-    public var queueEntries: [ResearchQueueEntry]
-    public var activeReadingPlan: ReadingPlanSummary?
 
     public init(
         workspaceID: String,
@@ -22,9 +16,7 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
         todos: [TodoItem] = [],
         markdownDocuments: [MarkdownDocument] = [],
         agentRuns: [AgentRun] = [],
-        unsupportedClaims: [ClaimSummary] = [],
-        queueEntries: [ResearchQueueEntry] = [],
-        activeReadingPlan: ReadingPlanSummary? = nil
+        unsupportedClaims: [ClaimSummary] = []
     ) {
         self.workspaceID = workspaceID
         self.project = project
@@ -33,8 +25,6 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
         self.markdownDocuments = markdownDocuments
         self.agentRuns = agentRuns
         self.unsupportedClaims = unsupportedClaims
-        self.queueEntries = queueEntries
-        self.activeReadingPlan = activeReadingPlan
     }
 
     public var signature: Int {
@@ -84,15 +74,6 @@ public nonisolated struct ProjectDashboardAggregationInput: Sendable {
             }
         }
         hasher.combine(unsupportedClaims)
-        for entry in queueEntries.sorted(by: { $0.id < $1.id }) {
-            hasher.combine(entry.id)
-            hasher.combine(entry.status.rawValue)
-            hasher.combine(entry.source.rawValue)
-            hasher.combine(entry.order)
-            hasher.combine(entry.lastTouchedAt)
-            hasher.combine(entry.scope.identifier)
-        }
-        hasher.combine(activeReadingPlan)
         return hasher.finalize()
     }
 }
@@ -178,7 +159,12 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             .prefix(6)
             .map(PaperSummary.init(paper:))
         let projectTodos = input.todos.filter { $0.projectIDs.contains(project.id) }
-        let openTodoCount = projectTodos.filter { $0.status != .done && $0.status != .cancelled }.count
+        let openProjectTodos = projectTodos.filter { $0.status != .done && $0.status != .cancelled }
+        let openTodoCount = openProjectTodos.count
+        let openTodos = openProjectTodos
+            .sorted(by: TodoQueries.dueThenPriority)
+            .prefix(5)
+            .map(TodoSummary.init(todo:))
         let gaps = homeBuilder.gapSummaries(for: project.id, documents: input.markdownDocuments)
         let artifacts = homeBuilder.artifactSummaries(from: input.agentRuns)
             .filter { $0.projectID == project.id }
@@ -196,13 +182,6 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             now: now
         )
 
-        let projectPaperIDs = Set(projectPapers.map(\.id))
-        let readingQueuePreview = readingQueuePreview(
-            from: input.queueEntries,
-            projectID: project.id,
-            projectPaperIDs: projectPaperIDs
-        )
-
         return ProjectDashboardSnapshot(
             projectID: project.id,
             projectTitle: project.name,
@@ -214,43 +193,10 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             nextDeadline: homeBuilder.nextDeadline(from: projectTodos, after: now),
             currentReadingPlan: nil,
             openTodoCount: openTodoCount,
+            openTodos: Array(openTodos),
             builtAt: now,
-            generationDuration: Date().timeIntervalSince(start),
-            readingQueuePreview: readingQueuePreview,
-            activeReadingPlan: input.activeReadingPlan
+            generationDuration: Date().timeIntervalSince(start)
         )
-    }
-
-    private func readingQueuePreview(
-        from entries: [ResearchQueueEntry],
-        projectID: String,
-        projectPaperIDs: Set<String>
-    ) -> [ReadingQueueEntrySummary] {
-        let projectScope = QueueScope.project(projectID).identifier
-        let candidates = entries.filter { entry in
-            guard entry.status == .queued || entry.status == .reading else {
-                return false
-            }
-            if entry.scope.identifier == projectScope {
-                return true
-            }
-            // Surface workspace-queue rows whose paper is linked to the
-            // project so the project dashboard does not appear empty just
-            // because the user added the paper at the workspace level.
-            if entry.scope == .workspace, let paperID = entry.paperID {
-                return projectPaperIDs.contains(paperID)
-            }
-            return false
-        }
-        return candidates
-            .sorted { lhs, rhs in
-                if lhs.lastTouchedAt != rhs.lastTouchedAt {
-                    return lhs.lastTouchedAt > rhs.lastTouchedAt
-                }
-                return lhs.order < rhs.order
-            }
-            .prefix(3)
-            .map(ReadingQueueEntrySummary.init(entry:))
     }
 
     private func prioritySortValue(_ priority: Priority) -> Int {

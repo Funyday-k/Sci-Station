@@ -5,7 +5,6 @@ public actor RecommendationCandidateGatherer {
 
     public func gather(
         papers: [Paper],
-        queueEntries: [ResearchQueueEntry] = [],
         dailyFeedCandidates: [RecommendationCandidate] = [],
         graph: GraphReadModel? = nil,
         context: RecommendationContext,
@@ -14,9 +13,6 @@ public actor RecommendationCandidateGatherer {
         var candidatesByID: [String: RecommendationCandidate] = [:]
 
         for candidate in gatherLibraryRecent(papers: papers, context: context, config: config) {
-            merge(candidate, into: &candidatesByID)
-        }
-        for candidate in gatherQueueTail(entries: queueEntries) {
             merge(candidate, into: &candidatesByID)
         }
         for candidate in dailyFeedCandidates.prefix(config.maxDailyCandidates) {
@@ -62,26 +58,6 @@ public actor RecommendationCandidateGatherer {
                 candidate.sourceTags.insert(.libraryRecent)
                 candidate.addedToLibraryAt = paper.createdAt
                 return candidate
-            }
-    }
-
-    public func gatherQueueTail(entries: [ResearchQueueEntry]) -> [RecommendationCandidate] {
-        entries
-            .filter { $0.status == .queued || $0.status == .deferred }
-            .sorted { lhs, rhs in
-                if lhs.lastTouchedAt != rhs.lastTouchedAt {
-                    return lhs.lastTouchedAt < rhs.lastTouchedAt
-                }
-                return lhs.order < rhs.order
-            }
-            .map { entry in
-                RecommendationCandidate(
-                    canonicalID: Self.canonicalID(paperID: entry.paperID, externalKey: entry.externalKey, fallback: entry.id),
-                    paperID: entry.paperID,
-                    externalKey: entry.externalKey,
-                    displayTitle: entry.displayTitle,
-                    sourceTags: [.queueTail]
-                )
             }
     }
 

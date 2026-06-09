@@ -1,8 +1,8 @@
 # `sci_station_agent.uitest`
 
-Python 编排器，驱动 Sci-Station App 跑 manual-test 用例并比对 3 条独立断言通道（事件 / 文件 / 视觉）。
+Python 编排器，驱动 Sci-Station App 跑 UI smoke 场景并比对 3 条独立断言通道（事件 / 文件 / 视觉）。
 
-完整设计见 `docs/development/Proposal-AT.md`。该 README 只负责让一个新加入的人在 5 分钟内把测试跑起来。
+测试策略见 `docs/development/testing/UIAutomation.md`。该 README 只负责让一个新加入的人在 5 分钟内把测试跑起来。
 
 ## 安装
 
@@ -20,21 +20,19 @@ cd AgentRuntime
 ../.venv/bin/python -m pytest tests/uitest/ -q
 ```
 
-应该看到 `22 passed` (启用 PyYAML 的情况下)。
+测试应全部通过；如果数量变化，以 pytest 输出为准。
 
 ## 写一个新场景
 
-1. 在 `sci_station_agent/uitest/scenarios/MT-xx-YY_<slug>.yaml` 新建文件，
-   schema 见 `docs/development/Proposal-AT.md` §5。
+1. 在 `sci_station_agent/uitest/scenarios/<scenario-id>_<slug>.yaml` 新建文件，
+   场景要求见 `docs/development/testing/UIAutomation.md`。
 2. 用到的 accessibility identifier 必须先在
    `Sci-Station/Testing/UITestAccessibilityID.swift` 登记。
 3. 期待的事件必须先在
    `Sci-Station/Agent/AppDebugEventName.swift` 登记，并在
    `Tools/SciStationCoreTestRunner/main.swift::emittedEventAllowList`
    追加 raw value。
-4. 在 `tests/uitest/test_runner_smoke.py` 旁边复制一份 `_seed_workspace`
-   工具方法，准备一个最小复现 workspace 让 NullDriver 跑通；
-   实驱动落地（P-AT.3）后这一步可以删掉。
+4. 准备一个最小复现 workspace，让 NullDriver 或真实 driver 都能跑通。
 
 ## 模块约定
 
@@ -43,12 +41,12 @@ scenario.py    Scenario / Step / Assertion 数据类 + JSON/YAML loader
 events.py      EventLogProbe (read app_events.jsonl)
 files.py       FileProbe (read workspace yaml/jsonl/md, 子集匹配)
 runner.py      ScenarioRunner: 驱动 step + 串联 probe + 出 result
-report.py      渲染 markdown 报告（docs/development/manual-tests/runs/...md）
-drivers/       UIDriver 协议 + NullDriver；P-AT.3 加 Accessibility/XCUITest
-scenarios/     YAML / JSON 场景库（与 docs/development/manual-tests/MT-*.md 一对一）
+report.py      渲染 markdown 报告（docs/development/testing/runs/...md）
+drivers/       UIDriver 协议 + NullDriver + Accessibility/XCUITest 适配
+scenarios/     YAML / JSON 场景库
 ```
 
-## 使用真驱动 (P-AT.3a)
+## 使用真驱动
 
 1. 构建 AX 探针：
 
@@ -64,7 +62,7 @@ scenarios/     YAML / JSON 场景库（与 docs/development/manual-tests/MT-*.md
    # → System Settings → Privacy & Security → Accessibility 勾选
    ```
 
-3. 启动 App 时打开 Debug-only Test Bridge（P-AT.1e），并在场景里换驱动：
+3. 启动 App 时打开 Debug-only Test Bridge，并在场景里换驱动：
 
    ```python
    from sci_station_agent.uitest import (
@@ -95,11 +93,7 @@ scenarios/     YAML / JSON 场景库（与 docs/development/manual-tests/MT-*.md
 ## 当前限制
 
 ```text
-- drag 暂未实现（CGEvent 链路留 P-AT.3b）；
-  AccessibilityDriver.drag() 抛 DriverError。
-- send_test_bridge 需要传入 TestBridgeClient；
-  当前实现支持 UnixSocketTestBridgeClient。
-- 视觉通道：visual assertion 恒 fail；
-  SwiftUI runtime warning 已通过 file 通道断言（参考
-  MT02-01 第 3 条 assertion）。完整 baseline diff 等 P-AT.4。
+- 需要 click/type/drag 的真实场景依赖 macOS Accessibility trust。
+- send_test_bridge 需要传入 TestBridgeClient；当前实现支持 UnixSocketTestBridgeClient。
+- 视觉通道应作为 smoke 辅助信号，不应替代事件和文件断言。
 ```

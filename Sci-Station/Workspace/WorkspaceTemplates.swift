@@ -706,17 +706,10 @@ public nonisolated enum WorkspaceModuleRegistry {
         // P47 — graph-powered drafting workflows.
         "graph_insight": ["citation-graph", "ai-lab"],
         "graph_insight_draft": ["citation-graph", "ai-lab"],
-        // P47 calls out that research_queue_update needs both recommendation
-        // and citation-graph because the queue is derived from graph metrics.
-        "research_queue_update": ["recommendation"],
         "outline_to_manuscript": ["writing", "ai-lab"],
         "claim_citation_check": ["writing", "paper-library", "ai-lab"],
         "definition_extraction": ["theory-notes", "paper-library"],
-        "theorem_dependency_map": ["theory-notes", "wiki"],
-        // P48 — manual queue curation workflow lives entirely under paper-library.
-        // AI-driven queue ingest still runs through `research_queue_update` above.
-        "reading_queue_curate": ["paper-library"],
-        "weekly_reading_plan": ["paper-library"]
+        "theorem_dependency_map": ["theory-notes", "wiki"]
     ]
 
     public static let builtInModules: [WorkspaceModule] = [
@@ -737,10 +730,10 @@ public nonisolated enum WorkspaceModuleRegistry {
             directories: [directory("library/papers", required: true), directory("library/refs", required: true)],
             routes: [route("library", "/library")],
             projectTabs: [tab("papers", "Papers")],
-            workflows: ["paper_reading", "related_work", "reading_queue_curate", "weekly_reading_plan"],
-            artifactKinds: ["paper_reading_note", "related_work", "reading_queue_entry", "weekly_review"],
+            workflows: ["paper_reading", "related_work"],
+            artifactKinds: ["paper_reading_note", "related_work"],
             approvalScopes: ["artifact_save", "wiki_write"],
-            writePaths: ["library/papers/", "library/refs/", "library/queue.yaml", "projects/*/queue.yaml", ".sci-station/reading-plans/", "projects/*/reading-plans/"]
+            writePaths: ["library/papers/", "library/refs/"]
         ),
         module(
             id: "wiki",
@@ -885,8 +878,8 @@ public nonisolated enum WorkspaceModuleRegistry {
             directories: [directory(".sci-station/recommendations")],
             routes: [route("recommendation", "/recommendations")],
             projectTabs: [tab("recommendations", "论文推荐")],
-            workflows: ["research_queue_update"],
-            artifactKinds: ["recommendation_note", "weekly_review"],
+            workflows: [],
+            artifactKinds: ["recommendation_note"],
             approvalScopes: ["artifact_save", "todo_create"],
             writePaths: [".sci-station/recommendations/", "tasks/"]
         ),

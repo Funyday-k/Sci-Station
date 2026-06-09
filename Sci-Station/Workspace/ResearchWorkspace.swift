@@ -81,6 +81,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
             contents: "todos: []\n"
         ),
         SeededFile(
+            relativePath: "tasks/todo_tags.yaml",
+            contents: "tags: []\n"
+        ),
+        SeededFile(
             relativePath: "tasks/calendar.yaml",
             contents: "events: []\n"
         ),
@@ -184,6 +188,10 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
 
     public nonisolated var tagsDefinitionURL: URL {
         fileURL(for: "refs/tags.yaml")
+    }
+
+    public nonisolated var todoTagsDefinitionURL: URL {
+        fileURL(for: "tasks/todo_tags.yaml")
     }
 
     public nonisolated var workspacePreferencesURL: URL {

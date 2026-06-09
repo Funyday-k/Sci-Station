@@ -648,7 +648,7 @@ private struct PDFReaderMetadataPanel: View {
     private var aiPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             GlobalAIContextActionBar(context: appModel.currentWorkspaceContextSnapshot)
-            AgentPanelView(workspace: workspace)
+            AgentPanelView(agentStreamStore: appModel.agentStreamStore, workspace: workspace)
                 .frame(minHeight: 520)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1049,7 +1049,10 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
                 loadedPaperID = paperID
                 renderedAnnotationSignature = []
                 pdfView.document = try? documentService.loadDocument(from: pdfURL)
-                viewModel.totalPages = pdfView.document?.pageCount ?? 0
+                let loadedPageCount = pdfView.document?.pageCount ?? 0
+                DispatchQueue.main.async { [weak self] in
+                    self?.viewModel.totalPages = loadedPageCount
+                }
 
                 if let initialPage = viewModel.initialPage,
                    let targetPage = pdfView.document?.page(at: max(initialPage - 1, 0)) {
@@ -1420,16 +1423,23 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
         private func updatePageState(on pdfView: PDFView, notify: Bool) {
             guard let currentPage = pdfView.currentPage,
                   let document = pdfView.document else {
-                viewModel.currentPage = 1
-                viewModel.pageInput = "1"
-                viewModel.totalPages = 0
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.viewModel.currentPage = 1
+                    self.viewModel.pageInput = "1"
+                    self.viewModel.totalPages = 0
+                }
                 return
             }
 
             let pageIndex = document.index(for: currentPage) + 1
-            viewModel.currentPage = pageIndex
-            viewModel.pageInput = String(pageIndex)
-            viewModel.totalPages = document.pageCount
+            let pageCount = document.pageCount
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.viewModel.currentPage = pageIndex
+                self.viewModel.pageInput = String(pageIndex)
+                self.viewModel.totalPages = pageCount
+            }
 
             if notify {
                 onReadingStateChanged(pageIndex, pdfView.scaleFactor.isFinite ? pdfView.scaleFactor : nil)

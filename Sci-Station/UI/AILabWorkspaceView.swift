@@ -26,7 +26,7 @@ struct AILabWorkspaceView: View {
 
                 Divider()
 
-                AgentPanelView(workspace: workspace)
+                AgentPanelView(agentStreamStore: appModel.agentStreamStore, workspace: workspace)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -107,12 +107,10 @@ private struct AILabCompactHeaderView: View {
             .frame(width: 150)
             .help(Text(verbatim: appModel.agentModeStatusText))
 
-            Text(appModel.agentVisibleMode.permissionBadgeText)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(appModel.agentVisibleMode == .agent ? Color.orange : Color.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.08), in: Capsule())
+            SciBadge(
+                appModel.agentVisibleMode.permissionBadgeText,
+                color: appModel.agentVisibleMode == .agent ? SciStationDesign.Semantic.warning : .secondary
+            )
 
             Button {
                 appModel.showAgentKnowledgeLibrary()
@@ -553,6 +551,7 @@ private struct AgentComposerTextView: NSViewRepresentable {
 
 struct AgentPanelView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @ObservedObject var agentStreamStore: AgentStreamStore
 
     let workspace: ResearchWorkspace
     var isCompact = false
@@ -585,7 +584,7 @@ struct AgentPanelView: View {
                         canLoadEarlierEvents: appModel.canLoadEarlierAgentTimelineEvents,
                         loadEarlierAction: appModel.loadEarlierAgentTimelineEvents,
                         pendingPrompt: appModel.agentPendingUserPrompt,
-                        streamingResponse: appModel.agentStreamingResponseText,
+                        streamingResponse: agentStreamStore.streamingResponseText,
                         isThinking: appModel.isPlanningAgentRun,
                         thinkingModeTitle: appModel.agentVisibleMode.title,
                         isCompact: isCompact
@@ -1598,6 +1597,7 @@ private struct AgentReasoningGroupRow: View {
         }
         .padding(9)
         .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 460, alignment: .leading)
     }
 }
 
@@ -1626,9 +1626,6 @@ private struct AgentToolCallCompactRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
-            Text(metadata)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 1)
         .accessibilityElement(children: .combine)

@@ -847,8 +847,7 @@ struct ProjectOverviewView: View {
                 todos: appModel.todos,
                 markdownDocuments: appModel.markdownDocuments,
                 agentRuns: agentRunsForAggregation,
-                unsupportedClaims: unsupportedClaimsForAggregation,
-                queueEntries: Array(appModel.researchQueueScopes.values.joined())
+                unsupportedClaims: unsupportedClaimsForAggregation
             )
             dashboardSnapshot = try await dashboardAggregator.snapshot(input: input)
             dashboardErrorMessage = nil

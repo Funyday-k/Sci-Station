@@ -1,6 +1,6 @@
 # Sci-Station
 
-> Current version: Beta 0.1.0
+> Current version: Beta 0.2.0
 > Platform: macOS
 > Status: in development. Test builds will be published through Releases.
 
@@ -31,9 +31,9 @@ Core principles:
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
 - Beta DMG packaging for tester handoff.
 
-## Beta 0.1.0 Status
+## Beta 0.2.0 Status
 
-- The current version is **Beta 0.1.0**.
+- The current version is **Beta 0.2.0**.
 - Test builds will be published through Releases, like a normal macOS app download.
 - The project is still in development, and features, UI, and documentation will continue to change.
 
@@ -72,4 +72,4 @@ In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command 
 - [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
 - [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
 - [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
-- [development/](development/): development proposals, task books, and manual testing notes.
+- [development/](development/): architecture, module, proposal, testing, versioning, and release-process documentation.

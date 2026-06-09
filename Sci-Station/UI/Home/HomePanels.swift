@@ -39,31 +39,17 @@ struct TodayPanelView: View {
                 }
 
                 HomeSignalCard(
-                    title: appModel.localized("阅读 Todo", "Reading Todo"),
+                    title: appModel.localized("阅读", "Reading"),
                     systemImage: "book",
-                    count: data.readingQueueEntries.isEmpty ? data.readingQueue.count : data.readingQueueEntries.count
+                    count: data.readingQueue.count
                 ) {
                     if !snapshot.moduleAvailability.libraryEnabled {
                         ModuleDisabledView(message: appModel.localized("Library 模块已关闭。", "Library module is disabled.")) {
                             appModel.openSettings(category: .modules)
                         }
-                    } else if !data.readingQueueEntries.isEmpty {
-                        VStack(spacing: 7) {
-                            ForEach(data.readingQueueEntries.prefix(5)) { entry in
-                                HomeQueueEntryRow(entry: entry) {
-                                    recordAction("open_queue_entry", targetID: entry.id)
-                                    if let paperID = entry.paperID {
-                                        appModel.selectPaper(id: paperID)
-                                        appModel.selectSection(.library)
-                                    } else {
-                                        appModel.selectSection(.library)
-                                    }
-                                }
-                            }
-                        }
                     } else if data.readingQueue.isEmpty {
                         HomeEmptyState(
-                            message: appModel.localized("还没有论文进入阅读 Todo。", "No papers are in Reading Todo yet."),
+                            message: appModel.localized("还没有待读论文。", "No papers to read yet."),
                             actionTitle: appModel.localized("添加论文", "Add Paper"),
                             systemImage: "plus"
                         ) {
@@ -528,22 +514,34 @@ private struct ReviewColumn<Content: View>: View {
     }
 }
 
-private struct HomeTodoRow: View {
+struct HomeTodoRow: View {
     let todo: TodoSummary
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: todo.priority == .urgent ? "exclamationmark.circle.fill" : "circle")
-                    .foregroundStyle(todo.priority == .urgent ? .red : .secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(todo.title)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    Text(todo.dueDate?.formatted(date: .abbreviated, time: .omitted) ?? todo.priority.label)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: todo.kind.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(todo.kind == .reading ? Color.blue : .secondary)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(todo.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        TodoPriorityFlagsBadge(priority: todo.priority)
+                    }
+                    HStack(spacing: 6) {
+                        if let dateText = HomeTodoDateText.text(for: todo) {
+                            Label(dateText, systemImage: "calendar").labelStyle(.titleAndIcon)
+                        }
+                        if !todo.tags.isEmpty {
+                            TodoTagChipGroup(tags: todo.tags, limit: 2)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -552,67 +550,16 @@ private struct HomeTodoRow: View {
     }
 }
 
-private struct HomeQueueEntryRow: View {
-    let entry: ReadingQueueEntrySummary
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: statusSystemImage)
-                    .foregroundStyle(statusTint)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.displayTitle)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    Text(subtitleText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
+/// Shared date/range formatter for compact home todo rows.
+enum HomeTodoDateText {
+    static func text(for todo: TodoSummary) -> String? {
+        guard let due = todo.dueDate else { return nil }
+        if let start = todo.startDate, start < due, !Calendar.current.isDate(start, inSameDayAs: due) {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "M月d日"
+            return "\(formatter.string(from: start)) – \(formatter.string(from: due))"
         }
-        .buttonStyle(.plain)
-    }
-
-    private var statusSystemImage: String {
-        switch entry.status {
-        case .queued: return "tray"
-        case .reading: return "book"
-        case .finished: return "checkmark.seal"
-        case .deferred: return "moon"
-        case .dismissed: return "xmark.circle"
-        }
-    }
-
-    private var statusTint: Color {
-        switch entry.status {
-        case .queued: return .blue
-        case .reading: return .orange
-        case .finished: return .green
-        case .deferred: return .purple
-        case .dismissed: return .secondary
-        }
-    }
-
-    private var subtitleText: String {
-        var parts: [String] = []
-        parts.append(entry.status == .reading ? "Reading" : "Queued")
-        if let externalKey = entry.externalKey, entry.paperID == nil {
-            parts.append("external: \(externalKey)")
-        }
-        switch entry.source {
-        case .recommendation:
-            parts.append("from recommendation")
-        case .graphTool:
-            parts.append("from graph tool")
-        case .paperStatus:
-            parts.append("paper status sync")
-        case .manual:
-            break
-        }
-        return parts.joined(separator: " · ")
+        return due.formatted(date: .abbreviated, time: .omitted)
     }
 }
 

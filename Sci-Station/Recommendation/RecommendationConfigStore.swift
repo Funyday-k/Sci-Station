@@ -50,7 +50,6 @@ public nonisolated struct RecommendationConfigStore {
         lines.append("  feedback: \(format(config.weights.feedback))")
         lines.append("  open_gap_coverage: \(format(config.weights.openGapCoverage))")
         lines.append("  author_overlap_with_core: \(format(config.weights.authorOverlapWithCore))")
-        lines.append("  queue_pressure_penalty: \(format(config.weights.queuePressurePenalty))")
         lines.append("  duplicate_penalty: \(format(config.weights.duplicatePenalty))")
         lines.append("daily_sources:")
         if config.dailySources.isEmpty {
@@ -145,7 +144,6 @@ public nonisolated struct RecommendationConfigStore {
                 case "feedback": weights.feedback = number
                 case "open_gap_coverage": weights.openGapCoverage = number
                 case "author_overlap_with_core": weights.authorOverlapWithCore = number
-                case "queue_pressure_penalty": weights.queuePressurePenalty = number
                 case "duplicate_penalty": weights.duplicatePenalty = number
                 default: break
                 }

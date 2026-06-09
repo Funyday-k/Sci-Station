@@ -1,6 +1,6 @@
 # Sci-Station
 
-> 当前版本：Beta 0.1.0
+> 当前版本：Beta 0.2.0
 > 面向平台：macOS
 > 当前状态：正在开发中，测试版会放在 Release 中供下载和测试。
 
@@ -37,13 +37,12 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 
 ## 当前状态
 
-- 当前版本为 **Beta 0.1.0**。
-- 软件会放在 Release 中，用户可以像安装普通 macOS 软件一样下载 DMG 并安装。
+- 当前版本为 **Beta 0.2.0**。
 - 项目仍在开发中，功能、界面和文档会持续更新。
 
 ## 接下来会开发
 
-- **签名与公证**：完善 Developer ID 签名、公证和 Gatekeeper 友好的分发流程。
+
 - **AI 实验室深化**：继续接入边车运行时、工具权限、证据引用、产物和调试包。
 - **论文图谱与推荐**：增强论文关系、研究队列、阅读计划和推荐工作流。
 - **工作区模板**：提供更清晰的项目模板、模块设置和初始化流程。
@@ -117,7 +116,7 @@ ResearchRoot/
 - [docs/DEVELOPER.md](docs/DEVELOPER.md)：开发者文档。
 - [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
 - [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
-- [docs/development/](docs/development/)：开发任务书、提案和手动测试记录。
+- [docs/development/](docs/development/)：开发文档中心，包含架构、模块、Proposal、测试、版本和发布流程。
 
 ## 许可证
 

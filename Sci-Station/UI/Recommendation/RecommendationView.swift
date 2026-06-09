@@ -671,7 +671,7 @@ struct RecommendationView: View {
         }
     }
 
-    private var selectedScope: QueueScope {
+    private var selectedScope: RecommendationTarget {
         .project(project.id)
     }
 
@@ -1374,7 +1374,7 @@ private struct RecommendationScoreRow: View {
 
     let score: RecommendationScore
     let displayRank: Int
-    let scope: QueueScope
+    let scope: RecommendationTarget
     let aiComment: String?
     let aiReview: RecommendationAIReview?
     let feedback: RecommendationFeedbackType?
@@ -1569,7 +1569,6 @@ private struct RecommendationScoreRow: View {
             (appModel.localized("反馈偏好", "Feedback"), score.features.feedback),
             (appModel.localized("相关论文", "Related"), score.features.libraryInterestSimilarity),
             (appModel.localized("作者重叠", "Authors"), score.features.authorOverlapWithCore),
-            (appModel.localized("Reading 惩罚", "Reading penalty"), score.features.queuePressurePenalty),
             (appModel.localized("重复惩罚", "Duplicate"), score.features.duplicatePenalty)
         ]
     }
@@ -1699,3 +1698,11 @@ private extension String {
         return "https://arxiv.org/abs/\(id)"
     }
 }
+
+#if DEBUG
+#Preview("Recommendations") {
+    RecommendationView(workspace: PreviewFixtures.workspace, project: PreviewFixtures.project)
+        .environmentObject(AppViewModel())
+        .frame(width: 1000, height: 720)
+}
+#endif

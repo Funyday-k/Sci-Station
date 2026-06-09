@@ -53,16 +53,6 @@ public nonisolated enum UITestAccessibilityID {
         public static let emptyState = "library.empty_state"
     }
 
-    // MARK: - Reading Queue
-    public enum Queue {
-        /// A row in the Reading Queue, suffix is the `ResearchQueueEntry.id`.
-        public static func row(_ entryID: String) -> String { "queue.row.\(entryID)" }
-        public static func moveUp(_ entryID: String) -> String { "queue.row.move_up.\(entryID)" }
-        public static func moveDown(_ entryID: String) -> String { "queue.row.move_down.\(entryID)" }
-        public static let list = "queue.list"
-        public static let emptyState = "queue.empty_state"
-    }
-
     // MARK: - Validation
 
     /// Lint helper used by tests to ensure identifiers stay machine-readable.

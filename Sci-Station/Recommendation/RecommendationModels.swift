@@ -4,8 +4,52 @@ public nonisolated enum RecommendationCandidateSource: String, Codable, Hashable
     case graphOneHop = "graph_one_hop"
     case libraryInterest = "library_interest"
     case libraryRecent = "library_recent"
-    case queueTail = "queue_tail"
     case dailyFeed = "daily_feed"
+}
+
+/// Workspace-or-project target for recommendation actions (library import,
+/// reading-todo creation, feedback attribution). Replaces the former
+/// `QueueScope` so recommendation no longer depends on the retired queue.
+public nonisolated enum RecommendationTarget: Hashable, Sendable {
+    case workspace
+    case project(String)
+
+    public var identifier: String {
+        switch self {
+        case .workspace:
+            return "workspace"
+        case .project(let projectID):
+            return "project:\(projectID)"
+        }
+    }
+
+    public var projectID: String? {
+        if case .project(let id) = self {
+            return id
+        }
+        return nil
+    }
+
+    /// Project id used when attributing recommendation feedback.
+    public var projectIDForRecommendationFeedback: String? {
+        projectID
+    }
+
+    public init?(identifier: String) {
+        if identifier == "workspace" {
+            self = .workspace
+            return
+        }
+        if identifier.hasPrefix("project:") {
+            let projectID = String(identifier.dropFirst("project:".count))
+            guard !projectID.isEmpty else {
+                return nil
+            }
+            self = .project(projectID)
+            return
+        }
+        return nil
+    }
 }
 
 public nonisolated enum RecommendationDailySourceKind: String, Codable, Hashable, Sendable, CaseIterable {
@@ -161,7 +205,6 @@ public nonisolated struct RecommendationWeights: Codable, Hashable, Sendable {
     public var feedback: Double
     public var openGapCoverage: Double
     public var authorOverlapWithCore: Double
-    public var queuePressurePenalty: Double
     public var duplicatePenalty: Double
 
     public init(
@@ -177,7 +220,6 @@ public nonisolated struct RecommendationWeights: Codable, Hashable, Sendable {
         feedback: Double = 0.05,
         openGapCoverage: Double = 0.10,
         authorOverlapWithCore: Double = 0.10,
-        queuePressurePenalty: Double = 0.45,
         duplicatePenalty: Double = 0.65
     ) {
         self.citedByCore = citedByCore
@@ -192,7 +234,6 @@ public nonisolated struct RecommendationWeights: Codable, Hashable, Sendable {
         self.feedback = feedback
         self.openGapCoverage = openGapCoverage
         self.authorOverlapWithCore = authorOverlapWithCore
-        self.queuePressurePenalty = queuePressurePenalty
         self.duplicatePenalty = duplicatePenalty
     }
 
@@ -209,7 +250,6 @@ public nonisolated struct RecommendationWeights: Codable, Hashable, Sendable {
         case feedback
         case openGapCoverage = "open_gap_coverage"
         case authorOverlapWithCore = "author_overlap_with_core"
-        case queuePressurePenalty = "queue_pressure_penalty"
         case duplicatePenalty = "duplicate_penalty"
     }
 
@@ -228,7 +268,6 @@ public nonisolated struct RecommendationWeights: Codable, Hashable, Sendable {
         feedback = try container.decodeIfPresent(Double.self, forKey: .feedback) ?? defaults.feedback
         openGapCoverage = try container.decodeIfPresent(Double.self, forKey: .openGapCoverage) ?? defaults.openGapCoverage
         authorOverlapWithCore = try container.decodeIfPresent(Double.self, forKey: .authorOverlapWithCore) ?? defaults.authorOverlapWithCore
-        queuePressurePenalty = try container.decodeIfPresent(Double.self, forKey: .queuePressurePenalty) ?? defaults.queuePressurePenalty
         duplicatePenalty = try container.decodeIfPresent(Double.self, forKey: .duplicatePenalty) ?? defaults.duplicatePenalty
     }
 }
@@ -403,7 +442,6 @@ public nonisolated struct RecommendationCandidate: Codable, Hashable, Sendable, 
 public nonisolated struct RecommendationContext: Sendable, Hashable {
     public var projectID: String?
     public var corePaperIDs: Set<String>
-    public var queueStatusByID: [String: QueueStatus]
     public var openGapKeywords: [String]
     public var weightedKeywords: [WeightedKeyword]
     public var interestPapers: [Paper]
@@ -418,7 +456,6 @@ public nonisolated struct RecommendationContext: Sendable, Hashable {
     public init(
         projectID: String? = nil,
         corePaperIDs: Set<String> = [],
-        queueStatusByID: [String: QueueStatus] = [:],
         openGapKeywords: [String] = [],
         weightedKeywords: [WeightedKeyword] = [],
         interestPapers: [Paper] = [],
@@ -432,7 +469,6 @@ public nonisolated struct RecommendationContext: Sendable, Hashable {
     ) {
         self.projectID = projectID
         self.corePaperIDs = corePaperIDs
-        self.queueStatusByID = queueStatusByID
         self.openGapKeywords = openGapKeywords
         self.weightedKeywords = weightedKeywords
         self.interestPapers = interestPapers
@@ -459,7 +495,6 @@ public nonisolated struct RecommendationFeatureBreakdown: Codable, Hashable, Sen
     public var feedback: Double
     public var openGapCoverage: Double
     public var authorOverlapWithCore: Double
-    public var queuePressurePenalty: Double
     public var duplicatePenalty: Double
 
     public init(
@@ -475,7 +510,6 @@ public nonisolated struct RecommendationFeatureBreakdown: Codable, Hashable, Sen
         feedback: Double = 0,
         openGapCoverage: Double = 0,
         authorOverlapWithCore: Double = 0,
-        queuePressurePenalty: Double = 0,
         duplicatePenalty: Double = 0
     ) {
         self.citedByCore = citedByCore
@@ -490,7 +524,6 @@ public nonisolated struct RecommendationFeatureBreakdown: Codable, Hashable, Sen
         self.feedback = feedback
         self.openGapCoverage = openGapCoverage
         self.authorOverlapWithCore = authorOverlapWithCore
-        self.queuePressurePenalty = queuePressurePenalty
         self.duplicatePenalty = duplicatePenalty
     }
 
@@ -507,7 +540,6 @@ public nonisolated struct RecommendationFeatureBreakdown: Codable, Hashable, Sen
         case feedback
         case openGapCoverage = "open_gap_coverage"
         case authorOverlapWithCore = "author_overlap_with_core"
-        case queuePressurePenalty = "queue_pressure_penalty"
         case duplicatePenalty = "duplicate_penalty"
     }
 
@@ -525,7 +557,6 @@ public nonisolated struct RecommendationFeatureBreakdown: Codable, Hashable, Sen
         feedback = try container.decodeIfPresent(Double.self, forKey: .feedback) ?? 0
         openGapCoverage = try container.decodeIfPresent(Double.self, forKey: .openGapCoverage) ?? 0
         authorOverlapWithCore = try container.decodeIfPresent(Double.self, forKey: .authorOverlapWithCore) ?? 0
-        queuePressurePenalty = try container.decodeIfPresent(Double.self, forKey: .queuePressurePenalty) ?? 0
         duplicatePenalty = try container.decodeIfPresent(Double.self, forKey: .duplicatePenalty) ?? 0
     }
 }

@@ -366,8 +366,15 @@ private struct ResizableRightRailColumn<Content: View>: View {
     }
 
     private var resizeHandle: some View {
-        Rectangle()
-            .fill(Color.clear)
+        ZStack {
+            Color.clear
+            Rectangle()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(width: 1)
+            Capsule()
+                .fill(Color.secondary.opacity(0.4))
+                .frame(width: 3, height: 28)
+        }
             .frame(width: handleWidth)
             .contentShape(Rectangle())
             .gesture(

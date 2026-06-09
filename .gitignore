@@ -101,6 +101,12 @@ release/
 .mcp.local.json
 .sci-ai/workspace.local/
 
+# GitHub local config (skills/workflows kept local per owner request)
+/.github/
+
+# User feedback inbox/drafts (not for main branch)
+docs/user-feedback/
+
 # CocoaPods (not used, but just in case)
 Pods/
 

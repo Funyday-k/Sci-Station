@@ -806,25 +806,6 @@ private struct LibraryPaperTableView: View {
                     }
                 }
             }
-
-            let queueScopes = appModel.availableResearchQueueScopes
-            if !queueScopes.isEmpty {
-                Menu("Add to Reading") {
-                    ForEach(queueScopes, id: \.identifier) { scope in
-                        Button {
-                            for paper in appModel.selectedLibraryPapers {
-                                appModel.addPaperToResearchQueue(
-                                    paperID: paper.id,
-                                    displayTitle: paper.displayTitle,
-                                    scope: scope
-                                )
-                            }
-                        } label: {
-                            Label(scopeLabel(for: scope), systemImage: "book")
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -885,10 +866,6 @@ private struct LibraryPaperTableView: View {
 
         Divider()
 
-        readingQueueMenu(for: paper)
-
-        Divider()
-
         PaperClassificationMenuItems(paper: paper)
 
         Divider()
@@ -900,78 +877,6 @@ private struct LibraryPaperTableView: View {
         }
     }
 
-    @ViewBuilder
-    private func readingQueueMenu(for paper: Paper) -> some View {
-        let scopes = appModel.availableResearchQueueScopes
-        if scopes.isEmpty {
-            EmptyView()
-        } else {
-            Menu("Reading") {
-                ForEach(scopes, id: \.identifier) { scope in
-                    readingQueueScopeButton(for: paper, scope: scope)
-                }
-                if let topScope = scopes.first(where: { isPaperInResearchQueue(paperID: paper.id, scope: $0) }) {
-                    Divider()
-                    Button {
-                        appModel.moveResearchQueueEntry(
-                            id: "queue:\(topScope.identifier):\(paper.id)",
-                            in: topScope,
-                            offset: Int.min
-                        )
-                    } label: {
-                        Label("Move to Top in \(scopeLabel(for: topScope))", systemImage: "arrow.up.to.line")
-                    }
-                    Button {
-                        appModel.updateResearchQueueEntryStatus(
-                            id: "queue:\(topScope.identifier):\(paper.id)",
-                            status: .finished
-                        )
-                    } label: {
-                        Label("Mark Finished", systemImage: "checkmark.seal")
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func readingQueueScopeButton(for paper: Paper, scope: QueueScope) -> some View {
-        let inQueue = isPaperInResearchQueue(paperID: paper.id, scope: scope)
-        Button {
-            if inQueue {
-                appModel.removeResearchQueueEntry(id: "queue:\(scope.identifier):\(paper.id)")
-            } else {
-                appModel.addPaperToResearchQueue(
-                    paperID: paper.id,
-                    displayTitle: paper.displayTitle,
-                    scope: scope
-                )
-            }
-        } label: {
-            Label(
-                inQueue ? "Remove from \(scopeLabel(for: scope))" : "Add to \(scopeLabel(for: scope))",
-                systemImage: inQueue ? "checkmark.circle.fill" : "book"
-            )
-        }
-    }
-
-    private func isPaperInResearchQueue(paperID: String, scope: QueueScope) -> Bool {
-        appModel.researchQueueEntries(in: scope).contains { entry in
-            entry.paperID == paperID
-        }
-    }
-
-    private func scopeLabel(for scope: QueueScope) -> String {
-        switch scope {
-        case .workspace:
-            return "Workspace Reading"
-        case .project(let projectID):
-            if let project = appModel.researchProjects.first(where: { $0.id == projectID }) {
-                return "\(project.name) Reading"
-            }
-            return "Project Reading"
-        }
-    }
 }
 
 private struct LibraryPaperTableRow: Identifiable, Hashable {
@@ -2182,3 +2087,11 @@ private struct PDFReaderEmptyStateView: View {
         .padding(24)
     }
 }
+
+#if DEBUG
+#Preview("Library") {
+    LibraryListView(workspace: PreviewFixtures.workspace)
+        .environmentObject(AppViewModel())
+        .frame(width: 1000, height: 700)
+}
+#endif

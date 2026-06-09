@@ -4,13 +4,12 @@ public nonisolated enum RecommendationFeedbackType: String, Codable, Hashable, S
     case like
     case dislike
     case save
-    case addToQueue = "add_to_queue"
     case openPDF = "open_pdf"
     case ignore
 
     public var isPositive: Bool {
         switch self {
-        case .like, .save, .addToQueue, .openPDF:
+        case .like, .save, .openPDF:
             return true
         case .dislike, .ignore:
             return false

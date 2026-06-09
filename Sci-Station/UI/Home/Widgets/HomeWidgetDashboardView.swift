@@ -891,7 +891,7 @@ private struct HomeWidgetContentView: View {
             case HomeWidgetID.recentPapers:
                 RecentPapersWidgetContent(size: size)
             case HomeWidgetID.readingPlan:
-                ReadingPlanWidgetContent(plan: snapshot.today.activeReadingPlan, papers: snapshot.today.readingQueue, size: size)
+                ReadingPlanWidgetContent(papers: snapshot.today.readingQueue, size: size)
             case HomeWidgetID.projectHealth:
                 ProjectHealthWidgetContent(snapshot: snapshot, size: size)
             case HomeWidgetID.quickActions:
@@ -935,7 +935,7 @@ private struct TodayWidgetContent: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(snapshot.today.dueTodos.prefix(3)) { todo in
-                        HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                        HomeTodoWidgetRow(todo: todo) {
                             appModel.selectGlobalTodos()
                         }
                     }
@@ -946,7 +946,7 @@ private struct TodayWidgetContent: View {
             VStack(alignment: .leading, spacing: 10) {
                 HomeWidgetMetricStrip(metrics: todayMetrics(maxCount: 2))
                 ForEach(snapshot.today.dueTodos.prefix(2)) { todo in
-                    HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                    HomeTodoWidgetRow(todo: todo) {
                         appModel.selectGlobalTodos()
                     }
                 }
@@ -962,7 +962,7 @@ private struct TodayWidgetContent: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(snapshot.today.dueTodos.prefix(4)) { todo in
-                            HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                            HomeTodoWidgetRow(todo: todo) {
                                 appModel.selectGlobalTodos()
                             }
                         }
@@ -980,7 +980,7 @@ private struct TodayWidgetContent: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(snapshot.today.dueTodos.prefix(8)) { todo in
-                            HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                            HomeTodoWidgetRow(todo: todo) {
                                 appModel.selectGlobalTodos()
                             }
                         }
@@ -989,10 +989,6 @@ private struct TodayWidgetContent: View {
                 Spacer(minLength: 0)
             }
         }
-    }
-
-    private func todoDetail(_ todo: TodoSummary) -> String {
-        todo.dueDate?.formatted(date: .abbreviated, time: .omitted) ?? todo.priority.label
     }
 
     private func todayMetrics(maxCount: Int) -> [HomeWidgetMetric] {
@@ -1777,7 +1773,6 @@ private struct RecentPapersWidgetContent: View {
 
 private struct ReadingPlanWidgetContent: View {
     @EnvironmentObject private var appModel: AppViewModel
-    let plan: ReadingPlanSummary?
     let papers: [PaperSummary]
     let size: HomeWidgetSize
 
@@ -1785,17 +1780,17 @@ private struct ReadingPlanWidgetContent: View {
         switch size {
         case .small:
             HomeSmallList(
-                count: plan?.totalSlotCount ?? papers.count,
+                count: papers.count,
                 caption: appModel.t(.homeWidgetReadingPlan),
                 tint: .teal,
                 systemImage: "books.vertical",
-                firstLine: plan?.slots.first?.displayTitle ?? papers.first?.title,
+                firstLine: papers.first?.title,
                 action: { appModel.selectSection(.library) }
             )
         case .tall:
             VStack(alignment: .leading, spacing: 8) {
                 HomeWidgetTallCount(
-                    count: plan?.totalSlotCount ?? papers.count,
+                    count: papers.count,
                     caption: appModel.t(.homeWidgetReadingPlan),
                     tint: .teal,
                     systemImage: "books.vertical"
@@ -1814,35 +1809,7 @@ private struct ReadingPlanWidgetContent: View {
     @ViewBuilder
     private func list(limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let plan {
-                HStack(spacing: 8) {
-                    Text("\(plan.completedSlotCount)/\(plan.totalSlotCount)")
-                        .font(.headline.monospacedDigit())
-                    Text(appModel.localized("完成", "finished"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Text("\(plan.estimatedMinutes)m")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(plan.slots.prefix(limit)) { slot in
-                    HomeWidgetTextRow(
-                        title: slot.displayTitle,
-                        detail: [slot.plannedDay, slot.status.rawValue.replacingOccurrences(of: "_", with: " ")].compactMap { $0 }.joined(separator: " · "),
-                        systemImage: slot.status == .finished ? "checkmark.circle" : "circle"
-                    ) {
-                        if let paperID = slot.paperID {
-                            appModel.selectPaper(id: paperID)
-                            appModel.selectSection(.library)
-                        } else if let projectID = plan.projectID {
-                            appModel.selectResearchProject(projectID)
-                            appModel.selectProjectSpaceTab("tasks")
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-            } else if papers.isEmpty {
+            if papers.isEmpty {
                 Text(appModel.t(.homeReadingPlanEmpty))
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -2306,6 +2273,54 @@ private struct HomeWidgetSectionList<Content: View>: View {
                 .textCase(.uppercase)
             content
         }
+    }
+}
+
+/// Icon-forward todo row for the Today widget: kind glyph + title + red flags,
+/// with a compact date/range and colored tag chips beneath.
+private struct HomeTodoWidgetRow: View {
+    let todo: TodoSummary
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: todo.kind.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 14)
+                    .foregroundStyle(todo.kind == .reading ? Color.blue : Color.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(todo.title)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        TodoPriorityFlagsBadge(priority: todo.priority)
+                        Spacer(minLength: 0)
+                        if let dateText = HomeTodoDateText.text(for: todo) {
+                            Text(dateText)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if !todo.tags.isEmpty {
+                        TodoTagChipGroup(tags: todo.tags, limit: 3)
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                Color.primary.opacity(isHovering ? 0.04 : 0),
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }
 

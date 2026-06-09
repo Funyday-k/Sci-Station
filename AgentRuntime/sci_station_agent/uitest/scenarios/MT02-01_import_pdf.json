@@ -18,38 +18,10 @@
       "kind": "test_bridge",
       "command": "library.import.attachFixturePDF",
       "args": {"fixture_id": "import-smoke-01"},
-      "description": "Inject a fixture PDF via the Test Bridge so the scenario stays deterministic and bypasses the file picker. Debug-only; see Proposal-AT.md P-AT.1e."
-    },
-    {
-      "kind": "wait_for_event",
-      "event": "queue.append",
-      "timeout_seconds": 10.0,
-      "description": "Wait for the queue ingestor to record the import."
+      "description": "Inject a fixture PDF via the Test Bridge so the scenario stays deterministic and bypasses the file picker. The bridge command completes synchronously once the paper is persisted and the library reloaded. Debug-only; see Proposal-AT.md P-AT.1e."
     }
   ],
   "assertions": [
-    {
-      "channel": "event",
-      "description": "A queue.append event records the imported paper.",
-      "args": {
-        "event": "queue.append",
-        "payload_contains": {"source": "manual"},
-        "min_count": 1
-      }
-    },
-    {
-      "channel": "file",
-      "description": "The imported paper appears in the workspace queue YAML.",
-      "args": {
-        "path": "library/queue.yaml",
-        "loader": "yaml",
-        "expected_subset": {
-          "entries": [
-            {"paper_id": "unknownxxxx-import-smoke-01"}
-          ]
-        }
-      }
-    },
     {
       "channel": "file",
       "description": "Library list rendered without SwiftUI runtime warnings (P-AT.1d).",

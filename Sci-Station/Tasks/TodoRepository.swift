@@ -53,6 +53,7 @@ public actor TodoRepository {
                 "    title: \(quoted(todo.title))",
                 "    kind: \(todo.kind.rawValue)",
                 "    status: \(todo.status.rawValue)",
+                "    start: \(todo.startDate.map { dayFormatter.string(from: $0) } ?? "")",
                 "    due: \(todo.dueDate.map { dayFormatter.string(from: $0) } ?? "")",
                 "    due_time: \(todo.dueTime.map(quoted) ?? "")",
                 "    priority: \(todo.priority.rawValue)"
@@ -109,6 +110,7 @@ public actor TodoRepository {
             var title = ""
             var kind = TodoKind.general
             var status = TodoStatus.open
+            var startDate: Date?
             var dueDate: Date?
             var priority = Priority.medium
             var projectIDs: [String] = []
@@ -140,6 +142,8 @@ public actor TodoRepository {
                     kind = TodoKind(rawValue: trimmed.replacingOccurrences(of: "kind:", with: "").trimmingCharacters(in: .whitespaces)) ?? .general
                 } else if trimmed.hasPrefix("status:") {
                     status = TodoStatus(rawValue: trimmed.replacingOccurrences(of: "status:", with: "").trimmingCharacters(in: .whitespaces)) ?? .open
+                } else if trimmed.hasPrefix("start:") {
+                    startDate = parseDate(trimmed.replacingOccurrences(of: "start:", with: "").trimmingCharacters(in: .whitespaces))
                 } else if trimmed.hasPrefix("due:") {
                     dueDate = parseDate(trimmed.replacingOccurrences(of: "due:", with: "").trimmingCharacters(in: .whitespaces))
                 } else if trimmed.hasPrefix("due_time:") {
@@ -182,6 +186,7 @@ public actor TodoRepository {
                     title: title,
                     kind: kind,
                     status: status,
+                    startDate: startDate,
                     dueDate: dueDate,
                     priority: priority,
                     projectIDs: projectIDs,
