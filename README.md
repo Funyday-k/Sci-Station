@@ -118,3 +118,7 @@ ResearchRoot/
 - [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
 - [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
 - [docs/development/](docs/development/)：开发任务书、提案和手动测试记录。
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE) 开源。
