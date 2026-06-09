@@ -124,12 +124,24 @@ struct ProjectDashboardPanel: View {
 
                     ProjectDashboardCard(title: appModel.localized("任务", "Tasks"), systemImage: "checklist") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(snapshot.openTodoCount == 0
-                                ? appModel.localized("暂无未完成任务。", "No open tasks.")
-                                : appModel.localized("\(snapshot.openTodoCount) 个未完成任务。", "\(snapshot.openTodoCount) open tasks."))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            if snapshot.openTodos.isEmpty {
+                                Text(appModel.localized("暂无未完成任务。", "No open tasks."))
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else {
+                                ForEach(snapshot.openTodos.prefix(4)) { todo in
+                                    HomeTodoRow(todo: todo) {
+                                        recordAction("open_todo", targetID: todo.id)
+                                        appModel.selectProjectSpaceTab("tasks")
+                                    }
+                                }
+                                if snapshot.openTodoCount > 4 {
+                                    Text(appModel.localized("还有 \(snapshot.openTodoCount - 4) 个未完成任务。", "\(snapshot.openTodoCount - 4) more open tasks."))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Button {
                                 recordAction("open_tasks", targetID: snapshot.projectID)
                                 appModel.selectProjectSpaceTab("tasks")

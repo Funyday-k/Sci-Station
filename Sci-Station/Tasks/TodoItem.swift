@@ -5,6 +5,10 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
     public var title: String
     public var kind: TodoKind
     public var status: TodoStatus
+    /// Optional start of a multi-day date range. When `nil`, the todo is a
+    /// single-day item anchored on `dueDate`. When set, the todo spans
+    /// `startDate ... dueDate`.
+    public var startDate: Date?
     public var dueDate: Date?
     public var priority: Priority
     public var projectIDs: [String]
@@ -24,6 +28,7 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         title: String,
         kind: TodoKind = .general,
         status: TodoStatus,
+        startDate: Date? = nil,
         dueDate: Date?,
         priority: Priority = .medium,
         projectIDs: [String] = [],
@@ -42,6 +47,7 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         self.title = title
         self.kind = kind
         self.status = status
+        self.startDate = startDate
         self.dueDate = dueDate
         self.priority = priority
         self.projectIDs = projectIDs
@@ -55,6 +61,14 @@ public struct TodoItem: Identifiable, Codable, Hashable, Sendable {
         self.dueTime = dueTime
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+extension TodoItem {
+    /// Whether the todo carries an explicit multi-day range.
+    public var hasDateRange: Bool {
+        guard let startDate, let dueDate else { return false }
+        return !Calendar.current.isDate(startDate, inSameDayAs: dueDate) && startDate < dueDate
     }
 }
 
@@ -77,6 +91,16 @@ public enum TodoKind: String, Codable, CaseIterable, Sendable {
             return "General"
         case .reading:
             return "Reading"
+        }
+    }
+
+    /// SF Symbol used to represent the task kind across the Tasks UI.
+    public var systemImage: String {
+        switch self {
+        case .general:
+            return "checklist"
+        case .reading:
+            return "book"
         }
     }
 }

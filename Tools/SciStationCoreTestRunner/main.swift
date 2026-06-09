@@ -150,6 +150,10 @@ private struct CoreVerificationSuite {
         try recommendationPipelineMMRDiversifiesNearDuplicateResults()
         try recommendationRunResultDecodesLegacySnapshotWithV2Defaults()
         try todoQueriesDeriveDateProjectSortAndOpenCount()
+        try todoDatePresetResolvesRelativeDates()
+        try todoPriorityFlagMappingRoundTrips()
+        try await todoRepositoryPersistsDateRange()
+        try await todoTagRepositoryRoundTripsDefinitions()
         try identifierParserRecognizesSupportedKinds()
         try metadataProviderBuildsStableLookupURLs()
         try arxivEntryParserExtractsMetadataDraft()
@@ -2844,6 +2848,101 @@ private struct CoreVerificationSuite {
         try expect(TodoQueries.priorityRank(.urgent) < TodoQueries.priorityRank(.high), "Urgent outranks high.")
         try expect(TodoQueries.priorityRank(.high) < TodoQueries.priorityRank(.medium), "High outranks medium.")
         try expect(TodoQueries.priorityRank(.medium) < TodoQueries.priorityRank(.low), "Medium outranks low.")
+    }
+
+    private func todoDatePresetResolvesRelativeDates() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let base = try require(calendar.date(from: DateComponents(year: 2026, month: 6, day: 10)), "Should build the base day.")
+
+        let today = TodoDatePreset.today.date(from: base, calendar: calendar)
+        try expect(calendar.isDate(today, inSameDayAs: calendar.startOfDay(for: base)), "today preset should resolve to the start of the base day.")
+
+        let tomorrow = TodoDatePreset.tomorrow.date(from: base, calendar: calendar)
+        try expect(calendar.dateComponents([.day], from: today, to: tomorrow).day == 1, "tomorrow preset should be exactly one day after today.")
+
+        let weekend = TodoDatePreset.thisWeekend.date(from: base, calendar: calendar)
+        try expect(calendar.component(.weekday, from: weekend) == 7, "thisWeekend preset should resolve to a Saturday.")
+        try expect(weekend >= today, "thisWeekend preset should not be before today.")
+
+        let nextWeek = TodoDatePreset.nextWeek.date(from: base, calendar: calendar)
+        try expect(calendar.component(.weekday, from: nextWeek) == 2, "nextWeek preset should resolve to a Monday.")
+        try expect(nextWeek > today, "nextWeek preset should be strictly after today.")
+    }
+
+    private func todoPriorityFlagMappingRoundTrips() throws {
+        try expect(Priority.low.flagCount == 1, "Low priority should render as one flag.")
+        try expect(Priority.medium.flagCount == 2, "Medium priority should render as two flags.")
+        try expect(Priority.high.flagCount == 3, "High priority should render as three flags.")
+        try expect(Priority.urgent.flagCount == 3, "Urgent priority should render as three flags (kept for Reminders interop).")
+
+        try expect(Priority.fromFlagCount(1) == .low, "One flag should map to low.")
+        try expect(Priority.fromFlagCount(2) == .medium, "Two flags should map to medium.")
+        try expect(Priority.fromFlagCount(3) == .high, "Three flags should map to high.")
+        try expect(Priority.fromFlagCount(0) == .low, "fromFlagCount should clamp below-range counts to low.")
+        try expect(Priority.fromFlagCount(9) == .high, "fromFlagCount should clamp above-range counts to high.")
+        try expect(Priority.flagSelectable == [.low, .medium, .high], "flagSelectable should expose the three composer priorities in flag order.")
+    }
+
+    private func todoRepositoryPersistsDateRange() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("TodoDateRangeWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let repository = TodoRepository()
+        let calendar = Calendar(identifier: .gregorian)
+        let start = try require(calendar.date(from: DateComponents(year: 2026, month: 6, day: 10)), "Should build the range start.")
+        let due = try require(calendar.date(from: DateComponents(year: 2026, month: 6, day: 14)), "Should build the range end.")
+        let todo = TodoItem(
+            id: "range-001",
+            title: "Sprint reading block",
+            kind: .reading,
+            status: .open,
+            startDate: start,
+            dueDate: due,
+            priority: .high,
+            projectIDs: ["alpha"],
+            tags: ["sprint"],
+            relatedPaperIDs: ["garani2024dark"],
+            notes: nil,
+            createdAt: start,
+            updatedAt: start
+        )
+
+        try await repository.upsert(todo, in: workspace)
+        let loaded = try await repository.loadTodos(in: workspace)
+        let reloaded = try require(loaded.first, "The persisted ranged todo should be loadable.")
+
+        let reloadedStart = try require(reloaded.startDate, "TodoRepository should persist startDate.")
+        let reloadedDue = try require(reloaded.dueDate, "TodoRepository should persist dueDate.")
+        try expect(calendar.isDate(reloadedStart, inSameDayAs: start), "startDate day should round-trip through YAML.")
+        try expect(calendar.isDate(reloadedDue, inSameDayAs: due), "dueDate day should round-trip through YAML.")
+        try expect(reloaded.hasDateRange, "A multi-day todo should report hasDateRange == true.")
+        try expect(reloaded.kind == .reading, "Todo kind should round-trip.")
+        try expect(reloaded.tags == ["sprint"], "Tags should round-trip alongside the date range.")
+    }
+
+    private func todoTagRepositoryRoundTripsDefinitions() async throws {
+        let (rootURL, workspace) = try makeQueueWorkspace("TodoTagWorkspace")
+        defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+        let repository = TodoTagRepository()
+        let initialDefinitions = try await repository.loadDefinitions(in: workspace)
+        try expect(initialDefinitions.isEmpty, "A fresh workspace should have no task tags.")
+
+        try await repository.upsert(TagDefinition(name: "writing", colorHex: "#F4A259"), in: workspace)
+        try await repository.upsert(TagDefinition(name: "urgent", colorHex: "#E76F51", textColorHex: "#FFFFFF"), in: workspace)
+
+        var definitions = try await repository.loadDefinitions(in: workspace)
+        try expect(definitions.map(\.name) == ["urgent", "writing"], "Task tags should load sorted by name.")
+        try expect(definitions.first(where: { $0.name == "urgent" })?.textColorHex == "#FFFFFF", "Task tag custom text color should persist.")
+
+        try await repository.upsert(TagDefinition(name: "writing", colorHex: "#112233"), in: workspace)
+        definitions = try await repository.loadDefinitions(in: workspace)
+        try expect(definitions.count == 2, "Upserting an existing task tag should not duplicate it.")
+        try expect(definitions.first(where: { $0.name == "writing" })?.colorHex == "#112233", "Upserting should update the existing task tag color.")
+
+        try await repository.deleteTag(named: "urgent", in: workspace)
+        definitions = try await repository.loadDefinitions(in: workspace)
+        try expect(definitions.map(\.name) == ["writing"], "Deleting a task tag should remove it from tasks/todo_tags.yaml.")
     }
 
     // MARK: - P48 Research Queue (Layer A: store + YAML)

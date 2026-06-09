@@ -251,6 +251,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isRunningLegacyPaperMigration = false
     @Published private(set) var collections: [PaperCollection] = []
     @Published private(set) var tagDefinitions: [TagDefinition] = []
+    @Published private(set) var todoTagDefinitions: [TagDefinition] = []
     @Published private(set) var todos: [TodoItem] = [] {
         didSet {
             markWorkspaceDashboardChanged()
@@ -415,6 +416,7 @@ final class AppViewModel: ObservableObject {
     private let collectionRepository: CollectionRepository
     private let movePaperToCollectionService: MovePaperToCollectionService
     private let tagRepository: TagRepository
+    private let todoTagRepository = TodoTagRepository()
     private let todoRepository: TodoRepository
     private let calendarRepository: CalendarRepository
     private let workspacePreferencesRepository: WorkspacePreferencesRepository
@@ -6061,11 +6063,14 @@ final class AppViewModel: ObservableObject {
 
     func addTodo(
         title: String,
+        startDate: Date? = nil,
         dueDate: Date?,
         kind: TodoKind = .general,
         priority: Priority = .medium,
         notes: String? = nil,
-        projectIDs: [ResearchProject.ID]? = nil
+        projectIDs: [ResearchProject.ID]? = nil,
+        tags: [String]? = nil,
+        relatedPaperIDs: [String]? = nil
     ) {
         guard let currentWorkspace else {
             return
@@ -6077,16 +6082,19 @@ final class AppViewModel: ObservableObject {
         }
 
         let now = Date()
+        let resolvedTags = tags ?? selectedTagName.map { [$0] } ?? []
+        let resolvedPaperIDs = relatedPaperIDs ?? selectedPaperDraft.map { [$0.id] } ?? []
         var todo = TodoItem(
             id: "todo-\(UUID().uuidString.lowercased())",
             title: trimmedTitle,
             kind: kind,
             status: .open,
+            startDate: startDate.map { Calendar.current.startOfDay(for: $0) },
             dueDate: dueDate.map { Calendar.current.startOfDay(for: $0) },
             priority: priority,
             projectIDs: projectIDs ?? currentProjectID.map { [$0] } ?? [],
-            tags: selectedTagName.map { [$0] } ?? [],
-            relatedPaperIDs: selectedPaperDraft.map { [$0.id] } ?? [],
+            tags: resolvedTags,
+            relatedPaperIDs: resolvedPaperIDs,
             notes: notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             createdAt: now,
             updatedAt: now
@@ -6110,10 +6118,13 @@ final class AppViewModel: ObservableObject {
         title: String,
         kind: TodoKind? = nil,
         status: TodoStatus,
+        startDate: Date? = nil,
         dueDate: Date?,
         priority: Priority,
         notes: String?,
-        projectIDs: [ResearchProject.ID]? = nil
+        projectIDs: [ResearchProject.ID]? = nil,
+        tags: [String]? = nil,
+        relatedPaperIDs: [String]? = nil
     ) {
         guard let currentWorkspace else {
             return
@@ -6128,9 +6139,12 @@ final class AppViewModel: ObservableObject {
         updatedTodo.title = trimmedTitle
         updatedTodo.kind = kind ?? updatedTodo.kind
         updatedTodo.status = status
+        updatedTodo.startDate = startDate.map { Calendar.current.startOfDay(for: $0) }
         updatedTodo.dueDate = dueDate.map { Calendar.current.startOfDay(for: $0) }
         updatedTodo.priority = priority
         updatedTodo.projectIDs = projectIDs ?? updatedTodo.projectIDs
+        updatedTodo.tags = tags ?? updatedTodo.tags
+        updatedTodo.relatedPaperIDs = relatedPaperIDs ?? updatedTodo.relatedPaperIDs
         updatedTodo.notes = notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         updatedTodo.completedAt = status == .done ? (todo.completedAt ?? Date()) : nil
         updatedTodo.updatedAt = Date()
@@ -7164,6 +7178,50 @@ final class AppViewModel: ObservableObject {
 
     private func loadTodos(in workspace: ResearchWorkspace) async throws {
         todos = try await todoRepository.loadTodos(in: workspace)
+        todoTagDefinitions = try await todoTagRepository.loadDefinitions(in: workspace)
+    }
+
+    /// All task tag definitions, augmented with any inferred tags found on
+    /// existing todos that lack an explicit definition (so colors stay stable).
+    var availableTodoTagDefinitions: [TagDefinition] {
+        let existingNames = Set(todoTagDefinitions.map(\.name))
+        let inferred = Set(todos.flatMap(\.tags))
+            .subtracting(existingNames)
+            .map { Self.inferredTagDefinition(named: $0) }
+        return (todoTagDefinitions + inferred)
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func todoTagDefinition(named name: String) -> TagDefinition? {
+        availableTodoTagDefinitions.first(where: { $0.name == name })
+    }
+
+    func upsertTodoTag(_ definition: TagDefinition) {
+        guard let currentWorkspace else {
+            return
+        }
+        Task {
+            do {
+                try await todoTagRepository.upsert(definition, in: currentWorkspace)
+                todoTagDefinitions = try await todoTagRepository.loadDefinitions(in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func deleteTodoTag(named name: String) {
+        guard let currentWorkspace else {
+            return
+        }
+        Task {
+            do {
+                try await todoTagRepository.deleteTag(named: name, in: currentWorkspace)
+                todoTagDefinitions = try await todoTagRepository.loadDefinitions(in: currentWorkspace)
+            } catch {
+                present(error)
+            }
+        }
     }
 
     private func loadCalendarEvents(in workspace: ResearchWorkspace) async throws {

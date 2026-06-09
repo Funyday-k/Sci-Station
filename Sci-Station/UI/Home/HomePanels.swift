@@ -514,27 +514,52 @@ private struct ReviewColumn<Content: View>: View {
     }
 }
 
-private struct HomeTodoRow: View {
+struct HomeTodoRow: View {
     let todo: TodoSummary
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: todo.priority == .urgent ? "exclamationmark.circle.fill" : "circle")
-                    .foregroundStyle(todo.priority == .urgent ? .red : .secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(todo.title)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    Text(todo.dueDate?.formatted(date: .abbreviated, time: .omitted) ?? todo.priority.label)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: todo.kind.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(todo.kind == .reading ? Color.blue : .secondary)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(todo.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        TodoPriorityFlagsBadge(priority: todo.priority)
+                    }
+                    HStack(spacing: 6) {
+                        if let dateText = HomeTodoDateText.text(for: todo) {
+                            Label(dateText, systemImage: "calendar").labelStyle(.titleAndIcon)
+                        }
+                        if !todo.tags.isEmpty {
+                            TodoTagChipGroup(tags: todo.tags, limit: 2)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Shared date/range formatter for compact home todo rows.
+enum HomeTodoDateText {
+    static func text(for todo: TodoSummary) -> String? {
+        guard let due = todo.dueDate else { return nil }
+        if let start = todo.startDate, start < due, !Calendar.current.isDate(start, inSameDayAs: due) {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "M月d日"
+            return "\(formatter.string(from: start)) – \(formatter.string(from: due))"
+        }
+        return due.formatted(date: .abbreviated, time: .omitted)
     }
 }
 

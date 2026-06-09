@@ -159,7 +159,12 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             .prefix(6)
             .map(PaperSummary.init(paper:))
         let projectTodos = input.todos.filter { $0.projectIDs.contains(project.id) }
-        let openTodoCount = projectTodos.filter { $0.status != .done && $0.status != .cancelled }.count
+        let openProjectTodos = projectTodos.filter { $0.status != .done && $0.status != .cancelled }
+        let openTodoCount = openProjectTodos.count
+        let openTodos = openProjectTodos
+            .sorted(by: TodoQueries.dueThenPriority)
+            .prefix(5)
+            .map(TodoSummary.init(todo:))
         let gaps = homeBuilder.gapSummaries(for: project.id, documents: input.markdownDocuments)
         let artifacts = homeBuilder.artifactSummaries(from: input.agentRuns)
             .filter { $0.projectID == project.id }
@@ -188,6 +193,7 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             nextDeadline: homeBuilder.nextDeadline(from: projectTodos, after: now),
             currentReadingPlan: nil,
             openTodoCount: openTodoCount,
+            openTodos: Array(openTodos),
             builtAt: now,
             generationDuration: Date().timeIntervalSince(start)
         )

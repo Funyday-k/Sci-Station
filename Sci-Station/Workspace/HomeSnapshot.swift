@@ -97,24 +97,33 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
 public nonisolated struct TodoSummary: Identifiable, Codable, Hashable, Sendable {
     public var id: String
     public var title: String
+    public var kind: TodoKind
+    public var startDate: Date?
     public var dueDate: Date?
     public var priority: Priority
     public var projectIDs: [String]
+    public var tags: [String]
     public var status: TodoStatus
 
     public init(
         id: String,
         title: String,
+        kind: TodoKind = .general,
+        startDate: Date? = nil,
         dueDate: Date?,
         priority: Priority,
         projectIDs: [String],
+        tags: [String] = [],
         status: TodoStatus
     ) {
         self.id = id
         self.title = title
+        self.kind = kind
+        self.startDate = startDate
         self.dueDate = dueDate
         self.priority = priority
         self.projectIDs = projectIDs
+        self.tags = tags
         self.status = status
     }
 
@@ -122,11 +131,31 @@ public nonisolated struct TodoSummary: Identifiable, Codable, Hashable, Sendable
         self.init(
             id: todo.id,
             title: todo.title,
+            kind: todo.kind,
+            startDate: todo.startDate,
             dueDate: todo.dueDate,
             priority: todo.priority,
             projectIDs: todo.projectIDs,
+            tags: todo.tags,
             status: todo.status
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, kind, startDate, dueDate, priority, projectIDs, tags, status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.kind = try container.decodeIfPresent(TodoKind.self, forKey: .kind) ?? .general
+        self.startDate = try container.decodeIfPresent(Date.self, forKey: .startDate)
+        self.dueDate = try container.decodeIfPresent(Date.self, forKey: .dueDate)
+        self.priority = try container.decode(Priority.self, forKey: .priority)
+        self.projectIDs = try container.decodeIfPresent([String].self, forKey: .projectIDs) ?? []
+        self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        self.status = try container.decode(TodoStatus.self, forKey: .status)
     }
 }
 
@@ -381,6 +410,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
     /// Kept untouched so the existing "Current Reading Plan" card still works.
     public var currentReadingPlan: String?
     public var openTodoCount: Int
+    public var openTodos: [TodoSummary]
     public var builtAt: Date
     public var generationDuration: TimeInterval
 
@@ -395,6 +425,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         nextDeadline: DeadlineSummary?,
         currentReadingPlan: String?,
         openTodoCount: Int,
+        openTodos: [TodoSummary] = [],
         builtAt: Date,
         generationDuration: TimeInterval
     ) {
@@ -408,6 +439,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.nextDeadline = nextDeadline
         self.currentReadingPlan = currentReadingPlan
         self.openTodoCount = openTodoCount
+        self.openTodos = openTodos
         self.builtAt = builtAt
         self.generationDuration = generationDuration
     }
@@ -423,6 +455,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         case nextDeadline
         case currentReadingPlan
         case openTodoCount
+        case openTodos
         case builtAt
         case generationDuration
     }
@@ -439,6 +472,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.nextDeadline = try container.decodeIfPresent(DeadlineSummary.self, forKey: .nextDeadline)
         self.currentReadingPlan = try container.decodeIfPresent(String.self, forKey: .currentReadingPlan)
         self.openTodoCount = try container.decodeIfPresent(Int.self, forKey: .openTodoCount) ?? 0
+        self.openTodos = try container.decodeIfPresent([TodoSummary].self, forKey: .openTodos) ?? []
         self.builtAt = try container.decode(Date.self, forKey: .builtAt)
         self.generationDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .generationDuration) ?? 0
     }

@@ -935,7 +935,7 @@ private struct TodayWidgetContent: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(snapshot.today.dueTodos.prefix(3)) { todo in
-                        HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                        HomeTodoWidgetRow(todo: todo) {
                             appModel.selectGlobalTodos()
                         }
                     }
@@ -946,7 +946,7 @@ private struct TodayWidgetContent: View {
             VStack(alignment: .leading, spacing: 10) {
                 HomeWidgetMetricStrip(metrics: todayMetrics(maxCount: 2))
                 ForEach(snapshot.today.dueTodos.prefix(2)) { todo in
-                    HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                    HomeTodoWidgetRow(todo: todo) {
                         appModel.selectGlobalTodos()
                     }
                 }
@@ -962,7 +962,7 @@ private struct TodayWidgetContent: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(snapshot.today.dueTodos.prefix(4)) { todo in
-                            HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                            HomeTodoWidgetRow(todo: todo) {
                                 appModel.selectGlobalTodos()
                             }
                         }
@@ -980,7 +980,7 @@ private struct TodayWidgetContent: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(snapshot.today.dueTodos.prefix(8)) { todo in
-                            HomeWidgetTextRow(title: todo.title, detail: todoDetail(todo), systemImage: "circle") {
+                            HomeTodoWidgetRow(todo: todo) {
                                 appModel.selectGlobalTodos()
                             }
                         }
@@ -989,10 +989,6 @@ private struct TodayWidgetContent: View {
                 Spacer(minLength: 0)
             }
         }
-    }
-
-    private func todoDetail(_ todo: TodoSummary) -> String {
-        todo.dueDate?.formatted(date: .abbreviated, time: .omitted) ?? todo.priority.label
     }
 
     private func todayMetrics(maxCount: Int) -> [HomeWidgetMetric] {
@@ -2277,6 +2273,54 @@ private struct HomeWidgetSectionList<Content: View>: View {
                 .textCase(.uppercase)
             content
         }
+    }
+}
+
+/// Icon-forward todo row for the Today widget: kind glyph + title + red flags,
+/// with a compact date/range and colored tag chips beneath.
+private struct HomeTodoWidgetRow: View {
+    let todo: TodoSummary
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: todo.kind.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 14)
+                    .foregroundStyle(todo.kind == .reading ? Color.blue : Color.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(todo.title)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        TodoPriorityFlagsBadge(priority: todo.priority)
+                        Spacer(minLength: 0)
+                        if let dateText = HomeTodoDateText.text(for: todo) {
+                            Text(dateText)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if !todo.tags.isEmpty {
+                        TodoTagChipGroup(tags: todo.tags, limit: 3)
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                Color.primary.opacity(isHovering ? 0.04 : 0),
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }
 
