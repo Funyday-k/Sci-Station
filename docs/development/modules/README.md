@@ -5,6 +5,8 @@
 ## 模块列表
 
 - `ShellAndNavigation.md`：窗口、启动、侧边栏、ProjectSpace、toolbar、路由恢复。
+- `HomeWidgetsAndLayout.md`：首页/项目小组件、尺寸体系、四列单位网格、拖拽重排。
+- `VisualDesignSystem.md`：色彩、密度、Liquid Glass 视觉边界、优秀产品参考和跨模块 UI 一致性。
 - `WorkspaceAndModules.md`：Research Root、workspace module、插件贡献、设置。
 - `LibraryPDFWiki.md`：论文库、PDF reader、Wiki、Markdown。
 - `QueueRecommendationReadingPlan.md`：Research Queue、Recommendation、Reading Plan 闭环。

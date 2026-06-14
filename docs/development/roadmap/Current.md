@@ -22,6 +22,9 @@
 ### 可选
 
 - 添加 About/diagnostics 中更清晰的 beta 通道显示。
+- Home/Project widget 设计系统更新：统一五种尺寸、四列单位网格、gravity/skyline 堆叠、SVG 审阅稿。
+- macOS 27 / Liquid Glass 适配规划：清理旧自绘 chrome，优先系统 toolbar/sidebar/search/sheet 行为。
+- AI 对话升级和插件接口可行性文档沉淀。
 
 ### 不做
 

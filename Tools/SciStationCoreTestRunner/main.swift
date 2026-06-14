@@ -40,6 +40,7 @@ private struct CoreVerificationSuite {
         try homeWidgetGridReflowsForTwoColumns()
         try homeWidgetGridReflowsForSingleColumn()
         try homeWidgetGridRepackAvoidsOverlap()
+        try homeWidgetGridUsesGravityPacking()
         try homeWidgetResetRestoresDefaultLayout()
         try homeWidgetDragOntoCommitsInBothDirections()
         try toolbarPolicyShowsImportOnlyForLibraryContexts()
@@ -781,6 +782,15 @@ private struct CoreVerificationSuite {
         try expect(model.effectiveRightRailMode == .hidden, "Responsive shell policy should hide the right rail below 1000pt.")
         try expect(model.homeWidgetColumns == 2, "Responsive shell policy should use two Home widget columns for compact widths.")
         try expect(model.shouldCollapseProjectTree, "Responsive shell policy should collapse project tree in compact widths.")
+
+        let regularModel = ResponsiveShellPolicy.resolve(
+            width: 1100,
+            route: WorkspaceRoute(top: .home),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "home"),
+            preferredRightRailMode: .hidden
+        )
+        try expect(regularModel.bucket == .regular, "Responsive shell policy should classify 1100pt as regular.")
+        try expect(regularModel.homeWidgetColumns == 4, "Regular and expanded Home widget layouts should use the four-unit grid, not a three-column split.")
     }
 
     private func responsivePolicyMovesToolbarActionsToOverflow() throws {
@@ -810,6 +820,12 @@ private struct CoreVerificationSuite {
 
         try expect(ids == expectedIDs, "Home widget registry should include every default dashboard widget.")
         try expect(HomeWidgetRegistry.defaultDescriptors.allSatisfy { !$0.supportedSizes.isEmpty }, "Home widget descriptors should declare supported sizes.")
+        try expect(HomeWidgetRegistry.defaultDescriptors.allSatisfy { $0.supportedSizes == Set(HomeWidgetSize.allCases) }, "Every Home widget should support all five dashboard sizes.")
+        try expect(HomeWidgetSize.small.rowSpan == 1 && HomeWidgetSize.small.columnSpan == 1, "Small widget size should be 1×1.")
+        try expect(HomeWidgetSize.wide.rowSpan == 1 && HomeWidgetSize.wide.columnSpan == 2, "Wide widget size should be 1×2.")
+        try expect(HomeWidgetSize.tall.rowSpan == 2 && HomeWidgetSize.tall.columnSpan == 1, "Tall widget size should be 2×1.")
+        try expect(HomeWidgetSize.medium.rowSpan == 2 && HomeWidgetSize.medium.columnSpan == 2, "Medium widget size should be 2×2.")
+        try expect(HomeWidgetSize.large.rowSpan == 3 && HomeWidgetSize.large.columnSpan == 3, "Large widget size should be 3×3.")
     }
 
     private func homeWidgetRegistryFiltersDisabledModules() throws {
@@ -849,10 +865,27 @@ private struct CoreVerificationSuite {
             HomeWidgetLayoutItem(widgetID: HomeWidgetID.activeProjects, size: .wide, column: 0, row: 0),
             HomeWidgetLayoutItem(widgetID: HomeWidgetID.aiReview, size: .medium, column: 0, row: 0)
         ])
-        let normalized = collidingLayout.normalized(descriptors: descriptors, columns: 3)
+        let normalized = collidingLayout.normalized(descriptors: descriptors, columns: 4)
 
-        try expect(!HomeWidgetGridPlanner.hasOverlap(items: normalized.items, descriptorsByID: descriptorsByID, columns: 3), "Home widget planner should repack colliding items without overlap.")
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: normalized.items, descriptorsByID: descriptorsByID, columns: 4), "Home widget planner should repack colliding items without overlap.")
         try expect(normalized.items.count == descriptors.count, "Home widget normalization should backfill missing default descriptors.")
+    }
+
+    private func homeWidgetGridUsesGravityPacking() throws {
+        let descriptors = HomeWidgetRegistry.defaultDescriptors
+        let descriptorsByID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+        let layout = HomeWidgetLayout(items: [
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.today, size: .tall),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.activeProjects, size: .wide),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.aiReview, size: .small),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.quickActions, size: .medium)
+        ]).normalized(descriptors: descriptors, columns: 4)
+
+        let items = Dictionary(uniqueKeysWithValues: layout.items.map { ($0.widgetID, $0) })
+        try expect(items[HomeWidgetID.today]?.column == 0 && items[HomeWidgetID.today]?.row == 0, "First tall widget should drop into the first column.")
+        try expect(items[HomeWidgetID.activeProjects]?.column == 1 && items[HomeWidgetID.activeProjects]?.row == 0, "Wide widget should drop beside the tall widget when columns 1-2 are lower.")
+        try expect(items[HomeWidgetID.aiReview]?.column == 3 && items[HomeWidgetID.aiReview]?.row == 0, "Small widget should fill the remaining low column before stacking below taller columns.")
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: layout.items, descriptorsByID: descriptorsByID, columns: 4), "Gravity-packed widgets should not overlap.")
     }
 
     private func homeWidgetResetRestoresDefaultLayout() throws {

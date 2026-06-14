@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
 
+private struct ProjectWidgetGridWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct ProjectOverviewView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -22,10 +30,12 @@ struct ProjectOverviewView: View {
     @State private var projectWidgetDragTranslation: CGSize = .zero
     @State private var projectWidgetDragPreviewLayout: HomeWidgetLayout?
     @State private var projectWidgetDragBaseLayout: HomeWidgetLayout?
+    @State private var projectWidgetGridContainerWidth: CGFloat = 0
 
     private let materialRepository = WorkspaceMaterialRepository()
     private let projectWidgetSpacing: CGFloat = 14
-    private let projectWidgetRowHeight: CGFloat = 152
+    private let projectWidgetFallbackUnitSize: CGFloat = 152
+    private let projectWidgetMinimumUnitSize: CGFloat = 96
     private static let projectWidgetGridCoordinateSpace = "project-overview-widget-grid"
 
     private var projectOverviewPath: String {
@@ -212,18 +222,19 @@ struct ProjectOverviewView: View {
         let gridHeight = projectWidgetGridHeight(for: visibleItems, columns: columns)
 
         return GeometryReader { proxy in
-            let columnWidth = projectWidgetColumnWidth(containerWidth: proxy.size.width, columns: columns)
+            let unitSize = projectWidgetUnitSize(containerWidth: proxy.size.width, columns: columns)
+            let measuredGridHeight = projectWidgetGridHeight(for: visibleItems, columns: columns, unitSize: unitSize)
 
             ZStack(alignment: .topLeading) {
                 if isEditingProjectWidgetLayout {
-                    projectWidgetGridBackdrop(columnWidth: columnWidth, columns: columns, rows: max(1, projectWidgetTotalRows(for: visibleItems, columns: columns)))
+                    projectWidgetGridBackdrop(unitSize: unitSize, columns: columns, rows: max(1, projectWidgetTotalRows(for: visibleItems, columns: columns)))
                 }
 
                 ForEach(visibleItems) { item in
                     if let descriptor = ProjectOverviewWidgetRegistry.descriptor(id: item.widgetID) {
                         let isDragging = draggedProjectWidgetID == item.widgetID
                         let positionItem = isDragging ? (projectWidgetDragBaseLayout?.items.first { $0.widgetID == item.widgetID } ?? item) : item
-                        let metrics = projectWidgetCellMetrics(for: positionItem, columnWidth: columnWidth, columns: columns)
+                        let metrics = projectWidgetCellMetrics(for: positionItem, unitSize: unitSize, columns: columns)
                         projectWidgetCell(
                             item: item,
                             descriptor: descriptor,
@@ -233,10 +244,10 @@ struct ProjectOverviewView: View {
                                 beginProjectWidgetDrag(item: item, columns: columns)
                             },
                             onDragChanged: { value in
-                                updateProjectWidgetDrag(value: value, columnWidth: columnWidth, columns: columns)
+                                updateProjectWidgetDrag(value: value, unitSize: unitSize, columns: columns)
                             },
                             onDragEnded: { value in
-                                endProjectWidgetDrag(value: value, columnWidth: columnWidth, columns: columns)
+                                endProjectWidgetDrag(value: value, unitSize: unitSize, columns: columns)
                             }
                         )
                             .frame(width: metrics.width, height: metrics.height)
@@ -249,9 +260,18 @@ struct ProjectOverviewView: View {
                     }
                 }
             }
-            .frame(width: proxy.size.width, height: gridHeight, alignment: .topLeading)
+            .frame(width: proxy.size.width, height: measuredGridHeight, alignment: .topLeading)
         }
         .frame(height: gridHeight)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: ProjectWidgetGridWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(ProjectWidgetGridWidthPreferenceKey.self) { width in
+            guard abs(projectWidgetGridContainerWidth - width) > 0.5 else { return }
+            projectWidgetGridContainerWidth = width
+        }
         .coordinateSpace(name: Self.projectWidgetGridCoordinateSpace)
     }
 
@@ -297,11 +317,11 @@ struct ProjectOverviewView: View {
         projectWidgetDragPreviewLayout = baseLayout
     }
 
-    private func updateProjectWidgetDrag(value: DragGesture.Value, columnWidth: CGFloat, columns: Int) {
+    private func updateProjectWidgetDrag(value: DragGesture.Value, unitSize: CGFloat, columns: Int) {
         guard let sourceID = draggedProjectWidgetID else { return }
         let baseLayout = projectWidgetDragBaseLayout ?? projectWidgetLayout.normalized(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
         var preview = baseLayout
-        if let targetID = projectWidgetID(at: value.location, columnWidth: columnWidth, columns: columns, layout: baseLayout),
+        if let targetID = projectWidgetID(at: value.location, unitSize: unitSize, columns: columns, layout: baseLayout),
            targetID != sourceID {
             preview.moveWidget(sourceID, onto: targetID, descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
         }
@@ -309,11 +329,11 @@ struct ProjectOverviewView: View {
         projectWidgetDragPreviewLayout = preview
     }
 
-    private func endProjectWidgetDrag(value: DragGesture.Value, columnWidth: CGFloat, columns: Int) {
+    private func endProjectWidgetDrag(value: DragGesture.Value, unitSize: CGFloat, columns: Int) {
         defer { clearProjectWidgetDrag() }
         guard let sourceID = draggedProjectWidgetID else { return }
         let baseLayout = projectWidgetDragBaseLayout ?? projectWidgetLayout.normalized(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
-        guard let targetID = projectWidgetID(at: value.location, columnWidth: columnWidth, columns: columns, layout: baseLayout),
+        guard let targetID = projectWidgetID(at: value.location, unitSize: unitSize, columns: columns, layout: baseLayout),
               targetID != sourceID else {
             return
         }
@@ -327,10 +347,10 @@ struct ProjectOverviewView: View {
         projectWidgetDragBaseLayout = nil
     }
 
-    private func projectWidgetID(at point: CGPoint, columnWidth: CGFloat, columns: Int, layout: HomeWidgetLayout) -> String? {
+    private func projectWidgetID(at point: CGPoint, unitSize: CGFloat, columns: Int, layout: HomeWidgetLayout) -> String? {
         guard point.x >= 0, point.y >= 0 else { return nil }
-        let pitchX = columnWidth + projectWidgetSpacing
-        let pitchY = projectWidgetRowHeight + projectWidgetSpacing
+        let pitchX = unitSize + projectWidgetSpacing
+        let pitchY = unitSize + projectWidgetSpacing
         let column = min(columns - 1, max(0, Int(point.x / pitchX)))
         let row = max(0, Int(point.y / pitchY))
         let candidates = layout.visibleItems(descriptors: ProjectOverviewWidgetRegistry.layoutDescriptors, columns: columns)
@@ -403,16 +423,16 @@ struct ProjectOverviewView: View {
     }
 
     @ViewBuilder
-    private func projectWidgetGridBackdrop(columnWidth: CGFloat, columns: Int, rows: Int) -> some View {
+    private func projectWidgetGridBackdrop(unitSize: CGFloat, columns: Int, rows: Int) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<rows, id: \.self) { row in
                 ForEach(0..<columns, id: \.self) { column in
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(Color.primary.opacity(0.05), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                        .frame(width: columnWidth, height: projectWidgetRowHeight)
+                        .frame(width: unitSize, height: unitSize)
                         .offset(
-                            x: CGFloat(column) * (columnWidth + projectWidgetSpacing),
-                            y: CGFloat(row) * (projectWidgetRowHeight + projectWidgetSpacing)
+                            x: CGFloat(column) * (unitSize + projectWidgetSpacing),
+                            y: CGFloat(row) * (unitSize + projectWidgetSpacing)
                         )
                 }
             }
@@ -421,9 +441,17 @@ struct ProjectOverviewView: View {
     }
 
     private func projectWidgetGridHeight(for items: [HomeWidgetLayoutItem], columns: Int) -> CGFloat {
+        projectWidgetGridHeight(
+            for: items,
+            columns: columns,
+            unitSize: projectWidgetUnitSize(containerWidth: projectWidgetGridContainerWidth, columns: columns)
+        )
+    }
+
+    private func projectWidgetGridHeight(for items: [HomeWidgetLayoutItem], columns: Int, unitSize: CGFloat) -> CGFloat {
         let rows = projectWidgetTotalRows(for: items, columns: columns)
         guard rows > 0 else { return 0 }
-        return CGFloat(rows) * projectWidgetRowHeight + CGFloat(max(0, rows - 1)) * projectWidgetSpacing
+        return CGFloat(rows) * unitSize + CGFloat(max(0, rows - 1)) * projectWidgetSpacing
     }
 
     private func projectWidgetTotalRows(for items: [HomeWidgetLayoutItem], columns: Int) -> Int {
@@ -434,18 +462,19 @@ struct ProjectOverviewView: View {
             .max() ?? 0
     }
 
-    private func projectWidgetColumnWidth(containerWidth: CGFloat, columns: Int) -> CGFloat {
+    private func projectWidgetUnitSize(containerWidth: CGFloat, columns: Int) -> CGFloat {
+        guard containerWidth > 1 else { return projectWidgetFallbackUnitSize }
         let totalSpacing = CGFloat(max(0, columns - 1)) * projectWidgetSpacing
-        return max(80, (containerWidth - totalSpacing) / CGFloat(max(1, columns)))
+        return max(projectWidgetMinimumUnitSize, (containerWidth - totalSpacing) / CGFloat(max(1, columns)))
     }
 
-    private func projectWidgetCellMetrics(for item: HomeWidgetLayoutItem, columnWidth: CGFloat, columns: Int) -> (x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+    private func projectWidgetCellMetrics(for item: HomeWidgetLayoutItem, unitSize: CGFloat, columns: Int) -> (x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
         let columnSpan = min(columns, max(1, item.size.columnSpan))
         let rowSpan = max(1, item.size.rowSpan)
-        let x = CGFloat(item.column) * (columnWidth + projectWidgetSpacing)
-        let y = CGFloat(item.row) * (projectWidgetRowHeight + projectWidgetSpacing)
-        let width = CGFloat(columnSpan) * columnWidth + CGFloat(max(0, columnSpan - 1)) * projectWidgetSpacing
-        let height = CGFloat(rowSpan) * projectWidgetRowHeight + CGFloat(max(0, rowSpan - 1)) * projectWidgetSpacing
+        let x = CGFloat(item.column) * (unitSize + projectWidgetSpacing)
+        let y = CGFloat(item.row) * (unitSize + projectWidgetSpacing)
+        let width = CGFloat(columnSpan) * unitSize + CGFloat(max(0, columnSpan - 1)) * projectWidgetSpacing
+        let height = CGFloat(rowSpan) * unitSize + CGFloat(max(0, rowSpan - 1)) * projectWidgetSpacing
         return (x, y, width, height)
     }
 
@@ -1290,7 +1319,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "gauge.with.dots.needle.33percent",
             accent: .accentColor,
             defaultSize: .small,
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 0
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1299,7 +1328,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "doc.text",
             accent: .blue,
             defaultSize: .medium,
-            supportedSizes: [.medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 2
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1308,7 +1337,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "questionmark.bubble",
             accent: .teal,
             defaultSize: .small,
-            supportedSizes: [.small, .tall, .medium, .large],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 1
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1317,7 +1346,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "star",
             accent: .indigo,
             defaultSize: .medium,
-            supportedSizes: [.small, .tall, .medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 3
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1326,7 +1355,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "checklist",
             accent: .orange,
             defaultSize: .medium,
-            supportedSizes: [.small, .tall, .medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 4
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1335,7 +1364,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "shippingbox",
             accent: .green,
             defaultSize: .small,
-            supportedSizes: [.small, .tall, .medium, .large],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 5
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1344,7 +1373,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "scope",
             accent: .purple,
             defaultSize: .small,
-            supportedSizes: [.small, .tall, .medium, .large],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 6
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1353,7 +1382,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "clock.arrow.circlepath",
             accent: .red,
             defaultSize: .medium,
-            supportedSizes: [.small, .tall, .medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 7
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1362,7 +1391,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "doc.on.doc",
             accent: .cyan,
             defaultSize: .medium,
-            supportedSizes: [.small, .tall, .medium, .large],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 8
         ),
         ProjectOverviewWidgetDescriptor(
@@ -1371,7 +1400,7 @@ private enum ProjectOverviewWidgetRegistry {
             systemImage: "square.grid.2x2",
             accent: .yellow,
             defaultSize: .medium,
-            supportedSizes: [.small, .tall, .medium, .large],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 9
         )
     ]
@@ -1770,21 +1799,21 @@ private struct ProjectOverviewWidgetDragGestureModifier: ViewModifier {
 
 private extension HomeWidgetSize {
     var isProjectOverviewCompact: Bool {
-        self == .small
+        self == .small || self == .wide
     }
 
     var projectOverviewListLimit: Int {
         switch self {
         case .small:
             return 1
+        case .wide:
+            return 2
         case .tall:
             return 3
         case .medium:
             return 4
         case .large:
             return 8
-        case .wide:
-            return 10
         }
     }
 
@@ -1792,14 +1821,14 @@ private extension HomeWidgetSize {
         switch self {
         case .small:
             return 86
+        case .wide:
+            return 96
         case .tall:
             return 180
         case .medium:
             return 220
         case .large:
             return 360
-        case .wide:
-            return 520
         }
     }
 
@@ -1807,14 +1836,14 @@ private extension HomeWidgetSize {
         switch self {
         case .small:
             return "square"
+        case .wide:
+            return "rectangle"
         case .tall:
             return "rectangle.portrait"
         case .medium:
             return "square.grid.2x2"
         case .large:
             return "square.grid.3x3"
-        case .wide:
-            return "rectangle.grid.3x2"
         }
     }
 
@@ -1822,14 +1851,14 @@ private extension HomeWidgetSize {
         switch self {
         case .small:
             return appModel.t(.homeWidgetSizeSmall)
+        case .wide:
+            return appModel.t(.homeWidgetSizeWide)
         case .tall:
             return appModel.t(.homeWidgetSizeTall)
         case .medium:
             return appModel.t(.homeWidgetSizeMedium)
         case .large:
             return appModel.t(.homeWidgetSizeLarge)
-        case .wide:
-            return appModel.t(.homeWidgetSizeWide)
         }
     }
 }

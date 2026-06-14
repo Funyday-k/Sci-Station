@@ -7,11 +7,22 @@ import SwiftUI
 private enum HomeWidgetGridConstants {
     /// Vertical/horizontal spacing between tiles.
     static let spacing: CGFloat = 14
-    /// Vertical extent of one grid row. Cells are not perfectly square because the
-    /// available width varies, but this gives small tiles a comfortable footprint.
-    static let rowHeight: CGFloat = 152
+    /// Used before the grid has measured its container. The live unit is
+    /// derived from submitted column width so a 1×1 tile renders as a square.
+    static let fallbackUnitSize: CGFloat = 152
+    /// Prevents very narrow windows from collapsing widget cells into unusable
+    /// strips before the responsive policy drops to fewer columns.
+    static let minimumUnitSize: CGFloat = 96
     /// Outer padding so the grid never butts up against the scroll container.
     static let outerPadding: CGFloat = 0
+}
+
+private struct HomeWidgetGridWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }
 
 // MARK: - Drag controller
@@ -72,6 +83,7 @@ private final class HomeWidgetDragController: ObservableObject {
 struct HomeWidgetDashboardView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @StateObject private var dragController = HomeWidgetDragController()
+    @State private var gridContainerWidth: CGFloat = 0
 
     let snapshot: HomeSnapshot
 
@@ -102,16 +114,27 @@ struct HomeWidgetDashboardView: View {
     private var totalRows: Int {
         visibleItems
             .map { item in
-                let rs = max(1, min(columns * 4, item.size.rowSpan))
+                let rs = max(1, item.size.rowSpan)
                 return item.row + rs
             }
             .max() ?? 0
     }
 
     private var gridHeight: CGFloat {
+        gridHeight(unitSize: gridUnitSize(forWidth: gridContainerWidth, cols: columns))
+    }
+
+    private func gridHeight(unitSize: CGFloat) -> CGFloat {
         guard totalRows > 0 else { return 0 }
-        return CGFloat(totalRows) * HomeWidgetGridConstants.rowHeight
+        return CGFloat(totalRows) * unitSize
             + CGFloat(max(0, totalRows - 1)) * HomeWidgetGridConstants.spacing
+    }
+
+    private func gridUnitSize(forWidth width: CGFloat, cols: Int) -> CGFloat {
+        let safeColumns = max(1, cols)
+        guard width > 1 else { return HomeWidgetGridConstants.fallbackUnitSize }
+        let totalSpacing = CGFloat(max(0, safeColumns - 1)) * HomeWidgetGridConstants.spacing
+        return max(HomeWidgetGridConstants.minimumUnitSize, (width - totalSpacing) / CGFloat(safeColumns))
     }
 
     var body: some View {
@@ -144,13 +167,13 @@ struct HomeWidgetDashboardView: View {
     private var grid: some View {
         GeometryReader { proxy in
             let cols = max(1, columns)
-            let totalSpacing = CGFloat(max(0, cols - 1)) * HomeWidgetGridConstants.spacing
-            let columnWidth = max(40, (proxy.size.width - totalSpacing) / CGFloat(cols))
+            let unitSize = gridUnitSize(forWidth: proxy.size.width, cols: cols)
+            let measuredGridHeight = gridHeight(unitSize: unitSize)
 
             GlassEffectContainer(spacing: HomeWidgetGridConstants.spacing) {
                 ZStack(alignment: .topLeading) {
                     if appModel.isEditingHomeLayout {
-                        gridBackdrop(columnWidth: columnWidth, cols: cols)
+                        gridBackdrop(unitSize: unitSize, cols: cols)
                     }
 
                     ForEach(visibleItems) { item in
@@ -167,7 +190,7 @@ struct HomeWidgetDashboardView: View {
                                 }
                                 return item
                             }()
-                            let metrics = cellMetrics(for: positionItem, columnWidth: columnWidth, cols: cols)
+                            let metrics = cellMetrics(for: positionItem, unitSize: unitSize, cols: cols)
                             HomeWidgetCard(
                                 item: item,
                                 descriptor: descriptor,
@@ -179,10 +202,10 @@ struct HomeWidgetDashboardView: View {
                                     beginDrag(item: item, cols: cols)
                                 },
                                 onDragChanged: { value in
-                                    updateDrag(value: value, columnWidth: columnWidth, cols: cols)
+                                    updateDrag(value: value, unitSize: unitSize, cols: cols)
                                 },
                                 onDragEnded: { value in
-                                    endDrag(value: value, columnWidth: columnWidth, cols: cols)
+                                    endDrag(value: value, unitSize: unitSize, cols: cols)
                                 }
                             )
                             .frame(width: metrics.width, height: metrics.height)
@@ -196,10 +219,19 @@ struct HomeWidgetDashboardView: View {
                         }
                     }
                 }
-                .frame(width: proxy.size.width, height: gridHeight, alignment: .topLeading)
+                .frame(width: proxy.size.width, height: measuredGridHeight, alignment: .topLeading)
             }
         }
         .frame(height: gridHeight)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: HomeWidgetGridWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(HomeWidgetGridWidthPreferenceKey.self) { width in
+            guard abs(gridContainerWidth - width) > 0.5 else { return }
+            gridContainerWidth = width
+        }
         .coordinateSpace(name: Self.gridCoordinateSpace)
     }
 
@@ -222,14 +254,14 @@ struct HomeWidgetDashboardView: View {
     /// moving in the preview layout.
     private func updateDrag(
         value: DragGesture.Value,
-        columnWidth: CGFloat,
+        unitSize: CGFloat,
         cols: Int
     ) {
         guard let sourceID = dragController.draggedWidgetID else { return }
         let preview = previewLayout(
             sourceID: sourceID,
             cursor: value.location,
-            columnWidth: columnWidth,
+            unitSize: unitSize,
             cols: cols
         )
         dragController.update(translation: value.translation, previewLayout: preview)
@@ -242,12 +274,12 @@ struct HomeWidgetDashboardView: View {
     /// forward and backward drags BOTH swap into the target's slot.
     private func endDrag(
         value: DragGesture.Value,
-        columnWidth: CGFloat,
+        unitSize: CGFloat,
         cols: Int
     ) {
         defer { dragController.end() }
         guard let sourceID = dragController.draggedWidgetID else { return }
-        guard let targetID = widgetID(at: value.location, columnWidth: columnWidth, cols: cols),
+        guard let targetID = widgetID(at: value.location, unitSize: unitSize, cols: cols),
               targetID != sourceID else {
             return
         }
@@ -263,11 +295,11 @@ struct HomeWidgetDashboardView: View {
     private func previewLayout(
         sourceID: String,
         cursor: CGPoint,
-        columnWidth: CGFloat,
+        unitSize: CGFloat,
         cols: Int
     ) -> HomeWidgetLayout {
         var preview = normalizedLayout
-        if let targetID = widgetID(at: cursor, columnWidth: columnWidth, cols: cols),
+        if let targetID = widgetID(at: cursor, unitSize: unitSize, cols: cols),
            targetID != sourceID {
             preview.moveWidget(
                 sourceID,
@@ -281,10 +313,10 @@ struct HomeWidgetDashboardView: View {
 
     /// Look up the widget whose cell currently contains the given grid point.
     /// Returns nil for empty grid cells / out-of-bounds points.
-    private func widgetID(at point: CGPoint, columnWidth: CGFloat, cols: Int) -> String? {
+    private func widgetID(at point: CGPoint, unitSize: CGFloat, cols: Int) -> String? {
         guard point.x >= 0, point.y >= 0 else { return nil }
-        let pitchX = columnWidth + HomeWidgetGridConstants.spacing
-        let pitchY = HomeWidgetGridConstants.rowHeight + HomeWidgetGridConstants.spacing
+        let pitchX = unitSize + HomeWidgetGridConstants.spacing
+        let pitchY = unitSize + HomeWidgetGridConstants.spacing
         let col = min(cols - 1, max(0, Int(point.x / pitchX)))
         let row = max(0, Int(point.y / pitchY))
         // Use the un-previewed normalized layout for hit testing so the cell
@@ -303,7 +335,7 @@ struct HomeWidgetDashboardView: View {
 
     /// Faint grid lines that only appear in edit mode so users understand it's a tile grid.
     @ViewBuilder
-    private func gridBackdrop(columnWidth: CGFloat, cols: Int) -> some View {
+    private func gridBackdrop(unitSize: CGFloat, cols: Int) -> some View {
         let rows = max(totalRows, 1)
         ZStack(alignment: .topLeading) {
             ForEach(0..<rows, id: \.self) { row in
@@ -313,10 +345,10 @@ struct HomeWidgetDashboardView: View {
                             Color.primary.opacity(0.05),
                             style: StrokeStyle(lineWidth: 1, dash: [4, 4])
                         )
-                        .frame(width: columnWidth, height: HomeWidgetGridConstants.rowHeight)
+                        .frame(width: unitSize, height: unitSize)
                         .offset(
-                            x: CGFloat(col) * (columnWidth + HomeWidgetGridConstants.spacing),
-                            y: CGFloat(row) * (HomeWidgetGridConstants.rowHeight + HomeWidgetGridConstants.spacing)
+                            x: CGFloat(col) * (unitSize + HomeWidgetGridConstants.spacing),
+                            y: CGFloat(row) * (unitSize + HomeWidgetGridConstants.spacing)
                         )
                 }
             }
@@ -324,13 +356,13 @@ struct HomeWidgetDashboardView: View {
         .allowsHitTesting(false)
     }
 
-    private func cellMetrics(for item: HomeWidgetLayoutItem, columnWidth: CGFloat, cols: Int) -> (x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+    private func cellMetrics(for item: HomeWidgetLayoutItem, unitSize: CGFloat, cols: Int) -> (x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
         let cs = min(cols, max(1, item.size.columnSpan))
         let rs = max(1, item.size.rowSpan)
-        let x = CGFloat(item.column) * (columnWidth + HomeWidgetGridConstants.spacing)
-        let y = CGFloat(item.row) * (HomeWidgetGridConstants.rowHeight + HomeWidgetGridConstants.spacing)
-        let w = CGFloat(cs) * columnWidth + CGFloat(cs - 1) * HomeWidgetGridConstants.spacing
-        let h = CGFloat(rs) * HomeWidgetGridConstants.rowHeight + CGFloat(rs - 1) * HomeWidgetGridConstants.spacing
+        let x = CGFloat(item.column) * (unitSize + HomeWidgetGridConstants.spacing)
+        let y = CGFloat(item.row) * (unitSize + HomeWidgetGridConstants.spacing)
+        let w = CGFloat(cs) * unitSize + CGFloat(cs - 1) * HomeWidgetGridConstants.spacing
+        let h = CGFloat(rs) * unitSize + CGFloat(rs - 1) * HomeWidgetGridConstants.spacing
         return (x, y, w, h)
     }
 
@@ -411,14 +443,19 @@ private struct HomeWidgetCard: View {
     let onDragEnded: (DragGesture.Value) -> Void
 
     private var effectiveSize: HomeWidgetSize {
-        // Clamp visual size to available columns so a "wide" (4×4) widget in a 2-col
-        // layout renders its "medium" variant instead of squishing 4-col content.
+        // Clamp visual size to available columns while preserving directional
+        // variants. A 1×2 wide widget should not render as a 2×2 medium card
+        // just because both consume two columns.
         let cs = min(columns, max(1, item.size.columnSpan))
+        if item.size == .tall {
+            return .tall
+        }
+        if item.size == .wide {
+            return columns >= 2 ? .wide : .small
+        }
         switch cs {
         case 1:
-            // Preserve the .tall (1×2) variant — it has a vertical content
-            // layout that should not be collapsed to the .small renderer.
-            return item.size == .tall ? .tall : .small
+            return .small
         case 2: return .medium
         case 3: return .large
         default: return item.size
@@ -443,18 +480,17 @@ private struct HomeWidgetCard: View {
 
     private var cardCorner: CGFloat {
         switch effectiveSize {
-        case .small, .tall: return 18
+        case .small, .wide, .tall: return 18
         case .medium: return 22
-        case .large, .wide: return 26
+        case .large: return 26
         }
     }
 
     private var cardPadding: CGFloat {
         switch effectiveSize {
-        case .small, .tall: return 12
+        case .small, .wide, .tall: return 12
         case .medium: return 16
         case .large: return 18
-        case .wide: return 20
         }
     }
 
@@ -555,11 +591,10 @@ private struct HomeWidgetCard: View {
 
     private var spacingForSize: CGFloat {
         switch effectiveSize {
-        case .small: return 8
+        case .small, .wide: return 8
         case .tall: return 10
         case .medium: return 12
         case .large: return 14
-        case .wide: return 16
         }
     }
 
@@ -629,10 +664,9 @@ private struct HomeWidgetCard: View {
 
     private var headerFont: Font {
         switch effectiveSize {
-        case .small, .tall: return .caption.weight(.semibold)
+        case .small, .wide, .tall: return .caption.weight(.semibold)
         case .medium: return .headline
         case .large: return .title3.weight(.semibold)
-        case .wide: return .title2.weight(.semibold)
         }
     }
 
@@ -682,10 +716,10 @@ private struct HomeWidgetCard: View {
     private func sizeIcon(_ size: HomeWidgetSize) -> String {
         switch size {
         case .small: return "square"
+        case .wide: return "rectangle"
         case .tall: return "rectangle.portrait"
         case .medium: return "square.grid.2x2"
         case .large: return "square.grid.3x3"
-        case .wide: return "square.grid.4x3.fill"
         }
     }
 
@@ -971,19 +1005,11 @@ private struct TodayWidgetContent: View {
                 Spacer(minLength: 0)
             }
         case .wide:
-            VStack(alignment: .leading, spacing: 14) {
-                HomeWidgetMetricStrip(metrics: todayMetrics(maxCount: 4))
-                HomeWidgetSectionList(title: appModel.t(.routeTasks), systemImage: "checklist") {
-                    if snapshot.today.dueTodos.isEmpty {
-                        Text(appModel.t(.homeReadingPlanEmpty))
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(snapshot.today.dueTodos.prefix(8)) { todo in
-                            HomeTodoWidgetRow(todo: todo) {
-                                appModel.selectGlobalTodos()
-                            }
-                        }
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetMetricStrip(metrics: todayMetrics(maxCount: 2))
+                if let todo = snapshot.today.dueTodos.first {
+                    HomeTodoWidgetRow(todo: todo) {
+                        appModel.selectGlobalTodos()
                     }
                 }
                 Spacer(minLength: 0)
@@ -1034,7 +1060,7 @@ private struct ActiveProjectsWidgetContent: View {
         case .large:
             projectsList(limit: 6)
         case .wide:
-            projectsList(limit: 10)
+            projectsList(limit: 2)
         }
     }
 
@@ -1131,14 +1157,19 @@ private struct AIReviewWidgetContent: View {
                 }
                 Spacer(minLength: 0)
             }
-        case .large, .wide:
+        case .large:
             VStack(alignment: .leading, spacing: 12) {
                 HomeWidgetMetricStrip(metrics: aiMetrics)
-                ForEach(aiReview.needsApproval.prefix(size == .wide ? 6 : 4)) { draft in
+                ForEach(aiReview.needsApproval.prefix(4)) { draft in
                     HomeWidgetTextRow(title: draft.title, detail: draft.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "doc.badge.clock") {
                         appModel.selectSection(appModel.isWorkspaceSectionAvailable(.inbox) ? .inbox : .llmLab)
                     }
                 }
+                Spacer(minLength: 0)
+            }
+        case .wide:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetMetricStrip(metrics: Array(aiMetrics.prefix(2)))
                 Spacer(minLength: 0)
             }
         }
@@ -1172,11 +1203,7 @@ private struct CalendarWidgetContent: View {
         case .large:
             CompactMonthGrid(showsSelection: true, density: .comfortable, showsAgenda: true, agendaLimit: 4)
         case .wide:
-            DashboardCalendarView(selectedDate: Binding(
-                get: { appModel.selectedDashboardDate },
-                set: { appModel.selectDashboardDate($0) }
-            ))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            CompactMonthGrid(showsSelection: true, density: .compact, showsAgenda: true, agendaLimit: 1)
         }
     }
 }
@@ -1735,13 +1762,8 @@ private struct RecentPapersWidgetContent: View {
                 Spacer(minLength: 0)
             }
         case .wide:
-            VStack(alignment: .leading, spacing: 16) {
-                HomeWidgetSectionList(title: appModel.t(.homeRecentlyAdded), systemImage: "plus") {
-                    paperRows(appModel.recentPapers.prefix(5))
-                }
-                HomeWidgetSectionList(title: appModel.t(.homeRecentlyRead), systemImage: "clock") {
-                    paperRows(appModel.recentlyReadPapers.prefix(5))
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                paperRows(appModel.recentPapers.prefix(2))
                 Spacer(minLength: 0)
             }
         }
@@ -1802,7 +1824,7 @@ private struct ReadingPlanWidgetContent: View {
         case .large:
             list(limit: 6)
         case .wide:
-            list(limit: 10)
+            list(limit: 2)
         }
     }
 
@@ -1871,13 +1893,18 @@ private struct ProjectHealthWidgetContent: View {
                 HomeWidgetMetricStrip(metrics: metrics(suffix: 2))
                 Spacer(minLength: 0)
             }
-        case .large, .wide:
+        case .large:
             VStack(alignment: .leading, spacing: 12) {
                 Text(appModel.tf(.homeProjectHealthSummaryFormat, snapshot.activeProjects.count, paperCount, openTodoCount, reviewCount))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HomeWidgetMetricStrip(metrics: metrics(prefix: 4))
+                Spacer(minLength: 0)
+            }
+        case .wide:
+            VStack(alignment: .leading, spacing: 8) {
+                HomeWidgetMetricStrip(metrics: metrics(prefix: 2))
                 Spacer(minLength: 0)
             }
         }
@@ -1931,7 +1958,19 @@ private struct QuickActionsWidgetContent: View {
                 }
                 Spacer(minLength: 0)
             }
-        case .medium, .large, .wide:
+        case .wide:
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    actionTile(title: appModel.t(.homeQuickActionOpenLibrary), systemImage: "doc.richtext", tint: .indigo) {
+                        appModel.selectSection(.library)
+                    }
+                    actionTile(title: appModel.t(.routeAILab), systemImage: "brain", tint: .purple) {
+                        appModel.selectSection(.llmLab)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        case .medium, .large:
             VStack(spacing: 7) {
                 actionRow(title: appModel.t(.homeQuickActionOpenLibrary), systemImage: "doc.richtext", tint: .indigo) {
                     appModel.selectSection(.library)
@@ -2120,7 +2159,7 @@ private struct HomeSmallList: View {
     }
 }
 
-/// Compact header for `.tall` (1×2) widget variants. Shows the count and
+/// Compact header for `.tall` (2×1) widget variants. Shows the count and
 /// caption in a single row so the remaining height can be used for a 3-4
 /// item list.
 private struct HomeWidgetTallCount: View {

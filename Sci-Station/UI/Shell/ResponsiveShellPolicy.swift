@@ -74,10 +74,8 @@ public nonisolated enum ResponsiveShellPolicy {
 
     public static func homeWidgetColumns(for width: Double) -> Int {
         switch bucket(for: width) {
-        case .expanded:
+        case .expanded, .regular:
             return 4
-        case .regular:
-            return 3
         case .compact:
             return 2
         case .narrow:

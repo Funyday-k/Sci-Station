@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" role="img" aria-labelledby="title desc">
+  <title id="title">Home Widget Gravity Layout Draft</title>
+  <desc id="desc">A four-column unit grid diagram showing skyline gravity packing rules for Sci-Station home widgets.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="0.48" stop-color="#eef4f9"/>
+      <stop offset="1" stop-color="#f8fbf4"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.82"/>
+      <stop offset="0.52" stop-color="#eef6ff" stop-opacity="0.62"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#5d6c7f" flood-opacity="0.16"/>
+    </filter>
+    <filter id="tileShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#506077" flood-opacity="0.16"/>
+    </filter>
+    <style>
+      .label { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; fill: #20242b; }
+      .muted { fill: #6c7480; }
+      .small { font-size: 22px; }
+      .body { font-size: 26px; }
+      .title { font-size: 48px; font-weight: 760; }
+      .section { font-size: 30px; font-weight: 720; }
+      .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+      .grid { fill: rgba(255,255,255,0.5); stroke: #d5dee8; stroke-width: 2; }
+      .cell { fill: rgba(255,255,255,0.54); stroke: #d8e2ed; stroke-width: 2; }
+      .axis { stroke: #8a96a6; stroke-width: 3; stroke-linecap: round; }
+      .arrow { stroke: #6a7a8f; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; fill: none; marker-end: url(#arrowHead); }
+      .rule { stroke: #cdd7e3; stroke-width: 2; stroke-dasharray: 8 10; }
+      .blue { fill: #dceaff; stroke: #74a4ff; }
+      .teal { fill: #d7f4f2; stroke: #55bbb5; }
+      .green { fill: #dcf6df; stroke: #66bf74; }
+      .purple { fill: #f1ddff; stroke: #bf7be8; }
+      .amber { fill: #fff1cf; stroke: #e6b84d; }
+      .red { fill: #ffe2dc; stroke: #e58978; }
+      .tile { stroke-width: 2.5; filter: url(#tileShadow); }
+      .chip { fill: #eef3f7; stroke: #d2dce6; stroke-width: 1.5; }
+    </style>
+    <marker id="arrowHead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#6a7a8f"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1100" fill="url(#page)"/>
+  <circle cx="1320" cy="110" r="150" fill="#e8f5ef" opacity="0.58"/>
+  <circle cx="1170" cy="930" r="180" fill="#e9f0ff" opacity="0.52"/>
+
+  <g transform="translate(84 74)">
+    <text class="label title" x="0" y="0">四列单位网格与 Gravity/Skyline 堆叠</text>
+    <text class="label body muted" x="0" y="46">单位宽度由容器提交；1×1 是圆角正方形，其它尺寸只按单位跨度组合。</text>
+  </g>
+
+  <g transform="translate(84 172)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="660" height="850" rx="34" fill="url(#glass)" stroke="#dbe4ed"/>
+  </g>
+  <g transform="translate(856 172)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="660" height="850" rx="34" fill="url(#glass)" stroke="#dbe4ed"/>
+  </g>
+
+  <g transform="translate(124 224)">
+    <text class="label section" x="0" y="0">落位示例</text>
+    <text class="label small muted" x="0" y="38">按用户顺序处理，选择当前 skyline 最低的连续列组。</text>
+
+    <g transform="translate(0 86)">
+      <text class="label small muted mono" x="0" y="-20">columns = 4, unit = containerWidth / 4</text>
+      <g>
+        <rect class="cell" x="0" y="0" width="126" height="126" rx="24"/>
+        <rect class="cell" x="138" y="0" width="126" height="126" rx="24"/>
+        <rect class="cell" x="276" y="0" width="126" height="126" rx="24"/>
+        <rect class="cell" x="414" y="0" width="126" height="126" rx="24"/>
+        <rect class="cell" x="0" y="138" width="126" height="126" rx="24"/>
+        <rect class="cell" x="138" y="138" width="126" height="126" rx="24"/>
+        <rect class="cell" x="276" y="138" width="126" height="126" rx="24"/>
+        <rect class="cell" x="414" y="138" width="126" height="126" rx="24"/>
+        <rect class="cell" x="0" y="276" width="126" height="126" rx="24"/>
+        <rect class="cell" x="138" y="276" width="126" height="126" rx="24"/>
+        <rect class="cell" x="276" y="276" width="126" height="126" rx="24"/>
+        <rect class="cell" x="414" y="276" width="126" height="126" rx="24"/>
+        <rect class="cell" x="0" y="414" width="126" height="126" rx="24"/>
+        <rect class="cell" x="138" y="414" width="126" height="126" rx="24"/>
+        <rect class="cell" x="276" y="414" width="126" height="126" rx="24"/>
+        <rect class="cell" x="414" y="414" width="126" height="126" rx="24"/>
+      </g>
+
+      <rect class="tile blue" x="0" y="0" width="126" height="264" rx="26"/>
+      <text class="label body" x="24" y="52">今日</text>
+      <text class="label small muted mono" x="24" y="92">2×1</text>
+
+      <rect class="tile teal" x="138" y="0" width="264" height="126" rx="26"/>
+      <text class="label body" x="166" y="52">活跃项目</text>
+      <text class="label small muted mono" x="166" y="92">1×2</text>
+
+      <rect class="tile purple" x="414" y="0" width="126" height="126" rx="26"/>
+      <text class="label body" x="438" y="52">AI</text>
+      <text class="label small muted mono" x="438" y="92">1×1</text>
+
+      <rect class="tile green" x="138" y="138" width="264" height="264" rx="30"/>
+      <text class="label body" x="166" y="192">日历</text>
+      <text class="label small muted mono" x="166" y="232">2×2</text>
+
+      <rect class="tile amber" x="0" y="276" width="126" height="126" rx="26"/>
+      <text class="label body" x="24" y="328">论文</text>
+      <text class="label small muted mono" x="24" y="368">1×1</text>
+
+      <rect class="tile red" x="414" y="138" width="126" height="264" rx="26"/>
+      <text class="label body" x="438" y="192">材料</text>
+      <text class="label small muted mono" x="438" y="232">2×1</text>
+
+      <path class="rule" d="M0 264 H540"/>
+      <path class="rule" d="M0 402 H540"/>
+      <text class="label small muted" x="0" y="595">留下的空洞可以存在；后续组件不会被拉上去悬空。</text>
+      <text class="label small muted" x="0" y="632">同高度时优先选择更左的连续列组，保持布局稳定。</text>
+    </g>
+  </g>
+
+  <g transform="translate(896 224)">
+    <text class="label section" x="0" y="0">算法规则</text>
+    <text class="label small muted" x="0" y="38">面向拖拽、resize 与隐藏组件的稳定重排。</text>
+
+    <g transform="translate(0 90)">
+      <rect class="chip" x="0" y="0" width="570" height="70" rx="22"/>
+      <text class="label body" x="28" y="44">1. 读取顺序与尺寸</text>
+      <text class="label small muted mono" x="322" y="44">span = row × col</text>
+
+      <path class="arrow" d="M285 82 V124"/>
+      <rect class="chip" x="0" y="136" width="570" height="92" rx="22"/>
+      <text class="label body" x="28" y="176">2. 找到所有可容纳的连续列组</text>
+      <text class="label small muted" x="28" y="206">例：1×2 可落在列 0-1、1-2、2-3。</text>
+
+      <path class="arrow" d="M285 240 V282"/>
+      <rect class="chip" x="0" y="294" width="570" height="92" rx="22"/>
+      <text class="label body" x="28" y="334">3. 取该列组 skyline 的最大高度</text>
+      <text class="label small muted mono" x="28" y="364">row = max(columnHeights[group])</text>
+
+      <path class="arrow" d="M285 398 V440"/>
+      <rect class="chip" x="0" y="452" width="570" height="92" rx="22"/>
+      <text class="label body" x="28" y="492">4. 选择 row 最低的列组</text>
+      <text class="label small muted" x="28" y="522">并列时选择最左，避免抖动。</text>
+
+      <path class="arrow" d="M285 556 V598"/>
+      <rect class="chip" x="0" y="610" width="570" height="92" rx="22"/>
+      <text class="label body" x="28" y="650">5. 更新被覆盖列的高度</text>
+      <text class="label small muted mono" x="28" y="680">height[col] = row + rowSpan</text>
+    </g>
+  </g>
+
+  <g transform="translate(124 914)">
+    <rect x="0" y="0" width="1372" height="92" rx="28" fill="#ffffff" opacity="0.62" stroke="#d9e3ee"/>
+    <text class="label body" x="34" y="38">实现约束</text>
+    <text class="label small muted" x="34" y="70">首页与项目页共享四列单位网格；容器提交单位宽度；所有默认组件支持 1×1、1×2、2×1、2×2、3×3。</text>
+  </g>
+</svg>
