@@ -1,6 +1,6 @@
 # 开发者文档：软件架构与功能开发
 
-本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)，用户需求入口见 [user-feedback/](user-feedback/)，新版开发文档中心见 [development/](development/)。
+本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)，新版开发文档中心见 [development/](development/)。
 
 ## 总体架构
 

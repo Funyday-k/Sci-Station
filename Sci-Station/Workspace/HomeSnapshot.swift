@@ -62,25 +62,25 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
     public var dueTodos: [TodoSummary]
     /// Heuristic list of recently-prioritised papers, kept as a fallback so
     /// the Today panel never goes blank.
-    public var readingQueue: [PaperSummary]
+    public var readingPapers: [PaperSummary]
     public var upcomingDeadlines: [DeadlineSummary]
     public var pendingDrafts: [DraftSummary]
 
     public init(
         dueTodos: [TodoSummary] = [],
-        readingQueue: [PaperSummary] = [],
+        readingPapers: [PaperSummary] = [],
         upcomingDeadlines: [DeadlineSummary] = [],
         pendingDrafts: [DraftSummary] = []
     ) {
         self.dueTodos = dueTodos
-        self.readingQueue = readingQueue
+        self.readingPapers = readingPapers
         self.upcomingDeadlines = upcomingDeadlines
         self.pendingDrafts = pendingDrafts
     }
 
     private enum CodingKeys: String, CodingKey {
         case dueTodos
-        case readingQueue
+        case readingPapers = "readingQueue"
         case upcomingDeadlines
         case pendingDrafts
     }
@@ -88,7 +88,7 @@ public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.dueTodos = try container.decodeIfPresent([TodoSummary].self, forKey: .dueTodos) ?? []
-        self.readingQueue = try container.decodeIfPresent([PaperSummary].self, forKey: .readingQueue) ?? []
+        self.readingPapers = try container.decodeIfPresent([PaperSummary].self, forKey: .readingPapers) ?? []
         self.upcomingDeadlines = try container.decodeIfPresent([DeadlineSummary].self, forKey: .upcomingDeadlines) ?? []
         self.pendingDrafts = try container.decodeIfPresent([DraftSummary].self, forKey: .pendingDrafts) ?? []
     }
@@ -407,8 +407,8 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
     public var recentArtifacts: [ArtifactSummary]
     public var nextDeadline: DeadlineSummary?
     /// Persisted from `projects/<id>/wiki/research_plan.md`.
-    /// Kept untouched so the existing "Current Reading Plan" card still works.
-    public var currentReadingPlan: String?
+    /// Kept for compatibility with existing project dashboard snapshots.
+    public var currentReadingSummary: String?
     public var openTodoCount: Int
     public var openTodos: [TodoSummary]
     public var builtAt: Date
@@ -423,7 +423,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         openGaps: [GapSummary],
         recentArtifacts: [ArtifactSummary],
         nextDeadline: DeadlineSummary?,
-        currentReadingPlan: String?,
+        currentReadingSummary: String?,
         openTodoCount: Int,
         openTodos: [TodoSummary] = [],
         builtAt: Date,
@@ -437,7 +437,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.openGaps = openGaps
         self.recentArtifacts = recentArtifacts
         self.nextDeadline = nextDeadline
-        self.currentReadingPlan = currentReadingPlan
+        self.currentReadingSummary = currentReadingSummary
         self.openTodoCount = openTodoCount
         self.openTodos = openTodos
         self.builtAt = builtAt
@@ -453,7 +453,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         case openGaps
         case recentArtifacts
         case nextDeadline
-        case currentReadingPlan
+        case currentReadingSummary = "currentReadingPlan"
         case openTodoCount
         case openTodos
         case builtAt
@@ -470,7 +470,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
         self.openGaps = try container.decodeIfPresent([GapSummary].self, forKey: .openGaps) ?? []
         self.recentArtifacts = try container.decodeIfPresent([ArtifactSummary].self, forKey: .recentArtifacts) ?? []
         self.nextDeadline = try container.decodeIfPresent(DeadlineSummary.self, forKey: .nextDeadline)
-        self.currentReadingPlan = try container.decodeIfPresent(String.self, forKey: .currentReadingPlan)
+        self.currentReadingSummary = try container.decodeIfPresent(String.self, forKey: .currentReadingSummary)
         self.openTodoCount = try container.decodeIfPresent(Int.self, forKey: .openTodoCount) ?? 0
         self.openTodos = try container.decodeIfPresent([TodoSummary].self, forKey: .openTodos) ?? []
         self.builtAt = try container.decode(Date.self, forKey: .builtAt)

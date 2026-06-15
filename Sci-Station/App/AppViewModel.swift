@@ -2298,7 +2298,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Graph UI (P46)
+    // MARK: - Graph UI
 
     private var _graphRepository: GraphRepository?
 
@@ -6690,7 +6690,7 @@ final class AppViewModel: ObservableObject {
         let root = ResearchRoot(rootURL: workspace.rootURL)
         currentResearchRoot = root
 
-        // P-AT.1d: in DEBUG, start streaming SwiftUI runtime issues to a
+        // In DEBUG, start streaming SwiftUI runtime issues to a
         // workspace-local log so the AI usage-test orchestrator can read
         // them as an independent assertion channel. Idempotent.
         #if DEBUG
@@ -7697,7 +7697,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func openRecommendationReadingQueue() {
+    func openRecommendationReadingTodo() {
         selectProjectSpaceTab("tasks")
     }
 

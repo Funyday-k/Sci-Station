@@ -1,10 +1,10 @@
-"""AI Usage Test orchestrator (`Proposal-AT.md`).
+"""AI Usage Test orchestrator.
 
 Drives a Sci-Station App instance through scenarios authored as YAML/JSON,
 collects three independent verification streams (debug events, persisted
 files, screenshots) and produces a markdown run report.
 
-This package only ships the *skeleton* in the first slice (P-AT.2):
+This package exposes the long-lived scenario harness:
 - :class:`Scenario` data model + loader
 - :class:`EventLogProbe` reading ``.sci-station/debug/app_events.jsonl``
 - :class:`FileProbe` reading workspace-local YAML/JSONL artifacts

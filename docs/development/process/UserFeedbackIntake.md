@@ -4,7 +4,7 @@
 
 ## 角色分层
 
-- `docs/user-feedback/`：人类输入层。面向用户或产品 owner，用自然语言记录原始想法。
+- `docs/user-feedback/`：本地人类输入层。面向用户或产品 owner，用自然语言记录原始想法；它不是公开文档入口。
 - `docs/user-feedback/inbox/`：本地原始输入区，被 Git 忽略，不作为长期知识库。
 - `docs/development/`：AI 维护的开发知识库。面向 AI 和开发执行，不要求用户深度阅读。
 - `docs/README*.md`、`docs/TUTORIAL*.md`：用户可读说明。只保留稳定、必要、简短的信息。

@@ -123,7 +123,7 @@ public nonisolated enum ToolbarActionID: String, Codable, CaseIterable, Hashable
     case pdfSearch = "pdf_search"
     case pdfFindPrevious = "pdf_find_previous"
     case pdfFindNext = "pdf_find_next"
-    case pdfAnnotationPlaceholder = "pdf_annotation_placeholder"
+    case pdfAnnotations = "pdf_annotations"
     case wikiNewPage = "wiki_new_page"
     case wikiSave = "wiki_save"
     case wikiPreviewMode = "wiki_preview_mode"
@@ -230,7 +230,7 @@ public nonisolated enum ToolbarPolicy {
             ToolbarAction(id: .pdfSearch, title: L10n.text(.toolbarSearch, language: language), systemImage: "magnifyingglass"),
             ToolbarAction(id: .pdfFindPrevious, title: L10n.text(.toolbarPrevious, language: language), systemImage: "chevron.up"),
             ToolbarAction(id: .pdfFindNext, title: L10n.text(.toolbarNext, language: language), systemImage: "chevron.down"),
-            ToolbarAction(id: .pdfAnnotationPlaceholder, title: L10n.text(.toolbarAnnotations, language: language), systemImage: "highlighter")
+            ToolbarAction(id: .pdfAnnotations, title: L10n.text(.toolbarAnnotations, language: language), systemImage: "highlighter")
         ]
     }
 

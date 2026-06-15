@@ -144,7 +144,7 @@ public nonisolated enum HomeWidgetRegistry {
         ),
         HomeWidgetDescriptor(
             id: HomeWidgetID.readingPlan,
-            titleKey: .homeWidgetReadingPlan,
+            titleKey: .homeWidgetReading,
             category: .library,
             defaultSize: .medium,
             supportedSizes: [.small, .tall, .medium, .large, .wide],

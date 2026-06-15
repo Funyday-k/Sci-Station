@@ -13,7 +13,7 @@
 - Rebuilt `docs/development/` as a clean development documentation center.
 - Removed the old taskbook-oriented development documentation tree.
 - Added architecture, module, process, testing, versioning, release, roadmap and template documentation.
-- Added `docs/user-feedback/` as a human-facing intake area, with local gitignored inbox/drafts/archive-local folders.
+- Added `docs/user-feedback/` as a local intake area, with gitignored inbox/drafts/archive-local folders.
 - Added `0.2.0` Proposal and release record.
 - Added root `CHANGELOG.md` with `0.1.0` baseline and `0.2.0` documentation reset entry.
 - Updated root README, developer docs and UI automation README references to the new structure.

@@ -9,11 +9,13 @@
 - Proposal 完成后，将长期有效信息沉淀到 `modules/`、`testing/`、`versioning/` 和 `releases/`。
 - 完成的 Proposal 可以保留作为该版本执行记录，但不再作为长期架构说明。
 
-## 当前 Proposal
+## 0.2.0 执行记录
 
 - `Proposal-0.2.0.md`
 - `Proposal-Phase0-Foundations.md`
 - `ImplementationSummary-0.2.0.md`
+
+当前路线图见 `../roadmap/Current.md`。文档规范和清理计划见 `../process/DocumentationPolicy.md`、`../process/DocumentationCleanupPlan.md`。
 
 ## 模板
 

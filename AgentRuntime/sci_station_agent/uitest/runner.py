@@ -4,11 +4,9 @@ Wires together :class:`Scenario`, :class:`EventLogProbe` and
 :class:`FileProbe` and walks through the steps with a pluggable
 :class:`UIDriver`.
 
-The runner is intentionally *driver-free* in the first slice -- callers may
-pass a :class:`NullDriver` (the default) which records each step verbatim
-without performing any UI action. P-AT.3 plugs in an Accessibility-API
-driver, P-AT.4 plugs in XCUITest, both behind the same protocol so this
-module never grows a hard dependency on a particular driver stack.
+The runner is intentionally driver-pluggable. Callers may pass a
+:class:`NullDriver` (the default), which records each step verbatim without
+performing any UI action, or a concrete driver behind the same protocol.
 """
 
 from __future__ import annotations
@@ -213,7 +211,7 @@ class ScenarioRunner:
             elif assertion.channel == "visual":
                 ok, detail = (
                     False,
-                    "visual channel is deferred to P-AT.4; no baseline diff yet",
+                    "visual channel is deferred; no baseline diff yet",
                 )
             else:  # pragma: no cover - validated earlier
                 ok, detail = (False, f"unknown channel '{assertion.channel}'")

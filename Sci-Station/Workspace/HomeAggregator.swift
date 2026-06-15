@@ -233,14 +233,14 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
             .prefix(8)
             .map { $0 } : []
 
-        let readingQueue = moduleAvailability.libraryEnabled ? readingQueue(from: input.papers) : []
+        let readingPapers = moduleAvailability.libraryEnabled ? readingPapers(from: input.papers) : []
         let pendingDrafts = moduleAvailability.aiLabEnabled ? draftSummaries(from: input.agentRuns, projectID: input.currentProjectID)
             .prefix(6)
             .map { $0 } : []
 
         return TodayPanelData(
             dueTodos: dueTodos,
-            readingQueue: readingQueue,
+            readingPapers: readingPapers,
             upcomingDeadlines: upcomingDeadlines,
             pendingDrafts: pendingDrafts
         )
@@ -465,7 +465,7 @@ public nonisolated struct HomeSnapshotBuilder: Sendable {
         )
     }
 
-    private func readingQueue(from papers: [Paper]) -> [PaperSummary] {
+    private func readingPapers(from papers: [Paper]) -> [PaperSummary] {
         let prioritizedStatuses: Set<ReadingStatus> = [.unread, .skimmed, .deepRead]
         return Array(papers
             .filter { paper in

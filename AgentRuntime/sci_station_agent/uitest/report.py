@@ -1,8 +1,7 @@
 """Markdown report builder for scenario runs.
 
-Reports follow the layout described in ``docs/development/Proposal-AT.md`` §P-AT.6 so
-each run produces a self-contained file that links back to the scenario
-source, the App's research-root and the failing/passing channels.
+Each run produces a self-contained file that links back to the scenario
+source, the App's research-root, and the failing/passing channels.
 """
 
 from __future__ import annotations

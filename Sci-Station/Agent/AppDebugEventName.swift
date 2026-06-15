@@ -7,8 +7,8 @@ import Foundation
 /// 2. Tests can assert against an allow-list (see
 ///    `appDebugEventNameRegistryCoversAllEmittedEvents` in
 ///    `Tools/SciStationCoreTestRunner/main.swift`).
-/// 3. Tooling — including the AI Usage Test orchestrator (`Proposal-AT.md`,
-///    `AgentRuntime/sci_station_agent/uitest/`) — can enumerate all known
+/// 3. Tooling — including the AI Usage Test orchestrator
+///    (`AgentRuntime/sci_station_agent/uitest/`) — can enumerate all known
 ///    events for dashboards, scenario assertions and filters.
 ///
 /// Naming convention: `<domain>.<entity>.<verb>` using `snake_case` for
@@ -140,7 +140,7 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case workspaceSchemaMigrate = "workspace.schema.migrate"
     case workspaceModuleToggle = "workspace.module.toggle"
 
-    // MARK: - UI Test Bridge (Debug builds only; see P-AT.1e)
+    // MARK: - UI Test Bridge (Debug builds only)
     case uitestBridgeCommandReceived = "uitest.bridge.command_received"
     case uitestBridgeCommandCompleted = "uitest.bridge.command_completed"
     case uitestBridgeCommandFailed = "uitest.bridge.command_failed"

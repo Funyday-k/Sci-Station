@@ -18,13 +18,13 @@
       "kind": "test_bridge",
       "command": "library.import.attachFixturePDF",
       "args": {"fixture_id": "import-smoke-01"},
-      "description": "Inject a fixture PDF via the Test Bridge so the scenario stays deterministic and bypasses the file picker. The bridge command completes synchronously once the paper is persisted and the library reloaded. Debug-only; see Proposal-AT.md P-AT.1e."
+      "description": "Inject a fixture PDF via the Test Bridge so the scenario stays deterministic and bypasses the file picker. The bridge command completes synchronously once the paper is persisted and the library reloaded. Debug-only."
     }
   ],
   "assertions": [
     {
       "channel": "file",
-      "description": "Library list rendered without SwiftUI runtime warnings (P-AT.1d).",
+      "description": "Library list rendered without SwiftUI runtime warnings.",
       "args": {
         "path": ".sci-station/debug/swiftui_warnings.log",
         "loader": "text",

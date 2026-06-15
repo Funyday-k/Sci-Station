@@ -7,7 +7,7 @@
 - Type: Performance / UI / Refactor
 - Owner: Funyday
 - Date: 2026-06-08
-- Status: In Progress
+- Status: Closed with deferred follow-ups
 - Source feedback: local user request summarized by AI (midterm roadmap, foundations-first)
 
 ## 1. Goal
@@ -46,9 +46,9 @@ Outcome is testable: build + core tests stay green, behavior is unchanged, and n
 - [x] A2: Add `Sci-Station/UI/Components/` with `SciSectionCard`, `SciEmptyState`, `SciBadge`, `SciActionButton`.
 - [x] A3: Adopt new tokens/components in one AI Lab spot (permission badge) and one Todo spot (`TodoCardView` project labels).
 - [x] B1 (logic slice): Extract `TodoQueries` (date/project filtering, sort, open-count, completion predicates) into `Tasks/` (SciStationCore) and delegate `AppViewModel` + `DashboardViews`; behavior-preserving + unit-tested.
-- [ ] B1b (deferred): Promote to an observable `TodoStore` and migrate todo-reading views to observe it (the actual invalidation win; warrants manual UI verification).
+- [ ] B1b (deferred to Backlog): Promote to an observable `TodoStore` and migrate todo-reading views to observe it (the actual invalidation win; warrants manual UI verification).
 - [x] B2 (streaming-text seam): Extract `AgentStreamStore` (`Sci-Station/App/AgentStreamStore.swift`) holding `streamingResponseText` (the ~10fps hot field, AI-Lab-only); `AppViewModel` keeps a forwarding getter, `AgentPanelView` observes the store via an injected `@ObservedObject` at all 4 call sites. Per-token streaming no longer fires app-wide `objectWillChange`.
-- [ ] B2b (deferred): Move `agentSessionEvents` + the `agentTimelineItems` machinery into the store too (deeply entangled mutation logic; warrants manual UI verification of Agent streaming).
+- [ ] B2b (deferred to Backlog): Move `agentSessionEvents` + the `agentTimelineItems` machinery into the store too (deeply entangled mutation logic; warrants manual UI verification of Agent streaming).
 
 ### 4.3 Documentation changes
 
@@ -86,10 +86,10 @@ Execute in order, building + testing after each step:
 - [x] PF0.A2: Create core component kit.
 - [x] PF0.A3: Pilot adoption in AI Lab + Todo.
 - [x] PF0.B1: Extract `TodoQueries` (behavior-preserving logic slice) + core test.
-- [ ] PF0.B1b: Observable `TodoStore` + view migration (deferred).
+- [ ] PF0.B1b: Observable `TodoStore` + view migration (deferred to Backlog).
 - [x] PF0.B2: Extract `AgentStreamStore` for `streamingResponseText` + wire AI Lab call sites.
-- [ ] PF0.B2b: Move session events + timeline machinery into the store (deferred).
-- [ ] PF0.V: Changelog + summary when Phase 0 fully lands.
+- [ ] PF0.B2b: Move session events + timeline machinery into the store (deferred to Backlog).
+- [x] PF0.V: Completion summary records the landed slice; remaining work is tracked in Backlog.
 
 ## 8. Validation
 
@@ -127,4 +127,4 @@ Internal foundations release: consistent UI building blocks and reduced view-inv
 
 ## 11. Completion summary
 
-In progress. Landed this session (all green): A1 design tokens, A2 component kit (`Sci-Station/UI/Components/SciStationComponents.swift`), A3 pilots, B1 `TodoQueries` (`Sci-Station/Tasks/TodoQueries.swift`) with delegation from `AppViewModel`/`DashboardViews` and a new `todoQueriesDeriveDateProjectSortAndOpenCount` core test, and B2 `AgentStreamStore` (`Sci-Station/App/AgentStreamStore.swift`) isolating the ~10fps streaming-text field from app-wide invalidation (4 `AgentPanelView` call sites updated). Remaining: B1b observable `TodoStore` + view migration, and B2b moving session/timeline state into the agent store — both warrant a dedicated pass with manual UI verification. Recommended manual check now: open AI Lab, send a prompt, confirm streaming renders normally and Todo CRUD/board behave as before.
+Closed as a landed Phase 0 slice. Landed this session (all green): A1 design tokens, A2 component kit (`Sci-Station/UI/Components/SciStationComponents.swift`), A3 pilots, B1 `TodoQueries` (`Sci-Station/Tasks/TodoQueries.swift`) with delegation from `AppViewModel`/`DashboardViews` and a new `todoQueriesDeriveDateProjectSortAndOpenCount` core test, and B2 `AgentStreamStore` (`Sci-Station/App/AgentStreamStore.swift`) isolating the ~10fps streaming-text field from app-wide invalidation (4 `AgentPanelView` call sites updated). Deferred follow-ups are tracked in `../roadmap/Backlog.md`: observable `TodoStore` + view migration, and moving session/timeline state into the agent store. Both require a dedicated pass with Xcode-run UI verification.

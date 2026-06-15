@@ -1,4 +1,4 @@
-"""End-to-end smoke test: run a scenario against a stubbed workspace.
+"""End-to-end smoke test: run a scenario against a synthetic workspace.
 
 The driver is :class:`NullDriver`, so no real UI is required. The scenario
 exercises every step kind the runner currently understands and asserts on
@@ -22,16 +22,16 @@ SCENARIO_PAYLOAD = """
   "title": "Runner smoke test",
   "steps": [
     {"kind": "click", "target": "library.import.button"},
-    {"kind": "drag", "target": "queue.row.a", "to": "queue.row.b"},
+    {"kind": "drag", "target": "library.paper.a", "to": "library.paper.b"},
     {"kind": "test_bridge", "command": "library.import.attachFixturePDF",
      "args": {"fixture_id": "import-smoke-01"}},
-    {"kind": "wait_for_event", "event": "queue.append", "timeout_seconds": 0.5}
+    {"kind": "wait_for_event", "event": "library.import.completed", "timeout_seconds": 0.5}
   ],
   "assertions": [
-    {"channel": "event", "description": "queue.append fired",
-     "args": {"event": "queue.append", "payload_contains": {"source": "library.import"}}},
-    {"channel": "file", "description": "queue.json reflects the import",
-     "args": {"path": "queue.json", "loader": "json",
+    {"channel": "event", "description": "library import event fired",
+     "args": {"event": "library.import.completed", "payload_contains": {"source": "library.import"}}},
+    {"channel": "file", "description": "imports.json reflects the import",
+     "args": {"path": "library/imports.json", "loader": "json",
               "expected_subset": {"entries": [{"paperID": "import-smoke-01"}]}}}
   ]
 }
@@ -44,15 +44,16 @@ def _seed_workspace(root: Path) -> None:
     log_path.write_text(
         json.dumps(
             {
-                "event": "queue.append",
+                "event": "library.import.completed",
                 "payload": {"source": "library.import", "paperID": "import-smoke-01"},
             }
         )
         + "\n",
         encoding="utf-8",
     )
-    queue_path = root / "queue.json"
-    queue_path.write_text(
+    imports_path = root / "library" / "imports.json"
+    imports_path.parent.mkdir(parents=True, exist_ok=True)
+    imports_path.write_text(
         json.dumps(
             {"entries": [{"paperID": "import-smoke-01", "displayTitle": "Smoke"}]}
         ),
@@ -77,8 +78,9 @@ def test_runner_passes_when_event_and_file_present(tmp_path: Path) -> None:
 
 def test_runner_marks_event_assertion_failed_when_event_missing(tmp_path: Path) -> None:
     # File present but event log empty -> file assertion passes, event fails.
-    queue_path = tmp_path / "queue.json"
-    queue_path.write_text(
+    imports_path = tmp_path / "library" / "imports.json"
+    imports_path.parent.mkdir(parents=True, exist_ok=True)
+    imports_path.write_text(
         json.dumps({"entries": [{"paperID": "import-smoke-01"}]}),
         encoding="utf-8",
     )

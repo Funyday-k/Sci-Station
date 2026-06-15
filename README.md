@@ -114,7 +114,6 @@ ResearchRoot/
 - [docs/TUTORIAL.zh-CN.md](docs/TUTORIAL.zh-CN.md)：中文试用教程。
 - [docs/TUTORIAL.md](docs/TUTORIAL.md)：英文试用教程。
 - [docs/DEVELOPER.md](docs/DEVELOPER.md)：开发者文档。
-- [docs/user-feedback/](docs/user-feedback/)：用户需求、问题和新功能想法入口；原始 inbox 本地忽略，由 AI 转换为正式开发文档。
 - [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
 - [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
 - [docs/development/](docs/development/)：开发文档中心，包含架构、模块、Proposal、测试、版本和发布流程。

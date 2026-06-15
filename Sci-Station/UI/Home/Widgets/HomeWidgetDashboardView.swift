@@ -925,7 +925,7 @@ private struct HomeWidgetContentView: View {
             case HomeWidgetID.recentPapers:
                 RecentPapersWidgetContent(size: size)
             case HomeWidgetID.readingPlan:
-                ReadingPlanWidgetContent(papers: snapshot.today.readingQueue, size: size)
+                ReadingWidgetContent(papers: snapshot.today.readingPapers, size: size)
             case HomeWidgetID.projectHealth:
                 ProjectHealthWidgetContent(snapshot: snapshot, size: size)
             case HomeWidgetID.quickActions:
@@ -964,7 +964,7 @@ private struct TodayWidgetContent: View {
                     systemImage: "checklist"
                 )
                 if snapshot.today.dueTodos.isEmpty {
-                    Text(appModel.t(.homeReadingPlanEmpty))
+                    Text(appModel.t(.homeReadingEmpty))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else {
@@ -991,7 +991,7 @@ private struct TodayWidgetContent: View {
                 HomeWidgetMetricStrip(metrics: todayMetrics(maxCount: 4))
                 HomeWidgetSectionList(title: appModel.t(.routeTasks), systemImage: "checklist") {
                     if snapshot.today.dueTodos.isEmpty {
-                        Text(appModel.t(.homeReadingPlanEmpty))
+                        Text(appModel.t(.homeReadingEmpty))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -1020,7 +1020,7 @@ private struct TodayWidgetContent: View {
     private func todayMetrics(maxCount: Int) -> [HomeWidgetMetric] {
         let all = [
             HomeWidgetMetric(systemImage: "checklist", title: appModel.t(.routeTasks), count: snapshot.today.dueTodos.count, tint: .orange, destination: .tasks),
-            HomeWidgetMetric(systemImage: "books.vertical", title: appModel.t(.homeWidgetReadingPlan), count: snapshot.today.readingQueue.count, tint: .teal, destination: .library),
+            HomeWidgetMetric(systemImage: "books.vertical", title: appModel.t(.homeWidgetReading), count: snapshot.today.readingPapers.count, tint: .teal, destination: .library),
             HomeWidgetMetric(systemImage: "calendar.badge.clock", title: appModel.t(.homeWidgetCalendar), count: snapshot.today.upcomingDeadlines.count, tint: .red, destination: .calendar),
             HomeWidgetMetric(systemImage: "tray.and.arrow.down", title: appModel.t(.homeWidgetAIReview), count: snapshot.today.pendingDrafts.count, tint: .purple, destination: .aiReview)
         ]
@@ -1135,7 +1135,7 @@ private struct AIReviewWidgetContent: View {
                     systemImage: "checkmark.seal"
                 )
                 if aiReview.needsApproval.isEmpty {
-                    Text(appModel.t(.homeReadingPlanEmpty))
+                    Text(appModel.t(.homeReadingEmpty))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else {
@@ -1791,9 +1791,9 @@ private struct RecentPapersWidgetContent: View {
     }
 }
 
-// MARK: - Reading Plan
+// MARK: - Reading
 
-private struct ReadingPlanWidgetContent: View {
+private struct ReadingWidgetContent: View {
     @EnvironmentObject private var appModel: AppViewModel
     let papers: [PaperSummary]
     let size: HomeWidgetSize
@@ -1803,7 +1803,7 @@ private struct ReadingPlanWidgetContent: View {
         case .small:
             HomeSmallList(
                 count: papers.count,
-                caption: appModel.t(.homeWidgetReadingPlan),
+                caption: appModel.t(.homeWidgetReading),
                 tint: .teal,
                 systemImage: "books.vertical",
                 firstLine: papers.first?.title,
@@ -1813,7 +1813,7 @@ private struct ReadingPlanWidgetContent: View {
             VStack(alignment: .leading, spacing: 8) {
                 HomeWidgetTallCount(
                     count: papers.count,
-                    caption: appModel.t(.homeWidgetReadingPlan),
+                    caption: appModel.t(.homeWidgetReading),
                     tint: .teal,
                     systemImage: "books.vertical"
                 )
@@ -1832,7 +1832,7 @@ private struct ReadingPlanWidgetContent: View {
     private func list(limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if papers.isEmpty {
-                Text(appModel.t(.homeReadingPlanEmpty))
+                Text(appModel.t(.homeReadingEmpty))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)

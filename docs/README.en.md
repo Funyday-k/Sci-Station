@@ -72,4 +72,4 @@ In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command 
 - [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
 - [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
 - [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
-- [development/](development/): development proposals, task books, and manual testing notes.
+- [development/](development/): development proposals, module docs, testing, versioning, and release process.

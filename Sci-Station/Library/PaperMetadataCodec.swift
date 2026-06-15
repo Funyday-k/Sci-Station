@@ -6,7 +6,7 @@ import Foundation
 ///
 /// - Unknown top-level blocks (scalar or block-form) are preserved verbatim and
 ///   re-emitted at the end of the document. This keeps `references:`,
-///   user-added fields, and other P45+ extensions alive across `decode → encode`.
+///   user-added fields, and later metadata extensions alive across `decode → encode`.
 /// - Unknown child keys under known block sections (`reading:`, `notes:`,
 ///   `links:`) are preserved and re-emitted under the same section.
 /// - The graph node identifier is serialised as `graph_node_id:` and never
@@ -364,7 +364,7 @@ public struct PaperMetadataCodec {
                 // For list blocks we need to capture every line whose indent
                 // is greater than the parent block, not just lines that begin
                 // with `- `. This keeps list-of-objects blocks (such as the
-                // P45 `references:` extension) intact across round-trips —
+                // `references:` extension) intact across round-trips —
                 // each list item's sub-keys sit at a deeper indent level and
                 // must survive verbatim.
                 while cursor < lines.count {

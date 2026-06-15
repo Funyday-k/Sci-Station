@@ -257,8 +257,8 @@ private struct CoreVerificationSuite {
         try await workspaceCreationWizardPreviewValidationAndSafety()
         try workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts()
         try workspaceModuleRegistryGatesGraphWorkflows()
-        try paperLibraryModuleDeclaresReadingQueueArtifactKindAndWorkflow()
-        try workspaceModuleRegistryWorkflowGatingForReadingQueueCurate()
+        try paperLibraryModuleDoesNotExposeRetiredReadingArtifacts()
+        try workspaceModuleRegistryDoesNotExposeRetiredReadingWorkflow()
         try moduleSettingsViewModelEnableModuleRequiresDependencies()
         try moduleSettingsViewModelEnableDependenciesEnablesAllAncestors()
         try await moduleSettingsViewModelTogglePinPersistsOrder()
@@ -1026,9 +1026,9 @@ private struct CoreVerificationSuite {
         )
 
         try expect(pdfModel.contains(.pdfSearch), "PDF Reader toolbar policy should include PDF search.")
-        try expect(pdfModel.action(.pdfAnnotationPlaceholder)?.title == "标注", "PDF Reader toolbar should localize PDF actions.")
+        try expect(pdfModel.action(.pdfAnnotations)?.title == "标注", "PDF Reader toolbar should localize PDF actions.")
         try expect(!pdfModel.contains(.importPDF) && !pdfModel.contains(.addByIdentifier), "PDF Reader toolbar policy should hide Library import actions.")
-        try expect(!wikiModel.contains(.pdfSearch) && !wikiModel.contains(.pdfAnnotationPlaceholder), "Wiki toolbar policy should not include PDF Reader actions.")
+        try expect(!wikiModel.contains(.pdfSearch) && !wikiModel.contains(.pdfAnnotations), "Wiki toolbar policy should not include PDF Reader actions.")
     }
 
     private func toolbarPolicyShowsWikiActionsOnlyInWikiContext() throws {
@@ -1470,7 +1470,7 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: root.fileURL(for: AppDebugEventLogger.relativePath).path), "Debug event logger should write a workspace-local JSONL file.")
     }
 
-    /// The AI Usage Test orchestrator (`Proposal-AT.md` §P-AT.1) treats
+    /// The AI Usage Test orchestrator treats
     /// `AppDebugEventName.allCases` as the source-of-truth registry of every
     /// debug event the App may emit. The hard-coded list below is the set of
     /// event names that current call sites in the codebase emit. If you add
@@ -1529,7 +1529,7 @@ private struct CoreVerificationSuite {
             "recommendation.feedback", "recommendation.push.error",
             // Module settings
             "module_settings.toggle", "module_settings.toggle_chain", "module_settings.pin",
-            // Graph (P44–P47)
+            // Graph
             "graph.indexer.rebuild_started", "graph.indexer.rebuild_finished",
             "graph.indexer.incremental_skip",
             "graph.repository.loaded", "graph.repository.write",
@@ -1574,7 +1574,7 @@ private struct CoreVerificationSuite {
 
     /// `UITestAccessibilityID` is a thin namespace, but the AI uitest
     /// orchestrator depends on every factory output being machine-readable.
-    /// This test covers the four high-traffic surfaces wired in P-AT.1c so
+    /// This test covers the four high-traffic surfaces used by UI tests so
     /// future refactors that drop the strict format fail loudly.
     private func uitestAccessibilityIDFactoriesProduceValidIdentifiers() throws {
         let identifiers: [String] = [
@@ -1681,7 +1681,7 @@ private struct CoreVerificationSuite {
         let snapshot = try await aggregator.snapshot(input: HomeAggregationInput(workspaceID: "blank-workspace"), now: Date(timeIntervalSince1970: 1_777_600_000))
 
         try expect(snapshot.today.dueTodos.isEmpty, "Blank workspace should have no due todos.")
-        try expect(snapshot.today.readingQueue.isEmpty, "Blank workspace should have no reading queue.")
+        try expect(snapshot.today.readingPapers.isEmpty, "Blank workspace should have no reading papers.")
         try expect(snapshot.activeProjects.isEmpty, "Blank workspace should have no active projects.")
         try expect(snapshot.aiReview.needsApproval.isEmpty, "Blank workspace should have no pending AI drafts.")
     }
@@ -2414,7 +2414,7 @@ private struct CoreVerificationSuite {
           - project_id: "project-alpha"
             paper_id: "paper-alpha"
             is_core: true
-            folder_path: "Reading Queue"
+            folder_path: "Reading"
             use_for:
               - "background"
             created_at: 2026-04-29T00:00:00Z
@@ -2917,7 +2917,7 @@ private struct CoreVerificationSuite {
     }
 
     private func todoRepositoryPersistsDateRange() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("TodoDateRangeWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("TodoDateRangeWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         let repository = TodoRepository()
@@ -2954,7 +2954,7 @@ private struct CoreVerificationSuite {
     }
 
     private func todoTagRepositoryRoundTripsDefinitions() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("TodoTagWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("TodoTagWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         let repository = TodoTagRepository()
@@ -2978,9 +2978,9 @@ private struct CoreVerificationSuite {
         try expect(definitions.map(\.name) == ["writing"], "Deleting a task tag should remove it from tasks/todo_tags.yaml.")
     }
 
-    // MARK: - P48 Research Queue (Layer A: store + YAML)
+    // MARK: - Task and Recommendation Fixtures
 
-    private func makeQueueWorkspace(_ name: String) throws -> (URL, ResearchWorkspace) {
+    private func makeWorkspaceFixture(_ name: String) throws -> (URL, ResearchWorkspace) {
         let rootURL = temporaryDirectoryURL().appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         return (rootURL, ResearchWorkspace(rootURL: rootURL))
@@ -3095,7 +3095,7 @@ private struct CoreVerificationSuite {
     }
 
     private func recommendationPipelineWritesSnapshot() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("RecommendationPipelineWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("RecommendationPipelineWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         var interestPaper = samplePaper(id: "interest")
@@ -3226,7 +3226,7 @@ private struct CoreVerificationSuite {
     }
 
     private func recommendationFeedbackStorePersistsJSONLAndBuildsProfile() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("RecommendationFeedbackWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("RecommendationFeedbackWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         let candidate = RecommendationCandidate(
@@ -6161,8 +6161,8 @@ private struct CoreVerificationSuite {
                 )
                 let noGraphWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: noGraphConfiguration))
                 try expect(!noGraphWorkflows.contains("graph_insight"), "graph_insight should be gated by Citation Graph.")
-                try expect(!noGraphWorkflows.contains("related_work"), "related_work should be gated by Citation Graph after P47.")
-                try expect(!noGraphWorkflows.contains("gap_planning"), "gap_planning should be gated by Citation Graph after P47.")
+                try expect(!noGraphWorkflows.contains("related_work"), "related_work should be gated by Citation Graph.")
+                try expect(!noGraphWorkflows.contains("gap_planning"), "gap_planning should be gated by Citation Graph.")
 
                 let noAILabConfiguration = WorkspaceModuleRegistry.defaultConfiguration(
                     enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["ai-lab"])
@@ -6171,7 +6171,7 @@ private struct CoreVerificationSuite {
                 try expect(!noAILabWorkflows.contains("graph_insight"), "graph_insight should also require AI Lab.")
             }
 
-    private func paperLibraryModuleDeclaresReadingQueueArtifactKindAndWorkflow() throws {
+    private func paperLibraryModuleDoesNotExposeRetiredReadingArtifacts() throws {
         let module = try require(WorkspaceModuleRegistry.module(id: "paper-library"), "paper-library module must remain in the built-in registry.")
         try expect(!module.artifactKinds.contains("reading_queue_entry"), "paper-library should no longer declare the retired reading_queue_entry artifact kind.")
         try expect(!module.workflows.contains("reading_queue_curate"), "paper-library should no longer declare the retired reading_queue_curate workflow.")
@@ -6186,7 +6186,7 @@ private struct CoreVerificationSuite {
         try expect(!descriptor.isKnown, "The retired reading_queue_entry artifact kind should no longer resolve to any module.")
     }
 
-    private func workspaceModuleRegistryWorkflowGatingForReadingQueueCurate() throws {
+    private func workspaceModuleRegistryDoesNotExposeRetiredReadingWorkflow() throws {
         let defaultConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
         let defaultWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: defaultConfiguration))
         try expect(!defaultWorkflows.contains("reading_queue_curate"), "The retired reading_queue_curate workflow should no longer be available.")
@@ -8307,7 +8307,7 @@ private struct CoreVerificationSuite {
     private func graphAgentToolsExposeReadOnlyDefinitions() throws {
         let definitions = GraphAgentTools.makeDefaultTools(paperRepository: PaperRepository(), debugEventLogger: nil).map(\.definition)
         let definitionsByName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.name, $0) })
-        try expect(Set(definitionsByName.keys).isSuperset(of: GraphAgentTools.allNames), "Default graph tools should expose all P47 tool names.")
+        try expect(Set(definitionsByName.keys).isSuperset(of: GraphAgentTools.allNames), "Default graph tools should expose all registered graph tool names.")
         for name in GraphAgentTools.allNames {
             guard let definition = definitionsByName[name] else {
                 throw ValidationError(message: "Missing graph tool definition for \(name).")

@@ -20,6 +20,8 @@
 ## Performance
 
 - AppViewModel 领域 store 拆分。
+- Observable `TodoStore`：迁移 todo-reading views 到独立 store，并用 Xcode-run UI 验证 Todo CRUD / board 行为。
+- Agent store 深化：迁移 `agentSessionEvents` 和 `agentTimelineItems`，并用 Xcode-run UI 验证 AI Lab streaming。
 - Sidebar/Home/AILab 高频状态隔离。
 - 大列表 row model 和缓存继续收敛。
 
@@ -42,3 +44,5 @@
 - 用户教程截图。
 - 英文文档同步。
 - Release notes 自动生成辅助脚本。
+- 文档卫生检查脚本增强：加入更完整的锚点检查、Markdown 表格检查和 release record 字段检查。
+- 文档状态标记补齐：为长期模块文档、当前 Proposal、已归档执行记录和本地输入区建立统一状态。

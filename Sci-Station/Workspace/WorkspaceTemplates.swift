@@ -699,11 +699,11 @@ public nonisolated enum WorkspaceModuleRegistry {
         "experiment_planning": ["experiments", "ai-lab"],
         "run_log_summary": ["experiments", "ai-lab"],
         "citation_graph_review": ["citation-graph"],
-        // P44 — graph indexer maintenance / rebuild workflow.
+        // Graph indexer maintenance / rebuild workflow.
         "graph_indexer_maintenance": ["citation-graph"],
-        // P46 — graph browse UI placeholder workflow.
+        // Graph browse UI workflow.
         "graph_ui_browse": ["citation-graph"],
-        // P47 — graph-powered drafting workflows.
+        // Graph-powered drafting workflows.
         "graph_insight": ["citation-graph", "ai-lab"],
         "graph_insight_draft": ["citation-graph", "ai-lab"],
         "outline_to_manuscript": ["writing", "ai-lab"],

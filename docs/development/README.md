@@ -17,11 +17,11 @@ docs/development/
 └── versioning/       版本号、分支、tag、打包和发布规则
 ```
 
-用户原始需求、问题和新功能想法放在 `../user-feedback/`。其中 `inbox/`、`drafts/` 和 `archive-local/` 是本地 gitignored 区域；AI 读取后再转换为本目录中的正式开发文档。
+用户原始需求、问题和新功能想法可以先放在本地 `../user-feedback/inbox/`，但该目录是 gitignored 的临时输入区，不作为公开文档入口。AI 读取后必须转换为本目录中的正式开发文档。
 
 ## 新开发流程
 
-1. 用户在 `../user-feedback/inbox/` 写原始需求、Bug、问题或新功能想法。
+1. 用户在本地 `../user-feedback/inbox/` 写原始需求、Bug、问题或新功能想法，或直接在对话中提出。
 2. AI 按 `process/UserFeedbackIntake.md` 将原始反馈转换为 roadmap、Proposal、module docs 或 testing docs。
 3. 在 `roadmap/Current.md` 确认当前版本目标。
 4. 用 `templates/ProposalTemplate.md` 创建或更新 `proposals/Proposal-<version>.md`。
@@ -34,8 +34,10 @@ docs/development/
 ## 当前版本
 
 - 当前版本：`0.2.0` beta
-- 当前分支：`release/0.2.0`
-- 当前工作：`proposals/Proposal-0.2.0.md`
+- 当前开发分支：`dev`
+- 分发来源：`main`
+- 当前路线图：`roadmap/Current.md`
+- 当前文档清理：`process/DocumentationCleanupPlan.md`
 - 发布记录：`releases/0.2.0.md`
 
 ## 维护原则
@@ -46,3 +48,8 @@ docs/development/
 - 所有用户可见变化都必须进入 `CHANGELOG.md`。
 - 所有数据格式变化都必须记录 schema、兼容策略和回滚策略。
 - 所有 AI 执行任务都必须能从 Proposal 追溯到实现总结和测试结果。
+
+## 当前文档清理
+
+- 规范：`process/DocumentationPolicy.md`
+- 清理计划：`process/DocumentationCleanupPlan.md`

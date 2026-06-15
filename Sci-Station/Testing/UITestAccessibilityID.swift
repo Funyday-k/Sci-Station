@@ -1,15 +1,14 @@
 import Foundation
 
 /// Centralised namespace of accessibility identifiers used by the AI Usage
-/// Test orchestrator (`Proposal-AT.md` §P-AT.1c) and any future XCUITest
-/// target.
+/// Test orchestrator and any future XCUITest target.
 ///
 /// **Why this exists**
 ///
 /// SwiftUI views grow accessibility identifiers ad-hoc and the resulting
 /// strings drift as features evolve. The Sci-Station AI uitest harness needs
 /// a *stable, enumerable* contract so Python scenario YAML files can refer to
-/// `library.paper.<id>` / `home.widget.<id>` / `queue.row.<id>` / `sidebar.tab.<top>`
+/// `library.paper.<id>` / `home.widget.<id>` / `tasks.todo.<id>` / `sidebar.tab.<top>`
 /// without breaking each refactor.
 ///
 /// **Naming convention** (mirrors `AppDebugEventName`):
@@ -20,7 +19,6 @@ import Foundation
 ///   3. Be applied via the `.uitestID(_:)` view modifier defined in
 ///      `UITestAccessibilityIDViewModifier.swift`.
 ///
-/// See `docs/development/Proposal-AT.md` §P-AT.1c.
 public nonisolated enum UITestAccessibilityID {
 
     // MARK: - Sidebar (top-level navigation)
@@ -62,7 +60,7 @@ public nonisolated enum UITestAccessibilityID {
     /// * **prefix** is `<domain> '.' <entity> ('.' <verb>)?` — 2 or 3
     ///   strictly snake_case segments (lowercase ASCII / digits /
     ///   underscores). This is the stable namespace; tests rely on it.
-    /// * **suffix** is the data identifier (paper id, widget id, queue
+    /// * **suffix** is the data identifier (paper id, widget id, todo
     ///   entry id, …). It MAY contain dots, hyphens and colons because
     ///   real-world IDs do (e.g. `arxiv-2604.22012`,
     ///   `queue:workspace:paper-1`). Suffix must contain at least one
@@ -73,7 +71,7 @@ public nonisolated enum UITestAccessibilityID {
     /// sidebar.tab.library                 -- ok (no suffix)
     /// home.widget.active_projects         -- ok
     /// library.paper.arxiv-2604.22012      -- ok (suffix has '.' '-')
-    /// queue.row.queue:workspace:paper-1   -- ok (suffix has ':' '-')
+    /// tasks.todo.todo:workspace:task-1    -- ok (suffix has ':' '-')
     /// Library.Paper.x                     -- rejected (capital letters)
     /// library..paper                      -- rejected (empty segment)
     /// ```

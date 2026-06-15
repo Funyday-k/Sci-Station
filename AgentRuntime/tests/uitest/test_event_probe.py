@@ -35,14 +35,14 @@ def test_read_all_returns_parsed_events(workspace: Path) -> None:
     _seed_log(
         workspace,
         [
-            {"event": "queue.append", "payload": {"source": "library.import"}},
-            {"event": "queue.reorder", "payload": {"from": 1, "to": 2}},
+            {"event": "library.import.completed", "payload": {"source": "library.import"}},
+            {"event": "library.selection.changed", "payload": {"from": 1, "to": 2}},
         ],
     )
 
     probe = EventLogProbe(workspace)
     events = probe.read_all()
-    assert [ev.event for ev in events] == ["queue.append", "queue.reorder"]
+    assert [ev.event for ev in events] == ["library.import.completed", "library.selection.changed"]
     assert events[0].payload["source"] == "library.import"
 
 
@@ -51,13 +51,13 @@ def test_filter_combines_all_query_fields(workspace: Path) -> None:
         workspace,
         [
             {
-                "event": "queue.append",
+                "event": "library.import.completed",
                 "workspaceID": "w1",
                 "projectID": "p1",
                 "payload": {"source": "library.import"},
             },
             {
-                "event": "queue.append",
+                "event": "library.import.completed",
                 "workspaceID": "w1",
                 "projectID": "p2",
                 "payload": {"source": "manual.add"},
@@ -68,7 +68,7 @@ def test_filter_combines_all_query_fields(workspace: Path) -> None:
     probe = EventLogProbe(workspace)
     matches = probe.filter(
         EventQuery(
-            event="queue.append",
+            event="library.import.completed",
             project_id="p1",
             payload_contains={"source": "library.import"},
         )
@@ -80,28 +80,28 @@ def test_filter_combines_all_query_fields(workspace: Path) -> None:
 def test_filter_returns_empty_when_log_missing(tmp_path: Path) -> None:
     probe = EventLogProbe(tmp_path)
     assert probe.read_all() == []
-    assert probe.filter(EventQuery(event="queue.append")) == []
+    assert probe.filter(EventQuery(event="library.import.completed")) == []
 
 
 def test_skips_malformed_lines(workspace: Path) -> None:
     log_path = workspace / APP_EVENTS_RELATIVE_PATH
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(
-        '{"event":"queue.append"}\n'
+        '{"event":"library.import.completed"}\n'
         "this is not json\n"
-        '{"event":"queue.reorder"}\n',
+        '{"event":"library.selection.changed"}\n',
         encoding="utf-8",
     )
 
     probe = EventLogProbe(workspace)
     events = probe.read_all()
-    assert [ev.event for ev in events] == ["queue.append", "queue.reorder"]
+    assert [ev.event for ev in events] == ["library.import.completed", "library.selection.changed"]
 
 
 def test_wait_for_returns_none_when_event_never_arrives(workspace: Path) -> None:
     probe = EventLogProbe(workspace)
     matched = probe.wait_for(
-        EventQuery(event="queue.append"),
+        EventQuery(event="library.import.completed"),
         timeout_seconds=0.05,
         poll_interval=0.01,
     )
@@ -109,12 +109,12 @@ def test_wait_for_returns_none_when_event_never_arrives(workspace: Path) -> None
 
 
 def test_wait_for_finds_already_persisted_event(workspace: Path) -> None:
-    _seed_log(workspace, [{"event": "queue.append"}])
+    _seed_log(workspace, [{"event": "library.import.completed"}])
     probe = EventLogProbe(workspace)
     matched = probe.wait_for(
-        EventQuery(event="queue.append"),
+        EventQuery(event="library.import.completed"),
         timeout_seconds=0.05,
         poll_interval=0.01,
     )
     assert isinstance(matched, DebugEvent)
-    assert matched.event == "queue.append"
+    assert matched.event == "library.import.completed"

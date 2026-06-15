@@ -224,7 +224,7 @@ public nonisolated struct GraphManifest: Codable, Hashable, Sendable {
     }
 }
 
-/// Changes published by `GraphRepository` to subscribers (P46 UI / P47 tools).
+/// Changes published by `GraphRepository` to subscribers.
 public enum GraphChange: Sendable {
     case upsertNode(GraphNode)
     case upsertEdge(GraphEdge)

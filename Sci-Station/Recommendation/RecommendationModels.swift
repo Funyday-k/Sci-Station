@@ -7,9 +7,8 @@ public nonisolated enum RecommendationCandidateSource: String, Codable, Hashable
     case dailyFeed = "daily_feed"
 }
 
-/// Workspace-or-project target for recommendation actions (library import,
-/// reading-todo creation, feedback attribution). Replaces the former
-/// `QueueScope` so recommendation no longer depends on the retired queue.
+/// Workspace-or-project target for recommendation actions: library import,
+/// reading-todo creation, and feedback attribution.
 public nonisolated enum RecommendationTarget: Hashable, Sendable {
     case workspace
     case project(String)

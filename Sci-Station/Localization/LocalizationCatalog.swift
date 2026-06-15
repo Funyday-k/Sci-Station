@@ -156,7 +156,7 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case homeWidgetAIReview
     case homeWidgetCalendar
     case homeWidgetRecentPapers
-    case homeWidgetReadingPlan
+    case homeWidgetReading
     case homeWidgetProjectHealth
     case homeWidgetQuickActions
     case homeWidgetCategoryResearch
@@ -166,7 +166,7 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case homeWidgetCategoryProject
     case homeRecentlyAdded
     case homeRecentlyRead
-    case homeReadingPlanEmpty
+    case homeReadingEmpty
     case homeProjectHealthSummaryFormat
     case homeQuickActionOpenLibrary
     case homeQuickActionOpenWiki
@@ -386,7 +386,7 @@ public nonisolated enum L10n {
         .homeWidgetAIReview: "AI Review",
         .homeWidgetCalendar: "Calendar",
         .homeWidgetRecentPapers: "Recent Papers",
-        .homeWidgetReadingPlan: "Reading",
+        .homeWidgetReading: "Reading",
         .homeWidgetProjectHealth: "Project Health",
         .homeWidgetQuickActions: "Quick Actions",
         .homeWidgetCategoryResearch: "Research",
@@ -396,7 +396,7 @@ public nonisolated enum L10n {
         .homeWidgetCategoryProject: "Project",
         .homeRecentlyAdded: "Recently Added",
         .homeRecentlyRead: "Recently Read",
-        .homeReadingPlanEmpty: "No papers to read yet.",
+        .homeReadingEmpty: "No papers to read yet.",
         .homeProjectHealthSummaryFormat: "%d projects, %d papers, %d open todos, %d AI review items",
         .homeQuickActionOpenLibrary: "Open Library",
         .homeQuickActionOpenWiki: "Open Wiki",
@@ -543,7 +543,7 @@ public nonisolated enum L10n {
         .homeWidgetAIReview: "AI 审核",
         .homeWidgetCalendar: "日历",
         .homeWidgetRecentPapers: "最近论文",
-        .homeWidgetReadingPlan: "阅读",
+        .homeWidgetReading: "阅读",
         .homeWidgetProjectHealth: "项目健康",
         .homeWidgetQuickActions: "快速操作",
         .homeWidgetCategoryResearch: "研究",
@@ -553,7 +553,7 @@ public nonisolated enum L10n {
         .homeWidgetCategoryProject: "项目",
         .homeRecentlyAdded: "最近添加",
         .homeRecentlyRead: "最近阅读",
-        .homeReadingPlanEmpty: "还没有待读论文。",
+        .homeReadingEmpty: "还没有待读论文。",
         .homeProjectHealthSummaryFormat: "%d 个项目，%d 篇论文，%d 个未完成待办，%d 项 AI 审核",
         .homeQuickActionOpenLibrary: "打开论文库",
         .homeQuickActionOpenWiki: "打开 Wiki",
