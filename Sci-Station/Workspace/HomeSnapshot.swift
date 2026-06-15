@@ -60,8 +60,8 @@ public nonisolated struct HomeModuleAvailability: Codable, Hashable, Sendable {
 
 public nonisolated struct TodayPanelData: Codable, Hashable, Sendable {
     public var dueTodos: [TodoSummary]
-    /// P42 heuristic list of recently-prioritised papers, kept as a fallback
-    /// when the P48 queue is empty so the Today panel never goes blank.
+    /// Heuristic list of recently-prioritised papers, kept as a fallback so
+    /// the Today panel never goes blank.
     public var readingQueue: [PaperSummary]
     public var upcomingDeadlines: [DeadlineSummary]
     public var pendingDrafts: [DraftSummary]
@@ -406,7 +406,7 @@ public nonisolated struct ProjectDashboardSnapshot: Codable, Hashable, Sendable 
     public var openGaps: [GapSummary]
     public var recentArtifacts: [ArtifactSummary]
     public var nextDeadline: DeadlineSummary?
-    /// Persisted from `projects/<id>/wiki/research_plan.md` (P50 surfaces it).
+    /// Persisted from `projects/<id>/wiki/research_plan.md`.
     /// Kept untouched so the existing "Current Reading Plan" card still works.
     public var currentReadingPlan: String?
     public var openTodoCount: Int

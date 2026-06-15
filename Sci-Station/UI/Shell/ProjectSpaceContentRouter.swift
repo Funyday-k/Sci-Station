@@ -29,17 +29,17 @@ struct ProjectSpaceContentRouter: View {
             case "graph":
                 GraphView(workspace: workspace)
             case "code":
-                ProjectSpacePlaceholderView(title: "Code", systemImage: tab.systemImage, message: "Project code workflows land in P55.")
+                ProjectSpacePlaceholderView(title: "Code", systemImage: tab.systemImage, message: "Project code workflows are not enabled in this build.")
             case "data":
-                ProjectSpacePlaceholderView(title: "Data", systemImage: tab.systemImage, message: "Project data workflows land in P55.")
+                ProjectSpacePlaceholderView(title: "Data", systemImage: tab.systemImage, message: "Project data workflows are not enabled in this build.")
             case "experiments":
-                ProjectSpacePlaceholderView(title: "Experiments", systemImage: tab.systemImage, message: "Experiment workflows land in P55.")
+                ProjectSpacePlaceholderView(title: "Experiments", systemImage: tab.systemImage, message: "Experiment workflows are not enabled in this build.")
             case "recommendations":
                 RecommendationView(workspace: workspace, project: project)
             case "writing":
-                ProjectSpacePlaceholderView(title: "Writing", systemImage: tab.systemImage, message: "Writing and manuscript workflows land in P56.")
+                ProjectSpacePlaceholderView(title: "Writing", systemImage: tab.systemImage, message: "Writing and manuscript workflows are not enabled in this build.")
             case "theory":
-                ProjectSpacePlaceholderView(title: "Theory", systemImage: tab.systemImage, message: "Theory note workflows land in P54.")
+                ProjectSpacePlaceholderView(title: "Theory", systemImage: tab.systemImage, message: "Theory note workflows are not enabled in this build.")
             default:
                 ProjectSpaceUnavailableView(
                     title: "Tab temporarily unavailable",

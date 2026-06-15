@@ -22,7 +22,7 @@ ResearchRoot/
 - **App Version**：Xcode `MARKETING_VERSION`，用于用户沟通。
 - **Build Number**：Xcode `CURRENT_PROJECT_VERSION`，每次测试构建递增。
 - **Workspace Schema**：描述 Research Root 整体兼容性。
-- **Feature Schema**：如 Queue、Reading Plan、Recommendation snapshot 等各自的 `schema_version`。
+- **Feature Schema**：如 Tasks、Recommendation snapshot、Graph 等各自的 `schema_version`。
 - **Agent Protocol**：sidecar / agent IPC 的协议版本，不等同于 App 版本。
 
 ## 新增持久化文件规则

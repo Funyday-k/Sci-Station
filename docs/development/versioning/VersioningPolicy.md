@@ -63,7 +63,7 @@ Xcode `CURRENT_PROJECT_VERSION` 必须单调递增。每次发给测试用户的
 - Workspace schema。
 - Feature schema。
 - Agent/sidecar protocol。
-- Recommendation/Queue/Reading Plan 等子系统 schema。
+- Tasks、Recommendation、Graph 等子系统 schema。
 
 ## Tag 格式
 

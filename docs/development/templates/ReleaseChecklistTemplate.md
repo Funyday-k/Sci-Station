@@ -31,7 +31,7 @@
 - [ ] Existing workspace can be opened.
 - [ ] Library import path works.
 - [ ] Wiki save/reopen works.
-- [ ] Queue/Recommendation/Reading Plan affected paths work.
+- [ ] Recommendation and reading Todo affected paths work.
 - [ ] Settings and diagnostics export work.
 - [ ] No obvious secret/path leak in debug events or diagnostics.
 

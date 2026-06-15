@@ -12,7 +12,7 @@
 ## Product Polish
 
 - 中文/localization 全面检查。
-- Recommendation → Queue → Reading Plan 闭环继续打磨。
+- Recommendation → Library / reading Todo 闭环继续打磨。
 - Home/Project Dashboard 空态、onboarding polish、widget SVG 审阅稿到 SwiftUI 截图的视觉 QA。
 - Settings 信息架构整理。
 - 色彩系统加深：建立语义色板、数据色、状态色和 Liquid Glass tint 使用规范，避免整体过淡。

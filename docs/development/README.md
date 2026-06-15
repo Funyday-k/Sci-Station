@@ -33,7 +33,7 @@ docs/development/
 
 ## 当前版本
 
-- 当前基线：`0.1.0` beta
+- 当前版本：`0.2.0` beta
 - 当前分支：`release/0.2.0`
 - 当前工作：`proposals/Proposal-0.2.0.md`
 - 发布记录：`releases/0.2.0.md`

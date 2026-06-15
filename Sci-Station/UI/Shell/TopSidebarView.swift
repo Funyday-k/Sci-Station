@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TopSidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @Environment(\.colorScheme) private var colorScheme
 
     let workspace: ResearchWorkspace?
 
@@ -60,8 +61,11 @@ struct TopSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            Color(nsColor: .windowBackgroundColor)
-            Color.secondary.opacity(0.055)
+            LinearGradient(
+                colors: sidebarPanelHighlights,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
         .task {
             appModel.recordSidebarRender()
@@ -143,6 +147,21 @@ struct TopSidebarView: View {
 
     private var primarySidebarItems: [TopSidebarItem] {
         appModel.topSidebarItems.filter { $0.top != .settings }
+    }
+
+    private var sidebarPanelHighlights: [Color] {
+        if colorScheme == .dark {
+            return [
+                Color.white.opacity(0.055),
+                appModel.liquidGlassTintColor.opacity(0.035),
+                Color.white.opacity(0.018)
+            ]
+        }
+        return [
+            Color.white.opacity(0.36),
+            appModel.liquidGlassTintColor.opacity(0.030),
+            Color.white.opacity(0.18)
+        ]
     }
 
     private func workspaceSection(for top: WorkspaceRoute.Top) -> WorkspaceSection {
@@ -289,8 +308,8 @@ private struct SidebarProjectTreeRow: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.12) }
-        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
+        if isSelected { return Color.accentColor.opacity(0.16) }
+        return isHovering ? Color.secondary.opacity(0.10) : Color.clear
     }
 }
 
@@ -374,9 +393,9 @@ private struct TopSidebarRow: View {
 
     private var rowBackground: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.12)
+            return Color.accentColor.opacity(0.16)
         }
-        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
+        return isHovering ? Color.secondary.opacity(0.10) : Color.clear
     }
 }
 
@@ -416,8 +435,8 @@ private struct SidebarSettingsButton: View {
 
     private var rowBackground: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.12)
+            return Color.accentColor.opacity(0.16)
         }
-        return isHovering ? Color.secondary.opacity(0.08) : Color.clear
+        return isHovering ? Color.secondary.opacity(0.10) : Color.clear
     }
 }

@@ -7,12 +7,55 @@ private enum SidebarMotion {
 
 struct SidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @Environment(\.colorScheme) private var colorScheme
     let workspace: ResearchWorkspace?
     @State private var isAllPapersExpanded = true
     @State private var isAILabExpanded = true
 
     var body: some View {
         TopSidebarView(workspace: workspace)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
+            .clipShape(sidebarShape)
+            .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(glassTintOpacity)), in: sidebarShape)
+            .overlay {
+                sidebarShape
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: borderColors,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
+            }
+            .overlay {
+                sidebarShape
+                    .stroke(Color.accentColor.opacity(colorScheme == .dark ? 0.10 : 0.07), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.24 : 0.075), radius: 18, x: 0, y: 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.clear)
+    }
+
+    private var sidebarShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 18,
+            style: .continuous
+        )
+    }
+
+    private var glassTintOpacity: Double {
+        colorScheme == .dark ? 0.08 : 0.045
+    }
+
+    private var borderColors: [Color] {
+        if colorScheme == .dark {
+            return [Color.white.opacity(0.18), Color.white.opacity(0.045)]
+        }
+        return [Color.white.opacity(0.82), Color.primary.opacity(0.055)]
     }
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {

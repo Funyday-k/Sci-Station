@@ -854,11 +854,11 @@ public nonisolated enum WorkspaceModuleRegistry {
             directories: [directory(".sci-station/graph")],
             routes: [route("graph", "/graph")],
             projectTabs: [tab("graph", "Graph")],
-            // P44 introduces graph_indexer_maintenance. P46 introduces
-            // graph_ui_browse. P47 introduces graph_insight.
+            // Citation Graph contributes maintenance, browse, and graph
+            // insight workflows as a single module.
             workflows: ["citation_graph_review", "graph_indexer_maintenance", "graph_ui_browse", "graph_insight"],
-            // Graph node/edge are produced by P44; reading path / bridge /
-            // stale artifacts are produced by P47 drafting workflows.
+            // Graph nodes/edges are indexed locally; graph insight artifacts
+            // are produced by graph-powered drafting workflows.
             artifactKinds: [
                 "graph_insight",
                 "graph_node",
@@ -989,7 +989,7 @@ public nonisolated enum WorkspaceModuleRegistry {
             }
 
             guard let builtInModule = builtInModulesByID[module.id] else {
-                warnings.append(WorkspaceModuleWarning(id: "unknown-module:\(module.id)", moduleID: module.id, message: "Unknown workspace module '\(module.id)' is ignored because P39 only supports built-in modules."))
+                warnings.append(WorkspaceModuleWarning(id: "unknown-module:\(module.id)", moduleID: module.id, message: "Unknown workspace module '\(module.id)' is ignored because the current registry only supports built-in modules."))
                 continue
             }
 

@@ -23,7 +23,7 @@ struct ContentView: View {
                 if shellState.selectedSection == .pdfReader, shellState.currentWorkspace != nil {
                     NavigationSplitView(columnVisibility: $readerColumnVisibility) {
                         SidebarView(workspace: shellState.currentWorkspace)
-                            .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
+                            .navigationSplitViewColumnWidth(min: 188, ideal: 216, max: 268)
                     } detail: {
                         HStack(spacing: 0) {
                             PDFReaderWorkspaceView(workspace: shellState.currentWorkspace)
@@ -37,14 +37,14 @@ struct ContentView: View {
                 } else if !shouldShowRightRail(shellState) {
                     NavigationSplitView(columnVisibility: $mainColumnVisibility) {
                         SidebarView(workspace: shellState.currentWorkspace)
-                            .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
+                            .navigationSplitViewColumnWidth(min: 188, ideal: 216, max: 268)
                     } detail: {
                         workspaceContent(shellState)
                     }
                 } else {
                     NavigationSplitView(columnVisibility: $mainColumnVisibility) {
                         SidebarView(workspace: shellState.currentWorkspace)
-                            .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
+                            .navigationSplitViewColumnWidth(min: 188, ideal: 216, max: 268)
                     } content: {
                         workspaceContent(shellState)
                     } detail: {
@@ -60,6 +60,8 @@ struct ContentView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(minWidth: 700, minHeight: 480)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .background(alignment: .topLeading) {
             SciStationMainWindowGate(isLaunching: launchCoordinator.isLaunching)
                 .frame(width: 0, height: 0)

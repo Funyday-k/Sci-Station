@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Shared placeholder used by project-space content routers when a given tab
-/// is a stub (not yet implemented) or in an error state (missing data, no
-/// center node, etc.). Keeping this internal-but-shared avoids each tab from
-/// reinventing the same layout, and also means P46 can reuse the same
-/// placeholder as the "graph data not built yet" state.
+/// Shared empty state used by project-space content routers when a given tab
+/// is unavailable in the current build or when a routed surface has no data
+/// yet. Keeping this internal-but-shared avoids each tab reinventing the same
+/// layout.
 struct ProjectSpacePlaceholderView: View {
     let title: String
     let systemImage: String

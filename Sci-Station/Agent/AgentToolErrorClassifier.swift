@@ -10,7 +10,7 @@ public nonisolated enum AgentToolErrorCode: String, Codable, Sendable {
     case providerFailed = "provider_failed"
     case invalidArguments = "invalid_arguments"
     case toolFailed = "tool_failed"
-    // P47-enabling additions. See docs/development/comment.md §1.6.
+    // Shared classifier codes used by graph and sidecar-backed tools.
     case timeout = "timeout"
     case cancelled = "cancelled"
     case network = "network"

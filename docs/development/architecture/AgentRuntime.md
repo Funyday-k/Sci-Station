@@ -1,6 +1,6 @@
 # AI Lab 与 Agent Runtime 架构
 
-AI Lab 是可选能力。没有 LLM provider 或 API key 时，Sci-Station 的本地论文、Wiki、Queue、Reading Plan 等主路径仍应可用。
+AI Lab 是可选能力。没有 LLM provider 或 API key 时，Sci-Station 的本地论文、Wiki、Tasks、Recommendation 等主路径仍应可用。
 
 ## 分层
 
@@ -20,7 +20,7 @@ AgentRuntime/
 
 - 只读工具可以自动执行，但必须记录证据来源。
 - 写入工具必须经过权限确认或明确的安全 preset。
-- Agent 输出到 wiki、paper notes、queue、reading plan 前必须可审计。
+- Agent 输出到 wiki、paper notes、tasks 或 recommendation follow-up 前必须可审计。
 - 任何包含用户正文或模型输出的持久化都必须说明路径和隐私影响。
 
 ## Debug 与诊断

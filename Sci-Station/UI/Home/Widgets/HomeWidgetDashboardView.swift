@@ -2096,8 +2096,7 @@ private struct HomeBigNumber: View {
 
 /// 1×1 (small) variant for list-style widgets. Like `HomeBigNumber` but with
 /// a single representative line under the count, so the user can tell at a
-/// glance which paper / queue item is on top — addresses the 2026-05-17
-/// "1×1 needs more content" feedback.
+/// glance which item is on top.
 private struct HomeSmallList: View {
     let count: Int
     let caption: String

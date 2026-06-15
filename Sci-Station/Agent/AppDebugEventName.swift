@@ -15,7 +15,8 @@ import Foundation
 /// multi-word tokens and `.` as the separator. New events MUST follow this
 /// convention so that the orchestrator's lint test stays green.
 ///
-/// See docs/development/comment.md §8.1 and docs/development/Proposal-AT.md §P-AT.1.
+/// See docs/development/modules/TestingDiagnostics.md and
+/// AgentRuntime/sci_station_agent/uitest/README.md.
 public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     // MARK: - Route persistence
     case routePersist = "route.persist"
@@ -115,7 +116,7 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case moduleSettingsToggleChain = "module_settings.toggle_chain"
     case moduleSettingsPin = "module_settings.pin"
 
-    // MARK: - Graph (P44–P47)
+    // MARK: - Graph
     case graphIndexerRebuildStarted = "graph.indexer.rebuild_started"
     case graphIndexerRebuildCompleted = "graph.indexer.rebuild_completed"
     case graphIndexerRebuildFinished = "graph.indexer.rebuild_finished"

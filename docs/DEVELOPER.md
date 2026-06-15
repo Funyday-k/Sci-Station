@@ -48,8 +48,6 @@ Sci-Station/
 ├── Tags/                         标签模型与仓储
 ├── Tasks/                        待办模型与仓储
 ├── Calendar/                     本地日历模型和 Apple Calendar / Reminders 集成
-├── Queue/                        研究队列、推荐候选、延后/忽略状态
-├── ReadingPlan/                  阅读计划
 ├── Recommendation/               推荐工作流和推荐结果
 ├── Graph/                        论文/项目图谱数据与工作流
 ├── LLM/                          LLM provider 配置和调用抽象
@@ -91,7 +89,7 @@ Shell 相关文件集中在 [../Sci-Station/UI/Shell/](../Sci-Station/UI/Shell/)
 - **仓储**：负责从科研根目录读写 YAML、Markdown、JSONL、SQLite 或其它文件。
 - **服务**：组织导入、搜索、生成、同步、转换、权限判断等操作。
 
-新增功能时，优先找到最接近的领域目录。例如论文导入改 [../Sci-Station/Import/](../Sci-Station/Import/) 或 [../Sci-Station/Importer/](../Sci-Station/Importer/)，任务改 [../Sci-Station/Tasks/](../Sci-Station/Tasks/)，研究队列改 [../Sci-Station/Queue/](../Sci-Station/Queue/)。只有确认领域层已经表达清楚后，再接 UI。
+新增功能时，优先找到最接近的领域目录。例如论文导入改 [../Sci-Station/Import/](../Sci-Station/Import/) 或 [../Sci-Station/Importer/](../Sci-Station/Importer/)，任务和阅读待办改 [../Sci-Station/Tasks/](../Sci-Station/Tasks/)，推荐改 [../Sci-Station/Recommendation/](../Sci-Station/Recommendation/)。只有确认领域层已经表达清楚后，再接 UI。
 
 ### 4. 本地科研根目录
 

@@ -24,7 +24,7 @@ UI 状态、debug events、diagnostics、release evidence
 - `Sci-Station/UI/`：SwiftUI 页面、Shell、模块 UI。
 - `Sci-Station/Workspace/`：Research Root、模块配置、workspace 模板。
 - `Sci-Station/Library/`、`PDF/`、`Wiki/`：论文、阅读、笔记主路径。
-- `Sci-Station/Queue/`、`ReadingPlan/`、`Recommendation/`：阅读队列、阅读计划、论文推荐闭环。
+- `Sci-Station/Recommendation/`、`Tasks/`：论文推荐，以及推荐结果到阅读 Todo 的闭环。
 - `Sci-Station/Agent/`、`LLM/`：AI Lab、工具、权限、provider 抽象。
 - `AgentRuntime/`：Python sidecar、UI test runner 和实验性编排。
 - `Tools/`：SwiftPM 核心测试 runner 和 UI probe。

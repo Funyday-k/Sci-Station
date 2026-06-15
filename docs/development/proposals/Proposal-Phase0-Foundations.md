@@ -111,7 +111,7 @@ Conditional:
 
 ### Changed
 
-- Extracted `TodoStore` and `AgentStore` from `AppViewModel` to reduce app-wide view invalidation.
+- Extracted `TodoQueries` and `AgentStreamStore` from `AppViewModel` hot paths to reduce app-wide view invalidation.
 
 ### Fixed
 

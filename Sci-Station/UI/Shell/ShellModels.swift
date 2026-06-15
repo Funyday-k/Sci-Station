@@ -71,9 +71,9 @@ public nonisolated enum RightRailPolicy {
     /// Why we removed route-driven overrides
     /// =====================================
     /// Pre-2026-05-17 this function returned `.inspector` on Library / Wiki /
-    /// PDF routes and `.hidden` on Home / Calendar / queue-style tabs. That
+    /// PDF routes and `.hidden` on Home / Calendar / task-style tabs. That
     /// felt magical in demos but produced a real bug in the field: when the
-    /// user explicitly clicked the toolbar Inspector toggle on the Queue tab
+    /// user explicitly clicked the toolbar Inspector toggle on a task tab
     /// to hide / show the rail, the next `applyRightRailRouteSuggestion()`
     /// pass would overwrite their preference with the route's suggestion.
     /// The result was that the rail either bounced back open after collapse
@@ -127,7 +127,7 @@ public nonisolated enum ToolbarActionID: String, Codable, CaseIterable, Hashable
     case wikiNewPage = "wiki_new_page"
     case wikiSave = "wiki_save"
     case wikiPreviewMode = "wiki_preview_mode"
-    // P46 graph toolbar actions.
+    // Graph toolbar actions.
     case graphSearch = "graph_search"
     case graphDepth = "graph_depth"
     case graphLayoutMode = "graph_layout_mode"

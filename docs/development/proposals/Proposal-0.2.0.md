@@ -23,8 +23,8 @@ Establish the documentation, versioning and release-management foundation for th
 
 ## 3. Current state
 
-- App baseline is `0.1.0` beta.
-- Xcode version settings currently use `MARKETING_VERSION = 0.1.0` and `CURRENT_PROJECT_VERSION = 1`.
+- App baseline before this proposal was `0.1.0` beta.
+- Xcode version settings now use `MARKETING_VERSION = 0.2.0` and `CURRENT_PROJECT_VERSION = 2`.
 - Old development docs were organized as many historical Proposal taskbooks.
 - `CHANGELOG.md` was missing before this branch.
 - Release and version-management rules were not centralized.
@@ -160,4 +160,4 @@ If App project version changes:
 
 ## 11. Completion summary
 
-Documentation restructure is complete and ready for review. See `ImplementationSummary-0.2.0.md`. App version/build bump remains optional until packaging is requested.
+Documentation restructure, Phase 0 foundation slices, AI/PDF UX fixes, and app version/build bump are complete and ready for review. See `ImplementationSummary-0.2.0.md`. Packaging, signing, notarization, tag, and final commit metadata remain release-handoff work.

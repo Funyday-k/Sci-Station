@@ -29,6 +29,21 @@
 - 相关代码入口。
 - 与版本、测试或发布的关系。
 
+## 内容生命周期
+
+希望落地的内容必须沿固定路径沉淀，避免愿望、计划和事实混在一起：
+
+```text
+user-feedback/inbox -> roadmap/Backlog.md -> Proposal -> implementation summary -> changelog/release record
+```
+
+- `Backlog.md` 只放未进入当前版本的机会点和后续方向。
+- `roadmap/Current.md` 只放当前版本目标和完成定义。
+- `proposals/` 放可执行计划，可以有未勾选任务，但必须写清非目标、验证和收尾条件。
+- `modules/` 放长期不变量、代码入口和发布前检查，不放一次性的任务流水账。
+- `releases/` 和 `CHANGELOG.md` 只写已完成或明确 known issue 的事实。
+- 代码中的 `TODO`、`placeholder`、`stub` 必须链接到 Proposal、Backlog 条目或明确的兼容原因；没有归属的留白应删除或迁移到文档。
+
 ## 更新时机
 
 - 新功能完成：更新模块文档、changelog、release record。

@@ -1,6 +1,6 @@
 # Sci-Station
 
-> Current version: Beta 0.1.0
+> Current version: Beta 0.2.0
 > Platform: macOS
 > Status: in development. Test builds will be published through Releases.
 
@@ -31,9 +31,9 @@ Core principles:
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
 - Beta DMG packaging for tester handoff.
 
-## Beta 0.1.0 Status
+## Beta 0.2.0 Status
 
-- The current version is **Beta 0.1.0**.
+- The current version is **Beta 0.2.0**.
 - Test builds will be published through Releases, like a normal macOS app download.
 - The project is still in development, and features, UI, and documentation will continue to change.
 
@@ -41,7 +41,7 @@ Core principles:
 
 - Developer ID signing, notarization, and cleaner Gatekeeper-friendly distribution.
 - Deeper AI Lab sidecar runtime integration, tool permissions, evidence references, artifacts, and debug bundles.
-- Paper graph, recommendation workflows, research queue, and reading plan improvements.
+- Paper graph, recommendation workflows, and reading-todo improvements.
 - Workspace templates, module settings, and clearer onboarding.
 - Better DOI/arXiv/web import, PDF-to-Markdown conversion, and metadata enrichment.
 - Broader manual regression coverage and bilingual documentation polish.

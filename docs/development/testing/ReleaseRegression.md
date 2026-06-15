@@ -30,7 +30,7 @@ RC 阶段执行更完整主路径：
 
 - [ ] Create/Open workspace。
 - [ ] Library/PDF/Wiki。
-- [ ] Queue/Recommendation/Reading Plan。
+- [ ] Recommendation / reading Todo。
 - [ ] AI Lab 无 key/有 key基础状态。
 - [ ] Settings/Diagnostics。
 - [ ] 重启恢复。

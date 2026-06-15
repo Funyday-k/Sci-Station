@@ -23,7 +23,7 @@
 ## 发布前检查
 
 - App 冷启动没有明显卡顿或窗口尺寸异常。
-- Home、Library、Recommendation、Queue、Reading Plan 首次进入没有长时间白屏。
+- Home、Library、Recommendation 和 Tasks 首次进入没有长时间白屏。
 - AI streaming 不应导致 Home/Sidebar 明显掉帧。
 - Debug-only instrumentation 不应在普通 Debug workspace 中持续轮询或写日志。
 

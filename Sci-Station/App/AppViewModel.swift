@@ -2332,7 +2332,7 @@ final class AppViewModel: ObservableObject {
 
     func showGraphActionPlaceholder(reason: String) {
         recordShellDebugEvent("graph.ui.action", payload: .object([
-            "action": .string("placeholder"),
+            "action": .string("pending_implementation"),
             "reason": .string(reason)
         ]))
     }
@@ -2344,10 +2344,10 @@ final class AppViewModel: ObservableObject {
         case .openWikiPage(let path):
             openMarkdownDocument(relativePath: path)
         case .addToProject, .markAsCore, .createTodo:
-            // Write actions would go through Permission Dock in full implementation.
-            // For P46 we log the intent.
+            // Graph write actions are not enabled in this build. Log the
+            // intent so the UI can stay responsive without mutating data.
             recordShellDebugEvent("graph.ui.action", payload: .object([
-                "action": .string("write_action_placeholder"),
+                "action": .string("write_action_pending"),
                 "node_action": .string(String(describing: action))
             ]))
         case .generateReadingOrder(let centerPaperID):

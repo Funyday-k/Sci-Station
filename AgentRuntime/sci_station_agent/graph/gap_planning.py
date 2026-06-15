@@ -84,7 +84,7 @@ def draft_gap_planning_sample(run_id: str, project_id: str) -> dict:
         "kind": "gap_planning_beta",
         "proposed_path": f"projects/{project_id}/wiki/research_plan.md",
         "title": "Research planning beta draft",
-        "content": "# Research Plan\n\nThis P34 beta path validates the sidecar protocol; production planning belongs to P35.",
+        "content": "# Research Plan\n\nThis sample path validates the sidecar protocol; use the production gap-planning workflow for evidence-backed planning.",
         "evidence_refs": [],
         "risk": "readOnly",
     }

@@ -28,7 +28,7 @@
 - 中央：消息流、工具调用卡、审批卡、失败/重试状态、可折叠 reasoning。
 - 右侧：证据、引用、相关论文、项目任务、生成产物和可写回目标。
 - 输入区：附件、引用当前选择、模式选择、工具预算、发送前权限摘要。
-- 输出动作：保存到 Project Brief、写入 Wiki、生成任务、添加 reading plan、创建材料记录。
+- 输出动作：保存到 Project Brief、写入 Wiki、生成任务、创建阅读 Todo、创建材料记录。
 
 实现约束：
 
@@ -53,5 +53,5 @@ AI 相关 Proposal 必须写清：
 
 - 无 API key 时 AI 入口不崩溃。
 - provider 失败后用户知道如何重试或复制诊断。
-- 写回 wiki/paper/queue/reading plan 的路径受限且可审计。
+- 写回 wiki、paper notes、tasks 或 recommendation follow-up 的路径受限且可审计。
 - AgentRuntime 测试在改动相关代码时通过。
