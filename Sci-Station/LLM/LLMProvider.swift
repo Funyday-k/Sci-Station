@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol LLMProvider: Sendable {
+public nonisolated protocol LLMProvider: Sendable {
     func complete(prompt: String, configuration: LLMConfiguration, apiKey: String) async throws -> String
 }
 
@@ -238,11 +238,11 @@ public nonisolated enum LLMProviderStreamEvent: Sendable {
     case completed(LLMProviderResponse)
 }
 
-public protocol LLMChatProvider: Sendable {
+public nonisolated protocol LLMChatProvider: Sendable {
     func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse
 }
 
-public protocol LLMStreamingChatProvider: LLMChatProvider {
+public nonisolated protocol LLMStreamingChatProvider: LLMChatProvider {
     nonisolated func streamResponse(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) -> AsyncThrowingStream<LLMProviderStreamEvent, Error>
 }
 

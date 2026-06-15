@@ -25,7 +25,7 @@ public nonisolated struct AgentToolContext: Sendable {
     }
 }
 
-public protocol AgentTool: Sendable {
+public nonisolated protocol AgentTool: Sendable {
     nonisolated var definition: AgentToolDefinition { get }
     func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult
 }
