@@ -4,15 +4,18 @@ public actor AgentPlanner {
     private let provider: any LLMProvider
     private let promptBuilder: AgentPromptBuilder
     private let planParser: AgentPlanParser
+    private let promptLibraryResolver: AgentPromptLibraryResolver
 
     public init(
         provider: any LLMProvider,
         promptBuilder: AgentPromptBuilder = AgentPromptBuilder(),
-        planParser: AgentPlanParser = AgentPlanParser()
+        planParser: AgentPlanParser = AgentPlanParser(),
+        promptLibraryResolver: AgentPromptLibraryResolver = AgentPromptLibraryResolver()
     ) {
         self.provider = provider
         self.promptBuilder = promptBuilder
         self.planParser = planParser
+        self.promptLibraryResolver = promptLibraryResolver
     }
 
     public func plan(
@@ -24,6 +27,7 @@ public actor AgentPlanner {
         modeInstructions: String? = nil,
         conversationHistory: [LLMChatMessage] = [],
         allowsPlainTextResponse: Bool = false,
+        workspaceProfile: AgentWorkspaceProfile = AgentWorkspaceProfile(),
         responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
     ) async throws -> AgentPlan {
         let trimmedGoal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,9 +35,16 @@ public actor AgentPlanner {
             throw AgentError.emptyGoal
         }
 
+        let basePrompt = allowsPlainTextResponse ? trimmedGoal : trimmedGoal
+        let plannerPrompt = promptLibraryResolver.resolve(
+            surface: .planner,
+            profile: workspaceProfile,
+            basePrompt: basePrompt
+        )
+
         if let chatProvider = provider as? any LLMChatProvider {
             let messages = try promptBuilder.buildChatMessages(
-                goal: trimmedGoal,
+                goal: plannerPrompt.promptText,
                 workspaceSnapshot: workspaceSnapshot,
                 tools: tools,
                 modeInstructions: modeInstructions,
@@ -58,11 +69,11 @@ public actor AgentPlanner {
             }
 
             let response = try await chatProvider.respond(to: request, configuration: configuration, apiKey: apiKey)
-            return try parsedPlan(from: response.message, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
+            return try parsedPlan(from: response.message, goal: plannerPrompt.promptText, allowsPlainTextResponse: allowsPlainTextResponse)
         }
 
         let prompt = try promptBuilder.buildPrompt(
-            goal: trimmedGoal,
+            goal: plannerPrompt.promptText,
             workspaceSnapshot: workspaceSnapshot,
             tools: tools,
             modeInstructions: modeInstructions,
@@ -70,7 +81,7 @@ public actor AgentPlanner {
             allowsPlainTextResponse: allowsPlainTextResponse
         )
         let response = try await provider.complete(prompt: prompt, configuration: configuration, apiKey: apiKey)
-        return try parsedPlan(from: response, goal: trimmedGoal, allowsPlainTextResponse: allowsPlainTextResponse)
+        return try parsedPlan(from: response, goal: plannerPrompt.promptText, allowsPlainTextResponse: allowsPlainTextResponse)
     }
 
     private func streamedResponse(

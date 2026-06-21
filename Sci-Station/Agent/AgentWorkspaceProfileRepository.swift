@@ -4,9 +4,14 @@ public actor AgentWorkspaceProfileRepository {
     public static let relativePath = ".sci-station/agent/profile.json"
 
     private let fileManager: FileManager
+    private let promptLibraryResolver: AgentPromptLibraryResolver
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        promptLibraryResolver: AgentPromptLibraryResolver = AgentPromptLibraryResolver()
+    ) {
         self.fileManager = fileManager
+        self.promptLibraryResolver = promptLibraryResolver
     }
 
     public func load(in root: ResearchRoot) throws -> AgentWorkspaceProfile {
@@ -37,6 +42,75 @@ public actor AgentWorkspaceProfileRepository {
         }
         if profile.activePromptTemplateID == nil, promptTemplate.isEnabled {
             profile.activePromptTemplateID = promptTemplate.id
+        }
+        try save(profile, in: root)
+    }
+
+    public func removePromptTemplate(id: String, in root: ResearchRoot) throws {
+        var profile = try load(in: root)
+        profile.promptTemplates.removeAll { $0.id == id }
+        if profile.activePromptTemplateID == id {
+            profile.activePromptTemplateID = profile.enabledPromptTemplates.first?.id
+        }
+        try save(profile, in: root)
+    }
+
+    public func setActivePromptTemplate(id: String?, in root: ResearchRoot) throws {
+        var profile = try load(in: root)
+        profile.activePromptTemplateID = id
+        try save(profile, in: root)
+    }
+
+    public func setPromptTemplateEnabled(id: String, isEnabled: Bool, in root: ResearchRoot) throws {
+        var profile = try load(in: root)
+        guard let index = profile.promptTemplates.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        profile.promptTemplates[index].isEnabled = isEnabled
+        if !isEnabled, profile.activePromptTemplateID == id {
+            profile.activePromptTemplateID = profile.enabledPromptTemplates.first(where: { $0.id != id })?.id
+        }
+        if isEnabled, profile.activePromptTemplateID == nil {
+            profile.activePromptTemplateID = id
+        }
+        try save(profile, in: root)
+    }
+
+    public func setPromptTemplateBody(
+        id: String,
+        title: String,
+        version: String,
+        description: String,
+        surface: AgentPromptSurface,
+        systemPrompt: String?,
+        promptTemplate: String,
+        isEnabled: Bool,
+        in root: ResearchRoot
+    ) throws {
+        var profile = try load(in: root)
+        if let validationMessage = promptLibraryResolver.validatePromptText(promptTemplate) {
+            throw AgentError.invalidArguments(validationMessage)
+        }
+        if let systemPrompt, let validationMessage = promptLibraryResolver.validatePromptText(systemPrompt) {
+            throw AgentError.invalidArguments(validationMessage)
+        }
+        let updated = AgentPromptTemplateOverride(
+            id: id,
+            title: title,
+            version: version,
+            description: description,
+            surface: surface,
+            systemPrompt: systemPrompt,
+            promptTemplate: promptTemplate,
+            isEnabled: isEnabled
+        )
+        if let index = profile.promptTemplates.firstIndex(where: { $0.id == id }) {
+            profile.promptTemplates[index] = updated
+        } else {
+            profile.promptTemplates.append(updated)
+        }
+        if isEnabled, profile.activePromptTemplateID == nil {
+            profile.activePromptTemplateID = id
         }
         try save(profile, in: root)
     }

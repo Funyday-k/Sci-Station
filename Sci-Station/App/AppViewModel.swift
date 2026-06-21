@@ -361,8 +361,10 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var pinnedAgentThreadIDs: Set<AgentThread.ID> = []
     @Published private(set) var agentPresetDetails: AgentPresetSummary?
     @Published private(set) var agentProductMCPServerStatuses: [AgentMCPServerStatus] = []
+    @Published private(set) var agentWorkspaceProfile = AgentWorkspaceProfile()
     @Published private(set) var agentWorkspaceProfileSummary: AgentWorkspaceProfileSummary?
     @Published private(set) var agentWorkspaceProfileMCPServerStatuses: [AgentMCPServerStatus] = []
+    @Published private(set) var agentPromptResolutionSummaries: [String] = []
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
@@ -424,6 +426,8 @@ final class AppViewModel: ObservableObject {
     private let workspacePreferencesRepository: WorkspacePreferencesRepository
     private let workspaceModuleConfigurationStore: WorkspaceModuleConfigurationStore
     private let workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository
+    private let agentWorkspaceProfileRepository: AgentWorkspaceProfileRepository
+    private let agentPromptLibraryResolver = AgentPromptLibraryResolver()
     private let paperAnnotationsRepository: PaperAnnotationsRepository
     private let pdfAnnotationStore: PDFAnnotationStore
     private let libraryBulkEditService: LibraryBulkEditService
@@ -922,6 +926,7 @@ final class AppViewModel: ObservableObject {
         workspacePreferencesRepository: WorkspacePreferencesRepository? = nil,
         workspaceModuleConfigurationStore: WorkspaceModuleConfigurationStore? = nil,
         workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository? = nil,
+        agentWorkspaceProfileRepository: AgentWorkspaceProfileRepository? = nil,
         paperAnnotationsRepository: PaperAnnotationsRepository? = nil,
         pdfAnnotationStore: PDFAnnotationStore? = nil,
         libraryBulkEditService: LibraryBulkEditService? = nil,
@@ -953,6 +958,7 @@ final class AppViewModel: ObservableObject {
         let resolvedWorkspacePreferencesRepository = workspacePreferencesRepository ?? WorkspacePreferencesRepository()
         let resolvedWorkspaceModuleConfigurationStore = workspaceModuleConfigurationStore ?? WorkspaceModuleConfigurationStore()
         let resolvedWorkspaceModuleOverrideRepository = workspaceModuleOverrideRepository ?? WorkspaceModuleOverrideRepository()
+        let resolvedAgentWorkspaceProfileRepository = agentWorkspaceProfileRepository ?? AgentWorkspaceProfileRepository()
         let resolvedPaperAnnotationsRepository = paperAnnotationsRepository ?? PaperAnnotationsRepository()
         let resolvedPDFAnnotationStore = pdfAnnotationStore ?? PDFAnnotationStore()
         let resolvedSystemCalendarService = systemCalendarService ?? SystemCalendarService()
@@ -995,6 +1001,7 @@ final class AppViewModel: ObservableObject {
         self.workspacePreferencesRepository = resolvedWorkspacePreferencesRepository
         self.workspaceModuleConfigurationStore = resolvedWorkspaceModuleConfigurationStore
         self.workspaceModuleOverrideRepository = resolvedWorkspaceModuleOverrideRepository
+        self.agentWorkspaceProfileRepository = resolvedAgentWorkspaceProfileRepository
         self.paperAnnotationsRepository = resolvedPaperAnnotationsRepository
         self.pdfAnnotationStore = resolvedPDFAnnotationStore
         self.libraryBulkEditService = resolvedLibraryBulkEditService
@@ -4100,7 +4107,8 @@ final class AppViewModel: ObservableObject {
                     selectedPaperDraft,
                     in: currentWorkspace,
                     configuration: llmConfiguration,
-                    apiKey: try await resolvedLLMAPIKey(for: currentWorkspace)
+                    apiKey: try await resolvedLLMAPIKey(for: currentWorkspace),
+                    workspaceProfile: agentWorkspaceProfile
                 )
                 summaryPreviewText = summary
                 isShowingSummaryPreview = true
@@ -5520,7 +5528,26 @@ final class AppViewModel: ObservableObject {
                     conversationHistory: conversationHistory,
                     configuration: llmConfiguration,
                     apiKey: apiKey,
-                    options: executionOptions,
+                    options: AgentExecutionOptions(
+                        mode: executionOptions.mode,
+                        approvedToolCallIDs: executionOptions.approvedToolCallIDs,
+                        loopPolicy: executionOptions.loopPolicy,
+                        runtimeSelection: executionOptions.runtimeSelection,
+                        isSidecarDisabledForWorkspace: executionOptions.isSidecarDisabledForWorkspace,
+                        disabledHookIDs: executionOptions.disabledHookIDs,
+                        plannerInstructions: executionOptions.plannerInstructions,
+                        allowedToolNames: executionOptions.allowedToolNames,
+                        enabledWorkflowIDs: executionOptions.enabledWorkflowIDs,
+                        allowsPlainTextResponse: executionOptions.allowsPlainTextResponse,
+                        loopOptions: executionOptions.loopOptions,
+                        retryOfRunID: executionOptions.retryOfRunID,
+                        promptResolution: agentPromptLibraryResolver.resolve(
+                            surface: .toolLoop,
+                            profile: agentWorkspaceProfile,
+                            basePrompt: trimmedGoal
+                        )
+                    ),
+                    workspaceProfile: agentWorkspaceProfile,
                     responseDeltaHandler: responseDeltaHandler,
                     sessionEventHandler: makeAgentSessionEventHandler()
                 )
@@ -7433,6 +7460,147 @@ final class AppViewModel: ObservableObject {
         "\(workspace.rootURL.path)#mineru-api"
     }
 
+    private func refreshAgentWorkspaceProfile(in root: ResearchRoot) async throws {
+        let profile = try await agentWorkspaceProfileRepository.load(in: root)
+        applyAgentWorkspaceProfile(profile)
+    }
+
+    private func applyAgentWorkspaceProfile(_ profile: AgentWorkspaceProfile) {
+        agentWorkspaceProfile = profile
+        let validationIssues = AgentWorkspaceProfileValidator().validate(profile)
+        let summary = AgentWorkspaceProfileSummary(profile: profile, validationIssues: validationIssues)
+        agentWorkspaceProfileSummary = summary
+        agentWorkspaceProfileMCPServerStatuses = summary.mcpServers
+        agentPromptResolutionSummaries = AgentPromptSurface.allCases.map { surface in
+            agentPromptLibraryResolver.resolve(surface: surface, profile: profile, basePrompt: "").summary
+        }
+    }
+
+    func updateAgentWorkspaceProfile(_ mutate: (inout AgentWorkspaceProfile) -> Void) {
+        guard let currentWorkspace else {
+            return
+        }
+
+        var updatedProfile = agentWorkspaceProfile
+        mutate(&updatedProfile)
+        guard updatedProfile != agentWorkspaceProfile else {
+            return
+        }
+
+        agentWorkspaceProfile = updatedProfile
+
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.save(updatedProfile, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func saveAgentPromptTemplate(
+        id: String,
+        title: String,
+        version: String = "0.1.0",
+        description: String,
+        surface: AgentPromptSurface,
+        systemPrompt: String?,
+        promptTemplate: String,
+        isEnabled: Bool
+    ) {
+        guard let currentWorkspace else {
+            return
+        }
+        if let validationMessage = agentPromptLibraryResolver.validatePromptText(promptTemplate) {
+            present(AgentError.invalidArguments(validationMessage))
+            return
+        }
+        if let systemPrompt, let validationMessage = agentPromptLibraryResolver.validatePromptText(systemPrompt) {
+            present(AgentError.invalidArguments(validationMessage))
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.setPromptTemplateBody(
+                    id: id,
+                    title: title,
+                    version: version,
+                    description: description,
+                    surface: surface,
+                    systemPrompt: systemPrompt,
+                    promptTemplate: promptTemplate,
+                    isEnabled: isEnabled,
+                    in: root
+                )
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func createAgentPromptTemplate(surface: AgentPromptSurface = .planner) {
+        let templateID = "prompt-\(UUID().uuidString.lowercased())"
+        saveAgentPromptTemplate(
+            id: templateID,
+            title: "New Prompt",
+            version: "0.1.0",
+            description: "",
+            surface: surface,
+            systemPrompt: nil,
+            promptTemplate: "",
+            isEnabled: false
+        )
+    }
+
+    func setActiveAgentPromptTemplate(id: String?) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.setActivePromptTemplate(id: id, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func setAgentPromptTemplateEnabled(id: String, isEnabled: Bool) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.setPromptTemplateEnabled(id: id, isEnabled: isEnabled, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func removeAgentPromptTemplate(id: String) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.removePromptTemplate(id: id, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
     func loadRecommendationHistory(limit: Int = 20) {
         guard let workspace = currentWorkspace else {
             return
@@ -8475,6 +8643,7 @@ final class AppViewModel: ObservableObject {
     private func refreshAgentState(in workspace: ResearchWorkspace) async {
         do {
             let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
+            try await refreshAgentWorkspaceProfile(in: root)
             agentWorkspaceSnapshot = try await agentService.snapshot(
                 in: workspace,
                 root: root,
@@ -8494,8 +8663,6 @@ final class AppViewModel: ObservableObject {
             let runtimeLoader = AgentRuntimeConfigurationLoader()
             agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
             agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
-            agentWorkspaceProfileSummary = try await runtimeLoader.loadWorkspaceProfile(in: root)
-            agentWorkspaceProfileMCPServerStatuses = agentWorkspaceProfileSummary?.mcpServers ?? []
             agentLocalMCPServerStatuses = try runtimeLoader.loadLocalMCPServerStatuses(in: root)
             rebuildAgentHookActivitySummary()
             agentSidecarHealth = workspacePreferences.isSidecarDisabledForWorkspace

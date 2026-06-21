@@ -19,6 +19,7 @@ private struct CoreVerificationSuite {
         try await createWorkspaceInitializesExpectedStructure()
         try await createWorkspaceInitializesResearchRootAndDefaultProject()
         try await createWorkspaceInitializesAgentWorkspaceProfile()
+        try agentPromptLibraryRejectsSecretLikePromptBodies()
         try await projectRegistryCreatesUpdatesAndCollapsesProjects()
         try await openWorkspaceBackfillsMissingStructure()
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
@@ -465,6 +466,15 @@ private struct CoreVerificationSuite {
         try expect(profile.skillToggles.isEmpty, "Seeded agent workspace profile should start without user skill overrides.")
         try expect(profile.mcpServers.isEmpty, "Seeded agent workspace profile should start without user MCP servers.")
         try expect(AgentWorkspaceProfileValidator().validate(profile).isEmpty, "Seeded agent workspace profile should validate.")
+    }
+
+    private func agentPromptLibraryRejectsSecretLikePromptBodies() throws {
+        let resolver = AgentPromptLibraryResolver()
+        let safeMessage = resolver.validatePromptText("Use project evidence only.")
+        let blockedMessage = resolver.validatePromptText("Here is a token: sk-test_1234567890abcdef")
+
+        try expect(safeMessage == nil, "Regular prompt text should be accepted.")
+        try expect(blockedMessage != nil, "Secret-like prompt text should be rejected.")
     }
 
     private func projectRegistryCreatesUpdatesAndCollapsesProjects() async throws {

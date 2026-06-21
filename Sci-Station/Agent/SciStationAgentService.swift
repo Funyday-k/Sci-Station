@@ -16,6 +16,7 @@ public actor SciStationAgentService {
     private let threadRepository: AgentThreadRepository
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
+    private let promptLibraryResolver: AgentPromptLibraryResolver
     private let appDebugEventLogger: AppDebugEventLogger?
 
     public init(
@@ -32,7 +33,8 @@ public actor SciStationAgentService {
         threadRepository: AgentThreadRepository = AgentThreadRepository(),
         draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
         appDebugEventLogger: AppDebugEventLogger? = AppDebugEventLogger(),
-        hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks()
+        hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks(),
+        promptLibraryResolver: AgentPromptLibraryResolver = AgentPromptLibraryResolver()
     ) {
         let resolvedContextBuilder = contextBuilder ?? AgentWorkspaceContextBuilder(
             paperRepository: paperRepository,
@@ -77,6 +79,7 @@ public actor SciStationAgentService {
         self.draftRepository = draftRepository
         self.appDebugEventLogger = appDebugEventLogger
         self.hookDefinitions = hookDefinitions
+        self.promptLibraryResolver = promptLibraryResolver
     }
 
     public func snapshot(
@@ -115,6 +118,7 @@ public actor SciStationAgentService {
         configuration: LLMConfiguration,
         apiKey: String,
         options: AgentExecutionOptions = AgentExecutionOptions(),
+        workspaceProfile: AgentWorkspaceProfile = AgentWorkspaceProfile(),
         responseDeltaHandler: (@Sendable (String) async -> Void)? = nil,
         sessionEventHandler: (@Sendable (AgentSessionEvent) async -> Void)? = nil
     ) async throws -> AgentRun {
@@ -134,6 +138,8 @@ public actor SciStationAgentService {
             throw AgentError.invalidArguments(deniedHook.message ?? "Prompt was blocked by an agent hook.")
         }
         let toolDefinitions = await filteredToolDefinitions(allowedToolNames: options.allowedToolNames)
+        let promptResolution = options.promptResolution
+            ?? promptLibraryResolver.resolve(surface: .toolLoop, profile: workspaceProfile, basePrompt: goal)
 
         if let localRun = try await directLocalResponseRunIfNeeded(
             goal: goal,
@@ -146,6 +152,7 @@ public actor SciStationAgentService {
             currentProjectID: currentProjectID,
             runtimeSelector: options.runtimeSelection.rawValue,
             enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            promptResolution: promptResolution,
             retryOfRunID: options.retryOfRunID,
             root: resolvedRoot,
             responseDeltaHandler: responseDeltaHandler
@@ -162,6 +169,7 @@ public actor SciStationAgentService {
             selectedPaperID: selectedPaperID,
             runtimeSelector: options.runtimeSelection.rawValue,
             enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            promptResolution: promptResolution,
             retryOfRunID: options.retryOfRunID,
             root: resolvedRoot
         ) {
@@ -190,7 +198,7 @@ public actor SciStationAgentService {
                 debugEventLogger: appDebugEventLogger
             )
             let messages = try AgentPromptBuilder().buildToolLoopChatMessages(
-                goal: goal,
+                goal: promptResolution.promptText,
                 workspaceSnapshot: snapshot,
                 tools: toolDefinitions,
                 conversationHistory: conversationHistory
@@ -238,7 +246,8 @@ public actor SciStationAgentService {
                     currentProjectID: currentProjectID,
                     runtimeSelector: options.runtimeSelection.rawValue,
                     enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
-                    retryOfRunID: options.retryOfRunID
+                    retryOfRunID: options.retryOfRunID,
+                    promptResolution: promptResolution
                 )
                 try await runLogger.append(run, in: resolvedRoot)
                 return run
@@ -250,7 +259,8 @@ public actor SciStationAgentService {
                 currentProjectID: currentProjectID,
                 runtimeSelector: options.runtimeSelection.rawValue,
                 enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
-                retryOfRunID: options.retryOfRunID
+                retryOfRunID: options.retryOfRunID,
+                promptResolution: promptResolution
             )
             try await runLogger.append(run, in: resolvedRoot)
             try await appendRuntimeSessionEvents(for: runtimeEvents, run: run, in: resolvedRoot)
@@ -266,6 +276,7 @@ public actor SciStationAgentService {
             modeInstructions: options.plannerInstructions,
             conversationHistory: conversationHistory,
             allowsPlainTextResponse: options.allowsPlainTextResponse,
+            workspaceProfile: workspaceProfile,
             responseDeltaHandler: responseDeltaHandler
         )
         if let allowedToolNames = options.allowedToolNames {
@@ -349,6 +360,7 @@ public actor SciStationAgentService {
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
         enabledToolNames: [String]?,
+        promptResolution: AgentPromptResolution,
         retryOfRunID: String?,
         root: ResearchRoot,
         responseDeltaHandler: (@Sendable (String) async -> Void)?
@@ -386,6 +398,9 @@ public actor SciStationAgentService {
             runtimeSelector: runtimeSelector,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
             lifecycleState: .completed,
             retryOfRunID: retryOfRunID
         )
@@ -453,6 +468,7 @@ public actor SciStationAgentService {
         selectedPaperID: String?,
         runtimeSelector: String?,
         enabledToolNames: [String]?,
+        promptResolution: AgentPromptResolution,
         retryOfRunID: String?,
         root: ResearchRoot
     ) async throws -> AgentRun? {
@@ -501,6 +517,9 @@ public actor SciStationAgentService {
             runtimeSelector: runtimeSelector,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
             lifecycleState: .waitingForApproval,
             retryOfRunID: retryOfRunID
         )
@@ -667,7 +686,8 @@ public actor SciStationAgentService {
             createdAt: Date(),
             currentProjectID: currentProjectID,
             runtimeSelector: nil,
-            enabledToolNames: enabledToolNamesSnapshot(allowedToolNames, toolDefinitions: toolDefinitions)
+            enabledToolNames: enabledToolNamesSnapshot(allowedToolNames, toolDefinitions: toolDefinitions),
+            promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: pending.toolCall.argumentsJSON)
         )
         try await runLogger.append(run, in: resolvedRoot)
         return run
@@ -1266,7 +1286,8 @@ public actor SciStationAgentService {
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
         enabledToolNames: [String]?,
-        retryOfRunID: String? = nil
+        retryOfRunID: String? = nil,
+        promptResolution: AgentPromptResolution
     ) -> AgentRun {
         let toolCalls = loopResult.steps.flatMap(\.toolCalls)
         let finalResponse = loopResult.finalResponseMarkdown?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -1322,6 +1343,9 @@ public actor SciStationAgentService {
             runtimeSelector: runtimeSelector,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
             lifecycleState: lifecycleState,
             failureCategory: failureCategory,
             retryOfRunID: retryOfRunID
@@ -1335,7 +1359,8 @@ public actor SciStationAgentService {
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
         enabledToolNames: [String]?,
-        retryOfRunID: String? = nil
+        retryOfRunID: String? = nil,
+        promptResolution: AgentPromptResolution
     ) -> AgentRun {
         let events = envelopes.map(\.event)
         let toolCalls = events.compactMap { event -> AgentToolCall? in
@@ -1414,6 +1439,9 @@ public actor SciStationAgentService {
             runtimeSelector: runtimeSelector,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
             lifecycleState: lifecycleState,
             failureCategory: failureCategory,
             retryOfRunID: retryOfRunID

@@ -490,6 +490,144 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                GroupBox("Prompt Library") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Workspace overrides are stored in .sci-station/agent/profile.json and applied to planner, tool loop, and paper summary prompts.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Button {
+                                appModel.createAgentPromptTemplate()
+                            } label: {
+                                Label("New", systemImage: "plus")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
+
+                        if appModel.agentWorkspaceProfile.promptTemplates.isEmpty {
+                            Text("No prompt templates configured.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(appModel.agentWorkspaceProfile.promptTemplates) { template in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            TextField("Title", text: Binding(
+                                                get: { template.title },
+                                                set: { newValue in
+                                                    appModel.saveAgentPromptTemplate(
+                                                        id: template.id,
+                                                        title: newValue,
+                                                        version: template.version,
+                                                        description: template.description,
+                                                        surface: template.surface,
+                                                        systemPrompt: template.systemPrompt,
+                                                        promptTemplate: template.promptTemplate,
+                                                        isEnabled: template.isEnabled
+                                                    )
+                                                }
+                                            ))
+                                            .textFieldStyle(.roundedBorder)
+
+                                            Text("\(template.surface.rawValue) · \(template.id) · v\(template.version)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Toggle(isOn: Binding(
+                                            get: { template.isEnabled },
+                                            set: { appModel.setAgentPromptTemplateEnabled(id: template.id, isEnabled: $0) }
+                                        )) {
+                                            EmptyView()
+                                        }
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+
+                                        Button {
+                                            appModel.setActiveAgentPromptTemplate(id: template.id)
+                                        } label: {
+                                            Label("Use", systemImage: "checkmark.circle")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+
+                                    TextField("Description", text: Binding(
+                                        get: { template.description },
+                                        set: { newValue in
+                                            appModel.saveAgentPromptTemplate(
+                                                id: template.id,
+                                                title: template.title,
+                                                version: template.version,
+                                                description: newValue,
+                                                surface: template.surface,
+                                                systemPrompt: template.systemPrompt,
+                                                promptTemplate: template.promptTemplate,
+                                                isEnabled: template.isEnabled
+                                            )
+                                        }
+                                    ))
+                                    .textFieldStyle(.roundedBorder)
+
+                                    TextEditor(text: Binding(
+                                        get: { template.promptTemplate },
+                                        set: { newValue in
+                                            appModel.saveAgentPromptTemplate(
+                                                id: template.id,
+                                                title: template.title,
+                                                version: template.version,
+                                                description: template.description,
+                                                surface: template.surface,
+                                                systemPrompt: template.systemPrompt,
+                                                promptTemplate: newValue,
+                                                isEnabled: template.isEnabled
+                                            )
+                                        }
+                                    ))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(minHeight: 120)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.secondary.opacity(0.16))
+                                    )
+
+                                    HStack(spacing: 8) {
+                                        Button("Save") {
+                                            appModel.saveAgentPromptTemplate(
+                                                id: template.id,
+                                                title: template.title,
+                                                version: template.version,
+                                                description: template.description,
+                                                surface: template.surface,
+                                                systemPrompt: template.systemPrompt,
+                                                promptTemplate: template.promptTemplate,
+                                                isEnabled: template.isEnabled
+                                            )
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.small)
+
+                                        Button(role: .destructive) {
+                                            appModel.removeAgentPromptTemplate(id: template.id)
+                                        } label: {
+                                            Label("Remove", systemImage: "trash")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                }
+                                .padding(10)
+                                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 GroupBox("AI Lab Tool Budget") {
                     VStack(alignment: .leading, spacing: 10) {
                         Grid(horizontalSpacing: 12, verticalSpacing: 8) {
