@@ -361,6 +361,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var pinnedAgentThreadIDs: Set<AgentThread.ID> = []
     @Published private(set) var agentPresetDetails: AgentPresetSummary?
     @Published private(set) var agentProductMCPServerStatuses: [AgentMCPServerStatus] = []
+    @Published private(set) var agentWorkspaceProfileSummary: AgentWorkspaceProfileSummary?
+    @Published private(set) var agentWorkspaceProfileMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
@@ -1491,8 +1493,9 @@ final class AppViewModel: ObservableObject {
 
     var agentMCPStatusSummary: String {
         let productCount = agentProductMCPServerStatuses.count
+        let profileCount = agentWorkspaceProfileMCPServerStatuses.count
         let localCount = agentLocalMCPServerStatuses.count
-        return ".sci-ai/sci-station: \(productCount) templates; .sci-ai/workspace.local: \(localCount) local configs; local gateway tools/list+tools/call; side-effect tools require permissions"
+        return ".sci-ai/sci-station: \(productCount) templates; profile: \(profileCount) managed; .sci-ai/workspace.local: \(localCount) local configs; local gateway tools/list+tools/call; side-effect tools require permissions"
     }
 
     var agentRuntimeSelectionSummary: String {
@@ -1684,7 +1687,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentMCPServerStatuses: [AgentMCPServerStatus] {
-        agentProductMCPServerStatuses + agentLocalMCPServerStatuses
+        agentProductMCPServerStatuses + agentWorkspaceProfileMCPServerStatuses + agentLocalMCPServerStatuses
     }
 
     func agentPermissionDockItems(for run: AgentRun) -> [AgentPermissionDockItem] {
@@ -4050,6 +4053,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func testLLMConnection() {
+        guard let currentWorkspace else {
+            llmConnectionStatusMessage = AgentPanelValidationError.missingWorkspace.localizedDescription
+            return
+        }
+
         isTestingLLMConnection = true
         llmConnectionStatusMessage = nil
 
@@ -4059,10 +4067,14 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
+                let apiKey = try await resolvedLLMAPIKey(for: currentWorkspace)
+                guard !apiKey.isEmpty else {
+                    throw AgentPanelValidationError.missingAPIKey
+                }
                 let response = try await openAIProvider.complete(
                     prompt: "Reply with OK.",
                     configuration: llmConfiguration,
-                    apiKey: llmAPIKey
+                    apiKey: apiKey
                 )
                 llmConnectionStatusMessage = response.isEmpty ? "Connection test returned an empty response." : "Connection OK"
             } catch {
@@ -4084,15 +4096,11 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
-                let apiKey = llmAPIKey.isEmpty
-                    ? try await apiKeyStore.loadAPIKey(for: currentWorkspace.rootURL.path) ?? ""
-                    : llmAPIKey
-
                 let summary = try await paperSummaryService.summarize(
                     selectedPaperDraft,
                     in: currentWorkspace,
                     configuration: llmConfiguration,
-                    apiKey: apiKey
+                    apiKey: try await resolvedLLMAPIKey(for: currentWorkspace)
                 )
                 summaryPreviewText = summary
                 isShowingSummaryPreview = true
@@ -7417,11 +7425,8 @@ final class AppViewModel: ObservableObject {
     }
 
     private func resolvedLLMAPIKey(for workspace: ResearchWorkspace) async throws -> String {
-        if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return llmAPIKey
-        }
-
-        return try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+        let persistedAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path)
+        return LLMAPIKeyResolver.resolve(inMemory: llmAPIKey, persisted: persistedAPIKey)
     }
 
     private func minerUAPITokenAccount(for workspace: ResearchWorkspace) -> String {
@@ -7553,7 +7558,7 @@ final class AppViewModel: ObservableObject {
                     if !result.scores.isEmpty {
                         isEvaluatingRecommendationsWithAI = true
                         do {
-                            result.aiEvaluation = try await evaluateRecommendationsWithAI(result, model: selectedAIModel)
+                            result.aiEvaluation = try await evaluateRecommendationsWithAI(result, model: selectedAIModel, workspace: workspace)
                             try await recommendationPipeline.persistSnapshot(result, workspace: workspace)
                             recommendationRunResult = result
                             await refreshRecommendationFeedbackState(for: result)
@@ -7921,7 +7926,18 @@ final class AppViewModel: ObservableObject {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var strategies: [RecommendationAISearchStrategy] = []
         var statusNotes: [String] = []
-        if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let apiKey: String
+        do {
+            apiKey = try await resolvedLLMAPIKey(for: workspace)
+        } catch {
+            apiKey = ""
+            statusNotes.append(localized("AI API Key 暂不可用：\(error.localizedDescription)", "AI API key unavailable: \(error.localizedDescription)"))
+            recordAppDebugEvent("recommendation.ai_search.error", payload: .object([
+                "phase": .string("api_key"),
+                "reason": .string(error.localizedDescription)
+            ]))
+        }
+        if !apiKey.isEmpty {
             recommendationAIEvaluationStatusMessage = localized(
                 "正在把项目、关键词和 \(referencePapers.count) 篇参考论文提交给 AI 生成 arXiv 搜索策略…",
                 "Submitting the project, keywords, and \(referencePapers.count) reference papers to AI for arXiv search planning…"
@@ -7934,7 +7950,8 @@ final class AppViewModel: ObservableObject {
                     referencePapers: referencePapers,
                     includeCrossList: includeCrossList,
                     topK: topK,
-                    model: aiModel
+                    model: aiModel,
+                    apiKey: apiKey
                 )
                 strategies.append(contentsOf: aiStrategies)
                 if !aiStrategies.isEmpty {
@@ -8033,16 +8050,18 @@ final class AppViewModel: ObservableObject {
         referencePapers: [Paper],
         includeCrossList: Bool,
         topK: Int,
-        model: String
+        model: String,
+        apiKey: String
     ) async throws -> [RecommendationAISearchStrategy] {
-        let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !apiKey.isEmpty else {
+        let resolvedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedAPIKey.isEmpty else {
             throw RecommendationAIEvaluationError.missingAPIKey
         }
         var configuration = llmConfiguration
         configuration.model = model
         configuration.temperature = 0.15
         configuration.maxTokens = 1600
+        let requestConfiguration = configuration
         let prompt = recommendationAISearchPrompt(
             query: query,
             categories: categories,
@@ -8055,8 +8074,8 @@ final class AppViewModel: ObservableObject {
         let response = try await recommendationWithTimeout(seconds: 20) {
             try await provider.complete(
                 prompt: prompt,
-                configuration: configuration,
-                apiKey: apiKey
+                configuration: requestConfiguration,
+                apiKey: resolvedAPIKey
             )
         }
         return parseRecommendationAISearchStrategies(response, fallbackCategories: categories)
@@ -8265,8 +8284,8 @@ final class AppViewModel: ObservableObject {
             .flatMap { key in [key, "external:\(key)", "paper:\(key)"] })
     }
 
-    private func evaluateRecommendationsWithAI(_ result: RecommendationRunResult, model: String) async throws -> RecommendationAIEvaluation {
-        let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func evaluateRecommendationsWithAI(_ result: RecommendationRunResult, model: String, workspace: ResearchWorkspace) async throws -> RecommendationAIEvaluation {
+        let apiKey = try await resolvedLLMAPIKey(for: workspace)
         guard !apiKey.isEmpty else {
             throw RecommendationAIEvaluationError.missingAPIKey
         }
@@ -8274,12 +8293,13 @@ final class AppViewModel: ObservableObject {
         configuration.model = model
         configuration.temperature = 0.2
         configuration.maxTokens = 3200
+        let requestConfiguration = configuration
         let prompt = recommendationAIEvaluationPrompt(for: result)
         let provider = openAIProvider
         let response = try await recommendationWithTimeout(seconds: 45) {
             try await provider.complete(
                 prompt: prompt,
-                configuration: configuration,
+                configuration: requestConfiguration,
                 apiKey: apiKey
             )
         }
@@ -8474,6 +8494,8 @@ final class AppViewModel: ObservableObject {
             let runtimeLoader = AgentRuntimeConfigurationLoader()
             agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
             agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
+            agentWorkspaceProfileSummary = try await runtimeLoader.loadWorkspaceProfile(in: root)
+            agentWorkspaceProfileMCPServerStatuses = agentWorkspaceProfileSummary?.mcpServers ?? []
             agentLocalMCPServerStatuses = try runtimeLoader.loadLocalMCPServerStatuses(in: root)
             rebuildAgentHookActivitySummary()
             agentSidecarHealth = workspacePreferences.isSidecarDisabledForWorkspace

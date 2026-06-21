@@ -31,6 +31,7 @@
 - Sidecar protocol version 真实 App version 注入。
 - UI smoke 覆盖更多主路径。
 - AI 对话面板升级：thread/context/sidebar、工具调用卡、审批卡、证据栏、写回 Brief/Wiki/Tasks。
+- AI 平台扩展计划：Prompt library、Skill registry、MCP connector、RAG evidence、Recommendation AI ranking、sidecar runtime 收敛和 Harness 门禁，详见 `../proposals/Proposal-AI-Platform-Expansion.md`。
 - App Intents、Spotlight semantic index、Foundation Models / Language Model protocol 预留集成边界。
 
 ## Plugin Interface

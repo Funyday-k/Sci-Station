@@ -964,12 +964,15 @@ public nonisolated struct AgentHookActivitySummary: Hashable, Sendable {
 
 public nonisolated enum AgentMCPServerSource: String, Codable, Sendable {
     case trackedProductTemplate = "tracked_product_template"
+    case workspaceProfile = "workspace_profile"
     case localWorkspaceConfig = "local_workspace_config"
 
     public nonisolated var label: String {
         switch self {
         case .trackedProductTemplate:
             return ".sci-ai/sci-station"
+        case .workspaceProfile:
+            return ".sci-station/agent/profile.json"
         case .localWorkspaceConfig:
             return ".sci-ai/workspace.local"
         }
@@ -1062,6 +1065,30 @@ public nonisolated struct AgentPresetSummary: Hashable, Sendable {
     }
 }
 
+public nonisolated struct AgentWorkspaceProfileSummary: Hashable, Sendable {
+    public var relativePath: String
+    public var promptTemplateCount: Int
+    public var enabledPromptTemplateCount: Int
+    public var skillToggleCount: Int
+    public var enabledSkillCount: Int
+    public var mcpServers: [AgentMCPServerStatus]
+    public var validationIssues: [AgentPluginValidationIssue]
+
+    public nonisolated init(
+        profile: AgentWorkspaceProfile,
+        relativePath: String = AgentWorkspaceProfileRepository.relativePath,
+        validationIssues: [AgentPluginValidationIssue] = []
+    ) {
+        self.relativePath = relativePath
+        self.promptTemplateCount = profile.promptTemplates.count
+        self.enabledPromptTemplateCount = profile.enabledPromptTemplates.count
+        self.skillToggleCount = profile.skillToggles.count
+        self.enabledSkillCount = profile.enabledSkillIDs.count
+        self.mcpServers = profile.mcpServers.map { AgentMCPServerStatus(server: $0, source: .workspaceProfile) }
+        self.validationIssues = validationIssues
+    }
+}
+
 public struct AgentRuntimeConfigurationLoader {
     public var fileManager: FileManager
 
@@ -1088,6 +1115,12 @@ public struct AgentRuntimeConfigurationLoader {
             manifestRelativePath: relativePath,
             validationIssues: issues
         )
+    }
+
+    public func loadWorkspaceProfile(in root: ResearchRoot) async throws -> AgentWorkspaceProfileSummary {
+        let profile = try await AgentWorkspaceProfileRepository(fileManager: fileManager).load(in: root)
+        let issues = AgentWorkspaceProfileValidator().validate(profile)
+        return AgentWorkspaceProfileSummary(profile: profile, validationIssues: issues)
     }
 
     public func loadLocalMCPServerStatuses(in root: ResearchRoot) throws -> [AgentMCPServerStatus] {

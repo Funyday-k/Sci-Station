@@ -81,7 +81,7 @@ public struct WorkspacePreferences: Hashable, Sendable {
         appLanguage: AppLanguagePreference = .system,
         liquidGlassTint: LiquidGlassTintPreference = .system,
         agentChatFontSize: Double = Self.defaultAgentChatFontSize,
-        agentRuntimeSelection: AgentRuntimeSelection = .autoFallback,
+        agentRuntimeSelection: AgentRuntimeSelection = .swiftLoop,
         isSidecarDisabledForWorkspace: Bool = false,
         agentDebugLoggingEnabled: Bool = false,
         agentLoopBudget: AgentLoopOptions = Self.defaultAgentLoopBudget,
@@ -161,9 +161,9 @@ public enum AgentRuntimeSelection: String, CaseIterable, Identifiable, Codable, 
         case .swiftLoop:
             return "Swift Loop"
         case .langGraphSidecar:
-            return "LangGraph Sidecar"
+            return "Sidecar"
         case .autoFallback:
-            return "Auto fallback"
+            return "Auto"
         }
     }
 
@@ -194,7 +194,7 @@ public enum AgentRuntimeSelection: String, CaseIterable, Identifiable, Codable, 
         case .langGraphSidecar:
             return sidecarAvailable ? nil : "LangGraph sidecar unavailable; falling back to Swift Loop."
         case .autoFallback:
-            return sidecarAvailable ? nil : "Auto fallback selected Swift Loop because sidecar health is unavailable."
+            return sidecarAvailable ? nil : "Auto selected Swift Loop because sidecar health is unavailable."
         }
     }
 }

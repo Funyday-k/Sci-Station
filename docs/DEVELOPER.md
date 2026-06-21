@@ -146,6 +146,7 @@ AI 能力的边界：
 - 读操作可以自动化，但写操作必须经过权限模型和用户确认。
 - 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看。
 - 产品内置 preset 放在 [../.sci-ai/sci-station/](../.sci-ai/sci-station/)，本机桥接配置放在 `.sci-ai/workspace.local/`，不要提交本机 secret。
+- 用户可管理的 Prompt override、Skill toggle 和 MCP server 覆盖配置放在 `.sci-station/agent/profile.json`。该文件属于 Research Root 本地状态；默认初始化为空列表，不写入 API key、token 或完整运行记录。
 
 ## 功能开发流程
 

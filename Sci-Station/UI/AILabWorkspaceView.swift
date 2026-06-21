@@ -2362,6 +2362,10 @@ private struct AgentPlatformStatusView: View {
                 WorkspacePathRow(label: "Effective", value: appModel.agentRuntimeEffectiveSummary)
                 WorkspacePathRow(label: "Health", value: appModel.agentSidecarHealthSummary)
                 WorkspacePathRow(label: "Fallback", value: appModel.agentRuntimeFallbackSummary)
+                Text("Swift Loop is the stable default. Sidecar and Auto are experimental runtime paths.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 WorkspacePathRow(label: "Provider", value: appModel.agentProviderSummary)
                 WorkspacePathRow(label: "Provider V2", value: appModel.agentProviderV2Summary)
                 WorkspacePathRow(label: "Retrieval", value: appModel.agentRetrievalIndexSummary)
@@ -2935,10 +2939,12 @@ struct AgentMCPServerStatusView: View {
         GroupBox("MCP Server Status") {
             VStack(alignment: .leading, spacing: 12) {
                 WorkspacePathRow(label: "Product Templates", value: ".sci-ai/sci-station/ tracked, no raw secrets")
+                WorkspacePathRow(label: "Workspace Profile", value: ".sci-station/agent/profile.json user-managed prompt, skill, and MCP overrides")
                 WorkspacePathRow(label: "Local Config", value: ".sci-ai/workspace.local/ local-only, ignored by git")
                 WorkspacePathRow(label: "Local Gateway", value: "Swift ToolHost exposes tools/list and tools/call; write calls return approval_required")
 
                 statusSection(title: "Product Preset", statuses: appModel.agentProductMCPServerStatuses, emptyText: "No product MCP template is available in this root.")
+                statusSection(title: "Workspace Profile", statuses: appModel.agentWorkspaceProfileMCPServerStatuses, emptyText: "No managed MCP server is configured in the workspace profile.")
                 statusSection(title: "Local Workspace", statuses: appModel.agentLocalMCPServerStatuses, emptyText: "No local workspace MCP config is present.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -3010,6 +3016,20 @@ private struct AgentPresetManagerView: View {
                 } else {
                     Text("No tracked research-core preset was found for the current root.")
                         .foregroundStyle(.secondary)
+                }
+
+                if let profile = appModel.agentWorkspaceProfileSummary {
+                    presetList(
+                        title: "Workspace Profile",
+                        values: [
+                            "\(profile.enabledPromptTemplateCount) / \(profile.promptTemplateCount) prompts enabled",
+                            "\(profile.enabledSkillCount) / \(profile.skillToggleCount) skill toggles enabled",
+                            "\(profile.mcpServers.count) MCP servers configured"
+                        ]
+                    )
+                    if !profile.validationIssues.isEmpty {
+                        presetList(title: "Profile Issues", values: profile.validationIssues.map { "\($0.field): \($0.message)" })
+                    }
                 }
 
                 Text("Local overrides stay in .sci-ai/workspace.local/ or non-sensitive .sci-station/agent/ state.")

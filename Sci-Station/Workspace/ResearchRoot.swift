@@ -36,7 +36,8 @@ public nonisolated struct ResearchRoot: Identifiable, Equatable, Sendable {
         SeededFile(relativePath: "tasks/todos.yaml", contents: "todos: []\n"),
         SeededFile(relativePath: "settings/root_preferences.yaml", contents: "schema_version: 1\nactive_project_id: \"\"\n"),
         SeededFile(relativePath: "settings/llm.yaml", contents: "schema_version: 1\n"),
-        SeededFile(relativePath: "settings/agent.yaml", contents: "schema_version: 1\nmode: \"plan_only\"\n")
+        SeededFile(relativePath: "settings/agent.yaml", contents: "schema_version: 1\nmode: \"plan_only\"\n"),
+        SeededFile(relativePath: ".sci-station/agent/profile.json", contents: "{\n  \"schema_version\" : 1,\n  \"active_prompt_template_id\" : null,\n  \"prompt_templates\" : [],\n  \"skill_toggles\" : [],\n  \"mcp_servers\" : []\n}\n")
     ]
 
     public let rootURL: URL

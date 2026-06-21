@@ -424,6 +424,10 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 420)
+                        Text("Swift Loop is the stable default. Sidecar and Auto are experimental runtime paths and fall back to Swift Loop when unavailable.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         WorkspacePathRow(label: "Mode", value: appModel.agentInteractionMode.title)
                         WorkspacePathRow(label: "Knowledge Papers", value: "\(appModel.agentKnowledgePaperSelectedCount) / \(appModel.agentKnowledgePaperTotalCount)")
@@ -651,7 +655,7 @@ struct SettingsView: View {
 
                 GroupBox("AI Lab Tools") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Tool availability is filtered by the current mode. Conversation mode still cannot call tools even when tools are enabled here.")
+                        Text("Tool availability is filtered by the current mode and this allowlist. Read-only tools may run automatically in Conversation and Assistant modes; writes, network actions, and side effects still pause for approval.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

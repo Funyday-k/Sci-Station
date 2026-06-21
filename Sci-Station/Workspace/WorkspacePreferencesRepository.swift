@@ -101,7 +101,7 @@ public actor WorkspacePreferencesRepository {
         var appLanguage = AppLanguagePreference.system
         var liquidGlassTint = LiquidGlassTintPreference.system
         var agentChatFontSize = WorkspacePreferences.defaultAgentChatFontSize
-        var agentRuntimeSelection = AgentRuntimeSelection.autoFallback
+        var agentRuntimeSelection = AgentRuntimeSelection.swiftLoop
         var isSidecarDisabledForWorkspace = false
         var agentDebugLoggingEnabled = false
         var agentLoopBudget = WorkspacePreferences.defaultAgentLoopBudget
@@ -176,7 +176,7 @@ public actor WorkspacePreferencesRepository {
                 agentChatFontSize = Double(value) ?? WorkspacePreferences.defaultAgentChatFontSize
             } else if trimmed.hasPrefix("agent_runtime_selection:") {
                 let value = emptyToNil(unquoted(trimmed.replacingOccurrences(of: "agent_runtime_selection:", with: "").trimmingCharacters(in: .whitespaces)))
-                agentRuntimeSelection = value.flatMap(AgentRuntimeSelection.init(rawValue:)) ?? .autoFallback
+                agentRuntimeSelection = value.flatMap(AgentRuntimeSelection.init(rawValue:)) ?? .swiftLoop
             } else if trimmed.hasPrefix("agent_sidecar_disabled_for_workspace:") {
                 let value = trimmed.replacingOccurrences(of: "agent_sidecar_disabled_for_workspace:", with: "").trimmingCharacters(in: .whitespaces)
                 isSidecarDisabledForWorkspace = Bool(value) ?? false

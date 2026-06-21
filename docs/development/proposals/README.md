@@ -15,6 +15,10 @@
 - `Proposal-Phase0-Foundations.md`
 - `ImplementationSummary-0.2.0.md`
 
+## 后续 Proposal 草案
+
+- `Proposal-AI-Platform-Expansion.md`：AI Lab、Prompt、Skill、MCP、RAG、Recommendation、Agent Runtime 和 Harness 的后续平台化计划。
+
 当前路线图见 `../roadmap/Current.md`。文档规范和清理计划见 `../process/DocumentationPolicy.md`、`../process/DocumentationCleanupPlan.md`。
 
 ## 模板

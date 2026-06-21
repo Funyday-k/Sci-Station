@@ -18,11 +18,14 @@ private struct CoreVerificationSuite {
     func runAll() async throws {
         try await createWorkspaceInitializesExpectedStructure()
         try await createWorkspaceInitializesResearchRootAndDefaultProject()
+        try await createWorkspaceInitializesAgentWorkspaceProfile()
         try await projectRegistryCreatesUpdatesAndCollapsesProjects()
         try await openWorkspaceBackfillsMissingStructure()
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try await workspacePreferencesDefaultRuntimeIsStableSwiftLoop()
+        try await workspacePreferencesRuntimeSelectionFallbacksToSwiftLoop()
         try await workspacePreferencesLanguageRoundTrips()
         try await homeWidgetLayoutRoundTripsPreferences()
         try await homeWidgetLayoutFallsBackWhenInvalid()
@@ -166,6 +169,7 @@ private struct CoreVerificationSuite {
         try openAIProviderTreatsDeepSeekV4FlashAsThinkingMode()
         try paperSummaryPromptBuilderIncludesContext()
         try await llmConfigurationStorePersistsWithoutAPIKey()
+        try llmAPIKeyResolverTrimsAndPrefersInMemoryKey()
         try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
         try agentPlanParserExtractsJSONFromMarkdownFence()
         try agentPlanParserExtractsBalancedJSONBeforeTrailingText()
@@ -293,6 +297,7 @@ private struct CoreVerificationSuite {
         try await agentThreadRepositoryMigratesPerWorkspaceLegacy()
         try await agentThreadRepositoryArchivesAndReadsLegacyThreads()
         try await agentPromptDraftRepositoryPersistsDrafts()
+        try await agentWorkspaceProfileRepositoryPersistsPromptSkillAndMCPOverrides()
         try agentPaperIntentRouterMapsThirdPaperOrdinal()
         try agentToolDefinitionsExposePlatformMetadata()
         try agentPermissionRulesEvaluateSafetyDecisions()
@@ -433,6 +438,33 @@ private struct CoreVerificationSuite {
         try expect(registry.lastOpenedProjectID == defaultProject.id, "Default project should become the last opened project.")
         try expect(FileManager.default.fileExists(atPath: root.directoryURL(for: defaultProject.relativePath).path), "Default project directory should exist.")
         try expect(FileManager.default.fileExists(atPath: root.fileURL(for: defaultProject.relativePath + "/project.yaml").path), "Default project.yaml should exist.")
+    }
+
+    private func createWorkspaceInitializesAgentWorkspaceProfile() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let workspaceURL = temporaryDirectoryURL().appendingPathComponent("AgentProfileWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceURL.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceURL)
+        let root = ResearchRoot(rootURL: workspace.rootURL)
+        let profile = try await AgentWorkspaceProfileRepository().load(in: root)
+        let profileURL = root.fileURL(for: AgentWorkspaceProfileRepository.relativePath)
+
+        try expect(FileManager.default.fileExists(atPath: profileURL.path), "Workspace creation should seed an editable agent workspace profile.")
+        try expect(profile.promptTemplates.isEmpty, "Seeded agent workspace profile should not contain prompt plaintext by default.")
+        try expect(profile.skillToggles.isEmpty, "Seeded agent workspace profile should start without user skill overrides.")
+        try expect(profile.mcpServers.isEmpty, "Seeded agent workspace profile should start without user MCP servers.")
+        try expect(AgentWorkspaceProfileValidator().validate(profile).isEmpty, "Seeded agent workspace profile should validate.")
     }
 
     private func projectRegistryCreatesUpdatesAndCollapsesProjects() async throws {
@@ -599,6 +631,70 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.minerUOverwriteExistingMarkdown == false, "Workspace preferences should preserve MinerU overwrite behavior.")
         try expect(loadedPreferences.agentDisabledToolNamesByScope["project:test-workspace|thread:agent-thread-1"] == ["create_todo", "write_markdown_plan"], "Workspace preferences should preserve scoped disabled tools.")
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
+    }
+
+    private func workspacePreferencesDefaultRuntimeIsStableSwiftLoop() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("DefaultRuntimeWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let preferences = try await repository.load(in: workspace)
+        let preferencesContents = try String(contentsOf: workspace.workspacePreferencesURL, encoding: .utf8)
+
+        try expect(preferences.agentRuntimeSelection == .swiftLoop, "New workspaces should default the agent runtime selector to Swift Loop.")
+        try expect(preferences.agentRuntimeSelection.effectiveRuntime(sidecarAvailable: true) == .swiftLoop, "Default Swift Loop selection should not auto-attempt Sidecar when it is healthy.")
+        try expect(preferencesContents.contains("agent_runtime_selection: \"swift_loop\""), "Seeded workspace preferences should persist swift_loop as the runtime default.")
+        try expect(!preferencesContents.contains("agent_runtime_selection: \"auto_fallback\""), "Seeded workspace preferences should not default to experimental Auto runtime.")
+    }
+
+    private func workspacePreferencesRuntimeSelectionFallbacksToSwiftLoop() async throws {
+        let repository = WorkspacePreferencesRepository()
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("RuntimeFallbackPreferencesWorkspace", isDirectory: true)
+        let workspace = ResearchWorkspace(rootURL: rootURL)
+        let preferencesURL = workspace.fileURL(for: WorkspacePreferencesRepository.relativePath)
+
+        defer {
+            try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent())
+        }
+
+        try FileManager.default.createDirectory(at: preferencesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        schema_version: 2
+        library_visible_columns:
+          - "title"
+        agent_runtime_selection: "unknown_runtime"
+        """.write(to: preferencesURL, atomically: true, encoding: .utf8)
+
+        let invalidRuntimePreferences = try await repository.load(in: workspace)
+        try expect(invalidRuntimePreferences.agentRuntimeSelection == .swiftLoop, "Invalid runtime selections should fall back to stable Swift Loop.")
+
+        try """
+        schema_version: 2
+        library_visible_columns:
+          - "title"
+        """.write(to: preferencesURL, atomically: true, encoding: .utf8)
+
+        let missingRuntimePreferences = try await repository.load(in: workspace)
+        try expect(missingRuntimePreferences.agentRuntimeSelection == .swiftLoop, "Missing runtime selections should fall back to stable Swift Loop.")
+
+        var explicitAuto = WorkspacePreferences(agentRuntimeSelection: .autoFallback)
+        explicitAuto.isSidecarDisabledForWorkspace = false
+        try await repository.save(explicitAuto, in: workspace)
+        let loadedAuto = try await repository.load(in: workspace)
+        try expect(loadedAuto.agentRuntimeSelection == .autoFallback, "Explicit Auto runtime selections should still round-trip.")
+        try expect(loadedAuto.agentRuntimeSelection.effectiveRuntime(sidecarAvailable: true) == .langGraphSidecar, "Explicit Auto should still use Sidecar when health is ready.")
     }
 
     private func workspacePreferencesLanguageRoundTrips() async throws {
@@ -3583,6 +3679,21 @@ private struct CoreVerificationSuite {
                 let settingsContents = try String(contentsOf: workspace.fileURL(for: "settings.yaml"), encoding: .utf8)
                 try expect(settingsContents.contains("base_url"), "LLM settings should be written to settings.yaml.")
                 try expect(!settingsContents.lowercased().contains("api_key"), "API keys must not be written into settings.yaml.")
+            }
+
+            private func llmAPIKeyResolverTrimsAndPrefersInMemoryKey() throws {
+                try expect(
+                    LLMAPIKeyResolver.resolve(inMemory: "  live-key  ", persisted: "stored-key") == "live-key",
+                    "In-memory API keys should be trimmed and take precedence over persisted keys."
+                )
+                try expect(
+                    LLMAPIKeyResolver.resolve(inMemory: " \n\t ", persisted: "  stored-key\n") == "stored-key",
+                    "Persisted API keys should be trimmed when no in-memory key is available."
+                )
+                try expect(
+                    LLMAPIKeyResolver.resolve(inMemory: " \n\t ", persisted: "   ").isEmpty,
+                    "Blank in-memory and persisted API keys should resolve to an empty missing-key value."
+                )
             }
 
             private func paperSummaryPromptBuilderIncludesContext() throws {
@@ -7105,6 +7216,76 @@ private struct CoreVerificationSuite {
                 let removedDraft = try await repository.draft(projectID: "project-alpha", threadID: "thread-alpha", in: root)
 
                 try expect(removedDraft == nil, "Prompt drafts should be removable when discarding an empty pending thread.")
+            }
+
+            private func agentWorkspaceProfileRepositoryPersistsPromptSkillAndMCPOverrides() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentWorkspaceProfileOverrides", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let repository = AgentWorkspaceProfileRepository()
+                let prompt = AgentPromptTemplateOverride(
+                    id: "proposal-draft",
+                    title: "Proposal Draft Override",
+                    description: "Workspace-specific proposal drafting prompt.",
+                    systemPrompt: "Use project evidence only.",
+                    promptTemplate: "Draft a proposal from current project wiki and selected papers."
+                )
+                let skillToggle = AgentSkillToggle(
+                    skillID: "research-workflow",
+                    displayName: "Research Workflow",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["list_papers", "read_paper_section"]
+                )
+                let server = MCPServerConfiguration(
+                    id: "filesystem-readonly",
+                    displayName: "Filesystem Readonly",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "npx",
+                    arguments: ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceRoot}"],
+                    allowedTools: ["read_file", "list_directory"]
+                )
+
+                try await repository.upsertPromptTemplate(prompt, in: root)
+                try await repository.setSkillToggle(skillToggle, in: root)
+                try await repository.upsertMCPServer(server, in: root)
+
+                let loaded = try await repository.load(in: root)
+                let summary = try await AgentRuntimeConfigurationLoader().loadWorkspaceProfile(in: root)
+                let profileURL = root.fileURL(for: AgentWorkspaceProfileRepository.relativePath)
+                let profileText = try String(contentsOf: profileURL, encoding: .utf8)
+                let invalidProfile = AgentWorkspaceProfile(
+                    activePromptTemplateID: "missing",
+                    promptTemplates: [
+                        AgentPromptTemplateOverride(id: "proposal-draft", title: "One", promptTemplate: "Prompt"),
+                        AgentPromptTemplateOverride(id: "proposal-draft", title: "Two", promptTemplate: "Prompt")
+                    ],
+                    skillToggles: [AgentSkillToggle(skillID: "")],
+                    mcpServers: [MCPServerConfiguration(id: "broken", displayName: "Broken", transport: .localCommand)]
+                )
+                let invalidIssues = AgentWorkspaceProfileValidator().validate(invalidProfile)
+
+                try expect(loaded.activePromptTemplateID == "proposal-draft", "First enabled prompt override should become active by default.")
+                try expect(loaded.promptTemplate(id: "proposal-draft")?.systemPrompt == "Use project evidence only.", "Prompt overrides should round-trip system prompt text.")
+                try expect(loaded.skillToggle(id: "research-workflow")?.trustLevel == .trusted, "Skill toggles should preserve trust level.")
+                try expect(loaded.mcpServers.first?.allowedTools == ["read_file", "list_directory"], "Workspace profile MCP servers should round-trip allowed tools.")
+                try expect(summary.promptTemplateCount == 1 && summary.enabledPromptTemplateCount == 1, "Workspace profile summary should count prompt overrides.")
+                try expect(summary.enabledSkillCount == 1, "Workspace profile summary should count enabled skill toggles.")
+                try expect(summary.mcpServers.first?.source == .workspaceProfile, "Workspace profile MCP servers should be marked with the workspace profile source.")
+                try expect(summary.validationIssues.isEmpty, "Valid workspace profile overrides should pass validation.")
+                try expect(!profileText.contains("Bearer "), "Workspace profile should not require raw bearer tokens for MCP configuration.")
+                try expect(invalidIssues.count >= 4, "Workspace profile validator should catch missing active prompt, duplicate prompt ids, empty skill ids, and invalid MCP servers.")
             }
 
             private func agentToolDefinitionsExposePlatformMetadata() throws {
