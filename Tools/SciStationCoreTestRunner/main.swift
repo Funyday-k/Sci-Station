@@ -20,6 +20,8 @@ private struct CoreVerificationSuite {
         try await createWorkspaceInitializesResearchRootAndDefaultProject()
         try await createWorkspaceInitializesAgentWorkspaceProfile()
         try agentPromptLibraryRejectsSecretLikePromptBodies()
+        try agentPromptLibraryDiffPreviewHighlightsBodyChanges()
+        try await agentWorkspaceProfileRepositoryRestoresDefaultPromptTemplate()
         try await projectRegistryCreatesUpdatesAndCollapsesProjects()
         try await openWorkspaceBackfillsMissingStructure()
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
@@ -475,6 +477,32 @@ private struct CoreVerificationSuite {
 
         try expect(safeMessage == nil, "Regular prompt text should be accepted.")
         try expect(blockedMessage != nil, "Secret-like prompt text should be rejected.")
+    }
+
+    private func agentPromptLibraryDiffPreviewHighlightsBodyChanges() throws {
+        let resolver = AgentPromptLibraryResolver()
+        let current = AgentPromptTemplateOverride(
+            id: "planner-default",
+            title: "Planner Default",
+            surface: .planner,
+            systemPrompt: "Use evidence only.",
+            promptTemplate: "Plan from current workspace context."
+        )
+        let draft = AgentPromptTemplateOverride(
+            id: "planner-default",
+            title: "Planner Default",
+            surface: .planner,
+            systemPrompt: "Use evidence only.",
+            promptTemplate: "Plan from current workspace context and cite paper ids."
+        )
+
+        let diff = resolver.diffPreview(current: current, draft: draft)
+        let body = resolver.renderedTemplateBody(draft)
+
+        try expect(diff.contains("- Plan from current workspace context."), "Prompt diff should show removed body lines.")
+        try expect(diff.contains("+ Plan from current workspace context and cite paper ids."), "Prompt diff should show added body lines.")
+        try expect(body.contains("Use evidence only."), "Rendered prompt body should include system prompt text.")
+        try expect(body.contains("cite paper ids"), "Rendered prompt body should include prompt template text.")
     }
 
     private func projectRegistryCreatesUpdatesAndCollapsesProjects() async throws {
@@ -4552,7 +4580,8 @@ private struct CoreVerificationSuite {
                     in: root,
                     currentProjectID: "project-alpha",
                     runtimeSelector: AgentRuntimeSelection.autoFallback.rawValue,
-                    enabledToolNames: ["list_papers", "read_paper"]
+                    enabledToolNames: ["list_papers", "read_paper"],
+                    promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: "请生成一个阅读本项目论文的计划")
                 )
                 let history = try await service.recentRuns(in: root, limit: 5)
                 let events = try await service.sessionEvents(in: root, sessionID: run.id)
@@ -4589,6 +4618,7 @@ private struct CoreVerificationSuite {
                     currentProjectID: "project-alpha",
                     runtimeSelector: AgentRuntimeSelection.swiftLoop.rawValue,
                     enabledToolNames: ["list_papers"],
+                    promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: "请总结第一篇文章"),
                     retryOfRunID: "agent-run-previous"
                 )
                 let events = try await service.sessionEvents(in: root, sessionID: run.id)
@@ -7296,6 +7326,44 @@ private struct CoreVerificationSuite {
                 try expect(summary.validationIssues.isEmpty, "Valid workspace profile overrides should pass validation.")
                 try expect(!profileText.contains("Bearer "), "Workspace profile should not require raw bearer tokens for MCP configuration.")
                 try expect(invalidIssues.count >= 4, "Workspace profile validator should catch missing active prompt, duplicate prompt ids, empty skill ids, and invalid MCP servers.")
+            }
+
+            private func agentWorkspaceProfileRepositoryRestoresDefaultPromptTemplate() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentWorkspaceProfileRestoreDefault", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let repository = AgentWorkspaceProfileRepository()
+                let resolver = AgentPromptLibraryResolver()
+                let prompt = AgentPromptTemplateOverride(
+                    id: "planner-override",
+                    title: "Planner Override",
+                    surface: .planner,
+                    promptTemplate: "Follow project evidence and ask for approval before writes."
+                )
+
+                try await repository.upsertPromptTemplate(prompt, in: root)
+                let activeProfile = try await repository.load(in: root)
+                let activeResolution = resolver.resolve(surface: .planner, profile: activeProfile, basePrompt: "Base planner prompt.")
+                try expect(activeResolution.templateID == "planner-override", "Enabled prompt override should be selected before restore.")
+
+                try await repository.restoreDefaultPromptTemplate(id: prompt.id, in: root)
+                let restoredProfile = try await repository.load(in: root)
+                let restoredResolution = resolver.resolve(surface: .planner, profile: restoredProfile, basePrompt: "Base planner prompt.")
+
+                try expect(restoredProfile.promptTemplates.isEmpty, "Restore default should remove the workspace override.")
+                try expect(restoredProfile.activePromptTemplateID == nil, "Restore default should clear the active prompt template id.")
+                try expect(restoredResolution.templateID == nil, "Restore default should let the bundled prompt take over again.")
+                try expect(restoredResolution.promptText == "Base planner prompt.", "Restore default should return the bundled base prompt text unchanged.")
             }
 
             private func agentToolDefinitionsExposePlatformMetadata() throws {

@@ -2515,10 +2515,34 @@ private struct AgentPlanSummaryView: View {
                     Text(finalResponse)
                         .foregroundStyle(.secondary)
                 }
+
+                if let promptSummary = promptSummaryLine {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Prompt")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text(promptSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
         }
+    }
+
+    private var promptSummaryLine: String? {
+        guard run.promptTemplateSurface != nil || run.promptTemplateID != nil || run.promptTemplateVersion != nil || run.promptTemplateHash != nil else {
+            return nil
+        }
+        let surface = run.promptTemplateSurface?.rawValue ?? "default"
+        let templateID = run.promptTemplateID ?? "bundled"
+        let version = run.promptTemplateVersion ?? "-"
+        let hash = run.promptTemplateHash ?? "-"
+        return "\(surface) · \(templateID) @ \(version) · \(hash)"
     }
 }
 
@@ -3109,6 +3133,13 @@ private struct AgentRunHistoryView: View {
                 Text("\(run.mode.rawValue) · \(status(for: run)) · \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let promptLine = promptMetadataLine(for: run) {
+                    Text(promptLine)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             Spacer()
             Button("Open") {
@@ -3134,6 +3165,17 @@ private struct AgentRunHistoryView: View {
             .menuStyle(.button)
             .controlSize(.small)
         }
+    }
+
+    private func promptMetadataLine(for run: AgentRun) -> String? {
+        let surface = run.promptTemplateSurface?.rawValue ?? "default"
+        let templateID = run.promptTemplateID ?? "bundled"
+        let version = run.promptTemplateVersion ?? "-"
+        let hash = run.promptTemplateHash ?? "-"
+        guard run.promptTemplateSurface != nil || run.promptTemplateID != nil || run.promptTemplateVersion != nil || run.promptTemplateHash != nil else {
+            return nil
+        }
+        return "Prompt \(surface) · \(templateID) @ \(version) · \(hash)"
     }
 
     private func status(for run: AgentRun) -> String {

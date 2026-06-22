@@ -55,6 +55,15 @@ public actor AgentWorkspaceProfileRepository {
         try save(profile, in: root)
     }
 
+    public func restoreDefaultPromptTemplate(id: String, in root: ResearchRoot) throws {
+        var profile = try load(in: root)
+        profile.promptTemplates.removeAll { $0.id == id }
+        if profile.activePromptTemplateID == id {
+            profile.activePromptTemplateID = nil
+        }
+        try save(profile, in: root)
+    }
+
     public func setActivePromptTemplate(id: String?, in root: ResearchRoot) throws {
         var profile = try load(in: root)
         profile.activePromptTemplateID = id

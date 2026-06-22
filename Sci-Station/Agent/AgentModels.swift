@@ -1436,6 +1436,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
     public var promptTemplateID: String?
     public var promptTemplateVersion: String?
     public var promptTemplateHash: String?
+    public var promptTemplateSurface: AgentPromptSurface?
     public var mode: AgentRunMode
     public var plan: AgentPlan
     public var toolResults: [AgentToolResult]
@@ -1457,6 +1458,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         promptTemplateID: String? = nil,
         promptTemplateVersion: String? = nil,
         promptTemplateHash: String? = nil,
+        promptTemplateSurface: AgentPromptSurface? = nil,
         lifecycleState: AgentRunState? = nil,
         failureCategory: AgentRunFailureCategory? = nil,
         retryOfRunID: String? = nil
@@ -1477,6 +1479,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         self.promptTemplateID = promptTemplateID
         self.promptTemplateVersion = promptTemplateVersion
         self.promptTemplateHash = promptTemplateHash
+        self.promptTemplateSurface = promptTemplateSurface
         self.mode = mode
         self.plan = plan
         self.toolResults = toolResults
@@ -1499,6 +1502,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         case promptTemplateID = "prompt_template_id"
         case promptTemplateVersion = "prompt_template_version"
         case promptTemplateHash = "prompt_template_hash"
+        case promptTemplateSurface = "prompt_template_surface"
         case mode
         case plan
         case toolResults = "tool_results"
@@ -1524,6 +1528,7 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         self.promptTemplateID = try container.decodeIfPresent(String.self, forKey: .promptTemplateID)
         self.promptTemplateVersion = try container.decodeIfPresent(String.self, forKey: .promptTemplateVersion)
         self.promptTemplateHash = try container.decodeIfPresent(String.self, forKey: .promptTemplateHash)
+        self.promptTemplateSurface = try container.decodeIfPresent(AgentPromptSurface.self, forKey: .promptTemplateSurface)
         self.mode = try container.decode(AgentRunMode.self, forKey: .mode)
         self.plan = try container.decode(AgentPlan.self, forKey: .plan)
         self.toolResults = try container.decode([AgentToolResult].self, forKey: .toolResults)

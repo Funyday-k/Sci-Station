@@ -17,6 +17,7 @@ public actor SciStationAgentService {
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
     private let promptLibraryResolver: AgentPromptLibraryResolver
+    private let runDirectoryStore: AgentRunDirectoryStore
     private let appDebugEventLogger: AppDebugEventLogger?
 
     public init(
@@ -34,7 +35,8 @@ public actor SciStationAgentService {
         draftRepository: AgentPromptDraftRepository = AgentPromptDraftRepository(),
         appDebugEventLogger: AppDebugEventLogger? = AppDebugEventLogger(),
         hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks(),
-        promptLibraryResolver: AgentPromptLibraryResolver = AgentPromptLibraryResolver()
+        promptLibraryResolver: AgentPromptLibraryResolver = AgentPromptLibraryResolver(),
+        runDirectoryStore: AgentRunDirectoryStore = AgentRunDirectoryStore()
     ) {
         let resolvedContextBuilder = contextBuilder ?? AgentWorkspaceContextBuilder(
             paperRepository: paperRepository,
@@ -80,6 +82,7 @@ public actor SciStationAgentService {
         self.appDebugEventLogger = appDebugEventLogger
         self.hookDefinitions = hookDefinitions
         self.promptLibraryResolver = promptLibraryResolver
+        self.runDirectoryStore = runDirectoryStore
     }
 
     public func snapshot(
@@ -188,6 +191,7 @@ public actor SciStationAgentService {
         if options.loopPolicy == .readOnlyAutoApproveWritesRequireApproval,
            let chatProvider = provider as? any LLMChatProvider {
             let runID = "agent-run-\(UUID().uuidString.lowercased())"
+            await persistPromptSnapshot(runID: runID, promptResolution: promptResolution, in: resolvedRoot)
             try await appendHookResults(hookResults, sessionID: runID, in: resolvedRoot)
             let context = AgentToolContext(
                 workspace: workspace,
@@ -320,6 +324,7 @@ public actor SciStationAgentService {
         }
 
         let runID = "agent-run-\(UUID().uuidString.lowercased())"
+        await persistPromptSnapshot(runID: runID, promptResolution: promptResolution, in: resolvedRoot)
         let run = AgentRun(
             id: runID,
             goal: goal,
@@ -334,6 +339,10 @@ public actor SciStationAgentService {
             runtimeSelector: options.runtimeSelection.rawValue,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             retryOfRunID: options.retryOfRunID
         )
         try await runLogger.append(run, in: resolvedRoot)
@@ -377,8 +386,10 @@ public actor SciStationAgentService {
         if let responseDeltaHandler {
             await responseDeltaHandler(response)
         }
+        let runID = "agent-run-\(UUID().uuidString.lowercased())"
+        await persistPromptSnapshot(runID: runID, promptResolution: promptResolution, in: root)
         let run = AgentRun(
-            id: "agent-run-\(UUID().uuidString.lowercased())",
+            id: runID,
             goal: goal,
             createdAt: createdAt,
             completedAt: Date(),
@@ -401,6 +412,7 @@ public actor SciStationAgentService {
             promptTemplateID: promptResolution.templateID,
             promptTemplateVersion: promptResolution.templateVersion,
             promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             lifecycleState: .completed,
             retryOfRunID: retryOfRunID
         )
@@ -493,8 +505,10 @@ public actor SciStationAgentService {
             toolName: toolName,
             argumentsJSON: arguments
         )
+        let runID = "agent-run-\(UUID().uuidString.lowercased())"
+        await persistPromptSnapshot(runID: runID, promptResolution: promptResolution, in: root)
         let run = AgentRun(
-            id: "agent-run-\(UUID().uuidString.lowercased())",
+            id: runID,
             goal: goal,
             createdAt: createdAt,
             completedAt: nil,
@@ -520,6 +534,7 @@ public actor SciStationAgentService {
             promptTemplateID: promptResolution.templateID,
             promptTemplateVersion: promptResolution.templateVersion,
             promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             lifecycleState: .waitingForApproval,
             retryOfRunID: retryOfRunID
         )
@@ -756,6 +771,11 @@ public actor SciStationAgentService {
             )
         ))
         let runID = "agent-run-\(UUID().uuidString.lowercased())"
+        await persistPromptSnapshot(
+            runID: runID,
+            promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: goal),
+            in: resolvedRoot
+        )
         let run = AgentRun(
             id: runID,
             goal: goal,
@@ -768,7 +788,8 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             createdFromRoute: "ai_lab",
-            enabledToolNames: allowedToolNames?.sorted()
+            enabledToolNames: allowedToolNames?.sorted(),
+            promptTemplateSurface: .toolLoop
         )
         try await runLogger.append(run, in: resolvedRoot)
         try await appendExecutionEvents(
@@ -826,14 +847,17 @@ public actor SciStationAgentService {
         currentProjectID: ResearchProject.ID? = nil,
         runtimeSelector: String? = nil,
         enabledToolNames: [String]? = nil,
+        promptResolution: AgentPromptResolution,
         failureCategory: AgentRunFailureCategory = .unknown,
         retryOfRunID: String? = nil
     ) async throws -> AgentRun {
         let createdAt = Date()
         let trimmedPartial = partialAssistantResponse?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let summary = trimmedPartial ?? "Run failed: \(message)"
+        let runID = "agent-run-\(UUID().uuidString.lowercased())"
+        await persistPromptSnapshot(runID: runID, promptResolution: promptResolution, in: root)
         let run = AgentRun(
-            id: "agent-run-\(UUID().uuidString.lowercased())",
+            id: runID,
             goal: goal,
             createdAt: createdAt,
             completedAt: Date(),
@@ -853,6 +877,10 @@ public actor SciStationAgentService {
             runtimeSelector: runtimeSelector,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             lifecycleState: .failed,
             failureCategory: failureCategory,
             retryOfRunID: retryOfRunID
@@ -888,12 +916,15 @@ public actor SciStationAgentService {
         currentProjectID: ResearchProject.ID? = nil,
         runtimeSelector: String? = nil,
         enabledToolNames: [String]? = nil,
+        promptResolution: AgentPromptResolution,
         retryOfRunID: String? = nil
     ) async throws -> AgentRun {
         let createdAt = Date()
         let trimmedPartial = partialAssistantResponse?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let runID = "agent-run-\(UUID().uuidString.lowercased())"
+        await persistPromptSnapshot(runID: runID, promptResolution: promptResolution, in: root)
         let run = AgentRun(
-            id: "agent-run-\(UUID().uuidString.lowercased())",
+            id: runID,
             goal: goal,
             createdAt: createdAt,
             completedAt: Date(),
@@ -913,6 +944,10 @@ public actor SciStationAgentService {
             runtimeSelector: runtimeSelector,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
+            promptTemplateID: promptResolution.templateID,
+            promptTemplateVersion: promptResolution.templateVersion,
+            promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             lifecycleState: .cancelled,
             failureCategory: .cancelledByUser,
             retryOfRunID: retryOfRunID
@@ -1279,6 +1314,24 @@ public actor SciStationAgentService {
         return names.sorted()
     }
 
+    private func persistPromptSnapshot(
+        runID: String,
+        promptResolution: AgentPromptResolution,
+        in root: ResearchRoot
+    ) async {
+        let snapshot = AgentRunPromptSnapshot(
+            runID: runID,
+            snapshots: [
+                promptLibraryResolver.snapshot(
+                    runID: runID,
+                    surface: promptResolution.surface,
+                    resolution: promptResolution
+                )
+            ]
+        )
+        try? await runDirectoryStore.savePromptSnapshot(snapshot, in: root)
+    }
+
     private func run(
         from loopResult: AgentLoopResult,
         goal: String,
@@ -1346,6 +1399,7 @@ public actor SciStationAgentService {
             promptTemplateID: promptResolution.templateID,
             promptTemplateVersion: promptResolution.templateVersion,
             promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             lifecycleState: lifecycleState,
             failureCategory: failureCategory,
             retryOfRunID: retryOfRunID
@@ -1442,6 +1496,7 @@ public actor SciStationAgentService {
             promptTemplateID: promptResolution.templateID,
             promptTemplateVersion: promptResolution.templateVersion,
             promptTemplateHash: promptResolution.templateHash,
+            promptTemplateSurface: promptResolution.surface,
             lifecycleState: lifecycleState,
             failureCategory: failureCategory,
             retryOfRunID: retryOfRunID

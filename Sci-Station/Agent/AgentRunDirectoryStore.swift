@@ -170,6 +170,28 @@ public nonisolated struct AgentDebugBundlePreview: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated struct AgentRunPromptSnapshot: Codable, Hashable, Sendable {
+    public var runID: String
+    public var snapshots: [AgentPromptSnapshot]
+    public var generatedAt: Date
+
+    public nonisolated init(
+        runID: String,
+        snapshots: [AgentPromptSnapshot],
+        generatedAt: Date = Date()
+    ) {
+        self.runID = runID
+        self.snapshots = snapshots
+        self.generatedAt = generatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runID = "run_id"
+        case snapshots
+        case generatedAt = "generated_at"
+    }
+}
+
 public actor AgentRunDirectoryStore {
     public static let runsRelativePath = ".sci-station/agent/runs"
 
@@ -319,6 +341,19 @@ public actor AgentRunDirectoryStore {
         try Self.encoder().encode(trace).write(to: runDirectory.appendingPathComponent("retrieval_trace.json", isDirectory: false), options: .atomic)
     }
 
+    public func savePromptSnapshot(_ snapshot: AgentRunPromptSnapshot, in root: ResearchRoot) throws {
+        let runDirectory = try ensureRunDirectory(runID: snapshot.runID, in: root)
+        try Self.encoder().encode(snapshot).write(to: runDirectory.appendingPathComponent("prompt_snapshot.json", isDirectory: false), options: .atomic)
+    }
+
+    public func promptSnapshot(runID: String, in root: ResearchRoot) throws -> AgentRunPromptSnapshot? {
+        let snapshotURL = runDirectoryURL(runID: runID, in: root).appendingPathComponent("prompt_snapshot.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: snapshotURL.path) else {
+            return nil
+        }
+        return try Self.decoder().decode(AgentRunPromptSnapshot.self, from: Data(contentsOf: snapshotURL))
+    }
+
     public func saveReplay(runID: String, in root: ResearchRoot, debugPromptResponse: JSONValue? = nil) throws -> AgentRunReplay {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
         let replay = AgentRunReplay(
@@ -341,7 +376,7 @@ public actor AgentRunDirectoryStore {
 
     public func saveDebugBundleManifest(runID: String, in root: ResearchRoot) throws -> AgentDebugBundleManifest {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
-        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json"]
+        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "prompt_snapshot.json"]
         let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
         let events = try? eventEnvelopes(runID: runID, in: root)
         let metadata: [String: String] = [
@@ -356,7 +391,7 @@ public actor AgentRunDirectoryStore {
 
     public func debugBundlePreview(runID: String, in root: ResearchRoot) throws -> AgentDebugBundlePreview {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
-        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "debug_bundle_manifest.json"]
+        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "prompt_snapshot.json", "debug_bundle_manifest.json"]
         let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
         return AgentDebugBundlePreview(
             runID: runID,
@@ -468,7 +503,7 @@ public actor AgentRunDirectoryStore {
         if lowered.contains(".env") || lowered.contains("key") || lowered.contains("token") || lowered.contains("secret") {
             return false
         }
-        return ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json"].contains(name)
+        return ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "prompt_snapshot.json"].contains(name)
     }
 
     private func redactedDebugFileData(at url: URL) throws -> Data {

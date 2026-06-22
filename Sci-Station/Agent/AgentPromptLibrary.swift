@@ -79,6 +79,40 @@ public nonisolated struct AgentPromptResolution: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated struct AgentPromptSnapshot: Codable, Hashable, Sendable {
+    public var runID: String
+    public var surface: AgentPromptSurface
+    public var templateID: String?
+    public var templateVersion: String?
+    public var templateHash: String?
+    public var resolvedAt: Date
+
+    public nonisolated init(
+        runID: String,
+        surface: AgentPromptSurface,
+        templateID: String?,
+        templateVersion: String?,
+        templateHash: String?,
+        resolvedAt: Date = Date()
+    ) {
+        self.runID = runID
+        self.surface = surface
+        self.templateID = templateID
+        self.templateVersion = templateVersion
+        self.templateHash = templateHash
+        self.resolvedAt = resolvedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runID = "run_id"
+        case surface
+        case templateID = "template_id"
+        case templateVersion = "template_version"
+        case templateHash = "template_hash"
+        case resolvedAt = "resolved_at"
+    }
+}
+
 public nonisolated struct AgentPromptLibraryResolver: Sendable {
     public nonisolated init() {}
 
@@ -134,6 +168,20 @@ public nonisolated struct AgentPromptLibraryResolver: Sendable {
                 systemPrompt: template.systemPrompt,
                 promptTemplate: template.promptTemplate
             )
+        )
+    }
+
+    public nonisolated func snapshot(
+        runID: String,
+        surface: AgentPromptSurface,
+        resolution: AgentPromptResolution
+    ) -> AgentPromptSnapshot {
+        AgentPromptSnapshot(
+            runID: runID,
+            surface: surface,
+            templateID: resolution.templateID,
+            templateVersion: resolution.templateVersion,
+            templateHash: resolution.templateHash
         )
     }
 

@@ -4752,6 +4752,11 @@ final class AppViewModel: ObservableObject {
         let runtimeSelector = workspacePreferences.agentRuntimeSelection.rawValue
         let enabledToolNamesSnapshot = effectiveAgentAllowedToolNames?.sorted() ?? agentEnabledToolNames.sorted()
         let retryOfRunID = agentRetrySourceRunID
+        let promptResolution = agentPromptLibraryResolver.resolve(
+            surface: agentCurrentRun?.promptTemplateSurface ?? .toolLoop,
+            profile: agentWorkspaceProfile,
+            basePrompt: prompt ?? ""
+        )
         agentPlanningTask?.cancel()
         agentPlanningTask = nil
         agentRetrySourceRunID = nil
@@ -4776,6 +4781,7 @@ final class AppViewModel: ObservableObject {
                     currentProjectID: runContextProjectID,
                     runtimeSelector: runtimeSelector,
                     enabledToolNames: enabledToolNamesSnapshot,
+                    promptResolution: promptResolution,
                     retryOfRunID: retryOfRunID
                 )
             }
@@ -5043,6 +5049,7 @@ final class AppViewModel: ObservableObject {
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
         enabledToolNames: [String],
+        promptResolution: AgentPromptResolution,
         failureCategory: AgentRunFailureCategory = .unknown,
         retryOfRunID: String? = nil
     ) async {
@@ -5056,6 +5063,7 @@ final class AppViewModel: ObservableObject {
                 currentProjectID: currentProjectID,
                 runtimeSelector: runtimeSelector,
                 enabledToolNames: enabledToolNames,
+                promptResolution: promptResolution,
                 failureCategory: failureCategory,
                 retryOfRunID: retryOfRunID
             )
@@ -5076,6 +5084,7 @@ final class AppViewModel: ObservableObject {
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
         enabledToolNames: [String],
+        promptResolution: AgentPromptResolution,
         retryOfRunID: String? = nil
     ) async {
         let root = currentResearchRoot ?? ResearchRoot(rootURL: workspace.rootURL)
@@ -5088,6 +5097,7 @@ final class AppViewModel: ObservableObject {
                 currentProjectID: currentProjectID,
                 runtimeSelector: runtimeSelector,
                 enabledToolNames: enabledToolNames,
+                promptResolution: promptResolution,
                 retryOfRunID: retryOfRunID
             )
             agentCurrentRun = cancelledRun
@@ -5464,6 +5474,11 @@ final class AppViewModel: ObservableObject {
         let runtimeSelection = workspacePreferences.agentRuntimeSelection
         let enabledToolNamesSnapshot = allowedToolNames?.sorted() ?? agentEnabledToolNames.sorted()
         let retryOfRunID = agentRetrySourceRunID
+        let promptResolution = agentPromptLibraryResolver.resolve(
+            surface: .toolLoop,
+            profile: agentWorkspaceProfile,
+            basePrompt: trimmedGoal
+        )
         agentRetrySourceRunID = nil
         let executionOptions = AgentExecutionOptions(
             mode: .planOnly,
@@ -5541,11 +5556,7 @@ final class AppViewModel: ObservableObject {
                         allowsPlainTextResponse: executionOptions.allowsPlainTextResponse,
                         loopOptions: executionOptions.loopOptions,
                         retryOfRunID: executionOptions.retryOfRunID,
-                        promptResolution: agentPromptLibraryResolver.resolve(
-                            surface: .toolLoop,
-                            profile: agentWorkspaceProfile,
-                            basePrompt: trimmedGoal
-                        )
+                        promptResolution: promptResolution
                     ),
                     workspaceProfile: agentWorkspaceProfile,
                     responseDeltaHandler: responseDeltaHandler,
@@ -5588,6 +5599,7 @@ final class AppViewModel: ObservableObject {
                     currentProjectID: runContextProjectID,
                     runtimeSelector: runtimeSelection.rawValue,
                     enabledToolNames: enabledToolNamesSnapshot,
+                    promptResolution: promptResolution,
                     failureCategory: failureCategory,
                     retryOfRunID: retryOfRunID
                 )
@@ -7594,6 +7606,50 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await agentWorkspaceProfileRepository.removePromptTemplate(id: id, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func copyAgentPromptTemplateBody(id: String) {
+        guard let template = agentWorkspaceProfile.promptTemplate(id: id) else {
+            return
+        }
+
+        let body = agentPromptLibraryResolver.renderedTemplateBody(template)
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            agentStatusMessage = "Prompt template body is empty."
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(body, forType: .string)
+        agentStatusMessage = "Copied prompt template body."
+    }
+
+    func promptTemplateDiffPreview(id: String) -> String? {
+        guard let template = agentWorkspaceProfile.promptTemplate(id: id) else {
+            return nil
+        }
+
+        guard let currentTemplate = agentWorkspaceProfile.activePromptTemplate(for: template.surface),
+              currentTemplate.id != template.id else {
+            return nil
+        }
+
+        return agentPromptLibraryResolver.diffPreview(current: currentTemplate, draft: template)
+    }
+
+    func restoreDefaultAgentPromptTemplate(id: String) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.restoreDefaultPromptTemplate(id: id, in: root)
                 try await refreshAgentWorkspaceProfile(in: root)
             } catch {
                 present(error)

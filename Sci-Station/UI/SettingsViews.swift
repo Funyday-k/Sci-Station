@@ -507,6 +507,16 @@ struct SettingsView: View {
                             .controlSize(.small)
                         }
 
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(appModel.agentPromptResolutionSummaries, id: \.self) { summary in
+                                Text(summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+
                         if appModel.agentWorkspaceProfile.promptTemplates.isEmpty {
                             Text("No prompt templates configured.")
                                 .font(.caption)
@@ -554,6 +564,22 @@ struct SettingsView: View {
                                         }
                                         .buttonStyle(.bordered)
                                         .controlSize(.small)
+
+                                        Button {
+                                            appModel.restoreDefaultAgentPromptTemplate(id: template.id)
+                                        } label: {
+                                            Label("Restore Default", systemImage: "arrow.counterclockwise")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+
+                                        Button {
+                                            appModel.copyAgentPromptTemplateBody(id: template.id)
+                                        } label: {
+                                            Label("Copy Body", systemImage: "doc.on.doc")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
                                     }
 
                                     TextField("Description", text: Binding(
@@ -594,6 +620,25 @@ struct SettingsView: View {
                                         RoundedRectangle(cornerRadius: 8)
                                             .stroke(Color.secondary.opacity(0.16))
                                     )
+
+                                    if let diffPreview = appModel.promptTemplateDiffPreview(id: template.id),
+                                       !diffPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Text("Diff Preview")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.secondary)
+
+                                            ScrollView {
+                                                Text(diffPreview)
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .textSelection(.enabled)
+                                            }
+                                            .frame(maxHeight: 160)
+                                            .padding(8)
+                                            .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                        }
+                                    }
 
                                     HStack(spacing: 8) {
                                         Button("Save") {
