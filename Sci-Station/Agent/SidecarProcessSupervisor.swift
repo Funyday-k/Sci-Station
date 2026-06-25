@@ -327,6 +327,10 @@ public actor SidecarConnection {
         }
     }
 
+    public func sendNotification(method: String, params: JSONValue? = nil) throws {
+        try writeMessage(SidecarJSONRPCMessage(method: method, params: params))
+    }
+
     private func performRequest(id: String, method: String, params: JSONValue?) async throws -> JSONValue {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValue, Error>) in
             pendingResponses[id] = continuation

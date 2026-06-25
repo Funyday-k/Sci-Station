@@ -292,6 +292,8 @@ private struct CoreVerificationSuite {
         try await deterministicSafetyPolicyBlocksSecretPromptBeforeLLM()
         try await hookDenyBlocksSensitivePathWrite()
         try await agentSkillLoaderProgressivelyLoadsMatchingSkill()
+        try await agentSkillRuntimeResolutionEnforcesTrustAndToolBounds()
+        try await agentServiceInjectsEnabledSkillAndRestrictsTools()
         try openAIProviderPayloadIncludesToolChoiceAuto()
         try openAIProviderNormalizesLegacyToolSchemas()
         try await agentRunLoggerSkipsDamagedHistoryLines()
@@ -315,6 +317,9 @@ private struct CoreVerificationSuite {
         try agentPermissionDockSummarizesPolicies()
         try agentHookActivitySummaryReflectsTogglesAndResults()
         try agentMCPServerStatusSummaryParsesProductAndLocal()
+        try agentMCPConnectorRegistryEnforcesPrecedenceAndApproval()
+        try agentLocalMCPConfigurationDefaultsDisabledAndRedactsRawSecrets()
+        try await agentMCPStdioClientDiscoversAndApprovalGatesTool()
         try openAIStreamDeltaParserIgnoresBadChunks()
         try llmProviderV2RequestModelsToolDefinitions()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
@@ -6896,6 +6901,176 @@ private struct CoreVerificationSuite {
         try expect(selected.first?.resources == ["references/checklist.md"], "Matching skills should disclose adjacent resources on selection.")
     }
 
+    private func agentSkillRuntimeResolutionEnforcesTrustAndToolBounds() async throws {
+        let rootURL = temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundledDirectory = rootURL.appendingPathComponent(
+            ".sci-ai/sci-station/presets/research-core/skills",
+            isDirectory: true
+        )
+        let workspaceDirectory = rootURL.appendingPathComponent(".claude/skills/workspace-review", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundledDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: bounded-review
+        description: Paper evidence review
+        version: 1.0.0
+        capabilities: [paper, review]
+        risk: readOnly
+        allowed_tools: [list_papers, read_paper, create_todo]
+        ---
+
+        Use the bundled evidence checklist.
+        """.write(
+            to: bundledDirectory.appendingPathComponent("bounded-review.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        name: workspace-review
+        description: Workspace evidence review
+        version: 1.0.0
+        capabilities: [workspace, review]
+        risk: writesWorkspace
+        allowed_tools: [write_wiki_markdown]
+        ---
+
+        Use the workspace-only review instructions.
+        """.write(
+            to: workspaceDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loader = AgentSkillLoader()
+        let profile = AgentWorkspaceProfile(skillToggles: [
+            AgentSkillToggle(
+                skillID: "bounded-review",
+                isEnabled: true,
+                trustLevel: .trusted,
+                allowedToolIDs: ["list_papers", "read_paper_section"]
+            ),
+            AgentSkillToggle(
+                skillID: "workspace-review",
+                isEnabled: true,
+                trustLevel: .untrusted,
+                allowedToolIDs: ["write_wiki_markdown"]
+            ),
+            AgentSkillToggle(skillID: "disabled-review", isEnabled: false, trustLevel: .trusted)
+        ])
+        let resolution = try await loader.resolve(
+            for: "Please perform a paper evidence review.",
+            profile: profile,
+            workspaceRoot: rootURL
+        )
+
+        try expect(resolution.selectedSkillIDs == ["bounded-review"], "Only enabled, matching, trusted skills should be selected.")
+        try expect(resolution.allowedToolNames == Set(["list_papers"]), "Skill metadata and profile tool allowlists should intersect.")
+        try expect(resolution.blockedSkillReasons["workspace-review"]?.contains("untrusted") == true, "Untrusted workspace skills should be blocked before body loading.")
+        try expect(resolution.promptContext?.contains("Use the bundled evidence checklist.") == true, "Selected skill instructions should enter the runtime prompt context.")
+        try expect(resolution.promptContext?.contains("workspace-only") == false, "Blocked skill bodies must not enter the prompt context.")
+        try expect(
+            resolution.restricting(["list_papers", "create_todo"]) == Set(["list_papers"]),
+            "Skills may narrow but must not expand the caller's enabled tool set."
+        )
+
+        let emptyIntersectionResolution = try await loader.resolve(
+            for: "Please perform a paper evidence review.",
+            profile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(
+                    skillID: "bounded-review",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["write_wiki_markdown"]
+                )
+            ]),
+            workspaceRoot: rootURL
+        )
+        try expect(
+            emptyIntersectionResolution.allowedToolNames == Set<String>(),
+            "A disjoint skill/profile tool intersection should disable all tools instead of removing the restriction."
+        )
+
+        let trustedWorkspaceResolution = try await loader.resolve(
+            for: "Run a workspace evidence review.",
+            profile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(
+                    skillID: "workspace-review",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["write_wiki_markdown"]
+                )
+            ]),
+            workspaceRoot: rootURL
+        )
+        try expect(trustedWorkspaceResolution.selectedSkillIDs == ["workspace-review"], "Explicit trust should allow a matching workspace skill to load.")
+    }
+
+    private func agentServiceInjectsEnabledSkillAndRestrictsTools() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "AgentSkillRuntimeWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let skillDirectory = fixture.root.rootURL.appendingPathComponent(".claude/skills/evidence-review", isDirectory: true)
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: evidence-review
+        description: Paper evidence review
+        version: 1.0.0
+        capabilities: [paper, evidence, review]
+        risk: readOnly
+        allowed_tools: [list_papers, create_todo]
+        ---
+
+        SKILL_RUNTIME_MARKER: verify evidence before conclusions.
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: """
+            {
+              "title": "Evidence review",
+              "summary": "Review available evidence.",
+              "steps": ["Inspect papers"],
+              "tool_calls": [],
+              "final_response_draft": "No tool call required."
+            }
+            """))
+        ])
+        let service = SciStationAgentService(provider: provider)
+        _ = try await service.run(
+            goal: "Perform a paper evidence review.",
+            in: fixture.workspace,
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key",
+            options: AgentExecutionOptions(
+                mode: .planOnly,
+                allowedToolNames: ["list_papers", "create_todo"]
+            ),
+            workspaceProfile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(
+                    skillID: "evidence-review",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["list_papers"]
+                )
+            ])
+        )
+
+        let requests = await provider.recordedRequests()
+        let request = try require(requests.first, "Skill-enabled service run should reach the provider.")
+        let promptText = request.messages.map(\.content).joined(separator: "\n")
+        try expect(promptText.contains("SKILL_RUNTIME_MARKER"), "Enabled matching skill instructions should be injected into the provider prompt.")
+        try expect(request.tools.map(\.name) == ["list_papers"], "Skill tool bounds should narrow the provider-visible tool list.")
+    }
+
             private func openAIProviderPayloadIncludesToolChoiceAuto() throws {
                 let provider = OpenAICompatibleProvider()
                 let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
@@ -7838,6 +8013,287 @@ private struct CoreVerificationSuite {
                 try expect(Int(localStatus.timeoutSeconds) == 45, "Local MCP status should preserve timeout.")
                 try expect(localStatus.credentialReferenceCount == 1, "Local MCP status should count credential references without exposing values.")
                 try expect(localStatus.sideEffectsRequirePermission, "MCP side-effect tools should remain routed through permission layer.")
+            }
+
+            private func agentMCPConnectorRegistryEnforcesPrecedenceAndApproval() throws {
+                let productServer = MCPServerConfiguration(
+                    id: "filesystem",
+                    displayName: "Product Filesystem",
+                    transport: .localCommand,
+                    isEnabled: false,
+                    command: "npx",
+                    allowedTools: ["read_file"]
+                )
+                let profileServer = MCPServerConfiguration(
+                    id: "filesystem",
+                    displayName: "Workspace Filesystem",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "/usr/bin/env",
+                    arguments: ["mcp-filesystem"],
+                    allowedTools: ["read_file", "list_directory"]
+                )
+                let invalidServer = MCPServerConfiguration(
+                    id: "invalid-local",
+                    displayName: "Invalid Local",
+                    transport: .localCommand,
+                    isEnabled: true
+                )
+                let unresolvedCredentialServer = MCPServerConfiguration(
+                    id: "remote",
+                    displayName: "Remote",
+                    transport: .remoteHTTP,
+                    isEnabled: true,
+                    urlString: "https://mcp.example.test",
+                    secretReferences: ["raw-token-value"]
+                )
+
+                let snapshot = AgentMCPConnectorRegistryResolver().resolve(
+                    productServers: [productServer],
+                    profileServers: [profileServer, invalidServer, unresolvedCredentialServer]
+                )
+                let filesystem = try require(snapshot.registration(id: "filesystem"), "Profile MCP override should be registered.")
+                let invalid = try require(snapshot.registration(id: "invalid-local"), "Invalid MCP server should remain visible in registry diagnostics.")
+                let unresolved = try require(snapshot.registration(id: "remote"), "Credential failures should remain visible in registry diagnostics.")
+
+                try expect(filesystem.source == .workspaceProfile, "Workspace profile MCP servers should override product templates with the same id.")
+                try expect(filesystem.server.displayName == "Workspace Filesystem", "Registry precedence should preserve the workspace override body.")
+                try expect(filesystem.state == .readyForDiscovery, "Enabled valid MCP server should be ready for tool discovery.")
+                try expect(invalid.state == .invalidConfiguration, "Enabled local MCP server without command should be invalid.")
+                try expect(unresolved.state == .unresolvedCredentialReference, "Unsupported credential values should block MCP registration.")
+                try expect(
+                    snapshot.authorize(serverID: "filesystem", toolName: "read_file").decision.action == .ask,
+                    "Allowed external MCP tools should still require explicit approval."
+                )
+                try expect(
+                    snapshot.authorize(serverID: "filesystem", toolName: "write_file").decision.action == .deny,
+                    "Tools outside the MCP server allowlist should be denied."
+                )
+                try expect(
+                    snapshot.authorize(serverID: "invalid-local", toolName: "read_file").decision.action == .deny,
+                    "Invalid MCP servers must not authorize tools."
+                )
+            }
+
+            private func agentLocalMCPConfigurationDefaultsDisabledAndRedactsRawSecrets() throws {
+                let localJSON = """
+                {
+                  "mcpServers": {
+                    "local-filesystem": {
+                      "command": "npx",
+                      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/workspace"],
+                      "env": {
+                        "API_TOKEN": "super-secret-token",
+                        "LOG_LEVEL": "info"
+                      },
+                      "allowed_tools": ["read_file"]
+                    },
+                    "remote-index": {
+                      "transport": "remote_http",
+                      "url": "https://mcp.example.test",
+                      "enabled": true,
+                      "header_references": [
+                        {
+                          "name": "Authorization",
+                          "value_reference": "keychain:mcp/remote/token"
+                        }
+                      ]
+                    }
+                  }
+                }
+                """
+                let configurations = try AgentRuntimeConfigurationLoader.localMCPServerConfigurations(from: Data(localJSON.utf8))
+                let local = try require(configurations.first { $0.id == "local-filesystem" }, "Local MCP configuration should parse.")
+                let remote = try require(configurations.first { $0.id == "remote-index" }, "Remote MCP configuration should parse.")
+                let snapshot = AgentMCPConnectorRegistryResolver().resolve(localServers: configurations)
+
+                try expect(!local.isEnabled, "Local command MCP configs should default disabled until explicitly enabled.")
+                try expect(!local.secretReferences.contains("super-secret-token"), "Raw local MCP secret values must not survive configuration parsing.")
+                try expect(local.secretReferences == ["invalid_raw:API_TOKEN"], "Unsafe local MCP environment secrets should become redacted validation markers.")
+                try expect(remote.isEnabled && remote.transport == .remoteHTTP, "Explicitly enabled remote MCP configuration should preserve its transport.")
+                try expect(snapshot.registration(id: "local-filesystem")?.state == .disabled, "Default-disabled local MCP servers should not be ready for discovery.")
+                try expect(snapshot.registration(id: "remote-index")?.state == .readyForDiscovery, "Supported credential references should allow remote MCP discovery after approval.")
+            }
+
+            private func agentMCPStdioClientDiscoversAndApprovalGatesTool() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPStdioWorkspace")
+                let manager = AgentMCPConnectorManager()
+                let scriptURL = fixture.containerURL.appendingPathComponent("mcp_fixture.py", isDirectory: false)
+                let callLogURL = fixture.containerURL.appendingPathComponent("mcp_calls.log", isDirectory: false)
+                let startupLogURL = fixture.containerURL.appendingPathComponent("mcp_startup.log", isDirectory: false)
+                defer {
+                    cleanupLoopWorkspaceFixture(fixture)
+                }
+
+                try """
+                import json
+                import pathlib
+                import sys
+
+                call_log = pathlib.Path(sys.argv[1])
+                startup_log = pathlib.Path(sys.argv[2])
+                startup_log.write_text("started", encoding="utf-8")
+
+                def send(payload):
+                    sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\\n")
+                    sys.stdout.flush()
+
+                for raw in sys.stdin:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    message = json.loads(raw)
+                    method = message.get("method")
+                    request_id = message.get("id")
+                    if method == "initialize":
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "protocolVersion": "2025-06-18",
+                                "capabilities": {"tools": {"listChanged": False}},
+                                "serverInfo": {"name": "fixture-mcp", "version": "1.0.0"}
+                            }
+                        })
+                    elif method == "notifications/initialized":
+                        continue
+                    elif method == "tools/list":
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "tools": [{
+                                    "name": "echo",
+                                    "title": "Fixture Echo",
+                                    "description": "Echo structured test input.",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": {"text": {"type": "string"}},
+                                        "required": ["text"]
+                                    },
+                                    "annotations": {"readOnlyHint": True}
+                                }]
+                            }
+                        })
+                    elif method == "tools/call":
+                        params = message.get("params", {})
+                        arguments = params.get("arguments", {})
+                        call_log.write_text(json.dumps(params, sort_keys=True), encoding="utf-8")
+                        text = arguments.get("text", "")
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [{"type": "text", "text": "fixture:" + text}],
+                                "structuredContent": {"echo": text},
+                                "isError": False
+                            }
+                        })
+                    else:
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {"code": -32601, "message": "unsupported"}
+                        })
+                """.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+                let server = MCPServerConfiguration(
+                    id: "fixture",
+                    displayName: "Fixture MCP",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "/usr/bin/python3",
+                    arguments: [scriptURL.path, callLogURL.path, startupLogURL.path],
+                    timeoutSeconds: 5,
+                    allowedTools: ["echo"]
+                )
+                let profile = AgentWorkspaceProfile(mcpServers: [server])
+                let connectorRegistry = AgentMCPConnectorRegistryResolver().resolve(profileServers: [server])
+
+                do {
+                    var disabledServer = server
+                    disabledServer.isEnabled = false
+                    let disabledPreparation = await manager.prepare(
+                        registry: AgentMCPConnectorRegistryResolver().resolve(profileServers: [disabledServer]),
+                        root: fixture.root
+                    )
+                    try expect(disabledPreparation.statuses.first?.state == .disabled, "Disabled local MCP servers should remain diagnostic-only.")
+                    try expect(!FileManager.default.fileExists(atPath: startupLogURL.path), "Disabled local MCP servers must not start a process.")
+
+                    let preparation = await manager.prepare(registry: connectorRegistry, root: fixture.root)
+                    let status = try require(preparation.statuses.first, "MCP fixture should produce a runtime status.")
+                    let externalTool = try require(preparation.tools.first, "MCP fixture should expose one external tool.")
+
+                    try expect(status.state == .ready, "MCP stdio fixture should complete initialize and tools/list.")
+                    try expect(status.protocolVersion == "2025-06-18", "MCP stdio fixture should negotiate the supported protocol version.")
+                    try expect(status.discoveredToolCount == 1, "MCP stdio fixture should report one discovered tool.")
+                    try expect(externalTool.definition.name == "mcp__fixture__echo", "Discovered MCP tools should receive deterministic server namespaces.")
+                    try expect(externalTool.definition.risk == .externalSideEffect, "External MCP tools should remain approval-gated regardless of server hints.")
+                    try expect(externalTool.definition.requiresConfirmation, "External MCP tools should require confirmation.")
+
+                    let service = SciStationAgentService(
+                        provider: StaticLLMProvider(response: "{}"),
+                        mcpConnectorManager: manager
+                    )
+                    let serviceDefinitions = await service.toolDefinitions(in: fixture.root, workspaceProfile: profile)
+                    let serviceStatuses = await service.mcpRuntimeStatuses(in: fixture.root, workspaceProfile: profile)
+                    try expect(serviceDefinitions.contains(where: { $0.name == externalTool.definition.name }), "Agent service should expose enabled discovered MCP tools.")
+                    try expect(serviceStatuses.first?.state == .ready, "Agent service should expose MCP runtime health.")
+
+                    let registry = AgentToolRegistry(tools: [externalTool])
+                    let mcpCall = AgentToolCall(
+                        id: "call-mcp-echo",
+                        toolName: externalTool.definition.name,
+                        argumentsJSON: "{\"text\":\"hello\"}"
+                    )
+                    let firstProvider = ScriptedChatProvider(responses: [
+                        LLMProviderResponse(
+                            message: LLMChatMessage(
+                                role: .assistant,
+                                content: "",
+                                toolCalls: [mcpCall]
+                            ),
+                            toolCalls: [mcpCall]
+                        )
+                    ])
+                    let runner = AgentLoopRunner()
+                    let paused = try await runner.run(loopRequest(
+                        runID: "mcp-approval-run",
+                        provider: firstProvider,
+                        definitions: [externalTool.definition],
+                        registry: registry,
+                        fixture: fixture
+                    ))
+
+                    try expect(
+                        paused.pauseReason?.kind == .approvalRequired,
+                        "Discovered MCP tool calls should pause for approval; got \(String(describing: paused.pauseReason?.kind)) with \(paused.pauseReason?.message ?? "no message")."
+                    )
+                    try expect(!FileManager.default.fileExists(atPath: callLogURL.path), "MCP tools must not execute before approval.")
+
+                    let pending = try require(paused.pendingToolCall, "Paused MCP tool call should persist a checkpoint.")
+                    let resumeProvider = ScriptedChatProvider(responses: [
+                        LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "MCP completed."))
+                    ])
+                    let resumed = try await runner.resume(loopResumeRequest(
+                        pending: pending,
+                        action: .allowOnce,
+                        provider: resumeProvider,
+                        definitions: [externalTool.definition],
+                        registry: registry,
+                        fixture: fixture
+                    ))
+                    let callLog = try String(contentsOf: callLogURL, encoding: .utf8)
+
+                    try expect(resumed.finalResponseMarkdown == "MCP completed.", "Approved MCP tool calls should continue the tool loop.")
+                    try expect(resumed.toolResults.first?.message == "fixture:hello", "MCP tools/call text content should map to AgentToolResult.")
+                    try expect(callLog.contains("\"name\": \"echo\""), "Approved MCP tool calls should reach the remote tool name.")
+                    try expect(callLog.contains("\"text\": \"hello\""), "Approved MCP tool calls should preserve structured arguments.")
+                    await manager.stopAll()
+                } catch {
+                    await manager.stopAll()
+                    throw error
+                }
             }
 
     private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {

@@ -2967,12 +2967,73 @@ struct AgentMCPServerStatusView: View {
                 WorkspacePathRow(label: "Local Config", value: ".sci-ai/workspace.local/ local-only, ignored by git")
                 WorkspacePathRow(label: "Local Gateway", value: "Swift ToolHost exposes tools/list and tools/call; write calls return approval_required")
 
+                runtimeStatusSection
                 statusSection(title: "Product Preset", statuses: appModel.agentProductMCPServerStatuses, emptyText: "No product MCP template is available in this root.")
                 statusSection(title: "Workspace Profile", statuses: appModel.agentWorkspaceProfileMCPServerStatuses, emptyText: "No managed MCP server is configured in the workspace profile.")
                 statusSection(title: "Local Workspace", statuses: appModel.agentLocalMCPServerStatuses, emptyText: "No local workspace MCP config is present.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
+        }
+    }
+
+    private var runtimeStatusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Runtime")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            if appModel.agentMCPRuntimeStatuses.isEmpty {
+                Text("No MCP runtime has been prepared.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(appModel.agentMCPRuntimeStatuses) { status in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Label(status.displayName, systemImage: runtimeIcon(status.state))
+                                .foregroundStyle(runtimeColor(status.state))
+                            Spacer(minLength: 0)
+                            Text(status.state.rawValue)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        WorkspacePathRow(label: "Source", value: status.source.label)
+                        WorkspacePathRow(label: "Protocol", value: status.protocolVersion ?? "not negotiated")
+                        WorkspacePathRow(label: "Server", value: [status.serverName, status.serverVersion].compactMap { $0 }.joined(separator: " ").nilIfEmpty ?? "not initialized")
+                        WorkspacePathRow(label: "Discovered Tools", value: "\(status.discoveredToolCount)")
+                        if let errorMessage = status.errorMessage?.nilIfEmpty {
+                            WorkspacePathRow(label: "Error", value: errorMessage)
+                        }
+                        if let stderrPreview = status.stderrPreview?.nilIfEmpty {
+                            WorkspacePathRow(label: "stderr", value: stderrPreview)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+
+    private func runtimeIcon(_ state: AgentMCPRuntimeState) -> String {
+        switch state {
+        case .ready:
+            return "checkmark.circle"
+        case .disabled:
+            return "pause.circle"
+        case .unsupportedTransport, .invalidConfiguration, .failed:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    private func runtimeColor(_ state: AgentMCPRuntimeState) -> Color {
+        switch state {
+        case .ready:
+            return .green
+        case .disabled:
+            return .secondary
+        case .unsupportedTransport, .invalidConfiguration, .failed:
+            return .orange
         }
     }
 

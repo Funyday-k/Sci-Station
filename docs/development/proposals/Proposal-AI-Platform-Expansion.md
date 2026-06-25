@@ -1,6 +1,6 @@
 # AI Platform Expansion Proposal
 
-Status: Planned
+Status: In Progress
 
 本 Proposal 记录 AI Lab、Agent Runtime、Prompt、Skill、MCP、RAG、Recommendation 和 Harness 的后续发展计划。它不是当前已完成能力说明；进入实施前，需要按目标版本拆成更小的执行 Proposal 或实施任务。
 
@@ -35,6 +35,43 @@ Status: Planned
 - RAG 当前不能被包装成已完成的高质量语义检索；deterministic fallback 必须作为降级状态展示。
 - AI Recommendation 当前是 AI-assisted recommendation，不是完全 AI-native ranking。
 - Prompt、Skill、MCP 已有模型和局部桥接，但还不是完整可管理的扩展平台。
+
+## 实施快照（2026-06-25）
+
+当前完成度按“模型存在、进入执行链、具备用户管理、具备端到端验证”四个层次判断，不能把配置模型或状态展示算作完整平台能力。
+
+已完成：
+
+- 阶段 1 的主路径稳定化已落地：统一 API key 解析、Swift Loop 默认 runtime、sidecar experimental 定位、Prompt 元数据贯穿 run、CoreTestRunner 和 macOS Debug build 门禁。
+- Prompt workspace override 已进入真实执行链；活动模板的 id、version、hash 和 surface 会写入 run metadata，并保存 `prompt_snapshot.json`。
+- Skill runtime resolver 已进入 `SciStationAgentService`：只加载 Profile 中明确启用且与请求匹配的 Skill；workspace Skill 默认 untrusted，未显式 trusted 时不读取正文。
+- Skill 的 `allowed_tools` 与 Profile 限制取交集，再与用户当前启用工具取交集。Skill 只能收窄工具集，不能重新开启 Settings 或当前模式已禁用的工具。
+- Skill 正文按需加载并限制长度；疑似包含 secret/private key 的 Skill 正文不会进入模型 Prompt。
+- MCP connector registry contract 已建立：支持 product、local workspace、workspace profile 三层配置合并，workspace profile 对同 id 具有最高优先级。
+- Local command MCP 在未显式设置 enabled 时保持 disabled；缺 command、缺 url 或 credential reference 不合规时进入不可执行诊断状态。
+- MCP 工具白名单已形成统一授权边界：白名单外直接 deny；已允许的外部 MCP 工具仍返回 ask，不能绕过现有 approval 规则。
+- Local command MCP stdio client 已实现 `2025-06-18` 生命周期：`initialize`、`notifications/initialized`、分页 `tools/list`、`tools/call`、进程复用、停止和 stderr 诊断。
+- 发现的 MCP tools 会以 `mcp__<server>__<tool>` 命名空间进入单次 Agent registry snapshot，不覆盖内置工具；所有外部 MCP tool 固定按 `externalSideEffect` 逐次审批。
+- AI Lab MCP 面板会显示 runtime state、协商协议、server name/version、发现工具数、错误和 stderr 摘要。
+- 回归测试覆盖 Skill selection、trusted/untrusted gating、disabled skill、工具范围交集、Prompt 注入、MCP precedence、disabled local command 不启动进程、credential redaction、tool whitelist、标准握手、discovery、审批前不执行和批准后 `tools/call`。
+
+部分完成：
+
+- Prompt Library 已有查看、编辑、diff、启用、恢复默认和 workspace 持久化能力，但 AI 自动提出 patch、影响范围说明和正式 extension harness 仍需收敛。
+- Skill 已进入 runtime，但完整 Skill Manager UI、安装流程、风险确认交互、AI 建议启用流程和 run-level Skill snapshot 尚未完成。
+- MCP 已有内部 gateway、local command stdio client、真实 `tools/list` discovery、代理工具审批和 runtime diagnostics；remote Streamable HTTP、旧 HTTP+SSE 兼容、凭据解析、主动 ping/liveness、崩溃自动恢复策略和 run-level MCP 审计仍未完成。
+
+未完成：
+
+- Remote MCP client 不应被视为可用；`remote_http` / `remote_sse` 当前只进入 unsupported transport 诊断。
+- Extension Contract Harness、Evaluation Harness、golden workspace、RAG production evidence trace 和 sidecar production 收敛仍在后续阶段。
+
+当前验证门禁：
+
+```bash
+swift run --quiet SciStationCoreTestRunner
+xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+```
 
 ## 总目标
 

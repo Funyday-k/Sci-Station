@@ -28,6 +28,7 @@ public actor AgentPlanner {
         conversationHistory: [LLMChatMessage] = [],
         allowsPlainTextResponse: Bool = false,
         workspaceProfile: AgentWorkspaceProfile = AgentWorkspaceProfile(),
+        skillContext: String? = nil,
         responseDeltaHandler: (@Sendable (String) async -> Void)? = nil
     ) async throws -> AgentPlan {
         let trimmedGoal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -40,7 +41,7 @@ public actor AgentPlanner {
             surface: .planner,
             profile: workspaceProfile,
             basePrompt: basePrompt
-        )
+        ).appendingContext(skillContext)
 
         if let chatProvider = provider as? any LLMChatProvider {
             let messages = try promptBuilder.buildChatMessages(

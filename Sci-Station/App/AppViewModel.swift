@@ -366,6 +366,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var agentWorkspaceProfileMCPServerStatuses: [AgentMCPServerStatus] = []
     @Published private(set) var agentPromptResolutionSummaries: [String] = []
     @Published private(set) var agentLocalMCPServerStatuses: [AgentMCPServerStatus] = []
+    @Published private(set) var agentMCPRuntimeStatuses: [AgentMCPRuntimeStatus] = []
     @Published private(set) var agentHookActivitySummary = AgentHookActivitySummary()
     @Published private(set) var agentSidecarHealth = SidecarHealth(status: "unavailable")
     @Published private(set) var agentRetrievalIndexStatus = AgentEmbeddingIndexStatusSnapshot.disabled() {
@@ -8708,7 +8709,14 @@ final class AppViewModel: ObservableObject {
                 selectedPaperID: selectedPaperID,
                 includedPaperIDs: agentKnowledgePaperIDsForContext
             )
-            agentToolDefinitions = await agentService.toolDefinitions()
+            agentToolDefinitions = await agentService.toolDefinitions(
+                in: root,
+                workspaceProfile: agentWorkspaceProfile
+            )
+            agentMCPRuntimeStatuses = await agentService.mcpRuntimeStatuses(
+                in: root,
+                workspaceProfile: agentWorkspaceProfile
+            )
             agentRunHistory = try await agentService.recentRuns(in: root, limit: 1000)
             allAgentThreads = try await agentService.allThreads(in: root)
             applyAgentThreadFilterForCurrentScope()

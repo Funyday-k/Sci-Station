@@ -1089,7 +1089,7 @@ public nonisolated struct AgentWorkspaceProfileSummary: Hashable, Sendable {
     }
 }
 
-public struct AgentRuntimeConfigurationLoader {
+public nonisolated struct AgentRuntimeConfigurationLoader {
     public var fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
@@ -1100,21 +1100,28 @@ public struct AgentRuntimeConfigurationLoader {
         in root: ResearchRoot,
         presetID: String = "research-core"
     ) throws -> AgentPresetSummary? {
-        let relativePath = ".sci-ai/sci-station/presets/\(presetID)/plugin.json"
-        let url = root.fileURL(for: relativePath)
-        guard fileManager.fileExists(atPath: url.path) else {
+        guard let manifest = try loadProductPresetManifest(in: root, presetID: presetID) else {
             return nil
         }
-
-        let data = try Data(contentsOf: url)
-        let decoder = JSONDecoder()
-        let manifest = try decoder.decode(AgentPluginManifest.self, from: data)
+        let relativePath = ".sci-ai/sci-station/presets/\(presetID)/plugin.json"
         let issues = AgentPluginValidator().validate(manifest)
         return AgentPresetSummary(
             manifest: manifest,
             manifestRelativePath: relativePath,
             validationIssues: issues
         )
+    }
+
+    public func loadProductPresetManifest(
+        in root: ResearchRoot,
+        presetID: String = "research-core"
+    ) throws -> AgentPluginManifest? {
+        let relativePath = ".sci-ai/sci-station/presets/\(presetID)/plugin.json"
+        let url = root.fileURL(for: relativePath)
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try JSONDecoder().decode(AgentPluginManifest.self, from: Data(contentsOf: url))
     }
 
     public func loadWorkspaceProfile(in root: ResearchRoot) async throws -> AgentWorkspaceProfileSummary {
@@ -1139,6 +1146,39 @@ public struct AgentRuntimeConfigurationLoader {
             return try Self.localMCPServerStatuses(from: data)
         }
 
+        return []
+    }
+
+    public func loadLocalMCPServerConfigurations(in root: ResearchRoot) throws -> [MCPServerConfiguration] {
+        let candidateRelativePaths = [
+            ".sci-ai/workspace.local/mcp.json",
+            ".sci-ai/workspace.local/mcp.local.json",
+            ".mcp.json"
+        ]
+
+        for relativePath in candidateRelativePaths {
+            let url = root.fileURL(for: relativePath)
+            guard fileManager.fileExists(atPath: url.path) else {
+                continue
+            }
+            return try Self.localMCPServerConfigurations(from: Data(contentsOf: url))
+        }
+        return []
+    }
+
+    public nonisolated static func localMCPServerConfigurations(from data: Data) throws -> [MCPServerConfiguration] {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+
+        if let serverArray = root["mcp_servers"] as? [[String: Any]] {
+            return serverArray.compactMap { configuration(fromLocalServerDictionary: $0, fallbackID: nil) }
+        }
+        if let serverDictionary = root["mcpServers"] as? [String: [String: Any]] {
+            return serverDictionary.keys.sorted().compactMap { key in
+                configuration(fromLocalServerDictionary: serverDictionary[key] ?? [:], fallbackID: key)
+            }
+        }
         return []
     }
 
@@ -1172,7 +1212,7 @@ public struct AgentRuntimeConfigurationLoader {
         let displayName = stringValue(dictionary["display_name"])
             ?? stringValue(dictionary["name"])
             ?? id
-        let isEnabled = boolValue(dictionary["is_enabled"]) ?? boolValue(dictionary["enabled"]) ?? true
+        let isEnabled = boolValue(dictionary["is_enabled"]) ?? boolValue(dictionary["enabled"]) ?? false
         let command = stringValue(dictionary["command"])
         let arguments = stringArray(dictionary["arguments"]) ?? stringArray(dictionary["args"]) ?? []
         let urlString = stringValue(dictionary["url"])
@@ -1194,6 +1234,52 @@ public struct AgentRuntimeConfigurationLoader {
             timeoutSeconds: timeoutSeconds,
             credentialReferenceCount: credentialReferenceCount(in: dictionary),
             sideEffectsRequirePermission: true
+        )
+    }
+
+    private nonisolated static func configuration(
+        fromLocalServerDictionary dictionary: [String: Any],
+        fallbackID: String?
+    ) -> MCPServerConfiguration? {
+        let id = stringValue(dictionary["id"]) ?? fallbackID
+        guard let id, !id.isEmpty else {
+            return nil
+        }
+
+        let command = stringValue(dictionary["command"])
+        let urlString = stringValue(dictionary["url"]) ?? stringValue(dictionary["remote_url"])
+        let explicitTransport = stringValue(dictionary["transport"]).flatMap(MCPServerTransport.init(rawValue:))
+        let transport = explicitTransport ?? (command == nil ? .remoteHTTP : .localCommand)
+        let environment = dictionary["env"] as? [String: Any] ?? [:]
+        let invalidSensitiveEnvironmentKeys = environment.compactMap { key, value -> String? in
+            guard isSensitiveName(key),
+                  let text = stringValue(value),
+                  !text.hasCredentialReferencePrefix else {
+                return nil
+            }
+            return "invalid_raw:\(key)"
+        }
+        let secretReferences = (stringArray(dictionary["secret_references"]) ?? []) + invalidSensitiveEnvironmentKeys
+        let headerReferences = (dictionary["header_references"] as? [[String: Any]] ?? []).compactMap { header -> MCPHeaderReference? in
+            guard let name = stringValue(header["name"]),
+                  let valueReference = stringValue(header["value_reference"]) else {
+                return nil
+            }
+            return MCPHeaderReference(name: name, valueReference: valueReference)
+        }
+
+        return MCPServerConfiguration(
+            id: id,
+            displayName: stringValue(dictionary["display_name"]) ?? stringValue(dictionary["name"]) ?? id,
+            transport: transport,
+            isEnabled: boolValue(dictionary["is_enabled"]) ?? boolValue(dictionary["enabled"]) ?? false,
+            command: command,
+            arguments: stringArray(dictionary["arguments"]) ?? stringArray(dictionary["args"]) ?? [],
+            urlString: urlString,
+            timeoutSeconds: doubleValue(dictionary["timeout_seconds"]) ?? doubleValue(dictionary["timeout"]) ?? 30,
+            allowedTools: stringArray(dictionary["allowed_tools"]) ?? stringArray(dictionary["allowedTools"]) ?? [],
+            headerReferences: headerReferences,
+            secretReferences: secretReferences
         )
     }
 

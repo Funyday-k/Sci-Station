@@ -147,6 +147,7 @@ AI 能力的边界：
 - 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看。
 - 产品内置 preset 放在 [../.sci-ai/sci-station/](../.sci-ai/sci-station/)，本机桥接配置放在 `.sci-ai/workspace.local/`，不要提交本机 secret。
 - 用户可管理的 Prompt override、Skill toggle 和 MCP server 覆盖配置放在 `.sci-station/agent/profile.json`。该文件属于 Research Root 本地状态；默认初始化为空列表，不写入 API key、token 或完整运行记录。
+- Local command MCP 只有在配置显式设置 `is_enabled: true` 时才启动；进程通过 stdio JSON-RPC 连接，不经过 shell。发现的工具使用 `mcp__<server>__<tool>` 名称，并始终经过 Agent approval。
 
 ## 功能开发流程
 

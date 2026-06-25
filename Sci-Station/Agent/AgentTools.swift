@@ -58,6 +58,10 @@ public actor AgentToolRegistry {
 
         return try await tool.invoke(argumentsJSON: call.argumentsJSON, context: context)
     }
+
+    public func snapshot(adding additionalTools: [any AgentTool] = []) -> AgentToolRegistry {
+        AgentToolRegistry(tools: Array(tools.values) + additionalTools)
+    }
 }
 
 public actor AgentToolExecutor {

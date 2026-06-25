@@ -17,6 +17,9 @@ public actor SciStationAgentService {
     private let draftRepository: AgentPromptDraftRepository
     private let hookDefinitions: [AgentHookDefinition]
     private let promptLibraryResolver: AgentPromptLibraryResolver
+    private let skillLoader: AgentSkillLoader
+    private let mcpConnectorManager: AgentMCPConnectorManager
+    private let runtimeConfigurationLoader: AgentRuntimeConfigurationLoader
     private let runDirectoryStore: AgentRunDirectoryStore
     private let appDebugEventLogger: AppDebugEventLogger?
 
@@ -36,6 +39,9 @@ public actor SciStationAgentService {
         appDebugEventLogger: AppDebugEventLogger? = AppDebugEventLogger(),
         hookDefinitions: [AgentHookDefinition] = AgentSafetyPreset.defaultHooks(),
         promptLibraryResolver: AgentPromptLibraryResolver = AgentPromptLibraryResolver(),
+        skillLoader: AgentSkillLoader = AgentSkillLoader(),
+        mcpConnectorManager: AgentMCPConnectorManager = AgentMCPConnectorManager(),
+        runtimeConfigurationLoader: AgentRuntimeConfigurationLoader = AgentRuntimeConfigurationLoader(),
         runDirectoryStore: AgentRunDirectoryStore = AgentRunDirectoryStore()
     ) {
         let resolvedContextBuilder = contextBuilder ?? AgentWorkspaceContextBuilder(
@@ -82,6 +88,9 @@ public actor SciStationAgentService {
         self.appDebugEventLogger = appDebugEventLogger
         self.hookDefinitions = hookDefinitions
         self.promptLibraryResolver = promptLibraryResolver
+        self.skillLoader = skillLoader
+        self.mcpConnectorManager = mcpConnectorManager
+        self.runtimeConfigurationLoader = runtimeConfigurationLoader
         self.runDirectoryStore = runDirectoryStore
     }
 
@@ -107,6 +116,21 @@ public actor SciStationAgentService {
 
     public func toolDefinitions() async -> [AgentToolDefinition] {
         await toolHost.definitions()
+    }
+
+    public func toolDefinitions(
+        in root: ResearchRoot,
+        workspaceProfile: AgentWorkspaceProfile
+    ) async -> [AgentToolDefinition] {
+        let tooling = await runtimeTooling(in: root, workspaceProfile: workspaceProfile)
+        return await tooling.toolHost.definitions()
+    }
+
+    public func mcpRuntimeStatuses(
+        in root: ResearchRoot,
+        workspaceProfile: AgentWorkspaceProfile
+    ) async -> [AgentMCPRuntimeStatus] {
+        await runtimeTooling(in: root, workspaceProfile: workspaceProfile).mcpStatuses
     }
 
     public func run(
@@ -140,21 +164,32 @@ public actor SciStationAgentService {
         if let deniedHook = hookResults.first(where: { $0.permissionDecision == .deny }) {
             throw AgentError.invalidArguments(deniedHook.message ?? "Prompt was blocked by an agent hook.")
         }
-        let toolDefinitions = await filteredToolDefinitions(allowedToolNames: options.allowedToolNames)
-        let promptResolution = options.promptResolution
-            ?? promptLibraryResolver.resolve(surface: .toolLoop, profile: workspaceProfile, basePrompt: goal)
+        let skillResolution = try await skillLoader.resolve(
+            for: goal,
+            profile: workspaceProfile,
+            workspaceRoot: resolvedRoot.rootURL
+        )
+        let effectiveAllowedToolNames = skillResolution.restricting(options.allowedToolNames)
+        let baseToolDefinitions = await filteredToolDefinitions(
+            allowedToolNames: effectiveAllowedToolNames,
+            toolHost: toolHost
+        )
+        let promptResolution = (
+            options.promptResolution
+                ?? promptLibraryResolver.resolve(surface: .toolLoop, profile: workspaceProfile, basePrompt: goal)
+        ).appendingContext(skillResolution.promptContext)
 
         if let localRun = try await directLocalResponseRunIfNeeded(
             goal: goal,
             createdAt: createdAt,
             workspace: workspace,
             projects: projects,
-            toolDefinitions: toolDefinitions,
+            toolDefinitions: baseToolDefinitions,
             hookResults: hookResults,
             mode: options.mode,
             currentProjectID: currentProjectID,
             runtimeSelector: options.runtimeSelection.rawValue,
-            enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: baseToolDefinitions),
             promptResolution: promptResolution,
             retryOfRunID: options.retryOfRunID,
             root: resolvedRoot,
@@ -167,17 +202,23 @@ public actor SciStationAgentService {
             goal: goal,
             createdAt: createdAt,
             conversationHistory: conversationHistory,
-            toolDefinitions: toolDefinitions,
+            toolDefinitions: baseToolDefinitions,
             currentProjectID: currentProjectID,
             selectedPaperID: selectedPaperID,
             runtimeSelector: options.runtimeSelection.rawValue,
-            enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: baseToolDefinitions),
             promptResolution: promptResolution,
             retryOfRunID: options.retryOfRunID,
             root: resolvedRoot
         ) {
             return directWritebackRun
         }
+
+        let runtimeTooling = await runtimeTooling(in: resolvedRoot, workspaceProfile: workspaceProfile)
+        let toolDefinitions = await filteredToolDefinitions(
+            allowedToolNames: effectiveAllowedToolNames,
+            toolHost: runtimeTooling.toolHost
+        )
 
         let snapshot = try await contextBuilder.snapshot(
             in: workspace,
@@ -213,8 +254,8 @@ public actor SciStationAgentService {
                 initialMessages: messages,
                 provider: chatProvider,
                 toolDefinitions: toolDefinitions,
-                toolRegistry: toolRegistry,
-                toolHost: toolHost,
+                toolRegistry: runtimeTooling.registry,
+                toolHost: runtimeTooling.toolHost,
                 toolContext: context,
                 root: resolvedRoot,
                 configuration: configuration,
@@ -249,7 +290,7 @@ public actor SciStationAgentService {
                     createdAt: createdAt,
                     currentProjectID: currentProjectID,
                     runtimeSelector: options.runtimeSelection.rawValue,
-                    enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+                    enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: toolDefinitions),
                     retryOfRunID: options.retryOfRunID,
                     promptResolution: promptResolution
                 )
@@ -262,7 +303,7 @@ public actor SciStationAgentService {
                 createdAt: createdAt,
                 currentProjectID: currentProjectID,
                 runtimeSelector: options.runtimeSelection.rawValue,
-                enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+                enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: toolDefinitions),
                 retryOfRunID: options.retryOfRunID,
                 promptResolution: promptResolution
             )
@@ -281,9 +322,10 @@ public actor SciStationAgentService {
             conversationHistory: conversationHistory,
             allowsPlainTextResponse: options.allowsPlainTextResponse,
             workspaceProfile: workspaceProfile,
+            skillContext: skillResolution.promptContext,
             responseDeltaHandler: responseDeltaHandler
         )
-        if let allowedToolNames = options.allowedToolNames {
+        if let allowedToolNames = effectiveAllowedToolNames {
             plan.toolCalls = plan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
         }
         plan = backfilledPaperPlanIfNeeded(
@@ -316,7 +358,7 @@ public actor SciStationAgentService {
         case .planOnly:
             toolResults = []
         case .executeApproved:
-            toolResults = await toolExecutor.execute(
+            toolResults = await runtimeTooling.toolExecutor.execute(
                 plan: plan,
                 context: context,
                 approvedToolCallIDs: options.approvedToolCallIDs
@@ -338,7 +380,7 @@ public actor SciStationAgentService {
             projectID: currentProjectID,
             runtimeSelector: options.runtimeSelection.rawValue,
             createdFromRoute: "ai_lab",
-            enabledToolNames: enabledToolNamesSnapshot(options.allowedToolNames, toolDefinitions: toolDefinitions),
+            enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: toolDefinitions),
             promptTemplateID: promptResolution.templateID,
             promptTemplateVersion: promptResolution.templateVersion,
             promptTemplateHash: promptResolution.templateHash,
@@ -665,7 +707,13 @@ public actor SciStationAgentService {
         guard let pending = try await loopCheckpointStore.pending(runID: runID, in: resolvedRoot) else {
             throw AgentError.invalidArguments("No pending tool call checkpoint was found for this run.")
         }
-        let toolDefinitions = await filteredToolDefinitions(allowedToolNames: allowedToolNames)
+        let workspaceProfile = (try? await AgentWorkspaceProfileRepository().load(in: resolvedRoot))
+            ?? AgentWorkspaceProfile()
+        let runtimeTooling = await runtimeTooling(in: resolvedRoot, workspaceProfile: workspaceProfile)
+        let toolDefinitions = await filteredToolDefinitions(
+            allowedToolNames: allowedToolNames,
+            toolHost: runtimeTooling.toolHost
+        )
         let context = AgentToolContext(
             workspace: workspace,
             selectedPaperID: selectedPaperID,
@@ -682,8 +730,8 @@ public actor SciStationAgentService {
                 editedArgumentsJSON: editedArgumentsJSON,
                 provider: chatProvider,
                 toolDefinitions: toolDefinitions,
-                toolRegistry: toolRegistry,
-                toolHost: toolHost,
+                toolRegistry: runtimeTooling.registry,
+                toolHost: runtimeTooling.toolHost,
                 toolContext: context,
                 root: resolvedRoot,
                 configuration: configuration,
@@ -723,6 +771,9 @@ public actor SciStationAgentService {
         disabledHookIDs: Set<String> = []
     ) async throws -> AgentRun {
         let resolvedRoot = root ?? ResearchRoot(rootURL: workspace.rootURL)
+        let workspaceProfile = (try? await AgentWorkspaceProfileRepository().load(in: resolvedRoot))
+            ?? AgentWorkspaceProfile()
+        let runtimeTooling = await runtimeTooling(in: resolvedRoot, workspaceProfile: workspaceProfile)
         var executablePlan = plan
         if let allowedToolNames {
             executablePlan.toolCalls = executablePlan.toolCalls.filter { allowedToolNames.contains($0.toolName) }
@@ -747,7 +798,7 @@ public actor SciStationAgentService {
             allowedPaperIDs: includedPaperIDs,
             debugEventLogger: appDebugEventLogger
         )
-        let toolResults = await toolExecutor.execute(
+        let toolResults = await runtimeTooling.toolExecutor.execute(
             plan: executablePlan,
             context: context,
             approvedToolCallIDs: approvedToolCallIDs
@@ -1230,7 +1281,46 @@ public actor SciStationAgentService {
         )
     }
 
-    private func filteredToolDefinitions(allowedToolNames: Set<String>?) async -> [AgentToolDefinition] {
+    private struct RuntimeTooling {
+        var registry: AgentToolRegistry
+        var toolHost: SciStationToolHost
+        var toolExecutor: AgentToolExecutor
+        var mcpStatuses: [AgentMCPRuntimeStatus]
+    }
+
+    private func runtimeTooling(
+        in root: ResearchRoot,
+        workspaceProfile: AgentWorkspaceProfile
+    ) async -> RuntimeTooling {
+        let productServers = (try? runtimeConfigurationLoader.loadProductPresetManifest(in: root)?.mcpServers) ?? []
+        let localServers = (try? runtimeConfigurationLoader.loadLocalMCPServerConfigurations(in: root)) ?? []
+        let connectorRegistry = AgentMCPConnectorRegistryResolver().resolve(
+            productServers: productServers,
+            profileServers: workspaceProfile.mcpServers,
+            localServers: localServers
+        )
+        let preparation = await mcpConnectorManager.prepare(registry: connectorRegistry, root: root)
+        if preparation.tools.isEmpty {
+            return RuntimeTooling(
+                registry: toolRegistry,
+                toolHost: toolHost,
+                toolExecutor: toolExecutor,
+                mcpStatuses: preparation.statuses
+            )
+        }
+        let registry = await toolRegistry.snapshot(adding: preparation.tools.map { $0 as any AgentTool })
+        return RuntimeTooling(
+            registry: registry,
+            toolHost: SciStationToolHost(legacyRegistry: registry),
+            toolExecutor: AgentToolExecutor(registry: registry),
+            mcpStatuses: preparation.statuses
+        )
+    }
+
+    private func filteredToolDefinitions(
+        allowedToolNames: Set<String>?,
+        toolHost: SciStationToolHost
+    ) async -> [AgentToolDefinition] {
         let definitions = await toolHost.definitions()
         guard let allowedToolNames else {
             return definitions

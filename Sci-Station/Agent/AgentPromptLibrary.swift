@@ -77,6 +77,17 @@ public nonisolated struct AgentPromptResolution: Codable, Hashable, Sendable {
         }
         return "\(surface.rawValue): \(activeTemplate.templateID)@\(activeTemplate.version) #\(activeTemplate.bodyHash)"
     }
+
+    public nonisolated func appendingContext(_ context: String?) -> AgentPromptResolution {
+        guard let context = context?.trimmingCharacters(in: .whitespacesAndNewlines), !context.isEmpty else {
+            return self
+        }
+        return AgentPromptResolution(
+            surface: surface,
+            promptText: "\(promptText)\n\n\(context)",
+            activeTemplate: activeTemplate
+        )
+    }
 }
 
 public nonisolated struct AgentPromptSnapshot: Codable, Hashable, Sendable {
