@@ -132,5 +132,19 @@ struct Sci_StationApp: App {
             SettingsSceneView()
                 .environmentObject(appModel)
         }
+
+        Window("AI 管理", id: "ai-management") {
+            AIManagementPanelView(workspace: appModel.currentWorkspace)
+                .environmentObject(appModel)
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .defaultSize(width: 1120, height: 780)
+        .defaultWindowPlacement { content, context in
+            let visibleRect = context.defaultDisplay.visibleRect
+            let width = min(1120, max(760, visibleRect.width - 80))
+            let height = min(780, max(560, visibleRect.height - 80))
+            return WindowPlacement(size: CGSize(width: width, height: height))
+        }
+        .restorationBehavior(.disabled)
     }
 }

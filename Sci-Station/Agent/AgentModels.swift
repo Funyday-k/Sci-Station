@@ -1431,6 +1431,9 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
     public var contextScope: AgentContextScope?
     public var projectID: String?
     public var runtimeSelector: String?
+    public var effectiveRuntime: String?
+    public var runtimeFallbackReason: String?
+    public var provenance: AgentRunProvenance?
     public var createdFromRoute: String?
     public var enabledToolNames: [String]?
     public var promptTemplateID: String?
@@ -1453,6 +1456,9 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         contextScope: AgentContextScope? = nil,
         projectID: String? = nil,
         runtimeSelector: String? = nil,
+        effectiveRuntime: String? = nil,
+        runtimeFallbackReason: String? = nil,
+        provenance: AgentRunProvenance? = nil,
         createdFromRoute: String? = nil,
         enabledToolNames: [String]? = nil,
         promptTemplateID: String? = nil,
@@ -1474,6 +1480,9 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         self.contextScope = contextScope ?? AgentContextScope.inferred(projectID: projectID ?? currentProjectID)
         self.projectID = projectID ?? currentProjectID
         self.runtimeSelector = runtimeSelector
+        self.effectiveRuntime = effectiveRuntime ?? provenance?.effectiveRuntime ?? provenance?.runtime
+        self.runtimeFallbackReason = runtimeFallbackReason ?? provenance?.fallbackReason
+        self.provenance = provenance
         self.createdFromRoute = createdFromRoute
         self.enabledToolNames = enabledToolNames
         self.promptTemplateID = promptTemplateID
@@ -1497,6 +1506,9 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         case contextScope = "context_scope"
         case projectID = "project_id"
         case runtimeSelector = "runtime_selector"
+        case effectiveRuntime = "effective_runtime"
+        case runtimeFallbackReason = "runtime_fallback_reason"
+        case provenance
         case createdFromRoute = "created_from_route"
         case enabledToolNames = "enabled_tool_names"
         case promptTemplateID = "prompt_template_id"
@@ -1523,6 +1535,15 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         self.contextScope = try container.decodeIfPresent(AgentContextScope.self, forKey: .contextScope)
             ?? AgentContextScope.inferred(projectID: decodedProjectID ?? decodedCurrentProjectID)
         self.runtimeSelector = try container.decodeIfPresent(String.self, forKey: .runtimeSelector)
+        self.effectiveRuntime = try container.decodeIfPresent(String.self, forKey: .effectiveRuntime)
+        self.runtimeFallbackReason = try container.decodeIfPresent(String.self, forKey: .runtimeFallbackReason)
+        self.provenance = try container.decodeIfPresent(AgentRunProvenance.self, forKey: .provenance)
+        if self.effectiveRuntime == nil {
+            self.effectiveRuntime = provenance?.effectiveRuntime ?? provenance?.runtime
+        }
+        if self.runtimeFallbackReason == nil {
+            self.runtimeFallbackReason = provenance?.fallbackReason
+        }
         self.createdFromRoute = try container.decodeIfPresent(String.self, forKey: .createdFromRoute)
         self.enabledToolNames = try container.decodeIfPresent([String].self, forKey: .enabledToolNames)
         self.promptTemplateID = try container.decodeIfPresent(String.self, forKey: .promptTemplateID)

@@ -10,12 +10,6 @@ struct AILabWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AILabCompactHeaderView()
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
-
-            Divider()
-
             HStack(spacing: 0) {
                 AgentThreadSidebarView(workspace: workspace, isCollapsed: $isThreadSidebarCollapsed)
                     .frame(width: isThreadSidebarCollapsed ? 46 : CGFloat(clampedThreadSidebarWidth))
@@ -76,106 +70,6 @@ private struct AILabSidebarResizeHandle: View {
                     NSCursor.pop()
                 }
             }
-    }
-}
-
-private struct AILabCompactHeaderView: View {
-    @EnvironmentObject private var appModel: AppViewModel
-    @State private var isShowingToolPicker = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("AI Lab")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                Text(appModel.agentConversationTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(minWidth: 150, alignment: .leading)
-
-            Spacer(minLength: 0)
-
-            Picker("模式", selection: visibleModeSelection) {
-                ForEach(AgentVisibleMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 150)
-            .help(Text(verbatim: appModel.agentModeStatusText))
-
-            SciBadge(
-                appModel.agentVisibleMode.permissionBadgeText,
-                color: appModel.agentVisibleMode == .agent ? SciStationDesign.Semantic.warning : .secondary
-            )
-
-            Button {
-                appModel.showAgentKnowledgeLibrary()
-            } label: {
-                Label("\(appModel.agentKnowledgePaperSelectedCount)/\(appModel.agentKnowledgePaperTotalCount)", systemImage: "books.vertical")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("AI 知识库")
-
-            Button {
-                isShowingToolPicker.toggle()
-            } label: {
-                Label(appModel.agentEnabledToolSummary, systemImage: "wrench.and.screwdriver")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("选择当前模式边界内可用的 AI Lab 工具")
-            .popover(isPresented: $isShowingToolPicker, arrowEdge: .bottom) {
-                AgentToolPickerPopover()
-                    .environmentObject(appModel)
-            }
-
-            HStack(spacing: 6) {
-                Menu {
-                    ForEach(DeepSeekModelOption.presets) { option in
-                        Button {
-                            appModel.useDeepSeekModel(option)
-                        } label: {
-                            Label(option.title, systemImage: appModel.llmConfiguration.model == option.id ? "checkmark" : "cpu")
-                        }
-                        .help(Text(verbatim: option.detail))
-                    }
-                    Divider()
-                    Button {
-                        appModel.openSettings(category: .aiLab)
-                    } label: {
-                        Label("全部模型设置", systemImage: "gearshape")
-                    }
-                } label: {
-                    Label(appModel.llmConfiguration.model, systemImage: "cpu")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .menuStyle(.borderlessButton)
-                Button {
-                    appModel.openSettings(category: .aiLab)
-                } label: {
-                    Label("AI 设置", systemImage: "gearshape")
-                        .labelStyle(.iconOnly)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    private var visibleModeSelection: Binding<AgentVisibleMode> {
-        Binding(
-            get: { appModel.agentVisibleMode },
-            set: { appModel.setAgentVisibleMode($0) }
-        )
     }
 }
 
@@ -566,14 +460,22 @@ struct AgentPanelView: View {
     private let timelineBottomID = "agent-timeline-bottom"
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
             if isCompact {
-                compactSessionHeader
+                conversationColumn
             } else {
-                sessionHeader
-                Divider()
+                conversationColumn
             }
+        }
+        .background(isCompact ? Color.clear : Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
+            AgentThreadRenameSheet()
+                .environmentObject(appModel)
+        }
+    }
 
+    private var conversationColumn: some View {
+        VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     AgentConversationTimelineView(
@@ -608,99 +510,6 @@ struct AgentPanelView: View {
 
             composerDock
         }
-        .background(isCompact ? Color.clear : Color(nsColor: .windowBackgroundColor))
-        .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
-            AgentThreadRenameSheet()
-                .environmentObject(appModel)
-        }
-    }
-
-    private var sessionHeader: some View {
-        HStack(spacing: 12) {
-            Label("模式：\(appModel.agentVisibleMode.title)", systemImage: "switch.2")
-                .font(.caption.weight(.semibold))
-
-            Picker("运行范围", selection: contextSelection) {
-                Text("全工作区").tag("__workspace__")
-                if !appModel.activeResearchProjects.isEmpty {
-                    ForEach(appModel.activeResearchProjects) { project in
-                        Text(project.name).tag(project.id)
-                    }
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 220)
-            .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
-
-            Label(appModel.agentThreadContextTitle, systemImage: "tag")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .help("当前对话归属")
-
-            Spacer(minLength: 0)
-
-            statusMessages
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.04))
-    }
-
-    private var compactSessionHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Label("模式", systemImage: "switch.2")
-                    .font(.caption.weight(.semibold))
-
-                Picker("模式", selection: visibleModeSelection) {
-                    ForEach(AgentVisibleMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity)
-                .help(Text(verbatim: appModel.agentModeStatusText))
-            }
-
-            HStack(spacing: 8) {
-                Picker("上下文", selection: contextSelection) {
-                    Text("全工作区").tag("__workspace__")
-                    if !appModel.activeResearchProjects.isEmpty {
-                        ForEach(appModel.activeResearchProjects) { project in
-                            Text(project.name).tag(project.id)
-                        }
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity)
-                .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
-
-                Button {
-                    appModel.showAgentKnowledgeLibrary()
-                } label: {
-                    Label("知识库", systemImage: "books.vertical")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.glass)
-                .help("AI 知识库")
-            }
-
-            Text(appModel.agentThreadContextTitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            statusMessages
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background {
-            Color(nsColor: .windowBackgroundColor).opacity(0.66)
-            Color.secondary.opacity(0.045)
-        }
     }
 
     private var visibleModeSelection: Binding<AgentVisibleMode> {
@@ -720,12 +529,19 @@ struct AgentPanelView: View {
     private var runtimeRail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label("Runtime", systemImage: "switch.2")
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("会话态势", systemImage: "chart.line.uptrend.xyaxis")
                         .font(.headline)
-                    Spacer(minLength: 0)
+                    Text("运行时、证据、写回和连接器状态。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
+                AgentCollaborationStatusView(
+                    currentRun: appModel.agentCurrentRun,
+                    summary: appModel.agentCollaborationSummary
+                )
                 AgentPlatformStatusView()
 
                 DisclosureGroup("Preset Manager", isExpanded: $isPresetExpanded) {
@@ -933,24 +749,59 @@ struct AgentPanelView: View {
             AILabDockTray(attachTop: true) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        Button {
-                            appModel.startNewAgentConversation()
-                        } label: {
-                            Label("新对话", systemImage: "plus.bubble")
+                        Label(appModel.agentConversationTitle, systemImage: "bubble.left.and.text.bubble.right")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(minWidth: 180, maxWidth: 260, alignment: .leading)
+                            .help(appModel.agentConversationTitle)
+
+                        Picker("模式", selection: visibleModeSelection) {
+                            ForEach(AgentVisibleMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 140)
+                        .help(Text(verbatim: appModel.agentModeStatusText))
+
+                        Picker("上下文", selection: contextSelection) {
+                            Text("全工作区").tag("__workspace__")
+                            if !appModel.activeResearchProjects.isEmpty {
+                                ForEach(appModel.activeResearchProjects) { project in
+                                    Text(project.name).tag(project.id)
+                                }
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 190)
+                        .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
+
+                        Label(appModel.agentContextUsageLabel, systemImage: "gauge.with.dots.needle.33percent")
+                            .labelStyle(.titleAndIcon)
+                            .help("上下文使用比例")
 
                         Button {
-                            appModel.refreshAgentContext()
+                            appModel.showAgentKnowledgeLibrary()
                         } label: {
-                            Label(appModel.isRefreshingAgentContext ? "刷新中" : "刷新", systemImage: "arrow.clockwise")
+                            Label("\(appModel.agentKnowledgePaperSelectedCount)/\(appModel.agentKnowledgePaperTotalCount)", systemImage: "books.vertical")
                         }
-                        .disabled(appModel.isRefreshingAgentContext)
+                        .help("AI 知识库")
+
+                        groupedToolMenu
+
+                        modelMenu
 
                         Button {
-                            appModel.openSettings(category: .aiLab)
+                            appModel.openAIManagementPanel()
                         } label: {
                             Label("设置", systemImage: "gearshape")
+                                .labelStyle(.iconOnly)
                         }
+                        .help("AI 管理")
+
+                        statusMessages
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)
@@ -965,6 +816,61 @@ struct AgentPanelView: View {
         .padding(.top, 6)
         .padding(.bottom, 14)
         .background(Color.secondary.opacity(0.04))
+    }
+
+    private var groupedToolMenu: some View {
+        Menu {
+            Button {
+                appModel.setAllAgentTools(isEnabled: true)
+            } label: {
+                Label("全选工具", systemImage: "checkmark.circle")
+            }
+            Button {
+                appModel.setAllAgentTools(isEnabled: false)
+            } label: {
+                Label("清空工具", systemImage: "circle")
+            }
+            Divider()
+            ForEach(AIToolGroup.groups(for: appModel.agentToolDefinitions)) { group in
+                Menu {
+                    ForEach(group.tools, id: \.identifier) { tool in
+                        Button {
+                            appModel.setAgentTool(tool.name, isEnabled: !appModel.agentEnabledToolNames.contains(tool.name))
+                        } label: {
+                            Label(tool.displayName, systemImage: appModel.agentEnabledToolNames.contains(tool.name) ? "checkmark" : "circle")
+                        }
+                    }
+                } label: {
+                    Label(group.title, systemImage: group.systemImage)
+                }
+            }
+        } label: {
+            Label("\(appModel.agentEnabledToolNames.count)", systemImage: "wrench.and.screwdriver")
+        }
+        .help("AI 工具")
+    }
+
+    private var modelMenu: some View {
+        Menu {
+            ForEach(DeepSeekModelOption.presets) { option in
+                Button {
+                    appModel.useDeepSeekModel(option)
+                } label: {
+                    Label(option.title, systemImage: appModel.llmConfiguration.model == option.id ? "checkmark" : "cpu")
+                }
+            }
+        } label: {
+            Label(modelDisplayName, systemImage: "cpu")
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 190, maxWidth: 260, alignment: .leading)
+        }
+        .help(appModel.llmConfiguration.model)
+    }
+
+    private var modelDisplayName: String {
+        DeepSeekModelOption.option(for: appModel.llmConfiguration.model)?.title
+            ?? appModel.llmConfiguration.model
     }
 
     private var compactComposerDock: some View {
@@ -1018,22 +924,12 @@ struct AgentPanelView: View {
             }
 
             HStack(spacing: 8) {
-                Button {
-                    appModel.startNewAgentConversation()
-                } label: {
-                    Label("新对话", systemImage: "plus.bubble")
-                }
-
                 Spacer(minLength: 0)
 
-                Button {
-                    appModel.refreshAgentContext()
-                } label: {
-                    Label(appModel.isRefreshingAgentContext ? "刷新中" : "刷新", systemImage: "arrow.clockwise")
-                        .labelStyle(.iconOnly)
-                }
-                .disabled(appModel.isRefreshingAgentContext)
-                .help("刷新 AI 上下文")
+                Label(appModel.agentContextUsageLabel, systemImage: "gauge.with.dots.needle.33percent")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("上下文使用比例")
 
                 Button {
                     appModel.openSettings(category: .aiLab)
@@ -2459,6 +2355,162 @@ private struct AgentPlatformStatusView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
+        }
+    }
+}
+
+private struct AgentCollaborationStatusView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let currentRun: AgentRun?
+    let summary: AgentCollaborationSummary
+
+    var body: some View {
+        GroupBox("会话态势") {
+            VStack(alignment: .leading, spacing: 10) {
+                statusRow(
+                    title: "Runtime",
+                    value: summary.runtimeSummary,
+                    systemImage: "switch.2",
+                    tint: .blue
+                )
+                statusRow(
+                    title: "Evidence",
+                    value: summary.evidenceSummary,
+                    systemImage: "doc.text.magnifyingglass",
+                    tint: tint(from: summary.evidenceTint)
+                )
+                statusRow(
+                    title: "Writeback Target",
+                    value: writebackSummary,
+                    systemImage: "square.and.pencil",
+                    tint: tint(from: summary.writebackTint)
+                )
+                if !summary.writebackTargets.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(summary.writebackTargets.prefix(4)) { target in
+                            writebackTargetRow(target)
+                        }
+                    }
+                    .padding(.leading, 26)
+                }
+                statusRow(
+                    title: "Prompt",
+                    value: summary.promptSummary,
+                    systemImage: "text.quote",
+                    tint: .purple
+                )
+                statusRow(
+                    title: "MCP",
+                    value: summary.mcpSummary,
+                    systemImage: "point.3.connected.trianglepath.dotted",
+                    tint: .orange
+                )
+
+                if summary.syntheticEvidenceWarning {
+                    Text("Synthetic/sample evidence was detected in this run; review trace provenance.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Production answers must use real tool evidence when evidence is needed; synthetic/sample evidence is test-only.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func statusRow(title: String, value: String, systemImage: String, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(value)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func writebackTargetRow(_ target: AgentWritebackTargetSummary) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(target.kind.label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(target.approvalState.rawValue)
+                    .font(.caption2)
+                    .foregroundStyle(approvalTint(target.approvalState))
+                Text(target.risk.rawValue)
+                    .font(.caption2)
+                    .foregroundStyle(target.risk == .readOnly ? Color.secondary : Color.orange)
+            }
+            Text(target.targetPath)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            if let diffPreview = target.diffPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !diffPreview.isEmpty {
+                Text(diffPreview)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(target.summary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var writebackSummary: String {
+        guard currentRun != nil else {
+            return "No active run"
+        }
+        if summary.writebackTargets.isEmpty {
+            return summary.writebackSummary
+        }
+        let primary = summary.writebackTargets.first!
+        let pathLabel = primary.targetPath
+        return "\(summary.writebackSummary) · \(primary.kind.label) → \(pathLabel)"
+    }
+
+    private func tint(from name: String) -> Color {
+        switch name {
+        case "green":
+            return .green
+        case "orange":
+            return .orange
+        case "red":
+            return .red
+        default:
+            return .secondary
+        }
+    }
+
+    private func approvalTint(_ state: AgentPermissionDockApprovalState) -> Color {
+        switch state {
+        case .autoAllowed, .allowedOnce, .completed:
+            return .green
+        case .waitingForApproval, .sessionApprovalDraft:
+            return .orange
+        case .denied, .deniedByPolicy, .failed:
+            return .red
         }
     }
 }

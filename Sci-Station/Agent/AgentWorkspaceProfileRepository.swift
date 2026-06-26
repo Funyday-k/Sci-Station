@@ -64,6 +64,12 @@ public actor AgentWorkspaceProfileRepository {
         try save(profile, in: root)
     }
 
+    public func acceptPromptPatchProposal(_ proposal: AgentPromptPatchProposal, in root: ResearchRoot) throws {
+        let profile = try load(in: root)
+        let updatedProfile = try promptLibraryResolver.applyAcceptedPatchProposal(proposal, to: profile)
+        try save(updatedProfile, in: root)
+    }
+
     public func setActivePromptTemplate(id: String?, in root: ResearchRoot) throws {
         var profile = try load(in: root)
         profile.activePromptTemplateID = id
@@ -124,6 +130,55 @@ public actor AgentWorkspaceProfileRepository {
         try save(profile, in: root)
     }
 
+    public func setSkillEnabled(
+        skillID: String,
+        displayName: String? = nil,
+        isEnabled: Bool,
+        trustLevel: AgentSkillTrustLevel? = nil,
+        allowedToolIDs: [String]? = nil,
+        in root: ResearchRoot
+    ) throws {
+        var profile = try load(in: root)
+        let existing = profile.skillToggle(id: skillID)
+        let toggle = AgentSkillToggle(
+            skillID: skillID,
+            displayName: displayName ?? existing?.displayName,
+            isEnabled: isEnabled,
+            trustLevel: trustLevel ?? existing?.trustLevel ?? .untrusted,
+            allowedToolIDs: allowedToolIDs ?? existing?.allowedToolIDs ?? []
+        )
+        if let existingIndex = profile.skillToggles.firstIndex(where: { $0.skillID == skillID }) {
+            profile.skillToggles[existingIndex] = toggle
+        } else {
+            profile.skillToggles.append(toggle)
+        }
+        try save(profile, in: root)
+    }
+
+    public func setSkillTrust(
+        skillID: String,
+        displayName: String? = nil,
+        trustLevel: AgentSkillTrustLevel,
+        isEnabled: Bool? = nil,
+        in root: ResearchRoot
+    ) throws {
+        var profile = try load(in: root)
+        let existing = profile.skillToggle(id: skillID)
+        let toggle = AgentSkillToggle(
+            skillID: skillID,
+            displayName: displayName ?? existing?.displayName,
+            isEnabled: isEnabled ?? existing?.isEnabled ?? false,
+            trustLevel: trustLevel,
+            allowedToolIDs: existing?.allowedToolIDs ?? []
+        )
+        if let existingIndex = profile.skillToggles.firstIndex(where: { $0.skillID == skillID }) {
+            profile.skillToggles[existingIndex] = toggle
+        } else {
+            profile.skillToggles.append(toggle)
+        }
+        try save(profile, in: root)
+    }
+
     public func setSkillToggle(_ toggle: AgentSkillToggle, in root: ResearchRoot) throws {
         var profile = try load(in: root)
         if let existingIndex = profile.skillToggles.firstIndex(where: { $0.skillID == toggle.skillID }) {
@@ -141,6 +196,12 @@ public actor AgentWorkspaceProfileRepository {
         } else {
             profile.mcpServers.append(server)
         }
+        try save(profile, in: root)
+    }
+
+    public func removeMCPServer(id: String, in root: ResearchRoot) throws {
+        var profile = try load(in: root)
+        profile.mcpServers.removeAll { $0.id == id }
         try save(profile, in: root)
     }
 }

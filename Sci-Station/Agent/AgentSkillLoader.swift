@@ -51,6 +51,73 @@ public nonisolated struct AgentSkillSelection: Codable, Hashable, Sendable, Iden
     }
 }
 
+public nonisolated struct AgentSkillCatalogEntry: Hashable, Sendable, Identifiable {
+    public var id: String { metadata.id }
+    public var metadata: AgentSkillMetadata
+    public var toggle: AgentSkillToggle?
+    public var isEnabled: Bool
+    public var isTrustedForRuntime: Bool
+    public var blockedReason: String?
+    public var effectiveAllowedTools: [String]
+
+    public nonisolated init(
+        metadata: AgentSkillMetadata,
+        toggle: AgentSkillToggle? = nil,
+        blockedReason: String? = nil,
+        effectiveAllowedTools: [String] = []
+    ) {
+        self.metadata = metadata
+        self.toggle = toggle
+        self.isEnabled = toggle?.isEnabled ?? false
+        self.isTrustedForRuntime = metadata.trustLevel == .trusted || toggle?.trustLevel == .trusted
+        self.blockedReason = blockedReason
+        self.effectiveAllowedTools = effectiveAllowedTools
+    }
+
+    public nonisolated var statusLabel: String {
+        if let blockedReason {
+            return "Blocked: \(blockedReason)"
+        }
+        if isEnabled {
+            return isTrustedForRuntime ? "Enabled" : "Enabled, waiting for trust"
+        }
+        return "Disabled"
+    }
+
+    public nonisolated var searchableText: String {
+        ([metadata.name, metadata.description, metadata.author, metadata.source.rawValue, metadata.risk.rawValue] + metadata.capabilities)
+            .joined(separator: " ")
+            .lowercased()
+    }
+}
+
+public nonisolated struct AgentSkillInstallPlan: Hashable, Sendable {
+    public var skillID: String
+    public var sourceSkillURL: URL
+    public var destinationSkillURL: URL
+    public var destinationRootRelativePath: String
+    public var trustLevel: AgentSkillTrustLevel
+    public var allowedTools: [String]
+    public var source: AgentSkillSource
+    public var shouldEnableAfterImport: Bool
+}
+
+public nonisolated struct AgentSkillInstallRequest: Hashable, Sendable {
+    public var sourceSkillURL: URL
+    public var workspaceRoot: URL
+    public var shouldEnableAfterImport: Bool
+
+    public nonisolated init(
+        sourceSkillURL: URL,
+        workspaceRoot: URL,
+        shouldEnableAfterImport: Bool = true
+    ) {
+        self.sourceSkillURL = sourceSkillURL
+        self.workspaceRoot = workspaceRoot
+        self.shouldEnableAfterImport = shouldEnableAfterImport
+    }
+}
+
 public nonisolated struct AgentSkillRuntimeResolution: Hashable, Sendable {
     public var selectedSkills: [AgentSkillSelection]
     public var allowedToolsBySkillID: [String: [String]]
@@ -142,6 +209,71 @@ public actor AgentSkillLoader {
         return metadataByName.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    public func catalog(
+        profile: AgentWorkspaceProfile,
+        workspaceRoot: URL,
+        prompt: String = ""
+    ) throws -> [AgentSkillCatalogEntry] {
+        let metadata = try loadMetadata(searchRoots: Self.defaultSearchRoots(workspaceRoot: workspaceRoot))
+        let metadataByID = Dictionary(uniqueKeysWithValues: metadata.map { ($0.id, $0) })
+        let resolution = try resolve(for: prompt, profile: profile, workspaceRoot: workspaceRoot)
+        var entries = metadata.map { item in
+            let toggle = profile.skillToggle(id: item.id)
+            return AgentSkillCatalogEntry(
+                metadata: item,
+                toggle: toggle,
+                blockedReason: resolution.blockedSkillReasons[item.id],
+                effectiveAllowedTools: toggle.map { effectiveAllowedTools(metadata: item, toggle: $0) } ?? item.allowedTools.sorted()
+            )
+        }
+
+        for toggle in profile.skillToggles where metadataByID[toggle.skillID] == nil {
+            let metadata = AgentSkillMetadata(
+                name: toggle.skillID,
+                description: "Skill was enabled in this workspace profile but is no longer present in the configured search roots.",
+                version: "unknown",
+                author: "unknown",
+                capabilities: [],
+                risk: .readOnly,
+                allowedTools: toggle.allowedToolIDs,
+                skillFileURL: workspaceRoot,
+                source: .workspace,
+                trustLevel: toggle.trustLevel
+            )
+            entries.append(AgentSkillCatalogEntry(
+                metadata: metadata,
+                toggle: toggle,
+                blockedReason: resolution.blockedSkillReasons[toggle.skillID] ?? "Enabled skill was not found in configured search roots.",
+                effectiveAllowedTools: toggle.allowedToolIDs.sorted()
+            ))
+        }
+
+        return entries.sorted { lhs, rhs in
+            if lhs.isEnabled != rhs.isEnabled {
+                return lhs.isEnabled && !rhs.isEnabled
+            }
+            let lhsPriority = sourcePriority(lhs.metadata.source)
+            let rhsPriority = sourcePriority(rhs.metadata.source)
+            if lhsPriority != rhsPriority {
+                return lhsPriority < rhsPriority
+            }
+            return lhs.metadata.name.localizedStandardCompare(rhs.metadata.name) == .orderedAscending
+        }
+    }
+
+    public nonisolated func filterCatalog(_ catalog: [AgentSkillCatalogEntry], query: String) -> [AgentSkillCatalogEntry] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedQuery.isEmpty else {
+            return catalog
+        }
+        let tokens = normalizedQuery
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        return catalog.filter { entry in
+            tokens.allSatisfy { entry.searchableText.contains($0) }
+        }
+    }
+
     public func selectSkills(for prompt: String, from metadata: [AgentSkillMetadata]) throws -> [AgentSkillSelection] {
         let normalizedPrompt = prompt.lowercased()
         return try metadata.compactMap { item in
@@ -205,6 +337,38 @@ public actor AgentSkillLoader {
         )
     }
 
+    public func installPlan(
+        for skillURL: URL,
+        workspaceRoot: URL,
+        shouldEnableAfterImport: Bool = true
+    ) throws -> AgentSkillInstallPlan {
+        let sourcePath = skillURL.standardizedFileURL.path
+        guard sourcePath.hasSuffix("/SKILL.md") || skillURL.lastPathComponent == "SKILL.md" else {
+            throw AgentError.invalidArguments("Only SKILL.md files can be imported.")
+        }
+        let metadata = try metadata(from: skillURL, source: source(for: skillURL.deletingLastPathComponent()), trustLevel: trustLevel(for: skillURL.deletingLastPathComponent()))
+        let destinationRootRelativePath = ".sci-ai/workspace.local/claude/skills/\(metadata.name)"
+        let destinationSkillURL = workspaceRoot.appendingPathComponent(destinationRootRelativePath, isDirectory: true).appendingPathComponent("SKILL.md", isDirectory: false)
+        return AgentSkillInstallPlan(
+            skillID: metadata.name,
+            sourceSkillURL: skillURL,
+            destinationSkillURL: destinationSkillURL,
+            destinationRootRelativePath: destinationRootRelativePath,
+            trustLevel: .untrusted,
+            allowedTools: metadata.allowedTools.sorted(),
+            source: metadata.source,
+            shouldEnableAfterImport: shouldEnableAfterImport
+        )
+    }
+
+    public func installPlan(for request: AgentSkillInstallRequest) throws -> AgentSkillInstallPlan {
+        try installPlan(
+            for: request.sourceSkillURL,
+            workspaceRoot: request.workspaceRoot,
+            shouldEnableAfterImport: request.shouldEnableAfterImport
+        )
+    }
+
     public nonisolated static func defaultSearchRoots(workspaceRoot: URL? = nil) -> [URL] {
         var roots = [
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/skills", isDirectory: true)
@@ -216,7 +380,6 @@ public actor AgentSkillLoader {
             )
             roots.append(workspaceRoot.appendingPathComponent(".sci-ai/workspace.local/claude/skills", isDirectory: true))
             roots.append(workspaceRoot.appendingPathComponent(".claude/skills", isDirectory: true))
-            roots.append(workspaceRoot.appendingPathComponent("Sci-Station/.claude/skills", isDirectory: true))
         }
         return roots
     }
@@ -368,7 +531,7 @@ public actor AgentSkillLoader {
 
     private nonisolated func source(for rootURL: URL) -> AgentSkillSource {
         let path = rootURL.standardizedFileURL.path
-        if path.contains("/.sci-ai/sci-station/") || path.contains("/Sci-Station/.claude/skills") {
+        if path.contains("/.sci-ai/sci-station/presets/") {
             return .appBundled
         }
         if path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path + "/.claude/skills") {

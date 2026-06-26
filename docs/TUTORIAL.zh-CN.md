@@ -142,6 +142,13 @@ Sci-Station 会把本地 todo 保存到 Research Root。Calendar 和 Apple Remin
 - `.sci-ai/sci-station/` 只保存可提交的产品 preset 和模板。
 - `.sci-ai/workspace.local/`、`.claude/`、`.mcp.json` 和 `.env*` 属于本机配置，不应提交或分享。
 - AI/Agent 工作流的写入动作仍需要通过权限层确认。
+- Swift Loop 是 AI Lab 的生产默认 runtime。Sidecar/Auto runtime 仍属于实验性路径，应按诊断或原型能力看待。
+- Prompt override、Skill toggle 和 MCP connector override 存放在 Research Root 的 `.sci-station/agent/profile.json`；该文件不能包含 secret。
+- Prompt patch review 是显式流程：diff preview、rationale/source、影响范围、回滚提示、Apply/Reject 和 Restore Default 是分开的动作。
+- Workspace skill 只导入到 workspace-managed root，默认 untrusted，必须显式 trust 后 runtime 才能读取正文。
+- Local MCP 和实验性 remote HTTP/SSE MCP 都保持工具白名单和审批门禁；remote credential failure、liveness failure、retry/backoff 会显示为状态，不会静默放权。
+- AI Lab collaboration rail 会汇总当前 runtime、evidence 状态、Brief/Wiki/Tasks 等第一类写回目标、Prompt 状态和 MCP 状态。
+- 需要证据的 AI 回答应依赖真实 paper/PDF/Markdown/Wiki/tool evidence。Synthetic/sample evidence 只属于测试，不应作为生产证据。
 
 MinerU PDF 转 Markdown 也需要试用者自己的 API Token。没有 token 时会降级使用本地 PDFKit 提取。
 
@@ -164,4 +171,5 @@ git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?ke
 - 网络功能依赖用户配置、用户网络和第三方服务状态。
 - 高质量 PDF 转 Markdown 依赖 MinerU。
 - Apple Reminders 当前以发布和本地映射为主，完整双向同步属于后续工作。
-- MCP server 执行仍受模板、状态展示和权限模型约束。
+- Prompt override/patch review、Skill Manager 基础界面、local command MCP 和实验性 remote HTTP/SSE MCP 已有 runtime 覆盖，但 production RAG evidence trace、evaluation harness、复杂 MCP auth/reconnect 审计、run-level Skill snapshot 和 sidecar production runtime 仍是后续工作。
+- MCP server 执行仍受模板、状态展示、工具白名单和权限模型约束。

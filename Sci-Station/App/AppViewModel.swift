@@ -277,6 +277,7 @@ final class AppViewModel: ObservableObject {
     var projectDashboardRevision: Int { homeDashboardStore.projectDashboardRevision }
     @Published var isShowingWorkspaceCreationWizard = false
     @Published private(set) var workspaceCreationDraft = WorkspaceCreationDraft()
+    @Published var isShowingAIManagementPanel = false
     @Published var selectedSettingsCategory: SettingsCategory = .workspace
     @Published private(set) var selectedPaperID: Paper.ID?
     @Published private(set) var selectedLibraryPaperIDs: Set<Paper.ID> = []
@@ -319,6 +320,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var llmConfiguration = LLMConfiguration()
     @Published var llmAPIKey = ""
     @Published var minerUAPIToken = ""
+    @Published private(set) var hasLoadedSensitiveAIKeys = false
     @Published private(set) var isTestingLLMConnection = false
     @Published private(set) var llmConnectionStatusMessage: String?
     @Published private(set) var isGeneratingSummary = false
@@ -429,6 +431,7 @@ final class AppViewModel: ObservableObject {
     private let workspaceModuleOverrideRepository: WorkspaceModuleOverrideRepository
     private let agentWorkspaceProfileRepository: AgentWorkspaceProfileRepository
     private let agentPromptLibraryResolver = AgentPromptLibraryResolver()
+    private let agentSkillLoader = AgentSkillLoader()
     private let paperAnnotationsRepository: PaperAnnotationsRepository
     private let pdfAnnotationStore: PDFAnnotationStore
     private let libraryBulkEditService: LibraryBulkEditService
@@ -488,6 +491,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var recommendationAIEvaluationStatusMessage: String?
     @Published private(set) var recommendationLibraryImportScoreIDs: Set<String> = []
     @Published private(set) var recommendationReadingTodoImportScoreIDs: Set<String> = []
+    @Published var isShowingSkillImport = false
+    @Published private(set) var pendingSkillImportPlan: AgentSkillInstallPlan?
 #if DEBUG
     private var uiTestBridgeServer: UITestBridgeServer?
     /// When the UI test bridge is active, all `recordAppDebugEvent` calls are
@@ -1214,7 +1219,22 @@ final class AppViewModel: ObservableObject {
     }
 
     var agentConversationTitle: String {
-        agentThreadContextTitle
+        if let title = (pendingAgentThread ?? activeAgentThread)?.title.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty {
+            return title
+        }
+        return agentThreadContextTitle
+    }
+
+    var agentContextUsageRatio: Double {
+        let limit = max(1, workspacePreferences.agentLoopBudget.maxContextCharacters)
+        let messages = agentConversationMessagesForPrompt(latestGoal: agentPendingUserPrompt ?? agentGoal)
+        let used = messages.reduce(0) { $0 + $1.content.count }
+        return min(1, Double(used) / Double(limit))
+    }
+
+    var agentContextUsageLabel: String {
+        "\(Int((agentContextUsageRatio * 100).rounded()))%"
     }
 
     var agentThreadContextTitle: String {
@@ -1506,6 +1526,135 @@ final class AppViewModel: ObservableObject {
         return ".sci-ai/sci-station: \(productCount) templates; profile: \(profileCount) managed; .sci-ai/workspace.local: \(localCount) local configs; local gateway tools/list+tools/call; side-effect tools require permissions"
     }
 
+    var agentCollaborationSummary: AgentCollaborationSummary {
+        let currentRun = agentCurrentRun
+        let runtimeSummary = [
+            agentRuntimeSelectionSummary,
+            "effective=\(agentRuntimeEffectiveSummary)",
+            agentRuntimeFallbackSummary.nilIfEmpty.map { "fallback=\($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+
+        let evidenceSummary: String
+        let evidenceTint: String
+        let writebackSummary: String
+        let writebackTint: String
+        let promptSummary: String
+        let mcpSummary: String
+        var writebackTargets: [AgentWritebackTargetSummary] = []
+        var needsApproval = false
+        var syntheticEvidenceWarning = false
+
+        if let run = currentRun {
+            let toolResults = run.toolResults
+            let evidenceCount = toolResults.filter { isEvidenceTool($0.toolName) && $0.succeeded }.count
+            syntheticEvidenceWarning = run.provenance?.evidenceProvenance != nil
+                ? run.provenance?.evidenceProvenance.map { containsSyntheticEvidence(in: $0) } ?? false
+                : false
+            if evidenceCount > 0 {
+                evidenceSummary = "\(evidenceCount) read/search result\(evidenceCount == 1 ? "" : "s") recorded"
+                evidenceTint = "green"
+            } else if run.lifecycleState == .waitingForApproval {
+                evidenceSummary = "Waiting for approved tools"
+                evidenceTint = "orange"
+            } else if toolResults.isEmpty {
+                evidenceSummary = "No tool evidence recorded yet"
+                evidenceTint = "secondary"
+            } else {
+                evidenceSummary = "No paper/wiki evidence tool succeeded"
+                evidenceTint = "secondary"
+            }
+
+            let writeCalls = run.plan.toolCalls.filter { isWriteTool($0.toolName) }
+            let writeResults = toolResults.filter { isWriteTool($0.toolName) }
+            let permissionItems = agentPermissionDockItems(for: run)
+            writebackTargets = permissionItems.compactMap { item in
+                guard item.risk != .readOnly || item.diffPreview != nil || !item.pathPreview.isEmpty else {
+                    return nil
+                }
+                return AgentWritebackTargetSummary(
+                    kind: writebackTargetKind(for: item),
+                    targetPath: item.pathPreview.first ?? "workspace",
+                    summary: item.summaryPreview ?? item.summary,
+                    diffPreview: item.diffPreview,
+                    risk: item.risk,
+                    approvalState: item.approvalState
+                )
+            }
+            needsApproval = permissionItems.contains { $0.approvalState == .waitingForApproval }
+
+            if writeCalls.isEmpty, writeResults.isEmpty {
+                writebackSummary = "No writeback requested"
+                writebackTint = "secondary"
+            } else if writeResults.contains(where: { !$0.modifiedPaths.isEmpty }) {
+                let count = writeResults.flatMap(\.modifiedPaths).count
+                writebackSummary = "\(count) path\(count == 1 ? "" : "s") modified after approval"
+                writebackTint = "green"
+            } else if run.lifecycleState == .waitingForApproval || writeResults.contains(where: \.requiresConfirmation) {
+                writebackSummary = "Approval required before writing"
+                writebackTint = "orange"
+            } else if writeResults.contains(where: { !$0.succeeded }) {
+                writebackSummary = "Writeback failed or was denied"
+                writebackTint = "red"
+            } else {
+                writebackSummary = "Writeback planned; no files modified"
+                writebackTint = "secondary"
+            }
+
+            let surface = run.promptTemplateSurface?.rawValue ?? "default"
+            let templateID = run.promptTemplateID ?? "bundled"
+            let version = run.promptTemplateVersion ?? "-"
+            promptSummary = "\(surface) · \(templateID) @ \(version)"
+            mcpSummary = agentMCPStatusSummary
+        } else {
+            evidenceSummary = "No active run"
+            evidenceTint = "secondary"
+            writebackSummary = "No active run"
+            writebackTint = "secondary"
+            promptSummary = "Bundled/default until next run"
+            mcpSummary = agentMCPStatusSummary
+        }
+
+        return AgentCollaborationSummary(
+            runtimeSummary: runtimeSummary,
+            evidenceSummary: evidenceSummary,
+            evidenceTint: evidenceTint,
+            writebackSummary: writebackSummary,
+            writebackTint: writebackTint,
+            promptSummary: promptSummary,
+            mcpSummary: mcpSummary,
+            writebackTargets: writebackTargets,
+            needsApproval: needsApproval,
+            syntheticEvidenceWarning: syntheticEvidenceWarning
+        )
+    }
+
+    private func writebackTargetKind(for item: AgentPermissionDockItem) -> AgentWritebackTargetKind {
+        switch item.toolName {
+        case "create_todo":
+            return .todo
+        case "write_markdown_plan":
+            return .projectBrief
+        case "write_wiki_markdown":
+            if item.pathPreview.contains(where: { $0.contains("/papers/") || $0.hasPrefix("wiki/papers/") }) {
+                return .wikiPaper
+            }
+            return .wikiNote
+        default:
+            if item.pathPreview.contains(where: { $0.hasPrefix("tasks/") }) {
+                return .todo
+            }
+            if item.pathPreview.contains(where: { $0.localizedCaseInsensitiveContains("brief") || $0.localizedCaseInsensitiveContains("plan") }) {
+                return .projectBrief
+            }
+            if item.pathPreview.contains(where: { $0.contains("/papers/") || $0.hasPrefix("wiki/papers/") }) {
+                return .wikiPaper
+            }
+            return .workspaceDraft
+        }
+    }
+
     var agentRuntimeSelectionSummary: String {
         workspacePreferences.agentRuntimeSelection.label
     }
@@ -1540,6 +1689,31 @@ final class AppViewModel: ObservableObject {
             sidecarAvailable: agentSidecarHealthIsAvailable,
             sidecarDisabled: workspacePreferences.isSidecarDisabledForWorkspace
         ) ?? agentSidecarHealth.fallbackReason ?? agentSidecarHealth.lastCrash ?? "No fallback active."
+    }
+
+    private func isEvidenceTool(_ toolName: String) -> Bool {
+        let normalized = toolName.lowercased()
+        return normalized.contains("read")
+            || normalized.contains("search")
+            || normalized.contains("list_papers")
+            || normalized.contains("evidence")
+            || normalized.contains("graph")
+    }
+
+    private func isWriteTool(_ toolName: String) -> Bool {
+        let normalized = toolName.lowercased()
+        return normalized.contains("write")
+            || normalized.contains("save")
+            || normalized.contains("create")
+            || normalized.contains("append")
+    }
+
+    private func containsSyntheticEvidence(in value: JSONValue) -> Bool {
+        let rendered = value.canonicalJSON.lowercased()
+        return rendered.contains("synthetic")
+            || rendered.contains("sample_evidence")
+            || rendered.contains("sample evidence")
+            || rendered.contains("fixture")
     }
 
     var agentDebugLoggingSummary: String {
@@ -1847,7 +2021,20 @@ final class AppViewModel: ObservableObject {
 
     func openSettings(category: SettingsCategory) {
         selectedSettingsCategory = category
-        selectSection(.settings)
+        if category == .aiLab {
+            openAIManagementPanel()
+        } else {
+            selectSection(.settings)
+        }
+    }
+
+    func openAIManagementPanel() {
+        selectedSettingsCategory = .aiLab
+        isShowingAIManagementPanel = true
+    }
+
+    func consumeAIManagementPanelRequest() {
+        isShowingAIManagementPanel = false
     }
 
     func selectLibraryScope() {
@@ -4034,7 +4221,10 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await llmConfigurationStore.save(llmConfiguration, in: currentWorkspace)
-                try await apiKeyStore.save(apiKey: llmAPIKey, for: currentWorkspace.rootURL.path)
+                if !llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    try await apiKeyStore.save(apiKey: llmAPIKey, for: currentWorkspace.rootURL.path)
+                    hasLoadedSensitiveAIKeys = true
+                }
                 llmConnectionStatusMessage = "LLM settings saved."
             } catch {
                 present(error)
@@ -4484,16 +4674,16 @@ final class AppViewModel: ObservableObject {
                 panel.nameFieldStringValue = "sci-station-diagnostics.txt"
                 panel.allowedContentTypes = [.plainText]
                 guard panel.runModal() == .OK, let destinationURL = panel.url else {
-                    self.shellStatusMessage = self.localized("诊断导出已取消。", "Diagnostics export cancelled.")
+                    self.showShellStatus(self.localized("诊断导出已取消。", "Diagnostics export cancelled."))
                     return
                 }
                 do {
                     try Data(report.utf8).write(to: destinationURL, options: .atomic)
                     NSWorkspace.shared.activateFileViewerSelecting([destinationURL])
-                    self.shellStatusMessage = self.localized(
+                    self.showShellStatus(self.localized(
                         "已导出脱敏诊断包（不含绝对路径与密钥）。",
                         "Exported scrubbed diagnostics (no absolute paths or secrets)."
-                    )
+                    ))
                 } catch {
                     self.present(error)
                 }
@@ -4698,6 +4888,7 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 try await apiKeyStore.save(apiKey: minerUAPIToken, for: minerUAPITokenAccount(for: currentWorkspace))
+                hasLoadedSensitiveAIKeys = true
                 workspaceSettingsStatusMessage = localized("MinerU API 设置已保存。", "MinerU API settings saved.")
             } catch {
                 present(error)
@@ -4961,7 +5152,6 @@ final class AppViewModel: ObservableObject {
         }
 
         let preferences = workspacePreferences
-        let apiToken = minerUAPIToken
         Task {
             defer {
                 if statusSurface == .agent {
@@ -4970,6 +5160,7 @@ final class AppViewModel: ObservableObject {
             }
 
             do {
+                let apiToken = try await resolvedMinerUAPIToken(for: workspace)
                 let service = PaperMarkdownConversionService()
                 let results = try await service.convert(
                     convertiblePapers,
@@ -5123,7 +5314,7 @@ final class AppViewModel: ObservableObject {
             workspaceName: currentAgentWorkspaceName,
             runtimeSelector: workspacePreferences.agentRuntimeSelection.rawValue,
             createdFromRoute: "ai_lab",
-            title: "New Chat",
+            title: agentNextRunContextTitle,
             createdAt: now,
             updatedAt: now
         )
@@ -7460,13 +7651,35 @@ final class AppViewModel: ObservableObject {
 
     private func loadLLMSettings(in workspace: ResearchWorkspace) async throws {
         llmConfiguration = try await llmConfigurationStore.load(in: workspace)
-        llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
-        minerUAPIToken = try await apiKeyStore.loadAPIKey(for: minerUAPITokenAccount(for: workspace)) ?? ""
+        llmAPIKey = ""
+        minerUAPIToken = ""
+        hasLoadedSensitiveAIKeys = false
+    }
+
+    func loadSensitiveAIKeysIfNeeded() {
+        guard let workspace = currentWorkspace, !hasLoadedSensitiveAIKeys else {
+            return
+        }
+
+        Task {
+            do {
+                llmAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path) ?? ""
+                minerUAPIToken = try await apiKeyStore.loadAPIKey(for: minerUAPITokenAccount(for: workspace)) ?? ""
+                hasLoadedSensitiveAIKeys = true
+            } catch {
+                present(error)
+            }
+        }
     }
 
     private func resolvedLLMAPIKey(for workspace: ResearchWorkspace) async throws -> String {
         let persistedAPIKey = try await apiKeyStore.loadAPIKey(for: workspace.rootURL.path)
         return LLMAPIKeyResolver.resolve(inMemory: llmAPIKey, persisted: persistedAPIKey)
+    }
+
+    private func resolvedMinerUAPIToken(for workspace: ResearchWorkspace) async throws -> String {
+        let persistedToken = try await apiKeyStore.loadAPIKey(for: minerUAPITokenAccount(for: workspace))
+        return LLMAPIKeyResolver.resolve(inMemory: minerUAPIToken, persisted: persistedToken)
     }
 
     private func minerUAPITokenAccount(for workspace: ResearchWorkspace) -> String {
@@ -7549,6 +7762,150 @@ final class AppViewModel: ObservableObject {
                     in: root
                 )
                 try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func acceptAgentPromptPatchProposal(_ proposal: AgentPromptPatchProposal) {
+        guard let currentWorkspace else {
+            return
+        }
+        let review = agentPromptLibraryResolver.reviewPatchProposal(proposal, profile: agentWorkspaceProfile)
+        guard review.canAccept else {
+            present(AgentError.invalidArguments(review.validationMessage ?? review.activeSurfaceMismatch ?? "Prompt patch cannot be accepted."))
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.acceptPromptPatchProposal(proposal, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func prepareAgentSkillImport(from sourceURL: URL) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                let plan = try await agentSkillLoader.installPlan(
+                    for: sourceURL,
+                    workspaceRoot: root.rootURL,
+                    shouldEnableAfterImport: true
+                )
+                await MainActor.run {
+                    pendingSkillImportPlan = plan
+                    isShowingSkillImport = true
+                }
+            } catch {
+                await MainActor.run {
+                    present(error)
+                }
+            }
+        }
+    }
+
+    func chooseAgentSkillMarkdownForImport() {
+        guard let sourceURL = Self.selectSkillMarkdownURL() else {
+            return
+        }
+        prepareAgentSkillImport(from: sourceURL)
+    }
+
+    func confirmAgentSkillImport() {
+        guard let plan = pendingSkillImportPlan, let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try FileManager.default.createDirectory(at: plan.destinationSkillURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: plan.destinationSkillURL.path) {
+                    try FileManager.default.removeItem(at: plan.destinationSkillURL)
+                }
+                try FileManager.default.copyItem(at: plan.sourceSkillURL, to: plan.destinationSkillURL)
+                try await agentWorkspaceProfileRepository.setSkillEnabled(
+                    skillID: plan.skillID,
+                    displayName: plan.skillID,
+                    isEnabled: plan.shouldEnableAfterImport,
+                    trustLevel: .untrusted,
+                    allowedToolIDs: plan.allowedTools,
+                    in: root
+                )
+                try await refreshAgentWorkspaceProfile(in: root)
+                await MainActor.run {
+                    pendingSkillImportPlan = nil
+                    isShowingSkillImport = false
+                }
+            } catch {
+                await MainActor.run {
+                    present(error)
+                }
+            }
+        }
+    }
+
+    private static func selectSkillMarkdownURL() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "Import Skill"
+        panel.prompt = "Import"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        panel.directoryURL = defaultPanelDirectoryURL()
+
+        guard panel.runModal() == .OK else {
+            return nil
+        }
+        return panel.url
+    }
+
+    func createAgentMCPServer() {
+        let suffix = String(UUID().uuidString.lowercased().prefix(8))
+        saveAgentMCPServer(MCPServerConfiguration(
+            id: "mcp-\(suffix)",
+            displayName: "MCP \(suffix)",
+            transport: .localCommand,
+            isEnabled: false,
+            command: "",
+            timeoutSeconds: 30
+        ))
+    }
+
+    func saveAgentMCPServer(_ server: MCPServerConfiguration) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.upsertMCPServer(server, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+                try await refreshAgentRuntimeSummaries(in: root)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    func removeAgentMCPServer(id: String) {
+        guard let currentWorkspace else {
+            return
+        }
+        let root = currentResearchRoot ?? ResearchRoot(rootURL: currentWorkspace.rootURL)
+        Task {
+            do {
+                try await agentWorkspaceProfileRepository.removeMCPServer(id: id, in: root)
+                try await refreshAgentWorkspaceProfile(in: root)
+                try await refreshAgentRuntimeSummaries(in: root)
             } catch {
                 present(error)
             }
@@ -8724,10 +9081,7 @@ final class AppViewModel: ObservableObject {
             restorePinnedAgentThreadsForCurrentProject()
             restoreAgentToolStateForCurrentScope()
             agentSessionEvents = try await agentService.sessionEvents(in: root, limit: nil)
-            let runtimeLoader = AgentRuntimeConfigurationLoader()
-            agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
-            agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
-            agentLocalMCPServerStatuses = try runtimeLoader.loadLocalMCPServerStatuses(in: root)
+            try await refreshAgentRuntimeSummaries(in: root)
             rebuildAgentHookActivitySummary()
             agentSidecarHealth = workspacePreferences.isSidecarDisabledForWorkspace
                 ? SidecarHealth(status: "disabled", fallbackReason: "Sidecar disabled for this workspace.")
@@ -8735,6 +9089,13 @@ final class AppViewModel: ObservableObject {
         } catch {
             agentErrorMessage = error.localizedDescription
         }
+    }
+
+    private func refreshAgentRuntimeSummaries(in root: ResearchRoot) async throws {
+        let runtimeLoader = AgentRuntimeConfigurationLoader()
+        agentPresetDetails = try runtimeLoader.loadProductPreset(in: root)
+        agentProductMCPServerStatuses = agentPresetDetails?.mcpServers ?? []
+        agentLocalMCPServerStatuses = try runtimeLoader.loadLocalMCPServerStatuses(in: root)
     }
 
     private func startAgentLiveEventRefresh(in workspace: ResearchWorkspace, liveRunID: String? = nil) {
@@ -8893,7 +9254,7 @@ final class AppViewModel: ObservableObject {
         )
         thread.assignWorkspace(id: workspaceID, name: workspaceName)
 
-        if thread.title == "New Chat" || thread.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if Self.isDefaultAgentThreadTitle(thread.title) {
             thread.title = Self.agentThreadTitle(for: run)
         }
         thread.appendRunID(run.id, updatedAt: now)
@@ -9363,7 +9724,7 @@ final class AppViewModel: ObservableObject {
 
     private nonisolated static func agentThreadTitle(for run: AgentRun) -> String {
         let planTitle = run.plan.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let planTitle, !planTitle.isEmpty {
+        if let planTitle, !isDefaultAgentThreadTitle(planTitle) {
             return planTitle
         }
 
@@ -9373,6 +9734,18 @@ final class AppViewModel: ObservableObject {
         }
 
         return String(trimmedGoal.prefix(45)) + "..."
+    }
+
+    private nonisolated static func isDefaultAgentThreadTitle(_ title: String) -> Bool {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty
+            || normalized == "new chat"
+            || normalized == "新对话"
+            || normalized == "全工作区"
+            || normalized == "对话回复"
+            || normalized == "ai 回复"
+            || normalized == "ai reply"
+            || normalized == "conversation reply"
     }
 
     private func loadMarkdownSnippets(in workspace: ResearchWorkspace) async throws {

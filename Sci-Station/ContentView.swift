@@ -12,6 +12,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @EnvironmentObject private var launchCoordinator: SciStationLaunchCoordinator
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("sciStation.shellRightRailWidth") private var shellRightRailWidth = 360.0
     @State private var mainColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var readerColumnVisibility: NavigationSplitViewVisibility = .detailOnly
@@ -165,6 +166,11 @@ struct ContentView: View {
         .sheet(isPresented: $appModel.isShowingWorkspaceCreationWizard) {
             WorkspaceCreationWizardView()
                 .environmentObject(appModel)
+        }
+        .onChange(of: appModel.isShowingAIManagementPanel) { _, isShowing in
+            guard isShowing else { return }
+            openWindow(id: "ai-management")
+            appModel.consumeAIManagementPanelRequest()
         }
     }
 

@@ -178,6 +178,11 @@ public actor SciStationAgentService {
             options.promptResolution
                 ?? promptLibraryResolver.resolve(surface: .toolLoop, profile: workspaceProfile, basePrompt: goal)
         ).appendingContext(skillResolution.promptContext)
+        let swiftLoopProvenance = AgentRunProvenance(
+            requestedRuntime: options.runtimeSelection.rawValue,
+            effectiveRuntime: AgentRuntimeSelection.swiftLoop.rawValue,
+            runtime: AgentRuntimeSelection.swiftLoop.rawValue
+        )
 
         if let localRun = try await directLocalResponseRunIfNeeded(
             goal: goal,
@@ -189,6 +194,7 @@ public actor SciStationAgentService {
             mode: options.mode,
             currentProjectID: currentProjectID,
             runtimeSelector: options.runtimeSelection.rawValue,
+            runtimeProvenance: swiftLoopProvenance,
             enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: baseToolDefinitions),
             promptResolution: promptResolution,
             retryOfRunID: options.retryOfRunID,
@@ -206,6 +212,7 @@ public actor SciStationAgentService {
             currentProjectID: currentProjectID,
             selectedPaperID: selectedPaperID,
             runtimeSelector: options.runtimeSelection.rawValue,
+            runtimeProvenance: swiftLoopProvenance,
             enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: baseToolDefinitions),
             promptResolution: promptResolution,
             retryOfRunID: options.retryOfRunID,
@@ -290,11 +297,21 @@ public actor SciStationAgentService {
                     createdAt: createdAt,
                     currentProjectID: currentProjectID,
                     runtimeSelector: options.runtimeSelection.rawValue,
+                    runtimeProvenance: decision.provenance,
                     enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: toolDefinitions),
                     retryOfRunID: options.retryOfRunID,
                     promptResolution: promptResolution
                 )
                 try await runLogger.append(run, in: resolvedRoot)
+                try await persistRunManifest(
+                    for: run,
+                    providerConfiguration: configuration,
+                    promptResolution: promptResolution,
+                    skillResolution: skillResolution,
+                    mcpStatuses: runtimeTooling.mcpStatuses,
+                    toolDefinitions: toolDefinitions,
+                    in: resolvedRoot
+                )
                 return run
             }
             let run = run(
@@ -303,11 +320,21 @@ public actor SciStationAgentService {
                 createdAt: createdAt,
                 currentProjectID: currentProjectID,
                 runtimeSelector: options.runtimeSelection.rawValue,
+                runtimeProvenance: decision.provenance,
                 enabledToolNames: enabledToolNamesSnapshot(effectiveAllowedToolNames, toolDefinitions: toolDefinitions),
                 retryOfRunID: options.retryOfRunID,
                 promptResolution: promptResolution
             )
             try await runLogger.append(run, in: resolvedRoot)
+            try await persistRunManifest(
+                for: run,
+                providerConfiguration: configuration,
+                promptResolution: promptResolution,
+                skillResolution: skillResolution,
+                mcpStatuses: runtimeTooling.mcpStatuses,
+                toolDefinitions: toolDefinitions,
+                in: resolvedRoot
+            )
             try await appendRuntimeSessionEvents(for: runtimeEvents, run: run, in: resolvedRoot)
             return run
         }
@@ -388,6 +415,15 @@ public actor SciStationAgentService {
             retryOfRunID: options.retryOfRunID
         )
         try await runLogger.append(run, in: resolvedRoot)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: configuration,
+            promptResolution: promptResolution,
+            skillResolution: skillResolution,
+            mcpStatuses: runtimeTooling.mcpStatuses,
+            toolDefinitions: toolDefinitions,
+            in: resolvedRoot
+        )
         try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: hookResults, in: resolvedRoot)
         return run
     }
@@ -410,6 +446,7 @@ public actor SciStationAgentService {
         mode: AgentRunMode,
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
+        runtimeProvenance: AgentRunProvenance? = nil,
         enabledToolNames: [String]?,
         promptResolution: AgentPromptResolution,
         retryOfRunID: String?,
@@ -449,6 +486,9 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             runtimeSelector: runtimeSelector,
+            effectiveRuntime: runtimeProvenance?.effectiveRuntime ?? runtimeProvenance?.runtime,
+            runtimeFallbackReason: runtimeProvenance?.fallbackReason,
+            provenance: runtimeProvenance,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
             promptTemplateID: promptResolution.templateID,
@@ -459,6 +499,15 @@ public actor SciStationAgentService {
             retryOfRunID: retryOfRunID
         )
         try await runLogger.append(run, in: root)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: nil,
+            promptResolution: promptResolution,
+            skillResolution: nil,
+            mcpStatuses: [],
+            toolDefinitions: toolDefinitions,
+            in: root
+        )
         try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: hookResults, in: root)
         return run
     }
@@ -521,6 +570,7 @@ public actor SciStationAgentService {
         currentProjectID: ResearchProject.ID?,
         selectedPaperID: String?,
         runtimeSelector: String?,
+        runtimeProvenance: AgentRunProvenance? = nil,
         enabledToolNames: [String]?,
         promptResolution: AgentPromptResolution,
         retryOfRunID: String?,
@@ -571,6 +621,9 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             runtimeSelector: runtimeSelector,
+            effectiveRuntime: runtimeProvenance?.effectiveRuntime ?? runtimeProvenance?.runtime,
+            runtimeFallbackReason: runtimeProvenance?.fallbackReason,
+            provenance: runtimeProvenance,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
             promptTemplateID: promptResolution.templateID,
@@ -581,6 +634,15 @@ public actor SciStationAgentService {
             retryOfRunID: retryOfRunID
         )
         try await runLogger.append(run, in: root)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: nil,
+            promptResolution: promptResolution,
+            skillResolution: nil,
+            mcpStatuses: [],
+            toolDefinitions: toolDefinitions,
+            in: root
+        )
         try await appendPlanningEvents(for: run, toolDefinitions: toolDefinitions, hookResults: [], in: root)
         return run
     }
@@ -753,6 +815,15 @@ public actor SciStationAgentService {
             promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: pending.toolCall.argumentsJSON)
         )
         try await runLogger.append(run, in: resolvedRoot)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: configuration,
+            promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: pending.toolCall.argumentsJSON),
+            skillResolution: nil,
+            mcpStatuses: runtimeTooling.mcpStatuses,
+            toolDefinitions: toolDefinitions,
+            in: resolvedRoot
+        )
         return run
     }
 
@@ -843,6 +914,16 @@ public actor SciStationAgentService {
             promptTemplateSurface: .toolLoop
         )
         try await runLogger.append(run, in: resolvedRoot)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: nil,
+            promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: goal),
+            skillResolution: nil,
+            mcpStatuses: runtimeTooling.mcpStatuses,
+            toolDefinitions: await filteredToolDefinitions(allowedToolNames: allowedToolNames, toolHost: runtimeTooling.toolHost),
+            approvalRefs: Array(approvedToolCallIDs.union(deniedToolCallIDs)).sorted(),
+            in: resolvedRoot
+        )
         try await appendExecutionEvents(
             for: run,
             approvedToolCallIDs: approvedToolCallIDs,
@@ -897,6 +978,7 @@ public actor SciStationAgentService {
         in root: ResearchRoot,
         currentProjectID: ResearchProject.ID? = nil,
         runtimeSelector: String? = nil,
+        runtimeProvenance: AgentRunProvenance? = nil,
         enabledToolNames: [String]? = nil,
         promptResolution: AgentPromptResolution,
         failureCategory: AgentRunFailureCategory = .unknown,
@@ -926,6 +1008,9 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             runtimeSelector: runtimeSelector,
+            effectiveRuntime: runtimeProvenance?.effectiveRuntime ?? runtimeProvenance?.runtime,
+            runtimeFallbackReason: runtimeProvenance?.fallbackReason,
+            provenance: runtimeProvenance,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
             promptTemplateID: promptResolution.templateID,
@@ -937,6 +1022,15 @@ public actor SciStationAgentService {
             retryOfRunID: retryOfRunID
         )
         try await runLogger.append(run, in: root)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: nil,
+            promptResolution: promptResolution,
+            skillResolution: nil,
+            mcpStatuses: [],
+            toolDefinitions: [],
+            in: root
+        )
         try await sessionEventLogger.append(
             AgentSessionEvent(
                 sessionID: run.id,
@@ -966,6 +1060,7 @@ public actor SciStationAgentService {
         in root: ResearchRoot,
         currentProjectID: ResearchProject.ID? = nil,
         runtimeSelector: String? = nil,
+        runtimeProvenance: AgentRunProvenance? = nil,
         enabledToolNames: [String]? = nil,
         promptResolution: AgentPromptResolution,
         retryOfRunID: String? = nil
@@ -993,6 +1088,9 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             runtimeSelector: runtimeSelector,
+            effectiveRuntime: runtimeProvenance?.effectiveRuntime ?? runtimeProvenance?.runtime,
+            runtimeFallbackReason: runtimeProvenance?.fallbackReason,
+            provenance: runtimeProvenance,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
             promptTemplateID: promptResolution.templateID,
@@ -1004,6 +1102,15 @@ public actor SciStationAgentService {
             retryOfRunID: retryOfRunID
         )
         try await runLogger.append(run, in: root)
+        try await persistRunManifest(
+            for: run,
+            providerConfiguration: nil,
+            promptResolution: promptResolution,
+            skillResolution: nil,
+            mcpStatuses: [],
+            toolDefinitions: [],
+            in: root
+        )
         try await sessionEventLogger.append(
             AgentSessionEvent(
                 sessionID: run.id,
@@ -1422,12 +1529,311 @@ public actor SciStationAgentService {
         try? await runDirectoryStore.savePromptSnapshot(snapshot, in: root)
     }
 
+    private func persistRunManifest(
+        for run: AgentRun,
+        providerConfiguration: LLMConfiguration?,
+        promptResolution: AgentPromptResolution,
+        skillResolution: AgentSkillRuntimeResolution?,
+        mcpStatuses: [AgentMCPRuntimeStatus],
+        toolDefinitions: [AgentToolDefinition],
+        approvalRefs: [String] = [],
+        approvedToolCallIDs: Set<String> = [],
+        deniedToolCallIDs: Set<String> = [],
+        in root: ResearchRoot
+    ) async throws {
+        let toolLedgerRecords = (try? await runDirectoryStore.toolCallRecords(runID: run.id, in: root)) ?? []
+        let pendingApproval = try? await runDirectoryStore.pending(runID: run.id, in: root)
+        let manifest = AgentRunManifest(
+            runID: run.id,
+            provider: providerConfiguration.map(AgentRunProviderSnapshot.init(configuration:)),
+            runtime: manifestRuntimeProvenance(for: run),
+            prompt: AgentRunPromptManifestSnapshot(
+                surface: promptResolution.surface,
+                templateID: promptResolution.templateID ?? run.promptTemplateID,
+                templateVersion: promptResolution.templateVersion ?? run.promptTemplateVersion,
+                templateHash: promptResolution.templateHash ?? run.promptTemplateHash
+            ),
+            skills: manifestSkillSnapshots(from: skillResolution),
+            mcpServers: mcpStatuses.map(AgentRunMCPServerSnapshot.init(status:)),
+            mcpTools: manifestMCPToolSnapshots(from: toolDefinitions),
+            enabledToolNames: run.enabledToolNames ?? toolDefinitions.map(\.name).sorted(),
+            approvals: manifestApprovalSnapshots(
+                for: run,
+                toolDefinitions: toolDefinitions,
+                toolLedgerRecords: toolLedgerRecords,
+                pendingApproval: pendingApproval,
+                approvedToolCallIDs: approvedToolCallIDs,
+                deniedToolCallIDs: deniedToolCallIDs
+            ),
+            approvalRefs: manifestApprovalRefs(
+                explicitRefs: approvalRefs,
+                records: toolLedgerRecords,
+                pendingApproval: pendingApproval
+            ),
+            toolLedgerRef: "tool_calls.jsonl",
+            evidence: manifestEvidenceSummary(for: run)
+        )
+        _ = try await runDirectoryStore.saveManifest(manifest, in: root)
+    }
+
+    private nonisolated func manifestRuntimeProvenance(for run: AgentRun) -> AgentRunProvenance? {
+        if let provenance = run.provenance {
+            return provenance
+        }
+        guard run.runtimeSelector != nil || run.effectiveRuntime != nil || run.runtimeFallbackReason != nil else {
+            return nil
+        }
+        return AgentRunProvenance(
+            requestedRuntime: run.runtimeSelector,
+            effectiveRuntime: run.effectiveRuntime,
+            runtime: run.effectiveRuntime,
+            fallbackReason: run.runtimeFallbackReason
+        )
+    }
+
+    private nonisolated func manifestSkillSnapshots(from resolution: AgentSkillRuntimeResolution?) -> [AgentRunSkillSnapshot] {
+        guard let resolution else {
+            return []
+        }
+
+        var snapshots = resolution.selectedSkills.map { selection in
+            let metadata = selection.metadata
+            return AgentRunSkillSnapshot(
+                skillID: selection.id,
+                version: metadata.version,
+                source: metadata.source,
+                trustLevel: metadata.trustLevel,
+                risk: metadata.risk,
+                allowedTools: resolution.allowedToolsBySkillID[selection.id] ?? metadata.allowedTools.sorted(),
+                selected: true
+            )
+        }
+        let selectedIDs = Set(snapshots.map(\.skillID))
+        for (skillID, reason) in resolution.blockedSkillReasons where !selectedIDs.contains(skillID) {
+            snapshots.append(AgentRunSkillSnapshot(
+                skillID: skillID,
+                selected: false,
+                blockedReason: reason
+            ))
+        }
+        return snapshots.sorted { lhs, rhs in
+            if lhs.selected != rhs.selected {
+                return lhs.selected && !rhs.selected
+            }
+            return lhs.skillID.localizedStandardCompare(rhs.skillID) == .orderedAscending
+        }
+    }
+
+    private nonisolated func manifestMCPToolSnapshots(from definitions: [AgentToolDefinition]) -> [AgentRunMCPToolSnapshot] {
+        definitions.compactMap { definition in
+            guard definition.source.hasPrefix("mcp:") else {
+                return nil
+            }
+            let serverID = String(definition.source.dropFirst("mcp:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !serverID.isEmpty else {
+                return nil
+            }
+            let remotePrefix = "mcp:\(serverID):"
+            let remoteToolName = definition.identifier.hasPrefix(remotePrefix)
+                ? String(definition.identifier.dropFirst(remotePrefix.count)).nilIfEmpty
+                : nil
+            return AgentRunMCPToolSnapshot(
+                exposedName: definition.name,
+                serverID: serverID,
+                remoteToolName: remoteToolName,
+                approvalRequired: definition.requiresConfirmation,
+                permissionKey: definition.permissionKey
+            )
+        }
+        .sorted { $0.exposedName.localizedStandardCompare($1.exposedName) == .orderedAscending }
+    }
+
+    private nonisolated func manifestApprovalSnapshots(
+        for run: AgentRun,
+        toolDefinitions: [AgentToolDefinition],
+        toolLedgerRecords: [AgentToolExecutionLedgerRecord],
+        pendingApproval: AgentPendingToolCall?,
+        approvedToolCallIDs: Set<String>,
+        deniedToolCallIDs: Set<String>
+    ) -> [AgentRunApprovalSnapshot] {
+        let evaluator = AgentPermissionEvaluator(rules: AgentSafetyPreset.defaultPermissionRules())
+        return run.plan.toolCalls.map { call in
+            let definition = toolDefinitions.first { $0.name == call.toolName }
+            let result = run.toolResults.first { $0.callID == call.id }
+            let inspection = AgentToolArgumentInspection(argumentsJSON: call.argumentsJSON)
+            let risk = definition?.risk ?? .externalSideEffect
+            let permissionKey = definition?.permissionKey ?? risk.defaultPermissionKey
+            let targetPaths = result.flatMap { $0.modifiedPaths.isEmpty ? nil : $0.modifiedPaths } ?? manifestTargetPaths(
+                for: call,
+                risk: risk,
+                inspectedPaths: inspection.paths
+            )
+            let decision = evaluator.evaluate(AgentPermissionRequest(
+                toolName: call.toolName,
+                permissionKey: permissionKey,
+                command: inspection.command ?? call.argumentsJSON,
+                path: targetPaths.first,
+                risk: risk
+            ))
+            let record = toolLedgerRecords.last { $0.toolCallID == call.id }
+            let approvalRef = pendingApproval?.toolCall.id == call.id
+                ? pendingApproval?.approvalRequest.id
+                : record?.approvalID
+            return AgentRunApprovalSnapshot(
+                toolCallID: call.id,
+                toolName: call.toolName,
+                decision: manifestApprovalDecision(
+                    callID: call.id,
+                    policyDecision: decision,
+                    result: result,
+                    ledgerRecord: record,
+                    approvedToolCallIDs: approvedToolCallIDs,
+                    deniedToolCallIDs: deniedToolCallIDs
+                ),
+                risk: risk,
+                targetPaths: targetPaths,
+                approvalRef: approvalRef
+            )
+        }
+    }
+
+    private nonisolated func manifestApprovalDecision(
+        callID: String,
+        policyDecision: AgentPermissionDecision,
+        result: AgentToolResult?,
+        ledgerRecord: AgentToolExecutionLedgerRecord?,
+        approvedToolCallIDs: Set<String>,
+        deniedToolCallIDs: Set<String>
+    ) -> String {
+        if deniedToolCallIDs.contains(callID) {
+            return "denied"
+        }
+        if approvedToolCallIDs.contains(callID) {
+            if let result {
+                return result.succeeded ? "approved_completed" : "approved_failed"
+            }
+            return "approved"
+        }
+        if let ledgerRecord {
+            return "ledger_\(ledgerRecord.status.rawValue)"
+        }
+        if let result {
+            return result.succeeded ? "completed" : "failed"
+        }
+        return policyDecision.action.rawValue
+    }
+
+    private nonisolated func manifestApprovalRefs(
+        explicitRefs: [String],
+        records: [AgentToolExecutionLedgerRecord],
+        pendingApproval: AgentPendingToolCall?
+    ) -> [String] {
+        var refs = Set(explicitRefs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        refs.formUnion(records.map(\.approvalID).filter { !$0.isEmpty })
+        if let pendingRef = pendingApproval?.approvalRequest.id.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            refs.insert(pendingRef)
+        }
+        return refs.sorted()
+    }
+
+    private nonisolated func manifestTargetPaths(
+        for call: AgentToolCall,
+        risk: AgentToolRisk,
+        inspectedPaths: [String]
+    ) -> [String] {
+        if !inspectedPaths.isEmpty {
+            return inspectedPaths
+        }
+        switch call.toolName {
+        case "create_todo":
+            return ["tasks/todos.yaml"]
+        case "write_markdown_plan", "write_wiki_markdown":
+            if let path = stringArgument("relative_path", in: call.argumentsJSON)?.nilIfEmpty {
+                return [path]
+            }
+            if let title = stringArgument("title", in: call.argumentsJSON)?.nilIfEmpty {
+                return ["wiki/plans/\(slug(from: title)).md"]
+            }
+            return ["wiki/plans/*.md"]
+        case "update_paper_classification":
+            if let paperID = stringArgument("paper_id", in: call.argumentsJSON)?.nilIfEmpty {
+                return ["library/papers/\(paperID)/meta.yaml"]
+            }
+            return ["library/papers/*/meta.yaml"]
+        default:
+            return risk == .readOnly ? [] : ["workspace"]
+        }
+    }
+
+    private nonisolated func stringArgument(_ key: String, in rawJSON: String) -> String? {
+        guard let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object[key] as? String
+    }
+
+    private nonisolated func manifestEvidenceSummary(for run: AgentRun) -> AgentRunEvidenceSummary {
+        var sourceTypes = Set<String>()
+        var containsSyntheticEvidence = false
+        if let evidenceProvenance = run.provenance?.evidenceProvenance {
+            collectEvidenceSourceTypes(from: evidenceProvenance, into: &sourceTypes)
+            containsSyntheticEvidence = containsSyntheticEvidence || containsSyntheticMarker(in: evidenceProvenance)
+        }
+        for result in run.toolResults {
+            if let payload = result.payload {
+                collectEvidenceSourceTypes(from: payload, into: &sourceTypes)
+                containsSyntheticEvidence = containsSyntheticEvidence || containsSyntheticMarker(in: payload)
+            }
+        }
+        return AgentRunEvidenceSummary(
+            sourceTypes: sourceTypes.sorted(),
+            containsSyntheticEvidence: containsSyntheticEvidence,
+            evidenceProvenance: run.provenance?.evidenceProvenance
+        )
+    }
+
+    private nonisolated func collectEvidenceSourceTypes(from value: JSONValue, into sourceTypes: inout Set<String>) {
+        switch value {
+        case let .object(object):
+            for (key, nested) in object {
+                let normalizedKey = key.lowercased()
+                if normalizedKey == "source_type" || normalizedKey == "sourcetype" {
+                    if let type = nested.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                        sourceTypes.insert(type)
+                    }
+                } else if normalizedKey == "source_types" || normalizedKey == "sourcetypes" {
+                    for type in nested.arrayValue?.compactMap(\.stringValue) ?? [] {
+                        if let normalizedType = type.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                            sourceTypes.insert(normalizedType)
+                        }
+                    }
+                }
+                collectEvidenceSourceTypes(from: nested, into: &sourceTypes)
+            }
+        case let .array(values):
+            values.forEach { collectEvidenceSourceTypes(from: $0, into: &sourceTypes) }
+        case .string, .number, .bool, .null:
+            break
+        }
+    }
+
+    private nonisolated func containsSyntheticMarker(in value: JSONValue) -> Bool {
+        let rendered = value.canonicalJSON.lowercased()
+        return rendered.contains("synthetic")
+            || rendered.contains("sample_evidence")
+            || rendered.contains("sample evidence")
+            || rendered.contains("fixture")
+    }
+
     private func run(
         from loopResult: AgentLoopResult,
         goal: String,
         createdAt: Date,
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
+        runtimeProvenance: AgentRunProvenance? = nil,
         enabledToolNames: [String]?,
         retryOfRunID: String? = nil,
         promptResolution: AgentPromptResolution
@@ -1484,6 +1890,9 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             runtimeSelector: runtimeSelector,
+            effectiveRuntime: runtimeProvenance?.effectiveRuntime ?? runtimeProvenance?.runtime,
+            runtimeFallbackReason: runtimeProvenance?.fallbackReason,
+            provenance: runtimeProvenance,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
             promptTemplateID: promptResolution.templateID,
@@ -1502,6 +1911,7 @@ public actor SciStationAgentService {
         createdAt: Date,
         currentProjectID: ResearchProject.ID?,
         runtimeSelector: String?,
+        runtimeProvenance: AgentRunProvenance? = nil,
         enabledToolNames: [String]?,
         retryOfRunID: String? = nil,
         promptResolution: AgentPromptResolution
@@ -1561,6 +1971,8 @@ public actor SciStationAgentService {
             lifecycleState = .completed
             failureCategory = nil
         }
+        let eventProvenance = runtimeProvenanceFromEvents(envelopes)
+        let provenance = eventProvenance ?? runtimeProvenance
 
         return AgentRun(
             id: envelopes.first?.runID ?? "agent-run-\(UUID().uuidString.lowercased())",
@@ -1581,6 +1993,9 @@ public actor SciStationAgentService {
             contextScope: AgentContextScope.inferred(projectID: currentProjectID),
             projectID: currentProjectID,
             runtimeSelector: runtimeSelector,
+            effectiveRuntime: provenance?.effectiveRuntime ?? provenance?.runtime,
+            runtimeFallbackReason: provenance?.fallbackReason,
+            provenance: provenance,
             createdFromRoute: "ai_lab",
             enabledToolNames: enabledToolNames,
             promptTemplateID: promptResolution.templateID,
@@ -1591,6 +2006,30 @@ public actor SciStationAgentService {
             failureCategory: failureCategory,
             retryOfRunID: retryOfRunID
         )
+    }
+
+    private nonisolated func runtimeProvenanceFromEvents(_ envelopes: [AgentRuntimeEventEnvelope]) -> AgentRunProvenance? {
+        for envelope in envelopes {
+            if case let .runStarted(started) = envelope.event {
+                let requestedRuntime = started.requestedRuntime
+                let effectiveRuntime = started.effectiveRuntime
+                let runtime = started.runtime
+                let fallbackReason = started.fallbackReason
+                let evidenceProvenance = started.evidenceProvenance
+                guard requestedRuntime != nil || effectiveRuntime != nil || runtime != nil || fallbackReason != nil || evidenceProvenance != nil else {
+                    continue
+                }
+                return AgentRunProvenance(
+                    requestedRuntime: requestedRuntime,
+                    effectiveRuntime: effectiveRuntime,
+                    runtime: runtime,
+                    fallbackReason: fallbackReason,
+                    evidenceProvenance: evidenceProvenance,
+                    metadata: started.metadata.compactMapValues(\.stringValue)
+                )
+            }
+        }
+        return nil
     }
 
     private nonisolated func failureCategory(for pause: AgentLoopPauseReason) -> AgentRunFailureCategory {

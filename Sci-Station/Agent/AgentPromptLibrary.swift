@@ -124,6 +124,122 @@ public nonisolated struct AgentPromptSnapshot: Codable, Hashable, Sendable {
     }
 }
 
+public nonisolated enum AgentPromptPatchDecision: String, Codable, Hashable, Sendable {
+    case preview
+    case accepted
+    case rejected
+    case discarded
+}
+
+public nonisolated struct AgentPromptPatchProposal: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var templateID: String
+    public var title: String
+    public var version: String
+    public var description: String
+    public var surface: AgentPromptSurface
+    public var systemPrompt: String?
+    public var promptTemplate: String
+    public var proposedAt: Date
+    public var proposedBy: String
+    public var rationale: String
+    public var sourceSummary: String?
+
+    public nonisolated init(
+        id: String = UUID().uuidString,
+        templateID: String,
+        title: String,
+        version: String = "0.1.0",
+        description: String = "",
+        surface: AgentPromptSurface,
+        systemPrompt: String? = nil,
+        promptTemplate: String,
+        proposedAt: Date = Date(),
+        proposedBy: String = "assistant",
+        rationale: String = "",
+        sourceSummary: String? = nil
+    ) {
+        self.id = id
+        self.templateID = templateID
+        self.title = title
+        self.version = version
+        self.description = description
+        self.surface = surface
+        self.systemPrompt = systemPrompt
+        self.promptTemplate = promptTemplate
+        self.proposedAt = proposedAt
+        self.proposedBy = proposedBy
+        self.rationale = rationale
+        self.sourceSummary = sourceSummary
+    }
+
+    public nonisolated func draft(isEnabled: Bool = true) -> AgentPromptTemplateOverride {
+        AgentPromptTemplateOverride(
+            id: templateID,
+            title: title,
+            version: version,
+            description: description,
+            surface: surface,
+            systemPrompt: systemPrompt,
+            promptTemplate: promptTemplate,
+            isEnabled: isEnabled
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case templateID = "template_id"
+        case title
+        case version
+        case description
+        case surface
+        case systemPrompt = "system_prompt"
+        case promptTemplate = "prompt_template"
+        case proposedAt = "proposed_at"
+        case proposedBy = "proposed_by"
+        case rationale
+        case sourceSummary = "source_summary"
+    }
+}
+
+public nonisolated struct AgentPromptPatchReview: Codable, Hashable, Sendable {
+    public var proposal: AgentPromptPatchProposal
+    public var currentTemplate: AgentPromptTemplateOverride?
+    public var diffPreview: String
+    public var rationale: String
+    public var sourceSummary: String?
+    public var impactScope: [String]
+    public var rollbackHint: AgentRollbackHint?
+    public var validationMessage: String?
+    public var activeSurfaceMismatch: String?
+
+    public nonisolated init(
+        proposal: AgentPromptPatchProposal,
+        currentTemplate: AgentPromptTemplateOverride?,
+        diffPreview: String,
+        rationale: String = "",
+        sourceSummary: String? = nil,
+        impactScope: [String] = [],
+        rollbackHint: AgentRollbackHint? = nil,
+        validationMessage: String? = nil,
+        activeSurfaceMismatch: String? = nil
+    ) {
+        self.proposal = proposal
+        self.currentTemplate = currentTemplate
+        self.diffPreview = diffPreview
+        self.rationale = rationale
+        self.sourceSummary = sourceSummary
+        self.impactScope = impactScope
+        self.rollbackHint = rollbackHint
+        self.validationMessage = validationMessage
+        self.activeSurfaceMismatch = activeSurfaceMismatch
+    }
+
+    public nonisolated var canAccept: Bool {
+        validationMessage == nil && activeSurfaceMismatch == nil
+    }
+}
+
 public nonisolated struct AgentPromptLibraryResolver: Sendable {
     public nonisolated init() {}
 
@@ -196,6 +312,85 @@ public nonisolated struct AgentPromptLibraryResolver: Sendable {
         )
     }
 
+    public nonisolated func reviewPatchProposal(
+        _ proposal: AgentPromptPatchProposal,
+        profile: AgentWorkspaceProfile
+    ) -> AgentPromptPatchReview {
+        let current = profile.promptTemplate(id: proposal.templateID)
+        let activeForSurface = profile.activePromptTemplate(for: proposal.surface)
+        let validationMessage = validatePromptTemplate(proposal.draft(isEnabled: current?.isEnabled ?? true))
+        let activeSurfaceMismatch: String?
+        if let current, current.surface != proposal.surface {
+            activeSurfaceMismatch = "Proposal targets \(proposal.surface.rawValue), but the existing override \(current.id) belongs to \(current.surface.rawValue)."
+        } else if let activeID = profile.activePromptTemplateID,
+                  let activeTemplate = profile.promptTemplate(id: activeID),
+                  activeTemplate.surface != proposal.surface,
+                  current == nil {
+            activeSurfaceMismatch = "Active override \(activeID) belongs to \(activeTemplate.surface.rawValue); proposal targets \(proposal.surface.rawValue). Accepting would not affect the currently active surface."
+        } else {
+            activeSurfaceMismatch = nil
+        }
+
+        let comparisonBase = current ?? activeForSurface
+        return AgentPromptPatchReview(
+            proposal: proposal,
+            currentTemplate: comparisonBase,
+            diffPreview: diffPreview(current: comparisonBase, draft: proposal.draft(isEnabled: current?.isEnabled ?? true)),
+            rationale: proposal.rationale.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? defaultRationale(for: proposal, current: current, activeForSurface: activeForSurface),
+            sourceSummary: proposal.sourceSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? defaultSourceSummary(proposedBy: proposal.proposedBy),
+            impactScope: impactScope(for: proposal, current: current, activeForSurface: activeForSurface, profile: profile),
+            rollbackHint: AgentRollbackHint(
+                summary: "Accepting writes this workspace prompt override. Reject leaves the stored override unchanged; Restore Default removes the workspace override and falls back to product defaults.",
+                targetPaths: [AgentWorkspaceProfileRepository.relativePath]
+            ),
+            validationMessage: validationMessage,
+            activeSurfaceMismatch: activeSurfaceMismatch
+        )
+    }
+
+    public nonisolated func applyAcceptedPatchProposal(
+        _ proposal: AgentPromptPatchProposal,
+        to profile: AgentWorkspaceProfile
+    ) throws -> AgentWorkspaceProfile {
+        let review = reviewPatchProposal(proposal, profile: profile)
+        if let validationMessage = review.validationMessage {
+            throw AgentError.invalidArguments(validationMessage)
+        }
+        if let activeSurfaceMismatch = review.activeSurfaceMismatch {
+            throw AgentError.invalidArguments(activeSurfaceMismatch)
+        }
+
+        var updated = profile
+        let wasEnabled = profile.promptTemplate(id: proposal.templateID)?.isEnabled ?? true
+        let draft = proposal.draft(isEnabled: wasEnabled)
+        if let index = updated.promptTemplates.firstIndex(where: { $0.id == proposal.templateID }) {
+            updated.promptTemplates[index] = draft
+        } else {
+            updated.promptTemplates.append(draft)
+        }
+        if wasEnabled {
+            updated.activePromptTemplateID = proposal.templateID
+        }
+        return updated
+    }
+
+    public nonisolated func validatePromptTemplate(_ template: AgentPromptTemplateOverride) -> String? {
+        let systemPrompt = template.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let promptTemplate = template.promptTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !template.isEnabled || !promptTemplate.isEmpty || !(systemPrompt?.isEmpty ?? true) else {
+            return "Prompt templates require a prompt body."
+        }
+        if !promptTemplate.isEmpty, let validationMessage = validatePromptText(promptTemplate) {
+            return validationMessage
+        }
+        if let systemPrompt, !systemPrompt.isEmpty, let validationMessage = validatePromptText(systemPrompt) {
+            return validationMessage
+        }
+        return nil
+    }
+
     public nonisolated func diffPreview(current: AgentPromptTemplateOverride?, draft: AgentPromptTemplateOverride) -> String {
         let currentLines = normalizedLines(from: renderedTemplateBody(current))
         let draftLines = normalizedLines(from: renderedTemplateBody(draft))
@@ -224,6 +419,55 @@ public nonisolated struct AgentPromptLibraryResolver: Sendable {
     public nonisolated func validateBody(_ body: String) -> Bool {
         !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && validatePromptText(body) == nil
+    }
+
+    private nonisolated func impactScope(
+        for proposal: AgentPromptPatchProposal,
+        current: AgentPromptTemplateOverride?,
+        activeForSurface: AgentPromptTemplateOverride?,
+        profile: AgentWorkspaceProfile
+    ) -> [String] {
+        var scope: [String] = [
+            "Surface: \(proposal.surface.rawValue)",
+            "Template: \(proposal.templateID)"
+        ]
+        if current != nil {
+            scope.append("Workspace override will be updated in \(AgentWorkspaceProfileRepository.relativePath).")
+        } else {
+            scope.append("New workspace override will be added to \(AgentWorkspaceProfileRepository.relativePath).")
+        }
+        let willBeActive = (current?.isEnabled ?? true)
+            && (profile.activePromptTemplateID == proposal.templateID
+                || profile.activePromptTemplateID == nil
+                || activeForSurface?.id == proposal.templateID)
+        scope.append(willBeActive ? "Runtime impact: future \(proposal.surface.rawValue) runs will use this prompt after acceptance." : "Runtime impact: stored as an override, but it is not the currently active prompt for this surface.")
+        scope.append("Approval: preview is read-only; acceptance requires explicit confirmation.")
+        return scope
+    }
+
+    private nonisolated func defaultRationale(
+        for proposal: AgentPromptPatchProposal,
+        current: AgentPromptTemplateOverride?,
+        activeForSurface: AgentPromptTemplateOverride?
+    ) -> String {
+        if current == nil, activeForSurface == nil {
+            return "Proposes a workspace override for \(proposal.surface.rawValue) where no current override exists."
+        }
+        if current == nil {
+            return "Proposes a new \(proposal.surface.rawValue) override based on the active prompt for that surface."
+        }
+        return "Proposes explicit workspace changes to \(proposal.templateID) for future \(proposal.surface.rawValue) runs."
+    }
+
+    private nonisolated func defaultSourceSummary(proposedBy: String) -> String {
+        switch proposedBy {
+        case "assistant":
+            return "AI-generated proposal; user review and confirmation are required before writing."
+        case "settings":
+            return "Settings editor draft; user confirmation is required before writing."
+        default:
+            return "\(proposedBy) proposal; explicit confirmation is required before writing."
+        }
     }
 
     private nonisolated func activeTemplate(for surface: AgentPromptSurface, profile: AgentWorkspaceProfile) -> AgentPromptTemplateOverride? {

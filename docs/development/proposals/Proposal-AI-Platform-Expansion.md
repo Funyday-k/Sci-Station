@@ -26,12 +26,12 @@ Status: In Progress
 
 ## 当前判断
 
-当前 AI 平台已经超过聊天 demo，但仍属于 beta 平台。Swift-native Agent Loop、工具权限、审批、debug event 和 UI timeline 是现有强项；sidecar、RAG、外部 MCP、Prompt/Skill 管理和 evaluation harness 仍需要补齐。
+当前 AI 平台已经超过聊天 demo，但仍属于 beta 平台。Swift-native Agent Loop、工具权限、审批、debug event、UI timeline 和 AI Lab collaboration/status rail 是现有强项；sidecar、RAG、remote MCP、完整 Skill 管理和 evaluation harness 仍需要补齐。
 
 严格定位：
 
 - Swift Loop 是近期生产主路径。
-- Python sidecar / LangGraph runtime 暂时保持实验性定位，直到真实工具调用、真实检索、非 synthetic evidence、pytest 和 fallback 行为全部稳定。
+- Python sidecar / LangGraph runtime 暂时保持实验性定位，直到真实工具调用、真实检索、非 synthetic evidence、pytest、fallback 行为和 UI 诊断全部稳定。
 - RAG 当前不能被包装成已完成的高质量语义检索；deterministic fallback 必须作为降级状态展示。
 - AI Recommendation 当前是 AI-assisted recommendation，不是完全 AI-native ranking。
 - Prompt、Skill、MCP 已有模型和局部桥接，但还不是完整可管理的扩展平台。
@@ -53,18 +53,19 @@ Status: In Progress
 - Local command MCP stdio client 已实现 `2025-06-18` 生命周期：`initialize`、`notifications/initialized`、分页 `tools/list`、`tools/call`、进程复用、停止和 stderr 诊断。
 - 发现的 MCP tools 会以 `mcp__<server>__<tool>` 命名空间进入单次 Agent registry snapshot，不覆盖内置工具；所有外部 MCP tool 固定按 `externalSideEffect` 逐次审批。
 - AI Lab MCP 面板会显示 runtime state、协商协议、server name/version、发现工具数、错误和 stderr 摘要。
+- AI Lab 主 workspace 已挂载 collaboration/status rail，用现有 run state 展示 runtime、evidence、writeback、Prompt 和 MCP 状态；它是状态可见层，不改变权限或 runtime 行为。
 - 回归测试覆盖 Skill selection、trusted/untrusted gating、disabled skill、工具范围交集、Prompt 注入、MCP precedence、disabled local command 不启动进程、credential redaction、tool whitelist、标准握手、discovery、审批前不执行和批准后 `tools/call`。
 
 部分完成：
 
 - Prompt Library 已有查看、编辑、diff、启用、恢复默认和 workspace 持久化能力，但 AI 自动提出 patch、影响范围说明和正式 extension harness 仍需收敛。
-- Skill 已进入 runtime，但完整 Skill Manager UI、安装流程、风险确认交互、AI 建议启用流程和 run-level Skill snapshot 尚未完成。
-- MCP 已有内部 gateway、local command stdio client、真实 `tools/list` discovery、代理工具审批和 runtime diagnostics；remote Streamable HTTP、旧 HTTP+SSE 兼容、凭据解析、主动 ping/liveness、崩溃自动恢复策略和 run-level MCP 审计仍未完成。
+- Skill 已进入 runtime，Skill Manager 已有 catalog/search、受控导入、启用/禁用、trusted/untrusted、allowed tools 和风险确认基础流；AI 建议启用、run-level Skill snapshot 和 extension harness 仍需继续收敛。
+- MCP 已有内部 gateway、local command stdio client、remote HTTP/SSE JSON-RPC discovery、凭据引用解析、主动 ping/liveness、失败/backoff、crash recovery 状态、代理工具审批和 run manifest 审计字段；更完整的 Streamable HTTP 会话语义、复杂 auth broker、跨 run 重连策略和 MCP harness 仍需继续收敛。
 
 未完成：
 
-- Remote MCP client 不应被视为可用；`remote_http` / `remote_sse` 当前只进入 unsupported transport 诊断。
 - Extension Contract Harness、Evaluation Harness、golden workspace、RAG production evidence trace 和 sidecar production 收敛仍在后续阶段。
+- Collaboration/status rail 目前用单一 summary 汇总 runtime、evidence、writeback、Prompt 和 MCP 状态；run-level Skill snapshot、跨 run MCP audit 和 production RAG evidence trace 仍未完成。
 
 当前验证门禁：
 
@@ -241,8 +242,8 @@ MCP 模式：
 - `tools/list` 能列出内部 Sci-Station read-only tools。
 - `tools/call` 调用 read-only tool 可自动返回结果。
 - 写工具或 external side effect 返回 approval required，并能在 UI 中继续或拒绝。
-- 本地 MCP 配置缺 command、远程 MCP 缺 url、secret reference 无法解析时，显示明确错误。
-- MCP harness 覆盖 local command disabled、remote unavailable、tool whitelist、approval required、secret redaction。
+- 本地 MCP 配置缺 command、远程 MCP 缺 url、secret reference 无法解析、remote HTTP/SSE 返回失败或进入 backoff 时，显示明确错误。
+- MCP harness 覆盖 local command disabled、remote failure/backoff、credential failure、tool whitelist、approval required、secret redaction。
 
 ## 阶段 5：Runtime 战略与 Sidecar 收敛
 
@@ -346,7 +347,7 @@ MCP 模式：
 2. Extension Contract Harness
    - 验证 Prompt manifest、Prompt diff、Skill manifest、MCP config、tool whitelist、permission decision。
    - 不启动完整 App 也能跑 CI contract test。
-   - 检查 secret redaction、untrusted skill gating、local command disabled、remote MCP unavailable。
+   - 检查 secret redaction、untrusted skill gating、local command disabled、remote MCP failure/backoff 和 credential failure。
 
 3. Evaluation Harness
    - 使用 golden research root。

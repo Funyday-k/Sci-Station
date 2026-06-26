@@ -6,19 +6,28 @@ public nonisolated struct SidecarRuntimeDecision: Hashable, Sendable {
     public var shouldAttemptSidecar: Bool
     public var health: SidecarHealth
     public var fallbackReason: String?
+    public var provenance: AgentRunProvenance
 
     public nonisolated init(
         selection: AgentRuntimeSelection,
         effectiveRuntime: AgentRuntimeSelection,
         shouldAttemptSidecar: Bool,
         health: SidecarHealth,
-        fallbackReason: String? = nil
+        fallbackReason: String? = nil,
+        provenance: AgentRunProvenance? = nil
     ) {
         self.selection = selection
         self.effectiveRuntime = effectiveRuntime
         self.shouldAttemptSidecar = shouldAttemptSidecar
         self.health = health
         self.fallbackReason = fallbackReason
+        self.provenance = provenance ?? AgentRunProvenance(
+            requestedRuntime: selection.rawValue,
+            effectiveRuntime: effectiveRuntime.rawValue,
+            runtime: effectiveRuntime.rawValue,
+            fallbackReason: fallbackReason,
+            metadata: health.provenanceMetadata
+        )
     }
 }
 
@@ -66,8 +75,8 @@ public actor SidecarRuntimeCoordinator {
         let health = await ensureReady(for: root)
         let sidecarAvailable = health.status == "ready"
         let effective = selection.effectiveRuntime(sidecarAvailable: sidecarAvailable)
-        let reason = selection.fallbackReason(sidecarAvailable: sidecarAvailable)
-        if let reason {
+        let reason = selection.fallbackReason(sidecarAvailable: sidecarAvailable) ?? health.fallbackReason
+        if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fallbackReason = reason
         }
         return SidecarRuntimeDecision(
@@ -149,5 +158,20 @@ public actor SidecarRuntimeCoordinator {
             updated.fallbackReason = fallbackReason
         }
         return updated
+    }
+}
+
+private extension SidecarHealth {
+    nonisolated var provenanceMetadata: [String: String] {
+        [
+            "sidecar_status": status,
+            "sidecar_version": sidecarVersion ?? "",
+            "protocol_version": protocolVersion ?? "",
+            "schema_version": schemaVersion.map(String.init) ?? "",
+            "python_version": pythonVersion ?? "",
+            "protocol_schema_version": protocolSchemaVersion ?? "",
+            "last_crash": lastCrash ?? "",
+            "fallback_reason": fallbackReason ?? ""
+        ].filter { !$0.value.isEmpty }
     }
 }

@@ -66,6 +66,7 @@ struct TopSidebarView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
         }
         .task {
             appModel.recordSidebarRender()

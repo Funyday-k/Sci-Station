@@ -144,6 +144,13 @@ Security boundaries:
 - `.sci-ai/sci-station/` stores only versionable product presets and templates.
 - `.sci-ai/workspace.local/`, `.claude/`, `.mcp.json`, and `.env*` are local-only and should not be committed or shared.
 - Write actions from AI/agent workflows remain behind the permission layer.
+- Swift Loop is the production default for AI Lab. Sidecar/Auto runtime choices are experimental and should be treated as diagnostics or prototype paths.
+- Prompt overrides, Skill toggles, and MCP connector overrides live in the Research Root at `.sci-station/agent/profile.json`; this file must not contain secrets.
+- Prompt patch review is explicit: diff preview, rationale/source, impact scope, rollback hint, Apply/Reject, and Restore Default are separate actions.
+- Workspace skills import only into the workspace-managed root, remain untrusted by default, and require explicit trust before runtime loading.
+- Local MCP and experimental remote HTTP/SSE MCP keep tool allowlists and approval gating; remote credential failures, liveness failures, and retry/backoff are shown as status, not silent permissions.
+- AI Lab's collaboration rail summarizes the active runtime, evidence state, first-class writeback targets such as Brief/Wiki/Tasks, Prompt state, and MCP state.
+- AI answers that need evidence should rely on real paper/PDF/Markdown/Wiki/tool evidence. Synthetic or sample evidence is test-only and should not be used as production evidence.
 
 MinerU PDF-to-Markdown also requires the tester's own API token. Without it, Sci-Station falls back to local PDFKit extraction.
 
@@ -166,4 +173,5 @@ Confirm that the shared package does not include real credentials, local researc
 - Network features depend on user configuration, user network access, and third-party services.
 - High-quality PDF-to-Markdown conversion depends on MinerU.
 - Apple Reminders support is currently focused on publishing and local mapping; full bidirectional sync is future work.
-- MCP server execution is still guarded by templates, status display, and the permission model.
+- Prompt overrides/patch review, Skill Manager basics, local command MCP, and experimental remote HTTP/SSE MCP have runtime coverage, but production RAG evidence trace, evaluation harness, complex MCP auth/reconnect audit, run-level Skill snapshots, and sidecar production runtime are still future work.
+- MCP server execution is still guarded by templates, status display, tool whitelists, and the permission model.

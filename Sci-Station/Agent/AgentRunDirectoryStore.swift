@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public nonisolated enum AgentRunState: String, Codable, Sendable {
     case created
@@ -82,6 +83,7 @@ public nonisolated struct AgentRunReplay: Codable, Hashable, Sendable {
     public var checkpoint: AgentCheckpointSummary?
     public var generatedAt: Date
     public var debugPromptResponse: JSONValue?
+    public var provenance: AgentRunProvenance?
 
     public nonisolated init(
         schemaVersion: Int = 1,
@@ -89,7 +91,8 @@ public nonisolated struct AgentRunReplay: Codable, Hashable, Sendable {
         events: [AgentRuntimeEventEnvelope],
         checkpoint: AgentCheckpointSummary? = nil,
         generatedAt: Date = Date(),
-        debugPromptResponse: JSONValue? = nil
+        debugPromptResponse: JSONValue? = nil,
+        provenance: AgentRunProvenance? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.runID = runID
@@ -97,6 +100,7 @@ public nonisolated struct AgentRunReplay: Codable, Hashable, Sendable {
         self.checkpoint = checkpoint
         self.generatedAt = generatedAt
         self.debugPromptResponse = debugPromptResponse
+        self.provenance = provenance
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -106,6 +110,49 @@ public nonisolated struct AgentRunReplay: Codable, Hashable, Sendable {
         case checkpoint
         case generatedAt = "generated_at"
         case debugPromptResponse = "debug_prompt_response"
+        case provenance
+    }
+}
+
+public nonisolated struct AgentRunProvenance: Codable, Hashable, Sendable {
+    public var schemaVersion: Int
+    public var requestedRuntime: String?
+    public var effectiveRuntime: String?
+    public var runtime: String?
+    public var workflow: String?
+    public var fallbackReason: String?
+    public var evidenceProvenance: JSONValue?
+    public var metadata: [String: String]
+
+    public nonisolated init(
+        schemaVersion: Int = 1,
+        requestedRuntime: String? = nil,
+        effectiveRuntime: String? = nil,
+        runtime: String? = nil,
+        workflow: String? = nil,
+        fallbackReason: String? = nil,
+        evidenceProvenance: JSONValue? = nil,
+        metadata: [String: String] = [:]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.requestedRuntime = requestedRuntime
+        self.effectiveRuntime = effectiveRuntime
+        self.runtime = runtime
+        self.workflow = workflow
+        self.fallbackReason = fallbackReason
+        self.evidenceProvenance = evidenceProvenance
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case requestedRuntime = "requested_runtime"
+        case effectiveRuntime = "effective_runtime"
+        case runtime
+        case workflow
+        case fallbackReason = "fallback_reason"
+        case evidenceProvenance = "evidence_provenance"
+        case metadata
     }
 }
 
@@ -116,6 +163,7 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
     public var excludedPatterns: [String]
     public var redactionPolicy: String
     public var runMetadata: [String: String]
+    public var provenance: AgentRunProvenance?
     public var privacyNotice: String
     public var generatedAt: Date
 
@@ -126,6 +174,7 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         excludedPatterns: [String] = ["*.env", "*key*", "*token*", "Keychain", "private paths", ".sci-station/index/embeddings/**", "prompt/response plaintext"],
         redactionPolicy: String = "Default bundle includes only run metadata, events, checkpoints, critic reports, retrieval traces, and redacted replay data; embedding index files and prompt/response plaintext are excluded unless explicitly saved redacted.",
         runMetadata: [String: String] = [:],
+        provenance: AgentRunProvenance? = nil,
         privacyNotice: String = "Debug bundle excludes API keys, private path inventories, environment files, Keychain content, embedding index files, and prompt/response plaintext.",
         generatedAt: Date = Date()
     ) {
@@ -135,6 +184,7 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         self.excludedPatterns = excludedPatterns
         self.redactionPolicy = redactionPolicy
         self.runMetadata = runMetadata
+        self.provenance = provenance
         self.privacyNotice = privacyNotice
         self.generatedAt = generatedAt
     }
@@ -146,6 +196,7 @@ public nonisolated struct AgentDebugBundleManifest: Codable, Hashable, Sendable 
         case excludedPatterns = "excluded_patterns"
         case redactionPolicy = "redaction_policy"
         case runMetadata = "run_metadata"
+        case provenance
         case privacyNotice = "privacy_notice"
         case generatedAt = "generated_at"
     }
@@ -173,21 +224,354 @@ public nonisolated struct AgentDebugBundlePreview: Codable, Hashable, Sendable {
 public nonisolated struct AgentRunPromptSnapshot: Codable, Hashable, Sendable {
     public var runID: String
     public var snapshots: [AgentPromptSnapshot]
+    public var provenance: AgentRunProvenance?
     public var generatedAt: Date
 
     public nonisolated init(
         runID: String,
         snapshots: [AgentPromptSnapshot],
+        provenance: AgentRunProvenance? = nil,
         generatedAt: Date = Date()
     ) {
         self.runID = runID
         self.snapshots = snapshots
+        self.provenance = provenance
         self.generatedAt = generatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case runID = "run_id"
         case snapshots
+        case provenance
+        case generatedAt = "generated_at"
+    }
+}
+
+public nonisolated struct AgentRunProviderSnapshot: Codable, Hashable, Sendable {
+    public var provider: LLMProviderKind
+    public var model: String
+    public var baseURLString: String
+    public var temperature: Double
+    public var maxTokens: Int?
+
+    public nonisolated init(configuration: LLMConfiguration) {
+        self.provider = configuration.provider
+        self.model = configuration.model
+        self.baseURLString = configuration.baseURLString
+        self.temperature = configuration.temperature
+        self.maxTokens = configuration.maxTokens
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provider
+        case model
+        case baseURLString = "base_url"
+        case temperature
+        case maxTokens = "max_tokens"
+    }
+}
+
+public nonisolated struct AgentRunPromptManifestSnapshot: Codable, Hashable, Sendable {
+    public var snapshotRef: String
+    public var surface: AgentPromptSurface?
+    public var templateID: String?
+    public var templateVersion: String?
+    public var templateHash: String?
+
+    public nonisolated init(
+        snapshotRef: String = "prompt_snapshot.json",
+        surface: AgentPromptSurface?,
+        templateID: String?,
+        templateVersion: String?,
+        templateHash: String?
+    ) {
+        self.snapshotRef = snapshotRef
+        self.surface = surface
+        self.templateID = templateID
+        self.templateVersion = templateVersion
+        self.templateHash = templateHash
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case snapshotRef = "snapshot_ref"
+        case surface
+        case templateID = "template_id"
+        case templateVersion = "template_version"
+        case templateHash = "template_hash"
+    }
+}
+
+public nonisolated struct AgentRunSkillSnapshot: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { skillID }
+    public var skillID: String
+    public var version: String?
+    public var source: AgentSkillSource?
+    public var trustLevel: AgentSkillTrustLevel?
+    public var risk: AgentToolRisk?
+    public var allowedTools: [String]
+    public var selected: Bool
+    public var blockedReason: String?
+
+    public nonisolated init(
+        skillID: String,
+        version: String? = nil,
+        source: AgentSkillSource? = nil,
+        trustLevel: AgentSkillTrustLevel? = nil,
+        risk: AgentToolRisk? = nil,
+        allowedTools: [String] = [],
+        selected: Bool = false,
+        blockedReason: String? = nil
+    ) {
+        self.skillID = skillID
+        self.version = version
+        self.source = source
+        self.trustLevel = trustLevel
+        self.risk = risk
+        self.allowedTools = allowedTools
+        self.selected = selected
+        self.blockedReason = blockedReason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case skillID = "skill_id"
+        case version
+        case source
+        case trustLevel = "trust_level"
+        case risk
+        case allowedTools = "allowed_tools"
+        case selected
+        case blockedReason = "blocked_reason"
+    }
+}
+
+public nonisolated struct AgentRunMCPToolSnapshot: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { exposedName }
+    public var exposedName: String
+    public var serverID: String
+    public var remoteToolName: String?
+    public var approvalRequired: Bool
+    public var permissionKey: String
+
+    public nonisolated init(
+        exposedName: String,
+        serverID: String,
+        remoteToolName: String? = nil,
+        approvalRequired: Bool,
+        permissionKey: String
+    ) {
+        self.exposedName = exposedName
+        self.serverID = serverID
+        self.remoteToolName = remoteToolName
+        self.approvalRequired = approvalRequired
+        self.permissionKey = permissionKey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case exposedName = "exposed_name"
+        case serverID = "server_id"
+        case remoteToolName = "remote_tool_name"
+        case approvalRequired = "approval_required"
+        case permissionKey = "permission_key"
+    }
+}
+
+public nonisolated struct AgentRunMCPServerSnapshot: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { serverID }
+    public var serverID: String
+    public var displayName: String
+    public var source: AgentMCPServerSource
+    public var transport: MCPServerTransport
+    public var endpointSummary: String
+    public var state: AgentMCPRuntimeState
+    public var serverVersion: String?
+    public var discoveredToolCount: Int
+    public var errorMessage: String?
+    public var lastSuccessAt: Date?
+    public var lastErrorAt: Date?
+    public var exitCode: Int?
+    public var retryCount: Int
+    public var freshness: String
+
+    public nonisolated init(status: AgentMCPRuntimeStatus) {
+        self.serverID = status.serverID
+        self.displayName = status.displayName
+        self.source = status.source
+        self.transport = status.transport
+        self.endpointSummary = status.endpointSummary
+        self.state = status.state
+        self.serverVersion = status.serverVersion
+        self.discoveredToolCount = status.discoveredToolCount
+        self.errorMessage = status.errorMessage
+        self.lastSuccessAt = status.lastSuccessAt
+        self.lastErrorAt = status.lastErrorAt
+        self.exitCode = status.exitCode
+        self.retryCount = status.retryCount
+        self.freshness = status.freshness
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case serverID = "server_id"
+        case displayName = "display_name"
+        case source
+        case transport
+        case endpointSummary = "endpoint_summary"
+        case state
+        case serverVersion = "server_version"
+        case discoveredToolCount = "discovered_tool_count"
+        case errorMessage = "error_message"
+        case lastSuccessAt = "last_success_at"
+        case lastErrorAt = "last_error_at"
+        case exitCode = "exit_code"
+        case retryCount = "retry_count"
+        case freshness
+    }
+}
+
+public nonisolated struct AgentRunFileRef: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { path }
+    public var path: String
+    public var sha256: String?
+    public var lineCount: Int?
+    public var lastSequence: Int?
+
+    public nonisolated init(path: String, sha256: String? = nil, lineCount: Int? = nil, lastSequence: Int? = nil) {
+        self.path = path
+        self.sha256 = sha256
+        self.lineCount = lineCount
+        self.lastSequence = lastSequence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case sha256
+        case lineCount = "line_count"
+        case lastSequence = "last_sequence"
+    }
+}
+
+public nonisolated struct AgentRunEvidenceSummary: Codable, Hashable, Sendable {
+    public var sourceTypes: [String]
+    public var containsSyntheticEvidence: Bool
+    public var evidenceProvenance: JSONValue?
+
+    public nonisolated init(
+        sourceTypes: [String] = [],
+        containsSyntheticEvidence: Bool = false,
+        evidenceProvenance: JSONValue? = nil
+    ) {
+        self.sourceTypes = sourceTypes
+        self.containsSyntheticEvidence = containsSyntheticEvidence
+        self.evidenceProvenance = evidenceProvenance
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceTypes = "source_types"
+        case containsSyntheticEvidence = "contains_synthetic_evidence"
+        case evidenceProvenance = "evidence_provenance"
+    }
+}
+
+public nonisolated struct AgentRunApprovalSnapshot: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { toolCallID }
+    public var toolCallID: String
+    public var toolName: String
+    public var decision: String
+    public var risk: AgentToolRisk
+    public var targetPaths: [String]
+    public var approvalRef: String?
+
+    public nonisolated init(
+        toolCallID: String,
+        toolName: String,
+        decision: String,
+        risk: AgentToolRisk,
+        targetPaths: [String] = [],
+        approvalRef: String? = nil
+    ) {
+        self.toolCallID = toolCallID
+        self.toolName = toolName
+        self.decision = decision
+        self.risk = risk
+        self.targetPaths = targetPaths
+        self.approvalRef = approvalRef
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case toolCallID = "tool_call_id"
+        case toolName = "tool_name"
+        case decision
+        case risk
+        case targetPaths = "target_paths"
+        case approvalRef = "approval_ref"
+    }
+}
+
+public nonisolated struct AgentRunManifest: Codable, Hashable, Sendable {
+    public var schemaVersion: Int
+    public var runID: String
+    public var provider: AgentRunProviderSnapshot?
+    public var runtime: AgentRunProvenance?
+    public var prompt: AgentRunPromptManifestSnapshot
+    public var skills: [AgentRunSkillSnapshot]
+    public var mcpServers: [AgentRunMCPServerSnapshot]
+    public var mcpTools: [AgentRunMCPToolSnapshot]
+    public var enabledToolNames: [String]
+    public var approvals: [AgentRunApprovalSnapshot]
+    public var approvalRefs: [String]
+    public var toolLedgerRef: String?
+    public var evidence: AgentRunEvidenceSummary
+    public var files: [AgentRunFileRef]
+    public var generatedAt: Date
+
+    public nonisolated init(
+        schemaVersion: Int = 1,
+        runID: String,
+        provider: AgentRunProviderSnapshot? = nil,
+        runtime: AgentRunProvenance? = nil,
+        prompt: AgentRunPromptManifestSnapshot,
+        skills: [AgentRunSkillSnapshot] = [],
+        mcpServers: [AgentRunMCPServerSnapshot] = [],
+        mcpTools: [AgentRunMCPToolSnapshot] = [],
+        enabledToolNames: [String] = [],
+        approvals: [AgentRunApprovalSnapshot] = [],
+        approvalRefs: [String] = [],
+        toolLedgerRef: String? = nil,
+        evidence: AgentRunEvidenceSummary = AgentRunEvidenceSummary(),
+        files: [AgentRunFileRef] = [],
+        generatedAt: Date = Date()
+    ) {
+        self.schemaVersion = schemaVersion
+        self.runID = runID
+        self.provider = provider
+        self.runtime = runtime
+        self.prompt = prompt
+        self.skills = skills
+        self.mcpServers = mcpServers
+        self.mcpTools = mcpTools
+        self.enabledToolNames = enabledToolNames
+        self.approvals = approvals
+        self.approvalRefs = approvalRefs
+        self.toolLedgerRef = toolLedgerRef
+        self.evidence = evidence
+        self.files = files
+        self.generatedAt = generatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case runID = "run_id"
+        case provider
+        case runtime
+        case prompt
+        case skills
+        case mcpServers = "mcp_servers"
+        case mcpTools = "mcp_tools"
+        case enabledToolNames = "enabled_tool_names"
+        case approvals
+        case approvalRefs = "approval_refs"
+        case toolLedgerRef = "tool_ledger_ref"
+        case evidence
+        case files
         case generatedAt = "generated_at"
     }
 }
@@ -354,13 +738,29 @@ public actor AgentRunDirectoryStore {
         return try Self.decoder().decode(AgentRunPromptSnapshot.self, from: Data(contentsOf: snapshotURL))
     }
 
+    public func saveManifest(_ manifest: AgentRunManifest, in root: ResearchRoot) throws -> AgentRunManifest {
+        let runDirectory = try ensureRunDirectory(runID: manifest.runID, in: root)
+        let manifestWithRefs = manifestWithFileRefs(manifest, runDirectory: runDirectory)
+        try Self.encoder().encode(manifestWithRefs).write(to: runDirectory.appendingPathComponent("manifest.json", isDirectory: false), options: .atomic)
+        return manifestWithRefs
+    }
+
+    public func manifest(runID: String, in root: ResearchRoot) throws -> AgentRunManifest? {
+        let manifestURL = runDirectoryURL(runID: runID, in: root).appendingPathComponent("manifest.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: manifestURL.path) else {
+            return nil
+        }
+        return try Self.decoder().decode(AgentRunManifest.self, from: Data(contentsOf: manifestURL))
+    }
+
     public func saveReplay(runID: String, in root: ResearchRoot, debugPromptResponse: JSONValue? = nil) throws -> AgentRunReplay {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
         let replay = AgentRunReplay(
             runID: runID,
             events: try eventEnvelopes(runID: runID, in: root),
             checkpoint: try checkpointSummary(runID: runID, in: root),
-            debugPromptResponse: debugPromptResponse.map(Self.redactedDebugPayload)
+            debugPromptResponse: debugPromptResponse.map(Self.redactedDebugPayload),
+            provenance: try runProvenance(runID: runID, in: root)
         )
         try Self.encoder().encode(replay).write(to: runDirectory.appendingPathComponent("replay.json", isDirectory: false), options: .atomic)
         return replay
@@ -376,7 +776,18 @@ public actor AgentRunDirectoryStore {
 
     public func saveDebugBundleManifest(runID: String, in root: ResearchRoot) throws -> AgentDebugBundleManifest {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
-        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "prompt_snapshot.json"]
+        let candidateFiles = [
+            "manifest.json",
+            "events.jsonl",
+            "checkpoint.json",
+            "approvals.jsonl",
+            "tool_calls.jsonl",
+            "replay.json",
+            "critic_report.json",
+            "retrieval_trace.json",
+            "evidence.json",
+            "prompt_snapshot.json"
+        ]
         let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
         let events = try? eventEnvelopes(runID: runID, in: root)
         let metadata: [String: String] = [
@@ -384,14 +795,41 @@ public actor AgentRunDirectoryStore {
             "event_count": String(events?.count ?? 0),
             "last_sequence": String(events?.map(\.sequence).max() ?? 0)
         ]
-        let manifest = AgentDebugBundleManifest(runID: runID, includedFiles: included, runMetadata: metadata)
+        let provenance = try runProvenance(runID: runID, in: root)
+        let provenanceMetadata: [String: String] = [
+            "requested_runtime": provenance?.requestedRuntime ?? "",
+            "effective_runtime": provenance?.effectiveRuntime ?? provenance?.runtime ?? "",
+            "fallback_reason": provenance?.fallbackReason ?? ""
+        ].filter { !$0.value.isEmpty }
+        let manifest = AgentDebugBundleManifest(runID: runID, includedFiles: included, runMetadata: metadata.merging(provenanceMetadata) { current, _ in current }, provenance: provenance)
         try Self.encoder().encode(manifest).write(to: runDirectory.appendingPathComponent("debug_bundle_manifest.json", isDirectory: false), options: .atomic)
         return manifest
     }
 
+    public func runProvenance(runID: String, in root: ResearchRoot) throws -> AgentRunProvenance? {
+        let runDirectory = runDirectoryURL(runID: runID, in: root)
+        if let provenance = try provenanceFromRetrievalTrace(at: runDirectory.appendingPathComponent("retrieval_trace.json", isDirectory: false)) {
+            return provenance
+        }
+        let events = try eventEnvelopes(runID: runID, in: root)
+        return provenanceFromEvents(events)
+    }
+
     public func debugBundlePreview(runID: String, in root: ResearchRoot) throws -> AgentDebugBundlePreview {
         let runDirectory = try ensureRunDirectory(runID: runID, in: root)
-        let candidateFiles = ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "prompt_snapshot.json", "debug_bundle_manifest.json"]
+        let candidateFiles = [
+            "manifest.json",
+            "events.jsonl",
+            "checkpoint.json",
+            "approvals.jsonl",
+            "tool_calls.jsonl",
+            "replay.json",
+            "critic_report.json",
+            "retrieval_trace.json",
+            "evidence.json",
+            "prompt_snapshot.json",
+            "debug_bundle_manifest.json"
+        ]
         let included = candidateFiles.filter { fileManager.fileExists(atPath: runDirectory.appendingPathComponent($0, isDirectory: false).path) }
         return AgentDebugBundlePreview(
             runID: runID,
@@ -429,6 +867,147 @@ public actor AgentRunDirectoryStore {
         return contents
             .split(whereSeparator: \.isNewline)
             .compactMap { try? decoder.decode(T.self, from: Data($0.utf8)) }
+    }
+
+    private func manifestWithFileRefs(_ manifest: AgentRunManifest, runDirectory: URL) -> AgentRunManifest {
+        var updated = manifest
+        let candidates = [
+            "events.jsonl",
+            "checkpoint.json",
+            "approvals.jsonl",
+            "tool_calls.jsonl",
+            "replay.json",
+            "critic_report.json",
+            "retrieval_trace.json",
+            "evidence.json",
+            "prompt_snapshot.json"
+        ]
+        var refs = manifest.files
+        let existingPaths = Set(refs.map(\.path))
+        for name in candidates where !existingPaths.contains(name) {
+            let url = runDirectory.appendingPathComponent(name, isDirectory: false)
+            guard fileManager.fileExists(atPath: url.path),
+                  let ref = fileRef(path: name, url: url) else {
+                continue
+            }
+            refs.append(ref)
+        }
+        updated.files = refs.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        return updated
+    }
+
+    private func fileRef(path: String, url: URL) -> AgentRunFileRef? {
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        let text = String(data: data, encoding: .utf8)
+        let lineCount = text?.split(whereSeparator: \.isNewline).count
+        let lastSequence = lastSequence(in: text)
+        return AgentRunFileRef(
+            path: path,
+            sha256: Self.sha256(data),
+            lineCount: lineCount,
+            lastSequence: lastSequence
+        )
+    }
+
+    private func lastSequence(in text: String?) -> Int? {
+        guard let text else { return nil }
+        let decoder = Self.decoder()
+        return text
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> Int? in
+                (try? decoder.decode(AgentRuntimeEventEnvelope.self, from: Data(line.utf8)))?.sequence
+            }
+            .max()
+    }
+
+    private nonisolated static func sha256(_ data: Data) -> String {
+        let digest = SHA256.hash(data: data)
+        return "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func provenanceFromRetrievalTrace(at url: URL) throws -> AgentRunProvenance? {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        let value = try Self.decoder().decode(JSONValue.self, from: Data(contentsOf: url))
+        guard case let .object(trace) = value else {
+            return nil
+        }
+        if let provenanceValue = trace["provenance"],
+           let provenance = try? decodeProvenance(from: provenanceValue) {
+            return provenance
+        }
+        let fallbackMetadata = objectValue(trace["fallback_metadata"])
+        let evidenceProvenance = trace["evidence_provenance"]
+        return AgentRunProvenance(
+            requestedRuntime: stringValue(trace["requested_runtime"]),
+            effectiveRuntime: stringValue(trace["effective_runtime"]) ?? stringValue(fallbackMetadata?["effective_runtime"]),
+            runtime: stringValue(trace["runtime"]),
+            workflow: stringValue(trace["workflow"]),
+            fallbackReason: stringValue(trace["fallback_reason"]) ?? stringValue(fallbackMetadata?["reason"]),
+            evidenceProvenance: evidenceProvenance,
+            metadata: stringMetadata(from: trace)
+        )
+    }
+
+    private nonisolated func provenanceFromEvents(_ events: [AgentRuntimeEventEnvelope]) -> AgentRunProvenance? {
+        for envelope in events {
+            switch envelope.event {
+            case let .runStarted(started):
+                let metadata = started.metadata
+                let requestedRuntime = metadata["requested_runtime"]?.stringValue ?? metadata["runtime_selector"]?.stringValue
+                let effectiveRuntime = metadata["effective_runtime"]?.stringValue
+                let runtime = metadata["runtime"]?.stringValue
+                let fallbackReason = metadata["fallback_reason"]?.stringValue
+                let evidenceProvenance = metadata["evidence_provenance"]
+                if requestedRuntime != nil || effectiveRuntime != nil || runtime != nil || fallbackReason != nil || evidenceProvenance != nil {
+                    return AgentRunProvenance(
+                        requestedRuntime: requestedRuntime,
+                        effectiveRuntime: effectiveRuntime,
+                        runtime: runtime,
+                        fallbackReason: fallbackReason,
+                        evidenceProvenance: evidenceProvenance,
+                        metadata: metadata.compactMapValues(\.stringValue)
+                    )
+                }
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+
+    private nonisolated func decodeProvenance(from value: JSONValue) throws -> AgentRunProvenance {
+        let data = try Self.encoder().encode(value)
+        return try Self.decoder().decode(AgentRunProvenance.self, from: data)
+    }
+
+    private nonisolated func objectValue(_ value: JSONValue?) -> [String: JSONValue]? {
+        guard case let .object(object) = value else {
+            return nil
+        }
+        return object
+    }
+
+    private nonisolated func stringValue(_ value: JSONValue?) -> String? {
+        value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private nonisolated func stringMetadata(from object: [String: JSONValue]) -> [String: String] {
+        object.compactMapValues { value in
+            switch value {
+            case let .string(string):
+                return string
+            case let .number(number):
+                return number
+            case let .bool(bool):
+                return bool ? "true" : "false"
+            default:
+                return nil
+            }
+        }
     }
 
     public nonisolated static func encoder() -> JSONEncoder {
@@ -503,7 +1082,18 @@ public actor AgentRunDirectoryStore {
         if lowered.contains(".env") || lowered.contains("key") || lowered.contains("token") || lowered.contains("secret") {
             return false
         }
-        return ["events.jsonl", "checkpoint.json", "replay.json", "critic_report.json", "retrieval_trace.json", "prompt_snapshot.json"].contains(name)
+        return [
+            "manifest.json",
+            "events.jsonl",
+            "checkpoint.json",
+            "approvals.jsonl",
+            "tool_calls.jsonl",
+            "replay.json",
+            "critic_report.json",
+            "retrieval_trace.json",
+            "evidence.json",
+            "prompt_snapshot.json"
+        ].contains(name)
     }
 
     private func redactedDebugFileData(at url: URL) throws -> Data {
@@ -671,5 +1261,11 @@ public actor AgentToolExecutionLedger {
 private extension AgentPendingToolCall {
     nonisolated var isExpiredForRunDirectory: Bool {
         expiresAt.map { $0 < Date() } ?? false
+    }
+}
+
+private extension String {
+    nonisolated var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import SwiftUI
 
 /// Lightweight fixtures for SwiftUI `#Preview` blocks.
 ///
@@ -23,5 +24,24 @@ enum PreviewFixtures {
             relativePath: "projects/preview-project"
         )
     }
+}
+
+#Preview("AI Management Panel") {
+    AIManagementPanelView(workspace: PreviewFixtures.workspace)
+        .environmentObject(AppViewModel())
+}
+
+#Preview("AI Lab Regular Width") {
+    let appModel = AppViewModel()
+    AgentPanelView(agentStreamStore: appModel.agentStreamStore, workspace: PreviewFixtures.workspace)
+        .environmentObject(appModel)
+        .frame(width: 980, height: 720)
+}
+
+#Preview("Settings AI Lab") {
+    let appModel = AppViewModel()
+    SettingsView(workspace: PreviewFixtures.workspace, fixedCategory: .aiLab)
+        .environmentObject(appModel)
+        .frame(width: 1180, height: 780)
 }
 #endif

@@ -8,15 +8,20 @@ This project follows the release process in `docs/development/versioning/Release
 
 ### Added
 
-- None yet.
+- AI Lab now shows a visible collaboration/status rail with runtime, evidence, writeback, Prompt, and MCP summaries derived from existing run state.
+- Prompt patch review now records rationale/source, impact scope, rollback hints, and explicit Apply/Reject decisions.
+- Skill Manager now exposes catalog/search/import/toggle/trust basics with confirmation before enabling or trusting workspace skills.
 
 ### Changed
 
-- None yet.
+- Updated AI platform documentation to state Swift Loop is the production default, sidecar/Auto remain experimental, Prompt/Skill/MCP coverage is auditable but still beta, and synthetic/sample evidence is not production evidence.
+- AI Lab writeback status now treats Brief/Wiki/Tasks as first-class target kinds with target path, diff/summary, risk, and approval state.
 
 ### Fixed
 
-- None yet.
+- AI run records now retain runtime provenance, prompt metadata, and fallback reasons across replay/debug paths.
+- Remote MCP status now reports discovery, credential resolution, and liveness instead of collapsing to a generic unsupported state.
+- Sidecar production workflows now block artifact drafts when real workspace evidence is unavailable instead of packaging sample evidence as production evidence.
 
 ### Known Issues
 

@@ -133,21 +133,25 @@ ResearchRoot/
 
 [../Sci-Station/Workspace/](../Sci-Station/Workspace/) 负责创建、打开、修复和恢复科研根目录。新增持久化文件时，应先判断它属于全局 workspace、library paper、project，还是 AI run artifact，避免把数据散落到难以备份的位置。
 
-### 5. AI Lab 与 sidecar runtime
+### 5. AI Lab 与 Agent runtime
 
 AI 相关代码分两层：
 
-- Swift 应用内的 [../Sci-Station/Agent/](../Sci-Station/Agent/) 和 [../Sci-Station/LLM/](../Sci-Station/LLM/)：负责配置、权限、工具定义、运行日志、UI 状态和 LLM 调用抽象。
-- Python 的 [../AgentRuntime/](../AgentRuntime/)：负责 sidecar runtime 原型、agent 编排、测试夹具和 UI 测试编排器。
+- Swift 应用内的 [../Sci-Station/Agent/](../Sci-Station/Agent/) 和 [../Sci-Station/LLM/](../Sci-Station/LLM/)：负责生产默认 Swift Loop、配置、权限、工具定义、运行日志、UI 状态和 LLM 调用抽象。
+- Python 的 [../AgentRuntime/](../AgentRuntime/)：负责实验性 sidecar runtime 原型、测试夹具和 UI 测试编排器。不要把 sidecar workflow 写成生产默认能力，除非对应 Proposal 明确升级。
 
 AI 能力的边界：
 
 - API Key、token、secret 必须进入 macOS 钥匙串或本机安全配置，不写入仓库和科研根目录的普通文本。
 - 读操作可以自动化，但写操作必须经过权限模型和用户确认。
-- 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看。
+- 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看；AI Lab 主界面应能展示 runtime、evidence、writeback、Prompt/MCP 等协作状态。
 - 产品内置 preset 放在 [../.sci-ai/sci-station/](../.sci-ai/sci-station/)，本机桥接配置放在 `.sci-ai/workspace.local/`，不要提交本机 secret。
-- 用户可管理的 Prompt override、Skill toggle 和 MCP server 覆盖配置放在 `.sci-station/agent/profile.json`。该文件属于 Research Root 本地状态；默认初始化为空列表，不写入 API key、token 或完整运行记录。
-- Local command MCP 只有在配置显式设置 `is_enabled: true` 时才启动；进程通过 stdio JSON-RPC 连接，不经过 shell。发现的工具使用 `mcp__<server>__<tool>` 名称，并始终经过 Agent approval。
+- 用户可管理的 Prompt override、Skill toggle 和 MCP server 覆盖配置放在 `.sci-station/agent/profile.json`。该文件属于 Research Root 本地状态；默认初始化为空列表，不写入 API key、token、完整 provider response 或完整运行记录。
+- Prompt override 已进入 Swift Loop 执行链，并在 run metadata / `prompt_snapshot.json` 中记录 id、version、hash 和 surface。
+- Prompt patch review 必须展示 diff、rationale/source、影响范围、rollback hint 和 Apply/Reject；`Restore Default` 表示移除 workspace override，不表示回滚历史 patch tree。
+- Skill resolver 已进入 runtime：只加载 Profile 中明确启用且匹配的 Skill；workspace Skill 默认 untrusted，未显式 trusted 时不读取正文，且 Skill 只能收窄工具范围。Skill Manager 的导入/启用/信任必须有用户确认和 profile 审计路径。
+- Local command MCP 只有在配置显式设置 `is_enabled: true` 时才启动；进程通过 stdio JSON-RPC 连接，不经过 shell。Remote HTTP/SSE MCP 支持实验性 JSON-RPC discovery、ping/liveness、credential reference 解析、失败/backoff 和 crash/credential 状态诊断。发现的工具使用 `mcp__<server>__<tool>` 名称，并始终经过 Agent approval、allowlist 和权限模型。
+- 生产回答不能使用 synthetic/sample evidence。需要证据时必须来自真实 paper、PDF、Markdown、Wiki、Graph artifact 或其它本地来源；测试 fixture 必须清楚标注。
 
 ## 功能开发流程
 
