@@ -15,23 +15,31 @@ jobs:
     name: Repository hygiene
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Reject generated artifacts and oversized tracked files
         run: Tools/scripts/check-repository-hygiene.sh
 
   core-tests:
     name: Swift core tests
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Report Xcode toolchain
+        run: xcodebuild -version
       - name: Run Swift Testing suite
         run: swift test
 
   app-build:
     name: Apple Silicon app build
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Report Xcode toolchain
+        run: xcodebuild -version
       - name: Build unsigned arm64 Debug app
         run: >-
           xcodebuild
