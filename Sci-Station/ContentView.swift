@@ -60,7 +60,7 @@ struct ContentView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(minWidth: 700, minHeight: 480)
+        .frame(minWidth: 640, minHeight: 480)
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .background(alignment: .topLeading) {

@@ -53,10 +53,27 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case toolbarSave
     case toolbarPreview
     case menuView
+    case menuOpenInReader
+    case menuOpenExternalPDF
+    case menuPreviewPDF
+    case menuRevealPaperInFinder
+    case menuCopyCitation
+    case menuCopyBibTeX
+    case menuExportBibTeX
+    case menuDeleteSelectedPaper
+    case menuReadInApp
+    case menuOpenPDF
+    case menuConvertToMarkdown
+    case menuClearSelection
+    case menuCopyCitationForSelection
+    case menuCopyBibTeXForSelection
+    case menuExportBibTeXForSelection
+    case aiManagementTitle
 
     case appErrorTitle
     case appOK
     case appCancel
+    case appCopy
     case appUnknownError
 
     case sidebarResearchShell
@@ -283,10 +300,27 @@ public nonisolated enum L10n {
         .toolbarSave: "Save",
         .toolbarPreview: "Preview",
         .menuView: "View",
+        .menuOpenInReader: "Open in Reader",
+        .menuOpenExternalPDF: "Open External PDF",
+        .menuPreviewPDF: "Preview PDF",
+        .menuRevealPaperInFinder: "Reveal Paper in Finder",
+        .menuCopyCitation: "Copy Citation",
+        .menuCopyBibTeX: "Copy BibTeX",
+        .menuExportBibTeX: "Export BibTeX",
+        .menuDeleteSelectedPaper: "Delete Selected Paper",
+        .menuReadInApp: "Read in App",
+        .menuOpenPDF: "Open PDF",
+        .menuConvertToMarkdown: "Convert to Markdown",
+        .menuClearSelection: "Clear Selection",
+        .menuCopyCitationForSelection: "Copy Citation for Selection",
+        .menuCopyBibTeXForSelection: "Copy BibTeX for Selection",
+        .menuExportBibTeXForSelection: "Export BibTeX for Selection",
+        .aiManagementTitle: "AI Management",
 
         .appErrorTitle: "Sci-Station Error",
         .appOK: "OK",
         .appCancel: "Cancel",
+        .appCopy: "Copy",
         .appUnknownError: "An unknown error occurred.",
 
         .sidebarResearchShell: "Research Shell",
@@ -440,10 +474,27 @@ public nonisolated enum L10n {
         .toolbarSave: "保存",
         .toolbarPreview: "预览",
         .menuView: "视图",
+        .menuOpenInReader: "在阅读器中打开",
+        .menuOpenExternalPDF: "用外部应用打开 PDF",
+        .menuPreviewPDF: "预览 PDF",
+        .menuRevealPaperInFinder: "在 Finder 中显示论文",
+        .menuCopyCitation: "复制引用",
+        .menuCopyBibTeX: "复制 BibTeX",
+        .menuExportBibTeX: "导出 BibTeX",
+        .menuDeleteSelectedPaper: "删除所选论文",
+        .menuReadInApp: "在应用内阅读",
+        .menuOpenPDF: "打开 PDF",
+        .menuConvertToMarkdown: "转换为 Markdown",
+        .menuClearSelection: "清除选择",
+        .menuCopyCitationForSelection: "复制所选论文引用",
+        .menuCopyBibTeXForSelection: "复制所选论文 BibTeX",
+        .menuExportBibTeXForSelection: "导出所选论文 BibTeX",
+        .aiManagementTitle: "AI 管理",
 
         .appErrorTitle: "Sci-Station 错误",
         .appOK: "好",
         .appCancel: "取消",
+        .appCopy: "复制",
         .appUnknownError: "发生未知错误。",
 
         .sidebarResearchShell: "研究工作台",

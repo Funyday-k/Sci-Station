@@ -466,6 +466,7 @@ final class AppViewModel: ObservableObject {
     private var pendingAgentThreadsByProject: [String: AgentThread] = [:]
     private var agentThreadPendingRename: AgentThread?
     private var agentDraftSaveTask: Task<Void, Never>?
+    private let workspaceSessionCoordinator = WorkspaceSessionCoordinator()
     private var agentPlanningTask: Task<Void, Never>?
     private var agentContextRefreshTask: Task<Void, Never>?
     private var agentLiveRunID: String?
@@ -2134,8 +2135,9 @@ final class AppViewModel: ObservableObject {
         }
 
         do {
-            currentWorkspace = restoredWorkspace
             try await loadWorkspaceData(in: restoredWorkspace, selectingPaper: nil, selectingMarkdown: nil)
+            try Task.checkCancellation()
+            currentWorkspace = restoredWorkspace
         } catch {
             currentWorkspace = nil
             present(error)
@@ -6778,26 +6780,41 @@ final class AppViewModel: ObservableObject {
         operation: @escaping @Sendable () async throws -> ResearchWorkspace
     ) {
         isWorking = true
+        let previousWorkspace = currentWorkspace
 
-        Task {
+        workspaceSessionCoordinator.start { [weak self] generation in
+            guard let self else { return }
             defer {
-                isWorking = false
+                if self.workspaceSessionCoordinator.isCurrent(generation) {
+                    self.isWorking = false
+                    self.workspaceSessionCoordinator.finish(generation)
+                }
             }
 
             do {
                 let workspace = try await operation()
-                currentWorkspace = workspace
-                try await loadWorkspaceData(
+                try Task.checkCancellation()
+                guard self.workspaceSessionCoordinator.isCurrent(generation) else { return }
+
+                try await self.loadWorkspaceData(
                     in: workspace,
                     selectingPaper: nil,
                     selectingMarkdown: nil,
                     rootCompatibility: compatibilityHint
                 )
-                if selectedSection == nil {
-                    selectedSection = .projects
+                try Task.checkCancellation()
+                guard self.workspaceSessionCoordinator.isCurrent(generation) else { return }
+
+                self.currentWorkspace = workspace
+                if self.selectedSection == nil {
+                    self.selectedSection = .projects
                 }
+            } catch is CancellationError {
+                return
             } catch {
-                present(error)
+                guard self.workspaceSessionCoordinator.isCurrent(generation) else { return }
+                self.currentWorkspace = previousWorkspace
+                self.present(error)
             }
         }
     }
@@ -6906,22 +6923,36 @@ final class AppViewModel: ObservableObject {
         selectingMarkdown markdownID: String?,
         rootCompatibility: ResearchRootCompatibility? = nil
     ) async throws {
+        try Task.checkCancellation()
         try await loadResearchRoot(in: workspace, compatibility: rootCompatibility)
+        try Task.checkCancellation()
         try await loadWorkspacePreferences(in: workspace)
+        try Task.checkCancellation()
         try await loadLibrary(in: workspace, selecting: paperID)
+        try Task.checkCancellation()
         try await loadLegacyPaperMigrationPlan(in: workspace)
+        try Task.checkCancellation()
         try await loadCollections(in: workspace)
+        try Task.checkCancellation()
         try await loadTags(in: workspace)
+        try Task.checkCancellation()
         try await loadTodos(in: workspace)
+        try Task.checkCancellation()
         try await loadCalendarEvents(in: workspace)
+        try Task.checkCancellation()
         systemCalendarAccessState = systemCalendarService.accessState
         if systemCalendarAccessState.canReadSchedule {
-            try await loadSystemSchedule(around: selectedDashboardDate)
+            try await loadSystemSchedule(around: selectedDashboardDate, workspace: workspace)
         }
+        try Task.checkCancellation()
         try await loadLLMSettings(in: workspace)
+        try Task.checkCancellation()
         try await loadMarkdownSnippets(in: workspace)
+        try Task.checkCancellation()
         try await loadMarkdownDocuments(in: workspace, selecting: markdownID)
+        try Task.checkCancellation()
         await refreshAgentState(in: workspace)
+        try Task.checkCancellation()
         await initializeGraphRepository(in: workspace)
     }
 
@@ -7467,11 +7498,11 @@ final class AppViewModel: ObservableObject {
         calendarEvents = try await calendarRepository.loadEvents(in: workspace)
     }
 
-    private func loadSystemSchedule(around referenceDate: Date) async throws {
+    private func loadSystemSchedule(around referenceDate: Date, workspace: ResearchWorkspace? = nil) async throws {
         let range = systemScheduleRange(around: referenceDate)
         systemScheduleItems = try await systemCalendarService.loadItems(from: range.start, to: range.end)
-        if let currentWorkspace {
-            try await syncMappedTodos(with: systemScheduleItems, in: currentWorkspace)
+        if let workspace = workspace ?? currentWorkspace {
+            try await syncMappedTodos(with: systemScheduleItems, in: workspace)
         }
     }
 

@@ -116,7 +116,6 @@ ResearchRoot/
 - [docs/DEVELOPER.md](docs/DEVELOPER.md)：开发者文档。
 - [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
 - [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
-- [docs/development/](docs/development/)：开发文档中心，包含架构、模块、Proposal、测试、版本和发布流程。
 
 ## 许可证
 

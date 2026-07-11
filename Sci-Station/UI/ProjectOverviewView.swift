@@ -1,14 +1,6 @@
 import AppKit
 import SwiftUI
 
-private struct ProjectWidgetGridWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 struct ProjectOverviewView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -127,7 +119,7 @@ struct ProjectOverviewView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
+                    .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.04), in: Capsule())
             }
 
             Spacer(minLength: 0)
@@ -195,7 +187,7 @@ struct ProjectOverviewView: View {
             }
         }
         .padding(12)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.025)), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func projectWidgetEmptyState(columns: Int) -> some View {
@@ -215,7 +207,7 @@ struct ProjectOverviewView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.025)), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func projectWidgetGrid(visibleItems: [HomeWidgetLayoutItem], columns: Int) -> some View {
@@ -263,12 +255,9 @@ struct ProjectOverviewView: View {
             .frame(width: proxy.size.width, height: measuredGridHeight, alignment: .topLeading)
         }
         .frame(height: gridHeight)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: ProjectWidgetGridWidthPreferenceKey.self, value: proxy.size.width)
-            }
-        )
-        .onPreferenceChange(ProjectWidgetGridWidthPreferenceKey.self) { width in
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
             guard abs(projectWidgetGridContainerWidth - width) > 0.5 else { return }
             projectWidgetGridContainerWidth = width
         }
@@ -1469,8 +1458,8 @@ private struct ProjectOverviewWidgetCard<Content: View>: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(minHeight: minHeight, alignment: .topLeading)
-        .glassEffect(
-            .regular.tint(appModel.liquidGlassTintColor.opacity(isHovering ? 0.04 : 0.025)),
+        .sciStationGlassSurface(
+            tint: appModel.liquidGlassTintColor.opacity(isHovering ? 0.04 : 0.025),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .overlay(

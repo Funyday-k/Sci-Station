@@ -162,7 +162,7 @@ Before sharing a checkout or Research Root, run:
 git status --short
 swift run SciStationCoreTestRunner
 xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!docs/development/**'
+git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)'
 ```
 
 Confirm that the shared package does not include real credentials, local research data, `.env*`, `.mcp.json`, `.claude/`, `.sci-ai/workspace.local/`, DerivedData, archives, `.app`, `.zip`, `.dSYM`, or `.xcresult` files.

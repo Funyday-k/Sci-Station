@@ -1899,6 +1899,7 @@ struct AIManagementDashboard: View {
 
     let workspace: ResearchWorkspace
     let mode: Mode
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1908,17 +1909,20 @@ struct AIManagementDashboard: View {
             }
 
             if mode.isSheet {
-                GeometryReader { proxy in
-                    ScrollView {
-                        dashboardContent(width: proxy.size.width)
-                            .padding(22)
-                    }
+                ScrollView {
+                    dashboardContent(width: availableWidth)
+                        .padding(22)
                 }
             } else {
-                dashboardContent(width: 1180)
+                dashboardContent(width: availableWidth)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            availableWidth = width
+        }
     }
 
     private func dashboardContent(width: CGFloat) -> some View {
@@ -3073,7 +3077,7 @@ struct WorkspaceCreationWizardView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 840, idealWidth: 920, minHeight: 700, idealHeight: 760)
+        .frame(minWidth: 640, idealWidth: 920, minHeight: 560, idealHeight: 760)
     }
 
     private var header: some View {
@@ -3082,10 +3086,14 @@ struct WorkspaceCreationWizardView: View {
                 .font(.title2)
                 .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Workspace Creation Wizard")
+                Text(appModel.localized("工作区创建向导", "Workspace Creation Wizard"))
                     .font(.title2.weight(.semibold))
-                Text("Choose a template, inspect what will be created, then open the Research Root.")
+                Text(appModel.localized(
+                    "选择模板并检查将创建的内容，然后打开研究根目录。",
+                    "Choose a template, inspect what will be created, then open the Research Root."
+                ))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -3384,7 +3392,7 @@ struct LLMSummaryPreviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("LLM Summary Preview")
+            Text(appModel.localized("LLM 摘要预览", "LLM Summary Preview"))
                 .font(.title2)
                 .fontWeight(.semibold)
 
@@ -3395,28 +3403,28 @@ struct LLMSummaryPreviewView: View {
             .font(.system(.body, design: .monospaced))
 
             HStack(spacing: 12) {
-                Button("Replace Wiki") {
+                Button(appModel.localized("替换 Wiki", "Replace Wiki")) {
                     appModel.applySummaryPreview(mode: .replace)
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("Append") {
+                Button(appModel.localized("追加", "Append")) {
                     appModel.applySummaryPreview(mode: .append)
                 }
                 .buttonStyle(.bordered)
 
-                Button("Save Draft") {
+                Button(appModel.localized("保存草稿", "Save Draft")) {
                     appModel.applySummaryPreview(mode: .saveDraft)
                 }
                 .buttonStyle(.bordered)
 
-                Button("Close") {
+                Button(appModel.localized("关闭", "Close")) {
                     dismiss()
                 }
             }
         }
         .padding(20)
-        .frame(minWidth: 860, minHeight: 560)
+        .frame(minWidth: 620, idealWidth: 860, minHeight: 480, idealHeight: 560)
     }
 }
 

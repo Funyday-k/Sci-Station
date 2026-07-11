@@ -39,7 +39,6 @@ Core principles:
 
 ## Roadmap
 
-- Developer ID signing, notarization, and cleaner Gatekeeper-friendly distribution.
 - Deeper AI Lab sidecar runtime integration, tool permissions, evidence references, artifacts, and debug bundles.
 - Paper graph, recommendation workflows, and reading-todo improvements.
 - Workspace templates, module settings, and clearer onboarding.
@@ -72,4 +71,3 @@ In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command 
 - [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
 - [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
 - [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
-- [development/](development/): development proposals, module docs, testing, versioning, and release process.

@@ -24,12 +24,6 @@ struct Sci_StationApp: App {
                 .onAppear(perform: launchCoordinator.start)
         }
         .defaultSize(width: 1180, height: 740)
-        .defaultWindowPlacement { content, context in
-            let visibleRect = context.defaultDisplay.visibleRect
-            let width = min(1180, max(320, visibleRect.width - 48))
-            let height = min(740, max(320, visibleRect.height - 48))
-            return WindowPlacement(size: CGSize(width: width, height: height))
-        }
         .restorationBehavior(.disabled)
         .commands {
             CommandMenu(appModel.t(.toolbarWorkspace)) {
@@ -60,35 +54,35 @@ struct Sci_StationApp: App {
 
                 Divider()
 
-                Button("Open in Reader") {
+                Button(appModel.t(.menuOpenInReader)) {
                     if let paper = appModel.selectedPaperDraft {
                         appModel.openPaperReader(paper)
                     }
                 }
                 .disabled(appModel.selectedPaperDraft == nil || !appModel.canEnterSelectedPaperReader)
 
-                Button("Open External PDF", action: appModel.openSelectedPaperPDF)
+                Button(appModel.t(.menuOpenExternalPDF), action: appModel.openSelectedPaperPDF)
                     .disabled(!appModel.canOpenSelectedPaperPDF)
 
-                Button("Preview PDF", action: appModel.previewLibrarySelection)
+                Button(appModel.t(.menuPreviewPDF), action: appModel.previewLibrarySelection)
                     .keyboardShortcut(.space, modifiers: [])
                     .disabled(appModel.selectedSection != .library || !appModel.canPreviewLibrarySelection)
 
-                Button("Reveal Paper in Finder", action: appModel.revealSelectedPaperInFinder)
+                Button(appModel.t(.menuRevealPaperInFinder), action: appModel.revealSelectedPaperInFinder)
                     .disabled(appModel.selectedPaperDraft == nil)
 
-                Button("Copy Citation", action: appModel.copySelectedPaperCitation)
+                Button(appModel.t(.menuCopyCitation), action: appModel.copySelectedPaperCitation)
                     .disabled(appModel.selectedPaperDraft == nil && appModel.selectedLibraryPaperCount == 0)
 
-                Button("Copy BibTeX", action: appModel.copySelectedPaperBibTeX)
+                Button(appModel.t(.menuCopyBibTeX), action: appModel.copySelectedPaperBibTeX)
                     .disabled(appModel.selectedPaperDraft == nil && appModel.selectedLibraryPaperCount == 0)
 
-                Button("Export BibTeX", action: appModel.exportSelectedPaperBibTeX)
+                Button(appModel.t(.menuExportBibTeX), action: appModel.exportSelectedPaperBibTeX)
                     .disabled(appModel.selectedPaperDraft == nil && appModel.selectedLibraryPaperCount == 0)
 
                 Divider()
 
-                Button("Delete Selected Paper") {
+                Button(appModel.t(.menuDeleteSelectedPaper)) {
                     appModel.requestDeleteSelectedPaper()
                 }
                 .keyboardShortcut(.delete, modifiers: [.command])
@@ -133,18 +127,12 @@ struct Sci_StationApp: App {
                 .environmentObject(appModel)
         }
 
-        Window("AI 管理", id: "ai-management") {
+        Window(appModel.t(.aiManagementTitle), id: "ai-management") {
             AIManagementPanelView(workspace: appModel.currentWorkspace)
                 .environmentObject(appModel)
         }
         .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 1120, height: 780)
-        .defaultWindowPlacement { content, context in
-            let visibleRect = context.defaultDisplay.visibleRect
-            let width = min(1120, max(760, visibleRect.width - 80))
-            let height = min(780, max(560, visibleRect.height - 80))
-            return WindowPlacement(size: CGSize(width: width, height: height))
-        }
         .restorationBehavior(.disabled)
     }
 }

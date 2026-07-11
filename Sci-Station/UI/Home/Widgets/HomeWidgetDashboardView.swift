@@ -17,14 +17,6 @@ private enum HomeWidgetGridConstants {
     static let outerPadding: CGFloat = 0
 }
 
-private struct HomeWidgetGridWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 // MARK: - Drag controller
 
 /// Coordinates the live, push-aside drag UX in `HomeWidgetDashboardView`.
@@ -170,65 +162,60 @@ struct HomeWidgetDashboardView: View {
             let unitSize = gridUnitSize(forWidth: proxy.size.width, cols: cols)
             let measuredGridHeight = gridHeight(unitSize: unitSize)
 
-            GlassEffectContainer(spacing: HomeWidgetGridConstants.spacing) {
-                ZStack(alignment: .topLeading) {
-                    if appModel.isEditingHomeLayout {
-                        gridBackdrop(unitSize: unitSize, cols: cols)
-                    }
+            ZStack(alignment: .topLeading) {
+                if appModel.isEditingHomeLayout {
+                    gridBackdrop(unitSize: unitSize, cols: cols)
+                }
 
-                    ForEach(visibleItems) { item in
-                        if let descriptor = HomeWidgetRegistry.descriptor(id: item.widgetID) {
-                            let isDragging = dragController.draggedWidgetID == item.widgetID
-                            // Anchor the dragged card to its drag-start cell
-                            // so `.offset(metrics + translation)` lands on the
-                            // cursor exactly. Siblings continue to flow from
-                            // the preview layout so they animate out of the
-                            // way.
-                            let positionItem: HomeWidgetLayoutItem = {
-                                if isDragging, let base = dragController.baseItem(item.widgetID) {
-                                    return base
-                                }
-                                return item
-                            }()
-                            let metrics = cellMetrics(for: positionItem, unitSize: unitSize, cols: cols)
-                            HomeWidgetCard(
-                                item: item,
-                                descriptor: descriptor,
-                                columns: cols,
-                                cellSize: CGSize(width: metrics.width, height: metrics.height),
-                                snapshot: snapshot,
-                                isBeingDragged: isDragging,
-                                onDragBegan: {
-                                    beginDrag(item: item, cols: cols)
-                                },
-                                onDragChanged: { value in
-                                    updateDrag(value: value, unitSize: unitSize, cols: cols)
-                                },
-                                onDragEnded: { value in
-                                    endDrag(value: value, unitSize: unitSize, cols: cols)
-                                }
-                            )
-                            .frame(width: metrics.width, height: metrics.height)
-                            .offset(
-                                x: metrics.x + (isDragging ? dragController.translation.width : 0),
-                                y: metrics.y + (isDragging ? dragController.translation.height : 0)
-                            )
-                            .zIndex(isDragging ? 10 : 0)
-                            .transition(appModel.isEditingHomeLayout ? .scale(scale: 0.96).combined(with: .opacity) : .identity)
-                            .accessibilityIdentifier(UITestAccessibilityID.Home.widget(item.widgetID))
-                        }
+                ForEach(visibleItems) { item in
+                    if let descriptor = HomeWidgetRegistry.descriptor(id: item.widgetID) {
+                        let isDragging = dragController.draggedWidgetID == item.widgetID
+                        // Anchor the dragged card to its drag-start cell
+                        // so `.offset(metrics + translation)` lands on the
+                        // cursor exactly. Siblings continue to flow from
+                        // the preview layout so they animate out of the
+                        // way.
+                        let positionItem: HomeWidgetLayoutItem = {
+                            if isDragging, let base = dragController.baseItem(item.widgetID) {
+                                return base
+                            }
+                            return item
+                        }()
+                        let metrics = cellMetrics(for: positionItem, unitSize: unitSize, cols: cols)
+                        HomeWidgetCard(
+                            item: item,
+                            descriptor: descriptor,
+                            columns: cols,
+                            cellSize: CGSize(width: metrics.width, height: metrics.height),
+                            snapshot: snapshot,
+                            isBeingDragged: isDragging,
+                            onDragBegan: {
+                                beginDrag(item: item, cols: cols)
+                            },
+                            onDragChanged: { value in
+                                updateDrag(value: value, unitSize: unitSize, cols: cols)
+                            },
+                            onDragEnded: { value in
+                                endDrag(value: value, unitSize: unitSize, cols: cols)
+                            }
+                        )
+                        .frame(width: metrics.width, height: metrics.height)
+                        .offset(
+                            x: metrics.x + (isDragging ? dragController.translation.width : 0),
+                            y: metrics.y + (isDragging ? dragController.translation.height : 0)
+                        )
+                        .zIndex(isDragging ? 10 : 0)
+                        .transition(appModel.isEditingHomeLayout ? .scale(scale: 0.96).combined(with: .opacity) : .identity)
+                        .accessibilityIdentifier(UITestAccessibilityID.Home.widget(item.widgetID))
                     }
                 }
-                .frame(width: proxy.size.width, height: measuredGridHeight, alignment: .topLeading)
             }
+            .frame(width: proxy.size.width, height: measuredGridHeight, alignment: .topLeading)
         }
         .frame(height: gridHeight)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: HomeWidgetGridWidthPreferenceKey.self, value: proxy.size.width)
-            }
-        )
-        .onPreferenceChange(HomeWidgetGridWidthPreferenceKey.self) { width in
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
             guard abs(gridContainerWidth - width) > 0.5 else { return }
             gridContainerWidth = width
         }
@@ -376,7 +363,7 @@ struct HomeWidgetDashboardView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
+                    .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.04), in: Capsule())
             }
 
             Spacer(minLength: 0)
@@ -387,7 +374,7 @@ struct HomeWidgetDashboardView: View {
                 } label: {
                     Label(appModel.t(.homeWidgetGallery), systemImage: "rectangle.grid.2x2")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier(UITestAccessibilityID.Home.gallery)
 
@@ -396,7 +383,7 @@ struct HomeWidgetDashboardView: View {
                 } label: {
                     Label(appModel.t(.homeResetDefault), systemImage: "arrow.counterclockwise")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier(UITestAccessibilityID.Home.resetDefault)
 
@@ -405,7 +392,7 @@ struct HomeWidgetDashboardView: View {
                 } label: {
                     Label(appModel.t(.homeDoneEditing), systemImage: "checkmark")
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .accessibilityIdentifier(UITestAccessibilityID.Home.doneEditing)
             } else {
@@ -414,7 +401,7 @@ struct HomeWidgetDashboardView: View {
                 } label: {
                     Label(appModel.t(.homeEditLayout), systemImage: "slider.horizontal.3")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier(UITestAccessibilityID.Home.editLayout)
             }
@@ -511,8 +498,8 @@ private struct HomeWidgetCard: View {
         }
         .padding(cardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(
-            .regular.tint(appModel.liquidGlassTintColor.opacity(tintOpacity)),
+        .sciStationGlassSurface(
+            tint: appModel.liquidGlassTintColor.opacity(tintOpacity),
             in: RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
         )
         .overlay(
@@ -710,7 +697,7 @@ private struct HomeWidgetCard: View {
         .controlSize(.small)
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.05)), in: Capsule())
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.05), in: Capsule())
     }
 
     private func sizeIcon(_ size: HomeWidgetSize) -> String {
@@ -802,7 +789,7 @@ private struct HomeWidgetGalleryView: View {
             }
         }
         .padding(14)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.045), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
@@ -843,7 +830,7 @@ private struct HomeWidgetGalleryView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.035)), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.035), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.primary.opacity(0.04), lineWidth: 0.5)
@@ -882,19 +869,19 @@ private struct HomeWidgetEmptyState: View {
                 } label: {
                     Label(appModel.t(.homeWidgetGallery), systemImage: "rectangle.grid.2x2")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 Button {
                     appModel.resetHomeWidgetLayout(columns: columns)
                 } label: {
                     Label(appModel.t(.homeResetDefault), systemImage: "arrow.counterclockwise")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
             }
             .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.04), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
@@ -1076,7 +1063,7 @@ private struct ActiveProjectsWidgetContent: View {
                 } label: {
                     Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 Spacer(minLength: 0)
             }
@@ -1777,7 +1764,7 @@ private struct RecentPapersWidgetContent: View {
                 } label: {
                     Label(appModel.t(.toolbarAddByIdentifier), systemImage: "plus")
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
             } else {
                 ForEach(Array(papers)) { paper in

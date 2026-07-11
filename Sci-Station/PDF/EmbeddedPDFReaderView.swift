@@ -674,13 +674,13 @@ private struct PDFReaderMetadataPanel: View {
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
 
             HStack(spacing: 10) {
-                Button("Copy") {
+                Button(appModel.t(.appCopy)) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(citationText, forType: .string)
                 }
                 .buttonStyle(.bordered)
 
-                Button("Export BibTeX") {
+                Button(appModel.t(.menuExportBibTeX)) {
                     appModel.exportBibTeX(for: paper)
                 }
                 .buttonStyle(.borderedProminent)

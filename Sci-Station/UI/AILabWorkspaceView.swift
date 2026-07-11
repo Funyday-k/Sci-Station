@@ -7,14 +7,29 @@ struct AILabWorkspaceView: View {
 
     let workspace: ResearchWorkspace
     @State private var isThreadSidebarCollapsed = false
+    @State private var availableWidth: CGFloat = 0
+
+    private var usesCollapsedThreadSidebar: Bool {
+        isThreadSidebarCollapsed || availableWidth < 760
+    }
+
+    private var sidebarCollapseBinding: Binding<Bool> {
+        Binding(
+            get: { usesCollapsedThreadSidebar },
+            set: { requestedCollapse in
+                guard requestedCollapse || availableWidth >= 760 else { return }
+                isThreadSidebarCollapsed = requestedCollapse
+            }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                AgentThreadSidebarView(workspace: workspace, isCollapsed: $isThreadSidebarCollapsed)
-                    .frame(width: isThreadSidebarCollapsed ? 46 : CGFloat(clampedThreadSidebarWidth))
+                AgentThreadSidebarView(workspace: workspace, isCollapsed: sidebarCollapseBinding)
+                    .frame(width: usesCollapsedThreadSidebar ? 46 : CGFloat(clampedThreadSidebarWidth))
 
-                if !isThreadSidebarCollapsed {
+                if !usesCollapsedThreadSidebar {
                     AILabSidebarResizeHandle(width: $threadSidebarWidth, minWidth: 220, maxWidth: 460)
                 }
 
@@ -25,6 +40,11 @@ struct AILabWorkspaceView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            availableWidth = width
+        }
         .onAppear {
             threadSidebarWidth = clampedThreadSidebarWidth
         }
@@ -379,6 +399,8 @@ private struct AgentComposerTextView: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
         scrollView.borderType = .noBorder
 
         let textView = NSTextView()
@@ -457,17 +479,21 @@ struct AgentPanelView: View {
     @State private var isMCPExpanded = false
     @State private var isPresetExpanded = false
     @State private var isHistoryExpanded = false
+    @State private var availableWidth: CGFloat = 0
     private let timelineBottomID = "agent-timeline-bottom"
 
+    private var usesCompactLayout: Bool {
+        isCompact || availableWidth < 760
+    }
+
     var body: some View {
-        Group {
-            if isCompact {
-                conversationColumn
-            } else {
-                conversationColumn
-            }
+        conversationColumn
+        .background(usesCompactLayout ? Color.clear : Color(nsColor: .windowBackgroundColor))
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            availableWidth = width
         }
-        .background(isCompact ? Color.clear : Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $appModel.isShowingAgentThreadRename) {
             AgentThreadRenameSheet()
                 .environmentObject(appModel)
@@ -489,10 +515,11 @@ struct AgentPanelView: View {
                         streamingResponse: agentStreamStore.streamingResponseText,
                         isThinking: appModel.isPlanningAgentRun,
                         thinkingModeTitle: appModel.agentVisibleMode.title,
-                        isCompact: isCompact
+                        isCompact: usesCompactLayout
                     )
-                    .padding(isCompact ? 10 : 18)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(usesCompactLayout ? 10 : 18)
+                    .frame(maxWidth: usesCompactLayout ? .infinity : 920, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                     pendingInteractionDock
 
@@ -682,190 +709,224 @@ struct AgentPanelView: View {
     }
 
     private var composerDock: some View {
-        Group {
-            if isCompact {
-                compactComposerDock
-            } else {
-                regularComposerDock
+        VStack(alignment: .leading, spacing: 6) {
+            composerEditor
+
+            if let warning = appModel.agentToolAvailabilityWarning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(usesCompactLayout ? 2 : 1)
+                    .accessibilityLabel(warning)
+            }
+
+            composerToolbar
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .sciStationGlassSurface(tint: .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(SciStationDesign.hairline, lineWidth: 0.7)
+        }
+        .shadow(color: Color.black.opacity(0.035), radius: 4, x: 0, y: 1)
+        .padding(.horizontal, usesCompactLayout ? 8 : 14)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+    }
+
+    private var composerEditor: some View {
+        ZStack(alignment: .topLeading) {
+            AgentComposerTextView(
+                text: $appModel.agentGoal,
+                fontSize: appModel.workspacePreferences.agentChatFontSize,
+                onSubmit: submitComposer
+            )
+            .frame(minHeight: usesCompactLayout ? 72 : 62, maxHeight: usesCompactLayout ? 118 : 104)
+
+            if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
+                    .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 8)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var composerToolbar: some View {
+        ViewThatFits(in: .horizontal) {
+            regularComposerToolbar
+            compactComposerToolbar
+            narrowComposerToolbar
+        }
+        .font(.caption)
+        .controlSize(.small)
+    }
+
+    private var regularComposerToolbar: some View {
+        HStack(spacing: 8) {
+            Label(appModel.agentConversationTitle, systemImage: "bubble.left.and.text.bubble.right")
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 170, alignment: .leading)
+                .help(appModel.agentConversationTitle)
+
+            modePicker(width: 112)
+            contextPicker(width: 160)
+
+            Spacer(minLength: 0)
+
+            contextUsageLabel
+            knowledgeButton
+            groupedToolMenu
+            modelMenu
+            settingsButton
+            statusMessages
+            sendButton
+        }
+    }
+
+    private var compactComposerToolbar: some View {
+        HStack(spacing: 7) {
+            contextPicker(width: 132)
+            modelMenu
+
+            Spacer(minLength: 0)
+
+            contextUsageLabel
+            knowledgeButton
+            groupedToolMenu
+            composerOverflowMenu
+            sendButton
+        }
+    }
+
+    private var narrowComposerToolbar: some View {
+        HStack(spacing: 7) {
+            composerOverflowMenu
+            contextPicker(width: 118)
+
+            Spacer(minLength: 0)
+
+            contextUsageLabel
+                .labelStyle(.iconOnly)
+            sendButton
+        }
+    }
+
+    private func modePicker(width: CGFloat) -> some View {
+        Picker("模式", selection: visibleModeSelection) {
+            ForEach(AgentVisibleMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(width: width)
+        .help(Text(verbatim: appModel.agentModeStatusText))
+    }
+
+    private func contextPicker(width: CGFloat) -> some View {
+        Picker("上下文", selection: contextSelection) {
+            contextPickerOptions
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: width)
+        .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
+    }
+
+    @ViewBuilder
+    private var contextPickerOptions: some View {
+        Text("全工作区").tag("__workspace__")
+        if !appModel.activeResearchProjects.isEmpty {
+            ForEach(appModel.activeResearchProjects) { project in
+                Text(project.name).tag(project.id)
             }
         }
     }
 
-    private var regularComposerDock: some View {
-        VStack(spacing: 0) {
-            AILabDockShell {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .bottom, spacing: 10) {
-                        ZStack(alignment: .topLeading) {
-                            AgentComposerTextView(
-                                text: $appModel.agentGoal,
-                                fontSize: appModel.workspacePreferences.agentChatFontSize,
-                                onSubmit: submitComposer
-                            )
-                                .frame(minHeight: 54, maxHeight: 92)
-                                .padding(4)
+    private var contextUsageLabel: some View {
+        Label(appModel.agentContextUsageLabel, systemImage: "gauge.with.dots.needle.33percent")
+            .foregroundStyle(.secondary)
+            .help("上下文使用比例")
+    }
 
-                            if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
-                                    .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 12)
-                                    .allowsHitTesting(false)
-                            }
-                        }
-                        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.secondary.opacity(0.16))
-                        }
-
-                        Button {
-                            if appModel.isPlanningAgentRun {
-                                appModel.cancelAgentGeneration()
-                            } else {
-                                submitComposer()
-                            }
-                        } label: {
-                            Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
-                                .labelStyle(.iconOnly)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(appModel.isExecutingAgentTools || (!appModel.isPlanningAgentRun && appModel.agentToolAvailabilityWarning != nil))
-                        .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
-                        .accessibilityLabel(appModel.isPlanningAgentRun ? "停止输出" : "发送")
-                    }
-
-                    if let warning = appModel.agentToolAvailabilityWarning {
-                        Label(warning, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .accessibilityLabel(warning)
-                    }
-                }
-            }
-
-            AILabDockTray(attachTop: true) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        Label(appModel.agentConversationTitle, systemImage: "bubble.left.and.text.bubble.right")
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(minWidth: 180, maxWidth: 260, alignment: .leading)
-                            .help(appModel.agentConversationTitle)
-
-                        Picker("模式", selection: visibleModeSelection) {
-                            ForEach(AgentVisibleMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(width: 140)
-                        .help(Text(verbatim: appModel.agentModeStatusText))
-
-                        Picker("上下文", selection: contextSelection) {
-                            Text("全工作区").tag("__workspace__")
-                            if !appModel.activeResearchProjects.isEmpty {
-                                ForEach(appModel.activeResearchProjects) { project in
-                                    Text(project.name).tag(project.id)
-                                }
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 190)
-                        .help("为下一次运行选择上下文；已保存对话的归属不会被改写。")
-
-                        Label(appModel.agentContextUsageLabel, systemImage: "gauge.with.dots.needle.33percent")
-                            .labelStyle(.titleAndIcon)
-                            .help("上下文使用比例")
-
-                        Button {
-                            appModel.showAgentKnowledgeLibrary()
-                        } label: {
-                            Label("\(appModel.agentKnowledgePaperSelectedCount)/\(appModel.agentKnowledgePaperTotalCount)", systemImage: "books.vertical")
-                        }
-                        .help("AI 知识库")
-
-                        groupedToolMenu
-
-                        modelMenu
-
-                        Button {
-                            appModel.openAIManagementPanel()
-                        } label: {
-                            Label("设置", systemImage: "gearshape")
-                                .labelStyle(.iconOnly)
-                        }
-                        .help("AI 管理")
-
-                        statusMessages
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                }
-            }
+    private var knowledgeButton: some View {
+        Button {
+            appModel.showAgentKnowledgeLibrary()
+        } label: {
+            Label("\(appModel.agentKnowledgePaperSelectedCount)/\(appModel.agentKnowledgePaperTotalCount)", systemImage: "books.vertical")
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 14)
-        .background(Color.secondary.opacity(0.04))
+        .buttonStyle(.borderless)
+        .help("AI 知识库")
     }
 
     private var groupedToolMenu: some View {
         Menu {
-            Button {
-                appModel.setAllAgentTools(isEnabled: true)
-            } label: {
-                Label("全选工具", systemImage: "checkmark.circle")
-            }
-            Button {
-                appModel.setAllAgentTools(isEnabled: false)
-            } label: {
-                Label("清空工具", systemImage: "circle")
-            }
-            Divider()
-            ForEach(AIToolGroup.groups(for: appModel.agentToolDefinitions)) { group in
-                Menu {
-                    ForEach(group.tools, id: \.identifier) { tool in
-                        Button {
-                            appModel.setAgentTool(tool.name, isEnabled: !appModel.agentEnabledToolNames.contains(tool.name))
-                        } label: {
-                            Label(tool.displayName, systemImage: appModel.agentEnabledToolNames.contains(tool.name) ? "checkmark" : "circle")
-                        }
-                    }
-                } label: {
-                    Label(group.title, systemImage: group.systemImage)
-                }
-            }
+            toolMenuContent
         } label: {
             Label("\(appModel.agentEnabledToolNames.count)", systemImage: "wrench.and.screwdriver")
         }
+        .menuStyle(.borderlessButton)
         .help("AI 工具")
+    }
+
+    @ViewBuilder
+    private var toolMenuContent: some View {
+        Button {
+            appModel.setAllAgentTools(isEnabled: true)
+        } label: {
+            Label("全选工具", systemImage: "checkmark.circle")
+        }
+        Button {
+            appModel.setAllAgentTools(isEnabled: false)
+        } label: {
+            Label("清空工具", systemImage: "circle")
+        }
+        Divider()
+        ForEach(AIToolGroup.groups(for: appModel.agentToolDefinitions)) { group in
+            Menu {
+                ForEach(group.tools, id: \.identifier) { tool in
+                    Button {
+                        appModel.setAgentTool(tool.name, isEnabled: !appModel.agentEnabledToolNames.contains(tool.name))
+                    } label: {
+                        Label(tool.displayName, systemImage: appModel.agentEnabledToolNames.contains(tool.name) ? "checkmark" : "circle")
+                    }
+                }
+            } label: {
+                Label(group.title, systemImage: group.systemImage)
+            }
+        }
     }
 
     private var modelMenu: some View {
         Menu {
-            ForEach(DeepSeekModelOption.presets) { option in
-                Button {
-                    appModel.useDeepSeekModel(option)
-                } label: {
-                    Label(option.title, systemImage: appModel.llmConfiguration.model == option.id ? "checkmark" : "cpu")
-                }
-            }
+            modelMenuContent
         } label: {
             Label(modelDisplayName, systemImage: "cpu")
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(minWidth: 190, maxWidth: 260, alignment: .leading)
+                .frame(maxWidth: 150, alignment: .leading)
         }
+        .menuStyle(.borderlessButton)
         .help(appModel.llmConfiguration.model)
+    }
+
+    @ViewBuilder
+    private var modelMenuContent: some View {
+        ForEach(DeepSeekModelOption.presets) { option in
+            Button {
+                appModel.useDeepSeekModel(option)
+            } label: {
+                Label(option.title, systemImage: appModel.llmConfiguration.model == option.id ? "checkmark" : "cpu")
+            }
+        }
     }
 
     private var modelDisplayName: String {
@@ -873,85 +934,74 @@ struct AgentPanelView: View {
             ?? appModel.llmConfiguration.model
     }
 
-    private var compactComposerDock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .bottom, spacing: 8) {
-                ZStack(alignment: .topLeading) {
-                    AgentComposerTextView(
-                        text: $appModel.agentGoal,
-                        fontSize: appModel.workspacePreferences.agentChatFontSize,
-                        onSubmit: submitComposer
-                    )
-                    .frame(minHeight: 72, maxHeight: 118)
-                    .padding(4)
-
-                    if appModel.agentGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("\(appModel.agentModeStatusText) 输入问题、计划请求，或让 AI 阅读所选论文。")
-                            .font(.system(size: CGFloat(appModel.workspacePreferences.agentChatFontSize)))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 12)
-                            .allowsHitTesting(false)
-                    }
+    private var composerOverflowMenu: some View {
+        Menu {
+            Picker("模式", selection: visibleModeSelection) {
+                ForEach(AgentVisibleMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
                 }
-                .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.18), lineWidth: 0.7)
-                }
-
-                Button {
-                    if appModel.isPlanningAgentRun {
-                        appModel.cancelAgentGeneration()
-                    } else {
-                        submitComposer()
-                    }
-                } label: {
-                    Label(appModel.isPlanningAgentRun ? "停止" : "发送", systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(appModel.isExecutingAgentTools || (!appModel.isPlanningAgentRun && appModel.agentToolAvailabilityWarning != nil))
-                .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
             }
-
-            if let warning = appModel.agentToolAvailabilityWarning {
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
+            Picker("上下文", selection: contextSelection) {
+                contextPickerOptions
             }
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-
-                Label(appModel.agentContextUsageLabel, systemImage: "gauge.with.dots.needle.33percent")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("上下文使用比例")
-
-                Button {
-                    appModel.openSettings(category: .aiLab)
-                } label: {
-                    Label("设置", systemImage: "gearshape")
-                        .labelStyle(.iconOnly)
-                }
-                .help("AI 设置")
+            Divider()
+            Button {
+                appModel.showAgentKnowledgeLibrary()
+            } label: {
+                Label("AI 知识库", systemImage: "books.vertical")
             }
-            .font(.caption)
-            .buttonStyle(.glass)
-            .controlSize(.small)
+            Menu("工具") {
+                toolMenuContent
+            }
+            Menu("模型") {
+                modelMenuContent
+            }
+            Divider()
+            Button {
+                appModel.openAIManagementPanel()
+            } label: {
+                Label(appModel.t(.aiManagementTitle), systemImage: "gearshape")
+            }
+        } label: {
+            Label("更多", systemImage: "plus")
+                .labelStyle(.iconOnly)
         }
-        .padding(10)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.secondary.opacity(0.16), lineWidth: 0.7)
+        .menuStyle(.borderlessButton)
+        .help("更多 AI 选项")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            appModel.openAIManagementPanel()
+        } label: {
+            Label("设置", systemImage: "gearshape")
+                .labelStyle(.iconOnly)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
+        .buttonStyle(.borderless)
+        .help(appModel.t(.aiManagementTitle))
+    }
+
+    private var sendButton: some View {
+        Button {
+            if appModel.isPlanningAgentRun {
+                appModel.cancelAgentGeneration()
+            } else {
+                submitComposer()
+            }
+        } label: {
+            Label(
+                appModel.isPlanningAgentRun ? "停止" : "发送",
+                systemImage: appModel.isPlanningAgentRun ? "stop.fill" : "arrow.up"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .frame(width: 36, height: 36)
+        .disabled(appModel.isExecutingAgentTools || (!appModel.isPlanningAgentRun && appModel.agentToolAvailabilityWarning != nil))
+        .help(appModel.isPlanningAgentRun ? "停止输出" : "Return 发送，Shift+Return 换行")
+        .accessibilityLabel(appModel.isPlanningAgentRun ? "停止输出" : "发送")
     }
 
     private func submitComposer() {
@@ -1755,13 +1805,13 @@ private struct AgentTurnBubbleView: View {
             let text = [detail, payloadPreview ?? ""].joined(separator: "\n")
             let longestLine = text.split(separator: "\n", omittingEmptySubsequences: false).map(\.count).max() ?? text.count
             let estimated = CGFloat(min(max(longestLine, 12), 60)) * 7.6 + 42
-            return min(max(estimated, 140), 480)
+            return min(max(estimated, 140), 560)
         }
-        return 640
+        return 820
     }
 
     private var sideSpacer: CGFloat {
-        isCompact ? 0 : 72
+        isCompact ? 0 : 28
     }
 
     var body: some View {

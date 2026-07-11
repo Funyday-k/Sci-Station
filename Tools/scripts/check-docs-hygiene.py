@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Check Sci-Station Markdown documentation hygiene.
-
-The check is intentionally lightweight: public docs get strict rules, while
-development docs can keep historical terms if the output is reviewed.
-"""
+"""Check version-controlled Sci-Station Markdown documentation hygiene."""
 
 from __future__ import annotations
 
@@ -22,6 +18,11 @@ DOC_ROOTS = [
     ROOT / "docs",
 ]
 
+IGNORED_DOC_ROOTS = {
+    ROOT / "docs" / "development",
+    ROOT / "docs" / "user-feedback",
+}
+
 PUBLIC_DOCS = {
     "README.md",
     "docs/README.en.md",
@@ -30,12 +31,6 @@ PUBLIC_DOCS = {
     "docs/TUTORIAL.zh-CN.md",
     "docs/DEVELOPER.md",
 }
-
-CURRENT_STATUS_DOCS = {
-    "docs/development/README.md",
-    "docs/development/roadmap/Current.md",
-}
-
 
 @dataclass(frozen=True)
 class Finding:
@@ -56,7 +51,11 @@ def markdown_files() -> list[Path]:
         if root.is_file():
             files.append(root)
         elif root.is_dir():
-            files.extend(sorted(root.rglob("*.md")))
+            files.extend(
+                path
+                for path in sorted(root.rglob("*.md"))
+                if not any(path.is_relative_to(ignored) for ignored in IGNORED_DOC_ROOTS)
+            )
     return sorted(set(files))
 
 
@@ -89,17 +88,6 @@ def scan_lines(files: list[Path]) -> list[Finding]:
             "Public docs should not advertise stale beta versions.",
         ),
     ]
-    warning_patterns = [
-        (
-            "review-placeholder",
-            re.compile(r"\bTODO\b|(?i:\b(?:stub|placeholder|not implemented)\b)|待实现|未实现"),
-        ),
-        (
-            "review-retired-terms",
-            re.compile(r"\bQueue\b|ReadingPlan|Reading Plan|reading plan", re.I),
-        ),
-    ]
-
     for path in files:
         relative = rel(path)
         text = path.read_text(encoding="utf-8")
@@ -108,20 +96,6 @@ def scan_lines(files: list[Path]) -> list[Finding]:
                 for rule, pattern, _description in public_patterns:
                     if pattern.search(line):
                         findings.append(Finding("ERROR", rule, relative, index, line.strip()))
-            if relative in CURRENT_STATUS_DOCS and "release/0.2.0" in line:
-                findings.append(
-                    Finding(
-                        "ERROR",
-                        "current-branch-stale",
-                        relative,
-                        index,
-                        line.strip(),
-                    )
-                )
-            if relative.startswith("docs/development/"):
-                for rule, pattern in warning_patterns:
-                    if pattern.search(line):
-                        findings.append(Finding("WARN", rule, relative, index, line.strip()))
     return findings
 
 

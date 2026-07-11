@@ -24,22 +24,26 @@ public actor MovePaperToCollectionService {
     }
 
     public func move(_ paper: Paper, to collectionPath: String, in workspace: ResearchWorkspace) async throws -> Paper {
-        let normalizedCollectionPath = collectionPath
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "/")
-            .map(String.init)
-            .filter { !$0.isEmpty }
-            .joined(separator: "/")
-
-        let sourceDirectoryURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath)
-        let targetCollectionURL = workspace.resolve(
-            relativePath: normalizedCollectionPath,
-            from: papersRootURL(for: paper, in: workspace),
+        let fileSystem = WorkspaceFileSystem(rootURL: workspace.rootURL)
+        let sourceDirectoryURL = try await fileSystem.resolvedURL(
+            WorkspaceRelativePath(paper.paperDirectoryRelativePath),
             isDirectory: true
         )
+        let storageRootRelativePath = Paper.storageRootRelativePath(
+            for: paper.paperDirectoryRelativePath
+        ) ?? Paper.globalLibraryRootRelativePath
+        let targetRelativePath = try Paper.directoryRelativePath(
+            for: paper.id,
+            collectionPath: collectionPath,
+            storageRootRelativePath: storageRootRelativePath
+        )
+        let targetDirectoryURL = try await fileSystem.resolvedURL(
+            WorkspaceRelativePath(targetRelativePath),
+            isDirectory: true
+        )
+        let targetCollectionURL = targetDirectoryURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: targetCollectionURL, withIntermediateDirectories: true)
 
-        let targetDirectoryURL = targetCollectionURL.appendingPathComponent(paper.id, isDirectory: true)
         guard !fileManager.fileExists(atPath: targetDirectoryURL.path) else {
             throw MovePaperToCollectionError.targetAlreadyExists(workspace.relativePath(to: targetDirectoryURL))
         }
@@ -56,14 +60,5 @@ public actor MovePaperToCollectionService {
         )
 
         return try await paperRepository.save(movedPaper, in: workspace)
-    }
-
-    private func papersRootURL(for paper: Paper, in workspace: ResearchWorkspace) -> URL {
-        switch Paper.storageRootRelativePath(for: paper.paperDirectoryRelativePath) {
-        case Paper.legacyLibraryRootRelativePath:
-            return workspace.rawPapersURL
-        default:
-            return workspace.globalPapersURL
-        }
     }
 }

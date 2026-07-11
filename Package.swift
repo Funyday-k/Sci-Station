@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "SciStationCore",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("15.0")],
     products: [
         .library(name: "SciStationCore", targets: ["SciStationCore"]),
         .executable(name: "SciStationCoreTestRunner", targets: ["SciStationCoreTestRunner"]),
@@ -29,6 +29,7 @@ let package = Package(
                 "UI/ChatMarkdownWebView.swift",
                 "UI/CollectionManagerView.swift",
                 "UI/ColorHex.swift",
+                "UI/Components",
                 "UI/DashboardViews.swift",
                 "UI/Home",
                 "UI/IdentifierImportView.swift",
@@ -42,6 +43,8 @@ let package = Package(
                 "UI/ModuleSettings",
                 "UI/PaperMarkdownConversionBadge.swift",
                 "UI/ProjectOverviewView.swift",
+                "UI/Previews",
+                "UI/Recommendation",
                 "UI/ResearchProjectEditorView.swift",
                 "UI/SciStationDesignTokens.swift",
                 "UI/SettingsViews.swift",
@@ -52,8 +55,10 @@ let package = Package(
                 "UI/Shell/ShellRightRailViews.swift",
                 "UI/Shell/TopSidebarView.swift",
                 "UI/TagViews.swift",
+                "UI/Tasks",
                 "UI/WikiViews.swift",
                 "UI/WorkspaceSection.swift",
+                "Sci-Station.entitlements",
                 "UI/Graph"
             ],
             sources: [
@@ -100,6 +105,14 @@ let package = Package(
         .executableTarget(
             name: "SciStationUIProbe",
             path: "Tools/SciStationUIProbe"
+        ),
+        .testTarget(
+            name: "SciStationCoreTests",
+            dependencies: ["SciStationCore"],
+            path: "Tests/SciStationCoreTests",
+            swiftSettings: [
+                .unsafeFlags(["-default-isolation", "MainActor"])
+            ]
         )
     ]
 )

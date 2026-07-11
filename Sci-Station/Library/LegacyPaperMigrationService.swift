@@ -227,8 +227,8 @@ public actor LegacyPaperMigrationService {
         let globalPaperIDs = Set(globalPapers.map(\.id))
         let legacyPaperIDCounts = Dictionary(grouping: legacyPapers, by: \.id).mapValues(\.count)
 
-        let items = legacyPapers.map { paper in
-            makePlanItem(
+        let items = try legacyPapers.map { paper in
+            try makePlanItem(
                 for: paper,
                 workspace: workspace,
                 globalPaperIDs: globalPaperIDs,
@@ -298,8 +298,8 @@ public actor LegacyPaperMigrationService {
         workspace: ResearchWorkspace,
         globalPaperIDs: Set<Paper.ID>,
         legacyPaperIDCounts: [Paper.ID: Int]
-    ) -> LegacyPaperMigrationItem {
-        let targetRelativePath = Paper.directoryRelativePath(
+    ) throws -> LegacyPaperMigrationItem {
+        let targetRelativePath = try Paper.directoryRelativePath(
             for: paper.id,
             collectionPath: paper.collectionPath
         )

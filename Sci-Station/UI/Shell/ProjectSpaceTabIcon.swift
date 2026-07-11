@@ -4,8 +4,6 @@ import Foundation
 /// (`WorkspaceSection.systemImage`) and the tab bar
 /// (`ProjectSpaceTabsBuilder.systemImage(for:)`) should call through here so
 /// that icon changes only need to happen in one place.
-///
-/// See docs/development/modules/ShellAndNavigation.md.
 public enum ProjectSpaceTabIcon {
     public nonisolated static func systemImage(for tabID: String) -> String {
         switch tabID {

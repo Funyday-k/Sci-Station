@@ -160,7 +160,7 @@ MinerU PDF 转 Markdown 也需要试用者自己的 API Token。没有 token 时
 git status --short
 swift run SciStationCoreTestRunner
 xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)' -- . ':!docs/development/**'
+git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)'
 ```
 
 确认没有真实凭据、本机 research 数据、`.env*`、`.mcp.json`、`.claude/`、`.sci-ai/workspace.local/`、DerivedData、archive、`.app`、`.zip`、`.dSYM` 或 `.xcresult` 混入分享内容。

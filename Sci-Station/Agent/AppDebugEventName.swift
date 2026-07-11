@@ -15,8 +15,7 @@ import Foundation
 /// multi-word tokens and `.` as the separator. New events MUST follow this
 /// convention so that the orchestrator's lint test stays green.
 ///
-/// See docs/development/modules/TestingDiagnostics.md and
-/// AgentRuntime/sci_station_agent/uitest/README.md.
+/// See AgentRuntime/sci_station_agent/uitest/README.md.
 public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     // MARK: - Route persistence
     case routePersist = "route.persist"

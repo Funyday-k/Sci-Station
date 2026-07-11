@@ -559,12 +559,12 @@ private struct PDFReaderContextRail: View {
             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             HStack(spacing: 8) {
-                Button("Copy") {
+                Button(appModel.t(.appCopy)) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(BibTeXFormatter.citation(for: paper, format: selectedCitationFormat), forType: .string)
                 }
                     .buttonStyle(.bordered)
-                Button("Export BibTeX") { appModel.exportBibTeX(for: paper) }
+                Button(appModel.t(.menuExportBibTeX)) { appModel.exportBibTeX(for: paper) }
                     .buttonStyle(.borderedProminent)
                     .disabled(selectedCitationFormat != .bibTeX)
             }
@@ -803,7 +803,7 @@ struct GlobalAIContextActionBar: View {
                     .disabled(context.selectedTextPreview == nil)
                 }
                 .font(.caption)
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
