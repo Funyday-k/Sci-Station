@@ -93,13 +93,13 @@ public nonisolated struct PaperImportResult: Codable, Hashable, Sendable {
     }
 }
 
-public protocol PaperImporter: Sendable {
+public nonisolated protocol PaperImporter: Sendable {
     var contribution: ImporterContribution { get }
     func canHandle(_ input: PaperImportInput) -> Bool
     func importPaper(_ input: PaperImportInput, context: PluginContext) async throws -> PaperImportResult
 }
 
-public protocol PaperMetadataProviderPlugin: Sendable {
+public nonisolated protocol PaperMetadataProviderPlugin: Sendable {
     var contribution: MetadataProviderContribution { get }
     func lookup(_ query: MetadataLookupQuery, context: PluginContext) async throws -> [PaperMetadataCandidate]
 }

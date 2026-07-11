@@ -11,11 +11,9 @@ A scenario is a deterministic recipe for one MT (manual test) case. It binds:
 
       1. ``event``  -- expected entries in ``app_events.jsonl``
       2. ``file``   -- expected workspace-local files / yaml fragments
-      3. ``visual`` -- screenshot baseline diff (P-AT.4, deferred)
+      3. ``visual`` -- screenshot baseline diff (deferred)
 
 The loader supports JSON natively and YAML when PyYAML is installed.
-
-See ``docs/development/Proposal-AT.md`` §P-AT.2 for the schema rationale.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ class Step:
         - "drag"            target: <accessibility identifier>, to: <axid>
         - "wait_for_event"  event: str, timeout_seconds: float
         - "sleep"           seconds: float
-        - "test_bridge"     command: str, args: dict (P-AT.1e)
+        - "test_bridge"     command: str, args: dict
 
     Unknown kinds raise during validation; new kinds must be added in the
     runner alongside their handler.
@@ -88,7 +86,7 @@ class Assertion:
 
         - "event"  -- pass kwargs to :class:`EventQuery`
         - "file"   -- pass kwargs to :class:`FileProbe.matches`
-        - "visual" -- not yet implemented; see P-AT.4
+        - "visual" -- deferred until visual baseline support is available
 
     ``description`` is surfaced verbatim in the markdown report so a human
     can read pass/fail reasons without cross-referencing scenarios.

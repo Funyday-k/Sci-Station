@@ -92,7 +92,7 @@ public actor AgentSessionEventLogger {
     private func append(_ event: AgentSessionEvent, logURL: URL) async throws {
         // Redact sensitive content before persisting. Session events may
         // contain workspace paths, paper titles, or wiki body previews that
-        // should not leak into debug bundles. See docs/development/comment.md §8.2.
+        // should not leak into debug bundles.
         var redactedEvent = event
         if let payload = redactedEvent.payloadJSON,
            payload.count > 1024 {

@@ -7,15 +7,15 @@ import Foundation
 /// 2. Tests can assert against an allow-list (see
 ///    `appDebugEventNameRegistryCoversAllEmittedEvents` in
 ///    `Tools/SciStationCoreTestRunner/main.swift`).
-/// 3. Tooling — including the AI Usage Test orchestrator (`Proposal-AT.md`,
-///    `AgentRuntime/sci_station_agent/uitest/`) — can enumerate all known
+/// 3. Tooling — including the AI Usage Test orchestrator
+///    (`AgentRuntime/sci_station_agent/uitest/`) — can enumerate all known
 ///    events for dashboards, scenario assertions and filters.
 ///
 /// Naming convention: `<domain>.<entity>.<verb>` using `snake_case` for
 /// multi-word tokens and `.` as the separator. New events MUST follow this
 /// convention so that the orchestrator's lint test stays green.
 ///
-/// See docs/development/comment.md §8.1 and docs/development/Proposal-AT.md §P-AT.1.
+/// See AgentRuntime/sci_station_agent/uitest/README.md.
 public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     // MARK: - Route persistence
     case routePersist = "route.persist"
@@ -115,7 +115,7 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case moduleSettingsToggleChain = "module_settings.toggle_chain"
     case moduleSettingsPin = "module_settings.pin"
 
-    // MARK: - Graph (P44–P47)
+    // MARK: - Graph
     case graphIndexerRebuildStarted = "graph.indexer.rebuild_started"
     case graphIndexerRebuildCompleted = "graph.indexer.rebuild_completed"
     case graphIndexerRebuildFinished = "graph.indexer.rebuild_finished"
@@ -139,7 +139,7 @@ public enum AppDebugEventName: String, Codable, CaseIterable, Sendable {
     case workspaceSchemaMigrate = "workspace.schema.migrate"
     case workspaceModuleToggle = "workspace.module.toggle"
 
-    // MARK: - UI Test Bridge (Debug builds only; see P-AT.1e)
+    // MARK: - UI Test Bridge (Debug builds only)
     case uitestBridgeCommandReceived = "uitest.bridge.command_received"
     case uitestBridgeCommandCompleted = "uitest.bridge.command_completed"
     case uitestBridgeCommandFailed = "uitest.bridge.command_failed"

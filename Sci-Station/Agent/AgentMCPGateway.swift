@@ -74,7 +74,7 @@ public actor AgentMCPGateway {
                 ]))
             case "resources/read":
                 return AgentMCPEnvelope(id: request.id, result: .object([
-                    "contents": .array([.object(["type": .string("text"), "text": .string("Sci-Station local gateway resources are metadata-only in P33 V1.")])])
+                    "contents": .array([.object(["type": .string("text"), "text": .string("Sci-Station local gateway resources are metadata-only in this build.")])])
                 ]))
             default:
                 return errorResponse(id: request.id, code: -32601, message: "Unsupported MCP method: \(method)")

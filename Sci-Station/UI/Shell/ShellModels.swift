@@ -71,9 +71,9 @@ public nonisolated enum RightRailPolicy {
     /// Why we removed route-driven overrides
     /// =====================================
     /// Pre-2026-05-17 this function returned `.inspector` on Library / Wiki /
-    /// PDF routes and `.hidden` on Home / Calendar / queue-style tabs. That
+    /// PDF routes and `.hidden` on Home / Calendar / task-style tabs. That
     /// felt magical in demos but produced a real bug in the field: when the
-    /// user explicitly clicked the toolbar Inspector toggle on the Queue tab
+    /// user explicitly clicked the toolbar Inspector toggle on a task tab
     /// to hide / show the rail, the next `applyRightRailRouteSuggestion()`
     /// pass would overwrite their preference with the route's suggestion.
     /// The result was that the rail either bounced back open after collapse
@@ -123,11 +123,11 @@ public nonisolated enum ToolbarActionID: String, Codable, CaseIterable, Hashable
     case pdfSearch = "pdf_search"
     case pdfFindPrevious = "pdf_find_previous"
     case pdfFindNext = "pdf_find_next"
-    case pdfAnnotationPlaceholder = "pdf_annotation_placeholder"
+    case pdfAnnotations = "pdf_annotations"
     case wikiNewPage = "wiki_new_page"
     case wikiSave = "wiki_save"
     case wikiPreviewMode = "wiki_preview_mode"
-    // P46 graph toolbar actions.
+    // Graph toolbar actions.
     case graphSearch = "graph_search"
     case graphDepth = "graph_depth"
     case graphLayoutMode = "graph_layout_mode"
@@ -173,7 +173,6 @@ public nonisolated enum ToolbarPolicy {
     public static func resolve(route: WorkspaceRoute, context: WorkspaceContextSnapshot, language: AppLanguage = .english) -> ToolbarModel {
         var globalActions: [ToolbarAction] = [
             ToolbarAction(id: .workspaceMenu, title: L10n.text(.toolbarWorkspace, language: language), systemImage: "folder"),
-            ToolbarAction(id: .aiPanel, title: L10n.text(.toolbarAI, language: language), systemImage: "sparkles"),
             ToolbarAction(id: .inspector, title: L10n.text(.toolbarInspector, language: language), systemImage: "sidebar.right")
         ]
         var pageActions: [ToolbarAction] = []
@@ -230,7 +229,7 @@ public nonisolated enum ToolbarPolicy {
             ToolbarAction(id: .pdfSearch, title: L10n.text(.toolbarSearch, language: language), systemImage: "magnifyingglass"),
             ToolbarAction(id: .pdfFindPrevious, title: L10n.text(.toolbarPrevious, language: language), systemImage: "chevron.up"),
             ToolbarAction(id: .pdfFindNext, title: L10n.text(.toolbarNext, language: language), systemImage: "chevron.down"),
-            ToolbarAction(id: .pdfAnnotationPlaceholder, title: L10n.text(.toolbarAnnotations, language: language), systemImage: "highlighter")
+            ToolbarAction(id: .pdfAnnotations, title: L10n.text(.toolbarAnnotations, language: language), systemImage: "highlighter")
         ]
     }
 

@@ -1,37 +1,39 @@
-# Temporary build/validation artifacts
-.tmp/
+# Temporary and generated artifacts
+/.tmp/
+/*.log
+/*.zip
+/*.dmg
+/*.tar.gz
+/dist/
+/release/
 
-# Xcode
+# Xcode and SwiftPM
+/.build/
+/.build-cache/
+/.build-sandbox/
+/.derivedData/
+/.swiftpm/
+/DerivedData/
+/build/
+xcuserdata/
 *.xcuserstate
 *.xcbkptlist
-xcuserdata/
-DerivedData/
-/.derivedData/
-build/
-Build/
 *.xcresult
 *.xcarchive
 *.hmap
 *.app
-*.ipa
-*.dSYM.zip
 *.dSYM
-
-# SwiftPM
-.build/
-.swiftpm/
-*.resolved
+*.dSYM.zip
 
 # Python
 __pycache__/
+.pytest_cache/
+.venv/
 *.py[cod]
 *.egg-info/
 
-# macOS
+# macOS metadata
 .DS_Store
-.AppleDouble
-.LSOverride
-Icon
 ._*
 .Spotlight-V100
 .Trashes
@@ -57,14 +59,6 @@ Icon
 *.local.yaml
 *.local.yml
 *.local.plist
-
-# Share/build artifacts
-dist/
-release/
-*.zip
-*.dmg
-*.tar.gz
-*.log
 
 # Accidental local Sci-Station research roots inside this repo
 /.sci-station/
@@ -101,23 +95,8 @@ release/
 .mcp.local.json
 .sci-ai/workspace.local/
 
-# GitHub local config (skills/workflows kept local per owner request)
-/.github/
-
 # User feedback inbox/drafts (not for main branch)
 docs/user-feedback/
 
-# CocoaPods (not used, but just in case)
-Pods/
-
-# Carthage (not used, but just in case)
-Carthage/Build/
-
-# fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-
-# User feedback inbox (not for main branch)
-docs/user-feedback/
+# Local development notes (public guidance lives in docs/DEVELOPER.md)
+/docs/development/

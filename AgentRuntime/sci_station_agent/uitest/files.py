@@ -9,7 +9,7 @@ the App produced. Callers express expectations as either:
 
 YAML loading is lazy-imported; JSON is supported natively. JSONL files are
 parsed line-by-line and exposed as a list of records. SwiftUI runtime
-warnings (P-AT.1d) are exposed via :func:`parse_swiftui_warnings_log`.
+warnings are exposed via :func:`parse_swiftui_warnings_log`.
 """
 
 from __future__ import annotations

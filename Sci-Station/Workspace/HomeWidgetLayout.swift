@@ -1,44 +1,36 @@
 import Foundation
 
 public nonisolated enum HomeWidgetSize: String, Codable, CaseIterable, Hashable, Sendable {
-    /// 1 × 1 tile.
+    /// 1 row × 1 column tile.
     case small
-    /// 1 × 2 (1 column wide, 2 rows tall) — opt-in per descriptor. Introduced
-    /// 2026-05-17 to give vertical lists (todos, projects, recent papers,
-    /// reading plan, quick actions) a denser single-column variant.
-    case tall
-    /// 2 × 2 tile.
-    case medium
-    /// 3 × 3 tile.
-    case large
-    /// 4 × 4 tile (largest).
+    /// 1 row × 2 columns. Wide but shallow, intended for horizontal summaries.
     case wide
+    /// 2 rows × 1 column. Tall but narrow, intended for compact vertical lists.
+    case tall
+    /// 2 rows × 2 columns.
+    case medium
+    /// 3 rows × 3 columns.
+    case large
 
     public var columnSpan: Int {
         switch self {
         case .small, .tall:
             return 1
-        case .medium:
+        case .wide, .medium:
             return 2
         case .large:
             return 3
-        case .wide:
-            return 4
         }
     }
 
     public var rowSpan: Int {
         switch self {
-        case .small:
+        case .small, .wide:
             return 1
-        case .tall:
-            return 2
-        case .medium:
+        case .tall, .medium:
             return 2
         case .large:
             return 3
-        case .wide:
-            return 4
         }
     }
 }
@@ -135,9 +127,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetCalendar,
             category: .calendar,
             defaultSize: .large,
-            // Calendar uses a 2D month grid, the 1×2 narrow form factor would
-            // squash it; intentionally opt out of `.tall`.
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 3,
             requiredModuleIDs: ["calendar"],
             systemImage: "calendar"
@@ -154,7 +144,7 @@ public nonisolated enum HomeWidgetRegistry {
         ),
         HomeWidgetDescriptor(
             id: HomeWidgetID.readingPlan,
-            titleKey: .homeWidgetReadingPlan,
+            titleKey: .homeWidgetReading,
             category: .library,
             defaultSize: .medium,
             supportedSizes: [.small, .tall, .medium, .large, .wide],
@@ -167,9 +157,7 @@ public nonisolated enum HomeWidgetRegistry {
             titleKey: .homeWidgetProjectHealth,
             category: .project,
             defaultSize: .small,
-            // Health is a horizontal metric strip; `.tall` would only stretch
-            // empty space, so leave it out.
-            supportedSizes: [.small, .medium, .large, .wide],
+            supportedSizes: [.small, .wide, .tall, .medium, .large],
             defaultOrder: 6,
             requiredModuleIDs: ["projects"],
             systemImage: "waveform.path.ecg"
@@ -400,8 +388,7 @@ public nonisolated struct HomeWidgetGridCell: Hashable, Sendable {
 
 public nonisolated enum HomeWidgetGridPlanner {
     public static func columns(for width: Double) -> Int {
-        if width >= 1120 { return 4 }
-        if width >= 840 { return 3 }
+        if width >= 840 { return 4 }
         if width >= 560 { return 2 }
         return 1
     }
@@ -422,7 +409,7 @@ public nonisolated enum HomeWidgetGridPlanner {
 
     public static func repackedItems(_ items: [HomeWidgetLayoutItem], descriptorsByID: [String: HomeWidgetDescriptor], columns: Int) -> [HomeWidgetLayoutItem] {
         let safeColumns = max(1, columns)
-        var occupied: Set<GridCoordinate> = []
+        var columnHeights = Array(repeating: 0, count: safeColumns)
         var packed: [HomeWidgetLayoutItem] = []
         let enabled = items.filter(\.isEnabled)
         let disabled = items.filter { !$0.isEnabled }
@@ -432,29 +419,19 @@ public nonisolated enum HomeWidgetGridPlanner {
             let size = descriptor?.supportedSizes.contains(item.size) == true ? item.size : (descriptor?.defaultSize ?? item.size)
             let columnSpan = min(safeColumns, max(1, size.columnSpan))
             let rowSpan = max(1, size.rowSpan)
-            var row = 0
-            var column = 0
-
-            while true {
-                if column + columnSpan > safeColumns {
-                    row += 1
-                    column = 0
-                    continue
-                }
-                if isFree(column: column, row: row, columnSpan: columnSpan, rowSpan: rowSpan, occupied: occupied) {
-                    break
-                }
-                column += 1
-            }
+            let placement = lowestSupportedPlacement(columnSpan: columnSpan, columnHeights: columnHeights)
 
             item.size = size
-            item.column = column
-            item.row = row
-            mark(column: column, row: row, columnSpan: columnSpan, rowSpan: rowSpan, occupied: &occupied)
+            item.column = placement.column
+            item.row = placement.row
+            let nextHeight = placement.row + rowSpan
+            for column in placement.column..<(placement.column + columnSpan) {
+                columnHeights[column] = nextHeight
+            }
             packed.append(item)
         }
 
-        let disabledStartRow = (packed.map(\.row).max() ?? -1) + 1
+        let disabledStartRow = (columnHeights.max() ?? 0) + (packed.isEmpty ? 0 : 1)
         let normalizedDisabled = disabled.enumerated().map { offset, item in
             var next = item
             next.column = offset % safeColumns
@@ -484,21 +461,25 @@ public nonisolated enum HomeWidgetGridPlanner {
         return false
     }
 
-    private static func isFree(column: Int, row: Int, columnSpan: Int, rowSpan: Int, occupied: Set<GridCoordinate>) -> Bool {
-        for y in row..<(row + rowSpan) {
-            for x in column..<(column + columnSpan) where occupied.contains(GridCoordinate(column: x, row: y)) {
-                return false
-            }
-        }
-        return true
-    }
+    /// Skyline packing with "gravity" semantics: each widget drops into the
+    /// lowest column group that can support its full width. It preserves the
+    /// user's ordered sequence while avoiding the old three-column visual split
+    /// and preventing unsupported floating tiles.
+    private static func lowestSupportedPlacement(columnSpan: Int, columnHeights: [Int]) -> (column: Int, row: Int) {
+        let safeColumns = max(1, columnHeights.count)
+        let safeSpan = min(max(1, columnSpan), safeColumns)
+        var bestColumn = 0
+        var bestRow = Int.max
 
-    private static func mark(column: Int, row: Int, columnSpan: Int, rowSpan: Int, occupied: inout Set<GridCoordinate>) {
-        for y in row..<(row + rowSpan) {
-            for x in column..<(column + columnSpan) {
-                occupied.insert(GridCoordinate(column: x, row: y))
+        for column in 0...(safeColumns - safeSpan) {
+            let row = columnHeights[column..<(column + safeSpan)].max() ?? 0
+            if row < bestRow {
+                bestRow = row
+                bestColumn = column
             }
         }
+
+        return (bestColumn, bestRow == Int.max ? 0 : bestRow)
     }
 
     private nonisolated struct GridCoordinate: Hashable, Sendable {

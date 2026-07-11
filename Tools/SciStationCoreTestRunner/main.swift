@@ -18,11 +18,23 @@ private struct CoreVerificationSuite {
     func runAll() async throws {
         try await createWorkspaceInitializesExpectedStructure()
         try await createWorkspaceInitializesResearchRootAndDefaultProject()
+        try await createWorkspaceInitializesAgentWorkspaceProfile()
+        try agentPromptLibraryRejectsSecretLikePromptBodies()
+        try agentPromptLibraryDiffPreviewHighlightsBodyChanges()
+        try agentPromptPatchProposalAcceptRejectDiscardSemantics()
+        try agentPromptPatchProposalRejectsActiveSurfaceMismatch()
+        try await agentWorkspaceProfileRepositoryRestoresDefaultPromptTemplate()
+        try await agentPromptTemplateRoundTripsWorkspaceProfile()
+        try await agentSkillLoaderTrustGatingAndCatalogVisibility()
+        try await agentSkillLoaderCatalogSourcePrecedence()
+        try await agentSkillLoaderBlocksSecretSkillBodies()
         try await projectRegistryCreatesUpdatesAndCollapsesProjects()
         try await openWorkspaceBackfillsMissingStructure()
         try await openLegacyWorkspaceCreatesResearchRootRegistry()
         try await restoreLastWorkspaceClearsMissingBookmark()
         try await workspacePreferencesRoundTrip()
+        try await workspacePreferencesDefaultRuntimeIsStableSwiftLoop()
+        try await workspacePreferencesRuntimeSelectionFallbacksToSwiftLoop()
         try await workspacePreferencesLanguageRoundTrips()
         try await homeWidgetLayoutRoundTripsPreferences()
         try await homeWidgetLayoutFallsBackWhenInvalid()
@@ -40,6 +52,7 @@ private struct CoreVerificationSuite {
         try homeWidgetGridReflowsForTwoColumns()
         try homeWidgetGridReflowsForSingleColumn()
         try homeWidgetGridRepackAvoidsOverlap()
+        try homeWidgetGridUsesGravityPacking()
         try homeWidgetResetRestoresDefaultLayout()
         try homeWidgetDragOntoCommitsInBothDirections()
         try toolbarPolicyShowsImportOnlyForLibraryContexts()
@@ -165,6 +178,7 @@ private struct CoreVerificationSuite {
         try openAIProviderTreatsDeepSeekV4FlashAsThinkingMode()
         try paperSummaryPromptBuilderIncludesContext()
         try await llmConfigurationStorePersistsWithoutAPIKey()
+        try llmAPIKeyResolverTrimsAndPrefersInMemoryKey()
         try await llmWritebackServiceKeepsDraftsSeparateFromWiki()
         try agentPlanParserExtractsJSONFromMarkdownFence()
         try agentPlanParserExtractsBalancedJSONBeforeTrailingText()
@@ -256,8 +270,8 @@ private struct CoreVerificationSuite {
         try await workspaceCreationWizardPreviewValidationAndSafety()
         try workspaceModuleRegistryV1GatesRoutesWorkflowsAndArtifacts()
         try workspaceModuleRegistryGatesGraphWorkflows()
-        try paperLibraryModuleDeclaresReadingQueueArtifactKindAndWorkflow()
-        try workspaceModuleRegistryWorkflowGatingForReadingQueueCurate()
+        try paperLibraryModuleDoesNotExposeRetiredReadingArtifacts()
+        try workspaceModuleRegistryDoesNotExposeRetiredReadingWorkflow()
         try moduleSettingsViewModelEnableModuleRequiresDependencies()
         try moduleSettingsViewModelEnableDependenciesEnablesAllAncestors()
         try await moduleSettingsViewModelTogglePinPersistsOrder()
@@ -284,6 +298,8 @@ private struct CoreVerificationSuite {
         try await deterministicSafetyPolicyBlocksSecretPromptBeforeLLM()
         try await hookDenyBlocksSensitivePathWrite()
         try await agentSkillLoaderProgressivelyLoadsMatchingSkill()
+        try await agentSkillRuntimeResolutionEnforcesTrustAndToolBounds()
+        try await agentServiceInjectsEnabledSkillAndRestrictsTools()
         try openAIProviderPayloadIncludesToolChoiceAuto()
         try openAIProviderNormalizesLegacyToolSchemas()
         try await agentRunLoggerSkipsDamagedHistoryLines()
@@ -292,6 +308,7 @@ private struct CoreVerificationSuite {
         try await agentThreadRepositoryMigratesPerWorkspaceLegacy()
         try await agentThreadRepositoryArchivesAndReadsLegacyThreads()
         try await agentPromptDraftRepositoryPersistsDrafts()
+        try await agentWorkspaceProfileRepositoryPersistsPromptSkillAndMCPOverrides()
         try agentPaperIntentRouterMapsThirdPaperOrdinal()
         try agentToolDefinitionsExposePlatformMetadata()
         try agentPermissionRulesEvaluateSafetyDecisions()
@@ -306,6 +323,14 @@ private struct CoreVerificationSuite {
         try agentPermissionDockSummarizesPolicies()
         try agentHookActivitySummaryReflectsTogglesAndResults()
         try agentMCPServerStatusSummaryParsesProductAndLocal()
+        try agentMCPConnectorRegistryEnforcesPrecedenceAndApproval()
+        try agentLocalMCPConfigurationDefaultsDisabledAndRedactsRawSecrets()
+        try await agentMCPStdioClientDiscoversAndApprovalGatesTool()
+        try await agentMCPRemoteHTTPDiscoversAndApprovalGatesTool()
+        try await agentMCPRemoteFailureBackoffIsAuditable()
+        try await agentMCPRuntimeReportsRemoteCredentialFailure()
+        try await agentMCPRuntimeReportsLocalCrashLiveness()
+        try await agentRunManifestRoundTripsMCPAuditContext()
         try openAIStreamDeltaParserIgnoresBadChunks()
         try llmProviderV2RequestModelsToolDefinitions()
         try await pdfImportCreatesLibraryMarkdownAndFigures()
@@ -432,6 +457,131 @@ private struct CoreVerificationSuite {
         try expect(registry.lastOpenedProjectID == defaultProject.id, "Default project should become the last opened project.")
         try expect(FileManager.default.fileExists(atPath: root.directoryURL(for: defaultProject.relativePath).path), "Default project directory should exist.")
         try expect(FileManager.default.fileExists(atPath: root.fileURL(for: defaultProject.relativePath + "/project.yaml").path), "Default project.yaml should exist.")
+    }
+
+    private func createWorkspaceInitializesAgentWorkspaceProfile() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let workspaceURL = temporaryDirectoryURL().appendingPathComponent("AgentProfileWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceURL.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceURL)
+        let root = ResearchRoot(rootURL: workspace.rootURL)
+        let profile = try await AgentWorkspaceProfileRepository().load(in: root)
+        let profileURL = root.fileURL(for: AgentWorkspaceProfileRepository.relativePath)
+
+        try expect(FileManager.default.fileExists(atPath: profileURL.path), "Workspace creation should seed an editable agent workspace profile.")
+        try expect(profile.promptTemplates.isEmpty, "Seeded agent workspace profile should not contain prompt plaintext by default.")
+        try expect(profile.skillToggles.isEmpty, "Seeded agent workspace profile should start without user skill overrides.")
+        try expect(profile.mcpServers.isEmpty, "Seeded agent workspace profile should start without user MCP servers.")
+        try expect(AgentWorkspaceProfileValidator().validate(profile).isEmpty, "Seeded agent workspace profile should validate.")
+    }
+
+    private func agentPromptLibraryRejectsSecretLikePromptBodies() throws {
+        let resolver = AgentPromptLibraryResolver()
+        let safeMessage = resolver.validatePromptText("Use project evidence only.")
+        let blockedMessage = resolver.validatePromptText("Here is a token: sk-test_1234567890abcdef")
+
+        try expect(safeMessage == nil, "Regular prompt text should be accepted.")
+        try expect(blockedMessage != nil, "Secret-like prompt text should be rejected.")
+    }
+
+    private func agentPromptLibraryDiffPreviewHighlightsBodyChanges() throws {
+        let resolver = AgentPromptLibraryResolver()
+        let current = AgentPromptTemplateOverride(
+            id: "planner-default",
+            title: "Planner Default",
+            surface: .planner,
+            systemPrompt: "Use evidence only.",
+            promptTemplate: "Plan from current workspace context."
+        )
+        let draft = AgentPromptTemplateOverride(
+            id: "planner-default",
+            title: "Planner Default",
+            surface: .planner,
+            systemPrompt: "Use evidence only.",
+            promptTemplate: "Plan from current workspace context and cite paper ids."
+        )
+
+        let diff = resolver.diffPreview(current: current, draft: draft)
+        let body = resolver.renderedTemplateBody(draft)
+
+        try expect(diff.contains("- Plan from current workspace context."), "Prompt diff should show removed body lines.")
+        try expect(diff.contains("+ Plan from current workspace context and cite paper ids."), "Prompt diff should show added body lines.")
+        try expect(body.contains("Use evidence only."), "Rendered prompt body should include system prompt text.")
+        try expect(body.contains("cite paper ids"), "Rendered prompt body should include prompt template text.")
+    }
+
+    private func agentPromptPatchProposalAcceptRejectDiscardSemantics() throws {
+        let resolver = AgentPromptLibraryResolver()
+        let current = AgentPromptTemplateOverride(
+            id: "planner-override",
+            title: "Planner Override",
+            surface: .planner,
+            systemPrompt: "Use evidence only.",
+            promptTemplate: "Create a short plan."
+        )
+        let profile = AgentWorkspaceProfile(
+            activePromptTemplateID: current.id,
+            promptTemplates: [current]
+        )
+        let proposal = AgentPromptPatchProposal(
+            templateID: current.id,
+            title: "Planner Override",
+            surface: .planner,
+            systemPrompt: "Use evidence only.",
+            promptTemplate: "Create a short plan with cited paper IDs."
+        )
+
+        let review = resolver.reviewPatchProposal(proposal, profile: profile)
+        let acceptedProfile = try resolver.applyAcceptedPatchProposal(proposal, to: profile)
+        let rejectedProfile = profile
+        let discardedDraft = current
+
+        try expect(review.canAccept, "Valid prompt patch proposals should be accept-ready.")
+        try expect(review.diffPreview.contains("+ Create a short plan with cited paper IDs."), "Preview should show the proposed prompt body.")
+        try expect(acceptedProfile.promptTemplate(id: current.id)?.promptTemplate.contains("cited paper IDs") == true, "Accept should persist the proposed prompt body.")
+        try expect(acceptedProfile.activePromptTemplateID == current.id, "Accept should keep the accepted prompt active for its surface.")
+        try expect(rejectedProfile == profile, "Reject semantics should leave the profile unchanged.")
+        try expect(discardedDraft == current, "Discard semantics should reset the local draft to the stored override.")
+    }
+
+    private func agentPromptPatchProposalRejectsActiveSurfaceMismatch() throws {
+        let resolver = AgentPromptLibraryResolver()
+        let planner = AgentPromptTemplateOverride(
+            id: "active-planner",
+            title: "Planner",
+            surface: .planner,
+            promptTemplate: "Planner body."
+        )
+        let profile = AgentWorkspaceProfile(
+            activePromptTemplateID: planner.id,
+            promptTemplates: [planner]
+        )
+        let proposal = AgentPromptPatchProposal(
+            templateID: "paper-summary-proposal",
+            title: "Paper Summary",
+            surface: .paperSummary,
+            promptTemplate: "Summarize with citations."
+        )
+        let review = resolver.reviewPatchProposal(proposal, profile: profile)
+
+        try expect(review.activeSurfaceMismatch?.contains("proposal targets paper_summary") == true, "Patch review should flag proposals that do not match the active prompt surface.")
+        do {
+            _ = try resolver.applyAcceptedPatchProposal(proposal, to: profile)
+            throw ValidationError(message: "Surface-mismatched proposal should not be accepted.")
+        } catch AgentError.invalidArguments {
+            // Expected.
+        }
     }
 
     private func projectRegistryCreatesUpdatesAndCollapsesProjects() async throws {
@@ -598,6 +748,70 @@ private struct CoreVerificationSuite {
         try expect(loadedPreferences.minerUOverwriteExistingMarkdown == false, "Workspace preferences should preserve MinerU overwrite behavior.")
         try expect(loadedPreferences.agentDisabledToolNamesByScope["project:test-workspace|thread:agent-thread-1"] == ["create_todo", "write_markdown_plan"], "Workspace preferences should preserve scoped disabled tools.")
         try expect(loadedPreferences.pinnedAgentThreadIDsByProject["test-workspace"] == ["agent-thread-1"], "Workspace preferences should preserve project-scoped pinned threads.")
+    }
+
+    private func workspacePreferencesDefaultRuntimeIsStableSwiftLoop() async throws {
+        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+        let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+        let workspaceService = WorkspaceService(
+            fileManager: .default,
+            bookmarkStore: bookmarkStore
+        )
+        let repository = WorkspacePreferencesRepository()
+        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("DefaultRuntimeWorkspace", isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+        let preferences = try await repository.load(in: workspace)
+        let preferencesContents = try String(contentsOf: workspace.workspacePreferencesURL, encoding: .utf8)
+
+        try expect(preferences.agentRuntimeSelection == .swiftLoop, "New workspaces should default the agent runtime selector to Swift Loop.")
+        try expect(preferences.agentRuntimeSelection.effectiveRuntime(sidecarAvailable: true) == .swiftLoop, "Default Swift Loop selection should not auto-attempt Sidecar when it is healthy.")
+        try expect(preferencesContents.contains("agent_runtime_selection: \"swift_loop\""), "Seeded workspace preferences should persist swift_loop as the runtime default.")
+        try expect(!preferencesContents.contains("agent_runtime_selection: \"auto_fallback\""), "Seeded workspace preferences should not default to experimental Auto runtime.")
+    }
+
+    private func workspacePreferencesRuntimeSelectionFallbacksToSwiftLoop() async throws {
+        let repository = WorkspacePreferencesRepository()
+        let rootURL = temporaryDirectoryURL().appendingPathComponent("RuntimeFallbackPreferencesWorkspace", isDirectory: true)
+        let workspace = ResearchWorkspace(rootURL: rootURL)
+        let preferencesURL = workspace.fileURL(for: WorkspacePreferencesRepository.relativePath)
+
+        defer {
+            try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent())
+        }
+
+        try FileManager.default.createDirectory(at: preferencesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        schema_version: 2
+        library_visible_columns:
+          - "title"
+        agent_runtime_selection: "unknown_runtime"
+        """.write(to: preferencesURL, atomically: true, encoding: .utf8)
+
+        let invalidRuntimePreferences = try await repository.load(in: workspace)
+        try expect(invalidRuntimePreferences.agentRuntimeSelection == .swiftLoop, "Invalid runtime selections should fall back to stable Swift Loop.")
+
+        try """
+        schema_version: 2
+        library_visible_columns:
+          - "title"
+        """.write(to: preferencesURL, atomically: true, encoding: .utf8)
+
+        let missingRuntimePreferences = try await repository.load(in: workspace)
+        try expect(missingRuntimePreferences.agentRuntimeSelection == .swiftLoop, "Missing runtime selections should fall back to stable Swift Loop.")
+
+        var explicitAuto = WorkspacePreferences(agentRuntimeSelection: .autoFallback)
+        explicitAuto.isSidecarDisabledForWorkspace = false
+        try await repository.save(explicitAuto, in: workspace)
+        let loadedAuto = try await repository.load(in: workspace)
+        try expect(loadedAuto.agentRuntimeSelection == .autoFallback, "Explicit Auto runtime selections should still round-trip.")
+        try expect(loadedAuto.agentRuntimeSelection.effectiveRuntime(sidecarAvailable: true) == .langGraphSidecar, "Explicit Auto should still use Sidecar when health is ready.")
     }
 
     private func workspacePreferencesLanguageRoundTrips() async throws {
@@ -781,6 +995,15 @@ private struct CoreVerificationSuite {
         try expect(model.effectiveRightRailMode == .hidden, "Responsive shell policy should hide the right rail below 1000pt.")
         try expect(model.homeWidgetColumns == 2, "Responsive shell policy should use two Home widget columns for compact widths.")
         try expect(model.shouldCollapseProjectTree, "Responsive shell policy should collapse project tree in compact widths.")
+
+        let regularModel = ResponsiveShellPolicy.resolve(
+            width: 1100,
+            route: WorkspaceRoute(top: .home),
+            context: WorkspaceContextSnapshot(topLevelSectionID: "home"),
+            preferredRightRailMode: .hidden
+        )
+        try expect(regularModel.bucket == .regular, "Responsive shell policy should classify 1100pt as regular.")
+        try expect(regularModel.homeWidgetColumns == 4, "Regular and expanded Home widget layouts should use the four-unit grid, not a three-column split.")
     }
 
     private func responsivePolicyMovesToolbarActionsToOverflow() throws {
@@ -810,6 +1033,12 @@ private struct CoreVerificationSuite {
 
         try expect(ids == expectedIDs, "Home widget registry should include every default dashboard widget.")
         try expect(HomeWidgetRegistry.defaultDescriptors.allSatisfy { !$0.supportedSizes.isEmpty }, "Home widget descriptors should declare supported sizes.")
+        try expect(HomeWidgetRegistry.defaultDescriptors.allSatisfy { $0.supportedSizes == Set(HomeWidgetSize.allCases) }, "Every Home widget should support all five dashboard sizes.")
+        try expect(HomeWidgetSize.small.rowSpan == 1 && HomeWidgetSize.small.columnSpan == 1, "Small widget size should be 1×1.")
+        try expect(HomeWidgetSize.wide.rowSpan == 1 && HomeWidgetSize.wide.columnSpan == 2, "Wide widget size should be 1×2.")
+        try expect(HomeWidgetSize.tall.rowSpan == 2 && HomeWidgetSize.tall.columnSpan == 1, "Tall widget size should be 2×1.")
+        try expect(HomeWidgetSize.medium.rowSpan == 2 && HomeWidgetSize.medium.columnSpan == 2, "Medium widget size should be 2×2.")
+        try expect(HomeWidgetSize.large.rowSpan == 3 && HomeWidgetSize.large.columnSpan == 3, "Large widget size should be 3×3.")
     }
 
     private func homeWidgetRegistryFiltersDisabledModules() throws {
@@ -849,10 +1078,27 @@ private struct CoreVerificationSuite {
             HomeWidgetLayoutItem(widgetID: HomeWidgetID.activeProjects, size: .wide, column: 0, row: 0),
             HomeWidgetLayoutItem(widgetID: HomeWidgetID.aiReview, size: .medium, column: 0, row: 0)
         ])
-        let normalized = collidingLayout.normalized(descriptors: descriptors, columns: 3)
+        let normalized = collidingLayout.normalized(descriptors: descriptors, columns: 4)
 
-        try expect(!HomeWidgetGridPlanner.hasOverlap(items: normalized.items, descriptorsByID: descriptorsByID, columns: 3), "Home widget planner should repack colliding items without overlap.")
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: normalized.items, descriptorsByID: descriptorsByID, columns: 4), "Home widget planner should repack colliding items without overlap.")
         try expect(normalized.items.count == descriptors.count, "Home widget normalization should backfill missing default descriptors.")
+    }
+
+    private func homeWidgetGridUsesGravityPacking() throws {
+        let descriptors = HomeWidgetRegistry.defaultDescriptors
+        let descriptorsByID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+        let layout = HomeWidgetLayout(items: [
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.today, size: .tall),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.activeProjects, size: .wide),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.aiReview, size: .small),
+            HomeWidgetLayoutItem(widgetID: HomeWidgetID.quickActions, size: .medium)
+        ]).normalized(descriptors: descriptors, columns: 4)
+
+        let items = Dictionary(uniqueKeysWithValues: layout.items.map { ($0.widgetID, $0) })
+        try expect(items[HomeWidgetID.today]?.column == 0 && items[HomeWidgetID.today]?.row == 0, "First tall widget should drop into the first column.")
+        try expect(items[HomeWidgetID.activeProjects]?.column == 1 && items[HomeWidgetID.activeProjects]?.row == 0, "Wide widget should drop beside the tall widget when columns 1-2 are lower.")
+        try expect(items[HomeWidgetID.aiReview]?.column == 3 && items[HomeWidgetID.aiReview]?.row == 0, "Small widget should fill the remaining low column before stacking below taller columns.")
+        try expect(!HomeWidgetGridPlanner.hasOverlap(items: layout.items, descriptorsByID: descriptorsByID, columns: 4), "Gravity-packed widgets should not overlap.")
     }
 
     private func homeWidgetResetRestoresDefaultLayout() throws {
@@ -993,9 +1239,9 @@ private struct CoreVerificationSuite {
         )
 
         try expect(pdfModel.contains(.pdfSearch), "PDF Reader toolbar policy should include PDF search.")
-        try expect(pdfModel.action(.pdfAnnotationPlaceholder)?.title == "标注", "PDF Reader toolbar should localize PDF actions.")
+        try expect(pdfModel.action(.pdfAnnotations)?.title == "标注", "PDF Reader toolbar should localize PDF actions.")
         try expect(!pdfModel.contains(.importPDF) && !pdfModel.contains(.addByIdentifier), "PDF Reader toolbar policy should hide Library import actions.")
-        try expect(!wikiModel.contains(.pdfSearch) && !wikiModel.contains(.pdfAnnotationPlaceholder), "Wiki toolbar policy should not include PDF Reader actions.")
+        try expect(!wikiModel.contains(.pdfSearch) && !wikiModel.contains(.pdfAnnotations), "Wiki toolbar policy should not include PDF Reader actions.")
     }
 
     private func toolbarPolicyShowsWikiActionsOnlyInWikiContext() throws {
@@ -1437,7 +1683,7 @@ private struct CoreVerificationSuite {
         try expect(FileManager.default.fileExists(atPath: root.fileURL(for: AppDebugEventLogger.relativePath).path), "Debug event logger should write a workspace-local JSONL file.")
     }
 
-    /// The AI Usage Test orchestrator (`Proposal-AT.md` §P-AT.1) treats
+    /// The AI Usage Test orchestrator treats
     /// `AppDebugEventName.allCases` as the source-of-truth registry of every
     /// debug event the App may emit. The hard-coded list below is the set of
     /// event names that current call sites in the codebase emit. If you add
@@ -1496,7 +1742,7 @@ private struct CoreVerificationSuite {
             "recommendation.feedback", "recommendation.push.error",
             // Module settings
             "module_settings.toggle", "module_settings.toggle_chain", "module_settings.pin",
-            // Graph (P44–P47)
+            // Graph
             "graph.indexer.rebuild_started", "graph.indexer.rebuild_finished",
             "graph.indexer.incremental_skip",
             "graph.repository.loaded", "graph.repository.write",
@@ -1541,7 +1787,7 @@ private struct CoreVerificationSuite {
 
     /// `UITestAccessibilityID` is a thin namespace, but the AI uitest
     /// orchestrator depends on every factory output being machine-readable.
-    /// This test covers the four high-traffic surfaces wired in P-AT.1c so
+    /// This test covers the four high-traffic surfaces used by UI tests so
     /// future refactors that drop the strict format fail loudly.
     private func uitestAccessibilityIDFactoriesProduceValidIdentifiers() throws {
         let identifiers: [String] = [
@@ -1648,7 +1894,7 @@ private struct CoreVerificationSuite {
         let snapshot = try await aggregator.snapshot(input: HomeAggregationInput(workspaceID: "blank-workspace"), now: Date(timeIntervalSince1970: 1_777_600_000))
 
         try expect(snapshot.today.dueTodos.isEmpty, "Blank workspace should have no due todos.")
-        try expect(snapshot.today.readingQueue.isEmpty, "Blank workspace should have no reading queue.")
+        try expect(snapshot.today.readingPapers.isEmpty, "Blank workspace should have no reading papers.")
         try expect(snapshot.activeProjects.isEmpty, "Blank workspace should have no active projects.")
         try expect(snapshot.aiReview.needsApproval.isEmpty, "Blank workspace should have no pending AI drafts.")
     }
@@ -2381,7 +2627,7 @@ private struct CoreVerificationSuite {
           - project_id: "project-alpha"
             paper_id: "paper-alpha"
             is_core: true
-            folder_path: "Reading Queue"
+            folder_path: "Reading"
             use_for:
               - "background"
             created_at: 2026-04-29T00:00:00Z
@@ -2884,7 +3130,7 @@ private struct CoreVerificationSuite {
     }
 
     private func todoRepositoryPersistsDateRange() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("TodoDateRangeWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("TodoDateRangeWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         let repository = TodoRepository()
@@ -2921,7 +3167,7 @@ private struct CoreVerificationSuite {
     }
 
     private func todoTagRepositoryRoundTripsDefinitions() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("TodoTagWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("TodoTagWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         let repository = TodoTagRepository()
@@ -2945,9 +3191,9 @@ private struct CoreVerificationSuite {
         try expect(definitions.map(\.name) == ["writing"], "Deleting a task tag should remove it from tasks/todo_tags.yaml.")
     }
 
-    // MARK: - P48 Research Queue (Layer A: store + YAML)
+    // MARK: - Task and Recommendation Fixtures
 
-    private func makeQueueWorkspace(_ name: String) throws -> (URL, ResearchWorkspace) {
+    private func makeWorkspaceFixture(_ name: String) throws -> (URL, ResearchWorkspace) {
         let rootURL = temporaryDirectoryURL().appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         return (rootURL, ResearchWorkspace(rootURL: rootURL))
@@ -3062,7 +3308,7 @@ private struct CoreVerificationSuite {
     }
 
     private func recommendationPipelineWritesSnapshot() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("RecommendationPipelineWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("RecommendationPipelineWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         var interestPaper = samplePaper(id: "interest")
@@ -3193,7 +3439,7 @@ private struct CoreVerificationSuite {
     }
 
     private func recommendationFeedbackStorePersistsJSONLAndBuildsProfile() async throws {
-        let (rootURL, workspace) = try makeQueueWorkspace("RecommendationFeedbackWorkspace")
+        let (rootURL, workspace) = try makeWorkspaceFixture("RecommendationFeedbackWorkspace")
         defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
 
         let candidate = RecommendationCandidate(
@@ -3550,6 +3796,21 @@ private struct CoreVerificationSuite {
                 let settingsContents = try String(contentsOf: workspace.fileURL(for: "settings.yaml"), encoding: .utf8)
                 try expect(settingsContents.contains("base_url"), "LLM settings should be written to settings.yaml.")
                 try expect(!settingsContents.lowercased().contains("api_key"), "API keys must not be written into settings.yaml.")
+            }
+
+            private func llmAPIKeyResolverTrimsAndPrefersInMemoryKey() throws {
+                try expect(
+                    LLMAPIKeyResolver.resolve(inMemory: "  live-key  ", persisted: "stored-key") == "live-key",
+                    "In-memory API keys should be trimmed and take precedence over persisted keys."
+                )
+                try expect(
+                    LLMAPIKeyResolver.resolve(inMemory: " \n\t ", persisted: "  stored-key\n") == "stored-key",
+                    "Persisted API keys should be trimmed when no in-memory key is available."
+                )
+                try expect(
+                    LLMAPIKeyResolver.resolve(inMemory: " \n\t ", persisted: "   ").isEmpty,
+                    "Blank in-memory and persisted API keys should resolve to an empty missing-key value."
+                )
             }
 
             private func paperSummaryPromptBuilderIncludesContext() throws {
@@ -4398,7 +4659,8 @@ private struct CoreVerificationSuite {
                     in: root,
                     currentProjectID: "project-alpha",
                     runtimeSelector: AgentRuntimeSelection.autoFallback.rawValue,
-                    enabledToolNames: ["list_papers", "read_paper"]
+                    enabledToolNames: ["list_papers", "read_paper"],
+                    promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: "请生成一个阅读本项目论文的计划")
                 )
                 let history = try await service.recentRuns(in: root, limit: 5)
                 let events = try await service.sessionEvents(in: root, sessionID: run.id)
@@ -4435,6 +4697,7 @@ private struct CoreVerificationSuite {
                     currentProjectID: "project-alpha",
                     runtimeSelector: AgentRuntimeSelection.swiftLoop.rawValue,
                     enabledToolNames: ["list_papers"],
+                    promptResolution: AgentPromptResolution(surface: .toolLoop, promptText: "请总结第一篇文章"),
                     retryOfRunID: "agent-run-previous"
                 )
                 let events = try await service.sessionEvents(in: root, sessionID: run.id)
@@ -6128,8 +6391,8 @@ private struct CoreVerificationSuite {
                 )
                 let noGraphWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: noGraphConfiguration))
                 try expect(!noGraphWorkflows.contains("graph_insight"), "graph_insight should be gated by Citation Graph.")
-                try expect(!noGraphWorkflows.contains("related_work"), "related_work should be gated by Citation Graph after P47.")
-                try expect(!noGraphWorkflows.contains("gap_planning"), "gap_planning should be gated by Citation Graph after P47.")
+                try expect(!noGraphWorkflows.contains("related_work"), "related_work should be gated by Citation Graph.")
+                try expect(!noGraphWorkflows.contains("gap_planning"), "gap_planning should be gated by Citation Graph.")
 
                 let noAILabConfiguration = WorkspaceModuleRegistry.defaultConfiguration(
                     enabledModuleIDs: WorkspaceModuleRegistry.defaultEnabledModuleIDs.subtracting(["ai-lab"])
@@ -6138,7 +6401,7 @@ private struct CoreVerificationSuite {
                 try expect(!noAILabWorkflows.contains("graph_insight"), "graph_insight should also require AI Lab.")
             }
 
-    private func paperLibraryModuleDeclaresReadingQueueArtifactKindAndWorkflow() throws {
+    private func paperLibraryModuleDoesNotExposeRetiredReadingArtifacts() throws {
         let module = try require(WorkspaceModuleRegistry.module(id: "paper-library"), "paper-library module must remain in the built-in registry.")
         try expect(!module.artifactKinds.contains("reading_queue_entry"), "paper-library should no longer declare the retired reading_queue_entry artifact kind.")
         try expect(!module.workflows.contains("reading_queue_curate"), "paper-library should no longer declare the retired reading_queue_curate workflow.")
@@ -6153,7 +6416,7 @@ private struct CoreVerificationSuite {
         try expect(!descriptor.isKnown, "The retired reading_queue_entry artifact kind should no longer resolve to any module.")
     }
 
-    private func workspaceModuleRegistryWorkflowGatingForReadingQueueCurate() throws {
+    private func workspaceModuleRegistryDoesNotExposeRetiredReadingWorkflow() throws {
         let defaultConfiguration = WorkspaceModuleRegistry.defaultConfiguration()
         let defaultWorkflows = Set(WorkspaceModuleRegistry.availableWorkflows(in: defaultConfiguration))
         try expect(!defaultWorkflows.contains("reading_queue_curate"), "The retired reading_queue_curate workflow should no longer be available.")
@@ -6712,6 +6975,295 @@ private struct CoreVerificationSuite {
         try expect(selected.first?.resources == ["references/checklist.md"], "Matching skills should disclose adjacent resources on selection.")
     }
 
+    private func agentSkillRuntimeResolutionEnforcesTrustAndToolBounds() async throws {
+        let rootURL = temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundledDirectory = rootURL.appendingPathComponent(
+            ".sci-ai/sci-station/presets/research-core/skills",
+            isDirectory: true
+        )
+        let workspaceDirectory = rootURL.appendingPathComponent(".claude/skills/workspace-review", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundledDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: bounded-review
+        description: Paper evidence review
+        version: 1.0.0
+        capabilities: [paper, review]
+        risk: readOnly
+        allowed_tools: [list_papers, read_paper, create_todo]
+        ---
+
+        Use the bundled evidence checklist.
+        """.write(
+            to: bundledDirectory.appendingPathComponent("bounded-review.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        name: workspace-review
+        description: Workspace evidence review
+        version: 1.0.0
+        capabilities: [workspace, review]
+        risk: writesWorkspace
+        allowed_tools: [write_wiki_markdown]
+        ---
+
+        Use the workspace-only review instructions.
+        """.write(
+            to: workspaceDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loader = AgentSkillLoader()
+        let profile = AgentWorkspaceProfile(skillToggles: [
+            AgentSkillToggle(
+                skillID: "bounded-review",
+                isEnabled: true,
+                trustLevel: .trusted,
+                allowedToolIDs: ["list_papers", "read_paper_section"]
+            ),
+            AgentSkillToggle(
+                skillID: "workspace-review",
+                isEnabled: true,
+                trustLevel: .untrusted,
+                allowedToolIDs: ["write_wiki_markdown"]
+            ),
+            AgentSkillToggle(skillID: "disabled-review", isEnabled: false, trustLevel: .trusted)
+        ])
+        let resolution = try await loader.resolve(
+            for: "Please perform a paper evidence review.",
+            profile: profile,
+            workspaceRoot: rootURL
+        )
+
+        try expect(resolution.selectedSkillIDs == ["bounded-review"], "Only enabled, matching, trusted skills should be selected.")
+        try expect(resolution.allowedToolNames == Set(["list_papers"]), "Skill metadata and profile tool allowlists should intersect.")
+        try expect(resolution.blockedSkillReasons["workspace-review"]?.contains("untrusted") == true, "Untrusted workspace skills should be blocked before body loading.")
+        try expect(resolution.promptContext?.contains("Use the bundled evidence checklist.") == true, "Selected skill instructions should enter the runtime prompt context.")
+        try expect(resolution.promptContext?.contains("workspace-only") == false, "Blocked skill bodies must not enter the prompt context.")
+        try expect(
+            resolution.restricting(["list_papers", "create_todo"]) == Set(["list_papers"]),
+            "Skills may narrow but must not expand the caller's enabled tool set."
+        )
+
+        let emptyIntersectionResolution = try await loader.resolve(
+            for: "Please perform a paper evidence review.",
+            profile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(
+                    skillID: "bounded-review",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["write_wiki_markdown"]
+                )
+            ]),
+            workspaceRoot: rootURL
+        )
+        try expect(
+            emptyIntersectionResolution.allowedToolNames == Set<String>(),
+            "A disjoint skill/profile tool intersection should disable all tools instead of removing the restriction."
+        )
+
+        let trustedWorkspaceResolution = try await loader.resolve(
+            for: "Run a workspace evidence review.",
+            profile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(
+                    skillID: "workspace-review",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["write_wiki_markdown"]
+                )
+            ]),
+            workspaceRoot: rootURL
+        )
+        try expect(trustedWorkspaceResolution.selectedSkillIDs == ["workspace-review"], "Explicit trust should allow a matching workspace skill to load.")
+    }
+
+    private func agentSkillLoaderTrustGatingAndCatalogVisibility() async throws {
+        let rootURL = temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let workspaceDirectory = rootURL.appendingPathComponent(".claude/skills/workspace-review", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: workspace-review
+        description: Workspace evidence review
+        version: 1.0.0
+        capabilities: [workspace, evidence]
+        risk: writesWorkspace
+        allowed_tools: [write_wiki_markdown]
+        ---
+
+        Use workspace-only instructions.
+        """.write(to: workspaceDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let loader = AgentSkillLoader()
+        let untrustedProfile = AgentWorkspaceProfile(skillToggles: [
+            AgentSkillToggle(skillID: "workspace-review", isEnabled: true, trustLevel: .untrusted)
+        ])
+        let untrustedCatalog = try await loader.catalog(
+            profile: untrustedProfile,
+            workspaceRoot: rootURL,
+            prompt: "workspace evidence"
+        )
+        let untrustedEntry = try require(untrustedCatalog.first { $0.id == "workspace-review" }, "Catalog should include the workspace skill.")
+
+        try expect(untrustedEntry.isEnabled, "Catalog should reflect enabled profile toggles.")
+        try expect(untrustedEntry.blockedReason?.contains("untrusted") == true, "Catalog should expose runtime blocked reasons for untrusted skills.")
+
+        let trustedProfile = AgentWorkspaceProfile(skillToggles: [
+            AgentSkillToggle(skillID: "workspace-review", isEnabled: true, trustLevel: .trusted)
+        ])
+        let trustedCatalog = try await loader.catalog(
+            profile: trustedProfile,
+            workspaceRoot: rootURL,
+            prompt: "workspace evidence"
+        )
+        let trustedEntry = try require(trustedCatalog.first { $0.id == "workspace-review" }, "Trusted catalog should include the workspace skill.")
+        let filtered = loader.filterCatalog(trustedCatalog, query: "workspace evidence")
+
+        try expect(trustedEntry.blockedReason == nil, "Explicit trust should clear the runtime blocked reason for a matching skill.")
+        try expect(filtered.map(\.id) == ["workspace-review"], "Skill catalog search should match description/capability tokens.")
+    }
+
+    private func agentSkillLoaderCatalogSourcePrecedence() async throws {
+        let rootURL = temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundledDirectory = rootURL.appendingPathComponent(".sci-ai/sci-station/presets/research-core/skills/duplicate", isDirectory: true)
+        let workspaceDirectory = rootURL.appendingPathComponent(".claude/skills/duplicate", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundledDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: duplicate-skill
+        description: Bundled duplicate
+        version: 1.0.0
+        capabilities: [bundled]
+        risk: readOnly
+        ---
+
+        Bundled body.
+        """.write(to: bundledDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try """
+        ---
+        name: duplicate-skill
+        description: Workspace duplicate
+        version: 9.9.9
+        capabilities: [workspace]
+        risk: writesWorkspace
+        ---
+
+        Workspace body.
+        """.write(to: workspaceDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let loader = AgentSkillLoader()
+        let metadata = try await loader.loadMetadata(searchRoots: AgentSkillLoader.defaultSearchRoots(workspaceRoot: rootURL))
+        let duplicate = try require(metadata.first { $0.name == "duplicate-skill" }, "Duplicate skill should be discovered.")
+
+        try expect(duplicate.source == .appBundled, "Bundled skills should take precedence over workspace skills with the same name.")
+        try expect(duplicate.version == "1.0.0", "Catalog source precedence should keep bundled metadata when names collide.")
+    }
+
+    private func agentSkillLoaderBlocksSecretSkillBodies() async throws {
+        let rootURL = temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundledDirectory = rootURL.appendingPathComponent(".sci-ai/sci-station/presets/research-core/skills/secret-review", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundledDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: secret-review
+        description: Secret body review
+        version: 1.0.0
+        capabilities: [secret, review]
+        risk: readOnly
+        ---
+
+        Never include this token: sk-test_1234567890abcdef.
+        """.write(to: bundledDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let loader = AgentSkillLoader()
+        let resolution = try await loader.resolve(
+            for: "Run a secret body review.",
+            profile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(skillID: "secret-review", isEnabled: true, trustLevel: .trusted)
+            ]),
+            workspaceRoot: rootURL
+        )
+
+        try expect(resolution.selectedSkills.isEmpty, "Secret-like skill bodies should be blocked before prompt injection.")
+        try expect(resolution.blockedSkillReasons["secret-review"]?.contains("secret") == true, "Blocked secret skill bodies should expose a visible blocked reason.")
+        try expect(resolution.promptContext == nil, "Blocked secret skill bodies should not enter runtime prompt context.")
+    }
+
+    private func agentServiceInjectsEnabledSkillAndRestrictsTools() async throws {
+        let fixture = try await loopWorkspaceFixture(named: "AgentSkillRuntimeWorkspace")
+        defer { cleanupLoopWorkspaceFixture(fixture) }
+
+        let skillDirectory = fixture.root.rootURL.appendingPathComponent(".claude/skills/evidence-review", isDirectory: true)
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: evidence-review
+        description: Paper evidence review
+        version: 1.0.0
+        capabilities: [paper, evidence, review]
+        risk: readOnly
+        allowed_tools: [list_papers, create_todo]
+        ---
+
+        SKILL_RUNTIME_MARKER: verify evidence before conclusions.
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let provider = ScriptedChatProvider(responses: [
+            LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: """
+            {
+              "title": "Evidence review",
+              "summary": "Review available evidence.",
+              "steps": ["Inspect papers"],
+              "tool_calls": [],
+              "final_response_draft": "No tool call required."
+            }
+            """))
+        ])
+        let service = SciStationAgentService(provider: provider)
+        _ = try await service.run(
+            goal: "Perform a paper evidence review.",
+            in: fixture.workspace,
+            root: fixture.root,
+            configuration: LLMConfiguration(),
+            apiKey: "test-key",
+            options: AgentExecutionOptions(
+                mode: .planOnly,
+                allowedToolNames: ["list_papers", "create_todo"]
+            ),
+            workspaceProfile: AgentWorkspaceProfile(skillToggles: [
+                AgentSkillToggle(
+                    skillID: "evidence-review",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["list_papers"]
+                )
+            ])
+        )
+
+        let requests = await provider.recordedRequests()
+        let request = try require(requests.first, "Skill-enabled service run should reach the provider.")
+        let promptText = request.messages.map(\.content).joined(separator: "\n")
+        try expect(promptText.contains("SKILL_RUNTIME_MARKER"), "Enabled matching skill instructions should be injected into the provider prompt.")
+        try expect(request.tools.map(\.name) == ["list_papers"], "Skill tool bounds should narrow the provider-visible tool list.")
+    }
+
             private func openAIProviderPayloadIncludesToolChoiceAuto() throws {
                 let provider = OpenAICompatibleProvider()
                 let definition = loopToolDefinition(name: "read_note", risk: .readOnly)
@@ -7072,6 +7624,141 @@ private struct CoreVerificationSuite {
                 let removedDraft = try await repository.draft(projectID: "project-alpha", threadID: "thread-alpha", in: root)
 
                 try expect(removedDraft == nil, "Prompt drafts should be removable when discarding an empty pending thread.")
+            }
+
+            private func agentWorkspaceProfileRepositoryPersistsPromptSkillAndMCPOverrides() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentWorkspaceProfileOverrides", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let repository = AgentWorkspaceProfileRepository()
+                let prompt = AgentPromptTemplateOverride(
+                    id: "proposal-draft",
+                    title: "Proposal Draft Override",
+                    description: "Workspace-specific proposal drafting prompt.",
+                    systemPrompt: "Use project evidence only.",
+                    promptTemplate: "Draft a proposal from current project wiki and selected papers."
+                )
+                let skillToggle = AgentSkillToggle(
+                    skillID: "research-workflow",
+                    displayName: "Research Workflow",
+                    isEnabled: true,
+                    trustLevel: .trusted,
+                    allowedToolIDs: ["list_papers", "read_paper_section"]
+                )
+                let server = MCPServerConfiguration(
+                    id: "filesystem-readonly",
+                    displayName: "Filesystem Readonly",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "npx",
+                    arguments: ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceRoot}"],
+                    allowedTools: ["read_file", "list_directory"]
+                )
+
+                try await repository.upsertPromptTemplate(prompt, in: root)
+                try await repository.setSkillToggle(skillToggle, in: root)
+                try await repository.upsertMCPServer(server, in: root)
+
+                let loaded = try await repository.load(in: root)
+                let summary = try await AgentRuntimeConfigurationLoader().loadWorkspaceProfile(in: root)
+                let profileURL = root.fileURL(for: AgentWorkspaceProfileRepository.relativePath)
+                let profileText = try String(contentsOf: profileURL, encoding: .utf8)
+                let invalidProfile = AgentWorkspaceProfile(
+                    activePromptTemplateID: "missing",
+                    promptTemplates: [
+                        AgentPromptTemplateOverride(id: "proposal-draft", title: "One", promptTemplate: "Prompt"),
+                        AgentPromptTemplateOverride(id: "proposal-draft", title: "Two", promptTemplate: "Prompt")
+                    ],
+                    skillToggles: [AgentSkillToggle(skillID: "")],
+                    mcpServers: [MCPServerConfiguration(id: "broken", displayName: "Broken", transport: .localCommand)]
+                )
+                let invalidIssues = AgentWorkspaceProfileValidator().validate(invalidProfile)
+
+                try expect(loaded.activePromptTemplateID == "proposal-draft", "First enabled prompt override should become active by default.")
+                try expect(loaded.promptTemplate(id: "proposal-draft")?.systemPrompt == "Use project evidence only.", "Prompt overrides should round-trip system prompt text.")
+                try expect(loaded.skillToggle(id: "research-workflow")?.trustLevel == .trusted, "Skill toggles should preserve trust level.")
+                try expect(loaded.mcpServers.first?.allowedTools == ["read_file", "list_directory"], "Workspace profile MCP servers should round-trip allowed tools.")
+                try expect(summary.promptTemplateCount == 1 && summary.enabledPromptTemplateCount == 1, "Workspace profile summary should count prompt overrides.")
+                try expect(summary.enabledSkillCount == 1, "Workspace profile summary should count enabled skill toggles.")
+                try expect(summary.mcpServers.first?.source == .workspaceProfile, "Workspace profile MCP servers should be marked with the workspace profile source.")
+                try expect(summary.validationIssues.isEmpty, "Valid workspace profile overrides should pass validation.")
+                try expect(!profileText.contains("Bearer "), "Workspace profile should not require raw bearer tokens for MCP configuration.")
+                try expect(invalidIssues.count >= 4, "Workspace profile validator should catch missing active prompt, duplicate prompt ids, empty skill ids, and invalid MCP servers.")
+            }
+
+            private func agentWorkspaceProfileRepositoryRestoresDefaultPromptTemplate() async throws {
+                let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
+                let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
+                let bookmarkStore = WorkspaceBookmarkStore(defaults: defaults)
+                let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: bookmarkStore)
+                let workspaceRoot = temporaryDirectoryURL().appendingPathComponent("AgentWorkspaceProfileRestoreDefault", isDirectory: true)
+
+                defer {
+                    try? FileManager.default.removeItem(at: workspaceRoot.deletingLastPathComponent())
+                    defaults.removePersistentDomain(forName: suiteName)
+                }
+
+                let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
+                let root = ResearchRoot(rootURL: workspace.rootURL)
+                let repository = AgentWorkspaceProfileRepository()
+                let resolver = AgentPromptLibraryResolver()
+                let prompt = AgentPromptTemplateOverride(
+                    id: "planner-override",
+                    title: "Planner Override",
+                    surface: .planner,
+                    promptTemplate: "Follow project evidence and ask for approval before writes."
+                )
+
+                try await repository.upsertPromptTemplate(prompt, in: root)
+                let activeProfile = try await repository.load(in: root)
+                let activeResolution = resolver.resolve(surface: .planner, profile: activeProfile, basePrompt: "Base planner prompt.")
+                try expect(activeResolution.templateID == "planner-override", "Enabled prompt override should be selected before restore.")
+
+                try await repository.restoreDefaultPromptTemplate(id: prompt.id, in: root)
+                let restoredProfile = try await repository.load(in: root)
+                let restoredResolution = resolver.resolve(surface: .planner, profile: restoredProfile, basePrompt: "Base planner prompt.")
+
+                try expect(restoredProfile.promptTemplates.isEmpty, "Restore default should remove the workspace override.")
+                try expect(restoredProfile.activePromptTemplateID == nil, "Restore default should clear the active prompt template id.")
+                try expect(restoredResolution.templateID == nil, "Restore default should let the bundled prompt take over again.")
+                try expect(restoredResolution.promptText == "Base planner prompt.", "Restore default should return the bundled base prompt text unchanged.")
+            }
+
+            private func agentPromptTemplateRoundTripsWorkspaceProfile() async throws {
+                let rootURL = temporaryDirectoryURL().appendingPathComponent("AgentPromptRoundTripWorkspace", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent()) }
+
+                let root = ResearchRoot(rootURL: rootURL)
+                let repository = AgentWorkspaceProfileRepository()
+                let prompt = AgentPromptTemplateOverride(
+                    id: "tool-loop-override",
+                    title: "Tool Loop Override",
+                    version: "2.1.0",
+                    description: "Round-trip test",
+                    surface: .toolLoop,
+                    systemPrompt: "System instructions.",
+                    promptTemplate: "Use tools carefully.",
+                    isEnabled: true
+                )
+
+                try await repository.upsertPromptTemplate(prompt, in: root)
+                let loaded = try await repository.load(in: root)
+                let profileText = try String(contentsOf: root.fileURL(for: AgentWorkspaceProfileRepository.relativePath), encoding: .utf8)
+
+                try expect(loaded.promptTemplate(id: prompt.id) == prompt, "Prompt template overrides should round-trip through profile.json.")
+                try expect(loaded.activePromptTemplateID == prompt.id, "First enabled prompt should become active after upsert.")
+                try expect(profileText.contains("\"prompt_template\""), "Stored prompt overrides should preserve the existing snake_case JSON format.")
+                try expect(profileText.contains("\"system_prompt\""), "Stored prompt system text should preserve the existing snake_case JSON format.")
             }
 
             private func agentToolDefinitionsExposePlatformMetadata() throws {
@@ -7546,6 +8233,641 @@ private struct CoreVerificationSuite {
                 try expect(Int(localStatus.timeoutSeconds) == 45, "Local MCP status should preserve timeout.")
                 try expect(localStatus.credentialReferenceCount == 1, "Local MCP status should count credential references without exposing values.")
                 try expect(localStatus.sideEffectsRequirePermission, "MCP side-effect tools should remain routed through permission layer.")
+            }
+
+            private func agentMCPConnectorRegistryEnforcesPrecedenceAndApproval() throws {
+                let productServer = MCPServerConfiguration(
+                    id: "filesystem",
+                    displayName: "Product Filesystem",
+                    transport: .localCommand,
+                    isEnabled: false,
+                    command: "npx",
+                    allowedTools: ["read_file"]
+                )
+                let profileServer = MCPServerConfiguration(
+                    id: "filesystem",
+                    displayName: "Workspace Filesystem",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "/usr/bin/env",
+                    arguments: ["mcp-filesystem"],
+                    allowedTools: ["read_file", "list_directory"]
+                )
+                let invalidServer = MCPServerConfiguration(
+                    id: "invalid-local",
+                    displayName: "Invalid Local",
+                    transport: .localCommand,
+                    isEnabled: true
+                )
+                let unresolvedCredentialServer = MCPServerConfiguration(
+                    id: "remote",
+                    displayName: "Remote",
+                    transport: .remoteHTTP,
+                    isEnabled: true,
+                    urlString: "https://mcp.example.test",
+                    secretReferences: ["raw-token-value"]
+                )
+
+                let snapshot = AgentMCPConnectorRegistryResolver().resolve(
+                    productServers: [productServer],
+                    profileServers: [profileServer, invalidServer, unresolvedCredentialServer]
+                )
+                let filesystem = try require(snapshot.registration(id: "filesystem"), "Profile MCP override should be registered.")
+                let invalid = try require(snapshot.registration(id: "invalid-local"), "Invalid MCP server should remain visible in registry diagnostics.")
+                let unresolved = try require(snapshot.registration(id: "remote"), "Credential failures should remain visible in registry diagnostics.")
+
+                try expect(filesystem.source == .workspaceProfile, "Workspace profile MCP servers should override product templates with the same id.")
+                try expect(filesystem.server.displayName == "Workspace Filesystem", "Registry precedence should preserve the workspace override body.")
+                try expect(filesystem.state == .readyForDiscovery, "Enabled valid MCP server should be ready for tool discovery.")
+                try expect(invalid.state == .invalidConfiguration, "Enabled local MCP server without command should be invalid.")
+                try expect(unresolved.state == .unresolvedCredentialReference, "Unsupported credential values should block MCP registration.")
+                try expect(
+                    snapshot.authorize(serverID: "filesystem", toolName: "read_file").decision.action == .ask,
+                    "Allowed external MCP tools should still require explicit approval."
+                )
+                try expect(
+                    snapshot.authorize(serverID: "filesystem", toolName: "write_file").decision.action == .deny,
+                    "Tools outside the MCP server allowlist should be denied."
+                )
+                try expect(
+                    snapshot.authorize(serverID: "invalid-local", toolName: "read_file").decision.action == .deny,
+                    "Invalid MCP servers must not authorize tools."
+                )
+            }
+
+            private func agentLocalMCPConfigurationDefaultsDisabledAndRedactsRawSecrets() throws {
+                let localJSON = """
+                {
+                  "mcpServers": {
+                    "local-filesystem": {
+                      "command": "npx",
+                      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/workspace"],
+                      "env": {
+                        "API_TOKEN": "super-secret-token",
+                        "LOG_LEVEL": "info"
+                      },
+                      "allowed_tools": ["read_file"]
+                    },
+                    "remote-index": {
+                      "transport": "remote_http",
+                      "url": "https://mcp.example.test",
+                      "enabled": true,
+                      "header_references": [
+                        {
+                          "name": "Authorization",
+                          "value_reference": "keychain:mcp/remote/token"
+                        }
+                      ]
+                    }
+                  }
+                }
+                """
+                let configurations = try AgentRuntimeConfigurationLoader.localMCPServerConfigurations(from: Data(localJSON.utf8))
+                let local = try require(configurations.first { $0.id == "local-filesystem" }, "Local MCP configuration should parse.")
+                let remote = try require(configurations.first { $0.id == "remote-index" }, "Remote MCP configuration should parse.")
+                let snapshot = AgentMCPConnectorRegistryResolver().resolve(localServers: configurations)
+
+                try expect(!local.isEnabled, "Local command MCP configs should default disabled until explicitly enabled.")
+                try expect(!local.secretReferences.contains("super-secret-token"), "Raw local MCP secret values must not survive configuration parsing.")
+                try expect(local.secretReferences == ["invalid_raw:API_TOKEN"], "Unsafe local MCP environment secrets should become redacted validation markers.")
+                try expect(remote.isEnabled && remote.transport == .remoteHTTP, "Explicitly enabled remote MCP configuration should preserve its transport.")
+                try expect(snapshot.registration(id: "local-filesystem")?.state == .disabled, "Default-disabled local MCP servers should not be ready for discovery.")
+                try expect(snapshot.registration(id: "remote-index")?.state == .readyForDiscovery, "Supported credential references should allow remote MCP discovery after approval.")
+            }
+
+            private func agentMCPStdioClientDiscoversAndApprovalGatesTool() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPStdioWorkspace")
+                let manager = AgentMCPConnectorManager()
+                let scriptURL = fixture.containerURL.appendingPathComponent("mcp_fixture.py", isDirectory: false)
+                let callLogURL = fixture.containerURL.appendingPathComponent("mcp_calls.log", isDirectory: false)
+                let startupLogURL = fixture.containerURL.appendingPathComponent("mcp_startup.log", isDirectory: false)
+                defer {
+                    cleanupLoopWorkspaceFixture(fixture)
+                }
+
+                try """
+                import json
+                import pathlib
+                import sys
+
+                call_log = pathlib.Path(sys.argv[1])
+                startup_log = pathlib.Path(sys.argv[2])
+                startup_log.write_text("started", encoding="utf-8")
+
+                def send(payload):
+                    sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\\n")
+                    sys.stdout.flush()
+
+                for raw in sys.stdin:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    message = json.loads(raw)
+                    method = message.get("method")
+                    request_id = message.get("id")
+                    if method == "initialize":
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "protocolVersion": "2025-06-18",
+                                "capabilities": {"tools": {"listChanged": False}},
+                                "serverInfo": {"name": "fixture-mcp", "version": "1.0.0"}
+                            }
+                        })
+                    elif method == "notifications/initialized":
+                        continue
+                    elif method == "tools/list":
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "tools": [{
+                                    "name": "echo",
+                                    "title": "Fixture Echo",
+                                    "description": "Echo structured test input.",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": {"text": {"type": "string"}},
+                                        "required": ["text"]
+                                    },
+                                    "annotations": {"readOnlyHint": True}
+                                }]
+                            }
+                        })
+                    elif method == "tools/call":
+                        params = message.get("params", {})
+                        arguments = params.get("arguments", {})
+                        call_log.write_text(json.dumps(params, sort_keys=True), encoding="utf-8")
+                        text = arguments.get("text", "")
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [{"type": "text", "text": "fixture:" + text}],
+                                "structuredContent": {"echo": text},
+                                "isError": False
+                            }
+                        })
+                    else:
+                        send({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {"code": -32601, "message": "unsupported"}
+                        })
+                """.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+                let server = MCPServerConfiguration(
+                    id: "fixture",
+                    displayName: "Fixture MCP",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "/usr/bin/python3",
+                    arguments: [scriptURL.path, callLogURL.path, startupLogURL.path],
+                    timeoutSeconds: 5,
+                    allowedTools: ["echo"]
+                )
+                let profile = AgentWorkspaceProfile(mcpServers: [server])
+                let connectorRegistry = AgentMCPConnectorRegistryResolver().resolve(profileServers: [server])
+
+                do {
+                    var disabledServer = server
+                    disabledServer.isEnabled = false
+                    let disabledPreparation = await manager.prepare(
+                        registry: AgentMCPConnectorRegistryResolver().resolve(profileServers: [disabledServer]),
+                        root: fixture.root
+                    )
+                    try expect(disabledPreparation.statuses.first?.state == .disabled, "Disabled local MCP servers should remain diagnostic-only.")
+                    try expect(!FileManager.default.fileExists(atPath: startupLogURL.path), "Disabled local MCP servers must not start a process.")
+
+                    let preparation = await manager.prepare(registry: connectorRegistry, root: fixture.root)
+                    let status = try require(preparation.statuses.first, "MCP fixture should produce a runtime status.")
+                    let externalTool = try require(preparation.tools.first, "MCP fixture should expose one external tool.")
+
+                    try expect(status.state == .ready, "MCP stdio fixture should complete initialize and tools/list.")
+                    try expect(status.protocolVersion == "2025-06-18", "MCP stdio fixture should negotiate the supported protocol version.")
+                    try expect(status.discoveredToolCount == 1, "MCP stdio fixture should report one discovered tool.")
+                    try expect(externalTool.definition.name == "mcp__fixture__echo", "Discovered MCP tools should receive deterministic server namespaces.")
+                    try expect(externalTool.definition.risk == .externalSideEffect, "External MCP tools should remain approval-gated regardless of server hints.")
+                    try expect(externalTool.definition.requiresConfirmation, "External MCP tools should require confirmation.")
+
+                    let service = SciStationAgentService(
+                        provider: StaticLLMProvider(response: "{}"),
+                        mcpConnectorManager: manager
+                    )
+                    let serviceDefinitions = await service.toolDefinitions(in: fixture.root, workspaceProfile: profile)
+                    let serviceStatuses = await service.mcpRuntimeStatuses(in: fixture.root, workspaceProfile: profile)
+                    try expect(serviceDefinitions.contains(where: { $0.name == externalTool.definition.name }), "Agent service should expose enabled discovered MCP tools.")
+                    try expect(serviceStatuses.first?.state == .ready, "Agent service should expose MCP runtime health.")
+
+                    let registry = AgentToolRegistry(tools: [externalTool])
+                    let mcpCall = AgentToolCall(
+                        id: "call-mcp-echo",
+                        toolName: externalTool.definition.name,
+                        argumentsJSON: "{\"text\":\"hello\"}"
+                    )
+                    let firstProvider = ScriptedChatProvider(responses: [
+                        LLMProviderResponse(
+                            message: LLMChatMessage(
+                                role: .assistant,
+                                content: "",
+                                toolCalls: [mcpCall]
+                            ),
+                            toolCalls: [mcpCall]
+                        )
+                    ])
+                    let runner = AgentLoopRunner()
+                    let paused = try await runner.run(loopRequest(
+                        runID: "mcp-approval-run",
+                        provider: firstProvider,
+                        definitions: [externalTool.definition],
+                        registry: registry,
+                        fixture: fixture
+                    ))
+
+                    try expect(
+                        paused.pauseReason?.kind == .approvalRequired,
+                        "Discovered MCP tool calls should pause for approval; got \(String(describing: paused.pauseReason?.kind)) with \(paused.pauseReason?.message ?? "no message")."
+                    )
+                    try expect(!FileManager.default.fileExists(atPath: callLogURL.path), "MCP tools must not execute before approval.")
+
+                    let pending = try require(paused.pendingToolCall, "Paused MCP tool call should persist a checkpoint.")
+                    let resumeProvider = ScriptedChatProvider(responses: [
+                        LLMProviderResponse(message: LLMChatMessage(role: .assistant, content: "MCP completed."))
+                    ])
+                    let resumed = try await runner.resume(loopResumeRequest(
+                        pending: pending,
+                        action: .allowOnce,
+                        provider: resumeProvider,
+                        definitions: [externalTool.definition],
+                        registry: registry,
+                        fixture: fixture
+                    ))
+                    let callLog = try String(contentsOf: callLogURL, encoding: .utf8)
+
+                    try expect(resumed.finalResponseMarkdown == "MCP completed.", "Approved MCP tool calls should continue the tool loop.")
+                    try expect(resumed.toolResults.first?.message == "fixture:hello", "MCP tools/call text content should map to AgentToolResult.")
+                    try expect(callLog.contains("\"name\": \"echo\""), "Approved MCP tool calls should reach the remote tool name.")
+                    try expect(callLog.contains("\"text\": \"hello\""), "Approved MCP tool calls should preserve structured arguments.")
+                    await manager.stopAll()
+                } catch {
+                    await manager.stopAll()
+                    throw error
+                }
+            }
+
+            private func agentMCPRemoteHTTPDiscoversAndApprovalGatesTool() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPRemoteHTTPWorkspace")
+                RemoteMCPMockURLProtocol.reset()
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [RemoteMCPMockURLProtocol.self]
+                let manager = AgentMCPConnectorManager(
+                    urlSession: URLSession(configuration: configuration),
+                    credentialResolver: { reference in
+                        reference == "keychain:mcp/remote/token" ? "Bearer remote-test-token" : nil
+                    }
+                )
+                defer {
+                    RemoteMCPMockURLProtocol.reset()
+                    cleanupLoopWorkspaceFixture(fixture)
+                }
+
+                let remote = MCPServerConfiguration(
+                    id: "remote-index",
+                    displayName: "Remote Index",
+                    transport: .remoteHTTP,
+                    isEnabled: true,
+                    urlString: "https://mcp.example.test/rpc",
+                    timeoutSeconds: 2,
+                    allowedTools: ["lookup"],
+                    headerReferences: [MCPHeaderReference(name: "Authorization", valueReference: "keychain:mcp/remote/token")]
+                )
+                let registry = AgentMCPConnectorRegistryResolver().resolve(profileServers: [remote])
+                let preparation = await manager.prepare(registry: registry, root: fixture.root)
+                let status = try require(preparation.statuses.first, "Remote MCP should report runtime status.")
+                let externalTool = try require(preparation.tools.first, "Remote MCP should expose allowlisted tools after discovery.")
+                let registryWithTool = AgentToolRegistry(tools: [externalTool])
+                let call = AgentToolCall(
+                    id: "call-remote-mcp",
+                    toolName: externalTool.definition.name,
+                    argumentsJSON: #"{"query":"paper"}"#
+                )
+                let provider = ScriptedChatProvider(responses: [
+                    LLMProviderResponse(
+                        message: LLMChatMessage(role: .assistant, content: "", toolCalls: [call]),
+                        toolCalls: [call]
+                    )
+                ])
+                let paused = try await AgentLoopRunner().run(loopRequest(
+                    runID: "remote-mcp-approval-run",
+                    provider: provider,
+                    definitions: [externalTool.definition],
+                    registry: registryWithTool,
+                    fixture: fixture
+                ))
+                let result = try await manager.callTool(
+                    serverID: remote.id,
+                    toolName: "lookup",
+                    arguments: .object(["query": .string("paper")])
+                )
+
+                try expect(status.state == .ready, "Remote HTTP MCP should be ready after initialize and tools/list.")
+                try expect(status.transport == .remoteHTTP, "Runtime status should report configured remote transport.")
+                try expect(status.endpointSummary == "https://mcp.example.test/rpc", "Runtime status should report remote endpoint without credentials.")
+                try expect(status.discoveredToolCount == 1, "Remote MCP status should include discovered tool count.")
+                try expect(status.lastSuccessAt != nil, "Remote MCP status should record last success.")
+                try expect(status.connectionSummary.contains("connected"), "Remote MCP connection summary should be audit-ready.")
+                try expect(status.freshness == "current", "Runtime status should expose freshness.")
+                try expect(externalTool.definition.name == "mcp__remote_index__lookup", "Remote MCP tools should receive deterministic namespaces.")
+                try expect(externalTool.definition.requiresConfirmation, "Remote MCP tools must remain approval-gated.")
+                try expect(paused.pauseReason?.kind == .approvalRequired, "Remote MCP tool calls should pause for approval.")
+                try expect(result.content.first?.objectValue?["text"]?.stringValue == "remote:paper", "Remote MCP tool call should return text content.")
+                try expect(RemoteMCPMockURLProtocol.authorizationHeaders.allSatisfy { $0 == "Bearer remote-test-token" }, "Remote MCP should resolve auth headers without storing raw secrets.")
+                try expect(RemoteMCPMockURLProtocol.methods.contains("initialize"), "Remote MCP should initialize over HTTP.")
+                try expect(RemoteMCPMockURLProtocol.methods.contains("tools/list"), "Remote MCP should list tools over HTTP.")
+                try expect(RemoteMCPMockURLProtocol.methods.contains("tools/call"), "Remote MCP should call tools over HTTP.")
+                await manager.stopAll()
+            }
+
+            private func agentMCPRemoteFailureBackoffIsAuditable() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPRemoteBackoffWorkspace")
+                RemoteMCPMockURLProtocol.reset()
+                RemoteMCPMockURLProtocol.failureMode = .httpStatus(503)
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [RemoteMCPMockURLProtocol.self]
+                let manager = AgentMCPConnectorManager(
+                    urlSession: URLSession(configuration: configuration),
+                    credentialResolver: { reference in
+                        reference == "keychain:mcp/remote/token" ? "Bearer remote-test-token" : nil
+                    }
+                )
+                defer {
+                    RemoteMCPMockURLProtocol.reset()
+                    cleanupLoopWorkspaceFixture(fixture)
+                }
+
+                let remote = MCPServerConfiguration(
+                    id: "remote-backoff",
+                    displayName: "Remote Backoff",
+                    transport: .remoteSSE,
+                    isEnabled: true,
+                    urlString: "https://mcp.example.test/sse",
+                    timeoutSeconds: 2,
+                    allowedTools: ["lookup"],
+                    headerReferences: [MCPHeaderReference(name: "Authorization", valueReference: "keychain:mcp/remote/token")]
+                )
+                let registry = AgentMCPConnectorRegistryResolver().resolve(profileServers: [remote])
+                let firstPreparation = await manager.prepare(registry: registry, root: fixture.root)
+                let firstStatus = try require(firstPreparation.statuses.first, "Failed remote MCP should report a runtime status.")
+                let firstNetworkAttempts = RemoteMCPMockURLProtocol.methods.count
+
+                RemoteMCPMockURLProtocol.failureMode = .none
+                let secondPreparation = await manager.prepare(registry: registry, root: fixture.root)
+                let secondStatus = try require(secondPreparation.statuses.first, "Backoff remote MCP should continue to report runtime status.")
+
+                try expect(firstPreparation.tools.isEmpty, "Remote MCP discovery failures must not expose tools.")
+                try expect(firstStatus.state == .failed, "Remote HTTP/SSE failures should be explicit runtime failures.")
+                try expect(firstStatus.transport == .remoteSSE, "Failure status should preserve the configured remote transport.")
+                try expect(firstStatus.endpointSummary == "https://mcp.example.test/sse", "Failure status should preserve the endpoint summary without credentials.")
+                try expect(firstStatus.errorMessage?.contains("Remote MCP HTTP 503") == true, "Failure status should include the HTTP failure reason.")
+                try expect(firstStatus.lastErrorAt != nil, "Remote failure should record last error time.")
+                try expect(firstStatus.retryCount == 1, "First remote failure should count one discovery attempt.")
+                try expect(firstStatus.freshness.hasPrefix("backoff_until:"), "Remote failure should expose backoff freshness.")
+                try expect(firstStatus.connectionSummary.contains("backing off"), "Remote failure summary should make backoff visible.")
+                try expect(firstNetworkAttempts == 1, "Initial remote discovery should stop after the failing initialize request.")
+                try expect(secondPreparation.tools.isEmpty, "Backoff status must not expose tools before retry time.")
+                try expect(secondStatus.state == .failed, "Backoff probe should remain a failed runtime status.")
+                try expect(secondStatus.retryCount == 2, "Backoff probe should count the skipped retry attempt for auditability.")
+                try expect(secondStatus.freshness.hasPrefix("backoff_until:"), "Backoff probe should preserve freshness until retry time.")
+                try expect(secondStatus.connectionSummary.contains("backing off"), "Backoff probe should keep the user-visible backoff summary.")
+                try expect(RemoteMCPMockURLProtocol.methods.count == firstNetworkAttempts, "Second prepare during backoff must not hit the remote endpoint.")
+                await manager.stopAll()
+            }
+
+            private func agentMCPRuntimeReportsRemoteCredentialFailure() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPRemoteCredentialFailureWorkspace")
+                RemoteMCPMockURLProtocol.reset()
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [RemoteMCPMockURLProtocol.self]
+                let manager = AgentMCPConnectorManager(urlSession: URLSession(configuration: configuration))
+                defer {
+                    RemoteMCPMockURLProtocol.reset()
+                    cleanupLoopWorkspaceFixture(fixture)
+                }
+
+                let remote = MCPServerConfiguration(
+                    id: "remote-index",
+                    displayName: "Remote Index",
+                    transport: .remoteSSE,
+                    isEnabled: true,
+                    urlString: "https://mcp.example.test/sse",
+                    timeoutSeconds: 2,
+                    headerReferences: [MCPHeaderReference(name: "Authorization", valueReference: "keychain:mcp/remote/token")]
+                )
+                let registry = AgentMCPConnectorRegistryResolver().resolve(profileServers: [remote])
+                let preparation = await manager.prepare(registry: registry, root: fixture.root)
+                let status = try require(preparation.statuses.first, "Remote credential failures should still report runtime status.")
+
+                try expect(preparation.tools.isEmpty, "Credential-failed remote MCP must not expose tools.")
+                try expect(status.state == .failed, "Credential failure should be explicit runtime failure.")
+                try expect(status.transport == .remoteSSE, "Runtime status should report configured SSE transport.")
+                try expect(status.endpointSummary == "https://mcp.example.test/sse", "Runtime status should report remote endpoint without credentials.")
+                try expect(status.errorMessage?.contains("Keychain credential reference") == true, "Credential failure should be actionable without leaking raw values.")
+                try expect(status.errorMessage?.contains("remote/token") == false, "Credential failure should redact credential reference details.")
+                try expect(status.lastErrorAt != nil, "Credential failure should record last error time.")
+                try expect(status.retryCount == 1, "Credential failure should count one attempted discovery.")
+                try expect(status.freshness == "current", "Credential failures should not enter network backoff freshness.")
+                try expect(RemoteMCPMockURLProtocol.methods.isEmpty, "Credential failure should occur before any remote network request.")
+                await manager.stopAll()
+            }
+
+            private func agentMCPRuntimeReportsLocalCrashLiveness() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPCrashWorkspace")
+                let manager = AgentMCPConnectorManager()
+                let scriptURL = fixture.containerURL.appendingPathComponent("mcp_crash_fixture.py", isDirectory: false)
+                defer {
+                    cleanupLoopWorkspaceFixture(fixture)
+                }
+
+                try """
+                import json
+                import sys
+
+                raw = sys.stdin.readline()
+                if raw:
+                    message = json.loads(raw)
+                    sys.stdout.write(json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": message.get("id"),
+                        "result": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {"tools": {"listChanged": False}},
+                            "serverInfo": {"name": "crashy-mcp", "version": "1.0.0"}
+                        }
+                    }) + "\\n")
+                    sys.stdout.flush()
+                sys.stderr.write("fixture crash after initialize\\n")
+                sys.stderr.flush()
+                sys.exit(7)
+                """.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+                let server = MCPServerConfiguration(
+                    id: "crashy",
+                    displayName: "Crashy MCP",
+                    transport: .localCommand,
+                    isEnabled: true,
+                    command: "/usr/bin/python3",
+                    arguments: [scriptURL.path],
+                    timeoutSeconds: 2,
+                    allowedTools: ["echo"]
+                )
+                let registry = AgentMCPConnectorRegistryResolver().resolve(profileServers: [server])
+                let preparation = await manager.prepare(registry: registry, root: fixture.root)
+                let status = try require(preparation.statuses.first, "Crashed local MCP should report runtime status.")
+
+                try expect(preparation.tools.isEmpty, "Crashed MCP server must not expose tools.")
+                try expect(status.state == .failed, "Crashed local MCP should report failed state.")
+                try expect(status.transport == .localCommand, "Crash status should report local command transport.")
+                try expect(status.endpointSummary.contains("/usr/bin/python3"), "Crash status should include command endpoint summary.")
+                try expect(status.exitCode == 7, "Crash status should report MCP process exit code.")
+                try expect(status.retryCount == 1, "Crash status should count the failed discovery attempt.")
+                try expect(status.lastErrorAt != nil, "Crash status should record last error time.")
+                try expect(status.stderrPreview?.contains("fixture crash") == true || status.errorMessage?.contains("fixture crash") == true, "Crash status should include stderr preview or error context.")
+                try expect(status.connectionSummary.contains("failed"), "Crash status should include failed connection summary.")
+                await manager.stopAll()
+            }
+
+            private func agentRunManifestRoundTripsMCPAuditContext() async throws {
+                let fixture = try await loopWorkspaceFixture(named: "MCPManifestWorkspace")
+                defer { cleanupLoopWorkspaceFixture(fixture) }
+
+                let store = AgentRunDirectoryStore()
+                let runID = "mcp-manifest-run"
+                let toolCallID = "call-mcp-lookup"
+                let approvalID = "approval-mcp-lookup"
+                let runtimeStatus = AgentMCPRuntimeStatus(
+                    serverID: "remote-index",
+                    displayName: "Remote Index",
+                    source: .workspaceProfile,
+                    transport: .remoteSSE,
+                    endpointSummary: "https://mcp.example.test/sse",
+                    state: .failed,
+                    connectionSummary: "remote_sse at https://mcp.example.test/sse is backing off until 2026-06-26T00:00:02Z; retry_count=2.",
+                    discoveredToolCount: 0,
+                    errorMessage: "HTTP 503: unavailable",
+                    lastErrorAt: Date(timeIntervalSince1970: 1_782_446_400),
+                    retryCount: 2,
+                    freshness: "backoff_until:2026-06-26T00:00:02Z"
+                )
+                let ledgerRecord = AgentToolExecutionLedgerRecord(
+                    runID: runID,
+                    toolCallID: toolCallID,
+                    approvalID: approvalID,
+                    fingerprint: "fingerprint-mcp-lookup",
+                    tool: "mcp__remote_index__lookup",
+                    risk: .externalSideEffect,
+                    targetPaths: ["projects/demo/wiki/remote_lookup.md"],
+                    status: .requested
+                )
+                try await store.appendEvent(
+                    AgentRuntimeEventEnvelope(
+                        id: "evt-mcp-manifest-start",
+                        runID: runID,
+                        sequence: 1,
+                        event: .runStarted(AgentRunStarted(goal: "Audit remote MCP"))
+                    ),
+                    in: fixture.root
+                )
+                try await store.appendToolCallRecord(ledgerRecord, in: fixture.root)
+                try await store.savePromptSnapshot(
+                    AgentRunPromptSnapshot(
+                        runID: runID,
+                        snapshots: [
+                            AgentPromptSnapshot(
+                                runID: runID,
+                                surface: .toolLoop,
+                                templateID: "tool-loop-audit",
+                                templateVersion: "1.0.0",
+                                templateHash: "prompt-hash"
+                            )
+                        ]
+                    ),
+                    in: fixture.root
+                )
+                let saved = try await store.saveManifest(
+                    AgentRunManifest(
+                        runID: runID,
+                        provider: AgentRunProviderSnapshot(configuration: LLMConfiguration(baseURLString: "https://api.example.com/v1", model: "audit-model")),
+                        runtime: AgentRunProvenance(
+                            requestedRuntime: "swift_loop",
+                            effectiveRuntime: "swift_loop",
+                            runtime: "swift_loop",
+                            fallbackReason: "remote MCP backoff preserved in audit"
+                        ),
+                        prompt: AgentRunPromptManifestSnapshot(
+                            surface: .toolLoop,
+                            templateID: "tool-loop-audit",
+                            templateVersion: "1.0.0",
+                            templateHash: "prompt-hash"
+                        ),
+                        mcpServers: [AgentRunMCPServerSnapshot(status: runtimeStatus)],
+                        mcpTools: [
+                            AgentRunMCPToolSnapshot(
+                                exposedName: "mcp__remote_index__lookup",
+                                serverID: "remote-index",
+                                remoteToolName: "lookup",
+                                approvalRequired: true,
+                                permissionKey: "tool.external_mcp"
+                            )
+                        ],
+                        enabledToolNames: ["mcp__remote_index__lookup"],
+                        approvals: [
+                            AgentRunApprovalSnapshot(
+                                toolCallID: toolCallID,
+                                toolName: "mcp__remote_index__lookup",
+                                decision: "ask",
+                                risk: .externalSideEffect,
+                                targetPaths: ["projects/demo/wiki/remote_lookup.md"],
+                                approvalRef: approvalID
+                            )
+                        ],
+                        approvalRefs: [approvalID],
+                        toolLedgerRef: "tool_calls.jsonl",
+                        evidence: AgentRunEvidenceSummary(
+                            sourceTypes: ["mcp_remote"],
+                            containsSyntheticEvidence: false,
+                            evidenceProvenance: .object([
+                                "sources": .array([.string("mcp_remote")]),
+                                "contains_synthetic_evidence": .bool(false)
+                            ])
+                        )
+                    ),
+                    in: fixture.root
+                )
+                let loaded = try require(try await store.manifest(runID: runID, in: fixture.root), "Run manifest should reload from manifest.json.")
+                let manifestText = try String(contentsOf: fixture.root.directoryURL(for: ".sci-station/agent/runs/\(runID)").appendingPathComponent("manifest.json"), encoding: .utf8)
+
+                try expect(saved.mcpServers.first?.transport == .remoteSSE, "Saved manifest should preserve MCP transport.")
+                try expect(loaded.provider?.model == "audit-model", "Manifest should round-trip provider/model context.")
+                try expect(loaded.prompt.snapshotRef == "prompt_snapshot.json", "Manifest should point back to the prompt snapshot.")
+                try expect(loaded.mcpServers.first?.serverID == "remote-index", "Manifest should round-trip MCP server identity.")
+                try expect(loaded.mcpServers.first?.state == .failed, "Manifest should round-trip MCP runtime state.")
+                try expect(loaded.mcpServers.first?.retryCount == 2, "Manifest should round-trip MCP retry count.")
+                try expect(loaded.mcpServers.first?.freshness.hasPrefix("backoff_until:") == true, "Manifest should round-trip MCP freshness/backoff.")
+                try expect(loaded.mcpTools.first?.remoteToolName == "lookup", "Manifest should round-trip remote MCP tool names.")
+                try expect(loaded.mcpTools.first?.approvalRequired == true, "Manifest should preserve MCP approval gating.")
+                try expect(loaded.approvalRefs == [approvalID], "Manifest should round-trip approval references.")
+                try expect(loaded.approvals.first?.approvalRef == approvalID, "Approval snapshots should point at approval references.")
+                try expect(loaded.toolLedgerRef == "tool_calls.jsonl", "Manifest should link to the tool ledger JSONL.")
+                try expect(loaded.evidence.sourceTypes == ["mcp_remote"], "Manifest should preserve evidence source types.")
+                try expect(loaded.evidence.containsSyntheticEvidence == false, "Manifest should preserve synthetic provenance.")
+                try expect(loaded.files.contains { $0.path == "events.jsonl" && $0.lastSequence == 1 && $0.sha256 != nil }, "Manifest should include an events.jsonl file reference with sequence and hash.")
+                try expect(loaded.files.contains { $0.path == "tool_calls.jsonl" && $0.sha256 != nil }, "Manifest should include a tool ledger file reference with hash.")
+                try expect(loaded.files.contains { $0.path == "prompt_snapshot.json" && $0.sha256 != nil }, "Manifest should include a prompt snapshot file reference with hash.")
+                try expect(manifestText.contains(#""mcp_servers""#), "Encoded manifest should use the mcp_servers key.")
+                try expect(manifestText.contains(#""mcp_tools""#), "Encoded manifest should use the mcp_tools key.")
+                try expect(manifestText.contains(#""approval_refs""#), "Encoded manifest should use the approval_refs key.")
+                try expect(manifestText.contains(#""tool_ledger_ref""#), "Encoded manifest should use the tool_ledger_ref key.")
             }
 
     private func pdfImportCreatesLibraryMarkdownAndFigures() async throws {
@@ -8274,7 +9596,7 @@ private struct CoreVerificationSuite {
     private func graphAgentToolsExposeReadOnlyDefinitions() throws {
         let definitions = GraphAgentTools.makeDefaultTools(paperRepository: PaperRepository(), debugEventLogger: nil).map(\.definition)
         let definitionsByName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.name, $0) })
-        try expect(Set(definitionsByName.keys).isSuperset(of: GraphAgentTools.allNames), "Default graph tools should expose all P47 tool names.")
+        try expect(Set(definitionsByName.keys).isSuperset(of: GraphAgentTools.allNames), "Default graph tools should expose all registered graph tool names.")
         for name in GraphAgentTools.allNames {
             guard let definition = definitionsByName[name] else {
                 throw ValidationError(message: "Missing graph tool definition for \(name).")
@@ -9590,4 +10912,184 @@ private final class MinerUAPIMockURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+private final class RemoteMCPMockURLProtocol: URLProtocol {
+    enum FailureMode: Equatable {
+        case none
+        case httpStatus(Int)
+    }
+
+    nonisolated(unsafe) static var methods: [String] = []
+    nonisolated(unsafe) static var authorizationHeaders: [String?] = []
+    nonisolated(unsafe) static var failureMode: FailureMode = .none
+
+    static func reset() {
+        methods = []
+        authorizationHeaders = []
+        failureMode = .none
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+
+        let bodyData = Self.requestBodyData(from: request)
+        let body = bodyData.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) as? [String: Any] } ?? [:]
+        let method = body["method"] as? String ?? "unknown"
+        Self.methods.append(method)
+        Self.authorizationHeaders.append(request.value(forHTTPHeaderField: "Authorization"))
+
+        if case let .httpStatus(statusCode) = Self.failureMode {
+            guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            let data = Data(#"{"error":"mock remote MCP failure"}"#.utf8)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+
+        let idValue = body["id"] as? String
+        let data: Data
+        let statusCode = 200
+        let contentType = request.value(forHTTPHeaderField: "Accept")?.contains("text/event-stream") == true
+            ? "text/event-stream"
+            : "application/json"
+
+        switch method {
+        case "initialize":
+            data = Self.responseData(
+                id: idValue,
+                result: [
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": ["tools": ["listChanged": false]],
+                    "serverInfo": ["name": "remote-mcp", "version": "1.0.0"]
+                ],
+                contentType: contentType
+            )
+        case "notifications/initialized":
+            data = Data()
+        case "ping":
+            data = Self.responseData(id: idValue, result: [:], contentType: contentType)
+        case "tools/list":
+            data = Self.responseData(
+                id: idValue,
+                result: [
+                    "tools": [[
+                        "name": "lookup",
+                        "title": "Remote Lookup",
+                        "description": "Lookup remote indexed evidence.",
+                        "inputSchema": [
+                            "type": "object",
+                            "properties": ["query": ["type": "string"]]
+                        ]
+                    ]]
+                ],
+                contentType: contentType
+            )
+        case "tools/call":
+            let params = body["params"] as? [String: Any]
+            let arguments = params?["arguments"] as? [String: Any]
+            let query = arguments?["query"] as? String ?? ""
+            data = Self.responseData(
+                id: idValue,
+                result: [
+                    "content": [[
+                        "type": "text",
+                        "text": "remote:\(query)"
+                    ]],
+                    "structuredContent": ["query": query],
+                    "isError": false
+                ],
+                contentType: contentType
+            )
+        default:
+            data = Self.responseData(
+                id: idValue,
+                error: ["code": -32601, "message": "Unsupported mock MCP method \(method)."],
+                contentType: contentType
+            )
+        }
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": contentType]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !data.isEmpty {
+            client?.urlProtocol(self, didLoad: data)
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func responseData(
+        id: String?,
+        result: Any? = nil,
+        error: [String: Any]? = nil,
+        contentType: String
+    ) -> Data {
+        var object: [String: Any] = ["jsonrpc": "2.0"]
+        if let id {
+            object["id"] = id
+        }
+        if let error {
+            object["error"] = error
+        } else {
+            object["result"] = result ?? [:]
+        }
+        let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        guard contentType.contains("text/event-stream"),
+              let json = String(data: data, encoding: .utf8) else {
+            return data
+        }
+        return Data("event: message\ndata: \(json)\n\n".utf8)
+    }
+
+    private static func requestBodyData(from request: URLRequest) -> Data? {
+        if let data = request.httpBody {
+            return data
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let readCount = stream.read(&buffer, maxLength: buffer.count)
+            if readCount > 0 {
+                data.append(buffer, count: readCount)
+            } else {
+                break
+            }
+        }
+        return data.isEmpty ? nil : data
+    }
 }

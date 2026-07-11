@@ -33,6 +33,7 @@ def test_router_selects_scientific_workflows() -> None:
     ],
 )
 def test_agent_start_routes_to_production_workflows(tmp_path, goal, selected_paper_id, project_id, workflow, artifact_kind, target_path) -> None:
+    write_real_workspace_evidence(tmp_path, selected_paper_id or "p1", project_id or "project-alpha")
     server = SidecarServer()
     init_response = server.handle({
         "jsonrpc": "2.0",
@@ -67,13 +68,65 @@ def test_agent_start_routes_to_production_workflows(tmp_path, goal, selected_pap
     assert artifact["kind"] == artifact_kind
     assert artifact["proposed_path"] == target_path
     assert trace["workflow"] == workflow
+    assert trace["effective_runtime"] == "langgraph_sidecar"
+    assert trace["provenance"]["effective_runtime"] == "langgraph_sidecar"
+    assert trace["provenance"]["workflow"] == workflow
+    assert trace["fallback_metadata"]["effective_runtime"] == "langgraph_sidecar"
     assert trace["schema_version"] == 2
     assert trace["query"]["redacted"] is True
     assert "hash" in trace["query"]
     assert "candidates" in trace
+    assert trace["evidence_provenance"]["contains_synthetic_evidence"] is False
+    assert trace["fallback_metadata"]["used_synthetic_evidence"] is False
+    assert "synthetic_fixture" not in trace["evidence_provenance"]["sources"]
+    assert trace["retriever"] == "fts_only_workspace"
     assert (run_directory / "critic_report.json").exists()
     assert (run_directory / "evidence.json").exists()
     assert not (tmp_path / target_path).exists()
+
+
+def test_sidecar_blocks_production_without_real_evidence(tmp_path) -> None:
+    server = SidecarServer()
+    server.handle({
+        "jsonrpc": "2.0",
+        "id": "init",
+        "method": "sidecar.initialize",
+        "params": {"protocolVersion": "1.0", "schemaVersion": 1, "workspaceRoot": str(tmp_path)},
+    })
+
+    response = server.handle({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "agent.start",
+        "params": {
+            "runID": "run-provenance",
+            "goal": "draft related work",
+            "projectID": "project-alpha",
+            "workspaceRoot": str(tmp_path),
+            "runtimeSelection": "auto_fallback",
+        },
+    })
+
+    assert response and response["result"]["accepted"]
+    events = [action["envelope"] for action in server.pending_actions if action.get("kind") == "event"]
+    run_started = events[0]["event"]["payload"]
+    trace = json.loads((tmp_path / ".sci-station/agent/runs/run-provenance/retrieval_trace.json").read_text(encoding="utf-8"))
+    evidence_payload = json.loads((tmp_path / ".sci-station/agent/runs/run-provenance/evidence.json").read_text(encoding="utf-8"))
+    event_types = [event["event"]["type"] for event in events]
+
+    assert run_started["requested_runtime"] == "auto_fallback"
+    assert run_started["effective_runtime"] == "langgraph_sidecar"
+    assert run_started["evidence_provenance"]["contains_synthetic_evidence"] is False
+    assert run_started["fallback_reason"]
+    assert trace["requested_runtime"] == "auto_fallback"
+    assert trace["provenance"]["requested_runtime"] == "auto_fallback"
+    assert trace["provenance"]["fallback_reason"]
+    assert trace["evidence_provenance"]["contains_synthetic_evidence"] is False
+    assert trace["fallback_metadata"]["used_synthetic_evidence"] is False
+    assert evidence_payload["provenance"]["contains_synthetic_evidence"] is False
+    assert evidence_payload["evidence"] == []
+    assert "artifact_draft" not in event_types
+    assert "No synthetic/sample evidence was used" in events[-1]["event"]["payload"]["markdown"]
 
 
 def test_agent_start_respects_enabled_workflow_ids(tmp_path) -> None:
@@ -361,6 +414,32 @@ def test_debug_bundle_zip_redacts_sensitive_content(tmp_path) -> None:
     assert ".env" not in names
 
 
+def test_debug_bundle_manifest_includes_runtime_provenance(tmp_path) -> None:
+    run_directory = tmp_path / "run-manifest"
+    retrieval_trace = {
+        "runtime": "langgraph_sidecar",
+        "requested_runtime": "auto_fallback",
+        "effective_runtime": "langgraph_sidecar",
+        "workflow": "related_work",
+        "fallback_reason": "embedding disabled; using FTS-only candidates",
+        "evidence_provenance": {"contains_synthetic_evidence": True, "sources": ["synthetic_fixture"]},
+    }
+    run_directory.mkdir(parents=True)
+    (run_directory / "retrieval_trace.json").write_text(json.dumps(retrieval_trace), encoding="utf-8")
+    append_event(run_directory, {"id": "evt-1", "event": {"type": "run_started"}})
+
+    bundle = write_debug_bundle(run_directory)
+    manifest = json.loads((run_directory / "debug_bundle_manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["provenance"]["requested_runtime"] == "auto_fallback"
+    assert manifest["provenance"]["effective_runtime"] == "langgraph_sidecar"
+    assert manifest["provenance"]["evidence_provenance"]["contains_synthetic_evidence"] is True
+    assert manifest["run_metadata"]["effective_runtime"] == "langgraph_sidecar"
+    with ZipFile(bundle) as archive:
+        bundled_manifest = json.loads(archive.read("debug_bundle_manifest.json").decode("utf-8"))
+    assert bundled_manifest["provenance"]["requested_runtime"] == "auto_fallback"
+
+
 def sample_evidence_table() -> list[dict]:
     rows = []
     themes = [
@@ -388,3 +467,30 @@ def sample_evidence_table() -> list[dict]:
             "confidence": 0.74,
         })
     return rows
+
+
+def write_real_workspace_evidence(tmp_path, paper_id: str, project_id: str) -> None:
+    paper_dir = tmp_path / "library" / "papers" / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    paper_lines = [
+        "# Retrieval workflow paper",
+        "This paper studies retrieval augmented generation and workflow orchestration with real workspace evidence.",
+    ]
+    paper_lines.extend(
+        f"Line {line} retrieval workflow method evaluation benchmark metric planning evidence for production sidecar tests."
+        for line in range(3, 95)
+    )
+    (paper_dir / "paper.md").write_text("\n".join(paper_lines), encoding="utf-8")
+
+    project_wiki = tmp_path / "projects" / project_id / "wiki"
+    project_wiki.mkdir(parents=True, exist_ok=True)
+    (project_wiki / "evidence.md").write_text(
+        "\n".join([
+            "# Project evidence",
+            "Retrieval evidence connects RAG indexing with search ranking.",
+            "Workflow evidence describes agent planning checkpoints and orchestration.",
+            "Evaluation evidence compares benchmark metrics and experiment outcomes.",
+            "Planning evidence identifies research gaps and next-step hypotheses.",
+        ]),
+        encoding="utf-8",
+    )

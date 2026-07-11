@@ -1,4 +1,4 @@
-"""Client for the App-side UI Test Bridge (P-AT.1e).
+"""Client for the App-side UI Test Bridge.
 
 The bridge is a DEBUG-only Unix-domain socket opened by Sci-Station when
 the App is launched with ``--uitest-bridge`` or

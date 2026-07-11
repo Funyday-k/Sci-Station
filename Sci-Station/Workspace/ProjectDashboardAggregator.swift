@@ -191,7 +191,7 @@ public nonisolated struct ProjectDashboardSnapshotBuilder: Sendable {
             openGaps: Array(gaps.prefix(5)),
             recentArtifacts: Array(artifacts.prefix(3)),
             nextDeadline: homeBuilder.nextDeadline(from: projectTodos, after: now),
-            currentReadingPlan: nil,
+            currentReadingSummary: nil,
             openTodoCount: openTodoCount,
             openTodos: Array(openTodos),
             builtAt: now,

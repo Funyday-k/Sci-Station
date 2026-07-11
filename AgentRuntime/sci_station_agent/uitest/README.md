@@ -2,7 +2,7 @@
 
 Python 编排器，驱动 Sci-Station App 跑 UI smoke 场景并比对 3 条独立断言通道（事件 / 文件 / 视觉）。
 
-测试策略见 `docs/development/testing/UIAutomation.md`。该 README 只负责让一个新加入的人在 5 分钟内把测试跑起来。
+全局测试与发布约定见 `docs/DEVELOPER.md`。该 README 负责 UI smoke 编排器的安装、场景规则和运行方法。
 
 ## 安装
 
@@ -24,8 +24,7 @@ cd AgentRuntime
 
 ## 写一个新场景
 
-1. 在 `sci_station_agent/uitest/scenarios/<scenario-id>_<slug>.yaml` 新建文件，
-   场景要求见 `docs/development/testing/UIAutomation.md`。
+1. 在 `sci_station_agent/uitest/scenarios/<scenario-id>_<slug>.yaml` 新建文件；每个场景必须使用稳定的 accessibility identifier，并覆盖事件、文件或视觉通道中的至少一个可验证结果。
 2. 用到的 accessibility identifier 必须先在
    `Sci-Station/Testing/UITestAccessibilityID.swift` 登记。
 3. 期待的事件必须先在
@@ -41,7 +40,7 @@ scenario.py    Scenario / Step / Assertion 数据类 + JSON/YAML loader
 events.py      EventLogProbe (read app_events.jsonl)
 files.py       FileProbe (read workspace yaml/jsonl/md, 子集匹配)
 runner.py      ScenarioRunner: 驱动 step + 串联 probe + 出 result
-report.py      渲染 markdown 报告（docs/development/testing/runs/...md）
+report.py      渲染 markdown 报告（输出到调用方指定的本地路径）
 drivers/       UIDriver 协议 + NullDriver + Accessibility/XCUITest 适配
 scenarios/     YAML / JSON 场景库
 ```

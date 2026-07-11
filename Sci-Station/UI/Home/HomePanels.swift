@@ -41,13 +41,13 @@ struct TodayPanelView: View {
                 HomeSignalCard(
                     title: appModel.localized("阅读", "Reading"),
                     systemImage: "book",
-                    count: data.readingQueue.count
+                    count: data.readingPapers.count
                 ) {
                     if !snapshot.moduleAvailability.libraryEnabled {
                         ModuleDisabledView(message: appModel.localized("Library 模块已关闭。", "Library module is disabled.")) {
                             appModel.openSettings(category: .modules)
                         }
-                    } else if data.readingQueue.isEmpty {
+                    } else if data.readingPapers.isEmpty {
                         HomeEmptyState(
                             message: appModel.localized("还没有待读论文。", "No papers to read yet."),
                             actionTitle: appModel.localized("添加论文", "Add Paper"),
@@ -58,7 +58,7 @@ struct TodayPanelView: View {
                         }
                     } else {
                         VStack(spacing: 7) {
-                            ForEach(data.readingQueue.prefix(5)) { paper in
+                            ForEach(data.readingPapers.prefix(5)) { paper in
                                 HomePaperRow(paper: paper) {
                                     recordAction("open_paper", targetID: paper.id)
                                     appModel.selectPaper(id: paper.id)

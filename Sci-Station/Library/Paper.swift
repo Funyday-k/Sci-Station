@@ -254,19 +254,33 @@ public struct Paper: Identifiable, Codable, Hashable, Sendable {
         return collectionComponents.joined(separator: "/")
     }
 
-    public nonisolated static func directoryRelativePath(for paperID: String, collectionPath: String?) -> String {
-        let normalizedCollectionPath = collectionPath?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "/")
-            .map(String.init)
-            .filter { !$0.isEmpty }
-            .joined(separator: "/")
-
-        guard let normalizedCollectionPath, !normalizedCollectionPath.isEmpty else {
-            return "\(globalLibraryRootRelativePath)/\(paperID)"
+    public nonisolated static func directoryRelativePath(
+        for paperID: String,
+        collectionPath: String?,
+        storageRootRelativePath: String = globalLibraryRootRelativePath
+    ) throws -> String {
+        guard storageRootRelativePath == globalLibraryRootRelativePath
+                || storageRootRelativePath == legacyLibraryRootRelativePath else {
+            throw WorkspaceFileSystemError.invalidRelativePath(storageRootRelativePath)
         }
 
-        return "\(globalLibraryRootRelativePath)/\(normalizedCollectionPath)/\(paperID)"
+        let normalizedPaperID = try WorkspaceRelativePath(paperID).rawValue
+        guard !normalizedPaperID.contains("/") else {
+            throw WorkspaceFileSystemError.invalidRelativePath(paperID)
+        }
+
+        let trimmedCollectionPath = collectionPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCollectionPath = try trimmedCollectionPath.flatMap { value -> String? in
+            guard !value.isEmpty else { return nil }
+            return try WorkspaceRelativePath(value).rawValue
+        }
+
+        guard let normalizedCollectionPath, !normalizedCollectionPath.isEmpty else {
+            return "\(storageRootRelativePath)/\(normalizedPaperID)"
+        }
+
+        return "\(storageRootRelativePath)/\(normalizedCollectionPath)/\(normalizedPaperID)"
     }
 
     public nonisolated static func storageRootRelativePath(for paperDirectoryRelativePath: String) -> String? {

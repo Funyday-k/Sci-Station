@@ -1,4 +1,4 @@
-"""Coverage for the SwiftUI runtime warning log format (P-AT.1d).
+"""Coverage for the SwiftUI runtime warning log format.
 
 The on-disk schema is owned by
 ``Sci-Station/Testing/SwiftUIRuntimeWarningCapture.swift``; this test
@@ -71,7 +71,7 @@ def test_parse_log_returns_empty_when_file_missing(tmp_path: Path) -> None:
 
 
 def test_file_probe_can_assert_no_warnings_via_text_loader(tmp_path: Path) -> None:
-    # Simulate the App creating the log on workspace open (P-AT.1d):
+    # Simulate the App creating the log on workspace open:
     # file exists but no warnings were ever appended.
     log = tmp_path / SWIFTUI_WARNINGS_RELATIVE_PATH
     log.parent.mkdir(parents=True, exist_ok=True)

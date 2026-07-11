@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180">
+  <defs>
+    <linearGradient id="pageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7fbff"/>
+      <stop offset="0.55" stop-color="#eef6fb"/>
+      <stop offset="1" stop-color="#edf2f7"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#edf6ff" stop-opacity="0.52"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#1e3a5f" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .title { font: 750 38px -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; fill: #17202a; }
+      .subtitle { font: 500 17px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #64748b; }
+      .section { font: 700 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #17202a; }
+      .label { font: 700 15px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #1f2937; }
+      .text { font: 500 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #475569; }
+      .small { font: 600 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #64748b; }
+      .metric { font: 760 30px -apple-system, BlinkMacSystemFont, "SF Pro Rounded", sans-serif; fill: #111827; }
+      .card { fill: url(#glass); stroke: rgba(51,65,85,0.12); stroke-width: 1; filter: url(#shadow); }
+      .pill { fill: rgba(15,23,42,0.045); stroke: rgba(15,23,42,0.05); stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1180" fill="url(#pageBg)"/>
+  <text x="70" y="80" class="title">Sci-Station 小组件外观与功能说明草图</text>
+  <text x="70" y="116" class="subtitle">同一套 icon chip、玻璃卡片、语义色和信息密度。SVG 是审阅稿，最终以 SwiftUI 截图校准。</text>
+
+  <g transform="translate(70 165)">
+    <text x="0" y="0" class="section">1. 今日 Today</text>
+    <text x="0" y="28" class="subtitle">任务、阅读、日历、AI 审核四个信号；小尺寸只保留最重要行动。</text>
+
+    <g transform="translate(0 58)">
+      <rect width="150" height="150" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#fff7ed"/>
+      <text x="28" y="41" font-size="18" font-family="-apple-system" fill="#f97316">☼</text>
+      <text x="18" y="104" class="metric">3</text>
+      <text x="18" y="128" class="small">任务 due</text>
+    </g>
+
+    <g transform="translate(180 58)">
+      <rect width="316" height="150" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#fff7ed"/>
+      <text x="28" y="41" font-size="18" font-family="-apple-system" fill="#f97316">☼</text>
+      <text x="64" y="40" class="label">今日</text>
+      <rect x="18" y="70" width="130" height="48" rx="16" class="pill"/>
+      <text x="34" y="100" class="metric">3</text>
+      <text x="78" y="98" class="small">任务</text>
+      <rect x="160" y="70" width="138" height="48" rx="16" class="pill"/>
+      <text x="176" y="100" class="metric">4</text>
+      <text x="220" y="98" class="small">阅读</text>
+    </g>
+
+    <g transform="translate(528 58)">
+      <rect width="150" height="316" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#fff7ed"/>
+      <text x="64" y="39" class="label">今日</text>
+      <text x="18" y="91" class="metric">3</text>
+      <text x="18" y="117" class="small">打开任务</text>
+      <line x1="18" y1="142" x2="132" y2="142" stroke="#e2e8f0"/>
+      <text x="18" y="172" class="text">模拟结果检查</text>
+      <text x="18" y="201" class="text">整理核心论文</text>
+      <text x="18" y="230" class="text">更新图表说明</text>
+    </g>
+
+    <g transform="translate(708 58)">
+      <rect width="316" height="316" rx="32" class="card"/>
+      <rect x="20" y="20" width="36" height="36" rx="11" fill="#fff7ed"/>
+      <text x="70" y="43" class="label">今日</text>
+      <rect x="20" y="78" width="128" height="54" rx="17" class="pill"/>
+      <text x="38" y="113" class="metric">3</text>
+      <text x="84" y="111" class="small">任务</text>
+      <rect x="164" y="78" width="128" height="54" rx="17" class="pill"/>
+      <text x="182" y="113" class="metric">4</text>
+      <text x="228" y="111" class="small">阅读</text>
+      <text x="22" y="168" class="text">• 模拟结果检查</text>
+      <text x="22" y="198" class="text">• 更新 Super-K 对比图</text>
+      <text x="22" y="228" class="text">• 整理 brief 摘要</text>
+    </g>
+  </g>
+
+  <g transform="translate(70 610)">
+    <text x="0" y="0" class="section">2. 活跃项目 / AI 审核 / 日历 / 快速操作</text>
+    <text x="0" y="28" class="subtitle">偏淡问题通过更清晰的语义色、深一些的文字层级、低噪声玻璃边界解决。</text>
+
+    <g transform="translate(0 60)">
+      <rect width="316" height="150" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#eaf2ff"/>
+      <text x="64" y="40" class="label">活跃项目</text>
+      <rect x="18" y="68" width="280" height="54" rx="16" class="pill"/>
+      <text x="34" y="101" class="small" fill="#2563eb">Planning</text>
+      <text x="112" y="92" class="label">ResearchWorkspace</text>
+      <text x="112" y="112" class="small">Core 0 · Open 4</text>
+    </g>
+
+    <g transform="translate(350 60)">
+      <rect width="316" height="150" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#f5e8ff"/>
+      <text x="64" y="40" class="label">AI 审核</text>
+      <rect x="18" y="72" width="86" height="48" rx="15" class="pill"/>
+      <text x="34" y="102" class="metric">1</text>
+      <text x="68" y="100" class="small">待审</text>
+      <rect x="116" y="72" width="86" height="48" rx="15" class="pill"/>
+      <text x="132" y="102" class="metric">0</text>
+      <text x="166" y="100" class="small">证据</text>
+      <rect x="214" y="72" width="84" height="48" rx="15" class="pill"/>
+      <text x="230" y="102" class="metric">0</text>
+      <text x="264" y="100" class="small">陈旧</text>
+    </g>
+
+    <g transform="translate(700 60)">
+      <rect width="316" height="150" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#fee2e2"/>
+      <text x="64" y="40" class="label">日历</text>
+      <text x="18" y="88" class="metric">14</text>
+      <text x="70" y="84" class="text">Sunday</text>
+      <text x="70" y="108" class="small">2 upcoming · next deadline 20:55</text>
+    </g>
+
+    <g transform="translate(1050 60)">
+      <rect width="316" height="150" rx="28" class="card"/>
+      <rect x="18" y="18" width="32" height="32" rx="10" fill="#fef9c3"/>
+      <text x="64" y="40" class="label">快速操作</text>
+      <rect x="18" y="75" width="132" height="46" rx="15" class="pill"/>
+      <text x="36" y="104" class="text">论文库</text>
+      <rect x="166" y="75" width="132" height="46" rx="15" class="pill"/>
+      <text x="184" y="104" class="text">AI 实验室</text>
+    </g>
+  </g>
+
+  <g transform="translate(70 890)">
+    <text x="0" y="0" class="section">3. 项目页统一规则</text>
+    <text x="0" y="30" class="subtitle">项目状态、研究问题、材料、Brief、知识缺口使用同一单位网格。项目页不再保留旧 3 列大卡片布局。</text>
+    <rect x="0" y="60" width="1660" height="120" rx="26" fill="rgba(15,23,42,0.055)" stroke="rgba(15,23,42,0.08)"/>
+    <text x="28" y="101" class="label">Project Overview card anatomy</text>
+    <text x="28" y="135" class="text">icon chip → title → primary metric/list → one clear action. 1×1 和 1×2 使用 compact mode；2×2 是默认；3×3 才显示长 preview。</text>
+  </g>
+</svg>

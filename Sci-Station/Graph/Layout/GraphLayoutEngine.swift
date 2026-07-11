@@ -103,7 +103,7 @@ public nonisolated struct GraphLayoutPoint: Hashable, Sendable {
 /// output positions are identical across runs.
 ///
 /// Complexity: O(iterations × n²) where n = node count. Acceptable for
-/// n ≤ 200 (P46 cap).
+/// n ≤ 200.
 public struct GraphLayoutEngine {
     public nonisolated init() {}
 

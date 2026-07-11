@@ -15,14 +15,21 @@ public actor PaperSummaryService {
         _ paper: Paper,
         in workspace: ResearchWorkspace,
         configuration: LLMConfiguration,
-        apiKey: String
+        apiKey: String,
+        workspaceProfile: AgentWorkspaceProfile = AgentWorkspaceProfile()
     ) async throws -> String {
         let rawMarkdown = rawMarkdownForPrompt(paper, in: workspace)
         let annotations = paper.annotationsRelativePath.flatMap { path in
             try? String(contentsOf: workspace.resolve(relativePath: path, from: workspace.directoryURL(for: paper.paperDirectoryRelativePath), isDirectory: false), encoding: .utf8)
         } ?? ""
         let existingWiki = paper.summaryURL(in: workspace).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-        let prompt = promptBuilder.buildPrompt(for: paper, rawMarkdown: rawMarkdown, annotations: annotations, existingWiki: existingWiki)
+        let prompt = promptBuilder.buildPrompt(
+            for: paper,
+            rawMarkdown: rawMarkdown,
+            annotations: annotations,
+            existingWiki: existingWiki,
+            workspaceProfile: workspaceProfile
+        )
         return try await provider.complete(prompt: prompt, configuration: configuration, apiKey: apiKey)
     }
 

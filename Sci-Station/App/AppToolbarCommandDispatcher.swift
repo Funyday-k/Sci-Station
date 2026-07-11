@@ -73,7 +73,7 @@ struct AppToolbarCommandDispatcher {
             commandID(.pdfFindNext): Handler { _ in
                 appModel.requestPDFReaderFindNext()
             },
-            commandID(.pdfAnnotationPlaceholder): Handler { source in
+            commandID(.pdfAnnotations): Handler { source in
                 appModel.showContextInspector(source: source.pdfAnnotationSource)
             },
             commandID(.wikiNewPage): Handler { _ in

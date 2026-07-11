@@ -53,10 +53,27 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case toolbarSave
     case toolbarPreview
     case menuView
+    case menuOpenInReader
+    case menuOpenExternalPDF
+    case menuPreviewPDF
+    case menuRevealPaperInFinder
+    case menuCopyCitation
+    case menuCopyBibTeX
+    case menuExportBibTeX
+    case menuDeleteSelectedPaper
+    case menuReadInApp
+    case menuOpenPDF
+    case menuConvertToMarkdown
+    case menuClearSelection
+    case menuCopyCitationForSelection
+    case menuCopyBibTeXForSelection
+    case menuExportBibTeXForSelection
+    case aiManagementTitle
 
     case appErrorTitle
     case appOK
     case appCancel
+    case appCopy
     case appUnknownError
 
     case sidebarResearchShell
@@ -156,7 +173,7 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case homeWidgetAIReview
     case homeWidgetCalendar
     case homeWidgetRecentPapers
-    case homeWidgetReadingPlan
+    case homeWidgetReading
     case homeWidgetProjectHealth
     case homeWidgetQuickActions
     case homeWidgetCategoryResearch
@@ -166,7 +183,7 @@ public nonisolated enum L10nKey: String, Codable, CaseIterable, Hashable, Sendab
     case homeWidgetCategoryProject
     case homeRecentlyAdded
     case homeRecentlyRead
-    case homeReadingPlanEmpty
+    case homeReadingEmpty
     case homeProjectHealthSummaryFormat
     case homeQuickActionOpenLibrary
     case homeQuickActionOpenWiki
@@ -283,10 +300,27 @@ public nonisolated enum L10n {
         .toolbarSave: "Save",
         .toolbarPreview: "Preview",
         .menuView: "View",
+        .menuOpenInReader: "Open in Reader",
+        .menuOpenExternalPDF: "Open External PDF",
+        .menuPreviewPDF: "Preview PDF",
+        .menuRevealPaperInFinder: "Reveal Paper in Finder",
+        .menuCopyCitation: "Copy Citation",
+        .menuCopyBibTeX: "Copy BibTeX",
+        .menuExportBibTeX: "Export BibTeX",
+        .menuDeleteSelectedPaper: "Delete Selected Paper",
+        .menuReadInApp: "Read in App",
+        .menuOpenPDF: "Open PDF",
+        .menuConvertToMarkdown: "Convert to Markdown",
+        .menuClearSelection: "Clear Selection",
+        .menuCopyCitationForSelection: "Copy Citation for Selection",
+        .menuCopyBibTeXForSelection: "Copy BibTeX for Selection",
+        .menuExportBibTeXForSelection: "Export BibTeX for Selection",
+        .aiManagementTitle: "AI Management",
 
         .appErrorTitle: "Sci-Station Error",
         .appOK: "OK",
         .appCancel: "Cancel",
+        .appCopy: "Copy",
         .appUnknownError: "An unknown error occurred.",
 
         .sidebarResearchShell: "Research Shell",
@@ -377,16 +411,16 @@ public nonisolated enum L10n {
         .homeWidgetDisabled: "Disabled",
         .homeWidgetUnavailableModulesFormat: "Requires modules: %@",
         .homeWidgetSizeSmall: "Small (1×1)",
-        .homeWidgetSizeTall: "Tall (1×2)",
+        .homeWidgetSizeTall: "Tall (2×1)",
         .homeWidgetSizeMedium: "Medium (2×2)",
         .homeWidgetSizeLarge: "Large (3×3)",
-        .homeWidgetSizeWide: "Extra Large (4×4)",
+        .homeWidgetSizeWide: "Wide (1×2)",
         .homeWidgetToday: "Today",
         .homeWidgetActiveProjects: "Active Projects",
         .homeWidgetAIReview: "AI Review",
         .homeWidgetCalendar: "Calendar",
         .homeWidgetRecentPapers: "Recent Papers",
-        .homeWidgetReadingPlan: "Reading",
+        .homeWidgetReading: "Reading",
         .homeWidgetProjectHealth: "Project Health",
         .homeWidgetQuickActions: "Quick Actions",
         .homeWidgetCategoryResearch: "Research",
@@ -396,7 +430,7 @@ public nonisolated enum L10n {
         .homeWidgetCategoryProject: "Project",
         .homeRecentlyAdded: "Recently Added",
         .homeRecentlyRead: "Recently Read",
-        .homeReadingPlanEmpty: "No papers to read yet.",
+        .homeReadingEmpty: "No papers to read yet.",
         .homeProjectHealthSummaryFormat: "%d projects, %d papers, %d open todos, %d AI review items",
         .homeQuickActionOpenLibrary: "Open Library",
         .homeQuickActionOpenWiki: "Open Wiki",
@@ -440,10 +474,27 @@ public nonisolated enum L10n {
         .toolbarSave: "保存",
         .toolbarPreview: "预览",
         .menuView: "视图",
+        .menuOpenInReader: "在阅读器中打开",
+        .menuOpenExternalPDF: "用外部应用打开 PDF",
+        .menuPreviewPDF: "预览 PDF",
+        .menuRevealPaperInFinder: "在 Finder 中显示论文",
+        .menuCopyCitation: "复制引用",
+        .menuCopyBibTeX: "复制 BibTeX",
+        .menuExportBibTeX: "导出 BibTeX",
+        .menuDeleteSelectedPaper: "删除所选论文",
+        .menuReadInApp: "在应用内阅读",
+        .menuOpenPDF: "打开 PDF",
+        .menuConvertToMarkdown: "转换为 Markdown",
+        .menuClearSelection: "清除选择",
+        .menuCopyCitationForSelection: "复制所选论文引用",
+        .menuCopyBibTeXForSelection: "复制所选论文 BibTeX",
+        .menuExportBibTeXForSelection: "导出所选论文 BibTeX",
+        .aiManagementTitle: "AI 管理",
 
         .appErrorTitle: "Sci-Station 错误",
         .appOK: "好",
         .appCancel: "取消",
+        .appCopy: "复制",
         .appUnknownError: "发生未知错误。",
 
         .sidebarResearchShell: "研究工作台",
@@ -534,16 +585,16 @@ public nonisolated enum L10n {
         .homeWidgetDisabled: "未启用",
         .homeWidgetUnavailableModulesFormat: "需要模块：%@",
         .homeWidgetSizeSmall: "小 (1×1)",
-        .homeWidgetSizeTall: "竖向 (1×2)",
+        .homeWidgetSizeTall: "竖向 (2×1)",
         .homeWidgetSizeMedium: "中 (2×2)",
         .homeWidgetSizeLarge: "大 (3×3)",
-        .homeWidgetSizeWide: "超大 (4×4)",
+        .homeWidgetSizeWide: "宽 (1×2)",
         .homeWidgetToday: "今日",
         .homeWidgetActiveProjects: "活跃项目",
         .homeWidgetAIReview: "AI 审核",
         .homeWidgetCalendar: "日历",
         .homeWidgetRecentPapers: "最近论文",
-        .homeWidgetReadingPlan: "阅读",
+        .homeWidgetReading: "阅读",
         .homeWidgetProjectHealth: "项目健康",
         .homeWidgetQuickActions: "快速操作",
         .homeWidgetCategoryResearch: "研究",
@@ -553,7 +604,7 @@ public nonisolated enum L10n {
         .homeWidgetCategoryProject: "项目",
         .homeRecentlyAdded: "最近添加",
         .homeRecentlyRead: "最近阅读",
-        .homeReadingPlanEmpty: "还没有待读论文。",
+        .homeReadingEmpty: "还没有待读论文。",
         .homeProjectHealthSummaryFormat: "%d 个项目，%d 篇论文，%d 个未完成待办，%d 项 AI 审核",
         .homeQuickActionOpenLibrary: "打开论文库",
         .homeQuickActionOpenWiki: "打开 Wiki",

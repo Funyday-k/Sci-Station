@@ -77,7 +77,7 @@ def draft_related_work_sample(run_id: str, project_id: str) -> dict:
         "kind": "related_work_beta",
         "proposed_path": f"projects/{project_id}/wiki/related_work.md",
         "title": "Related work beta draft",
-        "content": "# Related Work\n\nThis P34 beta path validates the sidecar protocol; production synthesis belongs to P35.",
+        "content": "# Related Work\n\nThis sample path validates the sidecar protocol; use the production related-work workflow for evidence-backed synthesis.",
         "evidence_refs": [],
         "risk": "readOnly",
     }

@@ -1,4 +1,4 @@
-"""Tests for the Python-side Test Bridge client (P-AT.1e)."""
+"""Tests for the Python-side Test Bridge client."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def test_unix_socket_client_maps_app_error() -> None:
 def test_stub_bridge_client_records_calls() -> None:
     stub = StubTestBridgeClient(results=[{"entry_id": "q1"}])
 
-    result = stub.send("queue.append", {"paper_id": "p1"})
+    result = stub.send("library.import.attachFixturePDF", {"paper_id": "p1"})
 
     assert result == {"entry_id": "q1"}
-    assert stub.sent == [("queue.append", {"paper_id": "p1"})]
+    assert stub.sent == [("library.import.attachFixturePDF", {"paper_id": "p1"})]

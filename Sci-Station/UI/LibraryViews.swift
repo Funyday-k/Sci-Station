@@ -312,33 +312,33 @@ struct LibraryListView: View {
             Button {
                 appModel.openPaperReader(paper)
             } label: {
-                Label("Read in App", systemImage: "doc.viewfinder")
+                Label(appModel.t(.menuReadInApp), systemImage: "doc.viewfinder")
             }
             .disabled(!appModel.canOpenPDF(for: paper))
 
             Button {
                 appModel.openPaperPDF(paper)
             } label: {
-                Label("Open PDF", systemImage: "arrow.up.right.square")
+                Label(appModel.t(.menuOpenPDF), systemImage: "arrow.up.right.square")
             }
             .disabled(!appModel.canOpenPDF(for: paper))
 
             Button {
                 appModel.revealPaperInFinder(paper)
             } label: {
-                Label("打开所在文件夹", systemImage: "folder")
+                Label(appModel.t(.menuRevealPaperInFinder), systemImage: "folder")
             }
 
             Button {
                 appModel.exportBibTeX(for: paper)
             } label: {
-                Label("Export BibTeX", systemImage: "doc.on.doc")
+                Label(appModel.t(.menuExportBibTeX), systemImage: "doc.on.doc")
             }
 
             Button {
                 appModel.convertPaperToMarkdown(paper)
             } label: {
-                Label("转换为 Markdown", systemImage: "doc.richtext")
+                Label(appModel.t(.menuConvertToMarkdown), systemImage: "doc.richtext")
             }
             .disabled(!appModel.agentKnowledgePaperHasPDF(paper) || appModel.paperMarkdownConversionState(for: paper) == .converting)
 
@@ -732,25 +732,25 @@ private struct LibraryPaperTableView: View {
             Button {
                 appModel.exportBibTeXForLibrarySelection()
             } label: {
-                Label("Export BibTeX for Selection", systemImage: "doc.on.doc")
+                Label(appModel.t(.menuExportBibTeXForSelection), systemImage: "doc.on.doc")
             }
 
             Button {
                 appModel.copyBibTeXForLibrarySelection()
             } label: {
-                Label("Copy BibTeX for Selection", systemImage: "doc.on.clipboard")
+                Label(appModel.t(.menuCopyBibTeXForSelection), systemImage: "doc.on.clipboard")
             }
 
             Button {
                 appModel.copySelectedPaperCitation()
             } label: {
-                Label("Copy Citation for Selection", systemImage: "quote.bubble")
+                Label(appModel.t(.menuCopyCitationForSelection), systemImage: "quote.bubble")
             }
 
             Button {
                 appModel.clearLibrarySelection()
             } label: {
-                Label("Clear Selection", systemImage: "xmark.circle")
+                Label(appModel.t(.menuClearSelection), systemImage: "xmark.circle")
             }
         } else {
             singlePaperContextMenu(for: row.paper)
@@ -828,31 +828,31 @@ private struct LibraryPaperTableView: View {
         Button {
             appModel.revealPaperInFinder(paper)
         } label: {
-            Label("打开所在文件夹", systemImage: "folder")
+            Label(appModel.t(.menuRevealPaperInFinder), systemImage: "folder")
         }
 
         Button {
             appModel.copyCitation(for: paper)
         } label: {
-            Label("Copy Citation", systemImage: "quote.bubble")
+            Label(appModel.t(.menuCopyCitation), systemImage: "quote.bubble")
         }
 
         Button {
             appModel.copyBibTeX(for: paper)
         } label: {
-            Label("Copy BibTeX", systemImage: "doc.on.clipboard")
+            Label(appModel.t(.menuCopyBibTeX), systemImage: "doc.on.clipboard")
         }
 
         Button {
             appModel.exportBibTeX(for: paper)
         } label: {
-            Label("Export BibTeX", systemImage: "doc.on.doc")
+            Label(appModel.t(.menuExportBibTeX), systemImage: "doc.on.doc")
         }
 
         Button {
             appModel.convertPaperToMarkdown(paper)
         } label: {
-            Label("转换为 Markdown", systemImage: "doc.richtext")
+            Label(appModel.t(.menuConvertToMarkdown), systemImage: "doc.richtext")
         }
         .disabled(!appModel.agentKnowledgePaperHasPDF(paper) || appModel.paperMarkdownConversionState(for: paper) == .converting)
 
@@ -1447,9 +1447,9 @@ struct PaperInspectorView: View {
 
                                 Button("Preview First PDF", action: appModel.previewLibrarySelection)
                                     .disabled(!appModel.canPreviewLibrarySelection)
-                                Button("Copy Citation for Selection", action: appModel.copySelectedPaperCitation)
-                                Button("Copy BibTeX for Selection", action: appModel.copyBibTeXForLibrarySelection)
-                                Button("Export BibTeX for Selection", action: appModel.exportBibTeXForLibrarySelection)
+                                Button(appModel.t(.menuCopyCitationForSelection), action: appModel.copySelectedPaperCitation)
+                                Button(appModel.t(.menuCopyBibTeXForSelection), action: appModel.copyBibTeXForLibrarySelection)
+                                Button(appModel.t(.menuExportBibTeXForSelection), action: appModel.exportBibTeXForLibrarySelection)
                                     .buttonStyle(.borderedProminent)
                                 Button("Clear Selection", action: appModel.clearLibrarySelection)
                             }

@@ -66,20 +66,11 @@ struct AgentThreadSidebarView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Chats")
                         .font(.headline)
-                    Text("\(appModel.agentThreads.count) active")
+                Text("\(appModel.agentThreads.count) active")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Button {
-                    appModel.startNewAgentConversation()
-                } label: {
-                    Label("New Chat", systemImage: "plus")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderless)
-                .help("New Chat")
-
                 Button {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         isCollapsed = true

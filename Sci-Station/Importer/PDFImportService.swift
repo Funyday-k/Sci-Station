@@ -70,11 +70,14 @@ public actor PDFImportService {
         try fileManager.copyItem(at: sourceURL, to: stagedPDFURL)
 
         let normalizedCollectionPath = collectionPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let directoryRelativePath = Paper.directoryRelativePath(
+        let directoryRelativePath = try Paper.directoryRelativePath(
             for: paperID,
             collectionPath: normalizedCollectionPath
         )
-        let paperDirectoryURL = workspace.directoryURL(for: directoryRelativePath)
+        let paperDirectoryURL = try await WorkspaceFileSystem(rootURL: workspace.rootURL).resolvedURL(
+            WorkspaceRelativePath(directoryRelativePath),
+            isDirectory: true
+        )
         try fileManager.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
 
         let normalizedPDFURL = paperDirectoryURL.appendingPathComponent("paper.pdf", isDirectory: false)

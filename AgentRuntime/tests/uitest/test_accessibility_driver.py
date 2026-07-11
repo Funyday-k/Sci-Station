@@ -1,4 +1,4 @@
-"""Unit tests for :class:`AccessibilityDriver` (P-AT.3a).
+"""Unit tests for :class:`AccessibilityDriver`.
 
 The real driver talks to ``Tools/SciStationUIProbe`` over a subprocess
 pipe. These tests substitute a :class:`StubTransport` so the framing /
@@ -121,14 +121,14 @@ def test_drag_emits_well_formed_request(stub_driver) -> None:
     driver, transport = stub_driver
     transport.enqueue({"ok": True})
 
-    driver.drag("queue.row.a", "queue.row.b")
+    driver.drag("library.paper.a", "library.paper.b")
 
     assert transport.sent == [
         {
             "cmd": "drag",
             "bundle": "com.example.Test",
-            "source_axid": "queue.row.a",
-            "target_axid": "queue.row.b",
+            "source_axid": "library.paper.a",
+            "target_axid": "library.paper.b",
         }
     ]
 
@@ -164,7 +164,7 @@ def test_send_test_bridge_maps_bridge_error_to_driver_error() -> None:
     )
 
     with pytest.raises(DriverError) as exc_info:
-        driver.send_test_bridge("queue.append", {"paper_id": "p1"})
+        driver.send_test_bridge("library.import.attachFixturePDF", {"paper_id": "p1"})
 
     assert "boom" in str(exc_info.value)
 

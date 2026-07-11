@@ -160,7 +160,7 @@ public struct IdentifierParser {
         // Only recognize the canonical `inspirehep.net/literature/<id>` URL
         // or the `inspire:<id>` short form. Other URLs fall through to the
         // generic `.url` branch instead of being mistakenly classified as
-        // Inspire records. See docs/development/comment.md §3.7.
+        // Inspire records.
         let lowered = input.lowercased()
         if let range = lowered.range(of: "inspirehep.net/literature/") {
             let tail = input[range.upperBound...]

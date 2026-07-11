@@ -27,7 +27,7 @@ public nonisolated enum ToolbarCommandCatalog {
             return "pdf.findPrevious"
         case .pdfFindNext:
             return "pdf.findNext"
-        case .pdfAnnotationPlaceholder:
+        case .pdfAnnotations:
             return "pdf.showAnnotations"
         case .wikiNewPage:
             return "wiki.newPage"

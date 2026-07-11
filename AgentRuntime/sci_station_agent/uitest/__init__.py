@@ -1,18 +1,18 @@
-"""AI Usage Test orchestrator (`Proposal-AT.md`).
+"""AI Usage Test orchestrator.
 
 Drives a Sci-Station App instance through scenarios authored as YAML/JSON,
 collects three independent verification streams (debug events, persisted
 files, screenshots) and produces a markdown run report.
 
-This package only ships the *skeleton* in the first slice (P-AT.2):
+This package exposes the long-lived scenario harness:
 - :class:`Scenario` data model + loader
 - :class:`EventLogProbe` reading ``.sci-station/debug/app_events.jsonl``
 - :class:`FileProbe` reading workspace-local YAML/JSONL artifacts
 - :class:`ScenarioRunner` orchestrator that wires them together
 
-The accessibility-API and XCUITest drivers (P-AT.3, P-AT.4) plug into the
-orchestrator via :class:`sci_station_agent.uitest.drivers.base.UIDriver` and
-are intentionally not implemented yet.
+The accessibility-API and XCUITest drivers plug into the orchestrator via
+:class:`sci_station_agent.uitest.drivers.base.UIDriver`; unsupported drivers
+should fail explicitly through the driver interface.
 """
 
 from sci_station_agent.uitest.scenario import (

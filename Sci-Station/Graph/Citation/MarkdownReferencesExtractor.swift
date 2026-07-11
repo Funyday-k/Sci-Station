@@ -213,7 +213,7 @@ public struct ReferenceTextNormalizer {
     }
 }
 
-/// Normalizes a title for fuzzy comparison. See P45 §5.7.
+/// Normalizes a title for fuzzy comparison.
 public enum TitleNormalizer {
     public nonisolated static func normalize(_ title: String) -> String {
         var result = title

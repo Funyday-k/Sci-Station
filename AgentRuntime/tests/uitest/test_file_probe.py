@@ -11,12 +11,13 @@ from sci_station_agent.uitest.files import FileProbe, _subset_match
 
 
 def test_load_json_round_trips(tmp_path: Path) -> None:
-    target = tmp_path / "queue.json"
+    target = tmp_path / "library" / "imports.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
     payload = {"entries": [{"paperID": "p1"}, {"paperID": "p2"}]}
     target.write_text(json.dumps(payload), encoding="utf-8")
 
     probe = FileProbe(tmp_path)
-    loaded = probe.load_json("queue.json")
+    loaded = probe.load_json("library/imports.json")
     assert loaded.content == payload
 
 
@@ -31,14 +32,15 @@ def test_load_jsonl_returns_list(tmp_path: Path) -> None:
 
 def test_load_yaml_when_pyyaml_present(tmp_path: Path) -> None:
     pytest.importorskip("yaml")
-    target = tmp_path / "queue.yaml"
+    target = tmp_path / "library" / "imports.yaml"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         "entries:\n  - paperID: p1\n  - paperID: p2\n",
         encoding="utf-8",
     )
 
     probe = FileProbe(tmp_path)
-    loaded = probe.load_yaml("queue.yaml")
+    loaded = probe.load_yaml("library/imports.yaml")
     assert loaded.content == {"entries": [{"paperID": "p1"}, {"paperID": "p2"}]}
 
 
@@ -66,7 +68,8 @@ def test_subset_match_rejects_missing_key() -> None:
 
 
 def test_matches_uses_loader_to_compare_subset(tmp_path: Path) -> None:
-    target = tmp_path / "queue.json"
+    target = tmp_path / "library" / "imports.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         json.dumps({"entries": [{"paperID": "p1"}, {"paperID": "p2"}]}),
         encoding="utf-8",
@@ -74,12 +77,12 @@ def test_matches_uses_loader_to_compare_subset(tmp_path: Path) -> None:
 
     probe = FileProbe(tmp_path)
     assert probe.matches(
-        "queue.json",
+        "library/imports.json",
         loader="json",
         expected_subset={"entries": [{"paperID": "p2"}]},
     )
     assert not probe.matches(
-        "queue.json",
+        "library/imports.json",
         loader="json",
         expected_subset={"entries": [{"paperID": "missing"}]},
     )

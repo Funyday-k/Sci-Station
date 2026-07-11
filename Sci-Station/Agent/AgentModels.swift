@@ -979,6 +979,226 @@ public nonisolated struct AgentPluginValidator: Sendable {
     }
 }
 
+public nonisolated struct AgentPromptTemplateOverride: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var title: String
+    public var version: String
+    public var description: String
+    public var surface: AgentPromptSurface
+    public var systemPrompt: String?
+    public var promptTemplate: String
+    public var isEnabled: Bool
+
+    public nonisolated init(
+        id: String,
+        title: String,
+        version: String = "0.1.0",
+        description: String = "",
+        surface: AgentPromptSurface = .planner,
+        systemPrompt: String? = nil,
+        promptTemplate: String,
+        isEnabled: Bool = true
+    ) {
+        self.id = id
+        self.title = title
+        self.version = version
+        self.description = description
+        self.surface = surface
+        self.systemPrompt = systemPrompt
+        self.promptTemplate = promptTemplate
+        self.isEnabled = isEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case version
+        case description
+        case surface
+        case systemPrompt = "system_prompt"
+        case promptTemplate = "prompt_template"
+        case isEnabled = "is_enabled"
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.version = try container.decodeIfPresent(String.self, forKey: .version) ?? "0.1.0"
+        self.description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        self.surface = try container.decodeIfPresent(AgentPromptSurface.self, forKey: .surface) ?? .planner
+        self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt)
+        self.promptTemplate = try container.decode(String.self, forKey: .promptTemplate)
+        self.isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
+}
+
+public nonisolated struct AgentSkillToggle: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { skillID }
+    public var skillID: String
+    public var displayName: String?
+    public var isEnabled: Bool
+    public var trustLevel: AgentSkillTrustLevel
+    public var allowedToolIDs: [String]
+
+    public nonisolated init(
+        skillID: String,
+        displayName: String? = nil,
+        isEnabled: Bool = true,
+        trustLevel: AgentSkillTrustLevel = .untrusted,
+        allowedToolIDs: [String] = []
+    ) {
+        self.skillID = skillID
+        self.displayName = displayName
+        self.isEnabled = isEnabled
+        self.trustLevel = trustLevel
+        self.allowedToolIDs = allowedToolIDs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case skillID = "skill_id"
+        case displayName = "display_name"
+        case isEnabled = "is_enabled"
+        case trustLevel = "trust_level"
+        case allowedToolIDs = "allowed_tool_ids"
+    }
+}
+
+public nonisolated struct AgentWorkspaceProfile: Codable, Hashable, Sendable {
+    public static let currentSchemaVersion = 1
+
+    public var schemaVersion: Int
+    public var activePromptTemplateID: String?
+    public var promptTemplates: [AgentPromptTemplateOverride]
+    public var skillToggles: [AgentSkillToggle]
+    public var mcpServers: [MCPServerConfiguration]
+
+    public nonisolated init(
+        schemaVersion: Int = Self.currentSchemaVersion,
+        activePromptTemplateID: String? = nil,
+        promptTemplates: [AgentPromptTemplateOverride] = [],
+        skillToggles: [AgentSkillToggle] = [],
+        mcpServers: [MCPServerConfiguration] = []
+    ) {
+        self.schemaVersion = max(schemaVersion, Self.currentSchemaVersion)
+        self.activePromptTemplateID = activePromptTemplateID
+        self.promptTemplates = promptTemplates
+        self.skillToggles = skillToggles
+        self.mcpServers = mcpServers
+    }
+
+    public nonisolated var enabledPromptTemplates: [AgentPromptTemplateOverride] {
+        promptTemplates.filter { $0.isEnabled }
+    }
+
+    public nonisolated func promptTemplates(for surface: AgentPromptSurface) -> [AgentPromptTemplateOverride] {
+        promptTemplates.filter { $0.surface == surface }
+    }
+
+    public nonisolated func activePromptTemplate(for surface: AgentPromptSurface) -> AgentPromptTemplateOverride? {
+        guard let activePromptTemplateID,
+              let template = promptTemplate(id: activePromptTemplateID),
+              template.isEnabled,
+              template.surface == surface else {
+            return nil
+        }
+        return template
+    }
+
+    public nonisolated var enabledSkillIDs: [String] {
+        skillToggles.filter(\.isEnabled).map(\.skillID)
+    }
+
+    public nonisolated func promptTemplate(id: String) -> AgentPromptTemplateOverride? {
+        promptTemplates.first { $0.id == id }
+    }
+
+    public nonisolated func skillToggle(id: String) -> AgentSkillToggle? {
+        skillToggles.first { $0.skillID == id }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case activePromptTemplateID = "active_prompt_template_id"
+        case promptTemplates = "prompt_templates"
+        case skillToggles = "skill_toggles"
+        case mcpServers = "mcp_servers"
+    }
+}
+
+public nonisolated struct AgentWorkspaceProfileValidator: Sendable {
+    public nonisolated init() {}
+
+    public nonisolated func validate(_ profile: AgentWorkspaceProfile) -> [AgentPluginValidationIssue] {
+        var issues: [AgentPluginValidationIssue] = []
+        issues.append(contentsOf: duplicateIssues(values: profile.promptTemplates.map(\.id), fieldPrefix: "prompt_templates"))
+        issues.append(contentsOf: duplicateIssues(values: profile.skillToggles.map(\.skillID), fieldPrefix: "skill_toggles"))
+        issues.append(contentsOf: duplicateIssues(values: profile.mcpServers.map(\.id), fieldPrefix: "mcp_servers"))
+
+        for prompt in profile.promptTemplates {
+            let trimmedSystemPrompt = prompt.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if prompt.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.id", message: "Prompt template id is required."))
+            }
+            if prompt.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.\(prompt.id).title", message: "Prompt template title is required."))
+            }
+            if prompt.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.\(prompt.id).version", message: "Prompt template version is required."))
+            }
+            if prompt.promptTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (trimmedSystemPrompt?.isEmpty ?? true) {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.\(prompt.id).surface", message: "Prompt templates require a prompt body."))
+            }
+            if prompt.isEnabled && prompt.promptTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.\(prompt.id).prompt_template", message: "Enabled prompt templates require prompt text."))
+            }
+            if let validationMessage = AgentPromptLibraryResolver().validatePromptText(prompt.promptTemplate) {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.\(prompt.id).prompt_template", message: validationMessage))
+            }
+            if let trimmedSystemPrompt, let validationMessage = AgentPromptLibraryResolver().validatePromptText(trimmedSystemPrompt) {
+                issues.append(AgentPluginValidationIssue(field: "prompt_templates.\(prompt.id).system_prompt", message: validationMessage))
+            }
+        }
+
+        if let activePromptTemplateID = profile.activePromptTemplateID,
+           profile.promptTemplate(id: activePromptTemplateID) == nil {
+            issues.append(AgentPluginValidationIssue(field: "active_prompt_template_id", message: "Active prompt template must reference a configured prompt."))
+        }
+
+        for skill in profile.skillToggles where skill.skillID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append(AgentPluginValidationIssue(field: "skill_toggles.skill_id", message: "Skill id is required."))
+        }
+
+        let mcpManifest = AgentPluginManifest(
+            id: "workspace-profile-validation",
+            name: "Workspace Profile Validation",
+            description: "Synthetic manifest for validating workspace profile MCP servers.",
+            mcpServers: profile.mcpServers
+        )
+        issues.append(contentsOf: AgentPluginValidator().validate(mcpManifest).filter { issue in
+            issue.field.hasPrefix("mcp_servers.")
+        })
+
+        return issues
+    }
+
+    private nonisolated func duplicateIssues(values: [String], fieldPrefix: String) -> [AgentPluginValidationIssue] {
+        var seen: Set<String> = []
+        var duplicates: [String] = []
+        for value in values.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !value.isEmpty {
+            if seen.contains(value) {
+                duplicates.append(value)
+            } else {
+                seen.insert(value)
+            }
+        }
+        return duplicates.map {
+            AgentPluginValidationIssue(field: "\(fieldPrefix).\($0)", message: "Duplicate id: \($0).")
+        }
+    }
+}
+
 public nonisolated enum AgentSessionEventKind: String, Codable, Sendable {
     case userMessage = "user_message"
     case assistantMessage = "assistant_message"
@@ -1211,8 +1431,15 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
     public var contextScope: AgentContextScope?
     public var projectID: String?
     public var runtimeSelector: String?
+    public var effectiveRuntime: String?
+    public var runtimeFallbackReason: String?
+    public var provenance: AgentRunProvenance?
     public var createdFromRoute: String?
     public var enabledToolNames: [String]?
+    public var promptTemplateID: String?
+    public var promptTemplateVersion: String?
+    public var promptTemplateHash: String?
+    public var promptTemplateSurface: AgentPromptSurface?
     public var mode: AgentRunMode
     public var plan: AgentPlan
     public var toolResults: [AgentToolResult]
@@ -1229,8 +1456,15 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         contextScope: AgentContextScope? = nil,
         projectID: String? = nil,
         runtimeSelector: String? = nil,
+        effectiveRuntime: String? = nil,
+        runtimeFallbackReason: String? = nil,
+        provenance: AgentRunProvenance? = nil,
         createdFromRoute: String? = nil,
         enabledToolNames: [String]? = nil,
+        promptTemplateID: String? = nil,
+        promptTemplateVersion: String? = nil,
+        promptTemplateHash: String? = nil,
+        promptTemplateSurface: AgentPromptSurface? = nil,
         lifecycleState: AgentRunState? = nil,
         failureCategory: AgentRunFailureCategory? = nil,
         retryOfRunID: String? = nil
@@ -1246,8 +1480,15 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         self.contextScope = contextScope ?? AgentContextScope.inferred(projectID: projectID ?? currentProjectID)
         self.projectID = projectID ?? currentProjectID
         self.runtimeSelector = runtimeSelector
+        self.effectiveRuntime = effectiveRuntime ?? provenance?.effectiveRuntime ?? provenance?.runtime
+        self.runtimeFallbackReason = runtimeFallbackReason ?? provenance?.fallbackReason
+        self.provenance = provenance
         self.createdFromRoute = createdFromRoute
         self.enabledToolNames = enabledToolNames
+        self.promptTemplateID = promptTemplateID
+        self.promptTemplateVersion = promptTemplateVersion
+        self.promptTemplateHash = promptTemplateHash
+        self.promptTemplateSurface = promptTemplateSurface
         self.mode = mode
         self.plan = plan
         self.toolResults = toolResults
@@ -1265,8 +1506,15 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         case contextScope = "context_scope"
         case projectID = "project_id"
         case runtimeSelector = "runtime_selector"
+        case effectiveRuntime = "effective_runtime"
+        case runtimeFallbackReason = "runtime_fallback_reason"
+        case provenance
         case createdFromRoute = "created_from_route"
         case enabledToolNames = "enabled_tool_names"
+        case promptTemplateID = "prompt_template_id"
+        case promptTemplateVersion = "prompt_template_version"
+        case promptTemplateHash = "prompt_template_hash"
+        case promptTemplateSurface = "prompt_template_surface"
         case mode
         case plan
         case toolResults = "tool_results"
@@ -1287,8 +1535,21 @@ public nonisolated struct AgentRun: Codable, Hashable, Sendable {
         self.contextScope = try container.decodeIfPresent(AgentContextScope.self, forKey: .contextScope)
             ?? AgentContextScope.inferred(projectID: decodedProjectID ?? decodedCurrentProjectID)
         self.runtimeSelector = try container.decodeIfPresent(String.self, forKey: .runtimeSelector)
+        self.effectiveRuntime = try container.decodeIfPresent(String.self, forKey: .effectiveRuntime)
+        self.runtimeFallbackReason = try container.decodeIfPresent(String.self, forKey: .runtimeFallbackReason)
+        self.provenance = try container.decodeIfPresent(AgentRunProvenance.self, forKey: .provenance)
+        if self.effectiveRuntime == nil {
+            self.effectiveRuntime = provenance?.effectiveRuntime ?? provenance?.runtime
+        }
+        if self.runtimeFallbackReason == nil {
+            self.runtimeFallbackReason = provenance?.fallbackReason
+        }
         self.createdFromRoute = try container.decodeIfPresent(String.self, forKey: .createdFromRoute)
         self.enabledToolNames = try container.decodeIfPresent([String].self, forKey: .enabledToolNames)
+        self.promptTemplateID = try container.decodeIfPresent(String.self, forKey: .promptTemplateID)
+        self.promptTemplateVersion = try container.decodeIfPresent(String.self, forKey: .promptTemplateVersion)
+        self.promptTemplateHash = try container.decodeIfPresent(String.self, forKey: .promptTemplateHash)
+        self.promptTemplateSurface = try container.decodeIfPresent(AgentPromptSurface.self, forKey: .promptTemplateSurface)
         self.mode = try container.decode(AgentRunMode.self, forKey: .mode)
         self.plan = try container.decode(AgentPlan.self, forKey: .plan)
         self.toolResults = try container.decode([AgentToolResult].self, forKey: .toolResults)
@@ -1640,6 +1901,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
     public var allowsPlainTextResponse: Bool
     public var loopOptions: AgentLoopOptions
     public var retryOfRunID: String?
+    public var promptResolution: AgentPromptResolution?
 
     public nonisolated init(
         mode: AgentRunMode = .planOnly,
@@ -1653,7 +1915,8 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         enabledWorkflowIDs: Set<String>? = nil,
         allowsPlainTextResponse: Bool = false,
         loopOptions: AgentLoopOptions = AgentLoopOptions(),
-        retryOfRunID: String? = nil
+        retryOfRunID: String? = nil,
+        promptResolution: AgentPromptResolution? = nil
     ) {
         self.mode = mode
         self.approvedToolCallIDs = approvedToolCallIDs
@@ -1667,6 +1930,7 @@ public nonisolated struct AgentExecutionOptions: Sendable {
         self.allowsPlainTextResponse = allowsPlainTextResponse
         self.loopOptions = loopOptions
         self.retryOfRunID = retryOfRunID
+        self.promptResolution = promptResolution
     }
 }
 

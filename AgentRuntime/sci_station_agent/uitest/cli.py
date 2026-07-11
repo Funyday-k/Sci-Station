@@ -1,6 +1,6 @@
 """One-shot CLI that runs a YAML scenario against the real macOS app.
 
-Wires together the four moving parts P-AT.3a calls for so an engineer can
+Wires together the scenario runner, UI driver, event probe, and file probe so an engineer can
 verify a scenario end-to-end without remembering every flag:
 
 * ``Tools/SciStationUIProbe`` (built via ``swift build --product

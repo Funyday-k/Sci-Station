@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120">
+  <defs>
+    <linearGradient id="windowBackground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7fafc"/>
+      <stop offset="1" stop-color="#edf2f7"/>
+    </linearGradient>
+    <linearGradient id="sidebarBackground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eaf3fb"/>
+      <stop offset="1" stop-color="#e3edf6"/>
+    </linearGradient>
+    <filter id="windowShadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+    <style>
+      .app-title { font: 700 22px -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; fill: #1f2937; }
+      .page-title { font: 750 34px -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; fill: #111827; }
+      .section-title { font: 700 17px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #1f2937; }
+      .row-title { font: 650 15px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #1f2937; }
+      .body { font: 500 14px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #475569; }
+      .caption { font: 550 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #64748b; }
+      .mono { font: 550 12px ui-monospace, "SFMono-Regular", Menlo, monospace; fill: #475569; }
+      .nav { font: 600 14px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #334155; }
+      .button { font: 650 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #ffffff; }
+      .button-secondary { font: 650 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; fill: #334155; }
+      .chip { font: 650 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+      .divider { stroke: #d5dde7; stroke-width: 1; }
+      .soft-divider { stroke: #e5eaf0; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1120" fill="#dce4ec"/>
+  <text x="70" y="64" class="page-title">AI 扩展平台 UI 评审稿</text>
+  <text x="70" y="94" class="body">仅供确认信息架构与交互方向。确认后再实施 SwiftUI；Prompt、Skill、MCP 共用同一套来源、风险、权限与 Harness 状态。</text>
+
+  <g transform="translate(70 130)" filter="url(#windowShadow)">
+    <rect width="1660" height="910" rx="20" fill="url(#windowBackground)"/>
+
+    <!-- Window chrome -->
+    <circle cx="34" cy="31" r="7" fill="#ff5f57"/>
+    <circle cx="58" cy="31" r="7" fill="#febc2e"/>
+    <circle cx="82" cy="31" r="7" fill="#28c840"/>
+    <line x1="0" y1="62" x2="1660" y2="62" class="divider"/>
+
+    <!-- Primary app sidebar -->
+    <path d="M0 20 Q0 0 20 0 H252 V910 H20 Q0 910 0 890 Z" fill="url(#sidebarBackground)"/>
+    <line x1="252" y1="0" x2="252" y2="910" class="divider"/>
+    <text x="32" y="102" class="app-title">Sci-Station</text>
+    <g transform="translate(18 132)">
+      <rect width="216" height="38" rx="7" fill="transparent"/>
+      <text x="14" y="24" class="nav">⌂　首页</text>
+      <text x="14" y="72" class="nav">▱　项目</text>
+      <text x="14" y="120" class="nav">▤　论文库</text>
+      <text x="14" y="168" class="nav">□　日历</text>
+      <rect y="188" width="216" height="40" rx="7" fill="#cfe2fb"/>
+      <text x="14" y="213" class="nav" fill="#1756a9">✦　AI 实验室</text>
+      <text x="14" y="264" class="nav">⚙　设置</text>
+    </g>
+    <text x="32" y="850" class="caption">ResearchWorkspace</text>
+    <text x="32" y="875" class="caption">8/15 modules enabled</text>
+
+    <!-- Extension section navigation -->
+    <rect x="253" y="63" width="242" height="847" fill="#f8fafc"/>
+    <line x1="495" y1="63" x2="495" y2="910" class="divider"/>
+    <text x="278" y="106" class="section-title">AI 扩展</text>
+    <text x="278" y="134" class="caption">工作区能力与安全边界</text>
+
+    <g transform="translate(268 162)">
+      <rect width="216" height="42" rx="7" fill="transparent"/>
+      <text x="14" y="26" class="nav">⌘　Prompt Library</text>
+      <rect y="48" width="216" height="42" rx="7" fill="#dceafe"/>
+      <text x="14" y="74" class="nav" fill="#1756a9">◇　Skills</text>
+      <text x="14" y="122" class="nav">⇄　MCP Servers</text>
+      <text x="14" y="170" class="nav">✓　Harness</text>
+      <line x1="12" y1="198" x2="204" y2="198" class="soft-divider"/>
+      <text x="14" y="230" class="caption">运行边界</text>
+      <text x="14" y="265" class="nav">◉　Runtime</text>
+      <text x="14" y="309" class="nav">⌁　Evidence Index</text>
+      <text x="14" y="353" class="nav">▥　Run Audit</text>
+    </g>
+
+    <g transform="translate(274 760)">
+      <text x="0" y="0" class="caption">EXTENSION HEALTH</text>
+      <circle cx="7" cy="28" r="5" fill="#16a34a"/>
+      <text x="20" y="33" class="body">12 可用</text>
+      <circle cx="7" cy="58" r="5" fill="#d97706"/>
+      <text x="20" y="63" class="body">2 需要审阅</text>
+      <circle cx="7" cy="88" r="5" fill="#dc2626"/>
+      <text x="20" y="93" class="body">1 测试失败</text>
+    </g>
+
+    <!-- Main list column -->
+    <rect x="496" y="63" width="565" height="847" fill="#ffffff"/>
+    <line x1="1061" y1="63" x2="1061" y2="910" class="divider"/>
+    <text x="526" y="110" class="page-title">Skills</text>
+    <text x="526" y="140" class="body">安装、启用和检查 Agent 能力。工作区 Skill 默认不受信任。</text>
+
+    <rect x="526" y="166" width="382" height="38" rx="7" fill="#f1f5f9" stroke="#d9e1ea"/>
+    <text x="542" y="190" class="caption">⌕　搜索 Skill、能力或工具</text>
+    <rect x="920" y="166" width="111" height="38" rx="7" fill="#2563eb"/>
+    <text x="944" y="190" class="button">＋ 安装</text>
+
+    <g transform="translate(526 230)">
+      <text x="0" y="0" class="caption">已启用 · 3</text>
+
+      <g transform="translate(0 18)">
+        <rect width="505" height="88" rx="8" fill="#edf5ff" stroke="#a9c9f6"/>
+        <rect x="14" y="15" width="36" height="36" rx="8" fill="#d8e8ff"/>
+        <text x="26" y="39" font-size="18" fill="#2563eb">⌘</text>
+        <text x="64" y="29" class="row-title">paper-reading</text>
+        <text x="64" y="51" class="caption">Bundled · read-only · v1.2.0</text>
+        <text x="64" y="72" class="caption">匹配论文阅读，允许 4 个只读工具</text>
+        <rect x="422" y="18" width="65" height="25" rx="12" fill="#dcfce7"/>
+        <text x="437" y="35" class="chip" fill="#15803d">可信</text>
+        <circle cx="466" cy="64" r="10" fill="#2563eb"/>
+        <circle cx="470" cy="64" r="6" fill="#ffffff"/>
+      </g>
+
+      <g transform="translate(0 116)">
+        <rect width="505" height="88" rx="8" fill="#ffffff" stroke="#e1e7ee"/>
+        <rect x="14" y="15" width="36" height="36" rx="8" fill="#e7f7ee"/>
+        <text x="25" y="39" font-size="18" fill="#16844a">⌁</text>
+        <text x="64" y="29" class="row-title">citation-auditor</text>
+        <text x="64" y="51" class="caption">User global · read-only · v0.8.1</text>
+        <text x="64" y="72" class="caption">检查证据覆盖与引用陈述</text>
+        <rect x="405" y="18" width="82" height="25" rx="12" fill="#eef2ff"/>
+        <text x="420" y="35" class="chip" fill="#4338ca">已签名</text>
+        <circle cx="466" cy="64" r="10" fill="#2563eb"/>
+        <circle cx="470" cy="64" r="6" fill="#ffffff"/>
+      </g>
+
+      <g transform="translate(0 214)">
+        <rect width="505" height="88" rx="8" fill="#ffffff" stroke="#e1e7ee"/>
+        <rect x="14" y="15" width="36" height="36" rx="8" fill="#fff4df"/>
+        <text x="25" y="39" font-size="18" fill="#c76b00">⚙</text>
+        <text x="64" y="29" class="row-title">simulation-helper</text>
+        <text x="64" y="51" class="caption">Workspace · writes-workspace · v0.3.0</text>
+        <text x="64" y="72" class="caption">执行分析脚本并生成项目材料</text>
+        <rect x="397" y="18" width="90" height="25" rx="12" fill="#fef3c7"/>
+        <text x="410" y="35" class="chip" fill="#a16207">受限信任</text>
+        <circle cx="466" cy="64" r="10" fill="#2563eb"/>
+        <circle cx="470" cy="64" r="6" fill="#ffffff"/>
+      </g>
+
+      <text x="0" y="340" class="caption">未启用 · 2</text>
+
+      <g transform="translate(0 358)">
+        <rect width="505" height="88" rx="8" fill="#fffaf0" stroke="#f4cf8c"/>
+        <rect x="14" y="15" width="36" height="36" rx="8" fill="#ffebc4"/>
+        <text x="25" y="39" font-size="18" fill="#b45309">!</text>
+        <text x="64" y="29" class="row-title">workspace-data-export</text>
+        <text x="64" y="51" class="caption">Workspace · external-side-effect · v0.1.0</text>
+        <text x="64" y="72" class="caption">请求网络和文件写入权限</text>
+        <rect x="397" y="18" width="90" height="25" rx="12" fill="#fee2e2"/>
+        <text x="409" y="35" class="chip" fill="#b91c1c">未受信任</text>
+        <circle cx="466" cy="64" r="10" fill="#cbd5e1"/>
+      </g>
+
+      <g transform="translate(0 456)">
+        <rect width="505" height="88" rx="8" fill="#ffffff" stroke="#e1e7ee"/>
+        <rect x="14" y="15" width="36" height="36" rx="8" fill="#f1f5f9"/>
+        <text x="25" y="39" font-size="18" fill="#64748b">⌘</text>
+        <text x="64" y="29" class="row-title">related-work-matrix</text>
+        <text x="64" y="51" class="caption">Bundled · read-only · v0.5.0</text>
+        <text x="64" y="72" class="caption">等待 Evidence Index 后启用</text>
+        <rect x="407" y="18" width="80" height="25" rx="12" fill="#f1f5f9"/>
+        <text x="421" y="35" class="chip" fill="#64748b">依赖缺失</text>
+        <circle cx="466" cy="64" r="10" fill="#cbd5e1"/>
+      </g>
+    </g>
+
+    <!-- Inspector -->
+    <rect x="1062" y="63" width="598" height="847" fill="#f8fafc"/>
+    <text x="1092" y="108" class="section-title">paper-reading</text>
+    <text x="1092" y="134" class="caption">App bundled · v1.2.0 · trusted</text>
+    <rect x="1514" y="88" width="116" height="36" rx="7" fill="#ffffff" stroke="#ccd6e1"/>
+    <text x="1538" y="111" class="button-secondary">恢复默认</text>
+
+    <line x1="1092" y1="158" x2="1630" y2="158" class="divider"/>
+
+    <text x="1092" y="194" class="section-title">能力与触发</text>
+    <text x="1092" y="225" class="body">论文阅读、方法提取、关键公式、局限分析</text>
+    <rect x="1092" y="244" width="238" height="34" rx="6" fill="#ffffff" stroke="#d9e1ea"/>
+    <text x="1106" y="266" class="mono">capability: paper_reading</text>
+    <rect x="1342" y="244" width="196" height="34" rx="6" fill="#ffffff" stroke="#d9e1ea"/>
+    <text x="1356" y="266" class="mono">risk: read_only</text>
+
+    <text x="1092" y="322" class="section-title">允许工具</text>
+    <g transform="translate(1092 340)">
+      <rect width="260" height="34" rx="6" fill="#ffffff" stroke="#d9e1ea"/>
+      <text x="14" y="22" class="mono">search_library_papers</text>
+      <rect x="274" width="238" height="34" rx="6" fill="#ffffff" stroke="#d9e1ea"/>
+      <text x="288" y="22" class="mono">read_paper_markdown</text>
+      <rect y="44" width="260" height="34" rx="6" fill="#ffffff" stroke="#d9e1ea"/>
+      <text x="14" y="66" class="mono">search_workspace_text</text>
+      <rect x="274" y="44" width="238" height="34" rx="6" fill="#ffffff" stroke="#d9e1ea"/>
+      <text x="288" y="66" class="mono">read_workspace_section</text>
+    </g>
+
+    <text x="1092" y="455" class="section-title">依赖</text>
+    <text x="1092" y="483" class="body">Resources：paper.md、PDF text、Wiki</text>
+    <text x="1092" y="509" class="body">MCP：无　　Network：不需要　　Write：不允许</text>
+
+    <text x="1092" y="559" class="section-title">Harness 状态</text>
+    <g transform="translate(1092 577)">
+      <circle cx="8" cy="9" r="6" fill="#16a34a"/>
+      <text x="24" y="14" class="body">Manifest contract</text>
+      <text x="430" y="14" class="caption">通过 · 12:41</text>
+      <circle cx="8" cy="43" r="6" fill="#16a34a"/>
+      <text x="24" y="48" class="body">Secret scan</text>
+      <text x="430" y="48" class="caption">通过 · 12:41</text>
+      <circle cx="8" cy="77" r="6" fill="#16a34a"/>
+      <text x="24" y="82" class="body">Allowed-tool boundary</text>
+      <text x="430" y="82" class="caption">通过 · 12:41</text>
+      <circle cx="8" cy="111" r="6" fill="#d97706"/>
+      <text x="24" y="116" class="body">Golden workspace evaluation</text>
+      <text x="430" y="116" class="caption">尚未运行</text>
+    </g>
+
+    <text x="1092" y="742" class="section-title">启用策略</text>
+    <rect x="1092" y="760" width="538" height="66" rx="8" fill="#ffffff" stroke="#d9e1ea"/>
+    <text x="1108" y="786" class="body">自动匹配请求，但只能收窄当前 Tool Set。</text>
+    <text x="1108" y="808" class="caption">Skill 不能覆盖审批、工作区边界或用户禁用的工具。</text>
+
+    <rect x="1092" y="847" width="118" height="38" rx="7" fill="#2563eb"/>
+    <text x="1126" y="871" class="button">已启用</text>
+    <rect x="1222" y="847" width="118" height="38" rx="7" fill="#ffffff" stroke="#ccd6e1"/>
+    <text x="1253" y="871" class="button-secondary">查看文件</text>
+    <rect x="1352" y="847" width="142" height="38" rx="7" fill="#ffffff" stroke="#ccd6e1"/>
+    <text x="1382" y="871" class="button-secondary">运行 Harness</text>
+  </g>
+</svg>

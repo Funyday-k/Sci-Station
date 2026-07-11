@@ -96,6 +96,34 @@ struct SciStationPanelStyle: ViewModifier {
     }
 }
 
+/// Stable, back-deployable replacement for per-view `glassEffect` calls.
+///
+/// Applying many dynamic glass effects inside draggable/resizable grids can make
+/// SwiftUI rebuild the visual-effect graph several times in a frame. A material
+/// surface preserves the native macOS appearance while avoiding that update loop
+/// and respecting Reduce Transparency on every supported macOS release.
+private struct SciStationGlassSurfaceModifier<S: Shape>: ViewModifier {
+    let tint: Color
+    let shape: S
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if reduceTransparency {
+                    shape.fill(Color(nsColor: .controlBackgroundColor))
+                } else {
+                    shape.fill(.regularMaterial)
+                }
+            }
+            .overlay {
+                shape.fill(tint)
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
 extension View {
     func sciStationPanel(
         radius: CGFloat = SciStationDesign.compactCornerRadius,
@@ -103,5 +131,12 @@ extension View {
         border: Color = SciStationDesign.hairline
     ) -> some View {
         modifier(SciStationPanelStyle(radius: radius, tint: tint, border: border))
+    }
+
+    func sciStationGlassSurface<S: Shape>(
+        tint: Color = .clear,
+        in shape: S
+    ) -> some View {
+        modifier(SciStationGlassSurfaceModifier(tint: tint, shape: shape))
     }
 }

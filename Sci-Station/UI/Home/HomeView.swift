@@ -74,7 +74,7 @@ struct HomeView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.04), in: Capsule())
     }
 
     private var hero: some View {
@@ -89,7 +89,7 @@ struct HomeView: View {
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 11)
                 .padding(.vertical, 6)
-                .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.045)), in: Capsule())
+                .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.045), in: Capsule())
 
                 Text(workspace.displayName)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -225,7 +225,7 @@ struct HomeBadge: View {
         .font(.caption.weight(.medium))
         .padding(.horizontal, 11)
         .padding(.vertical, 6)
-        .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: Capsule())
+        .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.04), in: Capsule())
     }
 }
 
@@ -246,11 +246,11 @@ struct HomeUnavailableView: View {
             Button(action: retry) {
                 Label(retryTitle, systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.bordered)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(.orange.opacity(0.06)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .sciStationGlassSurface(tint: .orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.orange.opacity(0.25), lineWidth: 0.5)

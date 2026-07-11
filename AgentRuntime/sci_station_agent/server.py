@@ -12,12 +12,12 @@ from typing import Any
 
 from . import __version__
 from .graph.gap_planning import draft_gap_planning_production
-from .graph.paper_reading import build_sample_paper_reading_events, draft_paper_reading_note
+from .graph.paper_reading import draft_paper_reading_note
 from .graph.related_work import draft_related_work_production
 from .graph.router import route_intent
 from .rag.evidence import stable_evidence_id
-from .rag.fts_index import content_hash
-from .rag.retriever import build_retrieval_trace
+from .rag.fts_index import FTSIndex, ResourceDocument, content_hash
+from .rag.retriever import FTSRetriever, build_retrieval_trace
 from .transport.schemas import JsonDict, load_fixture
 from .transport.stdio_jsonrpc import StdioJsonRpcTransport
 
@@ -166,9 +166,17 @@ class SidecarServer:
         project_id = str(params.get("projectID") or params.get("project_id") or "main-project")
         selected_paper_id = str(params.get("selectedPaperID") or params.get("selected_paper_id") or "selected-paper")
 
+        evidence_provenance: JsonDict = {"contains_synthetic_evidence": False, "sources": ["workspace"]}
         if intent == "paper_reading":
             relative_path = f"library/papers/{selected_paper_id}/paper.md"
-            paper_text = self._read_workspace_text(workspace_root, relative_path) or self._synthetic_paper_text(selected_paper_id)
+            paper_text = self._read_workspace_text(workspace_root, relative_path)
+            if paper_text is None:
+                return self._insufficient_evidence_actions(
+                    params,
+                    intent,
+                    f"Missing workspace paper text at {relative_path}; convert/OCR the paper before running production paper reading.",
+                    missing_sources=[relative_path],
+                )
             source_hash = content_hash(paper_text)
             draft = draft_paper_reading_note(run_id, selected_paper_id, paper_text, relative_path, source_hash)
             artifact = draft.artifact
@@ -176,38 +184,107 @@ class SidecarServer:
             critic_report = draft.critic_report or {"can_request_approval": False, "required_revisions": ["Paper text needs conversion before final approval."]}
             extra = {"needs_conversion": draft.needs_conversion}
         elif intent == "related_work":
-            evidence = self._sample_evidence_table()
+            evidence = self._workspace_evidence(workspace_root, query=goal or "related work retrieval workflow evaluation", project_id=project_id)
+            if not evidence:
+                return self._insufficient_evidence_actions(
+                    params,
+                    intent,
+                    "No real workspace evidence matched the related-work query; index project wiki or paper markdown before drafting.",
+                )
             draft = draft_related_work_production(run_id, project_id, evidence)
             artifact = draft.artifact
             critic_report = draft.critic_report
             extra = {"evidence_matrix": draft.evidence_matrix}
         elif intent == "gap_planning":
-            evidence = self._sample_evidence_table()
+            evidence = self._workspace_evidence(workspace_root, query=goal or "research gaps planning evidence", project_id=project_id)
+            if not evidence:
+                return self._insufficient_evidence_actions(
+                    params,
+                    intent,
+                    "No real workspace evidence matched the gap-planning query; index project wiki or paper markdown before planning.",
+                )
             draft = draft_gap_planning_production(run_id, project_id, evidence)
             artifact = draft.artifact
             critic_report = draft.critic_report
             extra = {"todo_drafts": draft.todo_drafts, "duplicate_warnings": draft.duplicate_warnings}
         else:
-            return build_sample_paper_reading_events(run_id=run_id, goal=goal, intent=intent)
+            return self._insufficient_evidence_actions(params, intent, f"Workflow '{intent}' is not a production sidecar workflow.")
 
         retrieval_trace = build_retrieval_trace(
             query=goal,
-            retrieval_mode="fts_only" if intent == "paper_reading" else "synthetic_fixture",
+            retrieval_mode="fts_only",
             embedding_store="fts_only",
-            fallback_reason="embedding disabled or unavailable; production workflow used FTS/synthetic evidence",
+            fallback_reason="embedding disabled or unavailable; production workflow used FTS-only real workspace evidence",
             candidates=[self._trace_candidate_from_evidence(row) for row in evidence],
         )
         retrieval_trace.update({
             "run_id": run_id,
             "runtime": "langgraph_sidecar",
+            "requested_runtime": str(params.get("runtimeSelection") or params.get("runtime_selection") or "langgraph_sidecar"),
+            "effective_runtime": "langgraph_sidecar",
             "workflow": intent,
-            "retriever": "fts_or_synthetic_fixture",
+            "retriever": "fts_only_workspace",
             "evidence_count": len(evidence),
-            "fallback_metadata": {"used_synthetic_evidence": intent in {"related_work", "gap_planning"}},
+            "fallback_metadata": {
+                "reason": retrieval_trace.get("fallback_reason"),
+                "effective_runtime": "langgraph_sidecar",
+                "used_synthetic_evidence": evidence_provenance["contains_synthetic_evidence"],
+            },
+            "evidence_provenance": evidence_provenance,
+            "provenance": self._run_provenance(params, intent, evidence_provenance),
         })
-        self._write_workflow_files(run_directory, critic_report, retrieval_trace, evidence, extra)
-        final = f"LangGraph sidecar completed {intent} and produced an approval-ready artifact draft."
-        return self._workflow_events(run_id, goal, intent, artifact, final)
+        self._write_workflow_files(run_directory, critic_report, retrieval_trace, evidence, {**extra, "provenance": evidence_provenance})
+        final = f"LangGraph sidecar completed {intent} with real workspace evidence and produced an approval-ready artifact draft."
+        return self._workflow_events(run_id, goal, intent, artifact, final, retrieval_trace["provenance"])
+
+    def _insufficient_evidence_actions(
+        self,
+        params: JsonDict,
+        intent: str,
+        reason: str,
+        missing_sources: list[str] | None = None,
+    ) -> list[JsonDict]:
+        run_id = str(params.get("runID") or params.get("run_id") or "agent-run")
+        goal = str(params.get("goal", ""))
+        workspace_root = Path(str(params.get("workspaceRoot") or params.get("workspace_root") or ".")).expanduser()
+        run_directory = workspace_root / ".sci-station" / "agent" / "runs" / run_id
+        evidence_provenance: JsonDict = {
+            "contains_synthetic_evidence": False,
+            "sources": [],
+            "missing_sources": missing_sources or [],
+        }
+        retrieval_trace = build_retrieval_trace(
+            query=goal,
+            retrieval_mode="fts_only",
+            embedding_store="fts_only",
+            fallback_reason=reason,
+            candidates=[],
+        )
+        retrieval_trace.update({
+            "run_id": run_id,
+            "runtime": "langgraph_sidecar",
+            "requested_runtime": str(params.get("runtimeSelection") or params.get("runtime_selection") or "langgraph_sidecar"),
+            "effective_runtime": "langgraph_sidecar",
+            "workflow": intent,
+            "retriever": "fts_only_workspace",
+            "evidence_count": 0,
+            "fallback_metadata": {
+                "reason": reason,
+                "effective_runtime": "langgraph_sidecar",
+                "used_synthetic_evidence": False,
+            },
+            "evidence_provenance": evidence_provenance,
+            "provenance": self._run_provenance(params, intent, evidence_provenance, fallback_reason=reason),
+        })
+        critic_report = {
+            "schema_version": 1,
+            "can_request_approval": False,
+            "required_revisions": [reason],
+            "evidence_count": 0,
+        }
+        self._write_workflow_files(run_directory, critic_report, retrieval_trace, [], {"provenance": evidence_provenance})
+        final = f"LangGraph sidecar could not produce a production {intent} draft: {reason} No synthetic/sample evidence was used."
+        return self._workflow_events(run_id, goal, intent, None, final, retrieval_trace["provenance"])
 
     def _enabled_workflow_ids(self, params: JsonDict) -> set[str] | None:
         raw = params.get("enabledWorkflowIDs")
@@ -239,14 +316,31 @@ class SidecarServer:
         (run_directory / "retrieval_trace.json").write_text(json.dumps(retrieval_trace, sort_keys=True, indent=2), encoding="utf-8")
         (run_directory / "evidence.json").write_text(json.dumps({"evidence": evidence, **extra}, sort_keys=True, indent=2), encoding="utf-8")
 
-    def _workflow_events(self, run_id: str, goal: str, intent: str, artifact: JsonDict, final_markdown: str) -> list[JsonDict]:
+    def _workflow_events(self, run_id: str, goal: str, intent: str, artifact: JsonDict | None, final_markdown: str, provenance: JsonDict | None = None) -> list[JsonDict]:
         timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        return [
-            {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-start", run_id, 10, timestamp, "run_started", {"goal": goal})},
+        runtime_payload = {key: value for key, value in (provenance or {}).items() if key in {"requested_runtime", "effective_runtime", "fallback_reason", "evidence_provenance"}}
+        events = [
+            {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-start", run_id, 10, timestamp, "run_started", {"goal": goal, **runtime_payload})},
             {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-router", run_id, 20, timestamp, "node_started", {"name": f"router:{intent}"})},
-            {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-draft", run_id, 30, timestamp, "artifact_draft", artifact)},
             {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-final", run_id, 40, timestamp, "final_response", {"markdown": final_markdown})},
         ]
+        if artifact is not None:
+            events.insert(2, {"kind": "event", "envelope": self._envelope(f"evt-{run_id}-draft", run_id, 30, timestamp, "artifact_draft", artifact)})
+        return events
+
+    def _run_provenance(self, params: JsonDict, workflow: str, evidence_provenance: JsonDict, fallback_reason: str | None = None) -> JsonDict:
+        requested_runtime = str(params.get("runtimeSelection") or params.get("runtime_selection") or "langgraph_sidecar")
+        return {
+            "schema_version": 1,
+            "runtime": "langgraph_sidecar",
+            "requested_runtime": requested_runtime,
+            "effective_runtime": "langgraph_sidecar",
+            "workflow": workflow,
+            "sidecar_version": __version__,
+            "python_version": platform.python_version(),
+            "fallback_reason": fallback_reason,
+            "evidence_provenance": evidence_provenance,
+        }
 
     def _read_workspace_text(self, workspace_root: Path, relative_path: str) -> str | None:
         path = workspace_root / relative_path
@@ -257,41 +351,63 @@ class SidecarServer:
             return None
         return None
 
-    def _synthetic_paper_text(self, paper_id: str) -> str:
-        return "\n".join(
-            f"Line {line} for {paper_id}: retrieval workflow method experiment limitation evidence."
-            for line in range(1, 90)
-        )
+    def _workspace_evidence(self, workspace_root: Path, query: str, project_id: str, limit: int = 8) -> list[JsonDict]:
+        documents = self._workspace_documents(workspace_root, project_id)
+        if not documents:
+            return []
+        index = FTSIndex(workspace_root / ".sci-station" / "agent" / "sidecar_fts.sqlite3")
+        index.index_documents(documents)
+        terms = " OR ".join(self._fts_terms(query))
+        evidence = FTSRetriever(index).retrieve(terms, limit=limit)
+        return evidence
 
-    def _sample_evidence_table(self) -> list[JsonDict]:
-        rows: list[JsonDict] = []
-        themes = [
-            ("retrieval", "retrieval RAG index search evidence"),
-            ("retrieval", "retrieval search ranking evidence"),
-            ("workflow", "agent workflow orchestration planning evidence"),
-            ("workflow", "workflow planning checkpoint evidence"),
-            ("evaluation", "evaluation benchmark experiment metric evidence"),
-            ("evaluation", "experiment metric comparison evidence"),
-        ]
-        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        for index, (heading, quote) in enumerate(themes, start=1):
-            relative_path = f"library/papers/p{index}/paper.md"
-            source_hash = f"sha256:{index}"
-            evidence_id = stable_evidence_id("paper", f"p{index}", relative_path, 1, 8, source_hash)
-            rows.append({
-                "id": evidence_id,
-                "source_type": "paper",
-                "source_id": f"p{index}",
-                "relative_path": relative_path,
-                "lines": [1, 8],
-                "source_hash": source_hash,
-                "chunk_id": f"paper:p{index}:1-8",
-                "retrieved_at": timestamp,
-                "heading": heading,
-                "quote": quote,
-                "confidence": 0.74,
-            })
-        return rows
+    def _workspace_documents(self, workspace_root: Path, project_id: str) -> list[ResourceDocument]:
+        candidates: list[Path] = []
+        for relative_root in ("library/papers", f"projects/{project_id}", "wiki"):
+            root = workspace_root / relative_root
+            if root.exists():
+                candidates.extend(path for path in root.rglob("*.md") if path.is_file())
+        documents: list[ResourceDocument] = []
+        for path in sorted(set(candidates)):
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if not content.strip():
+                continue
+            relative_path = path.relative_to(workspace_root).as_posix()
+            source_type = "paper" if relative_path.startswith("library/papers/") else "wiki"
+            source_id = self._source_id_from_relative_path(relative_path, source_type)
+            documents.append(ResourceDocument(
+                resource_id=f"{source_type}:{source_id or relative_path}",
+                relative_path=relative_path,
+                source_type=source_type,
+                source_id=source_id,
+                content=content,
+                content_hash=content_hash(content),
+            ))
+        return documents
+
+    def _source_id_from_relative_path(self, relative_path: str, source_type: str) -> str | None:
+        parts = relative_path.split("/")
+        if source_type == "paper" and len(parts) >= 3:
+            return parts[2]
+        if source_type == "wiki":
+            return relative_path.removesuffix(".md")
+        return None
+
+    def _fts_terms(self, query: str) -> list[str]:
+        normalized = "".join(character.lower() if character.isalnum() else " " for character in query)
+        stopwords = {"the", "and", "for", "with", "this", "that", "please", "draft", "create"}
+        terms = [term for term in normalized.split() if len(term) >= 3 and term not in stopwords]
+        fallback = ["retrieval", "workflow", "evidence", "evaluation", "planning", "method"]
+        selected: list[str] = []
+        for term in terms + fallback:
+            if term not in selected:
+                selected.append(term)
+            if len(selected) >= 8:
+                break
+        return selected or fallback
 
     def _trace_candidate_from_evidence(self, evidence: JsonDict) -> JsonDict:
         lines = evidence.get("lines") if isinstance(evidence.get("lines"), list) else [None, None]

@@ -464,7 +464,7 @@ public nonisolated struct WriteWikiMarkdownAgentTool: AgentTool {
             permissionKey: "wiki.write",
             outputPolicy: AgentToolOutputPolicy(maxCharacters: 384_000),
             examples: [
-                "{\"title\":\"Paper reading plan\",\"body\":\"# Plan\\n\\n- Read selected papers\"}",
+                "{\"title\":\"Paper reading tasks\",\"body\":\"# Reading Tasks\\n\\n- Read selected papers\"}",
                 "{\"title\":\"Garani 2017 Summary\",\"relative_path\":\"wiki/papers/garani2017-dark-matter-sun.md\",\"body\":\"## AI Summary\\n\\n...\"}"
             ]
         )

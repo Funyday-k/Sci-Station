@@ -107,13 +107,13 @@ struct ProjectsListView: View {
                             systemImage: appModel.isShowingArchivedProjects ? "archivebox.fill" : "archivebox"
                         )
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.bordered)
                     Button {
                         appModel.beginCreatingResearchProject()
                     } label: {
                         Label(appModel.t(.toolbarNewProject), systemImage: "plus")
                     }
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(.borderedProminent)
                 }
 
                 if appModel.activeResearchProjects.isEmpty {
@@ -129,7 +129,7 @@ struct ProjectsListView: View {
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .glassEffect(.regular.tint(appModel.liquidGlassTintColor.opacity(0.04)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .sciStationGlassSurface(tint: appModel.liquidGlassTintColor.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(Color.secondary.opacity(0.14), lineWidth: 0.7)
@@ -237,7 +237,7 @@ private struct ProjectListCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 126, alignment: .topLeading)
-        .glassEffect(.regular.tint(SciStationDesign.projectSurface(hex: project.colorHex, isSelected: isSelected)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .sciStationGlassSurface(tint: SciStationDesign.projectSurface(hex: project.colorHex, isSelected: isSelected), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.accentColor.opacity(0.62) : SciStationDesign.hairline, lineWidth: 1))
         .overlay(alignment: .topTrailing) {
             Image(systemName: "chevron.right")

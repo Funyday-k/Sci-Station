@@ -209,7 +209,70 @@ public nonisolated struct AgentRuntimeEventEnvelope: Codable, Hashable, Sendable
 
 public nonisolated struct AgentRunStarted: Codable, Hashable, Sendable {
     public var goal: String
-    public nonisolated init(goal: String) { self.goal = goal }
+    public var requestedRuntime: String?
+    public var effectiveRuntime: String?
+    public var runtime: String?
+    public var fallbackReason: String?
+    public var evidenceProvenance: JSONValue?
+    public var metadata: [String: JSONValue]
+
+    public nonisolated init(
+        goal: String,
+        requestedRuntime: String? = nil,
+        effectiveRuntime: String? = nil,
+        runtime: String? = nil,
+        fallbackReason: String? = nil,
+        evidenceProvenance: JSONValue? = nil,
+        metadata: [String: JSONValue] = [:]
+    ) {
+        self.goal = goal
+        self.requestedRuntime = requestedRuntime
+        self.effectiveRuntime = effectiveRuntime
+        self.runtime = runtime
+        self.fallbackReason = fallbackReason
+        self.evidenceProvenance = evidenceProvenance
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case goal
+        case requestedRuntime = "requested_runtime"
+        case effectiveRuntime = "effective_runtime"
+        case runtime
+        case fallbackReason = "fallback_reason"
+        case evidenceProvenance = "evidence_provenance"
+        case metadata
+    }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.goal = try container.decode(String.self, forKey: .goal)
+        self.requestedRuntime = try container.decodeIfPresent(String.self, forKey: .requestedRuntime)
+        self.effectiveRuntime = try container.decodeIfPresent(String.self, forKey: .effectiveRuntime)
+        self.runtime = try container.decodeIfPresent(String.self, forKey: .runtime)
+        self.fallbackReason = try container.decodeIfPresent(String.self, forKey: .fallbackReason)
+        self.evidenceProvenance = try container.decodeIfPresent(JSONValue.self, forKey: .evidenceProvenance)
+        var metadata = try container.decodeIfPresent([String: JSONValue].self, forKey: .metadata) ?? [:]
+        if let requestedRuntime { metadata["requested_runtime"] = .string(requestedRuntime) }
+        if let effectiveRuntime { metadata["effective_runtime"] = .string(effectiveRuntime) }
+        if let runtime { metadata["runtime"] = .string(runtime) }
+        if let fallbackReason { metadata["fallback_reason"] = .string(fallbackReason) }
+        if let evidenceProvenance { metadata["evidence_provenance"] = evidenceProvenance }
+        self.metadata = metadata
+    }
+
+    public nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(goal, forKey: .goal)
+        try container.encodeIfPresent(requestedRuntime, forKey: .requestedRuntime)
+        try container.encodeIfPresent(effectiveRuntime, forKey: .effectiveRuntime)
+        try container.encodeIfPresent(runtime, forKey: .runtime)
+        try container.encodeIfPresent(fallbackReason, forKey: .fallbackReason)
+        try container.encodeIfPresent(evidenceProvenance, forKey: .evidenceProvenance)
+        if !metadata.isEmpty {
+            try container.encode(metadata, forKey: .metadata)
+        }
+    }
 }
 
 public nonisolated struct AgentNodeStarted: Codable, Hashable, Sendable {

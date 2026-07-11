@@ -1,6 +1,6 @@
 # 开发者文档：软件架构与功能开发
 
-本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)，用户需求入口见 [user-feedback/](user-feedback/)，新版开发文档中心见 [development/](development/)。
+本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)。本文是受版本控制的开发约定入口。
 
 ## 总体架构
 
@@ -48,8 +48,6 @@ Sci-Station/
 ├── Tags/                         标签模型与仓储
 ├── Tasks/                        待办模型与仓储
 ├── Calendar/                     本地日历模型和 Apple Calendar / Reminders 集成
-├── Queue/                        研究队列、推荐候选、延后/忽略状态
-├── ReadingPlan/                  阅读计划
 ├── Recommendation/               推荐工作流和推荐结果
 ├── Graph/                        论文/项目图谱数据与工作流
 ├── LLM/                          LLM provider 配置和调用抽象
@@ -91,7 +89,7 @@ Shell 相关文件集中在 [../Sci-Station/UI/Shell/](../Sci-Station/UI/Shell/)
 - **仓储**：负责从科研根目录读写 YAML、Markdown、JSONL、SQLite 或其它文件。
 - **服务**：组织导入、搜索、生成、同步、转换、权限判断等操作。
 
-新增功能时，优先找到最接近的领域目录。例如论文导入改 [../Sci-Station/Import/](../Sci-Station/Import/) 或 [../Sci-Station/Importer/](../Sci-Station/Importer/)，任务改 [../Sci-Station/Tasks/](../Sci-Station/Tasks/)，研究队列改 [../Sci-Station/Queue/](../Sci-Station/Queue/)。只有确认领域层已经表达清楚后，再接 UI。
+新增功能时，优先找到最接近的领域目录。例如论文导入改 [../Sci-Station/Import/](../Sci-Station/Import/) 或 [../Sci-Station/Importer/](../Sci-Station/Importer/)，任务和阅读待办改 [../Sci-Station/Tasks/](../Sci-Station/Tasks/)，推荐改 [../Sci-Station/Recommendation/](../Sci-Station/Recommendation/)。只有确认领域层已经表达清楚后，再接 UI。
 
 ### 4. 本地科研根目录
 
@@ -135,19 +133,25 @@ ResearchRoot/
 
 [../Sci-Station/Workspace/](../Sci-Station/Workspace/) 负责创建、打开、修复和恢复科研根目录。新增持久化文件时，应先判断它属于全局 workspace、library paper、project，还是 AI run artifact，避免把数据散落到难以备份的位置。
 
-### 5. AI Lab 与 sidecar runtime
+### 5. AI Lab 与 Agent runtime
 
 AI 相关代码分两层：
 
-- Swift 应用内的 [../Sci-Station/Agent/](../Sci-Station/Agent/) 和 [../Sci-Station/LLM/](../Sci-Station/LLM/)：负责配置、权限、工具定义、运行日志、UI 状态和 LLM 调用抽象。
-- Python 的 [../AgentRuntime/](../AgentRuntime/)：负责 sidecar runtime 原型、agent 编排、测试夹具和 UI 测试编排器。
+- Swift 应用内的 [../Sci-Station/Agent/](../Sci-Station/Agent/) 和 [../Sci-Station/LLM/](../Sci-Station/LLM/)：负责生产默认 Swift Loop、配置、权限、工具定义、运行日志、UI 状态和 LLM 调用抽象。
+- Python 的 [../AgentRuntime/](../AgentRuntime/)：负责实验性 sidecar runtime 原型、测试夹具和 UI 测试编排器。不要把 sidecar workflow 写成生产默认能力，除非对应 Proposal 明确升级。
 
 AI 能力的边界：
 
 - API Key、token、secret 必须进入 macOS 钥匙串或本机安全配置，不写入仓库和科研根目录的普通文本。
 - 读操作可以自动化，但写操作必须经过权限模型和用户确认。
-- 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看。
+- 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看；AI Lab 主界面应能展示 runtime、evidence、writeback、Prompt/MCP 等协作状态。
 - 产品内置 preset 放在 [../.sci-ai/sci-station/](../.sci-ai/sci-station/)，本机桥接配置放在 `.sci-ai/workspace.local/`，不要提交本机 secret。
+- 用户可管理的 Prompt override、Skill toggle 和 MCP server 覆盖配置放在 `.sci-station/agent/profile.json`。该文件属于 Research Root 本地状态；默认初始化为空列表，不写入 API key、token、完整 provider response 或完整运行记录。
+- Prompt override 已进入 Swift Loop 执行链，并在 run metadata / `prompt_snapshot.json` 中记录 id、version、hash 和 surface。
+- Prompt patch review 必须展示 diff、rationale/source、影响范围、rollback hint 和 Apply/Reject；`Restore Default` 表示移除 workspace override，不表示回滚历史 patch tree。
+- Skill resolver 已进入 runtime：只加载 Profile 中明确启用且匹配的 Skill；workspace Skill 默认 untrusted，未显式 trusted 时不读取正文，且 Skill 只能收窄工具范围。Skill Manager 的导入/启用/信任必须有用户确认和 profile 审计路径。
+- Local command MCP 只有在配置显式设置 `is_enabled: true` 时才启动；进程通过 stdio JSON-RPC 连接，不经过 shell。Remote HTTP/SSE MCP 支持实验性 JSON-RPC discovery、ping/liveness、credential reference 解析、失败/backoff 和 crash/credential 状态诊断。发现的工具使用 `mcp__<server>__<tool>` 名称，并始终经过 Agent approval、allowlist 和权限模型。
+- 生产回答不能使用 synthetic/sample evidence。需要证据时必须来自真实 paper、PDF、Markdown、Wiki、Graph artifact 或其它本地来源；测试 fixture 必须清楚标注。
 
 ## 功能开发流程
 
@@ -159,7 +163,7 @@ AI 能力的边界：
 4. **接入 AppViewModel**：通过窄方法或明确 binding 暴露给 UI。避免让视图直接修改深层仓储状态。
 5. **构建 UI**：优先复用 `UI/` 下已有组件和设计 token。大页面拆成小 view，保持 body 清晰。
 6. **补验证**：领域逻辑加到 `SciStationCoreTestRunner`；UI 或集成流程补手动测试文档；Python sidecar 改动跑 pytest。
-7. **补文档**：用户可见行为更新 README/教程；开发流程或架构变化更新本文档或 `docs/development/`。
+7. **补文档**：用户可见行为更新 README/教程；开发流程、架构或发布约定变化更新本文档。
 
 ### 新增一个工作区模块或项目 tab
 
@@ -196,7 +200,11 @@ AI 能力的边界：
 
 ## 验证入口
 
-常用验证命令从仓库根目录执行：
+项目以 Apple Silicon Mac 和 macOS 15 及以上版本为当前兼容基线。常用验证命令从仓库根目录执行：
+
+```bash
+swift test
+```
 
 ```bash
 swift run SciStationCoreTestRunner
@@ -210,7 +218,47 @@ xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'plat
 python -m pytest AgentRuntime/tests
 ```
 
-测试策略在 [development/testing/](development/testing/)，版本管理在 [development/versioning/](development/versioning/)，自动化 UI 测试编排器说明在 [../AgentRuntime/sci_station_agent/uitest/README.md](../AgentRuntime/sci_station_agent/uitest/README.md)。
+```bash
+Tools/scripts/check-docs-hygiene.py
+Tools/scripts/check-repository-hygiene.sh
+```
+
+领域模型、codec、store、兼容性和安全边界优先使用 Swift 测试覆盖；SwiftUI 集成由 Xcode build 验证；涉及 AgentRuntime 时运行 Python 测试。用户主路径、窗口尺寸、空态、失败态、重启恢复和打包产物启动仍需执行人工回归。自动化 UI 测试编排器说明见 [../AgentRuntime/sci_station_agent/uitest/README.md](../AgentRuntime/sci_station_agent/uitest/README.md)。
+
+## 构建、签名与发布
+
+### 本地开发
+
+- Xcode Team：`xia lingyu (Personal Team)`（`K7A7Y3LPZF`）。
+- Bundle ID：`Lingyu-Xia.Sci-Station`。
+- `CODE_SIGN_STYLE`：`Automatic`。
+- macOS 签名身份：Xcode 显示的 **Sign to Run Locally**（`-`）。
+- 不配置 Provisioning Profile。
+
+`script/build_and_run.sh` 使用同一套配置，使 Codex Run 与 Xcode 日常构建保持一致。这些设置只服务本机开发运行，不代表 Developer ID 分发或 notarization。
+
+### 外发构建
+
+项目不依赖正式签名证书或 notarization。Apple Silicon Release 包默认使用 ad-hoc 签名：
+
+```bash
+Tools/scripts/package-beta.sh
+```
+
+需要完全无签名的产物时显式执行：
+
+```bash
+SCI_STATION_SIGNING=unsigned Tools/scripts/package-beta.sh
+```
+
+发布前必须确认版本号与 build number、更新 `CHANGELOG.md`、运行自动化验证和主路径回归，并检查 app 包包含 arm64 slice、Bundle ID 正确、签名状态符合所选模式。发布产物及 DerivedData 不进入版本控制。
+
+## 文档维护
+
+- `README.md`、`docs/README*.md` 和 `docs/TUTORIAL*.md` 只描述用户可见且已经可用的行为。
+- 架构、开发、测试、兼容性和发布约定统一维护在本文，避免多个文档互相漂移。
+- `docs/development/` 仅用于本地过程记录，已被 Git 忽略，不得作为受版本控制文档的链接目标或唯一信息来源。
+- 用户可见变化同步更新 `CHANGELOG.md`；敏感信息、私人研究内容和本机路径不得写入公开文档。
 
 ## 开发约束
 

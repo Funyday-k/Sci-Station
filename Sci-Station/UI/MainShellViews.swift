@@ -13,6 +13,7 @@ struct SidebarView: View {
 
     var body: some View {
         TopSidebarView(workspace: workspace)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {
@@ -63,31 +64,6 @@ private struct SidebarAILabGroup: View {
                     Text("\(appModel.agentThreads.count)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button {
-                        withAnimation(SidebarMotion.selection) {
-                            appModel.startNewAgentConversation()
-                            appModel.selectSection(.llmLab)
-                            isExpanded = true
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.semibold))
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("New Chat")
-                    Button {
-                        withAnimation(SidebarMotion.selection) {
-                            appModel.selectSection(.llmLab)
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Open AI Lab")
                 }
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)

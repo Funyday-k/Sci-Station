@@ -9,6 +9,10 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
     public var title: String
     public var detail: String
     public var payloadPreview: String?
+    public var runtimeSelector: String?
+    public var effectiveRuntime: String?
+    public var runtimeFallbackReason: String?
+    public var provenance: AgentRunProvenance?
 
     public nonisolated init(event: AgentSessionEvent) {
         self.id = event.id
@@ -19,6 +23,10 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         self.title = Self.title(for: event.kind)
         self.detail = event.summary
         self.payloadPreview = Self.payloadPreview(for: event)
+        self.runtimeSelector = nil
+        self.effectiveRuntime = nil
+        self.runtimeFallbackReason = nil
+        self.provenance = nil
     }
 
     private nonisolated init(
@@ -28,7 +36,11 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         kind: AgentSessionEventKind,
         title: String? = nil,
         detail: String,
-        payloadPreview: String? = nil
+        payloadPreview: String? = nil,
+        runtimeSelector: String? = nil,
+        effectiveRuntime: String? = nil,
+        runtimeFallbackReason: String? = nil,
+        provenance: AgentRunProvenance? = nil
     ) {
         self.id = id
         self.eventID = id
@@ -38,6 +50,10 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         self.title = title ?? Self.title(for: kind)
         self.detail = detail
         self.payloadPreview = payloadPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.runtimeSelector = runtimeSelector?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.effectiveRuntime = effectiveRuntime?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.runtimeFallbackReason = runtimeFallbackReason?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.provenance = provenance
     }
 
     private nonisolated static func payloadPreview(for event: AgentSessionEvent) -> String? {
@@ -158,9 +174,28 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                 sessionID: run.id,
                 createdAt: run.createdAt,
                 kind: .userMessage,
-                detail: run.goal
+                detail: run.goal,
+                runtimeSelector: run.runtimeSelector,
+                effectiveRuntime: run.effectiveRuntime,
+                runtimeFallbackReason: run.runtimeFallbackReason,
+                provenance: run.provenance
             )
         ]
+        if let runtimeDetail = runtimeProjectionDetail(for: run) {
+            items.append(AgentSessionTimelineItem(
+                id: "projection-\(run.id)-runtime",
+                sessionID: run.id,
+                createdAt: run.createdAt.addingTimeInterval(0.001),
+                kind: .reasoningSummary,
+                title: "Runtime",
+                detail: runtimeDetail,
+                payloadPreview: runtimeProjectionPayload(for: run),
+                runtimeSelector: run.runtimeSelector,
+                effectiveRuntime: run.effectiveRuntime,
+                runtimeFallbackReason: run.runtimeFallbackReason,
+                provenance: run.provenance
+            ))
+        }
 
         for (index, result) in run.toolResults.enumerated() {
             items.append(AgentSessionTimelineItem(
@@ -169,7 +204,11 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                 createdAt: run.createdAt.addingTimeInterval(0.01 + Double(index) * 0.001),
                 kind: result.succeeded ? .toolCallCompleted : .toolCallFailed,
                 detail: result.succeeded ? "已使用工具：\(result.toolName)" : "工具 \(result.toolName) 失败：\(result.errorMessage ?? result.message)",
-                payloadPreview: result.payload?.canonicalJSON ?? result.message
+                payloadPreview: result.payload?.canonicalJSON ?? result.message,
+                runtimeSelector: run.runtimeSelector,
+                effectiveRuntime: run.effectiveRuntime,
+                runtimeFallbackReason: run.runtimeFallbackReason,
+                provenance: run.provenance
             ))
         }
 
@@ -181,7 +220,11 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                 sessionID: run.id,
                 createdAt: (run.completedAt ?? run.createdAt).addingTimeInterval(0.02),
                 kind: .runCancelled,
-                detail: response ?? run.plan.risk ?? "用户已停止本次 AI 输出。"
+                detail: response ?? run.plan.risk ?? "用户已停止本次 AI 输出。",
+                runtimeSelector: run.runtimeSelector,
+                effectiveRuntime: run.effectiveRuntime,
+                runtimeFallbackReason: run.runtimeFallbackReason,
+                provenance: run.provenance
             ))
         case .failed:
             if let response {
@@ -190,7 +233,11 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                     sessionID: run.id,
                     createdAt: run.createdAt.addingTimeInterval(0.02),
                     kind: .assistantMessage,
-                    detail: response
+                    detail: response,
+                    runtimeSelector: run.runtimeSelector,
+                    effectiveRuntime: run.effectiveRuntime,
+                    runtimeFallbackReason: run.runtimeFallbackReason,
+                    provenance: run.provenance
                 ))
             }
             items.append(AgentSessionTimelineItem(
@@ -198,7 +245,11 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                 sessionID: run.id,
                 createdAt: (run.completedAt ?? run.createdAt).addingTimeInterval(0.03),
                 kind: .toolCallFailed,
-                detail: run.plan.risk ?? run.plan.summary
+                detail: run.plan.risk ?? run.plan.summary,
+                runtimeSelector: run.runtimeSelector,
+                effectiveRuntime: run.effectiveRuntime,
+                runtimeFallbackReason: run.runtimeFallbackReason,
+                provenance: run.provenance
             ))
         case .waitingForApproval:
             items.append(AgentSessionTimelineItem(
@@ -206,7 +257,11 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                 sessionID: run.id,
                 createdAt: run.createdAt.addingTimeInterval(0.02),
                 kind: .permissionRequested,
-                detail: run.plan.risk ?? run.plan.summary
+                detail: run.plan.risk ?? run.plan.summary,
+                runtimeSelector: run.runtimeSelector,
+                effectiveRuntime: run.effectiveRuntime,
+                runtimeFallbackReason: run.runtimeFallbackReason,
+                provenance: run.provenance
             ))
         case .created, .running, .resuming, .completed:
             let detail = response ?? run.plan.summary.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -216,12 +271,47 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
                     sessionID: run.id,
                     createdAt: (run.completedAt ?? run.createdAt).addingTimeInterval(0.02),
                     kind: .assistantMessage,
-                    detail: detail
+                    detail: detail,
+                    runtimeSelector: run.runtimeSelector,
+                    effectiveRuntime: run.effectiveRuntime,
+                    runtimeFallbackReason: run.runtimeFallbackReason,
+                    provenance: run.provenance
                 ))
             }
         }
 
         return items
+    }
+
+    private nonisolated static func runtimeProjectionDetail(for run: AgentRun) -> String? {
+        let requested = run.runtimeSelector ?? run.provenance?.requestedRuntime
+        let effective = run.effectiveRuntime ?? run.provenance?.effectiveRuntime ?? run.provenance?.runtime
+        let fallback = run.runtimeFallbackReason ?? run.provenance?.fallbackReason
+        guard requested != nil || effective != nil || fallback != nil else {
+            return nil
+        }
+        var parts: [String] = []
+        if let requested { parts.append("requested=\(requested)") }
+        if let effective { parts.append("effective=\(effective)") }
+        if let fallback { parts.append("fallback=\(fallback)") }
+        return parts.joined(separator: " · ")
+    }
+
+    private nonisolated static func runtimeProjectionPayload(for run: AgentRun) -> String? {
+        var payload: [String: JSONValue] = [:]
+        if let runtimeSelector = run.runtimeSelector ?? run.provenance?.requestedRuntime {
+            payload["requested_runtime"] = .string(runtimeSelector)
+        }
+        if let effectiveRuntime = run.effectiveRuntime ?? run.provenance?.effectiveRuntime ?? run.provenance?.runtime {
+            payload["effective_runtime"] = .string(effectiveRuntime)
+        }
+        if let runtimeFallbackReason = run.runtimeFallbackReason ?? run.provenance?.fallbackReason {
+            payload["fallback_reason"] = .string(runtimeFallbackReason)
+        }
+        if let evidenceProvenance = run.provenance?.evidenceProvenance {
+            payload["evidence_provenance"] = evidenceProvenance
+        }
+        return payload.isEmpty ? nil : JSONValue.object(payload).canonicalJSON
     }
 
     private nonisolated static func title(for kind: AgentSessionEventKind) -> String {
@@ -251,6 +341,92 @@ public nonisolated struct AgentSessionTimelineItem: Identifiable, Hashable, Send
         case .compactionSummary:
             return "压缩摘要"
         }
+    }
+}
+
+public nonisolated enum AgentWritebackTargetKind: String, Codable, Hashable, Sendable {
+    case projectBrief = "project_brief"
+    case wikiNote = "wiki_note"
+    case wikiPaper = "wiki_paper"
+    case todo
+    case workspaceDraft = "workspace_draft"
+
+    public nonisolated var label: String {
+        switch self {
+        case .projectBrief:
+            return "Brief"
+        case .wikiNote:
+            return "Wiki Note"
+        case .wikiPaper:
+            return "Wiki Paper"
+        case .todo:
+            return "Tasks"
+        case .workspaceDraft:
+            return "Workspace Draft"
+        }
+    }
+}
+
+public nonisolated struct AgentWritebackTargetSummary: Identifiable, Hashable, Sendable {
+    public var id: String { targetPath }
+    public var kind: AgentWritebackTargetKind
+    public var targetPath: String
+    public var summary: String
+    public var diffPreview: String?
+    public var risk: AgentToolRisk
+    public var approvalState: AgentPermissionDockApprovalState
+
+    public nonisolated init(
+        kind: AgentWritebackTargetKind,
+        targetPath: String,
+        summary: String,
+        diffPreview: String? = nil,
+        risk: AgentToolRisk,
+        approvalState: AgentPermissionDockApprovalState
+    ) {
+        self.kind = kind
+        self.targetPath = targetPath
+        self.summary = summary
+        self.diffPreview = diffPreview
+        self.risk = risk
+        self.approvalState = approvalState
+    }
+}
+
+public nonisolated struct AgentCollaborationSummary: Hashable, Sendable {
+    public var runtimeSummary: String
+    public var evidenceSummary: String
+    public var evidenceTint: String
+    public var writebackSummary: String
+    public var writebackTint: String
+    public var promptSummary: String
+    public var mcpSummary: String
+    public var writebackTargets: [AgentWritebackTargetSummary]
+    public var needsApproval: Bool
+    public var syntheticEvidenceWarning: Bool
+
+    public nonisolated init(
+        runtimeSummary: String,
+        evidenceSummary: String,
+        evidenceTint: String,
+        writebackSummary: String,
+        writebackTint: String,
+        promptSummary: String,
+        mcpSummary: String,
+        writebackTargets: [AgentWritebackTargetSummary] = [],
+        needsApproval: Bool = false,
+        syntheticEvidenceWarning: Bool = false
+    ) {
+        self.runtimeSummary = runtimeSummary
+        self.evidenceSummary = evidenceSummary
+        self.evidenceTint = evidenceTint
+        self.writebackSummary = writebackSummary
+        self.writebackTint = writebackTint
+        self.promptSummary = promptSummary
+        self.mcpSummary = mcpSummary
+        self.writebackTargets = writebackTargets
+        self.needsApproval = needsApproval
+        self.syntheticEvidenceWarning = syntheticEvidenceWarning
     }
 }
 
@@ -291,6 +467,10 @@ public nonisolated struct AgentTimelineEvent: Identifiable, Codable, Hashable, S
     public var targetPaths: [String]
     public var payloadPreview: String?
     public var toolName: String?
+    public var runtimeSelector: String?
+    public var effectiveRuntime: String?
+    public var runtimeFallbackReason: String?
+    public var provenance: AgentRunProvenance?
     public var stepCount: Int
     public var toolCount: Int
     public var isCollapsedByDefault: Bool
@@ -309,6 +489,10 @@ public nonisolated struct AgentTimelineEvent: Identifiable, Codable, Hashable, S
         targetPaths: [String] = [],
         payloadPreview: String? = nil,
         toolName: String? = nil,
+        runtimeSelector: String? = nil,
+        effectiveRuntime: String? = nil,
+        runtimeFallbackReason: String? = nil,
+        provenance: AgentRunProvenance? = nil,
         stepCount: Int = 0,
         toolCount: Int = 0,
         isCollapsedByDefault: Bool = false
@@ -326,6 +510,10 @@ public nonisolated struct AgentTimelineEvent: Identifiable, Codable, Hashable, S
         self.targetPaths = targetPaths
         self.payloadPreview = payloadPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.toolName = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.runtimeSelector = runtimeSelector?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.effectiveRuntime = effectiveRuntime?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.runtimeFallbackReason = runtimeFallbackReason?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.provenance = provenance
         self.stepCount = stepCount
         self.toolCount = toolCount
         self.isCollapsedByDefault = isCollapsedByDefault
@@ -347,6 +535,10 @@ public nonisolated struct AgentTimelineEvent: Identifiable, Codable, Hashable, S
             targetPaths: Self.targetPaths(from: item.payloadPreview),
             payloadPreview: item.payloadPreview,
             toolName: Self.toolName(from: item),
+            runtimeSelector: item.runtimeSelector,
+            effectiveRuntime: item.effectiveRuntime,
+            runtimeFallbackReason: item.runtimeFallbackReason,
+            provenance: item.provenance,
             stepCount: mapped.kind == .reasoningGroup ? 1 : 0,
             toolCount: mapped.kind == .toolCall ? 1 : 0,
             isCollapsedByDefault: mapped.collapsed
@@ -964,12 +1156,15 @@ public nonisolated struct AgentHookActivitySummary: Hashable, Sendable {
 
 public nonisolated enum AgentMCPServerSource: String, Codable, Sendable {
     case trackedProductTemplate = "tracked_product_template"
+    case workspaceProfile = "workspace_profile"
     case localWorkspaceConfig = "local_workspace_config"
 
     public nonisolated var label: String {
         switch self {
         case .trackedProductTemplate:
             return ".sci-ai/sci-station"
+        case .workspaceProfile:
+            return ".sci-station/agent/profile.json"
         case .localWorkspaceConfig:
             return ".sci-ai/workspace.local"
         }
@@ -1062,7 +1257,31 @@ public nonisolated struct AgentPresetSummary: Hashable, Sendable {
     }
 }
 
-public struct AgentRuntimeConfigurationLoader {
+public nonisolated struct AgentWorkspaceProfileSummary: Hashable, Sendable {
+    public var relativePath: String
+    public var promptTemplateCount: Int
+    public var enabledPromptTemplateCount: Int
+    public var skillToggleCount: Int
+    public var enabledSkillCount: Int
+    public var mcpServers: [AgentMCPServerStatus]
+    public var validationIssues: [AgentPluginValidationIssue]
+
+    public nonisolated init(
+        profile: AgentWorkspaceProfile,
+        relativePath: String = AgentWorkspaceProfileRepository.relativePath,
+        validationIssues: [AgentPluginValidationIssue] = []
+    ) {
+        self.relativePath = relativePath
+        self.promptTemplateCount = profile.promptTemplates.count
+        self.enabledPromptTemplateCount = profile.enabledPromptTemplates.count
+        self.skillToggleCount = profile.skillToggles.count
+        self.enabledSkillCount = profile.enabledSkillIDs.count
+        self.mcpServers = profile.mcpServers.map { AgentMCPServerStatus(server: $0, source: .workspaceProfile) }
+        self.validationIssues = validationIssues
+    }
+}
+
+public nonisolated struct AgentRuntimeConfigurationLoader {
     public var fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
@@ -1073,21 +1292,34 @@ public struct AgentRuntimeConfigurationLoader {
         in root: ResearchRoot,
         presetID: String = "research-core"
     ) throws -> AgentPresetSummary? {
-        let relativePath = ".sci-ai/sci-station/presets/\(presetID)/plugin.json"
-        let url = root.fileURL(for: relativePath)
-        guard fileManager.fileExists(atPath: url.path) else {
+        guard let manifest = try loadProductPresetManifest(in: root, presetID: presetID) else {
             return nil
         }
-
-        let data = try Data(contentsOf: url)
-        let decoder = JSONDecoder()
-        let manifest = try decoder.decode(AgentPluginManifest.self, from: data)
+        let relativePath = ".sci-ai/sci-station/presets/\(presetID)/plugin.json"
         let issues = AgentPluginValidator().validate(manifest)
         return AgentPresetSummary(
             manifest: manifest,
             manifestRelativePath: relativePath,
             validationIssues: issues
         )
+    }
+
+    public func loadProductPresetManifest(
+        in root: ResearchRoot,
+        presetID: String = "research-core"
+    ) throws -> AgentPluginManifest? {
+        let relativePath = ".sci-ai/sci-station/presets/\(presetID)/plugin.json"
+        let url = root.fileURL(for: relativePath)
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try JSONDecoder().decode(AgentPluginManifest.self, from: Data(contentsOf: url))
+    }
+
+    public func loadWorkspaceProfile(in root: ResearchRoot) async throws -> AgentWorkspaceProfileSummary {
+        let profile = try await AgentWorkspaceProfileRepository(fileManager: fileManager).load(in: root)
+        let issues = AgentWorkspaceProfileValidator().validate(profile)
+        return AgentWorkspaceProfileSummary(profile: profile, validationIssues: issues)
     }
 
     public func loadLocalMCPServerStatuses(in root: ResearchRoot) throws -> [AgentMCPServerStatus] {
@@ -1106,6 +1338,39 @@ public struct AgentRuntimeConfigurationLoader {
             return try Self.localMCPServerStatuses(from: data)
         }
 
+        return []
+    }
+
+    public func loadLocalMCPServerConfigurations(in root: ResearchRoot) throws -> [MCPServerConfiguration] {
+        let candidateRelativePaths = [
+            ".sci-ai/workspace.local/mcp.json",
+            ".sci-ai/workspace.local/mcp.local.json",
+            ".mcp.json"
+        ]
+
+        for relativePath in candidateRelativePaths {
+            let url = root.fileURL(for: relativePath)
+            guard fileManager.fileExists(atPath: url.path) else {
+                continue
+            }
+            return try Self.localMCPServerConfigurations(from: Data(contentsOf: url))
+        }
+        return []
+    }
+
+    public nonisolated static func localMCPServerConfigurations(from data: Data) throws -> [MCPServerConfiguration] {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+
+        if let serverArray = root["mcp_servers"] as? [[String: Any]] {
+            return serverArray.compactMap { configuration(fromLocalServerDictionary: $0, fallbackID: nil) }
+        }
+        if let serverDictionary = root["mcpServers"] as? [String: [String: Any]] {
+            return serverDictionary.keys.sorted().compactMap { key in
+                configuration(fromLocalServerDictionary: serverDictionary[key] ?? [:], fallbackID: key)
+            }
+        }
         return []
     }
 
@@ -1139,7 +1404,7 @@ public struct AgentRuntimeConfigurationLoader {
         let displayName = stringValue(dictionary["display_name"])
             ?? stringValue(dictionary["name"])
             ?? id
-        let isEnabled = boolValue(dictionary["is_enabled"]) ?? boolValue(dictionary["enabled"]) ?? true
+        let isEnabled = boolValue(dictionary["is_enabled"]) ?? boolValue(dictionary["enabled"]) ?? false
         let command = stringValue(dictionary["command"])
         let arguments = stringArray(dictionary["arguments"]) ?? stringArray(dictionary["args"]) ?? []
         let urlString = stringValue(dictionary["url"])
@@ -1161,6 +1426,52 @@ public struct AgentRuntimeConfigurationLoader {
             timeoutSeconds: timeoutSeconds,
             credentialReferenceCount: credentialReferenceCount(in: dictionary),
             sideEffectsRequirePermission: true
+        )
+    }
+
+    private nonisolated static func configuration(
+        fromLocalServerDictionary dictionary: [String: Any],
+        fallbackID: String?
+    ) -> MCPServerConfiguration? {
+        let id = stringValue(dictionary["id"]) ?? fallbackID
+        guard let id, !id.isEmpty else {
+            return nil
+        }
+
+        let command = stringValue(dictionary["command"])
+        let urlString = stringValue(dictionary["url"]) ?? stringValue(dictionary["remote_url"])
+        let explicitTransport = stringValue(dictionary["transport"]).flatMap(MCPServerTransport.init(rawValue:))
+        let transport = explicitTransport ?? (command == nil ? .remoteHTTP : .localCommand)
+        let environment = dictionary["env"] as? [String: Any] ?? [:]
+        let invalidSensitiveEnvironmentKeys = environment.compactMap { key, value -> String? in
+            guard isSensitiveName(key),
+                  let text = stringValue(value),
+                  !text.hasCredentialReferencePrefix else {
+                return nil
+            }
+            return "invalid_raw:\(key)"
+        }
+        let secretReferences = (stringArray(dictionary["secret_references"]) ?? []) + invalidSensitiveEnvironmentKeys
+        let headerReferences = (dictionary["header_references"] as? [[String: Any]] ?? []).compactMap { header -> MCPHeaderReference? in
+            guard let name = stringValue(header["name"]),
+                  let valueReference = stringValue(header["value_reference"]) else {
+                return nil
+            }
+            return MCPHeaderReference(name: name, valueReference: valueReference)
+        }
+
+        return MCPServerConfiguration(
+            id: id,
+            displayName: stringValue(dictionary["display_name"]) ?? stringValue(dictionary["name"]) ?? id,
+            transport: transport,
+            isEnabled: boolValue(dictionary["is_enabled"]) ?? boolValue(dictionary["enabled"]) ?? false,
+            command: command,
+            arguments: stringArray(dictionary["arguments"]) ?? stringArray(dictionary["args"]) ?? [],
+            urlString: urlString,
+            timeoutSeconds: doubleValue(dictionary["timeout_seconds"]) ?? doubleValue(dictionary["timeout"]) ?? 30,
+            allowedTools: stringArray(dictionary["allowed_tools"]) ?? stringArray(dictionary["allowedTools"]) ?? [],
+            headerReferences: headerReferences,
+            secretReferences: secretReferences
         )
     }
 

@@ -561,7 +561,7 @@ struct RecommendationView: View {
                             appModel.recordRecommendationFeedback(type, for: score, scope: selectedScope)
                         },
                         onOpenReading: {
-                            appModel.openRecommendationReadingQueue()
+                            appModel.openRecommendationReadingTodo()
                         },
                         isInLibrary: appModel.isRecommendationInLibrary(score),
                         isInReadingTodo: appModel.isRecommendationInReadingList(score, scope: selectedScope),

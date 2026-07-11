@@ -8,9 +8,10 @@ import Foundation
 /// entity and skips upserts when the hash matches the existing node. A
 /// `force: true` run ignores hashes and rewrites everything.
 ///
-/// P44 scope: paper, project, wiki concept/method, task nodes + belongs_to /
-/// mentions edges. Citation edges (P45), artifact/evidence/run/approval nodes
-/// are stubbed but not populated until their respective proposals land.
+/// Current scope: paper, project, wiki concept/method, task nodes,
+/// belongs_to / mentions edges, and citation edges. Artifact, evidence,
+/// run, approval, and calendar nodes are reserved graph kinds and are not
+/// indexed by this actor yet.
 public actor GraphIndexer {
     private let repository: GraphRepository
     private let paperRepository: PaperRepository
@@ -50,7 +51,7 @@ public actor GraphIndexer {
         try await indexWikiConceptMethods(workspace: workspace, root: root, snapshot: snapshot, force: force)
         try await indexTasks(workspace: workspace, root: root, snapshot: snapshot, force: force)
         try await indexCitationEdges(workspace: workspace, root: root, snapshot: snapshot, force: force)
-        // P44 stubs — populated by P45/P46/P47:
+        // Reserved graph kinds for future indexers:
         // try await indexArtifactsAndEvidence(...)
         // try await indexCalendarEvents(...)
         // try await indexRunsAndApprovals(...)
@@ -325,7 +326,7 @@ public actor GraphIndexer {
         }
     }
 
-    // MARK: - Citation Edges (P45)
+    // MARK: - Citation Edges
 
     private func indexCitationEdges(workspace: ResearchWorkspace, root: ResearchRoot, snapshot: GraphSnapshot, force: Bool) async throws {
         let papers = try await paperRepository.loadPapers(in: workspace)
@@ -428,7 +429,7 @@ public actor GraphIndexer {
             // 2d. BibTeX cross-references: if the paper's own BibTeX entry
             //     contains a `crossref` field, or if we can match bibtex keys
             //     mentioned in the paper.md inline citations.
-            //     (P45 scope: only explicit References section, not inline \cite)
+            //     Current scope: explicit References section, not inline \cite.
 
             guard !references.isEmpty else { continue }
 
