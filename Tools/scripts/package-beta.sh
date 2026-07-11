@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a certificate-free Apple Silicon Sci-Station beta package.
+# Build a certificate-free Apple Silicon Sci-Station release package.
 #
 # Default: ad-hoc signing (preserves sandbox entitlements, no certificate).
 # Optional: SCI_STATION_SIGNING=unsigned for a completely unsigned bundle.
@@ -9,7 +9,7 @@ PROJECT="Sci-Station.xcodeproj"
 SCHEME="Sci-Station"
 CONFIG="Release"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-BUILD_DIR="$ROOT_DIR/.tmp/beta-package"
+BUILD_DIR="$ROOT_DIR/.tmp/release-package"
 ARCHIVE_PATH="$BUILD_DIR/Sci-Station.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_PATH="$EXPORT_PATH/Sci-Station.app"
@@ -113,7 +113,7 @@ mkdir -p "$DMG_ROOT"
 cp -R "$APP_PATH" "$DMG_ROOT/Sci-Station.app"
 ln -s /Applications "$DMG_ROOT/Applications"
 hdiutil create \
-  -volname "Sci-Station Beta" \
+  -volname "Sci-Station" \
   -srcfolder "$DMG_ROOT" \
   -ov \
   -format UDZO \

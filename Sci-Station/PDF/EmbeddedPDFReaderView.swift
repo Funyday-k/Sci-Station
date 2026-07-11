@@ -954,6 +954,7 @@ private final class SciStationPDFView: PDFView {
     }
 }
 
+@MainActor
 private struct PDFKitViewRepresentable: NSViewRepresentable {
     let pdfURL: URL
     let paperID: String
@@ -998,6 +999,7 @@ private struct PDFKitViewRepresentable: NSViewRepresentable {
         context.coordinator.handlePendingCommandIfNeeded(on: pdfView)
     }
 
+    @MainActor
     final class Coordinator: NSObject, PDFViewDelegate {
         private let documentService = PDFDocumentService()
         private let viewModel: PDFReaderViewModel

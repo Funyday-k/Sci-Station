@@ -1836,6 +1836,7 @@ private extension HomeWidgetSize {
         }
     }
 
+    @MainActor
     func projectOverviewLabel(_ appModel: AppViewModel) -> String {
         switch self {
         case .small:

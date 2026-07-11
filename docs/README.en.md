@@ -1,8 +1,8 @@
 # Sci-Station
 
-> Current version: Beta 0.2.0
+> Current version: 0.1.0
 > Platform: macOS
-> Status: in development. Test builds will be published through Releases.
+> Status: stable release
 
 Sci-Station is a local-first research workstation for macOS. It brings a paper library, project knowledge, PDF reading, working materials, tasks, calendar views, and optional AI Lab workflows into one app while keeping core data inside a user-selected local Research Root.
 
@@ -29,13 +29,13 @@ Core principles:
 - Materials browser for data, code, figures, scripts, prompts, outputs, Markdown, text, images, PDFs, and Python files.
 - Local todo and calendar views with optional Apple Calendar and Reminders integration.
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
-- Beta DMG packaging for tester handoff.
+- Certificate-free DMG packaging for release distribution.
 
-## Beta 0.2.0 Status
+## Version 0.1.0 Status
 
-- The current version is **Beta 0.2.0**.
-- Test builds will be published through Releases, like a normal macOS app download.
-- The project is still in development, and features, UI, and documentation will continue to change.
+- The current stable version is **0.1.0**.
+- Certificate-free DMG builds are published through GitHub Releases.
+- The project remains actively maintained, and features, UI, and documentation will continue to improve.
 
 ## Roadmap
 
@@ -47,7 +47,7 @@ Core principles:
 
 ## Quick Start
 
-Use a beta DMG:
+Install the release DMG:
 
 1. Download the Sci-Station DMG from the Release page.
 2. Open the DMG and drag `Sci-Station.app` into `/Applications`.

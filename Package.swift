@@ -91,7 +91,7 @@ let package = Package(
                 "Testing"
             ],
             swiftSettings: [
-                .unsafeFlags(["-default-isolation", "MainActor"])
+                .unsafeFlags(["-Xfrontend", "-default-isolation", "-Xfrontend", "MainActor"])
             ]
         ),
         .executableTarget(
@@ -99,7 +99,7 @@ let package = Package(
             dependencies: ["SciStationCore"],
             path: "Tools/SciStationCoreTestRunner",
             swiftSettings: [
-                .unsafeFlags(["-default-isolation", "MainActor"])
+                .unsafeFlags(["-Xfrontend", "-default-isolation", "-Xfrontend", "MainActor"])
             ]
         ),
         .executableTarget(
@@ -111,7 +111,7 @@ let package = Package(
             dependencies: ["SciStationCore"],
             path: "Tests/SciStationCoreTests",
             swiftSettings: [
-                .unsafeFlags(["-default-isolation", "MainActor"])
+                .unsafeFlags(["-Xfrontend", "-default-isolation", "-Xfrontend", "MainActor"])
             ]
         )
     ]

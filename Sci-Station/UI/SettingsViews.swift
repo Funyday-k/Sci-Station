@@ -1662,6 +1662,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         }
     }
 
+    @MainActor
     func title(appModel: AppViewModel) -> String {
         switch self {
         case .workspace:
@@ -1681,6 +1682,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         }
     }
 
+    @MainActor
     func summary(appModel: AppViewModel) -> String {
         switch self {
         case .workspace:
