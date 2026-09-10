@@ -113,17 +113,16 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Report Xcode toolchain
         run: xcodebuild -version
-      - name: Validate release tooling without credentials
+      - name: Validate certificate-free release tooling
         run: |
           bash -n Tools/scripts/package-release.sh Tools/scripts/check-release-build-number.sh Tools/scripts/test-release-build-number.sh Tools/scripts/package-beta.sh Tools/scripts/stage-sidecar-runtime.sh Tools/scripts/sign-sidecar-runtime.sh Tools/scripts/smoke-test-sidecar-runtime.sh Tools/scripts/smoke-test-ui-navigation.sh Tools/scripts/verify-release.sh Tools/scripts/verify-macos-deployment-target.sh Tools/scripts/test-release-install.sh Tools/scripts/smoke-test-app.sh
-          if Tools/scripts/package-release.sh >/tmp/sci-station-release-tooling.log 2>&1; then
-            echo "package-release.sh unexpectedly accepted missing credentials" >&2
-            exit 1
-          fi
-          grep -q "required" /tmp/sci-station-release-tooling.log
           Tools/scripts/test-release-build-number.sh
           if grep -En 'uses:[[:space:]]+[^[:space:]]+@(v[0-9]+|main|master)([[:space:]]|$)' .github/workflows/*.yml; then
             echo "GitHub Actions must be pinned to full immutable commit SHAs." >&2
+            exit 1
+          fi
+          if grep -Eq 'DEVELOPER_ID_|APPLE_NOTARY_|notarytool|stapler staple' .github/workflows/release.yml Tools/scripts/package-release.sh; then
+            echo "Public release must remain certificate-free and must not depend on Apple signing/notary credentials." >&2
             exit 1
           fi
       - name: Build unsigned arm64 Release app
@@ -142,25 +141,16 @@ jobs:
       - name: Stage, ad-hoc sign, and smoke-test pinned sidecar runtime
         run: |
           app_path="$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
-          Tools/scripts/stage-sidecar-runtime.sh \
-            "$app_path"
-          Tools/scripts/sign-sidecar-runtime.sh \
-            "$app_path" \
-            -
-          Tools/scripts/smoke-test-sidecar-runtime.sh \
-            "$app_path"
+          Tools/scripts/stage-sidecar-runtime.sh "$app_path"
+          Tools/scripts/sign-sidecar-runtime.sh "$app_path" -
+          Tools/scripts/smoke-test-sidecar-runtime.sh "$app_path"
+          Tools/scripts/verify-release.sh "$app_path"
       - name: Smoke-test real window and accessibility navigation
-        run: >-
-          Tools/scripts/smoke-test-ui-navigation.sh
-          "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+        run: Tools/scripts/smoke-test-ui-navigation.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
       - name: Verify minimum macOS version
-        run: >-
-          Tools/scripts/verify-macos-deployment-target.sh
-          "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+        run: Tools/scripts/verify-macos-deployment-target.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
       - name: Test installation, first launch, and overwrite upgrade
-        run: >-
-          Tools/scripts/test-release-install.sh
-          "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+        run: Tools/scripts/test-release-install.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
 
   required-ci:
     name: Required CI
