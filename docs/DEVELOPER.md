@@ -255,58 +255,55 @@ CI 将文档卫生、版本一致性、PR 需求追踪、core runner 分域预�
 - macOS 签名身份：Xcode 显示的 **Sign to Run Locally**（`-`）。
 - 不配置 Provisioning Profile。
 
-`script/build_and_run.sh` 使用同一套配置，使 Codex Run 与 Xcode 日常构建保持一致。这些设置只服务本机开发运行，不代表 Developer ID 分发或 notarization。
+`script/build_and_run.sh` 使用同一套配置，使 Codex Run 与 Xcode 日常构建保持一致。本机开发签名与公开发布都不依赖 Developer ID。
 
-### 本地 beta 包
+### 无证书测试包
 
-无证书包只用于本机或受控测试，不得作为正式 GitHub Release。默认使用 ad-hoc 签名：
+默认使用 ad-hoc 签名：
 
 ```bash
 Tools/scripts/package-beta.sh
 ```
 
-需要完全无签名的产物时显式执行：
+需要完全无签名的本地测试产物时可显式执行：
 
 ```bash
 SCI_STATION_SIGNING=unsigned Tools/scripts/package-beta.sh
 ```
 
+完全 unsigned 只用于本地诊断；公开分发固定使用 ad-hoc 签名，以保留 app 和 bundled sidecar 的代码签名结构与 entitlements。
+
 ### 正式公开发布
 
-正式 DMG 必须使用 **Developer ID Application** 签名、启用 hardened runtime、通过 Apple notarization，并把 ticket staple 到 app 和 DMG。构建入口为：
+Sci-Station 采用 **certificate-free community distribution**。正式公开 DMG/ZIP 不使用 Apple Developer ID，也不提交 Apple notarization。发布入口为：
 
 ```bash
-SCI_STATION_DEVELOPER_ID_APPLICATION='Developer ID Application: Example (TEAMID)' \
-SCI_STATION_TEAM_ID='TEAMID' \
-SCI_STATION_NOTARY_KEYCHAIN_PROFILE='sci-station-notary' \
 Tools/scripts/package-release.sh
 ```
 
-`package-release.sh` 会先拒绝未高于上一稳定发布 tag 的 `CFBundleVersion`，然后依次 archive、验证 Developer ID/team/runtime、执行真实窗口与无障碍导航烟测、提交 app 公证、staple app、创建并签名 DMG、提交 DMG 公证、staple DMG、执行 Gatekeeper、安装/覆盖升级与安装后导航复验，并生成 ZIP/DMG SHA-256 文件。首个稳定版本没有更早 tag 时允许从初始 build number 开始。可单独复验现有产物：
+`package-release.sh` 会先验证版本号和 build number，再执行 Release archive、stage sidecar、对嵌套 Mach-O 与 app 进行 ad-hoc signing、验证 hardened runtime 与 sandbox/inherit entitlements、执行 sidecar/app/UI 烟测、创建 ZIP/DMG、验证 DMG 完整性、安装/覆盖升级，并生成 SHA-256 文件。
+
+可单独复验现有产物：
 
 ```bash
-SCI_STATION_TEAM_ID='TEAMID' Tools/scripts/verify-release.sh path/to/Sci-Station.dmg
+Tools/scripts/verify-release.sh path/to/Sci-Station.dmg
 ```
 
-当前产品阶段为 Developer Preview；tag 触发默认生成 prerelease，正式发布由准备就绪后的 workflow dispatch 显式选择。GitHub 的 `Public Release` workflow 只从 `v*` tag 或显式指定的已有 tag 启动。`release` environment 必须配置以下 secrets：
+验证器要求 app 与 sidecar 通过严格 ad-hoc signature 检查、保留预期 entitlements、包含 arm64 slice、满足最低 macOS deployment target，并验证 DMG/ZIP 能正确解包或挂载。由于产物没有 Developer ID 和 notarization，`spctl` 对下载产物的拒绝是预期行为：验证器会记录 Gatekeeper 结果，但不会把缺少 Apple 身份信任误判为 bundle 完整性失败。
 
-- `DEVELOPER_ID_APPLICATION_P12_BASE64`
-- `DEVELOPER_ID_APPLICATION_P12_PASSWORD`
-- `DEVELOPER_ID_APPLICATION_IDENTITY`
-- `APPLE_DEVELOPER_TEAM_ID`
-- `APPLE_NOTARY_KEY_P8_BASE64`
-- `APPLE_NOTARY_KEY_ID`
-- `APPLE_NOTARY_ISSUER_ID`
+当前产品阶段为 Developer Preview；tag 触发默认生成 prerelease，正式发布由准备就绪后的 workflow dispatch 显式选择。GitHub 的 `Public Release` workflow 只从 `v*` tag 或显式指定的已有 tag 启动，不需要 Apple 证书、notary key 或任何 release signing secret。
 
-workflow 先检查 tag 对应提交可从 `origin/main` 到达，版本与根目录 `VERSION` 一致，再检查文档、仓库卫生、core runner 结构与治理脚本。workflow 会在读取任何发布凭据之前运行 AppViewModel 架构预算、Mint 锁定版本的 SwiftLint/SwiftFormat、Swift Testing、14.0% 覆盖率、legacy runner、Python pytest 和 build number 单调递增检查。全部门禁通过后，才把证书导入临时 keychain，并把 App Store Connect API key 写入固定的 runner 临时路径；无论导入在哪一步失败，最终清理步骤都会删除证书、API key 和临时 keychain。
+workflow 会检查 tag 对应提交可从 `origin/main` 到达、版本与根目录 `VERSION` 一致、build number 单调递增，并运行文档、仓库卫生、AppViewModel 架构预算、core runner 结构、SwiftLint/SwiftFormat、Swift Testing、14.0% 覆盖率、legacy runner、Python pytest。通过后才构建 certificate-free release artifacts；macOS 15 runner 会再次验证 SHA-256、bundle integrity、安装、首次启动和覆盖升级。
 
-所有 GitHub Actions 均固定到完整 commit SHA，workflow 默认只有 `contents: read`。只有 provenance 任务获得 `id-token: write` 与 `attestations: write`，只有最终 publish 任务获得 `contents: write`。macOS 15 安装门禁通过后，workflow 会为 DMG 和 ZIP 创建签名的 SLSA build provenance。下载者可以验证产物来源：
+所有 GitHub Actions 均固定到完整 commit SHA，workflow 默认只有 `contents: read`。只有 provenance 任务获得 `id-token: write` 与 `attestations: write`，只有最终 publish 任务获得 `contents: write`。发布 workflow 会为 DMG 和 ZIP 创建 GitHub build provenance。下载者可以验证产物来源：
 
 ```bash
 gh attestation verify path/to/Sci-Station.dmg --repo Funyday-k/Sci-Station
 ```
 
-发布前必须确认版本号与 build number、更新 `CHANGELOG.md`、运行全部 Swift/Python 门禁和主路径回归。正式产物还必须通过 `codesign`、`stapler`、`spctl`、arm64、Bundle ID、版本号和挂载后 app 校验。发布产物及 DerivedData 不进入版本控制。
+无证书分发的信任边界必须对用户透明：发布说明明确标注 **ad-hoc signed / not Apple-notarized**，并提供 SHA-256 和 provenance。首次从互联网下载后，macOS 可能阻止启动；用户应先确认下载来源和哈希，再在 **系统设置 → 隐私与安全性 → 仍要打开（Open Anyway）** 中对该应用做显式批准。官方文档不得建议全局关闭 Gatekeeper。
+
+发布前必须确认版本号与 build number、更新 `CHANGELOG.md`、运行全部 Swift/Python 门禁和主路径回归。发布产物还必须通过 ad-hoc `codesign`、entitlements、arm64、Bundle ID、版本号、DMG 挂载和安装校验。发布产物及 DerivedData 不进入版本控制。
 
 ## 文档维护
 
