@@ -33,15 +33,15 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 - **材料区**：统一管理数据、代码、图表、脚本、提示词、输出等真实工作文件，并可从应用打开到 VS Code 或外部工具。
 - **任务与日历**：提供本地待办、日历视图，并可选接入 Apple Calendar / Reminders。
 - **AI 实验室 V1**：支持项目会话、计划审查、权限面板、运行历史、钩子、MCP 预设展示和审计日志。
-- **分发验证**：后续公开发布须通过 Developer ID 签名、Apple 公证和安装验证；历史下载的状态以对应版本说明为准。
+- **无证书分发**：公开版本使用 ad-hoc 签名，不依赖 Apple Developer ID 或 notarization；发布流程仍验证应用完整性、entitlements、sidecar、安装、SHA-256 与 GitHub provenance。
 
 ## 当前状态
 
-- 当前预览版本为 **0.1.0**；该历史版本尚未通过 Developer ID 签名和 Apple 公证。
+- 当前预览版本为 **0.1.0**。
+- 项目采用 certificate-free community distribution；macOS 对下载的版本可能在首次打开时显示“无法验证开发者”提示。
 - 项目会持续维护，功能、界面和文档仍会继续更新。
 
 ## 接下来会开发
-
 
 - **AI 实验室深化**：继续接入边车运行时、工具权限、证据引用、产物和调试包。
 - **论文图谱与推荐**：增强论文关系、推荐工作流和阅读 Todo 链路。
@@ -51,14 +51,16 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 
 ## 快速开始
 
-安装已验证的发布包：
+安装 GitHub Release 中的公开版本：
 
-1. 从 Release 页面核对版本说明，选择带签名公证验证结果及 SHA-256 的 DMG；历史 0.1.0 不满足这套分发标准，可按开发者文档从源码构建。
+1. 在对应 Release 中下载 DMG，并核对同版本 SHA-256 或 GitHub provenance。
 2. 打开 DMG，将 `Sci-Station.app` 拖入 `/Applications`。
-3. 已验证的发布包应由 Gatekeeper 正常验证；若出现无法验证开发者提示，请停止安装并核对下载来源与 SHA-256。
+3. 由于 Sci-Station 不使用 Apple Developer ID 和 notarization，首次启动时 macOS 可能阻止应用。先尝试正常打开，然后在 **系统设置 → 隐私与安全性** 中确认来自 Sci-Station Release 的应用并选择 **仍要打开（Open Anyway）**。不要关闭整个系统的 Gatekeeper。
 4. 首次启动后选择 `Create Workspace`，创建一个空文件夹作为科研根目录。
 5. 在 Library 导入 PDF，或用 DOI、arXiv、PDF URL、网页链接添加论文。
 6. 创建项目，在项目概览中开始写项目简介、笔记和任务。
+
+发布包使用 ad-hoc code signature 维护 bundle 与嵌套 sidecar 的代码签名/entitlements 完整性，但它不提供 Apple Developer ID 身份认证，也不表示 Apple 已公证该软件。发布 workflow 会提供 SHA-256 和 GitHub build provenance，供下载者验证产物来源。
 
 ## 工作区结构
 
