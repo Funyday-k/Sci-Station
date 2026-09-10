@@ -5,6 +5,7 @@ This is the initial traceability register for the governance work. Entries are r
 ## GOV-001 — Repository governance and delivery gates
 
 - Priority: P0. Status: implemented in this change; hosted CI results follow its PR.
+- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/1
 - Scope: protected `main`/transitional `dev`, required aggregate CI, private reporting, repository metadata, contributing/security/templates, version checks and traceable changes.
 - Acceptance: live branch protection requires PR and `Required CI`; all jobs are aggregate dependencies; docs and versions are checked in PR and release workflows; an empty PR template fails traceability.
 - Decisions: [ADR-0001](architecture/ADR-0001-repository-governance.md), [versioning policy](VERSIONING.md).
