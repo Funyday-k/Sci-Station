@@ -10,9 +10,15 @@ let package = Package(
         .executable(name: "SciStationCoreTestRunner", targets: ["SciStationCoreTestRunner"]),
         .executable(name: "SciStationUIProbe", targets: ["SciStationUIProbe"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2")
+    ],
     targets: [
         .target(
             name: "SciStationCore",
+            dependencies: [
+                .product(name: "Yams", package: "Yams")
+            ],
             path: "Sci-Station",
             exclude: [
                 "App",
@@ -24,6 +30,7 @@ let package = Package(
                 "PDF/PDFReaderViewModel.swift",
                 "PDF/PDFReadingStateService.swift",
                 "Resources",
+                "SidecarRuntime.entitlements",
                 "Sci_StationApp.swift",
                 "UI/AILabWorkspaceView.swift",
                 "UI/ChatMarkdownWebView.swift",
@@ -57,7 +64,6 @@ let package = Package(
                 "UI/TagViews.swift",
                 "UI/Tasks",
                 "UI/WikiViews.swift",
-                "UI/WorkspaceSection.swift",
                 "Sci-Station.entitlements",
                 "UI/Graph"
             ],
@@ -88,19 +94,14 @@ let package = Package(
                 "UI/Shell/ProjectSpaceTabIcon.swift",
                 "UI/Shell/ToolbarCommandCatalog.swift",
                 "UI/Shell/RoutePersistence.swift",
+                "UI/WorkspaceSection.swift",
                 "Testing"
-            ],
-            swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-default-isolation", "-Xfrontend", "MainActor"])
             ]
         ),
         .executableTarget(
             name: "SciStationCoreTestRunner",
             dependencies: ["SciStationCore"],
-            path: "Tools/SciStationCoreTestRunner",
-            swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-default-isolation", "-Xfrontend", "MainActor"])
-            ]
+            path: "Tools/SciStationCoreTestRunner"
         ),
         .executableTarget(
             name: "SciStationUIProbe",
@@ -110,8 +111,8 @@ let package = Package(
             name: "SciStationCoreTests",
             dependencies: ["SciStationCore"],
             path: "Tests/SciStationCoreTests",
-            swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-default-isolation", "-Xfrontend", "MainActor"])
+            resources: [
+                .copy("Fixtures")
             ]
         )
     ]

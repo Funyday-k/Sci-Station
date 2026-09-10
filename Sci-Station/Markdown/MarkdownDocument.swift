@@ -2,16 +2,47 @@ import Foundation
 
 public enum FrontmatterValue: Hashable, Sendable {
     case string(String)
+    case boolean(Bool)
+    case integer(Int)
+    case floatingPoint(Double)
     case array([FrontmatterValue])
     case object([String: FrontmatterValue])
     case null
 
     public nonisolated var stringValue: String? {
-        guard case let .string(value) = self else {
+        switch self {
+        case let .string(value):
+            return value
+        case let .boolean(value):
+            return value ? "true" : "false"
+        case let .integer(value):
+            return String(value)
+        case let .floatingPoint(value):
+            return String(value)
+        case .array, .object, .null:
             return nil
         }
+    }
 
+    public nonisolated var boolValue: Bool? {
+        guard case let .boolean(value) = self else { return nil }
         return value
+    }
+
+    public nonisolated var integerValue: Int? {
+        guard case let .integer(value) = self else { return nil }
+        return value
+    }
+
+    public nonisolated var floatingPointValue: Double? {
+        switch self {
+        case let .floatingPoint(value):
+            return value
+        case let .integer(value):
+            return Double(value)
+        default:
+            return nil
+        }
     }
 
     /// Returns a `[String]` if the value is an array of string scalars.
@@ -22,12 +53,7 @@ public enum FrontmatterValue: Hashable, Sendable {
             return nil
         }
 
-        return value.compactMap { element in
-            if case let .string(string) = element {
-                return string
-            }
-            return nil
-        }
+        return value.compactMap(\.stringValue)
     }
 
     /// Returns the raw `FrontmatterValue` array, preserving object/null entries.
@@ -49,6 +75,12 @@ public enum FrontmatterValue: Hashable, Sendable {
         switch self {
         case let .string(value):
             return value.isEmpty ? "-" : value
+        case let .boolean(value):
+            return value ? "true" : "false"
+        case let .integer(value):
+            return String(value)
+        case let .floatingPoint(value):
+            return String(value)
         case let .array(value):
             if value.isEmpty { return "[]" }
             return value.map(\.displayString).joined(separator: ", ")

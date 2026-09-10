@@ -19,6 +19,9 @@ public nonisolated struct CitationReference: Hashable, Sendable {
     public let normalizedTitle: String?
     public let firstAuthorLastName: String?
     public let year: Int?
+    public let sourceRelativePath: String?
+    public let locator: String?
+    public let occurrenceIndex: Int
 
     public nonisolated init(
         sourcePaperID: String,
@@ -29,7 +32,10 @@ public nonisolated struct CitationReference: Hashable, Sendable {
         arxivID: String? = nil,
         normalizedTitle: String? = nil,
         firstAuthorLastName: String? = nil,
-        year: Int? = nil
+        year: Int? = nil,
+        sourceRelativePath: String? = nil,
+        locator: String? = nil,
+        occurrenceIndex: Int = 0
     ) {
         self.sourcePaperID = sourcePaperID
         self.evidenceSource = evidenceSource
@@ -40,13 +46,18 @@ public nonisolated struct CitationReference: Hashable, Sendable {
         self.normalizedTitle = normalizedTitle
         self.firstAuthorLastName = firstAuthorLastName
         self.year = year
+        self.sourceRelativePath = sourceRelativePath
+        self.locator = locator
+        self.occurrenceIndex = occurrenceIndex
     }
 
     public nonisolated func computeHash() -> String {
         GraphIdentifier.sourceHash(from: [
             sourcePaperID, evidenceSource.rawValue,
+            bibtexKey ?? "", rawText,
             doi ?? "", arxivID ?? "", normalizedTitle ?? "",
-            firstAuthorLastName ?? "", year.map(String.init) ?? ""
+            firstAuthorLastName ?? "", year.map(String.init) ?? "",
+            sourceRelativePath ?? "", locator ?? "", String(occurrenceIndex)
         ])
     }
 }

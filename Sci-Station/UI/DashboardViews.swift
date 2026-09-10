@@ -10,6 +10,8 @@ struct DashboardView: View {
 
 private struct ResearchProjectsWidget: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let workspace: ResearchWorkspace
 
@@ -174,6 +176,7 @@ private struct ProjectCardMetric: View {
 
 private struct WorkspaceManagementWidget: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let workspace: ResearchWorkspace
 
@@ -235,6 +238,8 @@ private struct WorkspaceManagementWidget: View {
 
 private struct DashboardWorkspaceOverview: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
     let workspace: ResearchWorkspace
 
@@ -302,13 +307,14 @@ private struct TodoProjectColumn: Identifiable {
 
 struct TasksWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
 
     let workspace: ResearchWorkspace
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                TodoDashboardWidget(scope: appModel.isViewingGlobalTodos ? .global : .currentProject)
+                TodoDashboardWidget(scope: navigationStore.isViewingGlobalTodos ? .global : .currentProject)
             }
             .padding(16)
         }
@@ -317,6 +323,7 @@ struct TasksWorkspaceView: View {
 
 struct TodoDashboardWidget: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     @State private var isShowingCompleted = false
     @State private var displayMode = TodoDisplayMode.list
@@ -853,6 +860,7 @@ private struct ScheduleAgendaView: View {
 
 struct DashboardCalendarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     @Binding var selectedDate: Date
     var projectID: ResearchProject.ID? = nil

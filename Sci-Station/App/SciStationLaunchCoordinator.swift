@@ -20,6 +20,14 @@ final class SciStationLaunchCoordinator: ObservableObject {
         guard !didStart else { return }
         didStart = true
 
+        if SidecarRuntimeSmokeTest.startIfRequested() {
+            return
+        }
+        if AppUISmokeTest.isRequested() {
+            prepareForUISmokeTest()
+            return
+        }
+
         showSplashWindow()
 
         Task { @MainActor in
@@ -32,6 +40,16 @@ final class SciStationLaunchCoordinator: ObservableObject {
     func markAppPreparationFinished() {
         didFinishAppPreparation = true
         finishIfReady()
+    }
+
+    func prepareForUISmokeTest() {
+        didStart = true
+        didReachMinimumDuration = true
+        didFinishAppPreparation = true
+        isLaunching = false
+        splashWindow?.orderOut(nil)
+        splashWindow = nil
+        hiddenSplashWindow = nil
     }
 
     private func showSplashWindow() {

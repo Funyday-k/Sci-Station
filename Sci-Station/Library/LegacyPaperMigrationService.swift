@@ -350,7 +350,7 @@ public actor LegacyPaperMigrationService {
 
         let metadataContents = try String(contentsOf: metadataURL, encoding: .utf8)
         let attributes = try fileManager.attributesOfItem(atPath: metadataURL.path)
-        var paper = metadataCodec.decode(
+        var paper = try metadataCodec.decodeThrowing(
             metadataContents,
             directoryRelativePath: relativePath,
             fallbackTitle: fallbackTitle,
@@ -364,7 +364,8 @@ public actor LegacyPaperMigrationService {
             paperDirectoryRelativePath: relativePath
         )
         paper.annotationsRelativePath = paper.annotationsRelativePath ?? "annotations.md"
-        try metadataCodec.encode(paper).write(to: metadataURL, atomically: true, encoding: .utf8)
+        let normalizedContents = try metadataCodec.encodeThrowing(paper, preserving: metadataContents)
+        try normalizedContents.write(to: metadataURL, atomically: true, encoding: .utf8)
     }
 
     private func write(_ report: LegacyPaperMigrationReport, relativePath: String, in workspace: ResearchWorkspace) throws {
@@ -401,7 +402,7 @@ public actor LegacyPaperMigrationService {
             let directoryURL = fileURL.deletingLastPathComponent()
             let metadataContents = try String(contentsOf: fileURL, encoding: .utf8)
             let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
-            var paper = metadataCodec.decode(
+            var paper = try metadataCodec.decodeThrowing(
                 metadataContents,
                 directoryRelativePath: workspace.relativePath(to: directoryURL),
                 fallbackTitle: directoryURL.lastPathComponent,

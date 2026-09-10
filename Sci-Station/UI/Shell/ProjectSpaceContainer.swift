@@ -3,6 +3,9 @@ import SwiftUI
 
 struct ProjectSpaceContainer: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
     let workspace: ResearchWorkspace
     let project: ResearchProject
@@ -12,7 +15,7 @@ struct ProjectSpaceContainer: View {
     }
 
     private var selectedTab: ProjectSpaceTab? {
-        tabs.first { $0.id == appModel.selectedProjectSpaceTabID } ?? tabs.first
+        tabs.first { $0.id == navigationStore.selectedProjectTabID } ?? tabs.first
     }
 
     var body: some View {
@@ -37,9 +40,9 @@ struct ProjectSpaceContainer: View {
         .padding(12)
         .background(ProjectSpaceBackground())
         .onAppear {
-            if ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(appModel.selectedProjectSpaceTabID) {
+            if ProjectSpaceTabsBuilder.retiredReadingTabIDs.contains(navigationStore.selectedProjectTabID) {
                 appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.mergedReadingTabID)
-            } else if !tabs.contains(where: { $0.id == appModel.selectedProjectSpaceTabID }) {
+            } else if !tabs.contains(where: { $0.id == navigationStore.selectedProjectTabID }) {
                 appModel.selectProjectSpaceTab(ProjectSpaceTabsBuilder.overviewTabID)
             }
         }
@@ -49,7 +52,7 @@ struct ProjectSpaceContainer: View {
         HStack(spacing: 8) {
             ProjectSpaceTabStrip(
                 tabs: tabs,
-                selectedTabID: appModel.selectedProjectSpaceTabID,
+                selectedTabID: navigationStore.selectedProjectTabID,
                 select: appModel.selectProjectSpaceTab,
                 move: appModel.moveProjectSpaceTab
             )
@@ -84,6 +87,8 @@ struct ProjectSpaceContainer: View {
 
 struct ProjectsListView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let workspace: ResearchWorkspace
 

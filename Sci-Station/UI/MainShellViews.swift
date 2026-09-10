@@ -7,6 +7,8 @@ private enum SidebarMotion {
 
 struct SidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var libraryStore: LibraryStore
     let workspace: ResearchWorkspace?
     @State private var isAllPapersExpanded = true
     @State private var isAILabExpanded = true
@@ -18,10 +20,10 @@ struct SidebarView: View {
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {
         if section == .library {
-            return appModel.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+            return navigationStore.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
         }
 
-        return appModel.selectedSection == section
+        return navigationStore.selectedSection == section
     }
 
     private var rootCollections: [PaperCollection] {
@@ -31,6 +33,8 @@ struct SidebarView: View {
 
 private struct SidebarAILabGroup: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var agentStore: AgentStore
     @Binding var isExpanded: Bool
 
     private var visibleThreads: [AgentThread] {
@@ -56,7 +60,7 @@ private struct SidebarAILabGroup: View {
                 HStack(spacing: 8) {
                     Image(systemName: WorkspaceSection.llmLab.systemImage)
                         .frame(width: 16)
-                        .foregroundStyle(appModel.selectedSection == .llmLab ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(navigationStore.selectedSection == .llmLab ? Color.accentColor : Color.secondary)
                     Text("AI Lab")
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -67,7 +71,7 @@ private struct SidebarAILabGroup: View {
                 }
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)
-                .background(appModel.selectedSection == .llmLab ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(navigationStore.selectedSection == .llmLab ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     withAnimation(SidebarMotion.selection) {
@@ -321,6 +325,9 @@ private struct SidebarCollectionTree: View {
 
 private struct SidebarProjectGroup: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let project: ResearchProject
 
@@ -425,10 +432,10 @@ private struct SidebarProjectGroup: View {
         }
 
         if section == .library {
-            return appModel.selectedSection == .library && appModel.selectedLibraryProjectID == project.id && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+            return navigationStore.selectedSection == .library && appModel.selectedLibraryProjectID == project.id && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
         }
 
-        return appModel.selectedSection == section
+        return navigationStore.selectedSection == section
     }
 
     private func badgeText(for section: WorkspaceSection) -> String? {
@@ -582,6 +589,11 @@ struct WorkspaceContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .uitestID(
+            UITestAccessibilityID.Workspace.section(
+                selectedSection?.rawValue ?? "none"
+            )
+        )
         .overlay(alignment: .bottom) {
             if let message = appModel.shellStatusMessage {
                 Text(message)
@@ -950,6 +962,7 @@ struct WorkspaceSectionOverview: View {
 
 struct WorkspaceInspectorView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let workspace: ResearchWorkspace?
     let selectedSection: WorkspaceSection?

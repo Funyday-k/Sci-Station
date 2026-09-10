@@ -1,0 +1,43 @@
+name: Bug report
+description: Report reproducible behavior using non-sensitive sample data.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities use [private reporting](https://github.com/Funyday-k/Sci-Station/security/advisories/new). Do not attach private research data or credentials."
+  - type: input
+    id: version
+    attributes:
+      label: App version / build / commit
+      description: Include the exact version and whether you built it from source.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: macOS version and Mac architecture
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include prerequisites and the smallest synthetic example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove secrets, personal paths and private paper contents.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: How can we verify the fix?
+      description: Describe observable acceptance criteria.

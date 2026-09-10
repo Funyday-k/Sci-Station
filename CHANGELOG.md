@@ -6,7 +6,14 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ## [Unreleased]
 
-No user-facing changes yet.
+### Changed
+
+- Added contribution/security policies, Issue/PR templates, ownership, versioned backlog, ADR/RFC records, and checked app/runtime version boundaries.
+- Added documentation/version/traceability/runner-organization gates and an aggregate required CI check; release tags must point to a commit reachable from main.
+- Grouped legacy core verification into domain suites and shared fixtures while preserving check identifiers; unmatched local filters now fail explicitly.
+- Corrected the 0.1.0 product status to Developer Preview; tag-triggered publication defaults to prerelease.
+
+- Public release automation now requires Developer ID signing, hardened runtime, Apple notarization, stapling, Gatekeeper verification, and SHA-256 checksums; certificate-free packages are explicitly limited to local testing.
 
 ## [0.1.0] - 2026-07-11
 

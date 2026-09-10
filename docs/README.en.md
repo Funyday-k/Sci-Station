@@ -2,7 +2,7 @@
 
 > Current version: 0.1.0
 > Platform: macOS
-> Status: stable release
+> Status: Developer Preview
 
 Sci-Station is a local-first research workstation for macOS. It brings a paper library, project knowledge, PDF reading, working materials, tasks, calendar views, and optional AI Lab workflows into one app while keeping core data inside a user-selected local Research Root.
 
@@ -23,18 +23,19 @@ Core principles:
 - Research Root creation, opening, repair, and recent workspace restore.
 - Paper import from PDF files, drag and drop, DOI, arXiv, PDF URL, and web links.
 - Paper metadata, BibTeX, tags, reading status, priority, rating, abstract, and identifiers.
+- Paper `meta.yaml` files are parsed and emitted with Yams; updates preserve unknown fields and nested structures semantically, while malformed YAML returns an explicit error and is never silently overwritten.
 - PDF Reader with search, navigation, zoom, notes, linked tasks, citations, links, and file panel.
 - Project overview with brief, core papers, project documents, workflows, and task summary.
 - Markdown Wiki with source, preview, split mode, frontmatter, `[[wikilink]]`, backlinks, tables, code blocks, images, and KaTeX.
 - Materials browser for data, code, figures, scripts, prompts, outputs, Markdown, text, images, PDFs, and Python files.
 - Local todo and calendar views with optional Apple Calendar and Reminders integration.
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
-- Certificate-free DMG packaging for release distribution.
+- Future public releases require Developer ID signing, notarization, stapling and installation verification; check each historical release's own distribution status.
 
 ## Version 0.1.0 Status
 
-- The current stable version is **0.1.0**.
-- Certificate-free DMG builds are published through GitHub Releases.
+- The current preview is **0.1.0**. This historical release was not Developer ID signed or notarized.
+- New public releases are required to pass Developer ID and Apple notarization verification before publication.
 - The project remains actively maintained, and features, UI, and documentation will continue to improve.
 
 ## Roadmap
@@ -47,11 +48,11 @@ Core principles:
 
 ## Quick Start
 
-Install the release DMG:
+Install a verified release package:
 
-1. Download the Sci-Station DMG from the Release page.
+1. Check the release notes and select a DMG with signing/notarization verification and SHA-256 checksums. Historical 0.1.0 does not meet these distribution requirements; source builds are documented in the developer guide.
 2. Open the DMG and drag `Sci-Station.app` into `/Applications`.
-3. If macOS cannot verify the developer, right-click the app and choose `Open`.
+3. A public release should pass Gatekeeper normally. Stop and verify the download source and SHA-256 if macOS cannot verify the developer.
 4. On first launch, choose `Create Workspace` and select an empty folder as the Research Root.
 5. Import PDFs from Library, or add papers with DOI, arXiv, PDF URL, and web links.
 
@@ -71,3 +72,7 @@ In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command 
 - [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
 - [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
 - [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
+
+## Contributing
+
+Read [CONTRIBUTING](../CONTRIBUTING.md), the [security policy](../SECURITY.md), the [versioned backlog](BACKLOG.md), the [ADR index](architecture/README.md), and the [versioning policy](VERSIONING.md).

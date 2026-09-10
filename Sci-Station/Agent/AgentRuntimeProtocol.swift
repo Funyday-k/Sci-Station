@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated protocol ExternalAgentRuntime: Sendable {
+public protocol ExternalAgentRuntime: Sendable {
     func startRun(_ request: AgentRuntimeRequest) async throws -> AsyncThrowingStream<AgentRuntimeEventEnvelope, Error>
     func resumeRun(runID: String, decision: AgentHumanDecision) async throws
     func cancelRun(runID: String) async throws

@@ -3,6 +3,10 @@ import SwiftUI
 
 struct ProjectOverviewView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
+    @EnvironmentObject private var agentStore: AgentStore
 
     let workspace: ResearchWorkspace
 

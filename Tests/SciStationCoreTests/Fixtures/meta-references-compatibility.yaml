@@ -1,0 +1,13 @@
+schema_version: 1
+references:
+  - doi: "10.1000/example:one"
+    title: "A title: with punctuation # intact"
+    authors: ["Ada Lovelace", "Grace Hopper"]
+    year: 2025
+  - arxiv_id: 2608.01234
+    title: >-
+      A folded title
+      spanning two lines
+    authors:
+      - "Katherine Johnson"
+      - "Dorothy Vaughan"
