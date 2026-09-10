@@ -36,10 +36,11 @@ This is the initial traceability register for the governance work. Entries are r
 - Acceptance before implementation: review storage and migration, stable identifiers, evidence provenance, approval semantics, deletion/rebuild behavior, and tests; accept an RFC and write the resulting ADR.
 - Proposal: [RFC-0001](rfcs/RFC-0001-knowledge-architecture.md).
 
-## REL-001 — Verified public distribution
+## REL-001 — Verified certificate-free public distribution
 
-- Priority: P1. Status: pipeline present; a real credentialed release remains to be executed.
+- Priority: P1. Status: pipeline present; first release through the new pipeline remains to be executed.
 - GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/6
-- Acceptance: tag reachable from `main`, full tests, matching versions, increasing build number, Developer ID/hardened runtime, notarized and stapled app/DMG, checksums, macOS 15 install/upgrade smoke test and provenance.
-- Evidence: [release workflow](../.github/workflows/release.yml), `Tools/scripts/package-release.sh` and [developer guide](DEVELOPER.md).
-- Owner dependency: Developer ID and notary credentials in the GitHub `release` environment. Never treat a locally passing unsigned build as evidence of public distribution readiness.
+- Distribution model: ad-hoc signed macOS app and bundled sidecar, with no Apple Developer ID certificate and no Apple notarization.
+- Acceptance: tag reachable from `main`, full tests, matching versions, increasing build number, valid ad-hoc signatures and entitlements, arm64 and deployment-target verification, DMG/ZIP checksums, macOS 15 install/upgrade smoke tests, documented first-launch Gatekeeper behavior, and GitHub build provenance.
+- Evidence: [release workflow](../.github/workflows/release.yml), `Tools/scripts/package-release.sh`, `Tools/scripts/verify-release.sh`, and [developer guide](DEVELOPER.md).
+- Security boundary: the release must never silently claim Apple developer identity or notarization. Downloaders are expected to verify the GitHub Release source, SHA-256, or provenance before explicitly allowing the app in macOS Privacy & Security when required.
