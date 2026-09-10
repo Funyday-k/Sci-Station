@@ -30,12 +30,12 @@ Core principles:
 - Materials browser for data, code, figures, scripts, prompts, outputs, Markdown, text, images, PDFs, and Python files.
 - Local todo and calendar views with optional Apple Calendar and Reminders integration.
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
-- Future public releases require Developer ID signing, notarization, stapling and installation verification; check each historical release's own distribution status.
+- Public releases use ad-hoc code signing without an Apple Developer ID or notarization, while CI verifies bundle integrity, entitlements, the bundled sidecar, installation behavior, SHA-256 checksums, and GitHub build provenance.
 
 ## Version 0.1.0 Status
 
-- The current preview is **0.1.0**. This historical release was not Developer ID signed or notarized.
-- New public releases are required to pass Developer ID and Apple notarization verification before publication.
+- The current preview is **0.1.0**.
+- Sci-Station uses certificate-free community distribution. macOS may display an unidentified-developer warning the first time a downloaded release is opened.
 - The project remains actively maintained, and features, UI, and documentation will continue to improve.
 
 ## Roadmap
@@ -48,13 +48,15 @@ Core principles:
 
 ## Quick Start
 
-Install a verified release package:
+Install a GitHub Release package:
 
-1. Check the release notes and select a DMG with signing/notarization verification and SHA-256 checksums. Historical 0.1.0 does not meet these distribution requirements; source builds are documented in the developer guide.
+1. Download the DMG and verify the matching SHA-256 checksum or GitHub provenance for that release.
 2. Open the DMG and drag `Sci-Station.app` into `/Applications`.
-3. A public release should pass Gatekeeper normally. Stop and verify the download source and SHA-256 if macOS cannot verify the developer.
+3. Because the app is intentionally distributed without Developer ID signing or Apple notarization, macOS may block the first launch. Try opening the app normally, then use **System Settings → Privacy & Security → Open Anyway** for the Sci-Station release you verified. Do not disable Gatekeeper globally.
 4. On first launch, choose `Create Workspace` and select an empty folder as the Research Root.
 5. Import PDFs from Library, or add papers with DOI, arXiv, PDF URL, and web links.
+
+The release app and bundled sidecar are ad-hoc signed to preserve code-signing structure and entitlements. This does not authenticate an Apple Developer identity and does not mean Apple notarized the software. The release workflow publishes SHA-256 files and GitHub build provenance so users can verify the artifact source.
 
 Run from source:
 
