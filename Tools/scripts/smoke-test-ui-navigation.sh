@@ -61,10 +61,12 @@ mkdir -p "$TEMP_ROOT/home" "$TEMP_ROOT/tmp"
 touch "$OUTPUT_PATH" "$ERROR_PATH"
 PREEXISTING_APP_PIDS="$(matching_app_pids | tr '\n' ' ')"
 
+# This is an interaction smoke test, not a background-launch test. Keep the
+# application foreground-capable so AppKit/SwiftUI materializes the same
+# accessibility hierarchy and press actions that a real user sees.
 /usr/bin/open \
   -n \
   -W \
-  -g \
   -o "$OUTPUT_PATH" \
   --stderr "$ERROR_PATH" \
   --env "HOME=$TEMP_ROOT/home" \
