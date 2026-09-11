@@ -102,8 +102,9 @@ actor ScriptedFailingChatProvider: LLMProvider, LLMChatProvider {
     }
 }
 
-actor RecordingAgentTool: AgentTool {
-    nonisolated let definition: AgentToolDefinition
+nonisolated final class RecordingAgentTool: AgentTool, @unchecked Sendable {
+    let definition: AgentToolDefinition
+    private let lock = NSLock()
     private var results: [AgentToolResult]
     private var argumentsLog: [String] = []
 
@@ -113,22 +114,24 @@ actor RecordingAgentTool: AgentTool {
     }
 
     func invoke(argumentsJSON: String, context: AgentToolContext) async throws -> AgentToolResult {
-        argumentsLog.append(argumentsJSON)
-        if results.count > 1 {
-            return results.removeFirst()
+        lock.withLock {
+            argumentsLog.append(argumentsJSON)
+            if results.count > 1 {
+                return results.removeFirst()
+            }
+            if let result = results.first {
+                return result
+            }
+            return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: "Recorded tool result.")
         }
-        if let result = results.first {
-            return result
-        }
-        return AgentToolResult(callID: "", toolName: definition.name, succeeded: true, message: "Recorded tool result.")
     }
 
-    func invocationCount() -> Int {
-        argumentsLog.count
+    func invocationCount() async -> Int {
+        lock.withLock { argumentsLog.count }
     }
 
-    func invokedArguments() -> [String] {
-        argumentsLog
+    func invokedArguments() async -> [String] {
+        lock.withLock { argumentsLog }
     }
 }
 
