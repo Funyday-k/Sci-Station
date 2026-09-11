@@ -19,8 +19,13 @@ cleanup() {
   if [[ -n "$MOUNT_DEVICE" ]]; then
     hdiutil detach "$MOUNT_DEVICE" -quiet >/dev/null 2>&1 || true
   fi
-  [[ -n "$MOUNT_DIR" ]] && rm -rf "$MOUNT_DIR"
-  [[ -n "$EXTRACT_DIR" ]] && rm -rf "$EXTRACT_DIR"
+  if [[ -n "$MOUNT_DIR" ]]; then
+    rm -rf "$MOUNT_DIR"
+  fi
+  if [[ -n "$EXTRACT_DIR" ]]; then
+    rm -rf "$EXTRACT_DIR"
+  fi
+  return 0
 }
 trap cleanup EXIT
 
@@ -117,3 +122,4 @@ case "$ARTIFACT_PATH" in
 esac
 
 echo "Certificate-free release verification passed: $ARTIFACT_PATH"
+exit 0
