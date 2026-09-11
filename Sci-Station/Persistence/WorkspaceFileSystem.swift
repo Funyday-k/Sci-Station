@@ -37,6 +37,60 @@ public nonisolated struct WorkspaceRelativePath: RawRepresentable, Codable, Hash
     }
 }
 
+public nonisolated enum WorkspacePathResolver {
+    /// Resolves a path relative to `baseURL` while keeping the result inside
+    /// `rootURL`, including when an existing directory component is a symlink.
+    public nonisolated static func resolve(
+        relativePath: String,
+        from baseURL: URL,
+        rootURL: URL,
+        isDirectory: Bool = false,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        let normalized = relativePath
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty,
+              !normalized.hasPrefix("/"),
+              !normalized.hasPrefix("~"),
+              !normalized.contains("\u{0}") else {
+            throw WorkspaceFileSystemError.invalidRelativePath(relativePath)
+        }
+
+        let candidate = normalized
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .reduce(baseURL.standardizedFileURL) { partialURL, component in
+                if component == "." {
+                    return partialURL
+                }
+                if component == ".." {
+                    return partialURL.deletingLastPathComponent()
+                }
+                return partialURL.appendingPathComponent(
+                    String(component),
+                    isDirectory: isDirectory
+                )
+            }
+            .standardizedFileURL
+
+        let rootPath = rootURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let parentURL = candidate.deletingLastPathComponent()
+        let existingURL: URL
+        if fileManager.fileExists(atPath: candidate.path) {
+            existingURL = candidate.resolvingSymlinksInPath()
+        } else {
+            existingURL = parentURL.resolvingSymlinksInPath()
+                .appendingPathComponent(candidate.lastPathComponent, isDirectory: isDirectory)
+        }
+        let resolvedPath = existingURL.standardizedFileURL.path
+        guard resolvedPath == rootPath || resolvedPath.hasPrefix(rootPath + "/") else {
+            throw WorkspaceFileSystemError.pathEscapesWorkspace(relativePath)
+        }
+        return candidate
+    }
+}
+
 public nonisolated struct WriteOptions: Codable, Hashable, Sendable {
     public var createIntermediateDirectories: Bool
     public var overwrite: Bool
@@ -126,16 +180,12 @@ public actor WorkspaceFileSystem {
     }
 
     private func containedURL(for path: WorkspaceRelativePath, isDirectory: Bool) throws -> URL {
-        let candidate = path.rawValue.split(separator: "/").reduce(rootURL) { partialURL, component in
-            partialURL.appendingPathComponent(String(component), isDirectory: isDirectory)
-        }.standardizedFileURL
-        let rootPath = rootURL.standardizedFileURL.resolvingSymlinksInPath().path
-        let parentURL = candidate.deletingLastPathComponent()
-        let existingURL = fileManager.fileExists(atPath: candidate.path) ? candidate.resolvingSymlinksInPath() : parentURL.resolvingSymlinksInPath().appendingPathComponent(candidate.lastPathComponent, isDirectory: isDirectory)
-        let resolvedPath = existingURL.standardizedFileURL.path
-        guard resolvedPath == rootPath || resolvedPath.hasPrefix(rootPath + "/") else {
-            throw WorkspaceFileSystemError.pathEscapesWorkspace(path.rawValue)
-        }
-        return candidate
+        try WorkspacePathResolver.resolve(
+            relativePath: path.rawValue,
+            from: rootURL,
+            rootURL: rootURL,
+            isDirectory: isDirectory,
+            fileManager: fileManager
+        )
     }
 }

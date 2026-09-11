@@ -172,7 +172,7 @@ public actor MarkdownRepository {
 
     private func loadDocument(at fileURL: URL, in workspace: ResearchWorkspace) throws -> MarkdownDocument {
         let contents = try String(contentsOf: fileURL, encoding: .utf8)
-        let parsedDocument = frontmatterParser.parse(contents)
+        let parsedDocument = try frontmatterParser.parseThrowing(contents)
         let relativePath = workspace.relativePath(to: fileURL)
         let category = categoryName(from: relativePath)
         let title = resolvedTitle(

@@ -6,7 +6,13 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ## [Unreleased]
 
-No user-facing changes yet.
+### Changed
+
+- Added contribution/security policies, Issue/PR templates, ownership, versioned backlog, ADR/RFC records, and checked app/runtime version boundaries.
+- Added documentation/version/traceability/runner-organization gates and an aggregate required CI check; release tags must point to a commit reachable from main.
+- Grouped legacy core verification into domain suites and shared fixtures while preserving check identifiers; unmatched local filters now fail explicitly.
+- Corrected the 0.1.0 product status to Developer Preview; tag-triggered publication defaults to prerelease.
+- Public release automation now uses verified certificate-free distribution: ad-hoc app/sidecar signing, entitlement and bundle-integrity checks, SHA-256 checksums, macOS install/upgrade smoke tests, and GitHub build provenance. Developer ID signing and Apple notarization are intentionally not required.
 
 ## [0.1.0] - 2026-07-11
 
@@ -45,7 +51,7 @@ No user-facing changes yet.
 
 ### Known Issues
 
-- Certificate-free distribution requires users to confirm the first launch through Finder because the app is not Developer ID signed or notarized.
+- Certificate-free distribution requires users to confirm the first launch through Finder or macOS Privacy & Security because the app is not Developer ID signed or notarized.
 
 [Unreleased]: https://github.com/Funyday-k/Sci-Station/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Funyday-k/Sci-Station/releases/tag/v0.1.0

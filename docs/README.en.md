@@ -2,7 +2,7 @@
 
 > Current version: 0.1.0
 > Platform: macOS
-> Status: stable release
+> Status: Developer Preview
 
 Sci-Station is a local-first research workstation for macOS. It brings a paper library, project knowledge, PDF reading, working materials, tasks, calendar views, and optional AI Lab workflows into one app while keeping core data inside a user-selected local Research Root.
 
@@ -23,18 +23,19 @@ Core principles:
 - Research Root creation, opening, repair, and recent workspace restore.
 - Paper import from PDF files, drag and drop, DOI, arXiv, PDF URL, and web links.
 - Paper metadata, BibTeX, tags, reading status, priority, rating, abstract, and identifiers.
+- Paper `meta.yaml` files are parsed and emitted with Yams; updates preserve unknown fields and nested structures semantically, while malformed YAML returns an explicit error and is never silently overwritten.
 - PDF Reader with search, navigation, zoom, notes, linked tasks, citations, links, and file panel.
 - Project overview with brief, core papers, project documents, workflows, and task summary.
 - Markdown Wiki with source, preview, split mode, frontmatter, `[[wikilink]]`, backlinks, tables, code blocks, images, and KaTeX.
 - Materials browser for data, code, figures, scripts, prompts, outputs, Markdown, text, images, PDFs, and Python files.
 - Local todo and calendar views with optional Apple Calendar and Reminders integration.
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
-- Certificate-free DMG packaging for release distribution.
+- Public releases use ad-hoc code signing without an Apple Developer ID or notarization, while CI verifies bundle integrity, entitlements, the bundled sidecar, installation behavior, SHA-256 checksums, and GitHub build provenance.
 
 ## Version 0.1.0 Status
 
-- The current stable version is **0.1.0**.
-- Certificate-free DMG builds are published through GitHub Releases.
+- The current preview is **0.1.0**.
+- Sci-Station uses certificate-free community distribution. macOS may display an unidentified-developer warning the first time a downloaded release is opened.
 - The project remains actively maintained, and features, UI, and documentation will continue to improve.
 
 ## Roadmap
@@ -47,13 +48,15 @@ Core principles:
 
 ## Quick Start
 
-Install the release DMG:
+Install a GitHub Release package:
 
-1. Download the Sci-Station DMG from the Release page.
+1. Download the DMG and verify the matching SHA-256 checksum or GitHub provenance for that release.
 2. Open the DMG and drag `Sci-Station.app` into `/Applications`.
-3. If macOS cannot verify the developer, right-click the app and choose `Open`.
+3. Because the app is intentionally distributed without Developer ID signing or Apple notarization, macOS may block the first launch. Try opening the app normally, then use **System Settings → Privacy & Security → Open Anyway** for the Sci-Station release you verified. Do not disable Gatekeeper globally.
 4. On first launch, choose `Create Workspace` and select an empty folder as the Research Root.
 5. Import PDFs from Library, or add papers with DOI, arXiv, PDF URL, and web links.
+
+The release app and bundled sidecar are ad-hoc signed to preserve code-signing structure and entitlements. This does not authenticate an Apple Developer identity and does not mean Apple notarized the software. The release workflow publishes SHA-256 files and GitHub build provenance so users can verify the artifact source.
 
 Run from source:
 
@@ -71,3 +74,7 @@ In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command 
 - [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
 - [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
 - [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
+
+## Contributing
+
+Read [CONTRIBUTING](../CONTRIBUTING.md), the [security policy](../SECURITY.md), the [versioned backlog](BACKLOG.md), the [ADR index](architecture/README.md), and the [versioning policy](VERSIONING.md).

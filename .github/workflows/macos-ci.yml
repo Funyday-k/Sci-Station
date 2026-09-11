@@ -5,6 +5,10 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
 
 concurrency:
   group: macos-ci-${{ github.ref }}
@@ -14,41 +18,157 @@ jobs:
   repository-hygiene:
     name: Repository hygiene
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Reject generated artifacts and oversized tracked files
         run: Tools/scripts/check-repository-hygiene.sh
+      - name: Enforce AppViewModel architecture budget
+        run: Tools/scripts/check-appviewmodel-architecture.sh
+      - name: Check documentation, versions, and test organization
+        run: |
+          python3 Tools/scripts/check-docs-hygiene.py
+          python3 Tools/scripts/check-version-consistency.py
+          python3 Tools/scripts/check-core-runner-architecture.py
+          python3 -m unittest discover -s Tools/tests -v
+
+  traceability:
+    name: Change traceability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Require a linked requirement or decision
+        run: python3 Tools/scripts/check-pr-traceability.py
+
+  swift-style:
+    name: SwiftLint and SwiftFormat
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Cache pinned Swift style tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.mint
+          key: mint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Mintfile') }}
+      - name: Install Mint and pinned Swift style tools
+        run: |
+          brew install mint
+          mint bootstrap
+      - name: Enforce Swift style gates
+        run: |
+          SWIFTLINT_BIN="$(mint which realm/SwiftLint@0.65.0 swiftlint)" \
+          SWIFTFORMAT_BIN="$(mint which nicklockwood/SwiftFormat@0.62.1 swiftformat)" \
+            Tools/scripts/check-swift-style.sh
 
   core-tests:
-    name: Swift core tests
+    name: Swift test gates
     runs-on: macos-26
+    timeout-minutes: 45
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Report Xcode toolchain
         run: xcodebuild -version
-      - name: Run Swift Testing suite
-        run: swift test
+      - name: Run Swift Testing suite with coverage
+        run: swift test --enable-code-coverage
+      - name: Enforce Swift Core coverage baseline
+        run: Tools/scripts/check-swift-coverage.sh "$(swift test --show-codecov-path)" 14.0
+      - name: Upload Swift coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-core-coverage
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .build/**/debug/codecov/SciStationCore.json
+      - name: Run legacy core runner during migration
+        run: swift run SciStationCoreTestRunner
+
+  python-tests:
+    name: Python sidecar tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: AgentRuntime/pyproject.toml
+      - name: Install sidecar test dependencies
+        run: python -m pip install --disable-pip-version-check -e './AgentRuntime[test,uitest]'
+      - name: Run Python test suite
+        run: python -m pytest AgentRuntime/tests
 
   app-build:
-    name: Apple Silicon app build
+    name: Apple Silicon Release build and smoke test
     runs-on: macos-26
+    timeout-minutes: 60
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Report Xcode toolchain
         run: xcodebuild -version
-      - name: Build unsigned arm64 Debug app
+      - name: Validate certificate-free release tooling
+        run: |
+          bash -n Tools/scripts/package-release.sh Tools/scripts/check-release-build-number.sh Tools/scripts/test-release-build-number.sh Tools/scripts/package-beta.sh Tools/scripts/stage-sidecar-runtime.sh Tools/scripts/sign-sidecar-runtime.sh Tools/scripts/smoke-test-sidecar-runtime.sh Tools/scripts/smoke-test-ui-navigation.sh Tools/scripts/verify-release.sh Tools/scripts/verify-macos-deployment-target.sh Tools/scripts/test-release-install.sh Tools/scripts/smoke-test-app.sh
+          Tools/scripts/test-release-build-number.sh
+          if grep -En 'uses:[[:space:]]+[^[:space:]]+@(v[0-9]+|main|master)([[:space:]]|$)' .github/workflows/*.yml; then
+            echo "GitHub Actions must be pinned to full immutable commit SHAs." >&2
+            exit 1
+          fi
+          if grep -Eq 'DEVELOPER_ID_|APPLE_NOTARY_|notarytool|stapler staple' .github/workflows/release.yml Tools/scripts/package-release.sh; then
+            echo "Public release must remain certificate-free and must not depend on Apple signing/notary credentials." >&2
+            exit 1
+          fi
+      - name: Build unsigned arm64 Release app
         run: >-
           xcodebuild
           -project Sci-Station.xcodeproj
           -scheme Sci-Station
-          -configuration Debug
+          -configuration Release
           -destination 'generic/platform=macOS'
+          -derivedDataPath "$RUNNER_TEMP/SciStationDerivedData"
           ARCHS=arm64
           ONLY_ACTIVE_ARCH=NO
           CODE_SIGNING_ALLOWED=NO
           CODE_SIGNING_REQUIRED=NO
           build
+      - name: Stage, ad-hoc sign, and smoke-test pinned sidecar runtime
+        run: |
+          app_path="$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+          Tools/scripts/stage-sidecar-runtime.sh "$app_path"
+          Tools/scripts/sign-sidecar-runtime.sh "$app_path" -
+          Tools/scripts/smoke-test-sidecar-runtime.sh "$app_path"
+          Tools/scripts/verify-release.sh "$app_path"
+      - name: Smoke-test real window and accessibility navigation
+        run: Tools/scripts/smoke-test-ui-navigation.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+      - name: Verify minimum macOS version
+        run: Tools/scripts/verify-macos-deployment-target.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+      - name: Test installation, first launch, and overwrite upgrade
+        run: Tools/scripts/test-release-install.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
+
+  required-ci:
+    name: Required CI
+    if: ${{ always() }}
+    needs: [repository-hygiene, traceability, swift-style, core-tests, python-tests, app-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every required job succeeded
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failed = [name for name, job in results.items() if job["result"] != "success"]
+          if failed:
+              print("Required jobs did not succeed: " + ", ".join(failed), file=sys.stderr)
+              sys.exit(1)
+          print("All required CI gates passed.")
+          PY

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a certificate-free Apple Silicon Sci-Station release package.
+# Build a certificate-free Apple Silicon Sci-Station beta package for local testing.
 #
 # Default: ad-hoc signing (preserves sandbox entitlements, no certificate).
 # Optional: SCI_STATION_SIGNING=unsigned for a completely unsigned bundle.
@@ -76,6 +76,15 @@ fi
 mkdir -p "$EXPORT_PATH"
 cp -R "$ARCHIVED_APP" "$APP_PATH"
 
+Tools/scripts/stage-sidecar-runtime.sh "$APP_PATH"
+if [[ "$SIGNING_MODE" == "adhoc" ]]; then
+  Tools/scripts/sign-sidecar-runtime.sh "$APP_PATH" "-"
+else
+  # Keep the unsigned mode genuinely unsigned while still shipping the
+  # verified runtime and source package for local protocol smoke tests.
+  Tools/scripts/smoke-test-sidecar-runtime.sh "$APP_PATH"
+fi
+
 echo "==> Verifying Apple Silicon architecture..."
 ARCHS_OUTPUT="$(lipo -archs "$APP_PATH/Contents/MacOS/Sci-Station")"
 case " $ARCHS_OUTPUT " in
@@ -97,6 +106,8 @@ else
     exit 1
   fi
 fi
+
+Tools/scripts/smoke-test-sidecar-runtime.sh "$APP_PATH"
 
 echo "==> Recording Gatekeeper status (rejection is expected without Developer ID)..."
 if spctl -a -vvv "$APP_PATH"; then

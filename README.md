@@ -2,7 +2,7 @@
 
 > 当前版本：0.1.0
 > 面向平台：macOS
-> 当前状态：正式发布
+> 当前状态：Developer Preview（开发者预览）
 
 Sci-Station 是一个面向科研工作的本地优先工作站。它把论文库、项目知识、PDF 阅读、材料文件、任务日历和可选 AI 实验室放在同一个 macOS 应用里，并把主要数据保存到用户选择的本地科研根目录中。
 
@@ -33,15 +33,15 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 - **材料区**：统一管理数据、代码、图表、脚本、提示词、输出等真实工作文件，并可从应用打开到 VS Code 或外部工具。
 - **任务与日历**：提供本地待办、日历视图，并可选接入 Apple Calendar / Reminders。
 - **AI 实验室 V1**：支持项目会话、计划审查、权限面板、运行历史、钩子、MCP 预设展示和审计日志。
-- **正式分发**：无证书版本通过 GitHub Release 提供 DMG 下载和安装。
+- **无证书分发**：公开版本使用 ad-hoc 签名，不依赖 Apple Developer ID 或 notarization；发布流程仍验证应用完整性、entitlements、sidecar、安装、SHA-256 与 GitHub provenance。
 
 ## 当前状态
 
-- 当前正式版本为 **0.1.0**。
+- 当前预览版本为 **0.1.0**。
+- 项目采用 certificate-free community distribution；macOS 对下载的版本可能在首次打开时显示“无法验证开发者”提示。
 - 项目会持续维护，功能、界面和文档仍会继续更新。
 
 ## 接下来会开发
-
 
 - **AI 实验室深化**：继续接入边车运行时、工具权限、证据引用、产物和调试包。
 - **论文图谱与推荐**：增强论文关系、推荐工作流和阅读 Todo 链路。
@@ -51,14 +51,16 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 
 ## 快速开始
 
-安装正式版：
+安装 GitHub Release 中的公开版本：
 
-1. 从 Release 下载 Sci-Station 的 DMG。
+1. 在对应 Release 中下载 DMG，并核对同版本 SHA-256 或 GitHub provenance。
 2. 打开 DMG，将 `Sci-Station.app` 拖入 `/Applications`。
-3. 如果 macOS 提示无法验证开发者，右键应用并选择 `Open`。
+3. 由于 Sci-Station 不使用 Apple Developer ID 和 notarization，首次启动时 macOS 可能阻止应用。先尝试正常打开，然后在 **系统设置 → 隐私与安全性** 中确认来自 Sci-Station Release 的应用并选择 **仍要打开（Open Anyway）**。不要关闭整个系统的 Gatekeeper。
 4. 首次启动后选择 `Create Workspace`，创建一个空文件夹作为科研根目录。
 5. 在 Library 导入 PDF，或用 DOI、arXiv、PDF URL、网页链接添加论文。
 6. 创建项目，在项目概览中开始写项目简介、笔记和任务。
+
+发布包使用 ad-hoc code signature 维护 bundle 与嵌套 sidecar 的代码签名/entitlements 完整性，但它不提供 Apple Developer ID 身份认证，也不表示 Apple 已公证该软件。发布 workflow 会提供 SHA-256 和 GitHub build provenance，供下载者验证产物来源。
 
 ## 工作区结构
 
@@ -100,6 +102,8 @@ ResearchRoot/
 
 大多数内容是 Markdown、YAML、PDF、BibTeX、源码、图片或数据文件。即使离开应用，用户也可以用 Finder、VS Code、Git 或备份工具继续管理这些文件。
 
+论文的 `meta.yaml` 使用 Yams 解析和输出。应用更新已知元数据时，会在 YAML 语义层保留未知字段与嵌套结构；若文件包含畸形 YAML，保存会返回明确错误，不会静默覆盖原文件。
+
 ## 隐私与凭据
 
 - 仓库和构建产物不应包含 API Key、OAuth token、refresh token、client secret、private key、本机 MCP 配置或私人研究数据。
@@ -120,3 +124,7 @@ ResearchRoot/
 ## 许可证
 
 本项目采用 [MIT 许可证](LICENSE) 开源。
+
+## 参与开发
+
+贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，漏洞报告见 [SECURITY.md](SECURITY.md)。开发计划和架构决策分别维护在 [版本化 backlog](docs/BACKLOG.md) 与 [ADR 索引](docs/architecture/README.md)；版本边界见 [版本策略](docs/VERSIONING.md)。

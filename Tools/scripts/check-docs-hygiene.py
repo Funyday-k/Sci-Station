@@ -15,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 DOC_ROOTS = [
     ROOT / "README.md",
     ROOT / "CHANGELOG.md",
+    ROOT / "CONTRIBUTING.md",
+    ROOT / "SECURITY.md",
+    ROOT / "CODE_OF_CONDUCT.md",
+    ROOT / ".github",
     ROOT / "docs",
 ]
 

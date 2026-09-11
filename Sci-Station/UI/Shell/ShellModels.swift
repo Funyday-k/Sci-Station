@@ -1,5 +1,53 @@
 import Foundation
 
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case workspace
+    case modules
+    case projects
+    case library
+    case tasks
+    case aiLab
+    case developer
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .workspace: "Workspace"
+        case .modules: "Modules"
+        case .projects: "Projects"
+        case .library: "Library"
+        case .tasks: "Tasks"
+        case .aiLab: "AI Lab"
+        case .developer: "Developer"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .workspace: "Manage the research root and workspace identity."
+        case .modules: "Enable, pin, repair, and override built-in workspace modules."
+        case .projects: "Edit project names, descriptions, icons, and colors."
+        case .library: "Control paper import defaults, MinerU conversion, migration, and library table behavior."
+        case .tasks: "Configure todo sync with Apple Reminders."
+        case .aiLab: "Configure API provider, runtime, hooks, MCP, and knowledge context."
+        case .developer: "Inspect settings files and generated agent paths."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .workspace: "externaldrive"
+        case .modules: "switch.2"
+        case .projects: "folder"
+        case .library: "books.vertical"
+        case .tasks: "checklist"
+        case .aiLab: "sparkles"
+        case .developer: "terminal"
+        }
+    }
+}
+
 public nonisolated struct WorkspaceContextSnapshot: Codable, Hashable, Sendable {
     public var topLevelSectionID: String
     public var projectID: String?
@@ -173,6 +221,7 @@ public nonisolated enum ToolbarPolicy {
     public static func resolve(route: WorkspaceRoute, context: WorkspaceContextSnapshot, language: AppLanguage = .english) -> ToolbarModel {
         var globalActions: [ToolbarAction] = [
             ToolbarAction(id: .workspaceMenu, title: L10n.text(.toolbarWorkspace, language: language), systemImage: "folder"),
+            ToolbarAction(id: .aiPanel, title: L10n.text(.toolbarAI, language: language), systemImage: "brain"),
             ToolbarAction(id: .inspector, title: L10n.text(.toolbarInspector, language: language), systemImage: "sidebar.right")
         ]
         var pageActions: [ToolbarAction] = []

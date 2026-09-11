@@ -24,6 +24,7 @@ xcuserdata/
 *.app
 *.dSYM
 *.dSYM.zip
+*.profraw
 
 # Python
 __pycache__/

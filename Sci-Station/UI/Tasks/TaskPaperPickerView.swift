@@ -4,6 +4,7 @@ import SwiftUI
 /// papers, with a scope toggle to browse the whole library and a search field.
 struct TaskPaperPickerView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
     @Environment(\.dismiss) private var dismiss
 
     @Binding var selectedPaperIDs: [String]

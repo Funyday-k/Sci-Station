@@ -2,6 +2,8 @@ import SwiftUI
 
 struct WikiWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
     let workspace: ResearchWorkspace
 
@@ -16,7 +18,7 @@ struct WikiWorkspaceView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("\(appModel.markdownDocuments.count) pages in \(appModel.currentResearchProject?.name ?? workspace.displayName)")
+                Text("\(knowledgeStore.documents.count) pages in \(appModel.currentResearchProject?.name ?? workspace.displayName)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -31,11 +33,11 @@ struct WikiWorkspaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            if appModel.markdownDocuments.isEmpty {
+            if knowledgeStore.documents.isEmpty {
                 appModel.reloadWiki()
             }
         }
-        .onChange(of: appModel.currentProjectID) { _, _ in
+        .onChange(of: workspaceStore.currentProjectID) { _, _ in
             appModel.reloadWiki()
         }
         .alert("Unsaved Wiki Changes", isPresented: $appModel.isShowingUnsavedMarkdownConfirmation) {
@@ -49,12 +51,13 @@ struct WikiWorkspaceView: View {
 
 struct WikiInspectorView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
     let workspace: ResearchWorkspace
 
     var body: some View {
         ScrollView {
-            if let document = appModel.selectedMarkdownDraft {
+            if let document = knowledgeStore.selectedDraft {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Wiki Inspector")

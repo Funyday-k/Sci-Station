@@ -224,6 +224,12 @@ public actor WorkspaceService {
     }
 
     private func persistBookmark(for url: URL) async throws {
+        // Command-line tools and unit tests commonly operate on temporary
+        // folders without a security-scoped URL. Bookmark creation with
+        // `.withSecurityScope` is unsupported in that context and should not
+        // make an otherwise valid workspace creation fail. App-selected URLs
+        // that grant a security scope still take the strict path below.
+        guard activeSecurityScopeStarted else { return }
         let bookmarkData = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,

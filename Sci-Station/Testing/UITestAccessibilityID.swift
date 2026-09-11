@@ -21,6 +21,11 @@ import Foundation
 ///
 public nonisolated enum UITestAccessibilityID {
 
+    // MARK: - App shell
+    public enum App {
+        public static let mainWindowRoot = "app.main_window.root"
+    }
+
     // MARK: - Sidebar (top-level navigation)
     public enum Sidebar {
         /// The main top-level routes (Home / Projects / Library / Calendar / AI Lab / Settings).
@@ -49,6 +54,12 @@ public nonisolated enum UITestAccessibilityID {
         public static let importButton = "library.import.button"
         public static let list = "library.list"
         public static let emptyState = "library.empty_state"
+    }
+
+    // MARK: - Workspace content
+    public enum Workspace {
+        /// The rendered destination container for a workspace route.
+        public static func section(_ section: String) -> String { "workspace.section.\(section)" }
     }
 
     // MARK: - Validation

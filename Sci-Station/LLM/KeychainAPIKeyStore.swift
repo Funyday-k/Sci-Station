@@ -1,31 +1,38 @@
 import Foundation
 import Security
 
-actor KeychainAPIKeyStore: APIKeyStore {
+public actor KeychainAPIKeyStore: APIKeyStore {
     private let service = "com.funyday.Sci-Station.llm"
 
-    func save(apiKey: String, for account: String) throws {
+    public init() {}
+
+    public func save(apiKey: String, for account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
 
-        SecItemDelete(query as CFDictionary)
-
-        let attributes: [String: Any] = query.merging([
-            kSecValueData as String: Data(apiKey.utf8)
-        ]) { _, newValue in
-            newValue
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: Data(apiKey.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return
+        }
+        guard updateStatus == errSecItemNotFound else {
+            throw keychainError(status: updateStatus, operation: "update")
         }
 
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw CocoaError(.fileWriteUnknown)
+        let attributes = query.merging(updateAttributes) { _, newValue in newValue }
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw keychainError(status: addStatus, operation: "add")
         }
     }
 
-    func loadAPIKey(for account: String) throws -> String? {
+    public func loadAPIKey(for account: String) throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -41,9 +48,33 @@ actor KeychainAPIKeyStore: APIKeyStore {
         }
         guard status == errSecSuccess,
               let data = item as? Data else {
-                        throw CocoaError(.fileReadCorruptFile)
+            throw keychainError(status: status, operation: "read")
         }
 
-        return String(data: data, encoding: .utf8)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return value
+    }
+
+    public func deleteAPIKey(for account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw keychainError(status: status, operation: "delete")
+        }
+    }
+
+    private func keychainError(status: OSStatus, operation: String) -> NSError {
+        let message = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown Keychain error"
+        return NSError(
+            domain: NSOSStatusErrorDomain,
+            code: Int(status),
+            userInfo: [NSLocalizedDescriptionKey: "Unable to \(operation) credential: \(message)"]
+        )
     }
 }

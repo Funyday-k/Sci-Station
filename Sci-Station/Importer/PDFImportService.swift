@@ -3,13 +3,40 @@ import PDFKit
 
 public enum PDFImportError: LocalizedError {
     case unsupportedFileType
+    case invalidPDFSignature
+    case unreadablePDFDocument
+    case destinationAlreadyExists
+    case commitFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .unsupportedFileType:
             return "Only PDF files can be imported."
+        case .invalidPDFSignature:
+            return "The selected file does not contain a valid PDF header."
+        case .unreadablePDFDocument:
+            return "The selected file could not be opened as a PDF document."
+        case .destinationAlreadyExists:
+            return "A paper already exists at the generated destination."
+        case let .commitFailed(message):
+            return "The PDF import could not be committed: \(message)"
         }
     }
+
+    public var allowsLinkOnlyFallback: Bool {
+        switch self {
+        case .unsupportedFileType, .invalidPDFSignature, .unreadablePDFDocument:
+            return true
+        case .destinationAlreadyExists, .commitFailed:
+            return false
+        }
+    }
+}
+
+enum PDFImportCommitStage: Equatable, Sendable {
+    case paperMetadata
+    case projectLinks
+    case bibliography
 }
 
 public actor PDFImportService {
@@ -18,6 +45,7 @@ public actor PDFImportService {
     private let parser: IdentifierParser
     private let doiProvider: DOIMetadataProvider
     private let arxivProvider: ArxivMetadataProvider
+    private let commitStageHook: @Sendable (PDFImportCommitStage) async throws -> Void
 
     public init(
         fileManager: FileManager = .default,
@@ -31,23 +59,53 @@ public actor PDFImportService {
         self.parser = parser
         self.doiProvider = doiProvider
         self.arxivProvider = arxivProvider
+        self.commitStageHook = { _ in }
+    }
+
+    init(
+        fileManager: FileManager = .default,
+        repository: PaperRepository,
+        parser: IdentifierParser = IdentifierParser(),
+        doiProvider: DOIMetadataProvider = DOIMetadataProvider(),
+        arxivProvider: ArxivMetadataProvider = ArxivMetadataProvider(),
+        commitStageHook: @escaping @Sendable (PDFImportCommitStage) async throws -> Void
+    ) {
+        self.fileManager = fileManager
+        self.repository = repository
+        self.parser = parser
+        self.doiProvider = doiProvider
+        self.arxivProvider = arxivProvider
+        self.commitStageHook = commitStageHook
     }
 
     public func importPDF(
         from sourceURL: URL,
         into workspace: ResearchWorkspace,
         existingPapers: [Paper],
-        collectionPath: String = "Uncategorized"
+        collectionPath: String = "Uncategorized",
+        metadataOverride: PaperMetadataDraft? = nil,
+        tags: [String] = [],
+        projectIDs: [String] = []
     ) async throws -> Paper {
         guard sourceURL.pathExtension.lowercased() == "pdf" else {
             throw PDFImportError.unsupportedFileType
         }
+        guard try DownloadService.hasPDFSignature(at: sourceURL) else {
+            throw PDFImportError.invalidPDFSignature
+        }
+        guard let pdfDocument = PDFDocument(url: sourceURL), pdfDocument.pageCount > 0 else {
+            throw PDFImportError.unreadablePDFDocument
+        }
 
         let detectedIdentifiers = detectIdentifiers(from: sourceURL)
-        let metadataDraft = await fetchedMetadata(for: detectedIdentifiers)
-        let title = resolvedTitle(from: metadataDraft, sourceURL: sourceURL)
-        let authors = resolvedAuthors(from: metadataDraft, sourceURL: sourceURL)
-        let year = metadataDraft?.year ?? detectedYear(from: sourceURL)
+        let detectedMetadataDraft = await fetchedMetadata(for: detectedIdentifiers)
+        let metadataDraft = metadataOverride ?? detectedMetadataDraft
+        let titleDraft = metadataOverride?.sourceProvider.hasSuffix("-link") == true
+            ? detectedMetadataDraft
+            : metadataDraft
+        let title = resolvedTitle(from: titleDraft, sourceURL: sourceURL)
+        let authors = resolvedAuthors(from: metadataDraft ?? detectedMetadataDraft, sourceURL: sourceURL)
+        let year = metadataDraft?.year ?? detectedMetadataDraft?.year ?? detectedYear(from: sourceURL)
         let paperID = PaperIdentityGenerator.paperID(
             title: title,
             authors: authors,
@@ -61,39 +119,18 @@ public actor PDFImportService {
             existing: Set(existingPapers.map(\.citekey))
         )
 
-        try fileManager.createDirectory(at: workspace.inboxURL, withIntermediateDirectories: true)
-
-        let stagedPDFURL = uniqueFileURL(
-            in: workspace.inboxURL,
-            preferredFileName: sourceURL.lastPathComponent
-        )
-        try fileManager.copyItem(at: sourceURL, to: stagedPDFURL)
-
         let normalizedCollectionPath = collectionPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let directoryRelativePath = try Paper.directoryRelativePath(
             for: paperID,
             collectionPath: normalizedCollectionPath
         )
-        let paperDirectoryURL = try await WorkspaceFileSystem(rootURL: workspace.rootURL).resolvedURL(
-            WorkspaceRelativePath(directoryRelativePath),
+        let paperDirectoryURL = try workspace.validatedResolve(
+            relativePath: directoryRelativePath,
+            from: workspace.rootURL,
             isDirectory: true
         )
-        try fileManager.createDirectory(at: paperDirectoryURL, withIntermediateDirectories: true)
-
-        let normalizedPDFURL = paperDirectoryURL.appendingPathComponent("paper.pdf", isDirectory: false)
-        try fileManager.moveItem(at: stagedPDFURL, to: normalizedPDFURL)
-
-        let figuresURL = paperDirectoryURL.appendingPathComponent("figures", isDirectory: true)
-        try fileManager.createDirectory(at: figuresURL, withIntermediateDirectories: true)
-
-        let paperMarkdownURL = paperDirectoryURL.appendingPathComponent("paper.md", isDirectory: false)
-        if !fileManager.fileExists(atPath: paperMarkdownURL.path) {
-            try rawPaperTemplate(citekey: citekey).write(to: paperMarkdownURL, atomically: true, encoding: .utf8)
-        }
-
-        let annotationsURL = paperDirectoryURL.appendingPathComponent("annotations.md", isDirectory: false)
-        if !fileManager.fileExists(atPath: annotationsURL.path) {
-            try "# Annotations\n\n".write(to: annotationsURL, atomically: true, encoding: .utf8)
+        guard !fileManager.fileExists(atPath: paperDirectoryURL.path) else {
+            throw PDFImportError.destinationAlreadyExists
         }
 
         let now = Date()
@@ -103,39 +140,43 @@ public actor PDFImportService {
             title: title,
             authors: authors,
             year: year,
-            venue: trimmedOrNil(metadataDraft?.venue),
-            doi: trimmedOrNil(metadataDraft?.doi) ?? detectedIdentifiers.doi,
-            arxiv: trimmedOrNil(metadataDraft?.arxiv) ?? detectedIdentifiers.arxiv,
-            url: resolvedSourceURL(from: metadataDraft, identifiers: detectedIdentifiers),
-            pdfURL: trimmedOrNil(metadataDraft?.pdfURL),
-            abstract: trimmedOrNil(metadataDraft?.abstract),
-            categories: metadataDraft?.categories ?? [],
-            titleTranslation: trimmedOrNil(metadataDraft?.titleTranslation),
-            itemType: trimmedOrNil(metadataDraft?.itemType),
-            publicationTitle: trimmedOrNil(metadataDraft?.publicationTitle),
-            publisher: trimmedOrNil(metadataDraft?.publisher),
-            publicationPlace: trimmedOrNil(metadataDraft?.publicationPlace),
-            publishedDate: trimmedOrNil(metadataDraft?.publishedDate),
-            volume: trimmedOrNil(metadataDraft?.volume),
-            issue: trimmedOrNil(metadataDraft?.issue),
-            pages: trimmedOrNil(metadataDraft?.pages),
-            series: trimmedOrNil(metadataDraft?.series),
-            seriesTitle: trimmedOrNil(metadataDraft?.seriesTitle),
-            journalAbbreviation: trimmedOrNil(metadataDraft?.journalAbbreviation),
-            issn: trimmedOrNil(metadataDraft?.issn),
-            isbn: trimmedOrNil(metadataDraft?.isbn),
-            pmid: trimmedOrNil(metadataDraft?.pmid),
-            pmcid: trimmedOrNil(metadataDraft?.pmcid),
-            language: trimmedOrNil(metadataDraft?.language),
-            archive: trimmedOrNil(metadataDraft?.archive),
-            archiveLocation: trimmedOrNil(metadataDraft?.archiveLocation),
-            libraryCatalog: trimmedOrNil(metadataDraft?.libraryCatalog),
-            callNumber: trimmedOrNil(metadataDraft?.callNumber),
-            shortTitle: trimmedOrNil(metadataDraft?.shortTitle),
-            accessedAt: trimmedOrNil(metadataDraft?.accessedAt),
-            bibtex: trimmedOrNil(metadataDraft?.bibtex),
+            venue: trimmedOrNil(metadataDraft?.venue ?? detectedMetadataDraft?.venue),
+            doi: trimmedOrNil(metadataDraft?.doi ?? detectedMetadataDraft?.doi) ?? detectedIdentifiers.doi,
+            arxiv: trimmedOrNil(metadataDraft?.arxiv ?? detectedMetadataDraft?.arxiv) ?? detectedIdentifiers.arxiv,
+            inspireID: trimmedOrNil(metadataDraft?.inspireID ?? detectedMetadataDraft?.inspireID),
+            url: resolvedSourceURL(from: metadataDraft ?? detectedMetadataDraft, identifiers: detectedIdentifiers),
+            pdfURL: trimmedOrNil(metadataDraft?.pdfURL ?? detectedMetadataDraft?.pdfURL),
+            abstract: trimmedOrNil(metadataDraft?.abstract ?? detectedMetadataDraft?.abstract),
+            categories: metadataDraft?.categories.isEmpty == false
+                ? metadataDraft?.categories ?? []
+                : detectedMetadataDraft?.categories ?? [],
+            titleTranslation: trimmedOrNil(metadataDraft?.titleTranslation ?? detectedMetadataDraft?.titleTranslation),
+            itemType: trimmedOrNil(metadataDraft?.itemType ?? detectedMetadataDraft?.itemType),
+            publicationTitle: trimmedOrNil(metadataDraft?.publicationTitle ?? detectedMetadataDraft?.publicationTitle),
+            publisher: trimmedOrNil(metadataDraft?.publisher ?? detectedMetadataDraft?.publisher),
+            publicationPlace: trimmedOrNil(metadataDraft?.publicationPlace ?? detectedMetadataDraft?.publicationPlace),
+            publishedDate: trimmedOrNil(metadataDraft?.publishedDate ?? detectedMetadataDraft?.publishedDate),
+            volume: trimmedOrNil(metadataDraft?.volume ?? detectedMetadataDraft?.volume),
+            issue: trimmedOrNil(metadataDraft?.issue ?? detectedMetadataDraft?.issue),
+            pages: trimmedOrNil(metadataDraft?.pages ?? detectedMetadataDraft?.pages),
+            series: trimmedOrNil(metadataDraft?.series ?? detectedMetadataDraft?.series),
+            seriesTitle: trimmedOrNil(metadataDraft?.seriesTitle ?? detectedMetadataDraft?.seriesTitle),
+            journalAbbreviation: trimmedOrNil(metadataDraft?.journalAbbreviation ?? detectedMetadataDraft?.journalAbbreviation),
+            issn: trimmedOrNil(metadataDraft?.issn ?? detectedMetadataDraft?.issn),
+            isbn: trimmedOrNil(metadataDraft?.isbn ?? detectedMetadataDraft?.isbn),
+            pmid: trimmedOrNil(metadataDraft?.pmid ?? detectedMetadataDraft?.pmid),
+            pmcid: trimmedOrNil(metadataDraft?.pmcid ?? detectedMetadataDraft?.pmcid),
+            language: trimmedOrNil(metadataDraft?.language ?? detectedMetadataDraft?.language),
+            archive: trimmedOrNil(metadataDraft?.archive ?? detectedMetadataDraft?.archive),
+            archiveLocation: trimmedOrNil(metadataDraft?.archiveLocation ?? detectedMetadataDraft?.archiveLocation),
+            libraryCatalog: trimmedOrNil(metadataDraft?.libraryCatalog ?? detectedMetadataDraft?.libraryCatalog),
+            callNumber: trimmedOrNil(metadataDraft?.callNumber ?? detectedMetadataDraft?.callNumber),
+            shortTitle: trimmedOrNil(metadataDraft?.shortTitle ?? detectedMetadataDraft?.shortTitle),
+            accessedAt: trimmedOrNil(metadataDraft?.accessedAt ?? detectedMetadataDraft?.accessedAt),
+            bibtex: trimmedOrNil(metadataDraft?.bibtex ?? detectedMetadataDraft?.bibtex),
+            projectIDs: uniqueOrdered(projectIDs),
             pdfRelativePath: "paper.pdf",
-            tags: [],
+            tags: uniqueOrdered(tags),
             status: .unread,
             priority: .medium,
             rating: nil,
@@ -148,9 +189,91 @@ public actor PDFImportService {
             annotationsRelativePath: "annotations.md"
         )
 
-        let savedPaper = try await repository.save(paper, in: workspace)
-        try await repository.appendBibliographyStub(for: savedPaper, in: workspace)
-        return savedPaper
+        let stagingRootURL = workspace.rootURL
+            .appendingPathComponent(".sci-station/import-staging", isDirectory: true)
+        let stagingDirectoryURL = stagingRootURL
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let rollbackDirectoryCandidates = directoriesMissingBeforeImport(
+            requiredDirectories: [
+                stagingDirectoryURL,
+                paperDirectoryURL.deletingLastPathComponent(),
+                workspace.projectPaperLinksURL.deletingLastPathComponent(),
+                workspace.globalLibraryBibURL.deletingLastPathComponent()
+            ],
+            within: workspace.rootURL
+        )
+        var sharedFileSnapshot: PDFImportSharedFileSnapshot?
+        var projectLinksCommitAttempted = false
+        var committedProjectLinksContents: Data?
+        var bibliographyCommitAttempted = false
+        var committedBibliographyContents: Data?
+        var movedToFinalDestination = false
+
+        do {
+            sharedFileSnapshot = try await repository.snapshotPDFImportSharedFiles(in: workspace)
+            try fileManager.createDirectory(at: stagingDirectoryURL, withIntermediateDirectories: true)
+            try fileManager.copyItem(
+                at: sourceURL,
+                to: stagingDirectoryURL.appendingPathComponent("paper.pdf", isDirectory: false)
+            )
+            try fileManager.createDirectory(
+                at: stagingDirectoryURL.appendingPathComponent("figures", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            try rawPaperTemplate(citekey: citekey).write(
+                to: stagingDirectoryURL.appendingPathComponent("paper.md", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "# Annotations\n\n".write(
+                to: stagingDirectoryURL.appendingPathComponent("annotations.md", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+
+            try fileManager.createDirectory(
+                at: paperDirectoryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.moveItem(at: stagingDirectoryURL, to: paperDirectoryURL)
+            movedToFinalDestination = true
+
+            let savedPaper = try await repository.saveMetadataMirror(paper, in: workspace)
+            try await commitStageHook(.paperMetadata)
+            projectLinksCommitAttempted = true
+            committedProjectLinksContents = try await repository.syncProjectLinks(for: savedPaper, in: workspace)
+            try await commitStageHook(.projectLinks)
+            bibliographyCommitAttempted = true
+            committedBibliographyContents = try await repository.appendBibliographyStubAndSnapshot(
+                for: savedPaper,
+                in: workspace
+            )
+            try await commitStageHook(.bibliography)
+            try removeStagingRootIfEmpty(stagingRootURL)
+            return savedPaper
+        } catch {
+            let rollbackFailures = await rollbackImport(
+                paper: paper,
+                workspace: workspace,
+                paperDirectoryURL: paperDirectoryURL,
+                stagingDirectoryURL: stagingDirectoryURL,
+                stagingRootURL: stagingRootURL,
+                movedToFinalDestination: movedToFinalDestination,
+                sharedFileSnapshot: sharedFileSnapshot,
+                projectLinksCommitAttempted: projectLinksCommitAttempted,
+                committedProjectLinksContents: committedProjectLinksContents,
+                bibliographyCommitAttempted: bibliographyCommitAttempted,
+                committedBibliographyContents: committedBibliographyContents,
+                directoryCandidates: rollbackDirectoryCandidates
+            )
+            if let importError = error as? PDFImportError, rollbackFailures.isEmpty {
+                throw importError
+            }
+            let rollbackSuffix = rollbackFailures.isEmpty
+                ? ""
+                : " Rollback also reported: \(rollbackFailures.joined(separator: "; "))"
+            throw PDFImportError.commitFailed(error.localizedDescription + rollbackSuffix)
+        }
     }
 
     private func rawPaperTemplate(citekey: String) -> String {
@@ -173,22 +296,154 @@ public actor PDFImportService {
         """
     }
 
-    private func uniqueFileURL(in directoryURL: URL, preferredFileName: String) -> URL {
-        let fileExtension = URL(fileURLWithPath: preferredFileName).pathExtension
-        let baseName = URL(fileURLWithPath: preferredFileName).deletingPathExtension().lastPathComponent
-        var candidateURL = directoryURL.appendingPathComponent(preferredFileName, isDirectory: false)
-        var counter = 1
+    private func uniqueOrdered(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        return values.compactMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
+            return trimmed
+        }
+    }
 
-        while fileManager.fileExists(atPath: candidateURL.path) {
-            let suffix = "-\(counter)"
-            let candidateName = fileExtension.isEmpty
-                ? baseName + suffix
-                : baseName + suffix + "." + fileExtension
-            candidateURL = directoryURL.appendingPathComponent(candidateName, isDirectory: false)
-            counter += 1
+    private func removeStagingRootIfEmpty(_ stagingRootURL: URL) throws {
+        guard fileManager.fileExists(atPath: stagingRootURL.path) else {
+            return
+        }
+        let contents = try fileManager.contentsOfDirectory(
+            at: stagingRootURL,
+            includingPropertiesForKeys: nil
+        )
+        guard contents.isEmpty else {
+            return
+        }
+        try fileManager.removeItem(at: stagingRootURL)
+    }
+
+    private func rollbackImport(
+        paper: Paper,
+        workspace: ResearchWorkspace,
+        paperDirectoryURL: URL,
+        stagingDirectoryURL: URL,
+        stagingRootURL: URL,
+        movedToFinalDestination: Bool,
+        sharedFileSnapshot: PDFImportSharedFileSnapshot?,
+        projectLinksCommitAttempted: Bool,
+        committedProjectLinksContents: Data?,
+        bibliographyCommitAttempted: Bool,
+        committedBibliographyContents: Data?,
+        directoryCandidates: [URL]
+    ) async -> [String] {
+        var failures: [String] = []
+
+        if bibliographyCommitAttempted {
+            do {
+                try await repository.rollbackBibliographyStub(
+                    for: paper,
+                    originalContents: sharedFileSnapshot?.bibliography,
+                    committedContents: committedBibliographyContents,
+                    in: workspace
+                )
+            } catch {
+                failures.append("bibliography rollback failed: \(error.localizedDescription)")
+            }
         }
 
-        return candidateURL
+        if projectLinksCommitAttempted {
+            do {
+                try await repository.rollbackProjectLinks(
+                    for: paper,
+                    originalContents: sharedFileSnapshot?.projectLinks,
+                    committedContents: committedProjectLinksContents,
+                    in: workspace
+                )
+            } catch {
+                failures.append("project-link rollback failed: \(error.localizedDescription)")
+            }
+        }
+
+        if movedToFinalDestination {
+            removeIfPresent(
+                paperDirectoryURL,
+                failurePrefix: "paper directory cleanup failed",
+                failures: &failures
+            )
+        }
+        removeIfPresent(
+            stagingDirectoryURL,
+            failurePrefix: "staging cleanup failed",
+            failures: &failures
+        )
+
+        do {
+            try removeStagingRootIfEmpty(stagingRootURL)
+        } catch {
+            failures.append("staging-root cleanup failed: \(error.localizedDescription)")
+        }
+        pruneEmptyDirectories(directoryCandidates, failures: &failures)
+        return failures
+    }
+
+    private func removeIfPresent(
+        _ url: URL,
+        failurePrefix: String,
+        failures: inout [String]
+    ) {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return
+        }
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            failures.append("\(failurePrefix): \(error.localizedDescription)")
+        }
+    }
+
+    private func directoriesMissingBeforeImport(
+        requiredDirectories: [URL],
+        within rootURL: URL
+    ) -> [URL] {
+        let standardizedRootURL = rootURL.standardizedFileURL
+        let rootPath = standardizedRootURL.path
+        var missingDirectoriesByPath: [String: URL] = [:]
+
+        for requiredDirectory in requiredDirectories {
+            var candidateURL = requiredDirectory.standardizedFileURL
+            while candidateURL.path != rootPath,
+                  candidateURL.path.hasPrefix(rootPath + "/") {
+                if !fileManager.fileExists(atPath: candidateURL.path) {
+                    missingDirectoriesByPath[candidateURL.path] = candidateURL
+                }
+                let parentURL = candidateURL.deletingLastPathComponent()
+                guard parentURL.path != candidateURL.path else {
+                    break
+                }
+                candidateURL = parentURL
+            }
+        }
+
+        return missingDirectoriesByPath.values.sorted {
+            $0.pathComponents.count > $1.pathComponents.count
+        }
+    }
+
+    private func pruneEmptyDirectories(_ directoryURLs: [URL], failures: inout [String]) {
+        for directoryURL in directoryURLs {
+            guard fileManager.fileExists(atPath: directoryURL.path) else {
+                continue
+            }
+            do {
+                let contents = try fileManager.contentsOfDirectory(
+                    at: directoryURL,
+                    includingPropertiesForKeys: nil
+                )
+                guard contents.isEmpty else {
+                    continue
+                }
+                try fileManager.removeItem(at: directoryURL)
+            } catch {
+                failures.append("failed to prune \(directoryURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
     }
 
     private func resolvedTitle(from metadataDraft: PaperMetadataDraft?, sourceURL: URL) -> String {

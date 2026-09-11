@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TopSidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
     @Environment(\.colorScheme) private var colorScheme
 
     let workspace: ResearchWorkspace?
@@ -38,7 +39,7 @@ struct TopSidebarView: View {
             .frame(minHeight: 0, maxHeight: .infinity)
 
             if workspace != nil {
-                SidebarSettingsButton(isSelected: appModel.selectedSection == .settings)
+                SidebarSettingsButton(isSelected: navigationStore.selectedSection == .settings)
                     .padding(.horizontal, 10)
             }
 
@@ -141,9 +142,9 @@ struct TopSidebarView: View {
 
     private func isSelected(_ item: TopSidebarItem) -> Bool {
         if item.top == .projects {
-            return appModel.selectedSection == .projects
+            return navigationStore.selectedSection == .projects
         }
-        return appModel.selectedSection == workspaceSection(for: item.top)
+        return navigationStore.selectedSection == WorkspaceNavigationPolicy.section(for: item.top)
     }
 
     private var primarySidebarItems: [TopSidebarItem] {
@@ -165,22 +166,6 @@ struct TopSidebarView: View {
         ]
     }
 
-    private func workspaceSection(for top: WorkspaceRoute.Top) -> WorkspaceSection {
-        switch top {
-        case .home:
-            return .dashboard
-        case .projects:
-            return .projects
-        case .library:
-            return .library
-        case .calendar:
-            return .calendar
-        case .aiLab:
-            return .llmLab
-        case .settings:
-            return .settings
-        }
-    }
 }
 
 private struct SidebarProjectTreeSection: View {

@@ -31,6 +31,9 @@ private struct AgentSkillToggleReview: Identifiable, Hashable {
 
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var agentStore: AgentStore
 
     let workspace: ResearchWorkspace
     var fixedCategory: SettingsCategory? = nil
@@ -45,17 +48,19 @@ struct SettingsView: View {
     @State private var skillCatalogStatusMessage: String?
     @State private var skillCatalogRefreshID = UUID()
     @State private var pendingSkillToggleReview: AgentSkillToggleReview?
+    @State private var llmAPIKeyDraft = ""
+    @State private var minerUAPITokenDraft = ""
     private let promptLibraryResolver = AgentPromptLibraryResolver()
     private let skillLoader = AgentSkillLoader()
 
     private var activeCategory: SettingsCategory {
-        fixedCategory ?? appModel.selectedSettingsCategory
+        fixedCategory ?? navigationStore.selectedSettingsCategory
     }
 
     var body: some View {
         HStack(spacing: 0) {
             if fixedCategory == nil {
-                SettingsCategorySidebar(selection: $appModel.selectedSettingsCategory)
+                SettingsCategorySidebar(selection: $navigationStore.selectedSettingsCategory)
 
                 Divider()
             }
@@ -393,7 +398,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        SecureField("粘贴 MinerU API Token", text: $appModel.minerUAPIToken)
+                        SecureField("粘贴 MinerU API Token", text: $minerUAPITokenDraft)
                             .textFieldStyle(.roundedBorder)
 
                         TextField("MinerU API Base URL", text: Binding(
@@ -414,8 +419,24 @@ struct SettingsView: View {
                         ))
                         .toggleStyle(.checkbox)
 
-                        Button("保存 MinerU API 设置", action: appModel.saveMinerUMarkdownConversionSettings)
+                        HStack(spacing: 10) {
+                            Button {
+                                appModel.saveMinerUMarkdownConversionSettings(token: minerUAPITokenDraft)
+                                minerUAPITokenDraft = ""
+                            } label: {
+                                Label("保存 MinerU API 设置", systemImage: "tray.and.arrow.down")
+                            }
                             .buttonStyle(.borderedProminent)
+
+                            Button(role: .destructive) {
+                                appModel.deleteMinerUAPIToken()
+                                minerUAPITokenDraft = ""
+                            } label: {
+                                Label("清除 Token", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!appModel.hasMinerUAPIToken)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1156,7 +1177,7 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                         }
 
-                        SecureField("API Key", text: $appModel.llmAPIKey)
+                        SecureField("API Key", text: $llmAPIKeyDraft)
                             .textFieldStyle(.roundedBorder)
 
                         Text("API Key is never written to settings.yaml or the research root. Base URL and model settings are saved as non-sensitive workspace preferences.")
@@ -1165,12 +1186,25 @@ struct SettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
 
                         HStack(spacing: 12) {
-                            Button("Save Settings", action: appModel.saveLLMSettings)
+                            Button("Save Settings") {
+                                appModel.saveLLMSettings(apiKey: llmAPIKeyDraft)
+                                llmAPIKeyDraft = ""
+                            }
                                 .buttonStyle(.borderedProminent)
                                 .help(Text(verbatim: "Save LLM provider settings"))
-                            Button("Test Connection", action: appModel.testLLMConnection)
+                            Button("Test Connection") {
+                                appModel.testLLMConnection(apiKey: llmAPIKeyDraft)
+                            }
                                 .buttonStyle(.bordered)
                                 .help(Text(verbatim: "Send a small test request to the configured provider"))
+                            Button(role: .destructive) {
+                                appModel.deleteLLMAPIKey()
+                                llmAPIKeyDraft = ""
+                            } label: {
+                                Label("Clear Key", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!appModel.hasLLMAPIKey)
                         }
 
                         if appModel.isTestingLLMConnection {
@@ -1217,10 +1251,12 @@ struct SettingsView: View {
         .onAppear {
             syncDrafts()
             refreshSkillCatalog()
+            appModel.loadSensitiveAIKeysIfNeeded()
         }
         .onChange(of: workspace.rootURL) { _, _ in
             syncDrafts()
             refreshSkillCatalog()
+            appModel.loadSensitiveAIKeysIfNeeded()
         }
         .onChange(of: appModel.agentWorkspaceProfile) { _, _ in
             promptDrafts = promptDraftMap(from: appModel.agentWorkspaceProfile.promptTemplates)
@@ -1613,55 +1649,7 @@ private struct AgentSkillCatalogEntryRow: View {
     }
 }
 
-enum SettingsCategory: String, CaseIterable, Identifiable {
-    case workspace
-    case modules
-    case projects
-    case library
-    case tasks
-    case aiLab
-    case developer
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .workspace:
-            return "Workspace"
-        case .modules:
-            return "Modules"
-        case .projects:
-            return "Projects"
-        case .library:
-            return "Library"
-        case .tasks:
-            return "Tasks"
-        case .aiLab:
-            return "AI Lab"
-        case .developer:
-            return "Developer"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .workspace:
-            return "Manage the research root and workspace identity."
-        case .modules:
-            return "Enable, pin, repair, and override built-in workspace modules."
-        case .projects:
-            return "Edit project names, descriptions, icons, and colors."
-        case .library:
-            return "Control paper import defaults, MinerU conversion, migration, and library table behavior."
-        case .tasks:
-            return "Configure todo sync with Apple Reminders."
-        case .aiLab:
-            return "Configure API provider, runtime, hooks, MCP, and knowledge context."
-        case .developer:
-            return "Inspect settings files and generated agent paths."
-        }
-    }
-
+extension SettingsCategory {
     @MainActor
     func title(appModel: AppViewModel) -> String {
         switch self {
@@ -1702,24 +1690,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
-        switch self {
-        case .workspace:
-            return "externaldrive"
-        case .modules:
-            return "switch.2"
-        case .projects:
-            return "folder"
-        case .library:
-            return "books.vertical"
-        case .tasks:
-            return "checklist"
-        case .aiLab:
-            return "sparkles"
-        case .developer:
-            return "terminal"
-        }
-    }
 }
 
 private struct SettingsCategorySidebar: View {
@@ -1818,6 +1788,7 @@ private struct LegacyMigrationPlanRow: View {
 
 struct SettingsSceneView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     var body: some View {
         Group {
@@ -1886,6 +1857,7 @@ struct AIManagementPanelView: View {
 
 struct AIManagementDashboard: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var agentStore: AgentStore
 
     enum Mode {
         case sheet(DismissAction)
@@ -1902,6 +1874,7 @@ struct AIManagementDashboard: View {
     let workspace: ResearchWorkspace
     let mode: Mode
     @State private var availableWidth: CGFloat = 0
+    @State private var llmAPIKeyDraft = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1924,6 +1897,9 @@ struct AIManagementDashboard: View {
             proxy.size.width
         } action: { width in
             availableWidth = width
+        }
+        .task {
+            appModel.loadSensitiveAIKeysIfNeeded()
         }
     }
 
@@ -2088,7 +2064,7 @@ struct AIManagementDashboard: View {
                 GridRow {
                     Label("Key", systemImage: "key")
                         .frame(width: 78, alignment: .leading)
-                    SecureField(appModel.localized("留空保留已保存 Key", "Leave blank to keep saved key"), text: $appModel.llmAPIKey)
+                    SecureField(appModel.localized("留空保留已保存 Key", "Leave blank to keep saved key"), text: $llmAPIKeyDraft)
                         .textFieldStyle(.roundedBorder)
                 }
             }
@@ -2108,7 +2084,8 @@ struct AIManagementDashboard: View {
 
             HStack(spacing: 8) {
                 Button {
-                    appModel.saveLLMSettings()
+                    appModel.saveLLMSettings(apiKey: llmAPIKeyDraft)
+                    llmAPIKeyDraft = ""
                 } label: {
                     Label(appModel.localized("保存", "Save"), systemImage: "tray.and.arrow.down")
                 }
@@ -2116,11 +2093,19 @@ struct AIManagementDashboard: View {
                 .help(appModel.localized("保存模型设置；Key 留空时不会读取或覆盖钥匙串。", "Save model settings; a blank key is not read from or written to Keychain."))
 
                 Button {
-                    appModel.testLLMConnection()
+                    appModel.testLLMConnection(apiKey: llmAPIKeyDraft)
                 } label: {
                     Label(appModel.isTestingLLMConnection ? appModel.localized("测试中", "Testing") : appModel.localized("测试", "Test"), systemImage: "bolt.horizontal")
                 }
                 .disabled(appModel.isTestingLLMConnection)
+
+                Button(role: .destructive) {
+                    appModel.deleteLLMAPIKey()
+                    llmAPIKeyDraft = ""
+                } label: {
+                    Label(appModel.localized("清除 Key", "Clear Key"), systemImage: "trash")
+                }
+                .disabled(!appModel.hasLLMAPIKey)
 
                 if appModel.isTestingLLMConnection {
                     ProgressView()

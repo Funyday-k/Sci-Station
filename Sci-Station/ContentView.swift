@@ -6,11 +6,11 @@
 //
 
 import AppKit
-import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
     @EnvironmentObject private var launchCoordinator: SciStationLaunchCoordinator
     @Environment(\.openWindow) private var openWindow
     @AppStorage("sciStation.shellRightRailWidth") private var shellRightRailWidth = 360.0
@@ -21,7 +21,7 @@ struct ContentView: View {
         let shellState = appModel.shellRenderState
         GeometryReader { proxy in
             Group {
-                if shellState.selectedSection == .pdfReader, shellState.currentWorkspace != nil {
+                if navigationStore.selectedSection == .pdfReader, shellState.currentWorkspace != nil {
                     NavigationSplitView(columnVisibility: $readerColumnVisibility) {
                         SidebarView(workspace: shellState.currentWorkspace)
                             .navigationSplitViewColumnWidth(min: 188, ideal: 216, max: 268)
@@ -62,6 +62,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: 480)
         .background(Color(nsColor: .windowBackgroundColor))
+        .uitestID(UITestAccessibilityID.App.mainWindowRoot)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .background(alignment: .topLeading) {
             SciStationMainWindowGate(isLaunching: launchCoordinator.isLaunching)
@@ -85,7 +86,7 @@ struct ContentView: View {
                 }
             }
 
-            if shellState.selectedSection == .pdfReader, let paperTitle = shellState.selectedPaperTitle {
+            if navigationStore.selectedSection == .pdfReader, let paperTitle = shellState.selectedPaperTitle {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
                         Text(paperTitle)
@@ -112,6 +113,8 @@ struct ContentView: View {
             }
         )
         .task {
+            guard !AppUISmokeTest.isRequested() else { return }
+
             await appModel.restoreLastWorkspaceIfNeeded()
             appModel.applyRightRailRouteSuggestion()
             appModel.recordToolbarPolicyChange(appModel.shellRenderState.toolbarModel)
@@ -128,7 +131,7 @@ struct ContentView: View {
                     }
             }
         }
-        .onChange(of: shellState.selectedSection) { _, selectedSection in
+        .onChange(of: navigationStore.selectedSection) { _, selectedSection in
             if selectedSection == .pdfReader {
                 readerColumnVisibility = .detailOnly
             }
@@ -422,8 +425,16 @@ private struct ResizableRightRailColumn<Content: View>: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
+        let appModel = AppViewModel()
         ContentView()
-            .environmentObject(AppViewModel())
+            .environmentObject(appModel)
+            .environmentObject(appModel.workspaceStore)
+            .environmentObject(appModel.libraryStore)
+            .environmentObject(appModel.knowledgeStore)
+            .environmentObject(appModel.recommendationStore)
+            .environmentObject(appModel.agentStore)
+            .environmentObject(appModel.navigationStore)
+            .environmentObject(appModel.graphStore)
             .environmentObject(SciStationLaunchCoordinator())
     }
 }

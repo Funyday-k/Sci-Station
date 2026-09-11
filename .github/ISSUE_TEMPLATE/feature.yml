@@ -1,0 +1,27 @@
+name: Feature or improvement
+description: Propose a bounded change with acceptance criteria.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and affected workflow
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed behavior and acceptance criteria
+      description: Describe what a user should be able to do and how to verify it.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and alternatives
+      description: Include what belongs in this change and alternatives considered.
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Data, permissions and architecture
+      description: Link an RFC/ADR when changing a domain, stored format, runtime or permission boundary.

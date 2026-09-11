@@ -2394,6 +2394,7 @@ private struct HomeWidgetTextRow: View {
 }
 
 private extension HomeWidgetSize {
+    @MainActor
     func title(appModel: AppViewModel) -> String {
         switch self {
         case .small:

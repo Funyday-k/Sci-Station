@@ -1,5 +1,10 @@
 import Foundation
 
+struct PDFImportSharedFileSnapshot: Sendable {
+    let projectLinks: Data?
+    let bibliography: Data?
+}
+
 public actor PaperRepository {
     private let fileManager: FileManager
     private let metadataCodec: PaperMetadataCodec
@@ -48,7 +53,7 @@ public actor PaperRepository {
             let directoryURL = fileURL.deletingLastPathComponent()
             let metadataContents = try String(contentsOf: fileURL, encoding: .utf8)
             let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
-            var paper = metadataCodec.decode(
+            var paper = try metadataCodec.decodeThrowing(
                 metadataContents,
                 directoryRelativePath: workspace.relativePath(to: directoryURL),
                 fallbackTitle: directoryURL.lastPathComponent,
@@ -71,6 +76,76 @@ public actor PaperRepository {
 
     public func saveMetadataMirror(_ paper: Paper, in workspace: ResearchWorkspace) async throws -> Paper {
         try await save(paper, in: workspace, shouldSyncProjectLinks: false)
+    }
+
+    func snapshotPDFImportSharedFiles(in workspace: ResearchWorkspace) throws -> PDFImportSharedFileSnapshot {
+        try PDFImportSharedFileSnapshot(
+            projectLinks: fileContentsIfPresent(at: workspace.projectPaperLinksURL),
+            bibliography: fileContentsIfPresent(at: workspace.globalLibraryBibURL)
+        )
+    }
+
+    func syncProjectLinks(for paper: Paper, in workspace: ResearchWorkspace) async throws -> Data {
+        try await projectPaperLinkRepository.replaceLinks(for: paper, in: workspace)
+        return try Data(contentsOf: workspace.projectPaperLinksURL)
+    }
+
+    func appendBibliographyStubAndSnapshot(for paper: Paper, in workspace: ResearchWorkspace) throws -> Data {
+        try appendBibliographyStub(for: paper, in: workspace)
+        return try Data(contentsOf: workspace.globalLibraryBibURL)
+    }
+
+    func rollbackProjectLinks(
+        for paper: Paper,
+        originalContents: Data?,
+        committedContents: Data?,
+        in workspace: ResearchWorkspace
+    ) async throws {
+        let fileURL = workspace.projectPaperLinksURL
+        let currentContents = try fileContentsIfPresent(at: fileURL)
+        guard currentContents != originalContents else {
+            return
+        }
+
+        if let committedContents, currentContents == committedContents {
+            try restoreFileContents(originalContents, at: fileURL)
+            return
+        }
+
+        try await projectPaperLinkRepository.removeLinks(forPaperID: paper.id, in: workspace)
+    }
+
+    func rollbackBibliographyStub(
+        for paper: Paper,
+        originalContents: Data?,
+        committedContents: Data?,
+        in workspace: ResearchWorkspace
+    ) throws {
+        let fileURL = workspace.globalLibraryBibURL
+        guard let currentContents = try fileContentsIfPresent(at: fileURL) else {
+            return
+        }
+        guard currentContents != originalContents else {
+            return
+        }
+
+        if let committedContents, currentContents == committedContents {
+            try restoreFileContents(originalContents, at: fileURL)
+            return
+        }
+
+        let appendedEntry = Data("\n\(BibTeXFormatter.bibTeX(for: paper))".utf8)
+        guard let entryRange = currentContents.range(of: appendedEntry) else {
+            let citekeyMarker = Data("{\(paper.citekey),".utf8)
+            guard currentContents.range(of: citekeyMarker) != nil else {
+                return
+            }
+            throw PaperRepositoryRollbackError.bibliographyEntryChanged(paper.citekey)
+        }
+
+        var nextContents = currentContents
+        nextContents.removeSubrange(entryRange)
+        try nextContents.write(to: fileURL, options: .atomic)
     }
 
     private func save(_ paper: Paper, in workspace: ResearchWorkspace, shouldSyncProjectLinks: Bool) async throws -> Paper {
@@ -103,7 +178,7 @@ public actor PaperRepository {
             return contents
         }()
         if let existingContents,
-           let persistedGraphNodeID = metadataCodec.decodedGraphNodeID(from: existingContents) {
+           let persistedGraphNodeID = try metadataCodec.decodedGraphNodeIDThrowing(from: existingContents) {
             updatedPaper.graphNodeID = persistedGraphNodeID
         } else if (updatedPaper.graphNodeID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty {
             updatedPaper.graphNodeID = PaperIdentityGenerator.graphNodeID(
@@ -115,7 +190,7 @@ public actor PaperRepository {
             )
         }
 
-        let metadataContents = metadataCodec.encode(updatedPaper, preserving: existingContents)
+        let metadataContents = try metadataCodec.encodeThrowing(updatedPaper, preserving: existingContents)
         try metadataContents.write(to: metadataURL, atomically: true, encoding: .utf8)
 
         let annotationsRelativePath = updatedPaper.annotationsRelativePath ?? "annotations.md"
@@ -162,6 +237,25 @@ public actor PaperRepository {
         let entry = "\n\(BibTeXFormatter.bibTeX(for: paper))"
 
         try (existingContents + entry).write(to: bibliographyURL, atomically: true, encoding: .utf8)
+    }
+
+    private func fileContentsIfPresent(at fileURL: URL) throws -> Data? {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        return try Data(contentsOf: fileURL)
+    }
+
+    private func restoreFileContents(_ contents: Data?, at fileURL: URL) throws {
+        if let contents {
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try contents.write(to: fileURL, options: .atomic)
+        } else if fileManager.fileExists(atPath: fileURL.path) {
+            try fileManager.removeItem(at: fileURL)
+        }
     }
 
     private func deduplicated(_ papers: [Paper]) -> [Paper] {
@@ -219,5 +313,16 @@ public actor PaperRepository {
             result.append(trimmed)
         }
         return result
+    }
+}
+
+private enum PaperRepositoryRollbackError: LocalizedError {
+    case bibliographyEntryChanged(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .bibliographyEntryChanged(citekey):
+            return "The bibliography entry for \(citekey) changed before import rollback completed."
+        }
     }
 }

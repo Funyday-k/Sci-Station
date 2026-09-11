@@ -1,9 +1,9 @@
 import CryptoKit
 import Foundation
 
-/// Schema version for the on-disk research graph. Increment on every breaking
-/// change and update `GraphMigrationRunner` accordingly. See Proposal44 §4.7.
-public nonisolated let graphSchemaVersion: Int = 1
+/// Schema version exposed by graph snapshots and manifests. SQLite storage
+/// migrations are applied by `GraphRepository` through `PRAGMA user_version`.
+public nonisolated let graphSchemaVersion: Int = 2
 
 public enum GraphNodeKind: String, Codable, Hashable, Sendable, CaseIterable {
     case paper
@@ -34,8 +34,8 @@ public enum GraphEdgeKind: String, Codable, Hashable, Sendable, CaseIterable {
     case scheduledFor = "scheduled_for"
 }
 
-/// A graph node. `id` is `<kind>:<stable-id>` where `<stable-id>` never
-/// contains `:` (so `id` can be decomposed by the first colon).
+/// A graph node. `id` is namespaced as `<kind>:<stable-id>`, but the stable
+/// portion may contain additional colons, so callers should treat it as opaque.
 public nonisolated struct GraphNode: Codable, Hashable, Sendable, Identifiable {
     public let id: String
     public let kind: GraphNodeKind
@@ -78,7 +78,7 @@ public nonisolated struct GraphNode: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// A graph edge. `id` is `<from>:<kind>:<to>` and is derived deterministically
+/// A graph edge. `id` is `<from>|<kind>|<to>` and is derived deterministically
 /// by `GraphEdge.computeID` so upserts are idempotent.
 public nonisolated struct GraphEdge: Codable, Hashable, Sendable, Identifiable {
     public let id: String
@@ -134,9 +134,8 @@ public nonisolated struct GraphEdge: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// Tombstone record written to `tombstones.jsonl` when a node or edge is
-/// deleted. The replay logic uses tombstones to suppress prior upserts that
-/// are no longer valid.
+/// Legacy JSONL deletion record retained for migration compatibility. Current
+/// SQLite graph writes delete rows directly and do not append tombstones.
 public nonisolated struct GraphTombstone: Codable, Hashable, Sendable {
     public enum Target: String, Codable, Hashable, Sendable {
         case node
@@ -169,15 +168,166 @@ public nonisolated struct GraphSnapshot: Sendable {
     public let schemaVersion: Int
     public let nodes: [String: GraphNode]
     public let edges: [String: GraphEdge]
+    public let citationOccurrences: [String: GraphCitationOccurrence]
+    public let sourceAnchors: [String: GraphSourceAnchor]
 
-    public nonisolated init(schemaVersion: Int, nodes: [String: GraphNode], edges: [String: GraphEdge]) {
+    public nonisolated init(
+        schemaVersion: Int,
+        nodes: [String: GraphNode],
+        edges: [String: GraphEdge],
+        citationOccurrences: [String: GraphCitationOccurrence] = [:],
+        sourceAnchors: [String: GraphSourceAnchor] = [:]
+    ) {
         self.schemaVersion = schemaVersion
         self.nodes = nodes
         self.edges = edges
+        self.citationOccurrences = citationOccurrences
+        self.sourceAnchors = sourceAnchors
     }
 
     public nonisolated func node(id: String) -> GraphNode? { nodes[id] }
     public nonisolated func edge(id: String) -> GraphEdge? { edges[id] }
+}
+
+/// One concrete appearance of a citation. Citation edges describe the
+/// semantic relationship; occurrences preserve every piece of evidence that
+/// established it, including repeated references to the same target.
+public nonisolated struct GraphCitationOccurrence: Codable, Hashable, Sendable, Identifiable {
+    public let id: String
+    public let edgeID: String
+    public let sourceNodeID: String
+    public let targetNodeID: String
+    public let evidenceSource: String
+    public let bibtexKey: String?
+    public let rawText: String
+    public let ordinal: Int
+    public let sourceHash: String
+    public let anchorID: String?
+
+    public nonisolated init(
+        id: String,
+        edgeID: String,
+        sourceNodeID: String,
+        targetNodeID: String,
+        evidenceSource: String,
+        bibtexKey: String? = nil,
+        rawText: String,
+        ordinal: Int,
+        sourceHash: String,
+        anchorID: String? = nil
+    ) {
+        self.id = id
+        self.edgeID = edgeID
+        self.sourceNodeID = sourceNodeID
+        self.targetNodeID = targetNodeID
+        self.evidenceSource = evidenceSource
+        self.bibtexKey = bibtexKey
+        self.rawText = rawText
+        self.ordinal = ordinal
+        self.sourceHash = sourceHash
+        self.anchorID = anchorID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case edgeID = "edge_id"
+        case sourceNodeID = "source_node_id"
+        case targetNodeID = "target_node_id"
+        case evidenceSource = "evidence_source"
+        case bibtexKey = "bibtex_key"
+        case rawText = "raw_text"
+        case ordinal
+        case sourceHash = "source_hash"
+        case anchorID = "anchor_id"
+    }
+}
+
+/// Stable pointer back to source material that produced a graph fact.
+public nonisolated struct GraphSourceAnchor: Codable, Hashable, Sendable, Identifiable {
+    public let id: String
+    public let sourceNodeID: String
+    public let relativePath: String
+    public let locator: String
+    public let excerpt: String?
+    public let sourceHash: String
+
+    public nonisolated init(
+        id: String,
+        sourceNodeID: String,
+        relativePath: String,
+        locator: String,
+        excerpt: String? = nil,
+        sourceHash: String
+    ) {
+        self.id = id
+        self.sourceNodeID = sourceNodeID
+        self.relativePath = relativePath
+        self.locator = locator
+        self.excerpt = excerpt
+        self.sourceHash = sourceHash
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sourceNodeID = "source_node_id"
+        case relativePath = "relative_path"
+        case locator
+        case excerpt
+        case sourceHash = "source_hash"
+    }
+}
+
+/// Complete authoritative graph produced by one deterministic indexing pass.
+/// Reconciliation treats the listed kinds as managed and leaves future/manual
+/// graph kinds alone.
+public nonisolated struct GraphExpectedState: Sendable {
+    public let nodes: [String: GraphNode]
+    public let edges: [String: GraphEdge]
+    public let citationOccurrences: [String: GraphCitationOccurrence]
+    public let sourceAnchors: [String: GraphSourceAnchor]
+    public let managedNodeKinds: Set<GraphNodeKind>
+    public let managedEdgeKinds: Set<GraphEdgeKind>
+
+    public nonisolated init(
+        nodes: [String: GraphNode],
+        edges: [String: GraphEdge],
+        citationOccurrences: [String: GraphCitationOccurrence] = [:],
+        sourceAnchors: [String: GraphSourceAnchor] = [:],
+        managedNodeKinds: Set<GraphNodeKind> = [.paper, .project, .concept, .method, .task],
+        managedEdgeKinds: Set<GraphEdgeKind> = [.cites, .mentions, .belongsTo]
+    ) {
+        self.nodes = nodes
+        self.edges = edges
+        self.citationOccurrences = citationOccurrences
+        self.sourceAnchors = sourceAnchors
+        self.managedNodeKinds = managedNodeKinds
+        self.managedEdgeKinds = managedEdgeKinds
+    }
+}
+
+public nonisolated struct GraphReconciliationResult: Hashable, Sendable {
+    public let insertedOrUpdatedNodes: Int
+    public let insertedOrUpdatedEdges: Int
+    public let deletedNodes: Int
+    public let deletedEdges: Int
+    public let citationOccurrences: Int
+    public let sourceAnchors: Int
+
+    public nonisolated init(
+        insertedOrUpdatedNodes: Int,
+        insertedOrUpdatedEdges: Int,
+        deletedNodes: Int,
+        deletedEdges: Int,
+        citationOccurrences: Int,
+        sourceAnchors: Int
+    ) {
+        self.insertedOrUpdatedNodes = insertedOrUpdatedNodes
+        self.insertedOrUpdatedEdges = insertedOrUpdatedEdges
+        self.deletedNodes = deletedNodes
+        self.deletedEdges = deletedEdges
+        self.citationOccurrences = citationOccurrences
+        self.sourceAnchors = sourceAnchors
+    }
 }
 
 /// Manifest persisted at `.sci-station/graph/manifest.json`. Holds the schema
@@ -284,6 +434,36 @@ public enum GraphIdentifier {
         let joined = components.joined(separator: "\u{1f}")
         let digest = SHA256.hash(data: Data(joined.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Hashes a Codable value using sorted-key JSON and ISO-8601 dates. This is
+    /// the canonical hashing primitive for graph records and source entities.
+    public nonisolated static func canonicalHash<T: Encodable>(of value: T) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(value) else {
+            assertionFailure("Graph canonical hash encoding failed for \(T.self)")
+            return sourceHash(from: [String(describing: value)])
+        }
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Produces a readable, workspace/project-scoped identifier while using a
+    /// SHA-256 suffix to avoid the punctuation collisions caused by slugs.
+    public nonisolated static func scopedEntityID(kind: GraphNodeKind, name: String, scope: String) -> String {
+        let canonicalName = name.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        let canonicalScope = scope.precomposedStringWithCanonicalMapping.lowercased()
+        let nameDigest = sourceHash(from: [canonicalName])
+        let scopeDigest = sourceHash(from: [canonicalScope])
+        let readable = slug(from: name).prefix(48)
+        let label = readable.isEmpty ? "entity" : String(readable)
+        return "\(kind.rawValue):\(scopeDigest.prefix(16)):\(label)-\(nameDigest.prefix(16))"
     }
 
     /// Asserts (debug-only) that `id` does not contain `|` which is the edge

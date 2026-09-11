@@ -370,6 +370,7 @@ private struct PDFReaderSideRail: View {
 
 private struct PDFReaderMetadataPanel: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
     let workspace: ResearchWorkspace
     let paper: Paper
@@ -708,7 +709,7 @@ private struct PDFReaderMetadataPanel: View {
 
             metadataSection(rows: [
                 ("Wiki", paper.notesSummaryRelativePath),
-                ("Backlinks", emptyToNil(appModel.markdownDocuments.filter { document in
+                ("Backlinks", emptyToNil(knowledgeStore.documents.filter { document in
                     document.outgoingLinks.contains { link in
                         link.normalizedTarget == WikiLink.normalizePageKey(paper.citekey)
                     }
