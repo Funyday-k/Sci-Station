@@ -101,7 +101,7 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
             terminationHandler: { [weak self] exitCode in
                 guard let self else { return }
                 if exitCode != 0 {
-                    await self.recordSidecarCrash(exitCode: exitCode, for: request, continuation: nil)
+                    await self.recordSidecarCrashIfActive(exitCode: exitCode, for: request, continuation: nil)
                 }
                 await terminal.finish()
             }
@@ -174,8 +174,11 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
         continuation: AsyncThrowingStream<AgentRuntimeEventEnvelope, Error>.Continuation?,
         terminal: SidecarRunTerminal? = nil
     ) async throws -> SidecarConnection {
-        if let existing = connectionsByRunID[request.runID], await existing.isRunning() {
-            return existing
+        if let existing = connectionsByRunID[request.runID] {
+            if await existing.isRunning() {
+                return existing
+            }
+            connectionsByRunID.removeValue(forKey: request.runID)
         }
         let bridge = hostBridge(for: request)
         let connection = try await supervisor.start(
@@ -199,7 +202,7 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
             terminationHandler: { [weak self] exitCode in
                 guard let self else { return }
                 if exitCode != 0 {
-                    await self.recordSidecarCrash(exitCode: exitCode, for: request, continuation: continuation)
+                    await self.recordSidecarCrashIfActive(exitCode: exitCode, for: request, continuation: continuation)
                 }
                 await terminal?.finish()
             }
@@ -325,11 +328,14 @@ public actor LangGraphAgentRuntime: ExternalAgentRuntime {
         }
     }
 
-    private func recordSidecarCrash(
+    private func recordSidecarCrashIfActive(
         exitCode: Int32,
         for request: AgentRuntimeRequest,
         continuation: AsyncThrowingStream<AgentRuntimeEventEnvelope, Error>.Continuation?
     ) async {
+        // Only successfully initialized connections are registered. Startup
+        // failures are reported by performStartRun's unavailable/fallback path.
+        guard connectionsByRunID.removeValue(forKey: request.runID) != nil else { return }
         let error = AgentRuntimeError(code: .sidecarCrashed, message: "Sidecar process exited with status \(exitCode).")
         await healthCoordinator?.recordCrash(error.message)
         _ = try? await appendRuntimeEvent(.sidecarCrashed(error), for: request, continuation: continuation)
