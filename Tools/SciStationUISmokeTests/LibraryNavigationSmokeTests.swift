@@ -16,17 +16,23 @@ final class LibraryNavigationSmokeTests: XCTestCase {
         )
         let appURL = URL(fileURLWithPath: appPath).resolvingSymlinksInPath()
         let launchedApp = try XCTUnwrap(NSRunningApplication(processIdentifier: processID))
-        XCTAssertEqual(launchedApp.bundleURL?.resolvingSymlinksInPath(), appURL)
+        XCTAssertEqual(launchedApp.bundleURL?.resolvingSymlinksInPath(), appURL, "Process binding: the supplied PID must belong to the exact artifact.")
         addTeardownBlock {
             launchedApp.terminate()
         }
-        XCTAssertTrue(launchedApp.activate(options: [.activateAllWindows]))
+        XCTAssertTrue(launchedApp.activate(options: [.activateAllWindows]), "Process activation: the verified instance must accept activation.")
 
-        let app = XCUIApplication(url: appURL)
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+        let app = XCUIApplication()
+        // Use the primary target registered by the exact UITargetAppPath.
+        // Activate it before consulting XCTest's asynchronously observed state.
+        app.launchArguments = ["--ui-test-host"]
+        app.launchEnvironment["SCI_STATION_UI_TEST_HOST"] = "1"
         app.activate()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, launchedApp.processIdentifier)
+        let isForeground = app.wait(for: .runningForeground, timeout: 20)
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        print("UI_SMOKE_BINDING expected_pid=\(processID) frontmost_pid=\(frontmostPID ?? 0) xcui_state=\(app.state.rawValue)")
+        XCTAssertTrue(isForeground, "Process binding: XCTest must observe the verified artifact in the foreground.")
+        XCTAssertEqual(frontmostPID, launchedApp.processIdentifier, "Process binding: activation must retain the original verified PID.")
         print("UI_SMOKE_HOST pid=\(launchedApp.processIdentifier) path=\(appURL.path)")
 
         let window = app.windows.firstMatch
@@ -35,10 +41,10 @@ final class LibraryNavigationSmokeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(window.frame.height, 460)
 
         let root = element("app.main_window.root", in: window)
-        XCTAssertTrue(waitUntilVisible(root, in: window), "The main content must be visible.")
         let home = element("workspace.section.dashboard", in: window)
-        XCTAssertTrue(waitUntilVisible(home, in: window), "The host must start on Home.")
         let destination = element("workspace.section.library", in: window)
+        XCTAssertTrue(waitUntilVisible(root, in: window), "The main content must be visible.")
+        XCTAssertTrue(waitUntilVisible(home, in: window), "The host must start on Home.")
         XCTAssertFalse(destination.exists, "Library must not be the initial screen.")
 
         let libraryButton = window.buttons["sidebar.tab.library"]
@@ -46,13 +52,25 @@ final class LibraryNavigationSmokeTests: XCTestCase {
         for (name, item) in [("window", window), ("root", root), ("home", home), ("library_button", libraryButton)] {
             logGeometry(item, name: name)
         }
-        XCTAssertTrue(libraryButton.isEnabled)
-        XCTAssertTrue(libraryButton.isHittable, "Library must be clickable on screen.")
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, launchedApp.processIdentifier)
+        XCTAssertTrue(libraryButton.isEnabled, "Navigation: Library must be enabled.")
+        XCTAssertTrue(libraryButton.isHittable, "Navigation: Library must be clickable on screen.")
+        XCTAssertTrue(launchedApp.activate(options: [.activateAllWindows]), "Process activation: reactivate the same verified instance before clicking.")
+        XCTAssertTrue(waitUntilForeground(processID), "Process activation: the verified PID must become foreground before clicking.")
+        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, launchedApp.processIdentifier, "Process binding: the verified PID must remain foreground before clicking.")
         libraryButton.click()
 
-        XCTAssertTrue(waitUntilVisible(destination, in: window), "Clicking Library must render its destination.")
-        XCTAssertTrue(home.waitForNonExistence(timeout: 10), "Home must be replaced after navigation.")
+        XCTAssertTrue(waitUntilVisible(destination, in: window), "Navigation: clicking Library must render its destination.")
+        XCTAssertTrue(home.waitForNonExistence(timeout: 10), "Navigation: Home must be replaced after the Library click.")
+    }
+
+    private func waitUntilForeground(_ processID: Int32) -> Bool {
+        let predicate = NSPredicate { _, _ in
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == processID
+        }
+        return XCTWaiter.wait(
+            for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)],
+            timeout: 5
+        ) == .completed
     }
 
     private func logGeometry(_ element: XCUIElement, name: String) {
