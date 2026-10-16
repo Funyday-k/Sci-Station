@@ -78,6 +78,26 @@ public actor PaperRepository {
         try await save(paper, in: workspace, shouldSyncProjectLinks: false)
     }
 
+    /// Patch only the derived association keys in persisted metadata. Reading
+    /// and writing happen in a single actor turn; no draft or stale Paper is saved.
+    public func updateProjectMetadataMirror(
+        forPaperID paperID: Paper.ID,
+        links: [ProjectPaperLink],
+        in workspace: ResearchWorkspace
+    ) throws {
+        let persisted = deduplicated(try scanPapers(at: workspace.globalPapersURL, in: workspace)
+            + scanPapers(at: workspace.rawPapersURL, in: workspace))
+        guard let paper = persisted.first(where: { $0.id == paperID }) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let metadataURL = workspace.directoryURL(for: paper.paperDirectoryRelativePath).appendingPathComponent("meta.yaml")
+        let contents = try String(contentsOf: metadataURL, encoding: .utf8)
+        var mapping = try StandardsYAMLDecoder.decodeMapping(contents)
+        mapping["project_ids"] = .array(uniqueOrdered(links.map(\.projectID)).map(FrontmatterValue.string))
+        mapping["core_project_ids"] = .array(uniqueOrdered(links.filter(\.isCore).map(\.projectID)).map(FrontmatterValue.string))
+        try StandardsYAMLEncoder.encodeMapping(mapping).write(to: metadataURL, atomically: true, encoding: .utf8)
+    }
+
     func snapshotPDFImportSharedFiles(in workspace: ResearchWorkspace) throws -> PDFImportSharedFileSnapshot {
         try PDFImportSharedFileSnapshot(
             projectLinks: fileContentsIfPresent(at: workspace.projectPaperLinksURL),

@@ -501,6 +501,8 @@ final class AppViewModel: ObservableObject {
     let workspaceService: WorkspaceService
     let projectRegistryRepository: ProjectRegistryRepository
     let paperRepository: PaperRepository
+    var paperProjectMutationRevision: UInt64 = 0
+    let paperProjectMembershipUseCase: PaperProjectMembershipUseCase
     let projectPaperLinkRepository: ProjectPaperLinkRepository
     let legacyPaperMigrationService: LegacyPaperMigrationService
     let collectionRepository: CollectionRepository
@@ -1094,6 +1096,9 @@ final class AppViewModel: ObservableObject {
         self.projectRegistryRepository = resolvedProjectRegistryRepository
         self.paperRepository = resolvedPaperRepository
         self.projectPaperLinkRepository = resolvedProjectPaperLinkRepository
+        self.paperProjectMembershipUseCase = PaperProjectMembershipUseCase(
+            links: resolvedProjectPaperLinkRepository, papers: resolvedPaperRepository
+        )
         self.legacyPaperMigrationService = resolvedLegacyPaperMigrationService
         self.collectionRepository = resolvedCollectionRepository
         self.movePaperToCollectionService = resolvedMovePaperToCollectionService

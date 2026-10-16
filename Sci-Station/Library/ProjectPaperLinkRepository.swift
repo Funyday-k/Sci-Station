@@ -50,8 +50,25 @@ public nonisolated struct ProjectPaperLink: Identifiable, Codable, Hashable, Sen
     }
 }
 
+nonisolated struct ProjectPaperLinkMutationReceipt: Sendable {
+    let projectID: String
+    let paperID: String
+    let previousEntry: FrontmatterValue?
+    let committedEntry: FrontmatterValue?
+    let revision: UInt64
+}
+
+nonisolated enum ProjectPaperLinkCompensationError: Error, LocalizedError {
+    case changedSinceCommit
+
+    var errorDescription: String? {
+        "The association changed after this operation committed; its newer state was preserved."
+    }
+}
+
 public actor ProjectPaperLinkRepository {
     private let fileManager: FileManager
+    private var mutationRevisions: [URL: [ProjectPaperLink.ID: UInt64]] = [:]
 
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -63,13 +80,100 @@ public actor ProjectPaperLinkRepository {
             return []
         }
 
-        return decode(try String(contentsOf: fileURL, encoding: .utf8))
+        return try decode(String(contentsOf: fileURL, encoding: .utf8))
     }
 
     public func save(_ links: [ProjectPaperLink], in workspace: ResearchWorkspace) throws {
+        let previous = try load(in: workspace)
+        try persist(links, in: workspace)
+        for link in previous + links { recordMutation(projectID: link.projectID, paperID: link.paperID, in: workspace) }
+    }
+
+    private func persist(_ links: [ProjectPaperLink], in workspace: ResearchWorkspace) throws {
         let fileURL = workspace.projectPaperLinksURL
         try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encode(links).write(to: fileURL, atomically: true, encoding: .utf8)
+        let existing = fileManager.fileExists(atPath: fileURL.path)
+            ? try String(contentsOf: fileURL, encoding: .utf8) : nil
+        let contents = try encodePreservingExtensions(links, existingContents: existing)
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Read and mutate in one actor turn so stale UI link snapshots cannot
+    /// overwrite pinned state, notes or another association update.
+    func apply(
+        _ mutation: PaperProjectMutation,
+        projectID: String,
+        paperID: String,
+        in workspace: ResearchWorkspace
+    ) throws -> ProjectPaperLinkMutationReceipt {
+        try Task.checkCancellation()
+        let previousEntry = try metadataEntry(projectID: projectID, paperID: paperID, in: workspace)
+        let existing = try link(forPaperID: paperID, projectID: projectID, in: workspace)
+        var link = existing ?? ProjectPaperLink(projectID: projectID, paperID: paperID)
+        let removesMembership: Bool
+        switch mutation {
+        case .membership(false): removesMembership = true
+        case .toggleMembership: removesMembership = existing != nil
+        default: removesMembership = false
+        }
+        if removesMembership {
+            try remove(projectID: projectID, paperID: paperID, in: workspace)
+        } else {
+            switch mutation {
+            case .membership, .toggleMembership: break
+            case let .core(value): link.isCore = value
+            case .toggleCore: link.isCore.toggle()
+            case let .pinned(value): link.isPinned = value
+            case let .useFor(value): link.useFor = value
+            case let .folderPath(value): link.folderPath = value
+            }
+            try upsert(link, in: workspace)
+        }
+        return ProjectPaperLinkMutationReceipt(
+            projectID: projectID, paperID: paperID, previousEntry: previousEntry,
+            committedEntry: try metadataEntry(projectID: projectID, paperID: paperID, in: workspace),
+            revision: mutationRevision(projectID: projectID, paperID: paperID, in: workspace)
+        )
+    }
+
+    /// Restore only this association if nobody has changed its committed entry.
+    /// Preserve the current document's other links and root extensions, and the
+    /// original entry's unknown fields. No full-file snapshot is replayed.
+    func compensate(_ receipt: ProjectPaperLinkMutationReceipt, in workspace: ResearchWorkspace) throws {
+        let fileURL = workspace.projectPaperLinksURL
+        var mapping = try StandardsYAMLDecoder.decodeMapping(String(contentsOf: fileURL, encoding: .utf8))
+        var entries = mapping["links"]?.arrayElements ?? []
+        let matches: (FrontmatterValue) -> Bool = {
+            $0.objectValue?["project_id"]?.stringValue == receipt.projectID
+                && $0.objectValue?["paper_id"]?.stringValue == receipt.paperID
+        }
+        guard mutationRevision(projectID: receipt.projectID, paperID: receipt.paperID, in: workspace) == receipt.revision,
+              entries.first(where: matches) == receipt.committedEntry else {
+            throw ProjectPaperLinkCompensationError.changedSinceCommit
+        }
+        entries.removeAll(where: matches)
+        if let previousEntry = receipt.previousEntry { entries.append(previousEntry) }
+        mapping["links"] = .array(entries)
+        try StandardsYAMLEncoder.encodeMapping(mapping).write(to: fileURL, atomically: true, encoding: .utf8)
+        recordMutation(projectID: receipt.projectID, paperID: receipt.paperID, in: workspace)
+    }
+
+    private func mutationRevision(projectID: String, paperID: String, in workspace: ResearchWorkspace) -> UInt64 {
+        mutationRevisions[workspace.rootURL.standardizedFileURL]?["\(projectID)::\(paperID)"] ?? 0
+    }
+
+    private func recordMutation(projectID: String, paperID: String, in workspace: ResearchWorkspace) {
+        let revision = mutationRevision(projectID: projectID, paperID: paperID, in: workspace)
+        mutationRevisions[workspace.rootURL.standardizedFileURL, default: [:]]["\(projectID)::\(paperID)"] = revision &+ 1
+    }
+
+    private func metadataEntry(projectID: String, paperID: String, in workspace: ResearchWorkspace) throws -> FrontmatterValue? {
+        let fileURL = workspace.projectPaperLinksURL
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        let mapping = try StandardsYAMLDecoder.decodeMapping(String(contentsOf: fileURL, encoding: .utf8))
+        return mapping["links"]?.arrayElements?.first {
+            $0.objectValue?["project_id"]?.stringValue == projectID && $0.objectValue?["paper_id"]?.stringValue == paperID
+        }
     }
 
     public func links(forPaperID paperID: String, in workspace: ResearchWorkspace) throws -> [ProjectPaperLink] {
@@ -104,14 +208,16 @@ public actor ProjectPaperLinkRepository {
             links.append(normalizedLink)
         }
 
-        try save(links, in: workspace)
+        try persist(links, in: workspace)
+        recordMutation(projectID: normalizedLink.projectID, paperID: normalizedLink.paperID, in: workspace)
         return normalizedLink
     }
 
     @discardableResult
     public func remove(projectID: String, paperID: String, in workspace: ResearchWorkspace) throws -> [ProjectPaperLink] {
         let nextLinks = try load(in: workspace).filter { !($0.projectID == projectID && $0.paperID == paperID) }
-        try save(nextLinks, in: workspace)
+        try persist(nextLinks, in: workspace)
+        recordMutation(projectID: projectID, paperID: paperID, in: workspace)
         return nextLinks.filter { $0.paperID == paperID }.sorted(by: projectThenPaperSort)
     }
 
@@ -175,12 +281,37 @@ public actor ProjectPaperLinkRepository {
             )
         }
 
-        try save(nextLinks, in: workspace)
+        try persist(nextLinks, in: workspace)
+        for link in existingLinks + nextLinks where link.paperID == paper.id {
+            recordMutation(projectID: link.projectID, paperID: paper.id, in: workspace)
+        }
     }
 
     public func removeLinks(forPaperID paperID: String, in workspace: ResearchWorkspace) throws {
-        let nextLinks = try load(in: workspace).filter { $0.paperID != paperID }
-        try save(nextLinks, in: workspace)
+        let existing = try load(in: workspace)
+        let nextLinks = existing.filter { $0.paperID != paperID }
+        try persist(nextLinks, in: workspace)
+        for link in existing where link.paperID == paperID {
+            recordMutation(projectID: link.projectID, paperID: paperID, in: workspace)
+        }
+    }
+
+    private func encodePreservingExtensions(_ links: [ProjectPaperLink], existingContents: String?) throws -> String {
+        guard let existingContents else { return encode(links) }
+        var mapping = try StandardsYAMLDecoder.decodeMapping(existingContents)
+        let existingLinks = mapping["links"]?.arrayElements ?? []
+        let encoded = try StandardsYAMLDecoder.decodeMapping(encode(links))
+        mapping["links"] = .array((encoded["links"]?.arrayElements ?? []).map { value in
+            guard let fields = value.objectValue else { return value }
+            let existing = existingLinks.first { candidate in
+                candidate.objectValue?["project_id"] == fields["project_id"]
+                    && candidate.objectValue?["paper_id"] == fields["paper_id"]
+            }
+            var preserved = existing?.objectValue ?? [:]
+            preserved.merge(fields) { _, current in current }
+            return .object(preserved)
+        })
+        return try StandardsYAMLEncoder.encodeMapping(mapping)
     }
 
     private func encode(_ links: [ProjectPaperLink]) -> String {
@@ -216,102 +347,24 @@ public actor ProjectPaperLinkRepository {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    private func decode(_ contents: String) -> [ProjectPaperLink] {
-        let lines = contents.components(separatedBy: .newlines)
-        var links: [ProjectPaperLink] = []
-        var cursor = 0
-
-        while cursor < lines.count {
-            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("- project_id:") {
-                let result = decodeLink(from: lines, start: cursor)
-                if let link = result.link {
-                    links.append(link)
-                }
-                cursor = result.nextIndex
-            } else {
-                cursor += 1
-            }
-        }
-
-        return links
-    }
-
-    private func decodeLink(from lines: [String], start: Int) -> (link: ProjectPaperLink?, nextIndex: Int) {
-        var projectID = unquoted(value(after: "- project_id:", in: lines[start].trimmingCharacters(in: .whitespaces)))
-        var paperID = ""
-        var isCore = false
-        var folderPath: String?
-        var useFor: [String] = []
-        var isPinned = false
-        var sortOrder: Int?
-        var createdAt = Date()
-        var updatedAt = Date()
-        var cursor = start + 1
-
-        while cursor < lines.count {
-            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("- project_id:") {
-                break
-            }
-
-            if trimmed.hasPrefix("project_id:") {
-                projectID = unquoted(value(after: "project_id:", in: trimmed))
-            } else if trimmed.hasPrefix("paper_id:") {
-                paperID = unquoted(value(after: "paper_id:", in: trimmed))
-            } else if trimmed.hasPrefix("is_core:") {
-                isCore = Bool(value(after: "is_core:", in: trimmed)) ?? false
-            } else if trimmed.hasPrefix("folder_path:") {
-                folderPath = emptyToNil(unquoted(value(after: "folder_path:", in: trimmed)))
-            } else if trimmed.hasPrefix("is_pinned:") {
-                isPinned = Bool(value(after: "is_pinned:", in: trimmed)) ?? false
-            } else if trimmed.hasPrefix("sort_order:") {
-                sortOrder = Int(value(after: "sort_order:", in: trimmed).trimmingCharacters(in: .whitespacesAndNewlines))
-            } else if trimmed == "use_for:" {
-                let result = parseArray(from: lines, start: cursor + 1)
-                useFor = result.values
-                cursor = result.nextIndex - 1
-            } else if trimmed.hasPrefix("created_at:") {
-                createdAt = parseTimestamp(value(after: "created_at:", in: trimmed)) ?? createdAt
-            } else if trimmed.hasPrefix("updated_at:") {
-                updatedAt = parseTimestamp(value(after: "updated_at:", in: trimmed)) ?? updatedAt
-            }
-
-            cursor += 1
-        }
-
-        guard !projectID.isEmpty, !paperID.isEmpty else {
-            return (nil, cursor)
-        }
-
-        return (
-            ProjectPaperLink(
+    private func decode(_ contents: String) throws -> [ProjectPaperLink] {
+        let mapping = try StandardsYAMLDecoder.decodeMapping(contents)
+        return (mapping["links"]?.arrayElements ?? []).compactMap { value -> ProjectPaperLink? in
+            guard let fields = value.objectValue,
+                  let projectID = fields["project_id"]?.stringValue, !projectID.isEmpty,
+                  let paperID = fields["paper_id"]?.stringValue, !paperID.isEmpty else { return nil }
+            return ProjectPaperLink(
                 projectID: projectID,
                 paperID: paperID,
-                isCore: isCore,
-                folderPath: folderPath,
-                useFor: useFor,
-                isPinned: isPinned,
-                sortOrder: sortOrder,
-                createdAt: createdAt,
-                updatedAt: updatedAt
-            ),
-            cursor
-        )
-    }
-
-    private func parseArray(from lines: [String], start: Int) -> (values: [String], nextIndex: Int) {
-        var values: [String] = []
-        var cursor = start
-        while cursor < lines.count {
-            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("- ") else {
-                break
-            }
-            values.append(unquoted(String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)))
-            cursor += 1
+                isCore: fields["is_core"]?.boolValue ?? false,
+                folderPath: emptyToNil(fields["folder_path"]?.stringValue),
+                useFor: fields["use_for"]?.arrayElements?.compactMap(\.stringValue) ?? [],
+                isPinned: fields["is_pinned"]?.boolValue ?? false,
+                sortOrder: fields["sort_order"]?.integerValue,
+                createdAt: fields["created_at"]?.stringValue.flatMap(parseTimestamp) ?? Date(),
+                updatedAt: fields["updated_at"]?.stringValue.flatMap(parseTimestamp) ?? Date()
+            )
         }
-        return (values, cursor)
     }
 
     private func update(
@@ -371,10 +424,6 @@ public actor ProjectPaperLinkRepository {
         return result
     }
 
-    private func value(after prefix: String, in line: String) -> String {
-        line.replacingOccurrences(of: prefix, with: "").trimmingCharacters(in: .whitespaces)
-    }
-
     private func makeTimestampFormatter() -> ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
@@ -389,17 +438,6 @@ public actor ProjectPaperLinkRepository {
         let escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
-    }
-
-    private func unquoted(_ value: String) -> String {
-        guard value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") else {
-            return value
-        }
-        let startIndex = value.index(after: value.startIndex)
-        let endIndex = value.index(before: value.endIndex)
-        return value[startIndex..<endIndex]
-            .replacingOccurrences(of: "\\\"", with: "\"")
-            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 
     private func emptyToNil(_ value: String?) -> String? {

@@ -131,129 +131,78 @@ extension AppViewModel {
     }
 
     func togglePaperProject(_ paper: Paper, projectID: ResearchProject.ID) {
-        setPaperProjectMembership(paper, projectID: projectID, isMember: projectPaperLink(for: paper, projectID: projectID) == nil)
+        applyPaperProjectMutation(.toggleMembership, paperID: paper.id, projectID: projectID)
     }
 
     func togglePaperCoreProject(_ paper: Paper, projectID: ResearchProject.ID) {
-        let isCore = projectPaperLink(for: paper, projectID: projectID)?.isCore == true
-        setPaperProjectCore(paper, projectID: projectID, isCore: !isCore)
+        applyPaperProjectMutation(.toggleCore, paperID: paper.id, projectID: projectID)
     }
 
     func setPaperProjectMembership(_ paper: Paper, projectID: ResearchProject.ID, isMember: Bool) {
-        guard let currentWorkspace else {
-            return
-        }
-
-        let existingLink = projectPaperLink(for: paper, projectID: projectID)
-
-        Task {
-            do {
-                if isMember {
-                    let link = existingLink ?? ProjectPaperLink(projectID: projectID, paperID: paper.id)
-                    _ = try await projectPaperLinkRepository.upsert(link, in: currentWorkspace)
-                } else {
-                    _ = try await projectPaperLinkRepository.remove(projectID: projectID, paperID: paper.id, in: currentWorkspace)
-                }
-                try await syncPaperProjectMetadataMirror(forPaperID: paper.id, in: currentWorkspace)
-                try await loadWorkspaceData(
-                    in: currentWorkspace,
-                    selectingPaper: paper.id,
-                    selectingMarkdown: selectedMarkdownID
-                )
-            } catch {
-                present(error)
-            }
-        }
+        applyPaperProjectMutation(.membership(isMember), paperID: paper.id, projectID: projectID)
     }
 
     func setPaperProjectCore(_ paper: Paper, projectID: ResearchProject.ID, isCore: Bool) {
-        guard let currentWorkspace else {
-            return
-        }
-
-        Task {
-            do {
-                _ = try await projectPaperLinkRepository.setCore(isCore, projectID: projectID, paperID: paper.id, in: currentWorkspace)
-                try await syncPaperProjectMetadataMirror(forPaperID: paper.id, in: currentWorkspace)
-                try await loadWorkspaceData(
-                    in: currentWorkspace,
-                    selectingPaper: paper.id,
-                    selectingMarkdown: selectedMarkdownID
-                )
-            } catch {
-                present(error)
-            }
-        }
+        applyPaperProjectMutation(.core(isCore), paperID: paper.id, projectID: projectID)
     }
 
     func setPaperProjectPinned(_ paper: Paper, projectID: ResearchProject.ID, isPinned: Bool) {
-        guard let currentWorkspace else {
-            return
-        }
-
-        Task {
-            do {
-                _ = try await projectPaperLinkRepository.setPinned(isPinned, projectID: projectID, paperID: paper.id, in: currentWorkspace)
-                try await loadWorkspaceData(
-                    in: currentWorkspace,
-                    selectingPaper: paper.id,
-                    selectingMarkdown: selectedMarkdownID
-                )
-            } catch {
-                present(error)
-            }
-        }
+        applyPaperProjectMutation(.pinned(isPinned), paperID: paper.id, projectID: projectID)
     }
 
     func updatePaperProjectUseFor(_ paper: Paper, projectID: ResearchProject.ID, text: String) {
-        guard let currentWorkspace else {
-            return
-        }
-
-        let useFor = commaSeparatedValues(from: text)
-        Task {
-            do {
-                _ = try await projectPaperLinkRepository.updateUseFor(useFor, projectID: projectID, paperID: paper.id, in: currentWorkspace)
-                try await loadWorkspaceData(
-                    in: currentWorkspace,
-                    selectingPaper: paper.id,
-                    selectingMarkdown: selectedMarkdownID
-                )
-            } catch {
-                present(error)
-            }
-        }
+        applyPaperProjectMutation(.useFor(commaSeparatedValues(from: text)), paperID: paper.id, projectID: projectID)
     }
 
     func updatePaperProjectFolderPath(_ paper: Paper, projectID: ResearchProject.ID, folderPath: String) {
-        guard let currentWorkspace else {
-            return
-        }
+        let path = folderPath.trimmingCharacters(in: .whitespacesAndNewlines).nilIfAppEmpty
+        applyPaperProjectMutation(.folderPath(path), paperID: paper.id, projectID: projectID)
+    }
 
-        let trimmedFolderPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines).nilIfAppEmpty
+    func applyPaperProjectMutation(_ mutation: PaperProjectMutation, paperID: Paper.ID, projectID: ResearchProject.ID) {
+        guard let workspace = currentWorkspace else { return }
+        let revision = workspaceSessionCoordinator.revision
+        paperProjectMutationRevision &+= 1
+        let mutationRevision = paperProjectMutationRevision
         Task {
             do {
-                _ = try await projectPaperLinkRepository.updateFolderPath(trimmedFolderPath, projectID: projectID, paperID: paper.id, in: currentWorkspace)
-                try await loadWorkspaceData(
-                    in: currentWorkspace,
-                    selectingPaper: paper.id,
-                    selectingMarkdown: selectedMarkdownID
-                )
+                try await paperProjectMembershipUseCase.apply(mutation, paperID: paperID, projectID: projectID, in: workspace)
+                try await refreshPaperProjectState(in: workspace, revision: revision, mutationRevision: mutationRevision)
             } catch {
+                guard currentWorkspace?.id == workspace.id, workspaceSessionCoordinator.revision == revision,
+                      paperProjectMutationRevision == mutationRevision else { return }
+                // Publish any compensating restore or preserved concurrent link
+                // when metadata can be loaded, without replacing user drafts.
+                try? await refreshPaperProjectState(in: workspace, revision: revision, mutationRevision: mutationRevision)
+                guard currentWorkspace?.id == workspace.id, workspaceSessionCoordinator.revision == revision,
+                      paperProjectMutationRevision == mutationRevision else { return }
                 present(error)
             }
         }
     }
 
-    func syncPaperProjectMetadataMirror(forPaperID paperID: Paper.ID, in workspace: ResearchWorkspace) async throws {
-        let links = try await projectPaperLinkRepository.links(forPaperID: paperID, in: workspace)
-        guard var paper = selectedPaperDraft?.id == paperID ? selectedPaperDraft : papers.first(where: { $0.id == paperID }) else {
-            return
+    func refreshPaperProjectState(
+        in workspace: ResearchWorkspace,
+        revision: WorkspaceSessionCoordinator.Generation,
+        mutationRevision: UInt64
+    ) async throws {
+        guard currentWorkspace?.id == workspace.id, workspaceSessionCoordinator.revision == revision,
+              paperProjectMutationRevision == mutationRevision else { return }
+        let links = try await projectPaperLinkRepository.load(in: workspace)
+        let loadedPapers = try await paperRepository.loadPapers(in: workspace)
+        guard currentWorkspace?.id == workspace.id, workspaceSessionCoordinator.revision == revision,
+              paperProjectMutationRevision == mutationRevision else { return }
+        if let draft = selectedPaperDraft, let updated = loadedPapers.first(where: { $0.id == draft.id }) {
+            selectedPaperDraft = PaperProjectDraftMerge.merge(
+                draft: draft, original: papers.first(where: { $0.id == draft.id }), updated: updated
+            )
         }
+        projectPaperLinks = links
+        papers = loadedPapers
+    }
 
-        paper.projectIDs = uniqueOrdered(links.map(\.projectID))
-        paper.coreProjectIDs = uniqueOrdered(links.filter(\.isCore).map(\.projectID))
-        _ = try await paperRepository.saveMetadataMirror(paper, in: workspace)
+    func syncPaperProjectMetadataMirror(forPaperID paperID: Paper.ID, in workspace: ResearchWorkspace) async throws {
+        try await paperProjectMembershipUseCase.synchronizeMetadataMirror(forPaperID: paperID, in: workspace)
     }
 
     func savePaperClassification(_ paper: Paper, in workspace: ResearchWorkspace) {

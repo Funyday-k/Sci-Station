@@ -28,6 +28,9 @@ public final class WorkspaceSessionCoordinator {
         return activeGeneration
     }
 
+    /// Changes on every open/cancel, and remains readable after an open finishes.
+    public var revision: Generation { generation }
+
     public func isCurrent(_ candidate: Generation) -> Bool {
         candidate == generation && !(task?.isCancelled ?? true)
     }
