@@ -36,6 +36,27 @@ struct PaperReadingWorkflowTests {
         }
     }
 
+    @Test("Provider schemas keep pagination and line selection optional")
+    func readingSchemasDoNotForceConflictingModes() async throws {
+        let tools: [any AgentTool] = [ReadPaperAgentTool(paperRepository: PaperRepository()), ReadPaperSectionAgentTool(paperRepository: PaperRepository())]
+        let request = LLMProviderRequest(messages: [.init(role: .user, content: "Read the next character page")], tools: tools.map { LLMToolSpecification(agentTool: $0.definition) })
+        let wireRequest = try await OpenAICompatibleProvider().buildChatRequest(configuration: LLMConfiguration(), apiKey: "fixture-no-network", providerRequest: request)
+        let body = try #require(wireRequest.httpBody)
+        let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let wireTools = try #require(object["tools"] as? [[String: Any]])
+        for tool in wireTools {
+            let function = try #require(tool["function"] as? [String: Any])
+            let parameters = try #require(function["parameters"] as? [String: Any])
+            let required = parameters["required"] as? [String] ?? []
+            #expect(!required.contains("start_line"))
+            #expect(!required.contains("end_line"))
+            #expect(!required.contains("page"))
+            let properties = try #require(parameters["properties"] as? [String: Any])
+            let startLine = try #require(properties["start_line"] as? [String: Any])
+            #expect(startLine["minimum"] as? Int == 1)
+        }
+    }
+
     @Test("Actual paper tools preserve body and source lines; missing conversion is diagnostic")
     func paperBodyAndMissingConversion() async throws {
         let fixture = try makeFixture()
