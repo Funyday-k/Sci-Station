@@ -248,6 +248,8 @@ SwiftLint 的 `.swiftlint-baseline.json` 只记录启用门禁时已经存在的
 
 CI 将文档卫生、版本一致性、PR 需求追踪、core runner 分域预算、AppViewModel 架构预算、SwiftLint、SwiftFormat、`swift test`、迁移期 legacy runner、完整 Python pytest、unsigned Release build 与构建产物启动烟测都作为必过门禁。`Tools/scripts/check-appviewmodel-architecture.sh` 限制主 facade、单个领域 extension、整个 family 的行数与 app-wide `@Published` 状态数量，并验证六个 focused store 仍在 Core 层；新增领域状态或纯业务决策应进入 store/use case，而不是扩大 facade。Swift Core 行覆盖率最低为 14.0%；legacy runner 会执行完所有匹配检查，逐项输出 `[RUN]`、`[PASS]`、`[FAIL]`，最后汇总并在任一检查失败时返回非零退出码。legacy runner 已按领域拆到 `Tools/SciStationCoreTestRunner/Suites/`，夹具位于 `Support/`，最小入口为 `SciStationCoreTestRunner.swift`。本地可用 `SCI_STATION_CORE_TEST_SUITE=Graph swift run SciStationCoreTestRunner` 或 `SCI_STATION_CORE_TEST_FILTER=graphNodeID swift run SciStationCoreTestRunner` 过滤；没有匹配项会失败，CI 不设置过滤器。领域模型、codec、store、兼容性和安全边界优先使用 Swift Testing 覆盖；用户主路径、窗口尺寸、空态、失败态和重启恢复仍需执行 UI 回归。自动化 UI 测试编排器说明见 [../AgentRuntime/sci_station_agent/uitest/README.md](../AgentRuntime/sci_station_agent/uitest/README.md)。
 
+原生导航门禁使用独立的 `Sci-Station-UI-Smoke` Xcode UI test target。运行 `Tools/scripts/smoke-test-ui-navigation.sh /path/to/Sci-Station.app` 会验证传入应用的路径和进程，在隔离工作区状态下真实点击 Library，并检查页面切换；runner 不重建待测应用。Xcode 的结果包和失败诊断仅保存在本地 `.tmp/ui-smoke-results/`。系统授权窗口遮挡应用时测试应失败；应通过正常系统交互处理提示后重跑，不能降低可点击性或目的页断言。
+
 ## 构建、签名与发布
 
 ### 本地开发

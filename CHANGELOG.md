@@ -14,10 +14,12 @@ Development, validation, versioning, and release conventions are maintained in `
 - Require actual paper text and references in reading-note writeback drafts; keep experimental sidecar scaffolds out of approval and distinguish source checks from scientific review.
 - Keep read pagination arguments optional and let models correct invalid tool JSON within the existing budgets and approval boundaries.
 - Preserve paper intent and executed evidence through approval/resume; recheck edited drafts. Older pending paper writes without evidence snapshots remain readable but require a fresh body read before approval.
+- Pair a pending write with an explicit not-executed tool result before sending revision feedback, preserving provider protocol ordering.
 - Keep exported BibTeX entry keys aligned with app citekeys while preserving provider fields; reject damaged existing bibliography files without overwriting them.
 
 ### Changed
 
+- Verify packaged-app navigation with an independent native macOS UI runner using an isolated initial state and a real Library button click.
 - Migrate five Markdown repository checks to isolated Swift Testing suites while retaining equivalent assertions and the remaining integration runner.
 
 - Added contribution/security policies, Issue/PR templates, ownership, versioned backlog, ADR/RFC records, and checked app/runtime version boundaries.
