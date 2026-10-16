@@ -182,7 +182,7 @@ class SidecarServer:
             artifact = draft.artifact
             evidence = draft.evidence
             critic_report = draft.critic_report or {"can_request_approval": False, "required_revisions": ["Paper text needs conversion before final approval."]}
-            extra = {"needs_conversion": draft.needs_conversion}
+            extra = {"needs_conversion": draft.needs_conversion, "needs_synthesis": draft.needs_synthesis}
         elif intent == "related_work":
             evidence = self._workspace_evidence(workspace_root, query=goal or "related work retrieval workflow evaluation", project_id=project_id)
             if not evidence:
@@ -234,7 +234,11 @@ class SidecarServer:
             "provenance": self._run_provenance(params, intent, evidence_provenance),
         })
         self._write_workflow_files(run_directory, critic_report, retrieval_trace, evidence, {**extra, "provenance": evidence_provenance})
-        final = f"LangGraph sidecar completed {intent} with real workspace evidence and produced an approval-ready artifact draft."
+        if intent == "paper_reading" and not critic_report.get("can_request_approval", False):
+            reasons = " ".join(critic_report.get("required_revisions") or ["Scientific content requires review."])
+            final = f"Experimental sidecar {intent} is incomplete and cannot request approval: {reasons} No writeback artifact was offered."
+            return self._workflow_events(run_id, goal, intent, None, final, retrieval_trace["provenance"])
+        final = f"Experimental sidecar produced a {intent} draft with workspace evidence; scientific claim support still requires user review."
         return self._workflow_events(run_id, goal, intent, artifact, final, retrieval_trace["provenance"])
 
     def _insufficient_evidence_actions(

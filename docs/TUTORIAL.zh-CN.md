@@ -167,7 +167,7 @@ git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?ke
 
 ## 12. 已知试用边界
 
-- Sci-Station 当前是本地优先试用/开发构建，不是 notarized 公共发布版。
+- 本地源码和 beta 构建不做公证；公开 Release 产物必须通过仓库定义的 Developer ID、notarization、staple 与 Gatekeeper 流程。
 - 网络功能依赖用户配置、用户网络和第三方服务状态。
 - 高质量 PDF 转 Markdown 依赖 MinerU。
 - Apple Reminders 当前以发布和本地映射为主，完整双向同步属于后续工作。

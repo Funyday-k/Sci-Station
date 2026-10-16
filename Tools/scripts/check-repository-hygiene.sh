@@ -12,6 +12,8 @@ while IFS= read -r path; do
 done < <(git ls-files | grep -E "$forbidden_pattern" || true)
 
 while IFS= read -r -d '' path; do
+    # Deleted tracked paths are valid changes during a refactor.
+    [[ -f "$path" ]] || continue
     size="$(wc -c < "$path" | tr -d ' ')"
     if (( size > MAX_TRACKED_FILE_BYTES )); then
         echo "Tracked file exceeds $MAX_TRACKED_FILE_BYTES bytes: $path ($size bytes)" >&2

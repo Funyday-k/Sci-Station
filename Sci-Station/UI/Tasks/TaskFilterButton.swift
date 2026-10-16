@@ -23,6 +23,7 @@ enum TaskTypeFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    @MainActor
     func label(_ appModel: AppViewModel) -> String {
         switch self {
         case .all: return appModel.localized("全部", "All")

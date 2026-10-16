@@ -1,0 +1,56 @@
+included:
+  - Package.swift
+  - Sci-Station
+  - Tests
+  - Tools
+
+excluded:
+  - .build
+  - .tmp
+  - DerivedData
+  - Sci-Station.xcodeproj
+
+# Large legacy coordinators are tracked separately. Keep correctness and local
+# style rules active while avoiding a repository-wide size-only cleanup.
+disabled_rules:
+  - cyclomatic_complexity
+  - file_length
+  - function_body_length
+  - function_parameter_count
+  - large_tuple
+  - line_length
+  - nesting
+  - type_body_length
+
+opt_in_rules:
+  - closure_spacing
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - contains_over_first_not_nil
+  - empty_count
+  - empty_string
+  - fatal_error_message
+  - first_where
+  - redundant_nil_coalescing
+  - sorted_first_last
+  - weak_delegate
+
+strict: true
+reporter: xcode
+
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  excluded:
+    - i
+    - j
+    - x
+    - y
+    - z
+
+type_name:
+  min_length: 2
+  max_length:
+    warning: 60
+    error: 80

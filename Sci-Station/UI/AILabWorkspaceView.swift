@@ -95,6 +95,7 @@ private struct AILabSidebarResizeHandle: View {
 
 private struct AgentToolPickerPopover: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var agentStore: AgentStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -164,6 +165,7 @@ private struct AgentToolPickerPopover: View {
 
 private struct AIKnowledgeLibrarySheet: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var selectedFilter = AIKnowledgeFilter.all
@@ -467,6 +469,9 @@ private struct AgentComposerTextView: NSViewRepresentable {
 
 struct AgentPanelView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var agentStore: AgentStore
     @ObservedObject var agentStreamStore: AgentStreamStore
 
     let workspace: ResearchWorkspace
@@ -2140,6 +2145,7 @@ private struct AgentArtifactKindSummaryView: View {
 
 private struct AgentEvidenceRefListView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     let evidenceRefs: [AgentEvidenceRef]
 

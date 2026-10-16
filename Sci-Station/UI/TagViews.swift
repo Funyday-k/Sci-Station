@@ -165,6 +165,7 @@ struct TagCompletionField: View {
 
 struct TagManagerView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTagName: String?

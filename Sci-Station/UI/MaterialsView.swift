@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MaterialsView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     let workspace: ResearchWorkspace
 
@@ -36,7 +37,7 @@ struct MaterialsView: View {
         .onChange(of: selectedMaterialID) { _, _ in
             loadPreviewText()
         }
-        .onChange(of: appModel.currentProjectID) { _, _ in
+        .onChange(of: workspaceStore.currentProjectID) { _, _ in
             Task { await reloadMaterials() }
         }
     }

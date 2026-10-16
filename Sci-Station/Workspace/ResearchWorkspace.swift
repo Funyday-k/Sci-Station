@@ -215,15 +215,31 @@ public struct ResearchWorkspace: Identifiable, Equatable, Sendable {
     }
 
     public nonisolated func resolve(relativePath: String, from baseURL: URL, isDirectory: Bool) -> URL {
-        let components = relativePath.split(separator: "/")
-
-        return components.enumerated().reduce(baseURL) { partialURL, component in
-            let isLastComponent = component.offset == components.count - 1
-            return partialURL.appendingPathComponent(
-                String(component.element),
-                isDirectory: isLastComponent ? isDirectory : true
-            )
+        if let resolved = try? WorkspacePathResolver.resolve(
+            relativePath: relativePath,
+            from: baseURL,
+            rootURL: rootURL,
+            isDirectory: isDirectory
+        ) {
+            return resolved
         }
+
+        return rootURL
+            .appendingPathComponent(".sci-station/quarantine", isDirectory: true)
+            .appendingPathComponent("invalid-path", isDirectory: isDirectory)
+    }
+
+    public nonisolated func validatedResolve(
+        relativePath: String,
+        from baseURL: URL,
+        isDirectory: Bool
+    ) throws -> URL {
+        try WorkspacePathResolver.resolve(
+            relativePath: relativePath,
+            from: baseURL,
+            rootURL: rootURL,
+            isDirectory: isDirectory
+        )
     }
 
     public nonisolated func relativePath(to url: URL) -> String {

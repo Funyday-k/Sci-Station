@@ -1,8 +1,8 @@
 import Foundation
 
-/// Read-only query interface over the research graph. All queries are
-/// forwarded to the underlying `GraphRepository` actor. UI and agent tools
-/// consume this struct rather than the repository directly.
+/// Read-only query interface over the research graph. Traversals take one
+/// repository snapshot and build O(1) adjacency indexes locally, avoiding an
+/// actor hop per visited node and quadratic edge de-duplication.
 public nonisolated struct GraphReadModel: Sendable {
     private let repository: GraphRepository
 
@@ -15,111 +15,137 @@ public nonisolated struct GraphReadModel: Sendable {
     }
 
     public func neighbors(of nodeID: String, depth: Int = 1, kinds: Set<GraphEdgeKind> = []) async -> [GraphEdge] {
+        (try? await neighborsCancellable(of: nodeID, depth: depth, kinds: kinds)) ?? []
+    }
+
+    public func neighborsCancellable(
+        of nodeID: String,
+        depth: Int = 1,
+        kinds: Set<GraphEdgeKind> = []
+    ) async throws -> [GraphEdge] {
+        try Task.checkCancellation()
+        let index = GraphTraversalIndex(snapshot: await repository.snapshot())
+        try Task.checkCancellation()
+
         var visited: Set<String> = [nodeID]
         var frontier: [String] = [nodeID]
+        var collectedIDs: Set<String> = []
         var collected: [GraphEdge] = []
 
         for _ in 0..<max(1, depth) {
-            var nextFrontier: [String] = []
-            for node in frontier {
-                let outgoing = await repository.outgoingEdges(of: node)
-                let incoming = await repository.incomingEdges(of: node)
-                let all = (outgoing + incoming).filter { kinds.isEmpty || kinds.contains($0.kind) }
-                for edge in all {
-                    let other = (edge.from == node) ? edge.to : edge.from
-                    if !visited.contains(other) {
-                        visited.insert(other)
-                        nextFrontier.append(other)
-                    }
-                    if !collected.contains(where: { $0.id == edge.id }) {
-                        collected.append(edge)
-                    }
+            try Task.checkCancellation()
+            var nextFrontier: Set<String> = []
+            for node in frontier.sorted() {
+                for edge in index.undirected[node] ?? [] where kinds.isEmpty || kinds.contains(edge.kind) {
+                    if collectedIDs.insert(edge.id).inserted { collected.append(edge) }
+                    let other = edge.from == node ? edge.to : edge.from
+                    if visited.insert(other).inserted { nextFrontier.insert(other) }
                 }
             }
-            frontier = nextFrontier
+            frontier = nextFrontier.sorted()
             if frontier.isEmpty { break }
         }
-        return collected
+        return collected.sorted { $0.id < $1.id }
     }
 
     public func subgraph(centerNodeID: String, depth: Int = 2, kinds: Set<GraphEdgeKind> = []) async -> GraphSubgraph {
-        let edges = await neighbors(of: centerNodeID, depth: depth, kinds: kinds)
+        (try? await subgraphCancellable(centerNodeID: centerNodeID, depth: depth, kinds: kinds))
+            ?? GraphSubgraph(center: centerNodeID, nodes: [], edges: [])
+    }
+
+    public func subgraphCancellable(
+        centerNodeID: String,
+        depth: Int = 2,
+        kinds: Set<GraphEdgeKind> = []
+    ) async throws -> GraphSubgraph {
+        let snapshot = await repository.snapshot()
+        try Task.checkCancellation()
+        let index = GraphTraversalIndex(snapshot: snapshot)
+        let edges = try index.neighbors(of: centerNodeID, depth: depth, kinds: kinds)
         let nodeIDs = Set(edges.flatMap { [$0.from, $0.to] }).union([centerNodeID])
-        let nodes = await repository.nodesWithIDs(nodeIDs)
-        return GraphSubgraph(center: centerNodeID, nodes: Array(nodes.values), edges: edges)
+        let nodes = nodeIDs.compactMap { snapshot.nodes[$0] }.sorted { $0.id < $1.id }
+        return GraphSubgraph(center: centerNodeID, nodes: nodes, edges: edges)
     }
 
     public func path(from source: String, to target: String, maxDepth: Int = 6) async -> [GraphEdge]? {
-        var queue: [(String, [GraphEdge])] = [(source, [])]
-        var visited: Set<String> = [source]
+        try? await pathCancellable(from: source, to: target, maxDepth: maxDepth)
+    }
 
-        while !queue.isEmpty {
-            let (current, trail) = queue.removeFirst()
-            if current == target { return trail }
-            if trail.count >= maxDepth { continue }
-            let outgoing = await repository.outgoingEdges(of: current)
-            let incoming = await repository.incomingEdges(of: current)
-            for edge in outgoing + incoming {
-                let other = (edge.from == current) ? edge.to : edge.from
-                if !visited.contains(other) {
-                    visited.insert(other)
-                    queue.append((other, trail + [edge]))
+    public func pathCancellable(from source: String, to target: String, maxDepth: Int = 6) async throws -> [GraphEdge]? {
+        try Task.checkCancellation()
+        if source == target { return [] }
+        guard maxDepth > 0 else { return nil }
+        let index = GraphTraversalIndex(snapshot: await repository.snapshot())
+        try Task.checkCancellation()
+
+        var queue: [String] = [source]
+        var head = 0
+        var depthByNode: [String: Int] = [source: 0]
+        var predecessor: [String: (node: String, edge: GraphEdge)] = [:]
+
+        while head < queue.count {
+            try Task.checkCancellation()
+            let current = queue[head]
+            head += 1
+            let currentDepth = depthByNode[current] ?? 0
+            guard currentDepth < maxDepth else { continue }
+
+            for edge in index.undirected[current] ?? [] {
+                let other = edge.from == current ? edge.to : edge.from
+                guard depthByNode[other] == nil else { continue }
+                depthByNode[other] = currentDepth + 1
+                predecessor[other] = (current, edge)
+                if other == target {
+                    return Self.reconstructPath(source: source, target: target, predecessor: predecessor)
                 }
+                queue.append(other)
             }
         }
         return nil
     }
 
     public func ancestors(of nodeID: String, relation: GraphEdgeKind, maxDepth: Int = 10) async -> [GraphNode] {
-        var visited: Set<String> = [nodeID]
-        var frontier: [String] = [nodeID]
-        var result: [GraphNode] = []
+        (try? await ancestorsCancellable(of: nodeID, relation: relation, maxDepth: maxDepth)) ?? []
+    }
 
-        for _ in 0..<maxDepth {
-            var nextFrontier: [String] = []
-            for node in frontier {
-                let incoming = await repository.incomingEdges(of: node)
-                    .filter { $0.kind == relation }
-                for edge in incoming {
-                    if !visited.contains(edge.from) {
-                        visited.insert(edge.from)
-                        nextFrontier.append(edge.from)
-                        if let ancestor = await repository.node(id: edge.from) {
-                            result.append(ancestor)
-                        }
-                    }
-                }
-            }
-            frontier = nextFrontier
-            if frontier.isEmpty { break }
-        }
-        return result
+    public func ancestorsCancellable(
+        of nodeID: String,
+        relation: GraphEdgeKind,
+        maxDepth: Int = 10
+    ) async throws -> [GraphNode] {
+        let snapshot = await repository.snapshot()
+        try Task.checkCancellation()
+        let index = GraphTraversalIndex(snapshot: snapshot)
+        return try traverseDirected(
+            from: nodeID,
+            maxDepth: maxDepth,
+            edges: { index.incoming[$0] ?? [] },
+            nextNode: { $0.from },
+            relation: relation,
+            nodes: snapshot.nodes
+        )
     }
 
     public func descendants(of nodeID: String, relation: GraphEdgeKind, maxDepth: Int = 10) async -> [GraphNode] {
-        var visited: Set<String> = [nodeID]
-        var frontier: [String] = [nodeID]
-        var result: [GraphNode] = []
+        (try? await descendantsCancellable(of: nodeID, relation: relation, maxDepth: maxDepth)) ?? []
+    }
 
-        for _ in 0..<maxDepth {
-            var nextFrontier: [String] = []
-            for node in frontier {
-                let outgoing = await repository.outgoingEdges(of: node)
-                    .filter { $0.kind == relation }
-                for edge in outgoing {
-                    if !visited.contains(edge.to) {
-                        visited.insert(edge.to)
-                        nextFrontier.append(edge.to)
-                        if let descendant = await repository.node(id: edge.to) {
-                            result.append(descendant)
-                        }
-                    }
-                }
-            }
-            frontier = nextFrontier
-            if frontier.isEmpty { break }
-        }
-        return result
+    public func descendantsCancellable(
+        of nodeID: String,
+        relation: GraphEdgeKind,
+        maxDepth: Int = 10
+    ) async throws -> [GraphNode] {
+        let snapshot = await repository.snapshot()
+        try Task.checkCancellation()
+        let index = GraphTraversalIndex(snapshot: snapshot)
+        return try traverseDirected(
+            from: nodeID,
+            maxDepth: maxDepth,
+            edges: { index.outgoing[$0] ?? [] },
+            nextNode: { $0.to },
+            relation: relation,
+            nodes: snapshot.nodes
+        )
     }
 
     public func snapshot() async -> GraphSnapshot {
@@ -128,5 +154,92 @@ public nonisolated struct GraphReadModel: Sendable {
 
     public func subscribeChanges() async -> AsyncStream<GraphChange> {
         await repository.subscribeChanges()
+    }
+
+    private nonisolated static func reconstructPath(
+        source: String,
+        target: String,
+        predecessor: [String: (node: String, edge: GraphEdge)]
+    ) -> [GraphEdge]? {
+        var current = target
+        var reversed: [GraphEdge] = []
+        while current != source {
+            guard let step = predecessor[current] else { return nil }
+            reversed.append(step.edge)
+            current = step.node
+        }
+        return Array(reversed.reversed())
+    }
+
+    private nonisolated func traverseDirected(
+        from start: String,
+        maxDepth: Int,
+        edges: (String) -> [GraphEdge],
+        nextNode: (GraphEdge) -> String,
+        relation: GraphEdgeKind,
+        nodes: [String: GraphNode]
+    ) throws -> [GraphNode] {
+        guard maxDepth > 0 else { return [] }
+        var visited: Set<String> = [start]
+        var frontier: [String] = [start]
+        var result: [GraphNode] = []
+
+        for _ in 0..<maxDepth {
+            try Task.checkCancellation()
+            var nextFrontier: Set<String> = []
+            for nodeID in frontier.sorted() {
+                for edge in edges(nodeID) where edge.kind == relation {
+                    let candidateID = nextNode(edge)
+                    guard visited.insert(candidateID).inserted else { continue }
+                    nextFrontier.insert(candidateID)
+                    if let node = nodes[candidateID] { result.append(node) }
+                }
+            }
+            frontier = nextFrontier.sorted()
+            if frontier.isEmpty { break }
+        }
+        return result
+    }
+}
+
+private nonisolated struct GraphTraversalIndex {
+    let undirected: [String: [GraphEdge]]
+    let outgoing: [String: [GraphEdge]]
+    let incoming: [String: [GraphEdge]]
+
+    init(snapshot: GraphSnapshot) {
+        var undirected: [String: [GraphEdge]] = [:]
+        var outgoing: [String: [GraphEdge]] = [:]
+        var incoming: [String: [GraphEdge]] = [:]
+        for edge in snapshot.edges.values.sorted(by: { $0.id < $1.id }) {
+            undirected[edge.from, default: []].append(edge)
+            if edge.to != edge.from { undirected[edge.to, default: []].append(edge) }
+            outgoing[edge.from, default: []].append(edge)
+            incoming[edge.to, default: []].append(edge)
+        }
+        self.undirected = undirected
+        self.outgoing = outgoing
+        self.incoming = incoming
+    }
+
+    func neighbors(of nodeID: String, depth: Int, kinds: Set<GraphEdgeKind>) throws -> [GraphEdge] {
+        var visited: Set<String> = [nodeID]
+        var frontier: [String] = [nodeID]
+        var collectedIDs: Set<String> = []
+        var collected: [GraphEdge] = []
+        for _ in 0..<max(1, depth) {
+            try Task.checkCancellation()
+            var nextFrontier: Set<String> = []
+            for node in frontier.sorted() {
+                for edge in undirected[node] ?? [] where kinds.isEmpty || kinds.contains(edge.kind) {
+                    if collectedIDs.insert(edge.id).inserted { collected.append(edge) }
+                    let other = edge.from == node ? edge.to : edge.from
+                    if visited.insert(other).inserted { nextFrontier.insert(other) }
+                }
+            }
+            frontier = nextFrontier.sorted()
+            if frontier.isEmpty { break }
+        }
+        return collected.sorted { $0.id < $1.id }
     }
 }

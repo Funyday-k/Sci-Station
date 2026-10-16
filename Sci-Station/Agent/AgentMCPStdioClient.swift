@@ -25,6 +25,21 @@ public nonisolated enum AgentMCPClientError: LocalizedError, Sendable {
     }
 }
 
+nonisolated enum AgentMCPLocalCommandPolicy {
+    static func executableURL(for command: String, serverID: String) throws -> URL {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("\0") else {
+            throw AgentMCPClientError.processUnavailable("Local MCP server \(serverID) has no valid command.")
+        }
+        guard (trimmed as NSString).isAbsolutePath else {
+            throw AgentMCPClientError.processUnavailable(
+                "Local MCP server \(serverID) command must be an absolute executable path; PATH lookup is not allowed."
+            )
+        }
+        return URL(fileURLWithPath: trimmed, isDirectory: false).standardizedFileURL
+    }
+}
+
 public typealias AgentMCPCredentialResolver = @Sendable (_ reference: String) async throws -> String?
 
 public nonisolated struct AgentMCPImplementationInfo: Codable, Hashable, Sendable {
@@ -741,13 +756,17 @@ public actor AgentMCPConnectorManager {
             throw AgentMCPClientError.processUnavailable("Local MCP server \(registration.id) has no command.")
         }
 
+        let executableURL = try AgentMCPLocalCommandPolicy.executableURL(
+            for: expand(command, root: root),
+            serverID: registration.id
+        )
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [expand(command, root: root)] + registration.server.arguments.map { expand($0, root: root) }
+        process.executableURL = executableURL
+        process.arguments = registration.server.arguments.map { expand($0, root: root) }
         process.currentDirectoryURL = root.rootURL
-        var environment = ProcessInfo.processInfo.environment
-        environment["SCI_STATION_WORKSPACE_ROOT"] = root.rootURL.path
-        process.environment = environment
+        process.environment = AgentChildProcessEnvironment.sanitized(overrides: [
+            "SCI_STATION_WORKSPACE_ROOT": root.rootURL.path
+        ])
 
         let inputPipe = Pipe()
         let outputPipe = Pipe()
@@ -764,9 +783,10 @@ public actor AgentMCPConnectorManager {
         )
         process.terminationHandler = { [weak self, weak connection] process in
             guard let connection else { return }
+            let exitCode = process.terminationStatus
             Task {
-                await connection.processTerminated(exitCode: process.terminationStatus)
-                await self?.recordExit(serverID: registration.id, exitCode: process.terminationStatus)
+                await connection.processTerminated(exitCode: exitCode)
+                await self?.recordExit(serverID: registration.id, exitCode: exitCode)
             }
         }
         do {
@@ -807,11 +827,10 @@ public actor AgentMCPConnectorManager {
             markSuccess(serverID: registration.id)
             return session
         } catch {
-            if !process.isRunning {
-                recordExit(serverID: registration.id, exitCode: process.terminationStatus)
-            }
+            // stop() requests termination without waiting. Only the termination
+            // callback may read an exit status: the child can still be running,
+            // and a process.run() failure has no exit status at all.
             await connection.stop()
-            recordExit(serverID: registration.id, exitCode: process.terminationStatus)
             let stderr = await connection.stderrText()
             if !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw AgentMCPClientError.processUnavailable(

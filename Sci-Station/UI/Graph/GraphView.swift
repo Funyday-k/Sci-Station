@@ -3,6 +3,7 @@ import SwiftUI
 
 struct GraphView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var graphStore: GraphStore
     @State private var centerPaperIndex: Int = 0
     @State private var seedItems: [CitationSeed] = []
     @State private var citesEdges: [GraphEdge] = []
@@ -18,6 +19,7 @@ struct GraphView: View {
     @State private var isGraphOptionsPresented = false
     @State private var displayedNodesPerSide: Double = 25
     @State private var nodeVisualScale: Double = 0.90
+    @State private var citationLoadRequestID = 0
 
     let workspace: ResearchWorkspace
 
@@ -26,6 +28,11 @@ struct GraphView: View {
     private static let seedStripHeight: CGFloat = 86
 
     private let inspireProvider = InspireMetadataProvider()
+
+    private struct CitationLoadTaskID: Hashable {
+        let graphRevision: Int
+        let requestID: Int
+    }
 
     private var localPapers: [Paper] { appModel.papers }
 
@@ -56,35 +63,66 @@ struct GraphView: View {
         return seedGraphNodes[selectedNodeID] ?? nodeMap[selectedNodeID]
     }
 
+    private var citationLoadTaskID: CitationLoadTaskID {
+        CitationLoadTaskID(graphRevision: graphStore.revision, requestID: citationLoadRequestID)
+    }
+
     var body: some View {
+        let loadTaskID = citationLoadTaskID
         VStack(spacing: 0) {
             toolbar
             Divider()
-            if isLoading {
-                loadingView
-            } else if !activeSeeds.isEmpty {
-                GeometryReader { geometry in
-                    let detailWidth = selectedNode == nil ? 0 : min(320, max(240, geometry.size.width * 0.30))
-                    HStack(spacing: 0) {
-                        citationGraphContent(
-                            size: CGSize(width: max(0, geometry.size.width - detailWidth), height: geometry.size.height)
-                        )
-                        if let selectedNode {
-                            Divider()
-                            nodeDetailPanel(selectedNode)
-                                .frame(width: detailWidth)
-                        }
-                    }
-                }
-            } else {
-                emptyState
-            }
+            graphStateContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task { await loadCitations() }
+        .task { await activateGraph() }
+        .task(id: loadTaskID) {
+            guard case .ready = graphStore.state else {
+                isLoading = false
+                return
+            }
+            await loadCitations(taskID: loadTaskID)
+        }
         .onChange(of: centerPaperIndex) { _, _ in
             guard seedItems.isEmpty else { return }
-            Task { await loadCitations() }
+            requestCitationLoad()
+        }
+    }
+
+    @ViewBuilder
+    private var graphStateContent: some View {
+        switch graphStore.state {
+        case .idle:
+            graphIdleView
+        case .loading:
+            graphInitializationLoadingView
+        case .ready:
+            readyGraphContent
+        case .failed(let diagnostic):
+            graphFailureView(diagnostic)
+        }
+    }
+
+    @ViewBuilder
+    private var readyGraphContent: some View {
+        if isLoading {
+            loadingView
+        } else if !activeSeeds.isEmpty {
+            GeometryReader { geometry in
+                let detailWidth = selectedNode == nil ? 0 : min(320, max(240, geometry.size.width * 0.30))
+                HStack(spacing: 0) {
+                    citationGraphContent(
+                        size: CGSize(width: max(0, geometry.size.width - detailWidth), height: geometry.size.height)
+                    )
+                    if let selectedNode {
+                        Divider()
+                        nodeDetailPanel(selectedNode)
+                            .frame(width: detailWidth)
+                    }
+                }
+            }
+        } else {
+            emptyState
         }
     }
 
@@ -99,12 +137,97 @@ struct GraphView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var graphInitializationLoadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .scaleEffect(1.2)
+            Text("Preparing citation graph...")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var graphIdleView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+            Text("Citation graph is not initialized")
+                .font(.title3.weight(.semibold))
+            Button {
+                Task { await appModel.initializeGraphRepository(in: workspace) }
+            } label: {
+                Label("Initialize Graph", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func graphFailureView(_ diagnostic: GraphFailureDiagnostic) -> some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.red)
+
+                VStack(spacing: 6) {
+                    Text("Citation graph unavailable")
+                        .font(.title3.weight(.semibold))
+                    Text(diagnostic.message)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                }
+
+                if let failureReason = diagnostic.failureReason {
+                    Text(failureReason)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                }
+
+                Text(diagnostic.recoverySuggestion)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    Task { await graphStore.retry() }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!graphStore.canRetry)
+
+                DisclosureGroup("Diagnostic details") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Error type", value: diagnostic.errorType)
+                        LabeledContent("Occurred", value: diagnostic.occurredAt.formatted())
+                        Text(diagnostic.technicalDetails)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.top, 8)
+                }
+                .frame(maxWidth: 560)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var toolbar: some View {
         HStack(spacing: 12) {
             Text("Citation Graph")
                 .font(.headline)
 
-            sourceBadge
+            graphStatusBadge
 
             Spacer()
 
@@ -167,7 +290,7 @@ struct GraphView: View {
                     Button {
                         seedItems.removeAll()
                         selectedNodeID = nil
-                        Task { await loadCitations() }
+                        requestCitationLoad()
                     } label: {
                         Image(systemName: "xmark.circle")
                     }
@@ -176,16 +299,19 @@ struct GraphView: View {
                 }
             }
 
-            Text("Seeds: \(activeSeeds.count) · Nodes: \(nodeDisplayLimit) · References: \(citesEdges.count) · Cited-by: \(citedByEdges.count)")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            if case .ready = graphStore.state {
+                Text("Seeds: \(activeSeeds.count) · Nodes: \(nodeDisplayLimit) · References: \(citesEdges.count) · Cited-by: \(citedByEdges.count)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
 
             Button {
-                Task { await loadCitations() }
+                Task { await reloadGraph() }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
+            .disabled(graphStore.state == .loading || isLoading)
             .help("Reload citation graph")
         }
         .padding(.horizontal, 16)
@@ -220,13 +346,13 @@ struct GraphView: View {
             }
 
             Button {
-                Task { await loadCitations() }
+                Task { await reloadGraph() }
             } label: {
                 Label("Reload with Limit", systemImage: "arrow.clockwise")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(isLoading)
+            .disabled(graphStore.state != .ready || isLoading)
         }
         .font(.caption)
         .padding(16)
@@ -242,6 +368,32 @@ struct GraphView: View {
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(graphSource.color.opacity(0.10))
+            )
+    }
+
+    @ViewBuilder
+    private var graphStatusBadge: some View {
+        switch graphStore.state {
+        case .idle:
+            statusBadge("Not initialized", systemImage: "circle.dashed", color: .gray)
+        case .loading:
+            statusBadge("Initializing", systemImage: "clock", color: .gray)
+        case .ready:
+            sourceBadge
+        case .failed:
+            statusBadge("Unavailable", systemImage: "exclamationmark.triangle", color: .red)
+        }
+    }
+
+    private func statusBadge(_ title: String, systemImage: String, color: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption)
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(color.opacity(0.10))
             )
     }
 
@@ -680,15 +832,48 @@ struct GraphView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func loadCitations() async {
+    private func activateGraph() async {
+        switch graphStore.state {
+        case .idle:
+            await appModel.initializeGraphRepository(in: workspace)
+        case .loading, .ready, .failed:
+            break
+        }
+    }
+
+    private func reloadGraph() async {
+        switch graphStore.state {
+        case .idle:
+            await appModel.initializeGraphRepository(in: workspace)
+        case .loading:
+            break
+        case .ready:
+            requestCitationLoad()
+        case .failed:
+            await graphStore.retry()
+        }
+    }
+
+    private func requestCitationLoad() {
+        citationLoadRequestID &+= 1
+        isLoading = false
+    }
+
+    private func loadCitations(taskID: CitationLoadTaskID) async {
+        guard isCurrentCitationLoad(taskID) else { return }
         let seeds = activeSeeds
         guard !seeds.isEmpty else { return }
 
         isLoading = true
         statusMessage = nil
-        defer { isLoading = false }
+        defer {
+            if taskID == citationLoadTaskID {
+                isLoading = false
+            }
+        }
 
-        let localSnapshot = await appModel.graphReadModel()?.snapshot()
+        let localSnapshot = await graphStore.readModel()?.snapshot()
+        guard isCurrentCitationLoad(taskID) else { return }
         var mergedSeedNodes: [String: GraphNode] = [:]
         var mergedNodes: [String: GraphNode] = [:]
         var outgoingEdges: [String: GraphEdge] = [:]
@@ -697,10 +882,13 @@ struct GraphView: View {
         var failedInspireCount = 0
 
         for seed in seeds {
+            guard isCurrentCitationLoad(taskID) else { return }
             if let result = await inspireCitationResult(for: seed) {
+                guard isCurrentCitationLoad(taskID) else { return }
                 usedInspire = true
                 merge(result, seedNodes: &mergedSeedNodes, nodes: &mergedNodes, outgoing: &outgoingEdges, incoming: &incomingEdges)
             } else if let result = localSnapshot.flatMap({ localCitationResult(for: seed, snapshot: $0) }) {
+                guard isCurrentCitationLoad(taskID) else { return }
                 failedInspireCount += 1
                 merge(result, seedNodes: &mergedSeedNodes, nodes: &mergedNodes, outgoing: &outgoingEdges, incoming: &incomingEdges)
             } else {
@@ -708,6 +896,7 @@ struct GraphView: View {
             }
         }
 
+        guard isCurrentCitationLoad(taskID) else { return }
         for seedID in mergedSeedNodes.keys {
             mergedNodes.removeValue(forKey: seedID)
         }
@@ -728,6 +917,15 @@ struct GraphView: View {
             return
         }
         selectedNodeID = seeds.compactMap { mergedSeedNodes[$0.nodeID]?.id }.first ?? mergedNodes.keys.sorted().first
+    }
+
+    private func isCurrentCitationLoad(_ taskID: CitationLoadTaskID) -> Bool {
+        guard taskID == citationLoadTaskID, graphStore.state == .ready else {
+            return false
+        }
+        return withUnsafeCurrentTask { task in
+            !(task?.isCancelled ?? false)
+        }
     }
 
     private func inspireCitationResult(for seed: CitationSeed) async -> CitationSeedResult? {
@@ -985,13 +1183,13 @@ struct GraphView: View {
         guard !seedItems.contains(seed), seedItems.count < Self.maxSeedCount else { return }
         seedItems.append(seed)
         selectedNodeID = seed.nodeID
-        Task { await loadCitations() }
+        requestCitationLoad()
     }
 
     private func removeSeed(_ seed: CitationSeed) {
         seedItems.removeAll { $0 == seed }
         selectedNodeID = nil
-        Task { await loadCitations() }
+        requestCitationLoad()
     }
 
     private func paper(for seed: CitationSeed) -> Paper? {
@@ -1112,8 +1310,7 @@ struct GraphView: View {
         do {
             let paper = try await appModel.importGraphExternalPaper(from: identifier)
             selectedNodeID = "paper:\(paper.resolvedGraphNodeID)"
-            await loadCitations()
-            selectedNodeID = "paper:\(paper.resolvedGraphNodeID)"
+            requestCitationLoad()
             importStatusMessage = "Added \"\(paper.displayTitle)\" to library."
         } catch {
             importStatusMessage = error.localizedDescription

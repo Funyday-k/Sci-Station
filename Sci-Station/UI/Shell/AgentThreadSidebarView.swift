@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AgentThreadSidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var agentStore: AgentStore
 
     let workspace: ResearchWorkspace
     @Binding var isCollapsed: Bool
@@ -10,7 +11,7 @@ struct AgentThreadSidebarView: View {
 
     private var filteredThreads: [AgentThread] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let baseThreads = showsArchived ? appModel.allAgentThreads : appModel.agentThreads
+        let baseThreads = showsArchived ? appModel.allAgentThreads : agentStore.threads
         let workspaceFilteredThreads = appModel.isAgentThreadWorkspaceFilterEnabled
             ? baseThreads.filter(appModel.isAgentThreadInCurrentWorkspace)
             : baseThreads
@@ -66,7 +67,7 @@ struct AgentThreadSidebarView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Chats")
                         .font(.headline)
-                Text("\(appModel.agentThreads.count) active")
+                Text("\(agentStore.threads.count) active")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

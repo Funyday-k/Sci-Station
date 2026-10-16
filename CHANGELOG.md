@@ -6,7 +6,29 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ## [Unreleased]
 
-No user-facing changes yet.
+## [0.2.0] - 2026-10-16
+
+### Fixed
+
+- Keep the welcome page scrollable so its content cannot push sidebar navigation outside the window.
+- Return local MCP startup/initialize errors without reading the exit status of an unstarted or still-running process.
+- Preserve unsaved paper edits when changing project membership, core status, pins and project classification; safely compensate a failed metadata mirror without overwriting newer associations.
+- Require actual paper text and references in reading-note writeback drafts; keep experimental sidecar scaffolds out of approval and distinguish source checks from scientific review.
+- Keep read pagination arguments optional and let models correct invalid tool JSON within the existing budgets and approval boundaries.
+- Preserve paper intent and executed evidence through approval/resume; recheck edited drafts. Older pending paper writes without evidence snapshots remain readable but require a fresh body read before approval.
+- Pair a pending write with an explicit not-executed tool result before sending revision feedback, preserving provider protocol ordering.
+- Keep exported BibTeX entry keys aligned with app citekeys while preserving provider fields; reject damaged existing bibliography files without overwriting them.
+
+### Changed
+
+- Verify packaged-app navigation with an independent native macOS UI runner using an isolated initial state and a real Library button click.
+- Migrate five Markdown repository checks to isolated Swift Testing suites while retaining equivalent assertions and the remaining integration runner.
+
+- Added contribution/security policies, Issue/PR templates, ownership, versioned backlog, ADR/RFC records, and checked app/runtime version boundaries.
+- Added documentation/version/traceability/runner-organization gates and an aggregate required CI check; release tags must point to a commit reachable from main.
+- Grouped legacy core verification into domain suites and shared fixtures while preserving check identifiers; unmatched local filters now fail explicitly.
+- Corrected the 0.1.0 product status to Developer Preview; tag-triggered publication defaults to prerelease.
+- Public release automation now uses verified certificate-free distribution: ad-hoc app/sidecar signing, entitlement and bundle-integrity checks, SHA-256 checksums, macOS install/upgrade smoke tests, and GitHub build provenance. Developer ID signing and Apple notarization are intentionally not required.
 
 ## [0.1.0] - 2026-07-11
 
@@ -45,7 +67,8 @@ No user-facing changes yet.
 
 ### Known Issues
 
-- Certificate-free distribution requires users to confirm the first launch through Finder because the app is not Developer ID signed or notarized.
+- Certificate-free distribution requires users to confirm the first launch through Finder or macOS Privacy & Security because the app is not Developer ID signed or notarized.
 
-[Unreleased]: https://github.com/Funyday-k/Sci-Station/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Funyday-k/Sci-Station/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Funyday-k/Sci-Station/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Funyday-k/Sci-Station/releases/tag/v0.1.0

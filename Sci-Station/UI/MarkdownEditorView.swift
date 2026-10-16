@@ -2,12 +2,13 @@ import SwiftUI
 
 struct MarkdownEditorView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @AppStorage("wiki.markdownEditorMode") private var editorModeRawValue = MarkdownEditorMode.source.rawValue
     @State private var isFrontmatterExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let document = appModel.selectedMarkdownDraft {
+            if let document = knowledgeStore.selectedDraft {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(document.title)
@@ -84,7 +85,7 @@ struct MarkdownEditorView: View {
     }
 
     private var saveStateBadge: some View {
-        let state = appModel.selectedMarkdownSaveState
+        let state = knowledgeStore.saveState
         let color: Color = switch state {
         case .clean: .green
         case .dirty: .orange
@@ -103,7 +104,7 @@ struct MarkdownEditorView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(color.opacity(0.12), in: Capsule())
-        .help(appModel.selectedMarkdownSaveErrorMessage ?? appModel.selectedMarkdownSaveStateLabel)
+        .help(knowledgeStore.saveErrorMessage ?? appModel.selectedMarkdownSaveStateLabel)
     }
 
     private var markdownFormattingToolbar: some View {
@@ -118,7 +119,7 @@ struct MarkdownEditorView: View {
                 }
                 .buttonStyle(.bordered)
                 .help(action.title)
-                .disabled(appModel.selectedMarkdownDraft == nil)
+                .disabled(knowledgeStore.selectedDraft == nil)
             }
 
             Spacer(minLength: 8)

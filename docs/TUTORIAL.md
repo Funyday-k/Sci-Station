@@ -169,7 +169,7 @@ Confirm that the shared package does not include real credentials, local researc
 
 ## 12. Known Trial Boundaries
 
-- Sci-Station is currently a local-first trial/development build, not a notarized public release.
+- Local source and beta builds are not notarized; public release artifacts must pass the repository's Developer ID, notarization, stapling, and Gatekeeper workflow.
 - Network features depend on user configuration, user network access, and third-party services.
 - High-quality PDF-to-Markdown conversion depends on MinerU.
 - Apple Reminders support is currently focused on publishing and local mapping; full bidirectional sync is future work.

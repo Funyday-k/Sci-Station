@@ -6,14 +6,24 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A10000012FA1000000000001 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = A10000012FA1000000000003 /* Yams */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		89FFDA2E2F9F6BBB00F12D99 /* Sci-Station.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sci-Station.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000010000000000000001 /* SciStationUISmokeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SciStationUISmokeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		89FFDA302F9F6BBB00F12D99 /* Sci-Station */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Sci-Station";
+			sourceTree = "<group>";
+		};
+		A20000010000000000000002 /* SciStationUISmokeTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tools/SciStationUISmokeTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -23,7 +33,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000012FA1000000000001 /* Yams in Frameworks */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000010000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -33,6 +50,7 @@
 			isa = PBXGroup;
 			children = (
 				89FFDA302F9F6BBB00F12D99 /* Sci-Station */,
+				A20000010000000000000002 /* SciStationUISmokeTests */,
 				89FFDA2F2F9F6BBB00F12D99 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +59,7 @@
 			isa = PBXGroup;
 			children = (
 				89FFDA2E2F9F6BBB00F12D99 /* Sci-Station.app */,
+				A20000010000000000000001 /* SciStationUISmokeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -65,10 +84,29 @@
 			);
 			name = "Sci-Station";
 			packageProductDependencies = (
+				A10000012FA1000000000003 /* Yams */,
 			);
 			productName = "Sci-Station";
 			productReference = 89FFDA2E2F9F6BBB00F12D99 /* Sci-Station.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A20000010000000000000004 /* SciStationUISmokeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000010000000000000005 /* Build configuration list for PBXNativeTarget "SciStationUISmokeTests" */;
+			buildPhases = (
+				A20000010000000000000006 /* Sources */,
+				A20000010000000000000003 /* Frameworks */,
+				A20000010000000000000007 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			fileSystemSynchronizedGroups = (
+				A20000010000000000000002 /* SciStationUISmokeTests */,
+			);
+			name = SciStationUISmokeTests;
+			productName = SciStationUISmokeTests;
+			productReference = A20000010000000000000001 /* SciStationUISmokeTests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -80,6 +118,9 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					A20000010000000000000004 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					89FFDA2D2F9F6BBB00F12D99 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -94,12 +135,16 @@
 			);
 			mainGroup = 89FFDA252F9F6BBB00F12D99;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A10000012FA1000000000002 /* XCRemoteSwiftPackageReference "Yams" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 89FFDA2F2F9F6BBB00F12D99 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				89FFDA2D2F9F6BBB00F12D99 /* Sci-Station */,
+				A20000010000000000000004 /* SciStationUISmokeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -112,6 +157,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A20000010000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -120,6 +171,12 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000010000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
@@ -250,7 +307,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = K7A7Y3LPZF;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
@@ -283,7 +340,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "Lingyu-Xia.Sci-Station";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -291,7 +348,7 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -307,7 +364,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = K7A7Y3LPZF;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
@@ -340,7 +397,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "Lingyu-Xia.Sci-Station";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -348,9 +405,49 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A20000010000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.scistation.UISmokeTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A20000010000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.scistation.UISmokeTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -376,7 +473,35 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A20000010000000000000005 /* Build configuration list for PBXNativeTarget "SciStationUISmokeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000010000000000000008 /* Debug */,
+				A20000010000000000000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000012FA1000000000002 /* XCRemoteSwiftPackageReference "Yams" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jpsim/Yams.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.2.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000012FA1000000000003 /* Yams */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000012FA1000000000002 /* XCRemoteSwiftPackageReference "Yams" */;
+			productName = Yams;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 89FFDA262F9F6BBB00F12D99 /* Project object */;
 }

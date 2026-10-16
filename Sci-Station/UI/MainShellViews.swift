@@ -7,6 +7,8 @@ private enum SidebarMotion {
 
 struct SidebarView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var libraryStore: LibraryStore
     let workspace: ResearchWorkspace?
     @State private var isAllPapersExpanded = true
     @State private var isAILabExpanded = true
@@ -18,10 +20,10 @@ struct SidebarView: View {
 
     private func isSelected(_ section: WorkspaceSection) -> Bool {
         if section == .library {
-            return appModel.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+            return navigationStore.selectedSection == .library && appModel.selectedLibraryProjectID == nil && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
         }
 
-        return appModel.selectedSection == section
+        return navigationStore.selectedSection == section
     }
 
     private var rootCollections: [PaperCollection] {
@@ -31,6 +33,8 @@ struct SidebarView: View {
 
 private struct SidebarAILabGroup: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var agentStore: AgentStore
     @Binding var isExpanded: Bool
 
     private var visibleThreads: [AgentThread] {
@@ -56,7 +60,7 @@ private struct SidebarAILabGroup: View {
                 HStack(spacing: 8) {
                     Image(systemName: WorkspaceSection.llmLab.systemImage)
                         .frame(width: 16)
-                        .foregroundStyle(appModel.selectedSection == .llmLab ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(navigationStore.selectedSection == .llmLab ? Color.accentColor : Color.secondary)
                     Text("AI Lab")
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -67,7 +71,7 @@ private struct SidebarAILabGroup: View {
                 }
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)
-                .background(appModel.selectedSection == .llmLab ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(navigationStore.selectedSection == .llmLab ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     withAnimation(SidebarMotion.selection) {
@@ -321,6 +325,9 @@ private struct SidebarCollectionTree: View {
 
 private struct SidebarProjectGroup: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var navigationStore: NavigationStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let project: ResearchProject
 
@@ -425,10 +432,10 @@ private struct SidebarProjectGroup: View {
         }
 
         if section == .library {
-            return appModel.selectedSection == .library && appModel.selectedLibraryProjectID == project.id && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
+            return navigationStore.selectedSection == .library && appModel.selectedLibraryProjectID == project.id && appModel.selectedCollectionPath == nil && appModel.selectedTagName == nil
         }
 
-        return appModel.selectedSection == section
+        return navigationStore.selectedSection == section
     }
 
     private func badgeText(for section: WorkspaceSection) -> String? {
@@ -582,6 +589,11 @@ struct WorkspaceContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .uitestID(
+            UITestAccessibilityID.Workspace.section(
+                selectedSection?.rawValue ?? "none"
+            )
+        )
         .overlay(alignment: .bottom) {
             if let message = appModel.shellStatusMessage {
                 Text(message)
@@ -950,6 +962,7 @@ struct WorkspaceSectionOverview: View {
 
 struct WorkspaceInspectorView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let workspace: ResearchWorkspace?
     let selectedSection: WorkspaceSection?
@@ -1026,91 +1039,94 @@ private struct EmptyWorkspaceView: View {
     let openWorkspace: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Sci-Station")
-                .font(.system(size: 42, weight: .bold, design: .rounded))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Sci-Station")
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
 
-            Text(appModel.localized(
-                "面向本地的科研工作站：管理 PDF、Markdown 知识页与 LLM 协助的综述。",
-                "Local-first research workstation for PDFs, Markdown knowledge pages, and LLM-assisted synthesis."
-            ))
-                .font(.title3)
-                .foregroundStyle(.secondary)
+                Text(appModel.localized(
+                    "面向本地的科研工作站：管理 PDF、Markdown 知识页与 LLM 协助的综述。",
+                    "Local-first research workstation for PDFs, Markdown knowledge pages, and LLM-assisted synthesis."
+                ))
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                Button(appModel.localized("创建 Workspace", "Create Workspace"), action: createWorkspace)
-                    .buttonStyle(.borderedProminent)
-                Button(appModel.localized("打开已有 Workspace", "Open Existing Workspace"), action: openWorkspace)
+                HStack(spacing: 12) {
+                    Button(appModel.localized("创建 Workspace", "Create Workspace"), action: createWorkspace)
+                        .buttonStyle(.borderedProminent)
+                    Button(appModel.localized("打开已有 Workspace", "Open Existing Workspace"), action: openWorkspace)
+                        .buttonStyle(.bordered)
+                    Button(appModel.localized("试用示例 Workspace", "Try Sample Workspace")) {
+                        appModel.createSampleWorkspace()
+                    }
                     .buttonStyle(.bordered)
-                Button(appModel.localized("试用示例 Workspace", "Try Sample Workspace")) {
-                    appModel.createSampleWorkspace()
                 }
-                .buttonStyle(.bordered)
-            }
 
-            Text(appModel.localized(
-                "示例 Workspace 会创建一个带有示例 Wiki 与研究笔记的本地文件夹，便于立即体验。",
-                "The sample workspace creates a local folder seeded with example wiki pages and research notes so you can explore right away."
-            ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                Text(appModel.localized(
+                    "示例 Workspace 会创建一个带有示例 Wiki 与研究笔记的本地文件夹，便于立即体验。",
+                    "The sample workspace creates a local folder seeded with example wiki pages and research notes so you can explore right away."
+                ))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
 
-            if isWorking {
-                ProgressView(appModel.localized("正在准备 workspace…", "Preparing workspace…"))
-            }
-
-            GroupBox(appModel.localized("快速开始", "Quick Start")) {
-                VStack(alignment: .leading, spacing: 12) {
-                    TrialStepRow(
-                        index: "1",
-                        title: appModel.localized("创建 Research Root", "Create a Research Root"),
-                        detail: appModel.localized(
-                            "选择源码仓库之外的一个空文件夹。Sci-Station 会在其中创建 library、projects、wiki、tasks、settings 与 agent 状态。",
-                            "Choose an empty local folder outside this source repo. Sci-Station creates the library, projects, wiki, tasks, settings, and agent state there."
-                        )
-                    )
-                    TrialStepRow(
-                        index: "2",
-                        title: appModel.localized("导入论文", "Import Papers"),
-                        detail: appModel.localized(
-                            "使用 Import PDF、拖入 PDF，或通过 Add by Identifier 粘贴 DOI/arXiv/PDF 链接。",
-                            "Use Import PDF, drag in a PDF, or paste DOI/arXiv/PDF links with Add by Identifier."
-                        )
-                    )
-                    TrialStepRow(
-                        index: "3",
-                        title: appModel.localized("在项目中工作", "Work In Projects"),
-                        detail: appModel.localized(
-                            "创建项目、编辑 Project Brief、收集核心论文，并把数据、代码、图表与产出放在 Materials 下。",
-                            "Create a project, edit its Project Brief, collect core papers, and keep data, code, figures, and outputs under Materials."
-                        )
-                    )
+                if isWorking {
+                    ProgressView(appModel.localized("正在准备 workspace…", "Preparing workspace…"))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
-            }
 
-            GroupBox(appModel.localized("隐私", "Privacy")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(appModel.localized(
-                        "所有 workspace 文件都保存在你选择的 Research Root 内。",
-                        "All workspace files stay in the selected Research Root."
-                    ), systemImage: "folder")
-                    Label(appModel.localized(
-                        "LLM 与 MinerU 令牌是可选的，且保存在 macOS 钥匙串。",
-                        "LLM and MinerU tokens are optional and saved to macOS Keychain."
-                    ), systemImage: "key")
-                    Label(appModel.localized(
-                        "在分享 Research Root 前，请检查论文、笔记、数据与 agent 日志中是否含有隐私内容。",
-                        "Before sharing a Research Root, check papers, notes, data, and agent logs for private content."
-                    ), systemImage: "checkmark.shield")
+                GroupBox(appModel.localized("快速开始", "Quick Start")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        TrialStepRow(
+                            index: "1",
+                            title: appModel.localized("创建 Research Root", "Create a Research Root"),
+                            detail: appModel.localized(
+                                "选择源码仓库之外的一个空文件夹。Sci-Station 会在其中创建 library、projects、wiki、tasks、settings 与 agent 状态。",
+                                "Choose an empty local folder outside this source repo. Sci-Station creates the library, projects, wiki, tasks, settings, and agent state there."
+                            )
+                        )
+                        TrialStepRow(
+                            index: "2",
+                            title: appModel.localized("导入论文", "Import Papers"),
+                            detail: appModel.localized(
+                                "使用 Import PDF、拖入 PDF，或通过 Add by Identifier 粘贴 DOI/arXiv/PDF 链接。",
+                                "Use Import PDF, drag in a PDF, or paste DOI/arXiv/PDF links with Add by Identifier."
+                            )
+                        )
+                        TrialStepRow(
+                            index: "3",
+                            title: appModel.localized("在项目中工作", "Work In Projects"),
+                            detail: appModel.localized(
+                                "创建项目、编辑 Project Brief、收集核心论文，并把数据、代码、图表与产出放在 Materials 下。",
+                                "Create a project, edit its Project Brief, collect core papers, and keep data, code, figures, and outputs under Materials."
+                            )
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
+
+                GroupBox(appModel.localized("隐私", "Privacy")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(appModel.localized(
+                            "所有 workspace 文件都保存在你选择的 Research Root 内。",
+                            "All workspace files stay in the selected Research Root."
+                        ), systemImage: "folder")
+                        Label(appModel.localized(
+                            "LLM 与 MinerU 令牌是可选的，且保存在 macOS 钥匙串。",
+                            "LLM and MinerU tokens are optional and saved to macOS Keychain."
+                        ), systemImage: "key")
+                        Label(appModel.localized(
+                            "在分享 Research Root 前，请检查论文、笔记、数据与 agent 日志中是否含有隐私内容。",
+                            "Before sharing a Research Root, check papers, notes, data, and agent logs for private content."
+                        ), systemImage: "checkmark.shield")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                }
             }
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

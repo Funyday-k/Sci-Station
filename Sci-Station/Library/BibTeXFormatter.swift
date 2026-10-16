@@ -15,8 +15,15 @@ public struct BibTeXFormatter {
     public nonisolated init() {}
 
     public nonisolated static func bibTeX(for paper: Paper) -> String {
+        var fallbackNotice = ""
         if let existingBibTeX = trimmedOrNil(paper.bibtex) {
-            return existingBibTeX
+            do {
+                return try BibTeXEntryKeyEditor.replacingSingleEntryKey(in: existingBibTeX, with: paper.citekey)
+            } catch {
+                // Keep paper.bibtex untouched as source evidence. Ambiguous or
+                // truncated provider data must not be silently exported as valid.
+                fallbackNotice = "% Sci-Station: \(error.localizedDescription); generated from paper metadata.\n"
+            }
         }
 
         let entryType = entryType(for: paper)
@@ -51,7 +58,7 @@ public struct BibTeXFormatter {
             .map { "  \($0.0) = {\(escaped($0.1))}" }
             .joined(separator: ",\n")
 
-        return "@\(entryType){\(paper.citekey),\n\(fieldLines)\n}\n"
+        return fallbackNotice + "@\(entryType){\(paper.citekey),\n\(fieldLines)\n}\n"
     }
 
     public nonisolated static func citation(for paper: Paper, format: CitationFormat) -> String {

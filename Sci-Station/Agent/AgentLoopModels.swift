@@ -816,6 +816,8 @@ public nonisolated struct AgentPendingToolCall: Codable, Hashable, Sendable, Ide
     public var toolCall: AgentToolCall
     public var approvalRequest: AgentApprovalRequest
     public var messagesBeforePause: [LLMChatMessage]
+    public var goal: String?
+    public var toolResults: [AgentToolResult]?
     public var createdAt: Date
     public var expiresAt: Date?
 
@@ -826,6 +828,8 @@ public nonisolated struct AgentPendingToolCall: Codable, Hashable, Sendable, Ide
         toolCall: AgentToolCall,
         approvalRequest: AgentApprovalRequest,
         messagesBeforePause: [LLMChatMessage],
+        goal: String? = nil,
+        toolResults: [AgentToolResult]? = nil,
         createdAt: Date = Date(),
         expiresAt: Date? = nil
     ) {
@@ -835,6 +839,8 @@ public nonisolated struct AgentPendingToolCall: Codable, Hashable, Sendable, Ide
         self.toolCall = toolCall
         self.approvalRequest = approvalRequest
         self.messagesBeforePause = messagesBeforePause
+        self.goal = goal
+        self.toolResults = toolResults
         self.createdAt = createdAt
         self.expiresAt = expiresAt
     }
@@ -850,6 +856,8 @@ public nonisolated struct AgentPendingToolCall: Codable, Hashable, Sendable, Ide
             toolCall: toolCall,
             approvalRequest: approvalRequest,
             messagesBeforePause: messagesBeforePause,
+            goal: goal,
+            toolResults: toolResults,
             createdAt: createdAt,
             expiresAt: expiresAt
         )
@@ -862,6 +870,8 @@ public nonisolated struct AgentPendingToolCall: Codable, Hashable, Sendable, Ide
         case toolCall = "tool_call"
         case approvalRequest = "approval_request"
         case messagesBeforePause = "messages_before_pause"
+        case goal
+        case toolResults = "tool_results"
         case createdAt = "created_at"
         case expiresAt = "expires_at"
     }
@@ -902,6 +912,8 @@ public nonisolated struct AgentPendingToolCall: Codable, Hashable, Sendable, Ide
         self.toolCall = toolCall
         self.approvalRequest = approval
         self.messagesBeforePause = try container.decodeIfPresent([LLMChatMessage].self, forKey: .messagesBeforePause) ?? []
+        self.goal = try container.decodeIfPresent(String.self, forKey: .goal)
+        self.toolResults = try container.decodeIfPresent([AgentToolResult].self, forKey: .toolResults)
         self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         self.expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
     }

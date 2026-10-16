@@ -3,6 +3,9 @@ import SwiftUI
 
 struct RecommendationView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var recommendationStore: RecommendationStore
 
     let workspace: ResearchWorkspace
     let project: ResearchProject
@@ -308,10 +311,10 @@ struct RecommendationView: View {
         .onChange(of: selectedCategories) { _, _ in
             persistSelectedCategories()
         }
-        .onChange(of: appModel.papers.map(\.id)) { _, _ in
+        .onChange(of: libraryStore.papers.map(\.id)) { _, _ in
             applyDefaultReferencePapersIfNeeded()
         }
-        .onChange(of: appModel.recommendationHistory) { _, _ in
+        .onChange(of: recommendationStore.history) { _, _ in
             selectTodaysRecommendationHistoryIfNeeded()
         }
     }
@@ -323,7 +326,7 @@ struct RecommendationView: View {
                     .font(.title2.weight(.semibold))
                 Spacer(minLength: 0)
                 Button(action: refresh) {
-                    if appModel.isRefreshingRecommendations || appModel.isEvaluatingRecommendationsWithAI {
+                    if recommendationStore.isRefreshing || recommendationStore.isEvaluatingWithAI {
                         ProgressView()
                             .controlSize(.small)
                     } else {
@@ -331,7 +334,7 @@ struct RecommendationView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(appModel.isRefreshingRecommendations)
+                .disabled(recommendationStore.isRefreshing)
             }
             Text(appModel.localized(
                 "AI 会先读取关键词、领域和参考论文生成 arXiv 搜索策略；推荐加入时会先进入论文库，再创建阅读 Todo。",
@@ -1118,6 +1121,7 @@ private struct RecommendationCategorySelectorSheet: View {
 
 private struct RecommendationReferencePaperSheet: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let project: ResearchProject
     @Binding var selectedPaperIDs: Set<Paper.ID>
@@ -1243,6 +1247,7 @@ private struct RecommendationReferencePaperSheet: View {
 
 private struct RecommendationHistoryManagerSheet: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var recommendationStore: RecommendationStore
 
     let onSelect: (RecommendationRunResult) -> Void
     let onDone: () -> Void
@@ -1701,8 +1706,12 @@ private extension String {
 
 #if DEBUG
 #Preview("Recommendations") {
+    let appModel = AppViewModel()
     RecommendationView(workspace: PreviewFixtures.workspace, project: PreviewFixtures.project)
-        .environmentObject(AppViewModel())
+        .environmentObject(appModel)
+        .environmentObject(appModel.workspaceStore)
+        .environmentObject(appModel.libraryStore)
+        .environmentObject(appModel.recommendationStore)
         .frame(width: 1000, height: 720)
 }
 #endif

@@ -100,6 +100,9 @@ private final class LibraryListViewModel: ObservableObject {
 
 struct LibraryListView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
     let workspace: ResearchWorkspace
     @StateObject private var viewModel = LibraryListViewModel()
@@ -164,7 +167,7 @@ struct LibraryListView: View {
             }
 
             HStack(spacing: 10) {
-                Text("\(viewModel.rows.count) / \(appModel.papers.count) papers in \(workspace.displayName)")
+                Text("\(viewModel.rows.count) / \(libraryStore.papers.count) papers in \(workspace.displayName)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -181,7 +184,7 @@ struct LibraryListView: View {
             }
 
             if viewModel.rows.isEmpty {
-                LibraryEmptyStateView(hasAnyPaper: !appModel.papers.isEmpty)
+                LibraryEmptyStateView(hasAnyPaper: !libraryStore.papers.isEmpty)
             } else {
                 LibraryPaperTableView(
                     workspace: workspace,
@@ -243,10 +246,10 @@ struct LibraryListView: View {
             viewModel.syncSearchTextFromModel(searchText)
             viewModel.scheduleRebuild(appModel: appModel, workspace: workspace, debounce: true)
         }
-        .onChange(of: appModel.papers) { _, _ in
+        .onChange(of: libraryStore.papers) { _, _ in
             viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
         }
-        .onChange(of: appModel.researchProjects) { _, _ in
+        .onChange(of: workspaceStore.projects) { _, _ in
             viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
         }
         .onChange(of: appModel.selectedLibraryProjectID) { _, _ in
@@ -267,7 +270,7 @@ struct LibraryListView: View {
         .onChange(of: appModel.paperMarkdownConversionMessages) { _, _ in
             viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
         }
-        .onChange(of: appModel.markdownDocuments) { _, _ in
+        .onChange(of: knowledgeStore.documents) { _, _ in
             viewModel.scheduleRebuild(appModel: appModel, workspace: workspace)
         }
         .sheet(isPresented: $isShowingCollectionManager) {
@@ -300,7 +303,7 @@ struct LibraryListView: View {
 
     private func paper(for selection: Set<Paper.ID>) -> Paper? {
         if let selectedID = selection.first {
-            return appModel.papers.first(where: { $0.id == selectedID })
+            return libraryStore.papers.first(where: { $0.id == selectedID })
         }
 
         return appModel.selectedPaperDraft
@@ -464,6 +467,7 @@ private enum LibraryColumn: String, CaseIterable, Identifiable {
 
 private struct LibraryPaperTableView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let workspace: ResearchWorkspace
     let rows: [LibraryPaperTableRow]
@@ -1003,6 +1007,8 @@ private struct LibraryPaperTableRow: Identifiable, Hashable {
 
 private struct PaperClassificationMenuItems: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
 
     let paper: Paper
 
@@ -1354,6 +1360,7 @@ struct PDFReaderWorkspaceView: View {
 
 struct PaperInspectorView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
     @FocusState private var isEditingMetadataField: Bool
     @State private var isCitationExpanded = false
     @State private var isAdvancedExpanded = false
@@ -2090,8 +2097,12 @@ private struct PDFReaderEmptyStateView: View {
 
 #if DEBUG
 #Preview("Library") {
+    let appModel = AppViewModel()
     LibraryListView(workspace: PreviewFixtures.workspace)
-        .environmentObject(AppViewModel())
+        .environmentObject(appModel)
+        .environmentObject(appModel.workspaceStore)
+        .environmentObject(appModel.libraryStore)
+        .environmentObject(appModel.knowledgeStore)
         .frame(width: 1000, height: 700)
 }
 #endif

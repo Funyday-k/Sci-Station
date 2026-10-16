@@ -80,27 +80,29 @@ struct ChatMarkdownWebView: NSViewRepresentable {
         }
 
         nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let url = navigationAction.request.url else {
-                decisionHandler(.allow)
-                return
-            }
-            switch navigationAction.navigationType {
-            case .linkActivated:
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-            default:
-                decisionHandler(.allow)
+            MainActor.assumeIsolated {
+                guard let url = navigationAction.request.url else {
+                    decisionHandler(.allow)
+                    return
+                }
+                switch navigationAction.navigationType {
+                case .linkActivated:
+                    NSWorkspace.shared.open(url)
+                    decisionHandler(.cancel)
+                default:
+                    decisionHandler(.allow)
+                }
             }
         }
 
         // MARK: - WKScriptMessageHandler
 
         nonisolated func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard message.name == "chatHeight" else {
-                return
-            }
-            let payload = message.body
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
+                guard message.name == "chatHeight" else {
+                    return
+                }
+                let payload = message.body
                 if let dict = payload as? [String: Any], let height = dict["height"] as? Double {
                     self?.handleHeight(CGFloat(height))
                 } else if let height = payload as? Double {

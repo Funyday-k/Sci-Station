@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CollectionManagerView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var libraryStore: LibraryStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedCollectionPath: String?

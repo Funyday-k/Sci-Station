@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private vulnerability report
+    url: https://github.com/Funyday-k/Sci-Station/security/advisories/new
+    about: Report security issues privately.
+  - name: Contribution and development guide
+    url: https://github.com/Funyday-k/Sci-Station/blob/main/CONTRIBUTING.md
+    about: Read the workflow and local validation requirements.

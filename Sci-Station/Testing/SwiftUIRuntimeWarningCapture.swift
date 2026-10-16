@@ -95,9 +95,10 @@ public final class SwiftUIRuntimeWarningCapture: @unchecked Sendable {
         }
 
         currentRootURL = rootURL
-        anchorDate = Date()
+        let pollingAnchor = Date()
+        anchorDate = pollingAnchor
         currentTask = Task.detached(priority: .utility) { [weak self] in
-            await self?.pollLoop(logURL: logURL)
+            await self?.pollLoop(logURL: logURL, startingAt: pollingAnchor)
         }
         return true
         #else
@@ -117,10 +118,8 @@ public final class SwiftUIRuntimeWarningCapture: @unchecked Sendable {
 
     // MARK: - Internals
 
-    nonisolated private func pollLoop(logURL: URL) async {
-        lock.lock()
-        var lastDate = self.anchorDate ?? Date()
-        lock.unlock()
+    nonisolated private func pollLoop(logURL: URL, startingAt: Date) async {
+        var lastDate = startingAt
         while !Task.isCancelled {
             await Self.collectAndAppend(
                 logURL: logURL,
@@ -208,4 +207,3 @@ public final class SwiftUIRuntimeWarningCapture: @unchecked Sendable {
         return formatter
     }()
 }
-

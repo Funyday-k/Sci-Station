@@ -5,6 +5,10 @@ private let homePerformanceLogger = Logger(subsystem: "Lingyu-Xia.Sci-Station", 
 
 struct HomeView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
+    @EnvironmentObject private var agentStore: AgentStore
 
     let workspace: ResearchWorkspace
 
@@ -275,8 +279,13 @@ struct HomeAuroraBackground: View {
 
 #if DEBUG
 #Preview("Home") {
+    let appModel = AppViewModel()
     HomeView(workspace: PreviewFixtures.workspace)
-        .environmentObject(AppViewModel())
+        .environmentObject(appModel)
+        .environmentObject(appModel.workspaceStore)
+        .environmentObject(appModel.libraryStore)
+        .environmentObject(appModel.knowledgeStore)
+        .environmentObject(appModel.agentStore)
         .frame(width: 1000, height: 720)
 }
 #endif

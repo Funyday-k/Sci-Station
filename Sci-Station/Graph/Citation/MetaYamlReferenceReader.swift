@@ -17,90 +17,46 @@ public nonisolated struct MetaYamlReference: Hashable, Sendable {
     }
 }
 
-/// Reads the optional `references:` list-of-object field from a paper's
-/// `meta.yaml` content. Each item may contain `doi`, `arxiv`, `title`,
-/// `authors`, and `year`.
-///
-/// This reader works directly on the raw YAML text using the same lightweight
-/// parser as `PaperMetadataCodec`. It does NOT require the field to be
-/// declared in the `Paper` struct — the codec's unknown-field preservation
-/// (Week 1 §1.2) keeps it alive across round-trips.
-public enum MetaYamlReferenceReader {
-    public nonisolated static func read(from yamlContents: String) -> [MetaYamlReference] {
-        let lines = yamlContents.components(separatedBy: .newlines)
-        guard let startIndex = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).hasPrefix("references:")
-        }) else {
+/// Reads the optional `references:` array from a paper's standards-compliant
+/// `meta.yaml` document. Invalid YAML remains non-fatal for indexing callers;
+/// validation and migration paths can use `readThrowing` for diagnostics.
+public nonisolated enum MetaYamlReferenceReader {
+    public static func read(from yamlContents: String) -> [MetaYamlReference] {
+        (try? readThrowing(from: yamlContents)) ?? []
+    }
+
+    public static func readThrowing(from yamlContents: String) throws -> [MetaYamlReference] {
+        let mapping = try StandardsYAMLDecoder.decodeMapping(yamlContents)
+        guard let entries = mapping["references"]?.arrayElements else {
             return []
         }
 
-        let parentIndent = indentation(of: lines[startIndex])
-        var results: [MetaYamlReference] = []
-        var cursor = startIndex + 1
-        var currentRef: [String: String] = [:]
-
-        while cursor < lines.count {
-            let line = lines[cursor]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let lineIndent = indentation(of: line)
-
-            if trimmed.isEmpty {
-                cursor += 1
-                continue
+        return entries.compactMap { entry in
+            guard let fields = entry.objectValue else {
+                return nil
             }
-
-            // Stop if we've returned to the parent indent level or above.
-            guard lineIndent > parentIndent else { break }
-
-            if trimmed.hasPrefix("- ") {
-                // New list item. Flush the previous one.
-                if !currentRef.isEmpty {
-                    results.append(makeReference(from: currentRef))
-                }
-                currentRef = [:]
-                // Parse inline key: value on the same line as `-`.
-                let afterDash = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                if let (key, value) = splitKeyValue(afterDash) {
-                    currentRef[key] = value
-                }
-            } else if let (key, value) = splitKeyValue(trimmed) {
-                // Continuation key under the current list item.
-                currentRef[key] = value
-            }
-
-            cursor += 1
+            return makeReference(from: fields)
         }
-
-        // Flush last item.
-        if !currentRef.isEmpty {
-            results.append(makeReference(from: currentRef))
-        }
-
-        return results
     }
 
-    private nonisolated static func makeReference(from fields: [String: String]) -> MetaYamlReference {
-        MetaYamlReference(
-            doi: fields["doi"]?.nilIfEmptyMeta,
-            arxiv: (fields["arxiv"] ?? fields["arxiv_id"])?.nilIfEmptyMeta,
-            title: fields["title"]?.nilIfEmptyMeta,
-            authors: fields["authors"]?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) },
-            year: fields["year"].flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    private static func makeReference(from fields: [String: FrontmatterValue]) -> MetaYamlReference {
+        let authors: [String]? = {
+            if let values = fields["authors"]?.arrayValue {
+                return values.compactMap(\.nilIfEmptyMeta).nilIfEmptyMeta
+            }
+            return fields["authors"]?.stringValue?
+                .split(separator: ",")
+                .compactMap { String($0).nilIfEmptyMeta }
+                .nilIfEmptyMeta
+        }()
+
+        return MetaYamlReference(
+            doi: fields["doi"]?.stringValue?.nilIfEmptyMeta,
+            arxiv: (fields["arxiv"] ?? fields["arxiv_id"])?.stringValue?.nilIfEmptyMeta,
+            title: fields["title"]?.stringValue?.nilIfEmptyMeta,
+            authors: authors,
+            year: fields["year"]?.stringValue.flatMap(Int.init)
         )
-    }
-
-    private nonisolated static func splitKeyValue(_ line: String) -> (String, String)? {
-        guard let colonIndex = line.firstIndex(of: ":") else { return nil }
-        let key = String(line[..<colonIndex]).trimmingCharacters(in: .whitespaces)
-        let value = String(line[line.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
-        let unquoted = value.hasPrefix("\"") && value.hasSuffix("\"") && value.count >= 2
-            ? String(value.dropFirst().dropLast())
-            : value
-        return (key, unquoted)
-    }
-
-    private nonisolated static func indentation(of line: String) -> Int {
-        line.prefix(while: { $0 == " " }).count
     }
 }
 
@@ -108,5 +64,11 @@ private extension String {
     var nilIfEmptyMeta: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension Array {
+    var nilIfEmptyMeta: Self? {
+        isEmpty ? nil : self
     }
 }

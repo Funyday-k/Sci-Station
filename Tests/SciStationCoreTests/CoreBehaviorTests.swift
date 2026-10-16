@@ -46,7 +46,22 @@ struct CoreBehaviorTests {
         #expect(ResponsiveShellPolicy.homeWidgetColumns(for: 800) == 2)
     }
 
+    @Test("UI smoke identifiers remain valid and stable")
+    func uiSmokeIdentifiers() {
+        let identifiers = [
+            UITestAccessibilityID.App.mainWindowRoot,
+            UITestAccessibilityID.Sidebar.tab(WorkspaceRoute.Top.library.rawValue),
+            UITestAccessibilityID.Workspace.section(WorkspaceSection.dashboard.rawValue),
+            UITestAccessibilityID.Workspace.section(WorkspaceSection.library.rawValue)
+        ]
+
+        #expect(identifiers.allSatisfy(UITestAccessibilityID.isValidIdentifier))
+        #expect(UITestAccessibilityID.App.mainWindowRoot == "app.main_window.root")
+        #expect(UITestAccessibilityID.Workspace.section("library") == "workspace.section.library")
+    }
+
     @Test("Starting a workspace session cancels the previous generation")
+    @MainActor
     func workspaceSessionCancellation() async throws {
         let coordinator = WorkspaceSessionCoordinator()
         var completed: [UInt64] = []
@@ -65,5 +80,25 @@ struct CoreBehaviorTests {
         try await Task.sleep(for: .milliseconds(120))
         #expect(completed.count == 1)
         #expect(completed.first == 2)
+    }
+
+    @Test("Workspace creation remains usable when no security-scoped bookmark is available")
+    func workspaceCreationWithoutSecurityScope() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SciStationWorkspaceTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let defaultsName = "SciStationCoreTests.workspaceBookmark.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let service = WorkspaceService(
+            bookmarkStore: WorkspaceBookmarkStore(defaults: defaults)
+        )
+        let workspace = try await service.createWorkspace(at: rootURL)
+
+        #expect(workspace.missingRequiredItems().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: workspace.sharedResearchURL.path))
     }
 }

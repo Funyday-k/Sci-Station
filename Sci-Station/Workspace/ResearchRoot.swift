@@ -83,15 +83,43 @@ public nonisolated struct ResearchRoot: Identifiable, Equatable, Sendable {
     }
 
     public nonisolated func resolve(relativePath: String, isDirectory: Bool) -> URL {
-        let components = relativePath.split(separator: "/")
-
-        return components.enumerated().reduce(rootURL) { partialURL, component in
-            let isLastComponent = component.offset == components.count - 1
-            return partialURL.appendingPathComponent(
-                String(component.element),
-                isDirectory: isLastComponent ? isDirectory : true
-            )
+        if let resolved = try? WorkspacePathResolver.resolve(
+            relativePath: relativePath,
+            from: rootURL,
+            rootURL: rootURL,
+            isDirectory: isDirectory
+        ) {
+            return resolved
         }
+
+        // Keep legacy non-throwing callers inside an isolated workspace path.
+        // Validated entry points should use `validatedResolve` to surface the
+        // original path error to the caller.
+        return rootURL
+            .appendingPathComponent(".sci-station/quarantine", isDirectory: true)
+            .appendingPathComponent("invalid-path", isDirectory: isDirectory)
+    }
+
+    public nonisolated func validatedResolve(relativePath: String, isDirectory: Bool) throws -> URL {
+        try WorkspacePathResolver.resolve(
+            relativePath: relativePath,
+            from: rootURL,
+            rootURL: rootURL,
+            isDirectory: isDirectory
+        )
+    }
+
+    public nonisolated func validatedResolve(
+        relativePath: String,
+        from baseURL: URL,
+        isDirectory: Bool
+    ) throws -> URL {
+        try WorkspacePathResolver.resolve(
+            relativePath: relativePath,
+            from: baseURL,
+            rootURL: rootURL,
+            isDirectory: isDirectory
+        )
     }
 
     public nonisolated func missingRequiredItems(using fileManager: FileManager = .default) -> [String] {
@@ -203,6 +231,7 @@ public nonisolated struct ProjectRegistry: Codable, Hashable, Sendable {
 public nonisolated enum ProjectRegistryError: LocalizedError, Sendable {
     case projectNameRequired
     case projectNotFound(String)
+    case invalidRelativePath(String)
 
     public var errorDescription: String? {
         switch self {
@@ -210,6 +239,8 @@ public nonisolated enum ProjectRegistryError: LocalizedError, Sendable {
             return "Project name is required."
         case let .projectNotFound(id):
             return "No project found with id \(id)."
+        case let .invalidRelativePath(path):
+            return "Project path is outside the workspace or invalid: \(path)."
         }
     }
 }
@@ -227,7 +258,9 @@ public actor ProjectRegistryRepository {
             return ProjectRegistry()
         }
 
-        return decode(try String(contentsOf: fileURL, encoding: .utf8))
+        let registry = decode(try String(contentsOf: fileURL, encoding: .utf8))
+        try validateProjectPaths(registry, in: root)
+        return registry
     }
 
     public func save(_ registry: ProjectRegistry, in root: ResearchRoot) throws {
@@ -302,6 +335,7 @@ public actor ProjectRegistryRepository {
         guard !updatedProject.name.isEmpty else {
             throw ProjectRegistryError.projectNameRequired
         }
+        try validateProjectPath(updatedProject.relativePath, in: root)
         updatedProject.updatedAt = Date()
 
         registry.projects[index] = updatedProject
@@ -406,19 +440,44 @@ public actor ProjectRegistryRepository {
     }
 
     private func ensureProjectStructure(for project: ResearchProject, in root: ResearchRoot) throws {
-        let projectURL = root.directoryURL(for: project.relativePath)
+        try validateProjectPath(project.relativePath, in: root)
+        let projectURL = try root.validatedResolve(relativePath: project.relativePath, isDirectory: true)
         try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
         for relativePath in ["wiki", "tasks", "data", "code", "figures", "outputs"] {
-            try fileManager.createDirectory(at: projectURL.appendingPathComponent(relativePath, isDirectory: true), withIntermediateDirectories: true)
+            let childURL = try root.validatedResolve(relativePath: relativePath, from: projectURL, isDirectory: true)
+            try fileManager.createDirectory(at: childURL, withIntermediateDirectories: true)
         }
 
-        let sharedResearchURL = projectURL.appendingPathComponent("shared_research.md", isDirectory: false)
+        let sharedResearchURL = try root.validatedResolve(relativePath: "shared_research.md", from: projectURL, isDirectory: false)
         if !fileManager.fileExists(atPath: sharedResearchURL.path) {
             try "# Shared Research Context\n\nUse this file to capture project-specific research context.\n".write(to: sharedResearchURL, atomically: true, encoding: .utf8)
         }
 
-        let projectFileURL = projectURL.appendingPathComponent("project.yaml", isDirectory: false)
+        let projectFileURL = try root.validatedResolve(relativePath: "project.yaml", from: projectURL, isDirectory: false)
         try encodeProject(project).write(to: projectFileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func validateProjectPaths(_ registry: ProjectRegistry, in root: ResearchRoot) throws {
+        for project in registry.projects {
+            try validateProjectPath(project.relativePath, in: root)
+        }
+    }
+
+    private func validateProjectPath(_ relativePath: String, in root: ResearchRoot) throws {
+        let normalized = relativePath
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowedPrefixes = ["projects/", ".sci-station/trash/projects/"]
+        guard allowedPrefixes.contains(where: { normalized.hasPrefix($0) }),
+              normalized.split(separator: "/").count >= 2 else {
+            throw ProjectRegistryError.invalidRelativePath(relativePath)
+        }
+
+        do {
+            _ = try root.validatedResolve(relativePath: normalized, isDirectory: true)
+        } catch {
+            throw ProjectRegistryError.invalidRelativePath(relativePath)
+        }
     }
 
     private func uniqueProjectID(from name: String, existingIDs: [String]) -> String {

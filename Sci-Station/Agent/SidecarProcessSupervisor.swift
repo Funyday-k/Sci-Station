@@ -4,6 +4,241 @@ import Foundation
 import Darwin
 #endif
 
+nonisolated enum AgentChildProcessEnvironment {
+    static let controlledExecutablePath = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+    private static let inheritedVariableNames: Set<String> = [
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_MESSAGES",
+        "LOGNAME",
+        "NO_COLOR",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TERM",
+        "TMPDIR",
+        "TZ",
+        "USER",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR"
+    ]
+    private static let overrideVariableNames: Set<String> = [
+        "NO_COLOR",
+        "PYTHONUNBUFFERED",
+        "SCI_STATION_TEST_MODE",
+        "SCI_STATION_WORKSPACE_ROOT",
+        "TMPDIR"
+    ]
+
+    static func sanitized(overrides: [String: String] = [:]) -> [String: String] {
+        sanitized(
+            hostEnvironment: ProcessInfo.processInfo.environment,
+            overrides: overrides
+        )
+    }
+
+    static func sanitized(
+        hostEnvironment: [String: String],
+        overrides: [String: String] = [:]
+    ) -> [String: String] {
+        var environment: [String: String] = [:]
+
+        for name in inheritedVariableNames.sorted() {
+            guard let value = hostEnvironment[name], isSafeEntry(name: name, value: value) else {
+                continue
+            }
+            environment[name] = value
+        }
+
+        environment["PATH"] = controlledExecutablePath
+
+        for (name, value) in overrides where isAllowedOverride(name) && isSafeEntry(name: name, value: value) {
+            environment[name] = value
+        }
+        return environment
+    }
+
+    static func isSecretLikeVariableName(_ name: String) -> Bool {
+        let uppercased = name.uppercased()
+        let sensitiveFragments = ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL"]
+        if sensitiveFragments.contains(where: uppercased.contains) {
+            return true
+        }
+
+        let sensitiveComponents: Set<Substring> = [
+            "AUTH",
+            "AUTHORIZATION",
+            "BEARER",
+            "COOKIE",
+            "JWT",
+            "KEY",
+            "PRIVATE",
+            "SESSION"
+        ]
+        let components = uppercased.split { !$0.isLetter && !$0.isNumber }
+        return components.contains { sensitiveComponents.contains($0) }
+    }
+
+    private static func isSafeEntry(name: String, value: String) -> Bool {
+        !name.isEmpty
+            && !name.contains("=")
+            && !name.contains("\0")
+            && !value.contains("\0")
+            && !isSecretLikeVariableName(name)
+    }
+
+    private static func isAllowedOverride(_ name: String) -> Bool {
+        if overrideVariableNames.contains(name) { return true }
+        #if DEBUG
+        if name == "PYTHONPATH" { return true }
+        #endif
+        return false
+    }
+}
+
+public nonisolated enum SidecarRuntimeLocator {
+    public static let developmentPythonURL = URL(fileURLWithPath: "/usr/bin/python3", isDirectory: false)
+    public static let developmentArguments = ["-m", "sci_station_agent.main"]
+
+    public nonisolated struct BundledRuntime: Hashable, Sendable {
+        public var pythonExecutableURL: URL
+        public var launcherURL: URL
+
+        public nonisolated init(pythonExecutableURL: URL, launcherURL: URL) {
+            self.pythonExecutableURL = pythonExecutableURL
+            self.launcherURL = launcherURL
+        }
+
+        public nonisolated var arguments: [String] {
+            ["-I", launcherURL.path]
+        }
+    }
+
+    public static func defaultPythonExecutableURL(in bundle: Bundle = .main) -> URL {
+        if let runtime = bundledRuntime(in: bundle) {
+            return runtime.pythonExecutableURL
+        }
+        if isApplicationBundle(bundle), let resourcesURL = absoluteBundleURL(bundle.resourceURL, in: bundle) {
+            return resourcesURL.appendingPathComponent("SidecarRuntime/bin/python3", isDirectory: false)
+        }
+        return developmentPythonURL
+    }
+
+    public static func defaultArguments(in bundle: Bundle = .main) -> [String] {
+        if let runtime = bundledRuntime(in: bundle) {
+            return runtime.arguments
+        }
+        if isApplicationBundle(bundle), let resourcesURL = absoluteBundleURL(bundle.resourceURL, in: bundle) {
+            let launcherURL = resourcesURL
+                .appendingPathComponent("AgentRuntime", isDirectory: true)
+                .appendingPathComponent("sci_station_sidecar.py", isDirectory: false)
+            return ["-I", launcherURL.path]
+        }
+        return developmentArguments
+    }
+
+    public static func bundledRuntime(in bundle: Bundle = .main) -> BundledRuntime? {
+        bundledRuntime(
+            resourcesURL: absoluteBundleURL(bundle.resourceURL, in: bundle),
+            privateFrameworksURL: absoluteBundleURL(bundle.privateFrameworksURL, in: bundle),
+            sharedFrameworksURL: absoluteBundleURL(bundle.sharedFrameworksURL, in: bundle)
+        )
+    }
+
+    static func bundledRuntime(
+        resourcesURL: URL?,
+        privateFrameworksURL: URL?,
+        sharedFrameworksURL: URL?,
+        fileManager: FileManager = .default
+    ) -> BundledRuntime? {
+        guard let resourcesURL else {
+            return nil
+        }
+
+        let launcherURL = resourcesURL
+            .appendingPathComponent("AgentRuntime", isDirectory: true)
+            .appendingPathComponent("sci_station_sidecar.py", isDirectory: false)
+        guard fileManager.isReadableFile(atPath: launcherURL.path) else {
+            return nil
+        }
+
+        guard let pythonExecutableURL = bundledPythonExecutableURL(
+            resourcesURL: resourcesURL,
+            privateFrameworksURL: privateFrameworksURL,
+            sharedFrameworksURL: sharedFrameworksURL,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+
+        return BundledRuntime(
+            pythonExecutableURL: pythonExecutableURL,
+            launcherURL: launcherURL
+        )
+    }
+
+    public static func bundledPythonExecutableURL(in bundle: Bundle = .main) -> URL? {
+        bundledPythonExecutableURL(
+            resourcesURL: absoluteBundleURL(bundle.resourceURL, in: bundle),
+            privateFrameworksURL: absoluteBundleURL(bundle.privateFrameworksURL, in: bundle),
+            sharedFrameworksURL: absoluteBundleURL(bundle.sharedFrameworksURL, in: bundle)
+        )
+    }
+
+    static func bundledPythonExecutableURL(
+        resourcesURL: URL?,
+        privateFrameworksURL: URL?,
+        sharedFrameworksURL: URL?,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        var candidates: [URL] = []
+
+        if let privateFrameworksURL {
+            candidates.append(contentsOf: [
+                privateFrameworksURL.appendingPathComponent("SidecarRuntime/bin/python3", isDirectory: false),
+                privateFrameworksURL.appendingPathComponent("SidecarRuntime/bin/python3.12", isDirectory: false),
+                privateFrameworksURL.appendingPathComponent(
+                    "Python.framework/Versions/Current/bin/python3",
+                    isDirectory: false
+                )
+            ])
+        }
+        if let sharedFrameworksURL {
+            candidates.append(
+                sharedFrameworksURL.appendingPathComponent(
+                    "Python.framework/Versions/Current/bin/python3",
+                    isDirectory: false
+                )
+            )
+        }
+        if let resourcesURL {
+            candidates.append(contentsOf: [
+                resourcesURL.appendingPathComponent("AgentRuntime/bin/python3", isDirectory: false),
+                resourcesURL.appendingPathComponent("AgentRuntime/.venv/bin/python3", isDirectory: false),
+                resourcesURL.appendingPathComponent("SidecarRuntime/bin/python3", isDirectory: false),
+                resourcesURL.appendingPathComponent("python/bin/python3", isDirectory: false)
+            ])
+        }
+
+        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
+    }
+
+    private static func isApplicationBundle(_ bundle: Bundle) -> Bool {
+        bundle.bundleURL.pathExtension.lowercased() == "app"
+    }
+
+    private static func absoluteBundleURL(_ url: URL?, in bundle: Bundle) -> URL? {
+        guard let url else { return nil }
+        if (url.path as NSString).isAbsolutePath { return url.standardizedFileURL }
+        return bundle.bundleURL.appendingPathComponent(url.path).standardizedFileURL
+    }
+}
+
 public nonisolated struct SidecarJSONRPCError: Codable, Hashable, Sendable, LocalizedError {
     public var code: Int
     public var message: String
@@ -52,8 +287,8 @@ public nonisolated struct SidecarLaunchConfiguration: Hashable, Sendable {
     public var requestTimeout: TimeInterval
 
     public nonisolated init(
-        executableURL: URL = URL(fileURLWithPath: "/usr/bin/env"),
-        arguments: [String] = ["python3", "-m", "sci_station_agent.main"],
+        executableURL: URL = SidecarRuntimeLocator.defaultPythonExecutableURL(),
+        arguments: [String] = SidecarRuntimeLocator.defaultArguments(),
         environment: [String: String] = [:],
         workingDirectoryURL: URL? = nil,
         handshakeTimeout: TimeInterval = 5,
@@ -311,6 +546,7 @@ public actor SidecarConnection {
         requestCounter += 1
         let id = "swift-\(requestCounter)-\(UUID().uuidString.lowercased())"
         return try await withThrowingTaskGroup(of: JSONValue.self) { group in
+            defer { group.cancelAll() }
             group.addTask { try await self.performRequest(id: id, method: method, params: params) }
             if timeout > 0 {
                 group.addTask {
@@ -322,7 +558,6 @@ public actor SidecarConnection {
             guard let result = try await group.next() else {
                 throw SidecarJSONRPCError(code: -32002, message: "Sidecar request finished without a response.")
             }
-            group.cancelAll()
             return result
         }
     }
@@ -481,11 +716,7 @@ public actor SidecarProcessSupervisor {
         process.executableURL = configuration.executableURL
         process.arguments = configuration.arguments
         process.currentDirectoryURL = configuration.workingDirectoryURL
-        var environment = ProcessInfo.processInfo.environment
-        for (key, value) in configuration.environment {
-            environment[key] = value
-        }
-        process.environment = environment
+        process.environment = AgentChildProcessEnvironment.sanitized(overrides: configuration.environment)
 
         let inputPipe = Pipe()
         let outputPipe = Pipe()

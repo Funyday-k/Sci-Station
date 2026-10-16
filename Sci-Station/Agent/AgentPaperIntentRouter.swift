@@ -117,7 +117,9 @@ public nonisolated struct AgentPaperIntentRouter: Sendable {
         if containsAny(lowercased, ["citation", "source", "引用", "来源"]) && mentionsPaper {
             return AgentPaperIntent(kind: .citationLookup, ordinalIndex: ordinalIndex, query: searchQuery(from: trimmed, formula: false), sectionHint: sectionHint(in: trimmed))
         }
-        if (mentionsAbstract || containsAny(lowercased, ["section", "章节", "summary", "summarize", "总结", "概括"])) && mentionsPaper {
+        let requestsReadingNotes = containsAny(lowercased, ["reading", "read", "阅读", "读"])
+            && containsAny(lowercased, ["notes", "note", "笔记"])
+        if (requestsReadingNotes || mentionsAbstract || containsAny(lowercased, ["section", "章节", "summary", "summarize", "总结", "概括", "精读", "阅读笔记", "研究笔记", "paper note", "reading note", "research note", "deep read"])) && mentionsPaper {
             return AgentPaperIntent(kind: .sectionSummary, ordinalIndex: ordinalIndex, query: searchQuery(from: trimmed, formula: false), sectionHint: sectionHint(in: trimmed))
         }
         if mentionsBodyQA && mentionsPaper {

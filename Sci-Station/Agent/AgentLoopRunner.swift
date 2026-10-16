@@ -450,6 +450,25 @@ public actor AgentLoopRunner {
     }
 
     public func resume(_ request: AgentLoopResumeRequest) async throws -> AgentLoopResult {
+        var restoredRequest = request
+        if restoredRequest.pending.goal?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            let events = try await sessionEventLogger.events(in: request.root, sessionID: request.pending.runID)
+            let loggedGoal = events.first(where: { $0.kind == .userMessage })?.summary
+            let userMessages = request.pending.messagesBeforePause.filter { $0.role == .user }
+            let prefixedGoal = userMessages.first(where: { $0.content.hasPrefix("user_goal:") })?.content
+                .replacingOccurrences(of: "user_goal:", with: "")
+            let userGoal = userMessages.first(where: {
+                !$0.content.contains("deterministic preflight evidence") && !$0.content.hasPrefix("Tool approval feedback:")
+            })?.content
+            restoredRequest.pending.goal = loggedGoal ?? prefixedGoal ?? userGoal ?? ""
+        }
+        // Legacy transcripts can contain model claims or pasted tool-shaped text.
+        // Only the explicit results snapshot carries executed tool evidence.
+        restoredRequest.pending.toolResults = request.pending.toolResults ?? []
+        return try await resumeWithContext(restoredRequest)
+    }
+
+    private func resumeWithContext(_ request: AgentLoopResumeRequest) async throws -> AgentLoopResult {
         try await appendEvent(
             AgentSessionEvent(
                 sessionID: request.pending.runID,
@@ -487,7 +506,7 @@ public actor AgentLoopRunner {
             messages.append(try stableToolMessage(for: deniedResult, callID: request.pending.toolCall.id, definition: definition(for: request.pending.toolCall, in: request.toolDefinitions), options: request.options))
             return try await continueLoop(
                 runID: request.pending.runID,
-                goal: "",
+                goal: request.pending.goal ?? "",
                 messages: messages,
                 provider: request.provider,
                 toolDefinitions: request.toolDefinitions,
@@ -503,15 +522,23 @@ public actor AgentLoopRunner {
                 responseDeltaHandler: request.responseDeltaHandler,
                 startingStepIndex: request.pending.stepIndex + 1,
                 existingSteps: [],
-                existingToolResults: [deniedResult]
+                existingToolResults: (request.pending.toolResults ?? []) + [deniedResult]
             )
         case .reviseWithFeedback:
+            let revisionResult = AgentToolResult(
+                callID: request.pending.toolCall.id,
+                toolName: request.pending.toolCall.toolName,
+                succeeded: false,
+                message: "The user requested a revision. This tool was not executed; revise the draft before requesting fresh approval.",
+                errorMessage: "revision_requested"
+            )
             var messages = request.pending.messagesBeforePause
+            messages.append(try stableToolMessage(for: revisionResult, callID: request.pending.toolCall.id, definition: definition(for: request.pending.toolCall, in: request.toolDefinitions), options: request.options))
             let feedback = request.feedback?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Please revise the plan without executing that tool call."
             messages.append(LLMChatMessage(role: .user, content: "Tool approval feedback:\n\(feedback)"))
             return try await continueLoop(
                 runID: request.pending.runID,
-                goal: "",
+                goal: request.pending.goal ?? "",
                 messages: messages,
                 provider: request.provider,
                 toolDefinitions: request.toolDefinitions,
@@ -527,7 +554,7 @@ public actor AgentLoopRunner {
                 responseDeltaHandler: request.responseDeltaHandler,
                 startingStepIndex: request.pending.stepIndex + 1,
                 existingSteps: [],
-                existingToolResults: []
+                existingToolResults: (request.pending.toolResults ?? []) + [revisionResult]
             )
         case .editArguments:
             let editedArguments = try normalizedEditedArguments(request.editedArgumentsJSON)
@@ -560,6 +587,14 @@ public actor AgentLoopRunner {
         mustPauseIfPermissionAsks: Bool
     ) async throws -> AgentLoopResult {
         try validateArgumentsJSON(pending.toolCall.argumentsJSON)
+        let body = (try? JSONValue.parse(pending.toolCall.argumentsJSON))?.objectValue?["body"]?.stringValue ?? ""
+        if ["write_wiki_markdown", "write_markdown_plan"].contains(pending.toolCall.toolName),
+           let warning = AgentAnswerQualityEvaluator().writebackWarningMarkdown(goal: pending.goal ?? "", body: body, toolResults: pending.toolResults ?? []) {
+            let explanation = body.isEmpty ? warning : warning + "\n\n---\n\n" + body
+            let message = LLMChatMessage(role: .assistant, content: explanation)
+            try await appendAssistantEvent(message, sessionID: pending.runID, root: request.root)
+            return AgentLoopResult(runID: pending.runID, finalResponseMarkdown: explanation, messages: pending.messagesBeforePause + [message], toolResults: pending.toolResults ?? [])
+        }
         let evaluation = evaluatePermission(
             call: pending.toolCall,
             definitions: request.toolDefinitions,
@@ -632,7 +667,7 @@ public actor AgentLoopRunner {
         messages.append(execution.message)
         return try await continueLoop(
             runID: pending.runID,
-            goal: "",
+            goal: pending.goal ?? "",
             messages: messages,
             provider: request.provider,
             toolDefinitions: request.toolDefinitions,
@@ -648,7 +683,7 @@ public actor AgentLoopRunner {
             responseDeltaHandler: request.responseDeltaHandler,
             startingStepIndex: pending.stepIndex + 1,
             existingSteps: [AgentLoopStep(stepIndex: pending.stepIndex, toolCalls: [pending.toolCall], toolResults: [execution.result])],
-            existingToolResults: [execution.result]
+            existingToolResults: (pending.toolResults ?? []) + [execution.result]
         )
     }
 
@@ -806,8 +841,25 @@ public actor AgentLoopRunner {
                     return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
                 }
 
-                try validateArgumentsJSON(call.argumentsJSON)
                 let definition = definitionsByName[call.toolName]
+                do {
+                    try validateArgumentsJSON(call.argumentsJSON)
+                } catch {
+                    let result = AgentToolResult(
+                        callID: call.id,
+                        toolName: call.toolName,
+                        succeeded: false,
+                        message: "Tool arguments must be a valid JSON object. Resubmit corrected arguments; no tool was executed and no write was approved.",
+                        errorMessage: "invalid_arguments"
+                    )
+                    let message = try stableToolMessage(for: result, callID: call.id, definition: definition, options: options)
+                    messages.append(message)
+                    stepToolResults.append(result)
+                    toolResults.append(result)
+                    accumulatedToolCharacters += message.content.count
+                    try await appendEvent(AgentSessionEvent(sessionID: runID, kind: .toolCallFailed, summary: "Tool \(call.toolName) rejected: invalid_arguments."), in: root)
+                    continue
+                }
                 if let safetyDecision = AgentDeterministicSafetyPolicy().evaluateToolCall(call, definition: definition), safetyDecision.action == .deny {
                     let pause = AgentLoopPauseReason(
                         kind: .safetyPolicyBlocked,
@@ -840,6 +892,18 @@ public actor AgentLoopRunner {
                     return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
                 }
 
+                let writebackBody = (try? JSONValue.parse(call.argumentsJSON))?.objectValue?["body"]?.stringValue ?? ""
+                if ["write_wiki_markdown", "write_markdown_plan"].contains(call.toolName),
+                   let warning = AgentAnswerQualityEvaluator().writebackWarningMarkdown(goal: goal, body: writebackBody, toolResults: toolResults) {
+                    let explanation = writebackBody.isEmpty ? warning : warning + "\n\n---\n\n" + writebackBody
+                    let message = LLMChatMessage(role: .assistant, content: explanation)
+                    messages.append(message)
+                    try await appendAssistantEvent(message, sessionID: runID, root: root)
+                    steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: message, toolCalls: response.toolCalls))
+                    try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
+                    return AgentLoopResult(runID: runID, finalResponseMarkdown: explanation, messages: messages, toolResults: toolResults, steps: steps)
+                }
+
                 let evaluation = evaluatePermission(call: call, definitions: toolDefinitions, evaluator: permissionEvaluator)
                 try Task.checkCancellation()
                 if evaluation.decision.action == .deny {
@@ -861,7 +925,9 @@ public actor AgentLoopRunner {
                         stepIndex: stepIndex,
                         toolCall: call,
                         approvalRequest: approval,
-                        messagesBeforePause: messages
+                        messagesBeforePause: messages,
+                        goal: goal,
+                        toolResults: toolResults
                     )
                     try await checkpointStore.save(pending, in: root)
                     try await appendEvent(

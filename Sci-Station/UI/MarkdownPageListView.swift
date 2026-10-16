@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MarkdownPageListView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @State private var activeOperation: MarkdownFileOperation?
     @State private var operationText = ""
     @State private var isShowingArchiveConfirmation = false

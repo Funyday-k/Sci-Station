@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import WebKit
 
+@MainActor
 struct MarkdownPreviewView: NSViewRepresentable {
     let markdown: String
     let baseURL: URL?
@@ -71,6 +72,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         private weak var webView: WKWebView?
         private var pendingState: MarkdownPreviewState?
@@ -110,13 +112,15 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard navigationAction.navigationType == .linkActivated,
-                  let url = navigationAction.request.url else {
-                decisionHandler(.allow)
-                return
+            MainActor.assumeIsolated {
+                guard navigationAction.navigationType == .linkActivated,
+                      let url = navigationAction.request.url else {
+                    decisionHandler(.allow)
+                    return
+                }
+                NSWorkspace.shared.open(url)
+                decisionHandler(.cancel)
             }
-            NSWorkspace.shared.open(url)
-            decisionHandler(.cancel)
         }
 
         private func flushPendingStateIfPossible() {

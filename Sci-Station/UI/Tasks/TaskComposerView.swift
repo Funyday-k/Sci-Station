@@ -5,6 +5,8 @@ import SwiftUI
 /// project, priority flags, notes, and — for reading tasks — a paper picker.
 struct TaskComposerView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @EnvironmentObject private var libraryStore: LibraryStore
     @Environment(\.dismiss) private var dismiss
 
     /// Scope used to seed defaults (project + initial date).
@@ -305,7 +307,10 @@ enum TodoComposerScope {
 
 #if DEBUG
 #Preview("Task Composer") {
+    let appModel = AppViewModel()
     TaskComposerView(scope: .global)
-        .environmentObject(AppViewModel())
+        .environmentObject(appModel)
+        .environmentObject(appModel.workspaceStore)
+        .environmentObject(appModel.libraryStore)
 }
 #endif

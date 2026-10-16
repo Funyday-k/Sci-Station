@@ -271,6 +271,7 @@ struct AIReviewPanelView: View {
 }
 
 private struct ActiveProjectRow: View {
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
     let project: ActiveProjectData
     @ObservedObject var appModel: AppViewModel
     let recordAction: (String, String) -> Void

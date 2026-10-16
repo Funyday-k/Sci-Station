@@ -54,9 +54,9 @@ public nonisolated struct AgentAnswerQualityEvaluator: Sendable {
             if !trimmed.contains("$$") {
                 issues.append(AgentAnswerQualityIssue(code: .missingDisplayMath, message: "Formula answers should include display math."))
             }
-            if hasEvidence, !containsSourceReference(trimmed, toolResults: toolResults) {
-                issues.append(AgentAnswerQualityIssue(code: .missingSource, message: "Formula answer should include paper id, title, or path source."))
-            }
+        }
+        if intent.requiresPaperEvidence, hasEvidence, !containsSourceReference(trimmed, toolResults: toolResults) {
+            issues.append(AgentAnswerQualityIssue(code: .missingSource, message: "Paper answer or writeback draft should reference the successful paper evidence read."))
         }
 
         return AgentAnswerQualityReport(issues: issues)
@@ -83,6 +83,18 @@ public nonisolated struct AgentAnswerQualityEvaluator: Sendable {
         """
     }
 
+    public nonisolated func writebackWarningMarkdown(goal: String, body: String, toolResults: [AgentToolResult]) -> String? {
+        let report = evaluate(goal: goal, finalMarkdown: body, toolResults: toolResults)
+        if report.issues.contains(where: { $0.code == .missingEvidence }) {
+            return missingEvidenceMarkdown(goal: goal, toolResults: toolResults)
+        }
+        guard report.issues.contains(where: { $0.code == .missingSource }) else { return nil }
+        if goal.range(of: #"\p{Han}"#, options: .regularExpression) != nil {
+            return "这份笔记草稿没有引用已读取的论文证据，因此尚未提交写回批准。请补充真实来源路径、章节或行号，并核对每项结论。引用定位只能帮助核查，不能自动证明科学结论得到支持。"
+        }
+        return "This note draft does not reference the paper evidence read, so it was not offered for writeback approval. Add the source path, section or line location and review each conclusion. A source reference helps verification; it does not establish scientific support automatically."
+    }
+
     private nonisolated func hasDirectAnswer(_ finalMarkdown: String) -> Bool {
         guard finalMarkdown.count >= 12 else {
             return false
@@ -102,16 +114,35 @@ public nonisolated struct AgentAnswerQualityEvaluator: Sendable {
             guard result.succeeded else {
                 return false
             }
-            if ["read_paper", "read_paper_section", "search_papers"].contains(result.toolName) {
-                return true
+            if let object = result.payload?.objectValue {
+                let kind = object["kind"]?.stringValue
+                if kind == "paper_search" || result.toolName == "search_papers" {
+                    return object["matches"]?.arrayValue?.contains { match in
+                        guard let fields = match.objectValue else { return false }
+                        return hasText(fields["snippet"]?.stringValue) && hasText(fields["source"]?.stringValue)
+                    } == true
+                }
+                if ["paper_read", "paper_section"].contains(kind)
+                    || ["read_paper", "read_paper_section"].contains(result.toolName) {
+                    return hasText(object["content"]?.stringValue) && hasText(object["source"]?.stringValue)
+                }
+                return false
             }
-            let kind = result.payload?.objectValue?["kind"]?.stringValue
-            return ["paper_read", "paper_section", "paper_search"].contains(kind)
+            // Older tools used a source header followed by a blank line and the body.
+            // A successful read/search status alone does not establish paper evidence.
+            guard ["read_paper", "read_paper_section"].contains(result.toolName),
+                  result.message.contains("source:"),
+                  let separator = result.message.range(of: "\n\n") else { return false }
+            return hasText(String(result.message[separator.upperBound...]))
         }
     }
 
+    private nonisolated func hasText(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
     private nonisolated func containsSourceReference(_ finalMarkdown: String, toolResults: [AgentToolResult]) -> Bool {
-        let sourceTokens = Set(toolResults.flatMap(sourceTokens(in:)))
+        let sourceTokens = Set(toolResults.filter { hasPaperEvidence([$0]) }.flatMap(sourceTokens(in:)))
         guard !sourceTokens.isEmpty else {
             return finalMarkdown.contains("paper_id") || finalMarkdown.contains("source") || finalMarkdown.contains("来源")
         }
