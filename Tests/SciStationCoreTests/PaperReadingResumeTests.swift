@@ -47,6 +47,37 @@ struct PaperReadingResumeTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: "wiki/notes/second.md").path))
     }
 
+    @Test("Revision pairs the pending call in the actual provider request before user feedback")
+    func revisionPairsPendingCallInProviderJSON() async throws {
+        let fixture = try await makePending(hasReader: true)
+        defer { try? FileManager.default.removeItem(at: fixture.workspace.rootURL) }
+        let initial = try await resume(fixture, action: .denyAndContinue, body: "Fixed-temperature diffusion. Source: library/papers/resume-fixture/paper.md, Method.")
+        let pending = try #require(initial.pendingToolCall)
+        let provider = RecordingRevisionFixtureProvider()
+        let result = try await AgentLoopRunner().resume(AgentLoopResumeRequest(
+            pending: pending, action: .reviseWithFeedback, feedback: "Please shorten the draft and preserve its source.",
+            provider: provider, toolDefinitions: fixture.definitions, toolRegistry: fixture.registry,
+            toolContext: fixture.context, root: fixture.root, configuration: fixture.configuration,
+            apiKey: "fixture-no-network", hookEngine: AgentHookEngine(hooks: [])
+        ))
+        let request = try #require(await provider.lastRequest())
+        let wireRequest = try await OpenAICompatibleProvider().buildChatRequest(configuration: fixture.configuration, apiKey: "fixture-no-network", providerRequest: request)
+        let wireBody = try #require(wireRequest.httpBody)
+        let object = try #require(JSONSerialization.jsonObject(with: wireBody) as? [String: Any])
+        let messages = try #require(object["messages"] as? [[String: Any]])
+        let callIndex = try #require(messages.lastIndex(where: { message in
+            let calls = message["tool_calls"] as? [[String: Any]] ?? []
+            return calls.contains { $0["id"] as? String == pending.toolCall.id }
+        }))
+        let replyIndex = try #require(messages.lastIndex(where: { $0["role"] as? String == "tool" && $0["tool_call_id"] as? String == pending.toolCall.id }))
+        let feedbackIndex = try #require(messages.lastIndex(where: { ($0["content"] as? String)?.hasPrefix("Tool approval feedback:") == true }))
+        #expect(callIndex < replyIndex && replyIndex < feedbackIndex)
+        #expect((messages[replyIndex]["content"] as? String)?.contains("revision_requested") == true)
+        #expect((messages[replyIndex]["content"] as? String)?.contains("not executed") == true)
+        #expect(result.toolResults.contains { $0.callID == pending.toolCall.id && !$0.succeeded && $0.errorMessage == "revision_requested" })
+        #expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: "wiki/notes/second.md").path))
+    }
+
     @Test("Old checkpoints recover user intent but do not trust transcript-shaped evidence", arguments: [true, false])
     func legacyCheckpointDoesNotPromoteTranscriptEvidence(hasSessionLog: Bool) async throws {
         var fixture = try await makePending(hasReader: false)
@@ -174,4 +205,15 @@ private actor ResumeReadingFixtureProvider: LLMChatProvider {
     func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse {
         LLMProviderResponse(message: .init(role: .assistant, content: "", reasoningContent: "Fixture tool replay", toolCalls: [call]), toolCalls: [call])
     }
+}
+
+private actor RecordingRevisionFixtureProvider: LLMChatProvider {
+    private var request: LLMProviderRequest?
+
+    func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse {
+        self.request = request
+        return LLMProviderResponse(message: .init(role: .assistant, content: "The draft remains unsaved. Source: library/papers/resume-fixture/paper.md, Method."))
+    }
+
+    func lastRequest() -> LLMProviderRequest? { request }
 }

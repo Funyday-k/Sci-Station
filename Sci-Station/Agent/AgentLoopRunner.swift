@@ -525,7 +525,15 @@ public actor AgentLoopRunner {
                 existingToolResults: (request.pending.toolResults ?? []) + [deniedResult]
             )
         case .reviseWithFeedback:
+            let revisionResult = AgentToolResult(
+                callID: request.pending.toolCall.id,
+                toolName: request.pending.toolCall.toolName,
+                succeeded: false,
+                message: "The user requested a revision. This tool was not executed; revise the draft before requesting fresh approval.",
+                errorMessage: "revision_requested"
+            )
             var messages = request.pending.messagesBeforePause
+            messages.append(try stableToolMessage(for: revisionResult, callID: request.pending.toolCall.id, definition: definition(for: request.pending.toolCall, in: request.toolDefinitions), options: request.options))
             let feedback = request.feedback?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Please revise the plan without executing that tool call."
             messages.append(LLMChatMessage(role: .user, content: "Tool approval feedback:\n\(feedback)"))
             return try await continueLoop(
@@ -546,7 +554,7 @@ public actor AgentLoopRunner {
                 responseDeltaHandler: request.responseDeltaHandler,
                 startingStepIndex: request.pending.stepIndex + 1,
                 existingSteps: [],
-                existingToolResults: request.pending.toolResults ?? []
+                existingToolResults: (request.pending.toolResults ?? []) + [revisionResult]
             )
         case .editArguments:
             let editedArguments = try normalizedEditedArguments(request.editedArgumentsJSON)
