@@ -26,27 +26,6 @@ extension CoreVerificationSuite {
         )
     }
 
-    struct MarkdownRepositoryFixture {
-        let workspace: ResearchWorkspace
-        let repository: MarkdownRepository
-        let suiteName: String
-        let workspaceRoot: URL
-    }
-
-    func markdownRepositoryFixture(named name: String) async throws -> MarkdownRepositoryFixture {
-        let suiteName = "SciStationCoreTestRunner.\(UUID().uuidString)"
-        let defaults = try require(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite.")
-        let workspaceService = WorkspaceService(fileManager: .default, bookmarkStore: WorkspaceBookmarkStore(defaults: defaults))
-        let workspaceRoot = temporaryDirectoryURL().appendingPathComponent(name, isDirectory: true)
-        let workspace = try await workspaceService.createWorkspace(at: workspaceRoot)
-        return MarkdownRepositoryFixture(workspace: workspace, repository: MarkdownRepository(), suiteName: suiteName, workspaceRoot: workspaceRoot)
-    }
-
-    func cleanupMarkdownRepositoryFixture(_ fixture: MarkdownRepositoryFixture) {
-        try? FileManager.default.removeItem(at: fixture.workspaceRoot.deletingLastPathComponent())
-        UserDefaults(suiteName: fixture.suiteName)?.removePersistentDomain(forName: fixture.suiteName)
-    }
-
     struct LoopWorkspaceFixture {
         let workspace: ResearchWorkspace
         let root: ResearchRoot
