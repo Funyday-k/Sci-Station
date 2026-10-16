@@ -49,7 +49,7 @@ final class LibraryNavigationSmokeTests: XCTestCase {
             screenshot.name = "Isolated UI host before navigation"
             screenshot.lifetime = .keepAlways
             add(screenshot)
-            let hierarchy = XCTAttachment(string: app.debugDescription)
+            let hierarchy = XCTAttachment(string: window.debugDescription)
             hierarchy.name = "Isolated UI host accessibility hierarchy"
             hierarchy.lifetime = .keepAlways
             add(hierarchy)
