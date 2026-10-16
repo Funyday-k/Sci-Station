@@ -806,8 +806,25 @@ public actor AgentLoopRunner {
                     return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
                 }
 
-                try validateArgumentsJSON(call.argumentsJSON)
                 let definition = definitionsByName[call.toolName]
+                do {
+                    try validateArgumentsJSON(call.argumentsJSON)
+                } catch {
+                    let result = AgentToolResult(
+                        callID: call.id,
+                        toolName: call.toolName,
+                        succeeded: false,
+                        message: "Tool arguments must be a valid JSON object. Resubmit corrected arguments; no tool was executed and no write was approved.",
+                        errorMessage: "invalid_arguments"
+                    )
+                    let message = try stableToolMessage(for: result, callID: call.id, definition: definition, options: options)
+                    messages.append(message)
+                    stepToolResults.append(result)
+                    toolResults.append(result)
+                    accumulatedToolCharacters += message.content.count
+                    try await appendEvent(AgentSessionEvent(sessionID: runID, kind: .toolCallFailed, summary: "Tool \(call.toolName) rejected: invalid_arguments."), in: root)
+                    continue
+                }
                 if let safetyDecision = AgentDeterministicSafetyPolicy().evaluateToolCall(call, definition: definition), safetyDecision.action == .deny {
                     let pause = AgentLoopPauseReason(
                         kind: .safetyPolicyBlocked,
@@ -840,10 +857,10 @@ public actor AgentLoopRunner {
                     return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
                 }
 
+                let writebackBody = (try? JSONValue.parse(call.argumentsJSON))?.objectValue?["body"]?.stringValue ?? ""
                 if ["write_wiki_markdown", "write_markdown_plan"].contains(call.toolName),
-                   AgentAnswerQualityEvaluator().evaluate(goal: goal, finalMarkdown: assistantMessage.content, toolResults: toolResults)
-                    .issues.contains(where: { $0.code == .missingEvidence }) {
-                    let explanation = AgentAnswerQualityEvaluator().missingEvidenceMarkdown(goal: goal, toolResults: toolResults)
+                   let warning = AgentAnswerQualityEvaluator().writebackWarningMarkdown(goal: goal, body: writebackBody, toolResults: toolResults) {
+                    let explanation = writebackBody.isEmpty ? warning : warning + "\n\n---\n\n" + writebackBody
                     let message = LLMChatMessage(role: .assistant, content: explanation)
                     messages.append(message)
                     try await appendAssistantEvent(message, sessionID: runID, root: root)

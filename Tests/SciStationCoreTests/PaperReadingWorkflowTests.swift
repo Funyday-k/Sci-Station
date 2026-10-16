@@ -93,6 +93,50 @@ struct PaperReadingWorkflowTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: "wiki/notes/unsupported.md").path))
     }
 
+    @Test("Writeback checks the actual body, not the assistant's claimed citations")
+    func missingWritebackSourceIsVisibleAndNotApproved() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.workspace.rootURL) }
+        let reader = ReadPaperAgentTool(paperRepository: PaperRepository())
+        let writer = WriteWikiMarkdownAgentTool(markdownRepository: MarkdownRepository())
+        let body = "The method tests diffusion at fixed temperature, without any source reference."
+        let call = AgentToolCall(id: "uncited-write", toolName: writer.definition.name, argumentsJSON: JSONValue.object([
+            "title": .string("Uncited note"), "relative_path": .string("wiki/notes/uncited.md"), "body": .string(body)
+        ]).canonicalJSON)
+        let provider = ReadingWorkflowFixtureProvider(response: LLMProviderResponse(message: .init(role: .assistant, content: "Evidence-backed note: library/papers/reading-fixture/paper.md", toolCalls: [call]), toolCalls: [call]))
+        let result = try await AgentLoopRunner().run(AgentLoopRequest(
+            goal: "Read the paper and save a research note", initialMessages: [.init(role: .user, content: "Read the paper and save a research note")],
+            provider: provider, toolDefinitions: [reader.definition, writer.definition], toolRegistry: AgentToolRegistry(tools: [reader, writer]),
+            toolContext: fixture.context, root: fixture.root, configuration: LLMConfiguration(), apiKey: "fixture-no-network", hookEngine: AgentHookEngine(hooks: [])
+        ))
+        #expect(result.pendingToolCall == nil)
+        #expect(result.finalResponseMarkdown?.contains("not offered for writeback approval") == true)
+        #expect(result.finalResponseMarkdown?.contains(body) == true)
+        #expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: "wiki/notes/uncited.md").path))
+    }
+
+    @Test("Malformed model write arguments are diagnostic and retry still requires approval")
+    func malformedWriteArgumentsCanBeCorrectedWithinBudget() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.workspace.rootURL) }
+        let reader = ReadPaperAgentTool(paperRepository: PaperRepository())
+        let writer = WriteWikiMarkdownAgentTool(markdownRepository: MarkdownRepository())
+        let invalid = AgentToolCall(id: "invalid-write", toolName: writer.definition.name, argumentsJSON: "{invalid")
+        let corrected = AgentToolCall(id: "corrected-write", toolName: writer.definition.name, argumentsJSON: #"{"title":"Fixture","relative_path":"wiki/notes/corrected.md","body":"Fixed-temperature diffusion; source: library/papers/reading-fixture/paper.md, Method."}"#)
+        let provider = RepairingReadingFixtureProvider(calls: [invalid, corrected])
+        let result = try await AgentLoopRunner().run(AgentLoopRequest(
+            goal: "Read the paper and save a research note", initialMessages: [.init(role: .user, content: "Read the paper and save a research note")],
+            provider: provider, toolDefinitions: [reader.definition, writer.definition], toolRegistry: AgentToolRegistry(tools: [reader, writer]),
+            toolContext: fixture.context, root: fixture.root, configuration: LLMConfiguration(), apiKey: "fixture-no-network",
+            options: AgentLoopOptions(maxSteps: 3), hookEngine: AgentHookEngine(hooks: [])
+        ))
+        #expect(result.toolResults.contains { $0.callID == invalid.id && !$0.succeeded && $0.errorMessage == "invalid_arguments" })
+        #expect(result.pendingToolCall?.toolCall == corrected)
+        #expect(result.pauseReason?.kind == .approvalRequired)
+        #expect(!FileManager.default.fileExists(atPath: fixture.workspace.fileURL(for: "wiki/notes/corrected.md").path))
+        #expect(result.messages.contains { $0.role == .tool && $0.content.contains("valid JSON object") })
+    }
+
     @Test("A restart restores the exact draft, denial writes nothing, and approval saves a reloadable note")
     func approvedWritebackSurvivesRestart() async throws {
         let fixture = try makeFixture()
@@ -154,5 +198,16 @@ private actor ReadingWorkflowFixtureProvider: LLMChatProvider {
 
     func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse {
         response
+    }
+}
+
+private actor RepairingReadingFixtureProvider: LLMChatProvider {
+    var calls: [AgentToolCall]
+
+    init(calls: [AgentToolCall]) { self.calls = calls }
+
+    func respond(to request: LLMProviderRequest, configuration: LLMConfiguration, apiKey: String) async throws -> LLMProviderResponse {
+        let call = calls.removeFirst()
+        return LLMProviderResponse(message: .init(role: .assistant, content: "", reasoningContent: "Fixture reasoning for tool replay", toolCalls: [call]), toolCalls: [call])
     }
 }
