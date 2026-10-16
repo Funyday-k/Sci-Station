@@ -227,6 +227,7 @@ jobs:
           release_notes="Certificate-free macOS distribution. The app is ad-hoc signed and is not Apple-notarized. On first launch macOS may require explicit approval in Privacy & Security. Verify the published SHA-256 or GitHub provenance before opening."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" --clobber "${artifacts[@]}"
+            gh release edit "$RELEASE_TAG" --prerelease="$PRERELEASE"
           else
             release_args=(--verify-tag --generate-notes --title "Sci-Station ${RELEASE_TAG#v}" --notes "$release_notes")
             if [[ "$PRERELEASE" == "true" ]]; then

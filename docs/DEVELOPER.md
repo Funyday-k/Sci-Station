@@ -300,6 +300,8 @@ Tools/scripts/verify-release.sh path/to/Sci-Station.dmg
 
 workflow 会检查 tag 对应提交可从 `origin/main` 到达、版本与根目录 `VERSION` 一致、build number 单调递增，并运行文档、仓库卫生、AppViewModel 架构预算、core runner 结构、SwiftLint/SwiftFormat、Swift Testing、14.0% 覆盖率、legacy runner、Python pytest。通过后才构建 certificate-free release artifacts；macOS 15 runner 会再次验证 SHA-256、bundle integrity、安装、首次启动和覆盖升级。
 
+安装门禁中的覆盖升级使用同一版本包验证 bundle 替换、首次启动与再次导航；它不等同于旧版本科研数据的跨版本迁移验收。
+
 所有 GitHub Actions 均固定到完整 commit SHA，workflow 默认只有 `contents: read`。只有 provenance 任务获得 `id-token: write` 与 `attestations: write`，只有最终 publish 任务获得 `contents: write`。发布 workflow 会为 DMG 和 ZIP 创建 GitHub build provenance。下载者可以验证产物来源：
 
 ```bash
