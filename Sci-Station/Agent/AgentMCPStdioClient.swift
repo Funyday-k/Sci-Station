@@ -783,9 +783,10 @@ public actor AgentMCPConnectorManager {
         )
         process.terminationHandler = { [weak self, weak connection] process in
             guard let connection else { return }
+            let exitCode = process.terminationStatus
             Task {
-                await connection.processTerminated(exitCode: process.terminationStatus)
-                await self?.recordExit(serverID: registration.id, exitCode: process.terminationStatus)
+                await connection.processTerminated(exitCode: exitCode)
+                await self?.recordExit(serverID: registration.id, exitCode: exitCode)
             }
         }
         do {
@@ -826,11 +827,10 @@ public actor AgentMCPConnectorManager {
             markSuccess(serverID: registration.id)
             return session
         } catch {
-            if !process.isRunning {
-                recordExit(serverID: registration.id, exitCode: process.terminationStatus)
-            }
+            // stop() requests termination without waiting. Only the termination
+            // callback may read an exit status: the child can still be running,
+            // and a process.run() failure has no exit status at all.
             await connection.stop()
-            recordExit(serverID: registration.id, exitCode: process.terminationStatus)
             let stderr = await connection.stderrText()
             if !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw AgentMCPClientError.processUnavailable(

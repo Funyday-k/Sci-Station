@@ -964,7 +964,8 @@ extension CoreVerificationSuite {
                     isEnabled: true,
                     command: "/usr/bin/python3",
                     arguments: [scriptURL.path, callLogURL.path, startupLogURL.path],
-                    timeoutSeconds: 5,
+                    // This fixture verifies discovery and approval, not Python startup latency.
+                    timeoutSeconds: 30,
                     allowedTools: ["echo"]
                 )
                 let profile = AgentWorkspaceProfile(mcpServers: [server])
