@@ -40,7 +40,7 @@ This is the initial traceability register for the governance work. Entries are r
 
 ## REL-001 — Verified certificate-free public distribution
 
-- Priority: P1. Status: pipeline present; first release through the new pipeline remains to be executed.
+- Priority: P1. Status: pipeline present; execution and publication are tracked by the linked issue and the Public Release workflow.
 - GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/6
 - Distribution model: ad-hoc signed macOS app and bundled sidecar, with no Apple Developer ID certificate and no Apple notarization.
 - Acceptance: tag reachable from `main`, full tests, matching versions, increasing build number, valid ad-hoc signatures and entitlements, arm64 and deployment-target verification, DMG/ZIP checksums, macOS 15 install/upgrade smoke tests, documented first-launch Gatekeeper behavior, and GitHub build provenance.
