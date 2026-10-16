@@ -249,8 +249,12 @@ public actor PaperRepository {
     public func appendBibliographyStub(for paper: Paper, in workspace: ResearchWorkspace) throws {
         let bibliographyURL = workspace.globalLibraryBibURL
         try fileManager.createDirectory(at: bibliographyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let existingContents = (try? String(contentsOf: bibliographyURL, encoding: .utf8)) ?? ""
-        guard !existingContents.contains("{\(paper.citekey),") else {
+        let existingContents = fileManager.fileExists(atPath: bibliographyURL.path)
+            ? try String(contentsOf: bibliographyURL, encoding: .utf8) : ""
+        // Inspect actual entry headers, including parenthesized BibTeX, while
+        // ignoring keys mentioned only in comments or field values.
+        let existingKeys = try BibTeXEntryKeyEditor.entryKeys(in: existingContents)
+        guard !existingKeys.contains(paper.citekey) else {
             return
         }
 
