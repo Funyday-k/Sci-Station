@@ -10,6 +10,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Fixed
 
+- Keep the welcome page scrollable so its content cannot push sidebar navigation outside the window.
+- Return local MCP startup/initialize errors without reading the exit status of an unstarted or still-running process.
 - Preserve unsaved paper edits when changing project membership, core status, pins and project classification; safely compensate a failed metadata mirror without overwriting newer associations.
 - Require actual paper text and references in reading-note writeback drafts; keep experimental sidecar scaffolds out of approval and distinguish source checks from scientific review.
 - Keep read pagination arguments optional and let models correct invalid tool JSON within the existing budgets and approval boundaries.
