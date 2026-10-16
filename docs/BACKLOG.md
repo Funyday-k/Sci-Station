@@ -13,19 +13,21 @@ This is the initial traceability register for the governance work. Entries are r
 
 ## ARCH-001 — Application state boundaries
 
-- Priority: P1. Status: initial extraction present; further domain isolation planned.
+- Priority: P1. Status: focused stores and the paper-project membership use case are implemented; further domain isolation remains planned.
 - GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/3
 - Current implementation: AppViewModel facade, ten focused extensions and Workspace/Library/Knowledge/Recommendation/Agent/Navigation stores; total family and published-state budgets prevent uncontrolled growth.
-- Next acceptance: move transaction and business decisions into tested Core use cases, reduce cross-domain observers and facade forwarding state without changing workspace cancellation or recovery behavior.
+- Delivered increment: project membership, core, pinned, purpose and folder mutations use a Core use case; metadata updates preserve unsaved UI drafts and unknown YAML fields. A failed metadata update conditionally compensates only the affected association. `PaperProjectMembershipTests` covers failures, concurrent changes, cancellation, drafts and workspace revisions.
+- Next acceptance: continue moving other business decisions into tested Core use cases and reduce cross-domain observers and facade forwarding state. Cross-process crash recovery is not provided by the two-file compensation scheme; see ADR-0003.
 - Decision: [ADR-0002](architecture/ADR-0002-application-state-and-testing.md).
 - Evidence: `AppDomainStoreTests`, `AppDomainStores`, `check-appviewmodel-architecture.sh`. Splitting files is an intermediate structural step, not proof that all coupling is removed.
 
 ## TEST-001 — Domain-based legacy verification
 
-- Priority: P1. Status: runner split in this change; continued migration planned.
+- Priority: P1. Status: domain runner split and five MarkdownRepository checks migrated to Swift Testing; continued migration planned.
 - GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/4
 - Acceptance for this change: preserve all legacy check names and assertions, group checks by domain, share fixtures, retain a fail-fast-on-empty filter and fail-on-any-check exit status, and run the full suite in CI.
 - Next acceptance: migrate cohesive domain suites to Swift Testing with equivalent assertions, then remove the corresponding legacy registration only after coverage parity is shown. Keep subprocess/system scenarios in the integration runner when appropriate.
+- Delivered increment: `MarkdownRepositoryTests` preserves the load/save, create, absolute-path rejection, rename and archive assertions with isolated fixtures. The corresponding legacy registrations were removed after equivalent assertions passed. Both test entry points remain required.
 - Evidence: `Tools/SciStationCoreTestRunner/Suites/`, `Tools/SciStationCoreTestRunner/Support/`, `Tests/SciStationCoreTests/` and the runner architecture gate.
 
 ## KNOW-001 — Knowledge Architecture V1
@@ -44,3 +46,12 @@ This is the initial traceability register for the governance work. Entries are r
 - Acceptance: tag reachable from `main`, full tests, matching versions, increasing build number, valid ad-hoc signatures and entitlements, arm64 and deployment-target verification, DMG/ZIP checksums, macOS 15 install/upgrade smoke tests, documented first-launch Gatekeeper behavior, and GitHub build provenance.
 - Evidence: [release workflow](../.github/workflows/release.yml), `Tools/scripts/package-release.sh`, `Tools/scripts/verify-release.sh`, and [developer guide](DEVELOPER.md).
 - Security boundary: the release must never silently claim Apple developer identity or notarization. Downloaders are expected to verify the GitHub Release source, SHA-256, or provenance before explicitly allowing the app in macOS Privacy & Security when required.
+
+## READ-001 — Source-backed paper reading and reviewed writeback
+
+- Priority: P1. Status: implementation and bounded public-paper validation completed; scientific content still requires human review.
+- Scope: actual body evidence before paper answers and writeback, citations in the proposed file body, optional read pagination, recoverable invalid tool arguments, approval/checkpoint restoration, and consistent bibliography keys.
+- Evidence: `PaperReadingWorkflowTests`, `BibTeXExportTests`, the default Swift Loop, and public-paper checks on 2026-10-16 using arXiv 2404.10066v1, 2402.18535v2 and 2405.12267v2.
+- Measured behavior: all three real PDFs imported and produced non-placeholder PDFKit text; metadata, project links, tasks, notes and bibliography survived repository reopening. Bibliography keys match app citekeys and duplicate appends preserve bytes. The configured model produced three substantive drafts; rejection did not write, and a separate process restored each checkpoint and saved/reloaded identical content after test approval.
+- Boundaries: PDFKit fallback did not extract figure assets or structured display math. Import metadata was supplied from verified public article records, so this is not an automatic-metadata-provider acceptance result. Model tests used public HTML-derived text and production Core services; UI, PDF conversion and model quality are separate checks. The samples still contain terminology, parameter-dependence, citation-location and length issues. Test approval is not human scientific acceptance. Mechanical source checks do not establish that a claim is supported.
+- Experimental sidecar paper-reading scaffolds cannot request approval or present themselves as completed scientific notes. Swift Loop remains the default.

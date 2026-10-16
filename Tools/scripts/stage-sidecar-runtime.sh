@@ -129,7 +129,7 @@ cat >"$SIDECAR_DESTINATION/runtime-manifest.json" <<EOF
   "distribution": "astral-sh/python-build-standalone",
   "pythonVersion": "$PYTHON_VERSION",
   "release": "$RUNTIME_RELEASE",
-  "sidecarVersion": "0.1.0"
+  "sidecarVersion": "$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' "$SOURCE_PACKAGE/__init__.py")"
 }
 EOF
 

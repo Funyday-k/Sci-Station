@@ -6,7 +6,19 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-16
+
+### Fixed
+
+- Preserve unsaved paper edits when changing project membership, core status, pins and project classification; safely compensate a failed metadata mirror without overwriting newer associations.
+- Require actual paper text and references in reading-note writeback drafts; keep experimental sidecar scaffolds out of approval and distinguish source checks from scientific review.
+- Keep read pagination arguments optional and let models correct invalid tool JSON within the existing budgets and approval boundaries.
+- Preserve paper intent and executed evidence through approval/resume; recheck edited drafts. Older pending paper writes without evidence snapshots remain readable but require a fresh body read before approval.
+- Keep exported BibTeX entry keys aligned with app citekeys while preserving provider fields; reject damaged existing bibliography files without overwriting them.
+
 ### Changed
+
+- Migrate five Markdown repository checks to isolated Swift Testing suites while retaining equivalent assertions and the remaining integration runner.
 
 - Added contribution/security policies, Issue/PR templates, ownership, versioned backlog, ADR/RFC records, and checked app/runtime version boundaries.
 - Added documentation/version/traceability/runner-organization gates and an aggregate required CI check; release tags must point to a commit reachable from main.
@@ -53,5 +65,6 @@ Development, validation, versioning, and release conventions are maintained in `
 
 - Certificate-free distribution requires users to confirm the first launch through Finder or macOS Privacy & Security because the app is not Developer ID signed or notarized.
 
-[Unreleased]: https://github.com/Funyday-k/Sci-Station/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Funyday-k/Sci-Station/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Funyday-k/Sci-Station/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Funyday-k/Sci-Station/releases/tag/v0.1.0

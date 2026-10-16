@@ -154,6 +154,9 @@ AI 能力的边界：
 - Skill resolver 已进入 runtime：只加载 Profile 中明确启用且匹配的 Skill；workspace Skill 默认 untrusted，未显式 trusted 时不读取正文，且 Skill 只能收窄工具范围。Skill Manager 的导入/启用/信任必须有用户确认和 profile 审计路径。
 - Local command MCP 只有在配置显式设置 `is_enabled: true` 时才启动；进程通过 stdio JSON-RPC 连接，不经过 shell。Remote HTTP/SSE MCP 支持实验性 JSON-RPC discovery、ping/liveness、credential reference 解析、失败/backoff 和 crash/credential 状态诊断。发现的工具使用 `mcp__<server>__<tool>` 名称，并始终经过 Agent approval、allowlist 和权限模型。
 - 生产回答不能使用 synthetic/sample evidence。需要证据时必须来自真实 paper、PDF、Markdown、Wiki、Graph artifact 或其它本地来源；测试 fixture 必须清楚标注。
+- 论文阅读写回需要实际正文证据，拟写入文件本身须引用成功读取的来源；引用结构校验不代表科学结论已得到支持。实验性 sidecar 的占位阅读模板不能进入写回批准。PDFKit fallback 的正文不保证公式、图像和表格完整。公开论文验证的范围与限制见 [READ-001](BACKLOG.md#read-001--source-backed-paper-reading-and-reviewed-writeback)。
+- 新的 pending-tool checkpoint 以可选字段保留原始 goal 与实际 tool results。旧记录可读取，但不从聊天转录推定可信证据；旧论文待写入草稿需要重新读取正文后批准。
+- 论文项目关联更新遵循 [ADR-0003](architecture/ADR-0003-paper-project-membership.md)：保留未保存草稿，失败时进行关联级条件补偿；不宣称跨文件 crash atomicity。
 
 ## 功能开发流程
 

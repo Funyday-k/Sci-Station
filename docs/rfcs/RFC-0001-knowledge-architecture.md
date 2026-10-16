@@ -33,3 +33,22 @@ Test stable identity, round-trip serialization, unsupported versions, stale/abse
 - How are conflicting edits and duplicate claims reviewed and merged?
 - Which existing Knowledge artifact behavior remains unchanged, and which requires migration?
 - What minimum AppViewModel/use-case extraction is required before UI integration?
+
+## Recommended first slice after workflow validation
+
+The public-paper reading validation recorded in [READ-001](../BACKLOG.md#read-001--source-backed-paper-reading-and-reviewed-writeback) supports a smaller initial workflow: a user selects one statement from a paper note, reviews its evidence and conditions, and accepts it as a reusable claim. Automatic extraction must remain a draft. An accessible source path or successful citation-shape check is insufficient to accept scientific meaning.
+
+Recommended decisions for RFC review:
+
+| Question | Recommended boundary | Alternative and tradeoff |
+| --- | --- | --- |
+| Initial atom kind | A claim with explicit conditions and a distinction between the source author's statement and a reader/model inference | Adding method, result and research-question taxonomies immediately needs examples beyond the current workflow |
+| Primary record | One readable Markdown record with frontmatter identity/provenance, stable UUID independent of filename, and explicit revision metadata | SQLite-only records simplify queries but weaken portable editing and recovery |
+| Evidence | Paper identity plus source representation, path, source hash and section/equation/line locator; distinguish PDF pages from text/character pagination | A filename or generated line number alone cannot reliably survive conversion or edits |
+| Acceptance | A reviewable draft; acceptance records the reviewed revision and reviewer action. Changed source hashes make support stale and require review | Automatic acceptance would misrepresent the observed model-quality limits |
+| Relationships | Separate records by stable atom IDs; begin with explicit source/support links. Contradiction and equivalence remain reviewed judgments | Inferring semantic relations directly from graph proximity is unsupported |
+| Compatibility | Existing paper, Wiki and project notes stay readable without conversion. Import into atoms is explicit and reversible | Automatic bulk migration can erase distinctions and has no accepted mapping yet |
+| Deletion and rebuild | Archive the source record and explicitly handle incident relations; rebuild graph projections without deleting source files | Treating graph deletion as source deletion risks losing accepted knowledge |
+| External edits | Compare the loaded revision/content hash before save and show a conflict instead of overwriting | Last-write-wins is simpler but unsafe for externally edited research notes |
+
+These are concrete recommendations, not an accepted schema or shipped feature. This RFC remains **Proposed**. A decision PR must resolve field definitions, supported locator types and conflict behavior before a schema version or production migration is introduced. Initial implementation should cover model/repository round trips and source-staleness tests before extraction or graph UI.

@@ -1,6 +1,6 @@
 # Sci-Station
 
-> Current version: 0.1.0
+> Current version: 0.2.0
 > Platform: macOS
 > Status: Developer Preview
 
@@ -32,9 +32,9 @@ Core principles:
 - AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
 - Public releases use ad-hoc code signing without an Apple Developer ID or notarization, while CI verifies bundle integrity, entitlements, the bundled sidecar, installation behavior, SHA-256 checksums, and GitHub build provenance.
 
-## Version 0.1.0 Status
+## Version 0.2.0 Status
 
-- The current preview is **0.1.0**.
+- The current preview is **0.2.0**.
 - Sci-Station uses certificate-free community distribution. macOS may display an unidentified-developer warning the first time a downloaded release is opened.
 - The project remains actively maintained, and features, UI, and documentation will continue to improve.
 
