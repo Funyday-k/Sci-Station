@@ -840,6 +840,18 @@ public actor AgentLoopRunner {
                     return AgentLoopResult(runID: runID, messages: messages, toolResults: toolResults, pauseReason: pause, steps: steps)
                 }
 
+                if ["write_wiki_markdown", "write_markdown_plan"].contains(call.toolName),
+                   AgentAnswerQualityEvaluator().evaluate(goal: goal, finalMarkdown: assistantMessage.content, toolResults: toolResults)
+                    .issues.contains(where: { $0.code == .missingEvidence }) {
+                    let explanation = AgentAnswerQualityEvaluator().missingEvidenceMarkdown(goal: goal, toolResults: toolResults)
+                    let message = LLMChatMessage(role: .assistant, content: explanation)
+                    messages.append(message)
+                    try await appendAssistantEvent(message, sessionID: runID, root: root)
+                    steps.append(AgentLoopStep(stepIndex: stepIndex, assistantMessage: message, toolCalls: response.toolCalls))
+                    try await appendStopHooks(hookEngine, sessionID: runID, root: root, toolResults: toolResults)
+                    return AgentLoopResult(runID: runID, finalResponseMarkdown: explanation, messages: messages, toolResults: toolResults, steps: steps)
+                }
+
                 let evaluation = evaluatePermission(call: call, definitions: toolDefinitions, evaluator: permissionEvaluator)
                 try Task.checkCancellation()
                 if evaluation.decision.action == .deny {

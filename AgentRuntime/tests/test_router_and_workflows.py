@@ -60,13 +60,23 @@ def test_agent_start_routes_to_production_workflows(tmp_path, goal, selected_pap
     assert response and response["result"]["accepted"]
     events = [action["envelope"] for action in server.pending_actions if action.get("kind") == "event"]
     event_types = [event["event"]["type"] for event in events]
-    artifact = next(event["event"]["payload"] for event in events if event["event"]["type"] == "artifact_draft")
+    artifacts = [event["event"]["payload"] for event in events if event["event"]["type"] == "artifact_draft"]
     run_directory = tmp_path / ".sci-station" / "agent" / "runs" / run_id
     trace = json.loads((run_directory / "retrieval_trace.json").read_text(encoding="utf-8"))
 
-    assert event_types == ["run_started", "node_started", "artifact_draft", "final_response"]
-    assert artifact["kind"] == artifact_kind
-    assert artifact["proposed_path"] == target_path
+    if workflow == "paper_reading":
+        assert event_types == ["run_started", "node_started", "final_response"]
+        assert not artifacts
+        critic = json.loads((run_directory / "critic_report.json").read_text(encoding="utf-8"))
+        assert critic["can_request_approval"] is False
+        assert critic["semantic_validation"] == "not_performed_template_only"
+        final = events[-1]["event"]["payload"]["markdown"]
+        assert "incomplete" in final
+        assert "completed" not in final and "approval-ready" not in final
+    else:
+        assert event_types == ["run_started", "node_started", "artifact_draft", "final_response"]
+        assert artifacts[0]["kind"] == artifact_kind
+        assert artifacts[0]["proposed_path"] == target_path
     assert trace["workflow"] == workflow
     assert trace["effective_runtime"] == "langgraph_sidecar"
     assert trace["provenance"]["effective_runtime"] == "langgraph_sidecar"
@@ -192,7 +202,7 @@ def test_fts_index_rebuilds_on_schema_mismatch(tmp_path) -> None:
     assert incompatible.search("Evaporation", limit=5) == []
 
 
-def test_paper_reading_mvp_outputs_minimum_evidence() -> None:
+def test_paper_reading_scaffold_has_structure_but_is_not_semantically_validated() -> None:
     text = "\n".join([f"Line {line} method contribution limitation evidence." for line in range(1, 80)])
     draft = draft_paper_reading_note(
         run_id="run-test",
@@ -204,7 +214,10 @@ def test_paper_reading_mvp_outputs_minimum_evidence() -> None:
     assert not draft.needs_conversion
     assert len(draft.evidence) >= 7
     assert len(draft.artifact["evidence_refs"]) >= 7
-    assert draft.critic_report and draft.critic_report["can_request_approval"]
+    assert draft.critic_report and not draft.critic_report["can_request_approval"]
+    assert draft.critic_report["structural_checks_passed"]
+    assert draft.needs_synthesis
+    assert draft.critic_report["semantic_validation"] == "not_performed_template_only"
     assert "## TL;DR" in draft.artifact["content"]
     assert "## Contributions" in draft.artifact["content"]
     assert "## Method" in draft.artifact["content"]
@@ -227,7 +240,8 @@ def test_paper_reading_graph_evidence_minimums() -> None:
     assert content.count("## ") >= 9
     assert content.count("[evidence:") >= 10
     assert len(draft.evidence) >= 9
-    assert not draft.critic_report["unsupported_claims"]
+    assert not draft.critic_report["unsupported_claims"]  # Citation tokens exist; this is not semantic validation.
+    assert not draft.critic_report["can_request_approval"]
 
 
 def test_related_work_theme_clustering() -> None:

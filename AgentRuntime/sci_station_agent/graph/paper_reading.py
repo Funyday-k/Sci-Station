@@ -13,6 +13,7 @@ class PaperReadingDraft:
     evidence: list[dict]
     critic_report: dict | None = None
     needs_conversion: bool = False
+    needs_synthesis: bool = True
 
 
 def draft_paper_reading_note(
@@ -68,6 +69,12 @@ def draft_paper_reading_note(
         "risk": "readOnly",
     }
     report = critic_check_evidence(artifact, evidence, source_line_counts={relative_path: len(lines)}).to_dict()
+    # Citation shape checks cannot establish that template claims describe the paper.
+    # This experimental builder has no semantic synthesis stage yet.
+    report["structural_checks_passed"] = report["can_request_approval"]
+    report["semantic_validation"] = "not_performed_template_only"
+    report["can_request_approval"] = False
+    report["required_revisions"].append("Replace the reading scaffold with source-grounded scientific content and review claim support before approval.")
     return PaperReadingDraft(artifact=artifact, evidence=evidence, critic_report=report)
 
 

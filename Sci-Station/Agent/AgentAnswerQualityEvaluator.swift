@@ -102,12 +102,31 @@ public nonisolated struct AgentAnswerQualityEvaluator: Sendable {
             guard result.succeeded else {
                 return false
             }
-            if ["read_paper", "read_paper_section", "search_papers"].contains(result.toolName) {
-                return true
+            if let object = result.payload?.objectValue {
+                let kind = object["kind"]?.stringValue
+                if kind == "paper_search" || result.toolName == "search_papers" {
+                    return object["matches"]?.arrayValue?.contains { match in
+                        guard let fields = match.objectValue else { return false }
+                        return hasText(fields["snippet"]?.stringValue) && hasText(fields["source"]?.stringValue)
+                    } == true
+                }
+                if ["paper_read", "paper_section"].contains(kind)
+                    || ["read_paper", "read_paper_section"].contains(result.toolName) {
+                    return hasText(object["content"]?.stringValue) && hasText(object["source"]?.stringValue)
+                }
+                return false
             }
-            let kind = result.payload?.objectValue?["kind"]?.stringValue
-            return ["paper_read", "paper_section", "paper_search"].contains(kind)
+            // Older tools used a source header followed by a blank line and the body.
+            // A successful read/search status alone does not establish paper evidence.
+            guard ["read_paper", "read_paper_section"].contains(result.toolName),
+                  result.message.contains("source:"),
+                  let separator = result.message.range(of: "\n\n") else { return false }
+            return hasText(String(result.message[separator.upperBound...]))
         }
+    }
+
+    private nonisolated func hasText(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     private nonisolated func containsSourceReference(_ finalMarkdown: String, toolResults: [AgentToolResult]) -> Bool {

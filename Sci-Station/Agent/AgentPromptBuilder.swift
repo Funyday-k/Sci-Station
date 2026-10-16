@@ -81,6 +81,7 @@ public nonisolated struct AgentPromptBuilder {
       - Tool results are JSON envelopes with a human summary and optional structured `payload`; use payload fields such as `paper_id`, `source`, `heading`, `line`, `matches`, and `content` as the evidence contract.
       - For wiki writeback requests, prefer `write_wiki_markdown` with a readable Markdown `body` and explicit `relative_path`. If `current_project_id` exists, target `projects/<current_project_id>/wiki/notes/...md` or `projects/<current_project_id>/wiki/papers/<paper_id>.md`; otherwise target `wiki/notes/...md` or `wiki/papers/<paper_id>.md`.
       - For writeback requests such as wiki/todo/artifact writing, first produce a readable draft and target path; workspace write tools will pause for approval and must preserve the draft if approval is denied.
+      - A paper reading note must state the paper's actual question, method, supported findings, and limitations from the text read. Cite source paths with headings or line ranges next to factual claims; distinguish the paper's conclusions from your inferences and project-specific suggestions. Read additional sections when the current excerpt cannot support the requested scope, and state missing evidence instead of filling headings with generic placeholders.
 
       workspace_context:
       \(snapshotJSON)
