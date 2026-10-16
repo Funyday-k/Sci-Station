@@ -6,6 +6,10 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ## [Unreleased]
 
+### Added
+
+- Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
+
 ## [0.2.0] - 2026-10-16
 
 ### Fixed

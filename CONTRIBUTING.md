@@ -1,12 +1,12 @@
 # Contributing to Sci-Station
 
-Sci-Station welcomes bug reports, documentation improvements and focused code contributions. Read the [developer guide](docs/DEVELOPER.md) for architecture and build commands, the [code of conduct](CODE_OF_CONDUCT.md) for collaboration expectations, and the [security policy](SECURITY.md) before reporting a vulnerability.
+Sci-Station welcomes bug reports, documentation improvements and focused code contributions. Read the [developer guide](docs/DEVELOPER.md) for architecture and build commands, the [code of conduct](CODE_OF_CONDUCT.md) for collaboration expectations, and the [security policy](SECURITY.md) before reporting a vulnerability. Coding agents and contributors using them start from [AGENTS.md](AGENTS.md).
 
 ## From requirement to release
 
 1. Open an Issue describing the problem and observable acceptance criteria. For a security issue, use private reporting instead. Small documentation corrections may link an existing Issue or a versioned backlog item.
 2. For a new domain, persistent format, permission boundary or runtime change, propose an [RFC](docs/rfcs/README.md). Record the accepted decision in an [ADR](docs/architecture/README.md).
-3. Create a short-lived branch from `main`, for example `feat/123-paper-import`, `fix/124-path-check`, or `codex/governance-refactor`. `dev` is a transitional integration branch; it is not a release source and new work should target `main`.
+3. Create a short-lived branch from `main` named `<type>/<issue>-<slug>`, for example `feat/123-paper-import` or `fix/124-path-check`; [AGENTS.md](AGENTS.md) lists the types. Start commit subjects with the same type, for example `fix: reject paths outside the Research Root`. `dev` is a transitional integration branch; it is not a release source and new work should target `main`.
 4. Open a PR with the problem, resulting behavior, linked requirement, validation evidence and any migration or rollback steps. Use `Closes #123`, an Issue URL, or an existing `docs/rfcs/RFC-*.md`, `docs/architecture/ADR-*.md` or `docs/BACKLOG.md#...` reference in its description. The traceability check verifies local references and rejects an empty template.
 5. Merge only after `Required CI` succeeds and review conversations are resolved. During single-maintainer operation, the maintainer records a self-review in the PR; GitHub does not count an author's review as an independent approval. Add one required independent approval when a second regular maintainer is available.
 6. Update [CHANGELOG.md](CHANGELOG.md) under `Unreleased`. Release tags point to commits reachable from `main`; the [release workflow](.github/workflows/release.yml) builds and verifies that commit.

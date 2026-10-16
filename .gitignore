@@ -92,6 +92,7 @@ __pycache__/
 
 # Local AI agent bridge settings/state (not for GitHub)
 .claude/
+.codex/config.toml
 .mcp.json
 .mcp.local.json
 .sci-ai/workspace.local/

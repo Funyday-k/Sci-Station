@@ -11,6 +11,14 @@ This is the initial traceability register for the governance work. Entries are r
 - Decisions: [ADR-0001](architecture/ADR-0001-repository-governance.md), [versioning policy](VERSIONING.md).
 - Evidence: [CI workflow](../.github/workflows/macos-ci.yml), [settings payload](../.github/repository-settings.json), `Tools/tests/test_governance.py`. Validate remote state with the commands in [GOVERNANCE](GOVERNANCE.md).
 
+## GOV-002 — Shared coding-agent guidelines
+
+- Priority: P1. Status: implemented by the pull request that closes the linked Issue.
+- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/8
+- Scope: one agent entry point for Codex and Claude Code that states delivery rules and links to the authoritative documents instead of duplicating them.
+- Acceptance: [AGENTS.md](../AGENTS.md) maps change types to minimum local checks and requires reporting checks that were not run; [CLAUDE.md](../CLAUDE.md) imports it; documentation hygiene checks both files; machine-local `.codex/config.toml` is ignored while `.codex/environments/` stays tracked.
+- Boundary: the guidelines do not add CI gates or change who may merge. Agent-produced changes follow the same review and `Required CI` rules as any other change.
+
 ## ARCH-001 — Application state boundaries
 
 - Priority: P1. Status: focused stores and the paper-project membership use case are implemented; further domain isolation remains planned.
