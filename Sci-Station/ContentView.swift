@@ -113,7 +113,7 @@ struct ContentView: View {
             }
         )
         .task {
-            guard !AppUISmokeTest.isRequested() else { return }
+            guard !AppUITestHost.isRequested() else { return }
 
             await appModel.restoreLastWorkspaceIfNeeded()
             appModel.applyRightRailRouteSuggestion()
