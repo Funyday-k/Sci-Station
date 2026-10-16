@@ -43,23 +43,25 @@ final class LibraryNavigationSmokeTests: XCTestCase {
 
         let libraryButton = window.buttons["sidebar.tab.library"]
         XCTAssertTrue(libraryButton.waitForExistence(timeout: 20), "Library must expose its real navigation button.")
-        XCTAssertTrue(libraryButton.isEnabled)
-        if !libraryButton.isHittable {
-            let screenshot = XCTAttachment(screenshot: window.screenshot())
-            screenshot.name = "Isolated UI host before navigation"
-            screenshot.lifetime = .keepAlways
-            add(screenshot)
-            let hierarchy = XCTAttachment(string: window.debugDescription)
-            hierarchy.name = "Isolated UI host accessibility hierarchy"
-            hierarchy.lifetime = .keepAlways
-            add(hierarchy)
+        for (name, item) in [("window", window), ("root", root), ("home", home), ("library_button", libraryButton)] {
+            logGeometry(item, name: name)
         }
+        XCTAssertTrue(libraryButton.isEnabled)
         XCTAssertTrue(libraryButton.isHittable, "Library must be clickable on screen.")
         XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, launchedApp.processIdentifier)
         libraryButton.click()
 
         XCTAssertTrue(waitUntilVisible(destination, in: window), "Clicking Library must render its destination.")
         XCTAssertTrue(home.waitForNonExistence(timeout: 10), "Home must be replaced after navigation.")
+    }
+
+    private func logGeometry(_ element: XCUIElement, name: String) {
+        let frame = element.frame
+        let geometry = String(
+            format: "x=%.1f y=%.1f width=%.1f height=%.1f",
+            frame.origin.x, frame.origin.y, frame.width, frame.height
+        )
+        print("UI_SMOKE_GEOMETRY item=\(name) exists=\(element.exists) enabled=\(element.isEnabled) hittable=\(element.isHittable) \(geometry)")
     }
 
     private func element(_ identifier: String, in window: XCUIElement) -> XCUIElement {
