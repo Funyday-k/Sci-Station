@@ -252,7 +252,7 @@ CI 将文档卫生、版本一致性、PR 需求追踪、core runner 分域预�
 
 ### 本地开发
 
-- Xcode Team：`xia lingyu (Personal Team)`（`K7A7Y3LPZF`）。
+- Xcode Team：使用本机开发配置；公开发布不依赖个人团队、Developer ID 或 Apple notary 凭据。
 - Bundle ID：`Lingyu-Xia.Sci-Station`。
 - `CODE_SIGN_STYLE`：`Automatic`。
 - macOS 签名身份：Xcode 显示的 **Sign to Run Locally**（`-`）。
