@@ -23,8 +23,8 @@ final class SciStationLaunchCoordinator: ObservableObject {
         if SidecarRuntimeSmokeTest.startIfRequested() {
             return
         }
-        if AppUISmokeTest.isRequested() {
-            prepareForUISmokeTest()
+        if AppUITestHost.isRequested() {
+            prepareForUITestHost()
             return
         }
 
@@ -42,7 +42,7 @@ final class SciStationLaunchCoordinator: ObservableObject {
         finishIfReady()
     }
 
-    func prepareForUISmokeTest() {
+    func prepareForUITestHost() {
         didStart = true
         didReachMinimumDuration = true
         didFinishAppPreparation = true

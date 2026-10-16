@@ -9,7 +9,7 @@ import SwiftUI
 
 @main
 struct Sci_StationApp: App {
-    @StateObject private var appModel = AppViewModel()
+    @StateObject private var appModel = AppUITestHost.makeAppModel()
     @StateObject private var launchCoordinator = SciStationLaunchCoordinator()
 
     init() {
@@ -18,7 +18,7 @@ struct Sci_StationApp: App {
     }
 
     var body: some Scene {
-        let isRunningUISmokeTest = AppUISmokeTest.startIfRequested(
+        let isHostingUITest = AppUITestHost.prepareIfRequested(
             appModel: appModel,
             launchCoordinator: launchCoordinator
         )
@@ -35,7 +35,7 @@ struct Sci_StationApp: App {
                 .environmentObject(appModel.graphStore)
                 .environmentObject(launchCoordinator)
                 .onAppear {
-                    guard !isRunningUISmokeTest else { return }
+                    guard !isHostingUITest else { return }
                     launchCoordinator.start()
                 }
         }

@@ -343,6 +343,7 @@ private struct TopSidebarRow: View {
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(UITestAccessibilityID.Sidebar.tab(item.top.rawValue))
