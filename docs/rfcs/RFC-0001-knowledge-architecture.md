@@ -3,6 +3,7 @@
 - Status: Proposed
 - Requirement: [KNOW-001](../BACKLOG.md#know-001--knowledge-architecture-v1).
 - Decision PR: Not yet reviewed. This is a design proposal, not an implementation claim.
+- Review draft: [ADR-0004](../architecture/ADR-0004-knowledge-architecture.md) proposes field contracts, a bounded locator set, review/source-health separation, identity resolution and recovery. It remains a draft; it does not accept this RFC.
 
 ## Problem and acceptance criteria
 
