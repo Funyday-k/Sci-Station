@@ -12,7 +12,7 @@ extension AppViewModel {
 
         Task {
             do {
-                recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: limit)
+                recommendationStore.setHistory(try await recommendationPipeline.loadHistory(workspace: workspace, limit: limit))
             } catch {
                 recordAppDebugEvent("recommendation.error", payload: .object([
                     "phase": .string("history_load"),
@@ -23,10 +23,7 @@ extension AppViewModel {
     }
 
     func selectRecommendationHistory(_ result: RecommendationRunResult) {
-        recommendationRunResult = result
-        recommendationCandidateCount = result.candidateCount
-        recommendationErrorMessage = nil
-        recommendationAIEvaluationStatusMessage = nil
+        recommendationStore.selectHistory(result)
         Task {
             await refreshRecommendationFeedbackState(for: result)
         }
@@ -54,13 +51,11 @@ extension AppViewModel {
             limit: requestedTopK,
             aiModel: selectedAIModel
         )
-        isRefreshingRecommendations = true
-        recommendationErrorMessage = nil
-        recommendationAIEvaluationStatusMessage = nil
+        recommendationStore.beginRefresh()
 
         Task {
             defer {
-                isRefreshingRecommendations = false
+                recommendationStore.setRefreshing(false)
             }
             do {
                 var config = arxivOnlyRecommendationConfig(in: workspace, topK: requestedTopK)
@@ -76,7 +71,7 @@ extension AppViewModel {
                     aiModel: selectedAIModel
                 )
                 config.maxDailyCandidates = min(max(config.maxDailyCandidates, requestedTopK * 5), 100)
-                let existingHistory = (try? await recommendationPipeline.loadHistory(workspace: workspace, limit: 200)) ?? recommendationHistory
+                let existingHistory = (try? await recommendationPipeline.loadHistory(workspace: workspace, limit: 200)) ?? recommendationStore.history
                 let feedbackRecords = (try? await recommendationFeedbackStore.load(in: workspace)) ?? []
                 let feedbackProfile = RecommendationFeedbackStore.profile(
                     records: feedbackRecords,
@@ -113,33 +108,33 @@ extension AppViewModel {
                     sourceDate: search.sourceDate,
                     sourceNote: search.sourceNote
                 )
-                recommendationCandidateCount = search.candidates.count
+                recommendationStore.setCandidateCount(search.candidates.count)
                 if var result {
-                    recommendationRunResult = result
+                    recommendationStore.setRunResult(result)
                     await refreshRecommendationFeedbackState(for: result)
                     if result.scores.isEmpty {
-                        recommendationAIEvaluationStatusMessage = localized(
+                        recommendationStore.setAIEvaluationStatusMessage(localized(
                             "本次 AI/arXiv 搜索没有可显示推荐。候选 \(result.candidateCount) 篇，来源：\(search.sourceNote)。",
                             "No displayable recommendations for this AI/arXiv search. \(result.candidateCount) candidates, source: \(search.sourceNote)."
-                        )
+                        ))
                         showShellStatus(localized("AI/arXiv 本次没有返回可显示推荐。", "AI/arXiv returned no displayable recommendations."))
                     } else {
                         showShellStatus(localized("已获取 \(result.scores.count) 条 AI 辅助推荐。", "Fetched \(result.scores.count) AI-assisted recommendations."))
                     }
-                    recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
+                    recommendationStore.setHistory(try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20))
                     if !result.scores.isEmpty {
-                        isEvaluatingRecommendationsWithAI = true
+                        recommendationStore.setEvaluatingWithAI(true)
                         do {
                             result.aiEvaluation = try await evaluateRecommendationsWithAI(result, model: selectedAIModel, workspace: workspace)
                             try await recommendationPipeline.persistSnapshot(result, workspace: workspace)
-                            recommendationRunResult = result
+                            recommendationStore.setRunResult(result)
                             await refreshRecommendationFeedbackState(for: result)
-                            recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
-                            recommendationAIEvaluationStatusMessage = localized("AI 已完成推荐评价。", "AI evaluation completed.")
+                            recommendationStore.setHistory(try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20))
+                            recommendationStore.setAIEvaluationStatusMessage(localized("AI 已完成推荐评价。", "AI evaluation completed."))
                         } catch {
-                            recommendationAIEvaluationStatusMessage = localized("AI 评价暂不可用：\(error.localizedDescription)", "AI evaluation unavailable: \(error.localizedDescription)")
+                            recommendationStore.setAIEvaluationStatusMessage(localized("AI 评价暂不可用：\(error.localizedDescription)", "AI evaluation unavailable: \(error.localizedDescription)"))
                         }
-                        isEvaluatingRecommendationsWithAI = false
+                        recommendationStore.setEvaluatingWithAI(false)
                     }
                 } else {
                     showShellStatus(localized("arXiv 推荐没有变化。", "arXiv recommendations are unchanged."))
@@ -153,8 +148,8 @@ extension AppViewModel {
                     "scope": .string(project.map { "project:\($0.id)" } ?? "workspace")
                 ]))
             } catch {
-                isEvaluatingRecommendationsWithAI = false
-                recommendationErrorMessage = error.localizedDescription
+                recommendationStore.setEvaluatingWithAI(false)
+                recommendationStore.setErrorMessage(error.localizedDescription)
                 recordAppDebugEvent("recommendation.error", payload: .object([
                     "phase": .string("arxiv_refresh"),
                     "reason": .string(error.localizedDescription)
@@ -166,23 +161,22 @@ extension AppViewModel {
 
     func addRecommendationToLibrary(_ score: RecommendationScore, scope: RecommendationTarget) {
         guard let workspace = currentWorkspace else {
-            recommendationErrorMessage = RecommendationReadingTodoError.missingWorkspace.localizedDescription
+            recommendationStore.setErrorMessage(RecommendationReadingTodoError.missingWorkspace.localizedDescription)
             return
         }
-        guard !recommendationLibraryImportScoreIDs.contains(score.id) else {
+        guard recommendationStore.beginImport(scoreID: score.id, destination: .library) else {
             return
         }
-        recommendationLibraryImportScoreIDs.insert(score.id)
 
         Task {
-            defer { recommendationLibraryImportScoreIDs.remove(score.id) }
+            defer { recommendationStore.finishImport(scoreID: score.id, destination: .library) }
             do {
                 let paper = try await importRecommendationCandidateToLibrary(score.candidate, scope: scope, in: workspace)
                 try await loadWorkspaceData(in: workspace, selectingPaper: paper.id, selectingMarkdown: selectedMarkdownID)
                 recordRecommendationFeedback(.save, for: score, scope: scope)
                 showShellStatus(localized("已加入论文库，并自动添加 arXiv 推荐标签。", "Added to Library with the arXiv recommendation tag."))
             } catch {
-                recommendationErrorMessage = localized("无法加入论文库：\(error.localizedDescription)", "Could not add to Library: \(error.localizedDescription)")
+                recommendationStore.setErrorMessage(localized("无法加入论文库：\(error.localizedDescription)", "Could not add to Library: \(error.localizedDescription)"))
                 recordAppDebugEvent("recommendation.push.error", payload: .object([
                     "phase": .string("library_import"),
                     "score_id": .string(score.id),
@@ -196,16 +190,15 @@ extension AppViewModel {
 
     func addRecommendationToReadingTodo(_ score: RecommendationScore, scope: RecommendationTarget) {
         guard let workspace = currentWorkspace else {
-            recommendationErrorMessage = RecommendationReadingTodoError.missingWorkspace.localizedDescription
+            recommendationStore.setErrorMessage(RecommendationReadingTodoError.missingWorkspace.localizedDescription)
             return
         }
-        guard !recommendationReadingTodoImportScoreIDs.contains(score.id) else {
+        guard recommendationStore.beginImport(scoreID: score.id, destination: .readingTodo) else {
             return
         }
-        recommendationReadingTodoImportScoreIDs.insert(score.id)
 
         Task {
-            defer { recommendationReadingTodoImportScoreIDs.remove(score.id) }
+            defer { recommendationStore.finishImport(scoreID: score.id, destination: .readingTodo) }
             do {
                 let paper = try await importRecommendationCandidateToLibrary(score.candidate, scope: scope, in: workspace)
                 try await upsertReadingTodo(for: paper, score: score, scope: scope, in: workspace)
@@ -213,7 +206,7 @@ extension AppViewModel {
                 recordRecommendationFeedback(.save, for: score, scope: scope)
                 showShellStatus(localized("已创建阅读 Todo，可在任务页继续安排阅读。", "Created a reading todo; continue from Tasks."))
             } catch {
-                recommendationErrorMessage = localized("无法创建阅读 Todo：\(error.localizedDescription)", "Could not create reading todo: \(error.localizedDescription)")
+                recommendationStore.setErrorMessage(localized("无法创建阅读 Todo：\(error.localizedDescription)", "Could not create reading todo: \(error.localizedDescription)"))
                 recordAppDebugEvent("recommendation.push.error", payload: .object([
                     "phase": .string("reading_todo_import"),
                     "score_id": .string(score.id),
@@ -229,24 +222,12 @@ extension AppViewModel {
         addRecommendationToReadingTodo(score, scope: scope)
     }
 
-    func recommendationFeedbackType(for score: RecommendationScore) -> RecommendationFeedbackType? {
-        recommendationFeedbackByScoreID[score.id]
-    }
-
-    func isAddingRecommendationToLibrary(_ score: RecommendationScore) -> Bool {
-        recommendationLibraryImportScoreIDs.contains(score.id)
-    }
-
-    func isAddingRecommendationToReadingTodo(_ score: RecommendationScore) -> Bool {
-        recommendationReadingTodoImportScoreIDs.contains(score.id)
-    }
-
     func recordRecommendationFeedback(_ type: RecommendationFeedbackType, for score: RecommendationScore, scope: RecommendationTarget? = nil) {
         guard let workspace = currentWorkspace else {
             return
         }
-        let runID = recommendationRunResult?.id ?? score.id
-        let projectID = scope?.projectIDForRecommendationFeedback ?? recommendationRunResult?.contextProjectID ?? currentProjectID
+        let runID = recommendationStore.runResult?.id ?? score.id
+        let projectID = scope?.projectIDForRecommendationFeedback ?? recommendationStore.runResult?.contextProjectID ?? currentProjectID
         Task {
             do {
                 try await recommendationFeedbackStore.record(
@@ -256,7 +237,7 @@ extension AppViewModel {
                     recommendationRunID: runID,
                     in: workspace
                 )
-                recommendationFeedbackByScoreID[score.id] = type
+                recommendationStore.recordFeedback(type, scoreID: score.id)
                 recordAppDebugEvent("recommendation.feedback", payload: .object([
                     "score_id": .string(score.id),
                     "feedback_type": .string(type.rawValue),
@@ -264,7 +245,7 @@ extension AppViewModel {
                     "project_id_present": .bool(projectID != nil)
                 ]))
             } catch {
-                recommendationErrorMessage = localized("保存推荐反馈失败：\(error.localizedDescription)", "Failed to save recommendation feedback: \(error.localizedDescription)")
+                recommendationStore.setErrorMessage(localized("保存推荐反馈失败：\(error.localizedDescription)", "Failed to save recommendation feedback: \(error.localizedDescription)"))
                 recordAppDebugEvent("recommendation.error", payload: .object([
                     "phase": .string("feedback_save"),
                     "score_id": .string(score.id),
@@ -285,16 +266,14 @@ extension AppViewModel {
         Task {
             do {
                 try await recommendationPipeline.archiveSnapshot(id: result.id, workspace: workspace)
-                recommendationHistory = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
-                if recommendationRunResult?.id == result.id {
-                    recommendationRunResult = recommendationHistory.first
-                }
+                let history = try await recommendationPipeline.loadHistory(workspace: workspace, limit: 20)
+                recommendationStore.applyArchivedHistory(history, archivedID: result.id)
                 showShellStatus(localized("历史推荐已归档。", "Recommendation history archived."))
                 recordAppDebugEvent("recommendation.archive", payload: .object([
                     "snapshot_id": .string(result.id)
                 ]))
             } catch {
-                recommendationErrorMessage = localized("归档历史推荐失败：\(error.localizedDescription)", "Failed to archive recommendation history: \(error.localizedDescription)")
+                recommendationStore.setErrorMessage(localized("归档历史推荐失败：\(error.localizedDescription)", "Failed to archive recommendation history: \(error.localizedDescription)"))
                 recordAppDebugEvent("recommendation.error", payload: .object([
                     "phase": .string("archive"),
                     "snapshot_id": .string(result.id),
@@ -510,10 +489,10 @@ extension AppViewModel {
             ]))
         }
         if !apiKey.isEmpty {
-            recommendationAIEvaluationStatusMessage = localized(
+            recommendationStore.setAIEvaluationStatusMessage(localized(
                 "正在把项目、关键词和 \(referencePapers.count) 篇参考论文提交给 AI 生成 arXiv 搜索策略…",
                 "Submitting the project, keywords, and \(referencePapers.count) reference papers to AI for arXiv search planning…"
-            )
+            ))
             do {
                 let aiStrategies = try await recommendationAISearchStrategies(
                     query: trimmedQuery,
@@ -818,32 +797,20 @@ extension AppViewModel {
 
     func refreshRecommendationFeedbackState(for result: RecommendationRunResult) async {
         guard let workspace = currentWorkspace else {
-            recommendationFeedbackByScoreID = [:]
+            recommendationStore.setFeedback([:])
             return
         }
         do {
             let records = try await recommendationFeedbackStore.load(in: workspace)
-            recommendationFeedbackByScoreID = recommendationFeedbackState(records: records, result: result)
+            recommendationStore.setFeedback(RecommendationFeedbackStore.feedbackState(records: records, result: result))
         } catch {
-            recommendationFeedbackByScoreID = [:]
+            recommendationStore.setFeedback([:])
             recordAppDebugEvent("recommendation.error", payload: .object([
                 "phase": .string("feedback_load"),
                 "run_id": .string(result.id),
                 "reason": .string(error.localizedDescription)
             ]))
         }
-    }
-
-    func recommendationFeedbackState(records: [RecommendationFeedbackRecord], result: RecommendationRunResult) -> [String: RecommendationFeedbackType] {
-        var state: [String: RecommendationFeedbackType] = [:]
-        let sortedRecords = records.sorted { $0.createdAt < $1.createdAt }
-        for score in result.scores {
-            let keys = RecommendationFeedbackStore.candidateKeys(score.candidate)
-            if let record = sortedRecords.last(where: { keys.contains($0.paperKey) && ($0.projectID == nil || $0.projectID == result.contextProjectID) }) {
-                state[score.id] = record.feedbackType
-            }
-        }
-        return state
     }
 
     func recommendationReferencePapers(ids: Set<Paper.ID>) -> [Paper] {

@@ -185,6 +185,57 @@ final class RecommendationStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var aiEvaluationStatusMessage: String?
 
+    // In-flight imports belong to the active coordinator tasks, not staged workspace snapshots.
+    enum ImportDestination {
+        case library
+        case readingTodo
+    }
+
+    @Published private(set) var libraryImportScoreIDs: Set<String> = []
+    @Published private(set) var readingTodoImportScoreIDs: Set<String> = []
+
+    func beginImport(scoreID: String, destination: ImportDestination) -> Bool {
+        switch destination {
+        case .library:
+            return libraryImportScoreIDs.insert(scoreID).inserted
+        case .readingTodo:
+            return readingTodoImportScoreIDs.insert(scoreID).inserted
+        }
+    }
+
+    func finishImport(scoreID: String, destination: ImportDestination) {
+        switch destination {
+        case .library:
+            libraryImportScoreIDs.remove(scoreID)
+        case .readingTodo:
+            readingTodoImportScoreIDs.remove(scoreID)
+        }
+    }
+
+    func selectHistory(_ result: RecommendationRunResult) {
+        runResult = result
+        candidateCount = result.candidateCount
+        errorMessage = nil
+        aiEvaluationStatusMessage = nil
+    }
+
+    func applyArchivedHistory(_ history: [RecommendationRunResult], archivedID: String) {
+        self.history = history
+        if runResult?.id == archivedID {
+            runResult = history.first
+        }
+    }
+
+    func beginRefresh() {
+        isRefreshing = true
+        errorMessage = nil
+        aiEvaluationStatusMessage = nil
+    }
+
+    func recordFeedback(_ type: RecommendationFeedbackType, scoreID: String) {
+        feedbackByScoreID[scoreID] = type
+    }
+
     func setRunResult(_ result: RecommendationRunResult?) { runResult = result }
     func setHistory(_ history: [RecommendationRunResult]) { self.history = history }
     func setFeedback(_ feedback: [String: RecommendationFeedbackType]) { feedbackByScoreID = feedback }

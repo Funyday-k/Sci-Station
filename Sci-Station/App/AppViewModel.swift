@@ -569,40 +569,6 @@ final class AppViewModel: ObservableObject {
     var shellStoreObservations: Set<AnyCancellable> = []
 
     let recommendationFeedbackStore = RecommendationFeedbackStore()
-    var recommendationRunResult: RecommendationRunResult? {
-        get { recommendationStore.runResult }
-        set { recommendationStore.setRunResult(newValue) }
-    }
-    var recommendationHistory: [RecommendationRunResult] {
-        get { recommendationStore.history }
-        set { recommendationStore.setHistory(newValue) }
-    }
-    var recommendationFeedbackByScoreID: [String: RecommendationFeedbackType] {
-        get { recommendationStore.feedbackByScoreID }
-        set { recommendationStore.setFeedback(newValue) }
-    }
-    var recommendationCandidateCount: Int {
-        get { recommendationStore.candidateCount }
-        set { recommendationStore.setCandidateCount(newValue) }
-    }
-    var isRefreshingRecommendations: Bool {
-        get { recommendationStore.isRefreshing }
-        set { recommendationStore.setRefreshing(newValue) }
-    }
-    var isEvaluatingRecommendationsWithAI: Bool {
-        get { recommendationStore.isEvaluatingWithAI }
-        set { recommendationStore.setEvaluatingWithAI(newValue) }
-    }
-    var recommendationErrorMessage: String? {
-        get { recommendationStore.errorMessage }
-        set { recommendationStore.setErrorMessage(newValue) }
-    }
-    var recommendationAIEvaluationStatusMessage: String? {
-        get { recommendationStore.aiEvaluationStatusMessage }
-        set { recommendationStore.setAIEvaluationStatusMessage(newValue) }
-    }
-    @Published var recommendationLibraryImportScoreIDs: Set<String> = []
-    @Published var recommendationReadingTodoImportScoreIDs: Set<String> = []
     @Published var isShowingSkillImport = false
     @Published var pendingSkillImportPlan: AgentSkillInstallPlan?
 #if DEBUG
