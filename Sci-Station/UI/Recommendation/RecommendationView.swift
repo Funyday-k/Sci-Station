@@ -419,13 +419,13 @@ struct RecommendationView: View {
     @ViewBuilder
     private var recommendationStatusBadges: some View {
         HStack(spacing: 12) {
-            if appModel.recommendationCandidateCount > 0 {
-                Label(appModel.localized("候选 \(appModel.recommendationCandidateCount) 篇", "\(appModel.recommendationCandidateCount) candidates"), systemImage: "doc.text.magnifyingglass")
+            if recommendationStore.candidateCount > 0 {
+                Label(appModel.localized("候选 \(recommendationStore.candidateCount) 篇", "\(recommendationStore.candidateCount) candidates"), systemImage: "doc.text.magnifyingglass")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if let result = appModel.recommendationRunResult {
+            if let result = recommendationStore.runResult {
                 Label(result.generatedAt.formatted(date: .abbreviated, time: .shortened), systemImage: "clock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -475,7 +475,7 @@ struct RecommendationView: View {
         compactSelectionBox(
             title: appModel.localized("历史", "History"),
             systemImage: "clock.arrow.circlepath",
-            countText: appModel.localized("\(appModel.recommendationHistory.count) 条", "\(appModel.recommendationHistory.count) runs"),
+            countText: appModel.localized("\(recommendationStore.history.count) 条", "\(recommendationStore.history.count) runs"),
             detailText: recommendationHistorySummaryText
         ) {
             isHistoryManagerPresented = true
@@ -509,7 +509,7 @@ struct RecommendationView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let error = appModel.recommendationErrorMessage, !error.isEmpty {
+        if let error = recommendationStore.errorMessage, !error.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Label(appModel.localized("推荐刷新失败", "Recommendation refresh failed"), systemImage: "exclamationmark.triangle")
                     .font(.headline)
@@ -542,7 +542,7 @@ struct RecommendationView: View {
 
     @ViewBuilder
     private var resultsPane: some View {
-        if let result = appModel.recommendationRunResult, !result.scores.isEmpty {
+        if let result = recommendationStore.runResult, !result.scores.isEmpty {
             let sortedScores = sortedRecommendationScores(result.scores)
             LazyVStack(alignment: .leading, spacing: 12) {
                 resultSummary(result)
@@ -553,7 +553,7 @@ struct RecommendationView: View {
                         scope: selectedScope,
                         aiComment: aiComment(for: score, evaluation: result.aiEvaluation),
                         aiReview: aiReview(for: score, evaluation: result.aiEvaluation),
-                        feedback: appModel.recommendationFeedbackType(for: score),
+                        feedback: recommendationStore.feedbackByScoreID[score.id],
                         onAddToLibrary: {
                             appModel.addRecommendationToLibrary(score, scope: selectedScope)
                         },
@@ -568,13 +568,13 @@ struct RecommendationView: View {
                         },
                         isInLibrary: appModel.isRecommendationInLibrary(score),
                         isInReadingTodo: appModel.isRecommendationInReadingList(score, scope: selectedScope),
-                        isAddingToLibrary: appModel.isAddingRecommendationToLibrary(score),
-                        isAddingReadingTodo: appModel.isAddingRecommendationToReadingTodo(score)
+                        isAddingToLibrary: recommendationStore.libraryImportScoreIDs.contains(score.id),
+                        isAddingReadingTodo: recommendationStore.readingTodoImportScoreIDs.contains(score.id)
                     )
                 }
             }
             .padding(.vertical, 2)
-        } else if let result = appModel.recommendationRunResult {
+        } else if let result = recommendationStore.runResult {
             zeroRecommendationState(result)
         } else {
             emptyRecommendationState
@@ -616,7 +616,7 @@ struct RecommendationView: View {
                     Label(appModel.localized("重试", "Retry"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(appModel.isRefreshingRecommendations)
+                .disabled(recommendationStore.isRefreshing)
                 Button {
                     query = ""
                     refresh()
@@ -624,7 +624,7 @@ struct RecommendationView: View {
                     Label(appModel.localized("清空关键词后重试", "Retry without keywords"), systemImage: "xmark.circle")
                 }
                 .buttonStyle(.bordered)
-                .disabled(appModel.isRefreshingRecommendations || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(recommendationStore.isRefreshing || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -643,7 +643,7 @@ struct RecommendationView: View {
                 Label(appModel.localized("获取推荐", "Fetch Recommendations"), systemImage: "arrow.down.doc")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(appModel.isRefreshingRecommendations)
+            .disabled(recommendationStore.isRefreshing)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
@@ -662,11 +662,11 @@ struct RecommendationView: View {
             }
             .font(.caption)
 
-            if appModel.isEvaluatingRecommendationsWithAI {
+            if recommendationStore.isEvaluatingWithAI {
                 Label(appModel.localized("AI 正在阅读标题和摘要并生成评价…", "AI is reading titles and abstracts for evaluation…"), systemImage: "sparkles")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else if let status = appModel.recommendationAIEvaluationStatusMessage {
+            } else if let status = recommendationStore.aiEvaluationStatusMessage {
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -862,7 +862,7 @@ struct RecommendationView: View {
     }
 
     private var recommendationHistorySummaryText: String {
-        guard let latest = appModel.recommendationHistory.first else {
+        guard let latest = recommendationStore.history.first else {
             return appModel.localized("管理历史推荐", "Manage recommendation history")
         }
         let categories = latest.categories.prefix(3).joined(separator: " · ")
@@ -889,8 +889,8 @@ struct RecommendationView: View {
 
     private func selectTodaysRecommendationHistoryIfNeeded() {
         guard !didSelectDefaultHistory,
-              appModel.recommendationRunResult == nil,
-              let result = appModel.recommendationHistory.first(where: isTodaysRecommendationResult) else {
+              recommendationStore.runResult == nil,
+              let result = recommendationStore.history.first(where: isTodaysRecommendationResult) else {
             return
         }
         didSelectDefaultHistory = true
@@ -1307,9 +1307,9 @@ private struct RecommendationHistoryManagerSheet: View {
 
     private var filteredHistory: [RecommendationRunResult] {
         guard !normalizedSearchText.isEmpty else {
-            return appModel.recommendationHistory
+            return recommendationStore.history
         }
-        return appModel.recommendationHistory.filter { result in
+        return recommendationStore.history.filter { result in
             let haystack = [
                 result.query,
                 result.categories.joined(separator: " "),
@@ -1331,7 +1331,7 @@ private struct RecommendationHistoryManagerSheet: View {
                     HStack(spacing: 8) {
                         Text(result.generatedAt.formatted(date: .abbreviated, time: .shortened))
                             .font(.callout.weight(.semibold))
-                        if appModel.recommendationRunResult?.id == result.id {
+                        if recommendationStore.runResult?.id == result.id {
                             Label(appModel.localized("当前", "Current"), systemImage: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.green)
@@ -1370,7 +1370,7 @@ private struct RecommendationHistoryManagerSheet: View {
             .help(appModel.localized("归档这条历史推荐", "Archive this recommendation"))
         }
         .padding(12)
-        .background(appModel.recommendationRunResult?.id == result.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(recommendationStore.runResult?.id == result.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

@@ -173,6 +173,21 @@ public actor RecommendationFeedbackStore {
         )
     }
 
+    nonisolated static func feedbackState(
+        records: [RecommendationFeedbackRecord],
+        result: RecommendationRunResult
+    ) -> [String: RecommendationFeedbackType] {
+        var state: [String: RecommendationFeedbackType] = [:]
+        let sortedRecords = records.sorted { $0.createdAt < $1.createdAt }
+        for score in result.scores {
+            let keys = candidateKeys(score.candidate)
+            if let record = sortedRecords.last(where: { keys.contains($0.paperKey) && ($0.projectID == nil || $0.projectID == result.contextProjectID) }) {
+                state[score.id] = record.feedbackType
+            }
+        }
+        return state
+    }
+
     public nonisolated static func candidateKeys(_ candidate: RecommendationCandidate) -> Set<String> {
         Set([candidate.paperID, candidate.externalKey, Optional(candidate.canonicalID)]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }

@@ -6,10 +6,10 @@ app_dir="$repo_root/Sci-Station/App"
 main_file="$app_dir/AppViewModel.swift"
 store_file="$repo_root/Sci-Station/Workspace/AppDomainStores.swift"
 
-main_max_lines="${SCI_STATION_APPVIEWMODEL_MAIN_MAX_LINES:-1200}"
+main_max_lines="${SCI_STATION_APPVIEWMODEL_MAIN_MAX_LINES:-1166}"
 extension_max_lines="${SCI_STATION_APPVIEWMODEL_EXTENSION_MAX_LINES:-1800}"
-family_max_lines="${SCI_STATION_APPVIEWMODEL_FAMILY_MAX_LINES:-11000}"
-published_max="${SCI_STATION_APPVIEWMODEL_PUBLISHED_MAX:-135}"
+family_max_lines="${SCI_STATION_APPVIEWMODEL_FAMILY_MAX_LINES:-10931}"
+published_max="${SCI_STATION_APPVIEWMODEL_PUBLISHED_MAX:-133}"
 minimum_extension_files="${SCI_STATION_APPVIEWMODEL_MIN_EXTENSION_FILES:-8}"
 
 require_non_negative_integer() {
