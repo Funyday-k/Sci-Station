@@ -17,10 +17,8 @@ final class CoreVerificationSuite {
         await runSuite("AgentRuntime") { await runAgentRuntime() }
         await runSuite("ShellHome") { await runShellHome() }
         await runSuite("AgentTools") { await runAgentTools() }
-        await runSuite("Plugins") { await runPlugins() }
         await runSuite("AgentLoop") { await runAgentLoop() }
         await runSuite("LibraryImport") { await runLibraryImport() }
-        await runSuite("Knowledge") { await runKnowledge() }
         await runSuite("Graph") { await runGraph() }
         await runSuite("TasksRecommendations") { await runTasksRecommendations() }
         return summary

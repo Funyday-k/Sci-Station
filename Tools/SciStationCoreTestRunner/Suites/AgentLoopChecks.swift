@@ -4,8 +4,6 @@ import SciStationCore
 
 extension CoreVerificationSuite {
     func runAgentLoop() async {
-        await runCheck("agentLoopBudgetDefaultsAreExpanded") { try agentLoopBudgetDefaultsAreExpanded() }
-        await runCheck("llmRequestBuildsExpectedPayload") { try llmRequestBuildsExpectedPayload() }
         await runCheck("openAIProviderPreservesReasoningContent") { try openAIProviderPreservesReasoningContent() }
         await runCheck("openAIProviderRejectsThinkingModeToolReplayWithoutReasoning") { try openAIProviderRejectsThinkingModeToolReplayWithoutReasoning() }
         await runCheck("openAIProviderTreatsDeepSeekV4FlashAsThinkingMode") { try openAIProviderTreatsDeepSeekV4FlashAsThinkingMode() }
@@ -35,34 +33,6 @@ extension CoreVerificationSuite {
         await runCheck("openAIStreamDeltaParserIgnoresBadChunks") { try openAIStreamDeltaParserIgnoresBadChunks() }
         await runCheck("llmProviderV2RequestModelsToolDefinitions") { try llmProviderV2RequestModelsToolDefinitions() }
     }
-
-    func agentLoopBudgetDefaultsAreExpanded() throws {
-        let options = AgentLoopOptions()
-        try expect(options.maxSteps == 20, "Agent loop should default to 20 model steps.")
-        try expect(options.maxToolCalls == 80, "Agent loop should default to a larger tool-call budget.")
-        try expect(options.maxContextCharacters == 1_000_000, "Agent loop should default to a 1M context character budget.")
-        try expect(options.maxToolResultCharactersPerCall == 384_000, "Agent loop should default to a 384K per-tool output budget.")
-        try expect(options.maxAccumulatedToolResultCharacters == 1_000_000, "Agent loop should default to a 1M accumulated tool-result budget.")
-        try expect(LLMConfiguration().maxTokens == 384_000, "LLM output should default to 384K max tokens for DeepSeek-class models.")
-    }
-
-            func llmRequestBuildsExpectedPayload() throws {
-                let provider = OpenAICompatibleProvider()
-                let configuration = LLMConfiguration(
-                    provider: .openAICompatible,
-                    baseURLString: "https://api.example.com/v1",
-                    model: "test-model",
-                    temperature: 0.3,
-                    maxTokens: 256
-                )
-
-                let request = try provider.buildRequest(configuration: configuration, apiKey: "secret-key", prompt: "Summarize this paper")
-                let body = try require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) }, "Expected request body to be encoded.")
-                try expect(request.url?.absoluteString == "https://api.example.com/v1/chat/completions", "Provider should target /chat/completions on the configured base URL.")
-                try expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-key", "Provider should attach the API key as a bearer token.")
-                try expect(body.contains("test-model"), "Provider request body should contain the configured model.")
-                try expect(body.contains("Summarize this paper"), "Provider request body should contain the prompt content.")
-            }
 
                         func openAIProviderPreservesReasoningContent() throws {
                                 let provider = OpenAICompatibleProvider()

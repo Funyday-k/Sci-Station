@@ -31,11 +31,13 @@ This is the initial traceability register for the governance work. Entries are r
 
 ## TEST-001 — Domain-based legacy verification
 
-- Priority: P1. Status: domain runner split and five MarkdownRepository checks migrated to Swift Testing; continued migration planned.
+- Priority: P1. Status: domain runner split and 29 checks migrated to Swift Testing; continued migration planned.
 - GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/4
 - Acceptance for this change: preserve all legacy check names and assertions, group checks by domain, share fixtures, retain a fail-fast-on-empty filter and fail-on-any-check exit status, and run the full suite in CI.
 - Next acceptance: migrate cohesive domain suites to Swift Testing with equivalent assertions, then remove the corresponding legacy registration only after coverage parity is shown. Keep subprocess/system scenarios in the integration runner when appropriate.
 - Delivered increment: `MarkdownRepositoryTests` preserves the load/save, create, absolute-path rejection, rename and archive assertions with isolated fixtures. The corresponding legacy registrations were removed after equivalent assertions passed. Both test entry points remain required.
+- Further increment: `PluginKitTests` migrates all 13 plugin/module checks; `KnowledgeDomainTests` migrates all nine existing snippet/resource/embedding/wiki checks; `AgentLoopTests` migrates the budget-default and request-payload checks. Original identifiers, assertion expressions and failure behavior are preserved, with isolated workspace fixtures. All 24 old checks and their replacements passed before duplicate registrations were removed. This migration covers existing repositories, not the proposed KnowledgeAtom architecture.
+- Local validation (2026-10-19): 139 Swift Testing tests passed, 299 remaining legacy checks passed, and Core line coverage was 31.47% against the 14.0% floor. Repository hygiene, both architecture gates and pinned Swift style checks passed. CI and maintainer review remain required before merge.
 - Evidence: `Tools/SciStationCoreTestRunner/Suites/`, `Tools/SciStationCoreTestRunner/Support/`, `Tests/SciStationCoreTests/` and the runner architecture gate.
 
 ## KNOW-001 — Knowledge Architecture V1
