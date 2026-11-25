@@ -1,11 +1,13 @@
 {{define "head"}}
 <link rel="stylesheet" href="/static/reader.css">
+<link rel="stylesheet" href="/static/citation-panel.css">
+<script defer src="/static/citation-panel.js"></script>
 {{end}}
 {{define "content"}}
 <header class="reader-header">
   <a id="home" href="/research?view=papers">返回文献库</a>
 
-  <span class="breadcrumb">文献阅读</span><span class="spacer"></span><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden>导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener">打开 PDF 原件 ↗</a>
+  <span class="breadcrumb">文献阅读</span><span class="spacer"></span><button id="citation" type="button" data-citation-paper>引用文献</button><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden>导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener">打开 PDF 原件 ↗</a>
 </header>
 <section class="titlebar"><div><h1 id="title">论文阅读</h1><p id="byline"></p></div><span class="spacer"></span><button id="handoff" class="primary" disabled>选段入会</button></section>
 <div id="sourceNotice" role="status" hidden></div>

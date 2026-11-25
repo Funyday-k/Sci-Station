@@ -86,6 +86,8 @@ type PaperMetadata struct {
 	InspireID        string                      `json:"inspire_id,omitempty"`
 	PDFURL           string                      `json:"pdf_url,omitempty"`
 	MetadataSource   string                      `json:"metadata_source,omitempty"`
+
+	collectionExplicit bool
 }
 type Paper struct {
 	PaperMetadata
@@ -101,6 +103,7 @@ type Paper struct {
 }
 type PaperLibrary struct {
 	dir        string
+	dirInfo    os.FileInfo
 	mu         sync.RWMutex
 	records    map[string]Paper
 	hasProject func(string) bool
@@ -122,6 +125,17 @@ func paperID() string {
 }
 func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 	p := &PaperLibrary{dir: dir, records: make(map[string]Paper)}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("文献库目录不可用")
+	}
+	p.dirInfo = info
 	for _, sub := range []string{"records", "pdf"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0700); err != nil {
 			return nil, err
@@ -542,6 +556,8 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 	if err := s.validate(&m, nil); err != nil {
 		return Paper{}, false, err
 	}
+	collectionExplicit := m.collectionExplicit || m.CollectionID != ""
+	m.collectionExplicit = false
 	p := Paper{PaperMetadata: m, ID: paperID(), CreatedAt: time.Now().UTC(), HasPDF: tempFile != "", FileSHA256: digest, Annotations: []PaperAnnotation{}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -598,7 +614,7 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 		}
 	}
 	changePaper(&p)
-	if err := s.saveImportLocked(&p, tempFile, digest); err != nil {
+	if err := s.saveImportLocked(&p, tempFile, digest, collectionExplicit); err != nil {
 		return Paper{}, false, err
 	}
 	return clonePaper(p), isNew, nil

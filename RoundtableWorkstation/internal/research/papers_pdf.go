@@ -116,7 +116,7 @@ func (s *PaperLibrary) attachPDF(w http.ResponseWriter, r *http.Request, p Paper
 		}
 	}
 	changePaper(&current)
-	err = s.saveImportLocked(&current, tmp, digest)
+	err = s.saveImportLocked(&current, tmp, digest, false)
 	s.mu.Unlock()
 	if err != nil {
 		paperError(w, err)

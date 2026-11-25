@@ -667,6 +667,20 @@ dialog:has([data-library-paper]) .dialog-head {
   min-width: 0
 }
 
+.library-table-scroll { overflow-x: auto; }
+.library-table { width: 100%; border-collapse: collapse; text-align: left; }
+.library-table th, .library-table td { padding: .65rem .75rem; border-bottom: 1px solid var(--line); }
+.library-table tbody tr:last-child > * { border-bottom: 0; }
+.library-table thead th { white-space: nowrap; font-size: .85rem; }
+.library-table th[aria-sort="ascending"] .bare::after { content: " ↑"; }
+.library-table th[aria-sort="descending"] .bare::after { content: " ↓"; }
+.library-paper-title { font-weight: 650; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
+.library-paper-title:hover { color: var(--accent); }
+.library-table .paper-tags { max-width: 12rem; }
+.library-table-actions { display: flex; gap: .3rem; white-space: nowrap; }
+.library-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .25rem .8rem; padding: 0; }
+.library-columns li { display: flex; gap: .5rem; justify-content: space-between; align-items: center; padding: .15rem; }
+
 .query,
 .field input,
 .field select,

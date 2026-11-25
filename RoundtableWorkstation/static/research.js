@@ -55,6 +55,7 @@
     project: null,
     papers: [],
     organization: {revision: 0, collections: {}, tags: {}},
+    paperWikiStatus: {},
     libraryCollection: "",
     libraryTag: "",
     notes: [],
@@ -250,14 +251,10 @@
     return state.project ? state.papers.filter(p => (p.project_ids || []).includes(state.project.id)) : state.papers;
   }
 
-  function paperRows(papers, projectID = "", showOrganization = false) {
+  function paperRows(papers, projectID = "") {
     return list(papers.map(p => {
       const link = p.project_links?.[projectID];
       const meta = [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey];
-      if (showOrganization) {
-        meta.push(p.publication_title);
-        if (p.collection_id) meta.push(E.library.collectionPath(p.collection_id));
-      }
       if (projectID) {
         if (p.core_project_ids?.includes(projectID)) meta.push("核心文献");
         if (link?.is_pinned) meta.push("已置顶");
@@ -266,10 +263,7 @@
         if (link?.use_for?.length) meta.push("用途 " + link.use_for.join("、"));
       }
       return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
-        statusLabel[p.status] || "未读", (showOrganization ? E.library.paperTags(p) : "") +
-        (projectID ? button("论文 Wiki", "open-paper-wiki", {id: p.id, kind: "bare"}) : "") +
-        button("编辑", "edit-paper", {id: p.id, kind: "bare"}) +
-        (showOrganization ? E.library.selectionCheckbox(p) : ""));
+        statusLabel[p.status] || "未读", (projectID ? button("论文 Wiki","open-paper-wiki",{id:p.id,kind:"bare"}) : "") + button("编辑", "edit-paper", {id: p.id, kind: "bare"}));
     }));
   }
 
@@ -397,7 +391,7 @@
       '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
       '" placeholder="搜索标题、作者、DOI…" aria-label="筛选文献">' + E.library.renderFilters(all) + '</div>' +
       panel((limited ? state.project.name : "文献") + " · " + papers.length + " 篇",
-        papers.length ? paperRows(papers, projectID, true) : empty(filtered ? "没有匹配的文献" : "还没有收录文献",
+        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? "没有匹配的文献" : "还没有收录文献",
           filtered ? "" : "添加本地 PDF 或线上文献记录。", filtered ? "" : button("导入文献", "new-paper", {
             glyph: "import"
           })));
@@ -583,10 +577,12 @@
           graphError = err.message;
           return graph;
         }) : graph;
-      const [values,dashboardData] = await Promise.all([nextProject ?
+      const [values,dashboardData,paperWikiStatus] = await Promise.all([nextProject ?
         Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad, targetView === "notes" ? request("projects/" + enc(nextProject.id) + "/wiki/folders") : []]) :
         Promise.all([[], ["overview", "tasks"].includes(targetView) ? request("tasks") : [], [], {nodes: [], edges: []}]),
-        targetView === "overview" ? dashboard.load(request, nextProject?.id) : null
+        targetView === "overview" ? dashboard.load(request, nextProject?.id) : null,
+        targetView === "papers" && !nextProject && organization.library?.visible_columns.includes("wiki") ?
+          request("paper-wiki-status") : {}
       ]);
       if (token !== navEpoch) return;
       // Publish the complete snapshot together. Until this point the visible
@@ -597,6 +593,7 @@
       state.projects = allProjects;
       state.papers = papers || [];
       state.organization = organization;
+      state.paperWikiStatus = paperWikiStatus;
       if (state.libraryCollection !== "unfiled" && !Object.hasOwn(organization.collections, state.libraryCollection)) state.libraryCollection = "";
       state.project = nextProject;
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];

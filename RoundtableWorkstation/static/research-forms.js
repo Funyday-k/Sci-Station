@@ -200,7 +200,8 @@
           "BibTeX 引用键", input("citekey", p.citekey)) + field("参考文献", area("references", p.references?.join("\n"),
           'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) : "") +
       '</details>' + (edit ? E.library.metadataFields(p) : "") + attachProjectBoxes(p, !edit) +
-      (edit ? button("导出 BibTeX", "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
+      (edit ? button("引用文献", "show-citation", {id: p.id, kind: "bare"}) +
+        button("导出 BibTeX", "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
       formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
       '</form>', {
         wide: true

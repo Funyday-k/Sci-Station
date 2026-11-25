@@ -86,6 +86,7 @@ test("paper editor preserves invisible project and core memberships while updati
   controls.title.value = "Revised";
   controls.references.value = "Exact title, with a comma\n10.1000/method\n10.1000/method";
   controls.tags.value = "nuclear, solar\nreading";
+  controls.references.value = "Exact title, with a comma\n10.1000/method\n10.1000/method";
   controls["pinned-active-add"].checked = true;
   controls["order-active-add"].value = "0";
   controls["folder-active-add"].value = "Theory";

@@ -119,6 +119,27 @@ func replaceBibtexKey(source, key string) (string, error) {
 		return "", errors.New("Invalid application citation key")
 	}
 	first, last, count := 0, 0, 0
+	err := walkBibtexKeys(source, func(start, end int) {
+		first, last = start, end
+		count++
+	})
+	if err != nil {
+		return "", err
+	}
+	switch count {
+	case 0:
+		return "", errors.New("No bibliographic entry in provider BibTeX")
+	case 1:
+		return source[:first] + key + source[last:], nil
+	default:
+		return "", errors.New("Multiple bibliographic entries in provider BibTeX")
+	}
+}
+
+func walkBibtexKeys(source string, visit func(start, end int)) error {
+	if !utf8.ValidString(source) {
+		return errMalformedBibtex
+	}
 	for cursor := 0; cursor < len(source); {
 		switch source[cursor] {
 		case '%':
@@ -133,18 +154,18 @@ func replaceBibtexKey(source, key string) (string, error) {
 			entryType := strings.ToLower(source[start:cursor])
 			cursor = skipBibtexTrivia(source, cursor)
 			if entryType == "" || cursor == len(source) || (source[cursor] != '{' && source[cursor] != '(') {
-				return "", errMalformedBibtex
+				return errMalformedBibtex
 			}
 			end, err := bibtexBlockEnd(source, cursor, entryType == "comment")
 			if err != nil {
-				return "", err
+				return err
 			}
 			switch entryType {
 			case "comment", "string", "preamble":
 				// A directive is allowed but does not have a bibliographic key.
 			default:
-				first = skipBibtexTrivia(source, cursor+1)
-				last = first
+				first := skipBibtexTrivia(source, cursor+1)
+				last := first
 				for last < end {
 					r, n := utf8.DecodeRuneInString(source[last:])
 					if unicode.IsSpace(r) || strings.ContainsRune(`{}(),="#%\@`, r) {
@@ -154,23 +175,16 @@ func replaceBibtexKey(source, key string) (string, error) {
 				}
 				comma := skipBibtexTrivia(source, last)
 				if first == last || comma >= end || source[comma] != ',' {
-					return "", errMalformedBibtex
+					return errMalformedBibtex
 				}
-				count++
+				visit(first, last)
 			}
 			cursor = end
 		default:
 			cursor++
 		}
 	}
-	switch count {
-	case 0:
-		return "", errors.New("No bibliographic entry in provider BibTeX")
-	case 1:
-		return source[:first] + key + source[last:], nil
-	default:
-		return "", errors.New("Multiple bibliographic entries in provider BibTeX")
-	}
+	return nil
 }
 
 func skipBibtexComment(source string, start int) int {

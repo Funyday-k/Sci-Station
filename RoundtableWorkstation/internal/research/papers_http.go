@@ -33,13 +33,17 @@ func paperError(w http.ResponseWriter, err error) {
 	case errors.Is(err, errUnreadablePaperOrganization):
 		code = http.StatusUnprocessableEntity
 		msg = err.Error()
+	case errors.Is(err, errUnreadableBibliography):
+		code = http.StatusUnprocessableEntity
+		msg = errUnreadableBibliography.Error()
 	case errors.Is(err, errInvalidPaper):
 		code = 400
 		msg = err.Error()
 	case errors.Is(err, os.ErrNotExist):
 		code = 404
 		msg = "未找到文献或文件"
-	case errors.Is(err, errPaperConflict) || errors.Is(err, errPaperExists) || errors.Is(err, errPaperOrganizationConflict):
+	case errors.Is(err, errPaperConflict) || errors.Is(err, errPaperExists) || errors.Is(err, errPaperOrganizationConflict) ||
+		errors.Is(err, errBibliographyConflict):
 		code = 409
 		msg = err.Error()
 	}
@@ -95,6 +99,9 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		case "organization":
 			s.organizationHTTP(w, r)
+			return
+		case "bibliography":
+			s.workspaceBibliographyHTTP(w, r)
 			return
 		case "bibtex":
 			if r.Method != "GET" {
@@ -186,6 +193,11 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch chunks[1] {
+	case "citation":
+		if len(chunks) == 2 {
+			citationHTTP(w, r, p)
+			return
+		}
 	case "verify-evidence":
 		if len(chunks) == 2 {
 			s.verifyPDFEvidenceHTTP(w, r, p)
@@ -378,7 +390,25 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request, previe
 		paperReply(w, http.StatusRequestTimeout, map[string]string{"error": "导入已取消"})
 		return
 	}
+	if input.ImportCollection != nil {
+		input.CollectionID = *input.ImportCollection
+		input.collectionExplicit = true
+	}
 	if preview {
+		organization, _, err := s.readOrganization()
+		if err != nil {
+			paperError(w, err)
+			return
+		}
+		if !input.collectionExplicit && organization.Library != nil {
+			input.CollectionID = organization.Library.DefaultCollection
+		}
+		if input.CollectionID != "" {
+			if _, exists := organization.Collections[input.CollectionID]; !exists {
+				paperError(w, fmt.Errorf("%w：文献集合不存在", errInvalidPaper))
+				return
+			}
+		}
 		if err := s.validate(&input.PaperMetadata, nil); err != nil {
 			paperError(w, err)
 			return

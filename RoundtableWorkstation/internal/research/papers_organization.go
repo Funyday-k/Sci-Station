@@ -27,6 +27,59 @@ type paperOrganization struct {
 	Revision    int                           `json:"revision"`
 	Collections map[string]paperCollection    `json:"collections"`
 	Tags        map[string]paperTagDefinition `json:"tags"`
+	Library     *paperLibraryPreferences      `json:"library,omitempty"`
+}
+
+type paperLibraryPreferences struct {
+	DefaultCollection string   `json:"default_collection,omitempty"`
+	VisibleColumns    []string `json:"visible_columns"`
+	SortColumn        string   `json:"sort_column,omitempty"`
+	SortDescending    bool     `json:"sort_descending,omitempty"`
+}
+
+var libraryColumns = []string{"title", "authors", "year", "projects", "coreProjects", "collection",
+	"publication", "itemType", "doi", "arxiv", "wiki", "tags", "status", "priority", "rating", "updated"}
+
+var sortableLibraryColumns = []string{"title", "authors", "year", "status", "priority", "rating", "updated"}
+
+func (o paperOrganization) validateLibraryPreferences(preferences paperLibraryPreferences) error {
+	if preferences.DefaultCollection != "" {
+		if _, exists := o.Collections[preferences.DefaultCollection]; !exists {
+			return fmt.Errorf("%w：默认导入集合不存在", errInvalidPaper)
+		}
+	}
+	if len(preferences.VisibleColumns) < 1 || len(preferences.VisibleColumns) > len(libraryColumns) {
+		return fmt.Errorf("%w：至少保留一个文献列", errInvalidPaper)
+	}
+	seen := map[string]bool{}
+	for _, column := range preferences.VisibleColumns {
+		if seen[column] || !paperContains(libraryColumns, column) {
+			return fmt.Errorf("%w：文献列无效", errInvalidPaper)
+		}
+		seen[column] = true
+	}
+	if preferences.SortColumn != "" && (!seen[preferences.SortColumn] || !paperContains(sortableLibraryColumns, preferences.SortColumn)) {
+		return fmt.Errorf("%w：文献排序字段无效", errInvalidPaper)
+	}
+	return nil
+}
+
+// Expose association status without returning project note bodies.
+func (s *Service) paperWikiStatus(w http.ResponseWriter, _ *http.Request) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	papers := map[string]bool{}
+	for _, project := range s.projects {
+		if project.Trashed || project.Archived {
+			continue
+		}
+		for _, note := range project.Notes {
+			if note.PaperID != "" && !note.Archived {
+				papers[note.PaperID] = true
+			}
+		}
+	}
+	jsonReply(w, http.StatusOK, papers)
 }
 
 var tagColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
@@ -94,6 +147,9 @@ func (o paperOrganization) validate() error {
 			return errInvalidPaper
 		}
 	}
+	if o.Library != nil {
+		return o.validateLibraryPreferences(*o.Library)
+	}
 	return nil
 }
 
@@ -102,13 +158,14 @@ func collectionName(name string) bool {
 }
 
 type paperOrganizationEdit struct {
-	Revision     *int   `json:"revision"`
-	Operation    string `json:"operation"`
-	CollectionID string `json:"collection_id"`
-	ParentID     string `json:"parent_id"`
-	Name         string `json:"name"`
-	Color        string `json:"color"`
-	TextColor    string `json:"text_color"`
+	Revision     *int                     `json:"revision"`
+	Operation    string                   `json:"operation"`
+	CollectionID string                   `json:"collection_id"`
+	ParentID     string                   `json:"parent_id"`
+	Name         string                   `json:"name"`
+	Color        string                   `json:"color"`
+	TextColor    string                   `json:"text_color"`
+	Library      *paperLibraryPreferences `json:"library"`
 }
 
 func (o *paperOrganization) nameCollection(id, parent, name string) error {
@@ -171,6 +228,14 @@ func (s *PaperLibrary) editOrganization(edit paperOrganizationEdit) (paperOrgani
 			return paperOrganization{}, os.ErrNotExist
 		}
 		delete(organization.Tags, name)
+	case "set_library_preferences":
+		if edit.Library == nil {
+			return paperOrganization{}, errInvalidPaper
+		}
+		if err := organization.validateLibraryPreferences(*edit.Library); err != nil {
+			return paperOrganization{}, err
+		}
+		organization.Library = edit.Library
 	default:
 		return paperOrganization{}, errInvalidPaper
 	}
@@ -228,6 +293,9 @@ func (s *PaperLibrary) deletePaperCollection(organization *paperOrganization, id
 		}
 	}
 	delete(organization.Collections, id)
+	if organization.Library != nil && organization.Library.DefaultCollection == id {
+		organization.Library.DefaultCollection = ""
+	}
 	return nil
 }
 

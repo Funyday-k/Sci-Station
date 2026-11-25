@@ -10,6 +10,15 @@
   let selectedProject = "";
   const lines = text => String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const hexColor = /^#[0-9a-f]{6}$/i;
+  const columns = {
+    title: "题名", authors: "作者", year: "年份", tags: "标签", projects: "项目", collection: "集合",
+    coreProjects: "核心项目", publication: "出版物", itemType: "类型", doi: "DOI", arxiv: "arXiv",
+    wiki: "Wiki", status: "阅读状态", priority: "优先级", rating: "评分", updated: "更新时间"
+  };
+  const defaultColumns = ["title", "authors", "year", "tags", "projects", "collection"];
+  const sortable = new Set(["title", "authors", "year", "status", "priority", "rating", "updated"]);
+  const statusOrder = {unread: 1, reading: 2, read: 3};
+  const libraryPreferences = () => state.organization.library || {visible_columns: defaultColumns};
 
   function collectionPath(id) {
     const names = [];
@@ -27,7 +36,8 @@
   }
 
   function collectionField(paper) {
-    const initial = paper ? paper.collection_id || "" : state.libraryCollection;
+    const initial = paper ? paper.collection_id || "" :
+      state.libraryCollection === "unfiled" ? "" : state.libraryCollection || libraryPreferences().default_collection || "";
     return field("文献集合", select("collection_id", [["", "未归类"], ...collectionOptions()], initial));
   }
 
@@ -144,6 +154,130 @@
     const count = selection(papers).length;
     return (count ? button("批量编辑（" + count + " 篇）", "edit-library-selection") : "") +
       button(count ? "导出所选 BibTeX" : "导出 BibTeX", "export-library-bibtex");
+  }
+
+  const projectNames = ids => (ids || []).map(id => state.projects.find(project => project.id === id)?.name).filter(Boolean).join("、");
+  function tableValue(paper, column) {
+    switch (column) {
+      case "title": return paper.title;
+      case "authors": return (paper.authors || []).join("、");
+      case "year": return paper.year || null;
+      case "tags": return (paper.tags || []).join("、");
+      case "projects": return projectNames(paper.project_ids);
+      case "coreProjects": return projectNames(paper.core_project_ids);
+      case "collection": return collectionPath(paper.collection_id);
+      case "publication": return paper.publication_title;
+      case "itemType": return paper.item_type;
+      case "doi": return paper.doi;
+      case "arxiv": return paper.arxiv;
+      case "wiki": {
+        const linked = state.project ? (state.notes || []).some(note => note.paperId === paper.id) :
+          state.paperWikiStatus?.[paper.id];
+        return linked ? "已关联" : "未关联";
+      }
+      case "status": return E.statusLabel[paper.status];
+      case "priority": return paper.priority || null;
+      case "rating": return paper.rating || null;
+      case "updated": return paper.updated_at?.slice(0, 10);
+    }
+  }
+
+  function comparePapers(a, b, projectID, column) {
+    if (projectID) {
+      const first = a.project_links?.[projectID], second = b.project_links?.[projectID];
+      const pin = Number(Boolean(second?.is_pinned)) - Number(Boolean(first?.is_pinned));
+      if (pin) return pin;
+      const order = (first?.sort_order ?? Infinity) - (second?.sort_order ?? Infinity);
+      if (order) return order;
+    }
+    const x = column === "updated" ? a.updated_at : column === "status" ? statusOrder[a.status] : tableValue(a, column);
+    const y = column === "updated" ? b.updated_at : column === "status" ? statusOrder[b.status] : tableValue(b, column);
+    if (!x || !y) return Number(!x) - Number(!y);
+    const cmp = typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, {numeric: true});
+    return libraryPreferences().sort_descending ? -cmp : cmp;
+  }
+
+  function renderPaperTable(papers, projectID) {
+    const {visible_columns: shown, sort_column: column, sort_descending: descending} = libraryPreferences();
+    const rows = column ? [...papers].sort((a, b) => comparePapers(a, b, projectID, column)) : papers;
+    const headings = shown.map(key => '<th scope="col"' +
+      (column === key ? ' aria-sort="' + (descending ? "descending" : "ascending") + '"' : "") + '>' +
+      (sortable.has(key) ? button(columns[key], "sort-library-column", {id: key, kind: "bare"}) : esc(columns[key])) + '</th>');
+    const contents = rows.map(paper => {
+      const cells = shown.map(key => {
+        if (key === "tags") return '<td>' + (paperTags(paper) || "—") + '</td>';
+        if (key === "title") {
+          const link = paper.project_links?.[projectID];
+          const details = [paper.citekey, paper.core_project_ids?.includes(projectID) && "核心文献",
+            link?.is_pinned && "已置顶", link?.sort_order != null && ("序号 " + link.sort_order),
+            link?.folder_path && ("文件夹 " + link.folder_path), link?.use_for?.length && ("用途 " + link.use_for.join("、"))]
+            .filter(Boolean).join(" · ");
+          return '<th scope="row">' + E.link(paper.title, E.reader(paper.id), "library-paper-title") +
+            (details ? '<span class="meta">' + esc(details) + '</span>' : "") + '</th>';
+        }
+        return '<td>' + esc(tableValue(paper, key) || "—") + '</td>';
+      }).join("");
+      const actions = (!shown.includes("title") ? E.link("阅读", E.reader(paper.id), "bare") : "") +
+        button("引文", "show-citation", {id: paper.id, kind: "bare"}) +
+        button("编辑", "edit-paper", {id: paper.id, kind: "bare"}) +
+        (projectID ? button("论文 Wiki", "open-paper-wiki", {id: paper.id, kind: "bare"}) : "");
+      return '<tr><td>' + selectionCheckbox(paper) + '</td>' + cells + '<td><div class="library-table-actions">' + actions + '</div></td></tr>';
+    });
+    return '<div class="library-table-scroll"><table class="library-table" aria-label="文献表格"><thead><tr>' +
+      '<th scope="col">选择</th>' + headings.join("") + '<th scope="col">操作</th></tr></thead><tbody>' + contents.join("") + '</tbody></table></div>';
+  }
+
+  async function saveLibraryPreferences(library, revision = state.organization.revision) {
+    state.organization = await request(organizationPath, {method: "PATCH", body: {
+      revision, operation: "set_library_preferences", library
+    }});
+  }
+
+  function libraryPreferencesForm() {
+    const revision = state.organization.revision;
+    const saved = libraryPreferences();
+    const ordered = [...new Set([...saved.visible_columns, ...Object.keys(columns)])];
+    dialog("文献库设置", '<form>' + field("默认导入集合", select("default_collection",
+      [["", "未归类"], ...collectionOptions()], saved.default_collection || "")) +
+      '<fieldset><legend>显示列与顺序</legend><ol data-library-columns class="library-columns">' +
+      ordered.map(key => '<li data-column="' + key + '"><label><input type="checkbox" value="' + key + '"' +
+        (saved.visible_columns.includes(key) ? " checked" : "") + '> ' + esc(columns[key]) +
+        '</label><div><button type="button" class="bare" data-move="-1" aria-label="上移' + esc(columns[key]) +
+        '">↑</button><button type="button" class="bare" data-move="1" aria-label="下移' + esc(columns[key]) +
+        '">↓</button></div></li>').join("") +
+      '</ol><button type="button" class="button" data-reset-columns>恢复默认列</button></fieldset>' +
+      '<p class="form-help">工作区书目保存于 <code>research/library/refs/library.bib</code>。</p>' +
+      '<a class="bare" href="/api/research/papers/bibliography" download="library.bib">下载工作区书目</a>' +
+      formFooter("保存设置") + '</form>', {wide: true});
+    const form = bindForm(async (form, token) => {
+      const visible = [...form.querySelectorAll("[data-column] input:checked")].map(input => input.value);
+      if (!visible.length) throw Error("请至少保留一个文献列");
+      const next = {visible_columns: visible, default_collection: value(form, "default_collection")};
+      if (visible.includes(saved.sort_column)) {
+        next.sort_column = saved.sort_column;
+        next.sort_descending = Boolean(saved.sort_descending);
+      }
+      await saveLibraryPreferences(next, revision);
+      done(token);
+      await refresh();
+      toast("已保存文献库设置");
+    });
+    const list = form.querySelector("[data-library-columns]");
+    list.addEventListener("click", event => {
+      const control = event.target.closest("[data-move]");
+      if (!control) return;
+      const row = control.closest("[data-column]");
+      if (control.dataset.move === "-1" && row.previousElementSibling) list.insertBefore(row, row.previousElementSibling);
+      if (control.dataset.move === "1" && row.nextElementSibling) list.insertBefore(row.nextElementSibling, row);
+      control.focus();
+    });
+    form.querySelector("[data-reset-columns]").addEventListener("click", () => {
+      for (const key of [...new Set([...defaultColumns, ...Object.keys(columns)])]) {
+        const row = list.querySelector('[data-column="' + key + '"]');
+        row.querySelector("input").checked = defaultColumns.includes(key);
+        list.append(row);
+      }
+    });
   }
 
   function bulkPatch(paper, changes) {
@@ -314,7 +448,8 @@
     dialog("管理集合和标签", '<div class="split"><section><h3>文献集合</h3>' +
       collectionRows.join("") + button("新建集合", "create-library-collection") +
       '</section><section><h3>标签颜色</h3>' + tagRows.join("") + button("添加标签颜色", "set-library-tag") +
-      '</section></div><div class="form-foot">' + button("完成", "close-dialog") + '</div>', {wide: true});
+      '</section></div><div class="form-foot">' + button("文献库设置", "library-preferences") +
+      button("完成", "close-dialog") + '</div>', {wide: true});
   }
 
   const collectionActions = {
@@ -385,6 +520,15 @@
       state.organization = await request(organizationPath);
       return manageLibrary();
     }
+    if (action === "library-preferences") return libraryPreferencesForm();
+    if (action === "show-citation") return window.SciStationCitations?.open(id);
+    if (action === "sort-library-column") {
+      const library = libraryPreferences();
+      await saveLibraryPreferences({
+        ...library, sort_column: id, sort_descending: library.sort_column === id && !library.sort_descending
+      });
+      return render();
+    }
     if (Object.hasOwn(collectionActions, action)) return collectionForm(action, id);
     if (["set-library-tag", "delete-library-tag"].includes(action)) return tagForm(action, id);
     if (action === "filter-paper-tag") {
@@ -398,6 +542,6 @@
   };
 
   E.library = {lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
-    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection, bulkPatch};
+    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection, bulkPatch, renderPaperTable};
   E.start();
 })();

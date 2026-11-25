@@ -25,12 +25,13 @@ const maxPaperPDF int64 = 256 << 20
 
 type paperImport struct {
 	PaperMetadata
-	Identifier      string    `json:"identifier,omitempty"`
-	FetchPDF        bool      `json:"fetch_pdf"`
-	AllowLinkOnly   bool      `json:"allow_link_only"`
-	SkipLookup      bool      `json:"skip_metadata_lookup"`
-	PrimaryCategory string    `json:"-"`
-	PublishedAt     time.Time `json:"-"`
+	ImportCollection *string   `json:"collection_id,omitempty"`
+	Identifier       string    `json:"identifier,omitempty"`
+	FetchPDF         bool      `json:"fetch_pdf"`
+	AllowLinkOnly    bool      `json:"allow_link_only"`
+	SkipLookup       bool      `json:"skip_metadata_lookup"`
+	PrimaryCategory  string    `json:"-"`
+	PublishedAt      time.Time `json:"-"`
 }
 
 func paperHTTPURL(raw string) bool {
@@ -342,10 +343,7 @@ func (s *PaperLibrary) findImportLocked(incoming Paper) (Paper, error) {
 
 // Hold the record lock before publishing a staged file so an outdated writer
 // cannot replace or remove a PDF committed by another instance.
-func (s *PaperLibrary) saveImportLocked(p *Paper, tempFile, digest string) error {
-	if tempFile == "" || (s.records[p.ID].HasPDF && p.HasPDF) {
-		return s.saveLocked(*p)
-	}
+func (s *PaperLibrary) saveImportLocked(p *Paper, tempFile, digest string, collectionExplicit bool) (resultErr error) {
 	lock, err := s.lockRecords()
 	if err != nil {
 		return err
@@ -353,6 +351,36 @@ func (s *PaperLibrary) saveImportLocked(p *Paper, tempFile, digest string) error
 	defer lock.Close()
 	if _, err := s.currentRecord(p.ID); err != nil {
 		return err
+	}
+	current, exists := s.records[p.ID]
+	if !exists {
+		organization, _, err := s.readOrganization()
+		if err != nil {
+			return err
+		}
+		if !collectionExplicit && organization.Library != nil {
+			p.CollectionID = organization.Library.DefaultCollection
+		}
+		if p.CollectionID != "" {
+			if _, exists := organization.Collections[p.CollectionID]; !exists {
+				return fmt.Errorf("%w：文献集合不存在", errInvalidPaper)
+			}
+		}
+		finish, err := s.appendLibraryBibliography(*p)
+		if err != nil {
+			return err
+		}
+		if finish != nil {
+			// Run compensation before releasing the paper-record lock.
+			defer func() {
+				if rollbackErr := finish(resultErr == nil); rollbackErr != nil {
+					resultErr = errors.Join(resultErr, rollbackErr)
+				}
+			}()
+		}
+	}
+	if tempFile == "" || (current.HasPDF && p.HasPDF) {
+		return s.saveWithRecordLock(*p)
 	}
 	dest := filepath.Join(s.dir, "pdf", p.ID+".pdf")
 	if err := os.Rename(tempFile, dest); err != nil {

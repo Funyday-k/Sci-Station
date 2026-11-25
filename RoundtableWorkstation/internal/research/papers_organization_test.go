@@ -199,3 +199,24 @@ func TestCollectionAssignmentAndRemovalAreSerialized(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLibraryWikiColumnResolvesActivePages(t *testing.T) {
+	service := newResearch(t, t.TempDir())
+	project := createResearchProject(t, service, "Reading")
+	paper, _, err := service.papers.create(PaperMetadata{Title: "Paper with a Wiki", ProjectIDs: []string{project.ID}}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/projects/" + project.ID + "/notes"
+	note := decodeResearch[Note](t, callResearch(t, service, "POST", path,
+		map[string]string{"title": "Paper summary", "paperId": paper.ID, "body": "Private note text"}, http.StatusCreated))
+	result := callResearch(t, service, "GET", "/paper-wiki-status", nil, http.StatusOK)
+	if status := decodeResearch[map[string]bool](t, result); len(status) != 1 || !status[paper.ID] ||
+		bytes.Contains(result, []byte("Private note text")) {
+		t.Fatal(string(result))
+	}
+	callResearch(t, service, "DELETE", fmt.Sprintf("%s/%s?revision=%d", path, note.ID, note.Revision), nil, http.StatusNoContent)
+	if status := decodeResearch[map[string]bool](t, callResearch(t, service, "GET", "/paper-wiki-status", nil, http.StatusOK)); len(status) != 0 {
+		t.Fatal(status)
+	}
+}
