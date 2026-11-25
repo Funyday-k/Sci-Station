@@ -44,6 +44,8 @@
     read: "已读",
     open: "待办",
     doing: "进行中",
+    inProgress: "进行中",
+    cancelled: "已取消",
     done: "已完成"
   };
   const colors = ["#8170c1", "#4c9188", "#cb835c", "#708abe", "#a1698e"];
@@ -63,6 +65,8 @@
     graphFocus: "",
     query: "",
     taskFilter: "open",
+    taskKind: "",
+    taskTag: "",
     calendar: false,
     month: new Date(),
     loading: false,
@@ -116,6 +120,7 @@
   }
 
   function viewURL(view, id = state.project?.id) {
+    if (view === "tasks" && state.calendar) return navigation.route("/research", {view, project: id, calendar: 1});
     return navigation.research(view, id);
   }
 
@@ -150,9 +155,10 @@
 
   function button(label, action, options = {}) {
     const {
-      id = "", kind = "button", glyph = ""
+      id = "", kind = "button", glyph = "", title = ""
     } = options;
-    return '<button type="button" class="' + kind + '" data-action="' + action + '" data-id="' + esc(id) + '">' + (glyph ?
+    return '<button type="button" class="' + kind + '" data-action="' + action + '" data-id="' + esc(id) +
+      '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + (glyph ?
       icon(glyph) : "") + esc(label) + '</button>';
   }
 
@@ -231,13 +237,30 @@
     }));
   }
 
+  const taskPriorityLabels = {low: "低", medium: "中", high: "高", urgent: "紧急"};
+  const closedTask = t => t.status === "done" || t.status === "cancelled";
+  function taskDateLabel(t) {
+    const range = t.startDate && t.dueDate && t.startDate !== t.dueDate ?
+      t.startDate + " 至 " + t.dueDate : t.dueDate || t.startDate;
+    return [range, t.dueTime].filter(Boolean).join(" ");
+  }
+  function taskOnDate(t, date) {
+    const start = t.startDate || t.dueDate, end = t.dueDate || t.startDate;
+    return Boolean(start && date >= start && date <= end);
+  }
   function taskRows(tasks) {
-    return list(tasks.map(t => '<div class="row ' + (t.status === "done" ? "completed" : "") +
-      '"><button type="button" class="task-check ' + (t.status === "done" ? "done" : "") + '" aria-label="' + esc((t
-        .status === "done" ? "重新打开" : "完成") + "：" + t.title) + '" data-action="toggle-task" data-id="' + esc(t.id) +
-      '">' + (t.status === "done" ? "✓" : "") + '</button><button class="row-main" data-action="edit-task" data-id="' +
-      esc(t.id) + '"><span class="title">' + esc(t.title) + '</span><span class="meta">' + esc([!state.project && state.projects.find(p => p.id === t.projectId)?.name, t.dueDate, t.description].filter(Boolean).join(" · ").slice(0, 120)) + '</span></button><span class="tag">' + esc(
-        statusLabel[t.status] || "待办") + '</span></div>'));
+    return list(tasks.map(t => {
+      const closed = closedTask(t);
+      const projects = (t.projectIds || [t.projectId]).map(id => state.projects.find(p => p.id === id)?.name);
+      const meta = [!state.project ? projects.filter(Boolean).join("、") : "", t.kind === "reading" ? "论文阅读" : "", taskDateLabel(t),
+        taskPriorityLabels[t.priority] ? taskPriorityLabels[t.priority] + "优先级" : "", ...(t.tags || []), t.description];
+      return '<div class="row ' + (closed ? "completed" : "") + '"><button type="button" class="task-check ' +
+        (closed ? "done" : "") + '" aria-label="' + esc((closed ? "重新打开" : "完成") + "：" + t.title) +
+        '" data-action="toggle-task" data-id="' + esc(t.id) + '">' + (closed ? "✓" : "") +
+        '</button><button class="row-main" data-action="edit-task" data-id="' + esc(t.id) + '"><span class="title">' +
+        esc(t.title) + '</span><span class="meta">' + esc(meta.filter(Boolean).join(" · ").slice(0, 140)) +
+        '</span></button><span class="tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
+    }));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a
     .updated_at || a.createdAt || ""));
@@ -368,6 +391,13 @@
     })));
   }
 
+  function taskFilterSelect(id, label, all, selected, values) {
+    const options = [["", all], ...values];
+    return '<select id="' + id + '" aria-label="' + label + '">' + options.map(([value, text]) =>
+      '<option value="' + esc(value) + '"' + (selected === value ? " selected" : "") + '>' + esc(text) + '</option>'
+    ).join("") + '</select>';
+  }
+
   function calendarView() {
     const d = state.month,
       year = d.getFullYear(),
@@ -380,11 +410,13 @@
     }, () => '<div class="day" aria-hidden="true"></div>');
     for (let i = 1; i <= end; i++) {
       const date = localDate(new Date(year, month, i));
-      cells.push('<div class="day ' + (today === date ? "today" : "") + '"><b>' + i + '</b>' + state.tasks.filter(t => t
-        .dueDate === date).map(t => button(t.title, "edit-task", {
-        id: t.id,
-        kind: "day-task"
-      })).join("") + '</div>');
+      const tasks = state.tasks.filter(t => taskOnDate(t, date));
+      cells.push('<div class="day ' + (today === date ? "today" : "") + '"><b>' + i + '</b>' +
+        tasks.map(t => button((date === t.dueDate && t.dueTime ? t.dueTime + " " : "") + t.title, "edit-task", {
+          id: t.id,
+          kind: "day-task" + (closedTask(t) ? " completed" : ""),
+          title: [t.title, statusLabel[t.status], taskDateLabel(t)].filter(Boolean).join(" · ")
+        })).join("") + '</div>');
     }
     return '<section class="panel"><div class="calendar-head">' + button("上一月", "month-prev", {
       kind: "bare"
@@ -415,8 +447,13 @@
     })) + panel("项目笔记 · " + state.notes.length, state.notes.length ? noteRows(state.notes.slice().sort(byRecent)) : empty(
       "暂无项目笔记", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
     else if (state.view === "tasks") {
-      const t = state.tasks.filter(t => state.taskFilter === "all" || (state.taskFilter === "done" ? t.status === "done" : t
-        .status !== "done")).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || byRecent(a, b));
+      const tags = [...new Set(state.tasks.flatMap(t => t.tags || []))].sort((a, b) => a.localeCompare(b));
+      const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
+      const t = state.tasks.filter(t =>
+        (state.taskFilter === "all" || (state.taskFilter === "open" ? !closedTask(t) : t.status === state.taskFilter)) &&
+        (!state.taskKind || t.kind === state.taskKind) &&
+        (!chosenTag || t.tags?.includes(chosenTag))
+      );
       out = heading("日历与任务", state.project?.name || "全部项目", link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
         "切换到列表" : "切换到月历", "switch-calendar", {
           glyph: "agenda"
@@ -424,14 +461,18 @@
         glyph: "plus",
         kind: "button primary"
       }));
-      out += state.calendar ? calendarView() : '<div class="toolbar"><div class="filters">' + [
+      out += state.calendar ? calendarView() : '<div class="toolbar task-filters"><div class="filters">' + [
         ["open", "未完成"],
         ["done", "已完成"],
+        ["cancelled", "已取消"],
         ["all", "全部"]
       ].map(([key, title]) => button(title, "task-filter", {
         id: key,
         kind: "chip " + (state.taskFilter === key ? "active" : "")
-      })).join("") + '</div></div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
+      })).join("") + '</div>' + taskFilterSelect("task-kind", "任务类型", "全部类型", state.taskKind,
+        [["general", "普通任务"], ["reading", "论文阅读"]]) +
+        (tags.length ? taskFilterSelect("task-tag", "任务标签", "全部标签", chosenTag, tags.map(tag => [tag, tag])) : "") +
+        '</div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
         "可以创建带截止日期的项目任务。"));
     } else if (state.view === "materials") {
       out = heading("研究材料", state.project.name, button("打开项目目录", "project-files", {
@@ -716,6 +757,8 @@
     toast,
     reader,
     statusLabel,
+    taskPriorityLabels,
+    taskOnDate,
     toolsPage,
     markdown,
     math,
@@ -749,6 +792,7 @@
         render();
       } else if (action === "switch-calendar") {
         state.calendar = !state.calendar;
+        history.replaceState(null, "", viewURL("tasks"));
         render();
       } else if (action.startsWith("month-")) {
         state.month = new Date(state.month.getFullYear(), state.month.getMonth() + (action === "month-prev" ? -1 : 1),
@@ -770,7 +814,7 @@
           method: "PATCH",
           body: {
             revision: t.revision,
-            status: t.status === "done" ? "open" : "done"
+            status: closedTask(t) ? "open" : "done"
           }
         });
         await refresh();
@@ -781,7 +825,15 @@
     }
   });
   document.addEventListener("change", ev => {
-    if (ev.target.id === "graph-focus") {
+    if (ev.target.id === "task-kind") {
+      state.taskKind = ev.target.value;
+      render();
+      $("task-kind").focus();
+    } else if (ev.target.id === "task-tag") {
+      state.taskTag = ev.target.value;
+      render();
+      $("task-tag").focus();
+    } else if (ev.target.id === "graph-focus") {
       state.graphFocus = ev.target.value;
       render();
     }
@@ -807,11 +859,17 @@
     }
   });
 
-  function route() {
+  async function route() {
     const u = new URL(location.href);
-    return load(u.searchParams.get("project"), u.searchParams.get("view") || "overview", {
-      historyMode: "none"
-    });
+    const project = u.searchParams.get("project");
+    const view = u.searchParams.get("view") || "overview";
+    const task = u.searchParams.get("task");
+    state.calendar = u.searchParams.get("calendar") === "1";
+    await load(project, view, {historyMode: "none"});
+    if (task && view === "tasks" && !state.loadError && location.href === u.href &&
+        (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
+      await E.formAction?.("edit-task", task);
+    }
   }
   window.addEventListener("popstate", () => {
     close();

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,12 +61,24 @@ type Note struct {
 
 type Task struct {
 	Entity
-	ProjectID   string `json:"projectId"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	DueDate     string `json:"dueDate"`
-	PaperID     string `json:"paperId,omitempty"`
+	ProjectID          string     `json:"projectId"`
+	ProjectIDs         []string   `json:"projectIds"`
+	Title              string     `json:"title"`
+	Description        string     `json:"description"`
+	Status             string     `json:"status"`
+	Kind               string     `json:"kind"`
+	Priority           string     `json:"priority"`
+	Tags               []string   `json:"tags"`
+	StartDate          string     `json:"startDate,omitempty"`
+	DueDate            string     `json:"dueDate"`
+	DueTime            string     `json:"dueTime,omitempty"`
+	CompletedAt        string     `json:"completedAt,omitempty"`
+	PaperID            string     `json:"paperId,omitempty"`
+	RelatedPaperIDs    []string   `json:"relatedPaperIds"`
+	ExternalSource     string     `json:"externalSource,omitempty"`
+	ExternalIdentifier string     `json:"externalIdentifier,omitempty"`
+	Evidence           []Evidence `json:"evidence,omitempty"`
+	extra              map[string]json.RawMessage
 }
 
 type Material struct {
@@ -451,7 +464,11 @@ func (s *Service) Task(projectID, taskID string) (Task, bool) {
 	if !ok || d.Archived {
 		return Task{}, false
 	}
-	task, ok := d.Tasks[taskID]
+	_, task, ok := s.findTaskLocked(projectID, taskID)
+	task.ProjectIDs = slices.Clone(task.ProjectIDs)
+	task.RelatedPaperIDs = slices.Clone(task.RelatedPaperIDs)
+	task.Tags = slices.Clone(task.Tags)
+	task.Evidence = slices.Clone(task.Evidence)
 	return task, ok
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -201,7 +202,7 @@ func TestGlobalCalendarFollowsProjectArchiveAndRestore(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 		for i, task := range want {
-			if got[i] != task {
+			if !reflect.DeepEqual(got[i], task) {
 				t.Fatalf("item %d: got %v, want %v", i, got[i], task)
 			}
 		}

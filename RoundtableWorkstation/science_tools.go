@@ -162,7 +162,11 @@ func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 				reject(w, 404, "项目任务不存在")
 				return
 			}
-			id, err := publishReminder(input.Project+"/"+input.Task, task.Title, task.Description, task.DueDate)
+			due := task.DueDate
+			if task.DueTime != "" {
+				due += "T" + task.DueTime
+			}
+			id, err := publishReminder(task.ProjectID+"/"+task.ID, task.Title, task.Description, due)
 			if err != nil {
 				reject(w, 409, err.Error())
 				return

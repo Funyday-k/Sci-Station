@@ -19,7 +19,7 @@ static EKEventStore *sciEventKitStore(void) {
 }
 
 static NSString *sciAccessError(EKEventStore *store, EKEntityType kind) {
-    EKAuthorizationStatus status = [EKEventStore authorizationStatusForEntityType:kind];
+    EKAuthorizationStatus status = [store.class authorizationStatusForEntityType:kind];
     NSString *name = kind == EKEntityTypeEvent ? @"日历" : @"提醒事项";
     NSString *denied = [NSString stringWithFormat:@"请在“系统设置 → 隐私与安全性 → %@”中授权 Sci-Station 访问。", name];
     if (@available(macOS 14.0, *)) {
@@ -83,9 +83,9 @@ static BOOL sciMatchesTask(EKReminder *item, NSString *marker) {
         [[item.notes componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet] containsObject:marker];
 }
 
-static EKReminder *sciFindReminder(EKEventStore *store, NSString *marker, NSString **reason) {
+static EKReminder *sciFindReminder(EKEventStore *store, NSUserDefaults *defaults, NSString *marker, NSString **reason) {
     NSString *cacheKey = [@"SciStationReminder." stringByAppendingString:marker];
-    NSString *identifier = [NSUserDefaults.standardUserDefaults stringForKey:cacheKey];
+    NSString *identifier = [defaults stringForKey:cacheKey];
     if (identifier.length) {
         EKCalendarItem *cached = [store calendarItemWithIdentifier:identifier];
         if ([cached isKindOfClass:EKReminder.class] && sciMatchesTask((EKReminder *)cached, marker)) return (EKReminder *)cached;
@@ -110,11 +110,31 @@ static EKReminder *sciFindReminder(EKEventStore *store, NSString *marker, NSStri
     return existing;
 }
 
-static NSDictionary *sciPublish(EKEventStore *store, NSString *marker, NSString *title,
+// The Go adapter validates this local civil date and optional local time.
+static NSDateComponents *sciReminderDueComponents(NSString *dueDate) {
+    NSDateComponents *due = nil;
+    if (dueDate.length) {
+        NSArray<NSString *> *dateAndTime = [dueDate componentsSeparatedByString:@"T"];
+        NSArray<NSString *> *parts = [dateAndTime.firstObject componentsSeparatedByString:@"-"];
+        due = [[NSDateComponents alloc] init];
+        due.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+        due.year = parts[0].integerValue;
+        due.month = parts[1].integerValue;
+        due.day = parts[2].integerValue;
+        if (dateAndTime.count == 2) {
+            NSArray<NSString *> *clock = [dateAndTime[1] componentsSeparatedByString:@":"];
+            due.hour = clock[0].integerValue;
+            due.minute = clock[1].integerValue;
+        }
+    }
+    return due;
+}
+
+static NSDictionary *sciPublish(EKEventStore *store, NSUserDefaults *defaults, NSString *marker, NSString *title,
                                 NSString *detail, NSString *dueDate) {
     NSString *issue = sciAccessError(store, EKEntityTypeReminder);
     if (issue) return @{@"error":issue};
-    EKReminder *item = sciFindReminder(store, marker, &issue);
+    EKReminder *item = sciFindReminder(store, defaults, marker, &issue);
     if (issue) return @{@"error":issue};
     if (!item) {
         EKCalendar *calendar = [store defaultCalendarForNewReminders];
@@ -126,21 +146,12 @@ static NSDictionary *sciPublish(EKEventStore *store, NSString *marker, NSString 
     item.title = title;
     item.URL = [NSURL URLWithString:marker];
     item.notes = detail.length ? [NSString stringWithFormat:@"%@\n\n%@", detail, marker] : marker;
-    NSDateComponents *due = nil;
-    if (dueDate.length) {
-        NSArray<NSString *> *parts = [dueDate componentsSeparatedByString:@"-"];
-        due = [[NSDateComponents alloc] init];
-        due.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
-        due.year = parts[0].integerValue;
-        due.month = parts[1].integerValue;
-        due.day = parts[2].integerValue;
-    }
-    item.dueDateComponents = due;
+    item.dueDateComponents = sciReminderDueComponents(dueDate);
     NSError *error = nil;
     if (![store saveReminder:item commit:YES error:&error]) return @{@"error":error.localizedDescription ?: @"提醒事项保存失败。"};
     NSString *identifier = item.calendarItemIdentifier;
     if (!identifier.length) return @{@"error":@"系统未返回提醒事项标识，请重新核对后重试。"};
-    [NSUserDefaults.standardUserDefaults setObject:identifier forKey:[@"SciStationReminder." stringByAppendingString:marker]];
+    [defaults setObject:identifier forKey:[@"SciStationReminder." stringByAppendingString:marker]];
     return @{@"value":identifier};
 }
 
@@ -161,7 +172,7 @@ char *sciCalendarUpcoming(void) {
 
 char *sciCalendarPublish(const char *marker, const char *title, const char *detail, const char *due) {
     return sciEventKitRequest(^NSDictionary *(EKEventStore *store) {
-        return sciPublish(store, [NSString stringWithUTF8String:marker], [NSString stringWithUTF8String:title],
+        return sciPublish(store, NSUserDefaults.standardUserDefaults, [NSString stringWithUTF8String:marker], [NSString stringWithUTF8String:title],
                           [NSString stringWithUTF8String:detail], [NSString stringWithUTF8String:due]);
     });
 }

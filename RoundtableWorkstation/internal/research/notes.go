@@ -289,11 +289,15 @@ type graphEdge struct {
 func (s *Service) graph(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	d, ok := s.loadProject(w, r.PathValue("project"))
+	var tasks map[string]Task
+	if ok {
+		tasks = s.visibleTasksLocked(d.Project.ID)
+	}
 	s.mu.RUnlock()
 	if !ok {
 		return
 	}
-	nodes, edges := s.derivedGraph(d)
+	nodes, edges := s.derivedGraph(d, tasks)
 	for _, rel := range d.Relations {
 		for _, id := range []string{rel.Source, rel.Target} {
 			if _, ok := nodes[id]; !ok {
@@ -320,7 +324,7 @@ func (s *Service) graph(w http.ResponseWriter, r *http.Request) {
 	jsonReply(w, 200, map[string]any{"nodes": ns, "edges": es})
 }
 
-func (s *Service) derivedGraph(d projectData) (map[string]graphNode, map[graphEdge]bool) {
+func (s *Service) derivedGraph(d projectData, tasks map[string]Task) (map[string]graphNode, map[graphEdge]bool) {
 	nodes := map[string]graphNode{}
 	edges := map[graphEdge]bool{}
 	titles := map[string]string{}
@@ -357,9 +361,11 @@ func (s *Service) derivedGraph(d projectData) (map[string]graphNode, map[graphEd
 			addPaper(n.ID, e.PaperID, "evidence")
 		}
 	}
-	for _, t := range d.Tasks {
+	for _, t := range tasks {
 		nodes[t.ID] = graphNode{t.ID, t.Title, "task"}
-		addPaper(t.ID, t.PaperID, "reading")
+		for _, id := range t.RelatedPaperIDs {
+			addPaper(t.ID, id, "reading")
+		}
 	}
 	return nodes, edges
 }

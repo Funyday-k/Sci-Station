@@ -45,8 +45,12 @@ func publishReminder(id, title, detail, dueDate string) (string, error) {
 		return "", errors.New("提醒事项正文含有无效字符")
 	}
 	if dueDate != "" {
-		if _, err := time.Parse("2006-01-02", dueDate); err != nil {
-			return "", errors.New("截止日期应为有效的 YYYY-MM-DD 日期")
+		layout := time.DateOnly
+		if strings.Contains(dueDate, "T") {
+			layout += "T15:04"
+		}
+		if _, err := time.Parse(layout, dueDate); err != nil {
+			return "", errors.New("截止日期或时间无效")
 		}
 	}
 	hash := sha256.Sum256([]byte(id))

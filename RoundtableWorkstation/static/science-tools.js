@@ -7,6 +7,7 @@
     projects = [],
     projectLoad = 0,
     tasks = [],
+    reminderBusy = false,
     discovery = {
       items: [],
       feedback: {}
@@ -120,13 +121,19 @@
       $("expr").value = discovery.query || "";
       showQueue(queue);
       showFeed();
-    } else {
-      const loaded = target ? await req("projects/" + encodeURIComponent(target) + "/tasks") : [];
+    } else if (tab === "calendar") {
+      tasks = [];
+      choices($("task"), [], "正在读取任务…");
+      const loaded = await req(target ? "projects/" + encodeURIComponent(target) + "/tasks" : "tasks");
       if (generation !== projectLoad) return;
-      tasks = loaded;
-      choices($("task"), tasks.filter(t => t.status !== "done").map(t => [t.id, t.title]), "暂无待处理任务");
-      $("reminder").disabled = !$("task").value;
+      tasks = loaded.filter(t => t.status !== "done" && t.status !== "cancelled");
+      choices($("task"), tasks.map(t => [t.id, t.title]), "暂无待处理任务");
+      updateReminderAction();
     }
+  }
+
+  function updateReminderAction() {
+    $("reminder").disabled = reminderBusy || !tasks.some(t => t.id === $("task").value);
   }
 
   async function readingTask(p, target) {
@@ -335,14 +342,24 @@
       $("eventList").replaceChildren(...events.map(e => make("p", e.start.slice(0, 16).replace("T", " ") + " · " + e.title + " · " + e.calendar)));
       tell(events.length ? "已读取 " + events.length + " 项" : "未来 30 天没有日历事件");
     });
-    $("reminder").onclick = () => busy($("reminder"), async () => {
-      if (!$("task").value) return;
-      await req("tools/reminder", {
-        project,
-        task: $("task").value
-      });
-      tell("任务已发布到 Apple 提醒事项");
-    });
+    $("task").onchange = updateReminderAction;
+    $("reminder").onclick = async () => {
+      const selected = tasks.find(t => t.id === $("task").value);
+      if (!selected || reminderBusy) return;
+      const generation = projectLoad;
+      reminderBusy = true;
+      updateReminderAction();
+      tell("正在将任务写入 Apple 提醒事项…");
+      try {
+        await req("tools/reminder", {project: selected.projectId, task: selected.id});
+        if (generation === projectLoad) tell("已保存到 Apple 提醒事项");
+      } catch (err) {
+        if (generation === projectLoad) tell(err.message);
+      } finally {
+        reminderBusy = false;
+        updateReminderAction();
+      }
+    };
   }
   async function init() {
     $(tab).hidden = false;
@@ -352,9 +369,10 @@
     projects = await req("projects");
     const choicesList = projects.map(p => [p.id, p.name]);
     if (tab === "discover") choicesList.unshift(["", "整个文献库"]);
+    if (tab === "calendar") choicesList.unshift(["", "全部项目"]);
     choices($("project"), choicesList, "未选择项目");
     if (project && !projects.some(p => p.id === project)) throw Error("所选项目不存在或已归档");
-    if (!project && tab !== "discover") project = projects[0]?.id || "";
+    if (!project && tab === "convert") project = projects[0]?.id || "";
     $("project").value = project;
     await loadProject();
     if (tab === "convert") {

@@ -403,29 +403,64 @@
     }
   }
 
+  function taskEvidence(t) {
+    const linked = (t?.evidence || []).filter(e => e.paperId && e.page > 0);
+    if (!linked.length) return "";
+    return '<section class="task-evidence"><h3>原文证据</h3>' + linked.map(e => {
+      const query = new URLSearchParams({project: t.projectId, paper: e.paperId, page: e.page});
+      for (const [key, value] of Object.entries({
+        fingerprint: e.sourceHash, quote: e.quote, start: e.selectionStart, end: e.selectionEnd,
+        ocr: e.ocr ? 1 : null, annotation: e.annotationId
+      })) {
+        if (value != null && value !== "") query.set(key, value);
+      }
+      return '<blockquote>' + esc(e.quote) + '</blockquote>' + link("查看论文第 " + e.page + " 页", "/reader?" + query, "bare");
+    }).join("") + '</section>';
+  }
+
   function taskForm(t = null) {
-    const owner = t?.projectId || state.project?.id;
-    const projectPicker = owner ? "" : field("所属项目", '<select name="owner" required><option value="">选择项目</option>' +
-      state.projects.map(p => option(p.id, p.name, "")).join("") + '</select>');
-    dialog(t ? "编辑任务" : "添加任务", '<form>' + projectPicker + field("任务", input("title", t?.title, 'required autofocus maxlength="300"')) +
-      '<div class="split">' + field("截止日期", input("dueDate", t?.dueDate, 'type="date"')) + field("状态", select("status",
-        Object.entries({
-          open: "待办",
-          doing: "进行中",
-          done: "已完成"
-        }), t?.status || "open")) + '</div>' + field("关联论文", paperSelect(t?.paperId)) + field("说明", area("description", t
-        ?.description)) + formFooter("保存任务", t ? "task:" + t.id : "") + '</form>');
+    const pid = t?.projectId || state.project?.id;
+    const members = t?.projectIds || (pid ? [pid] : []);
+    if (!state.projects.length) return;
+    const hiddenMembers = members.filter(id => !state.projects.some(project => project.id === id));
+    const paperIds = t?.relatedPaperIds || (t?.paperId ? [t.paperId] : []);
+    const multi = (label, name, choices, selected) => '<fieldset class="task-picker"><legend>' + esc(label) +
+      '</legend><div class="task-options">' + choices.map(([id, title]) => '<label><input type="checkbox" name="' + name +
+        '" value="' + esc(id) + '"' + (selected.includes(id) ? " checked" : "") + '> ' + esc(title) + '</label>').join("") +
+      '</div></fieldset>';
+    const papers = state.papers.map(p => [p.id, p.title]);
+    dialog(t ? "编辑任务" : "添加任务", '<form>' +
+      field("任务", input("title", t?.title, 'required autofocus maxlength="240"')) +
+      '<div class="split">' + field("类型", select("kind", [["general", "普通任务"], ["reading", "论文阅读"]], t?.kind || "general")) +
+      field("优先级", select("priority", Object.entries(E.taskPriorityLabels), t?.priority || "medium")) + '</div>' +
+      field("状态", select("status", ["open", "inProgress", "done", "cancelled"].map(id => [id, statusLabel[id]]), t?.status || "open")) +
+      '<div class="split">' + field("开始日期", input("startDate", t?.startDate, 'type="date"')) +
+      field("截止日期", input("dueDate", t?.dueDate, 'type="date"')) + '</div>' +
+      field("截止时间", input("dueTime", t?.dueTime, 'type="time"')) +
+      multi("关联项目", "projectIds", state.projects.map(p => [p.id, p.name]), members) +
+      (papers.length ? multi("关联论文", "relatedPaperIds", papers, paperIds) : "") +
+      field("标签", input("tags", t?.tags?.join(", "), 'placeholder="用逗号分隔"')) +
+      field("说明", area("description", t?.description)) + taskEvidence(t) + formFooter("保存任务", t ? "task:" + t.id : "") + '</form>', {wide: true});
     bindForm(async (f, token) => {
-      const body = {
-        title: value(f, "title"),
-        dueDate: value(f, "dueDate"),
-        status: value(f, "status"),
-        paperId: value(f, "paperId"),
-        description: value(f, "description")
-      };
+      const body = {};
+      for (const key of ["title", "kind", "priority", "status", "startDate", "dueDate", "dueTime", "description"]) {
+        body[key] = value(f, key);
+      }
+      body.tags = split(value(f, "tags"));
+      const projects = chosen(f, "projectIds");
+      if (!projects.length) throw Error("请至少选择一个项目");
+      const routeProject = pid || projects[0];
+      if (!t && !projects.includes(routeProject)) throw Error("新任务须关联当前项目");
+      body.projectIds = [...projects, ...hiddenMembers];
+      // Keep links to papers that are absent from the current library snapshot
+      // when editing an unrelated field. Send an explicit list if links changed.
+      const visiblePaperIDs = paperIds.filter(id => papers.some(([paperID]) => id === paperID));
+      const selectedPaperIDs = chosen(f, "relatedPaperIds");
+      if (!t || visiblePaperIDs.length !== selectedPaperIDs.length || visiblePaperIDs.some(id => !selectedPaperIDs.includes(id))) {
+        body.relatedPaperIds = selectedPaperIDs;
+      }
       if (t) body.revision = t.revision;
-      const base = projectPath("tasks" + (t ? "/" + enc(t.id) : ""), owner || value(f, "owner"));
-      await request(base, {
+      await request(projectPath("tasks" + (t ? "/" + enc(t.id) : ""), routeProject), {
         method: t ? "PATCH" : "POST",
         body
       });
@@ -605,8 +640,9 @@
       material: "materials"
     })[kind] + "/" + enc(key), obj.projectId);
     const verb = kind === "project" ? "归档" : "删除";
+    const sharedTaskNotice = kind === "task" && obj.projectIds?.length > 1 ? "这会从所有关联项目中删除同一条任务。" : "";
     dialog(verb + label, '<form><p>确认' + verb + '“' + esc(obj.title || obj.name) + '”？' + (kind === "project" ?
-      "项目将从工作台隐藏；保留本地文件夹。" : "") + '</p>' + formFooter("确认" + verb) + '</form>');
+      "项目将从工作台隐藏；保留本地文件夹。" : sharedTaskNotice) + '</p>' + formFooter("确认" + verb) + '</form>');
     bindForm(async (_, token) => {
       await request(path + "?revision=" + enc(obj.revision), {
         method: "DELETE"

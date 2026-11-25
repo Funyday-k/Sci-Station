@@ -48,7 +48,7 @@ func (s *Service) relations(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 400, "关系类型、目标或说明无效")
 		return
 	}
-	nodes, _ := s.derivedGraph(d)
+	nodes, _ := s.derivedGraph(d, s.visibleTasksLocked(d.Project.ID))
 	if _, ok := nodes[in.Source]; !ok {
 		jsonFail(w, 400, "起点没有出现在项目图谱中")
 		return
