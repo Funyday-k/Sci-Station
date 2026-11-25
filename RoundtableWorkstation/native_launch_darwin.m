@@ -256,10 +256,33 @@ static NSWindow *sciSplash;
 static NSWindow *sciMain;
 static unsigned int sciMainID;
 extern void sciShowLaunchWindow(unsigned int windowID);
-static BOOL sciStarted, sciMinimumElapsed, sciFinished;
+static BOOL sciStarted, sciMinimumElapsed, sciFinished, sciQuitting;
+
+static void sciCancelSheet(NSWindow *parent) {
+    NSWindow *sheet = parent.attachedSheet;
+    if ([sheet isKindOfClass:NSSavePanel.class]) {
+        [(NSSavePanel *)sheet cancel:nil];
+    } else if (sheet) {
+        [parent endSheet:sheet returnCode:NSModalResponseCancel];
+    }
+}
+
+void sciPrepareToQuit(void) {
+    if (sciQuitting) return;
+    sciQuitting = YES;
+    // A Wails picker may have queued presentation immediately before Quit.
+    // Its completion releases a waiting HTTP handler while the main loop drains.
+    [NSNotificationCenter.defaultCenter addObserverForName:NSWindowWillBeginSheetNotification
+        object:nil queue:nil usingBlock:^(NSNotification *notification) {
+            NSWindow *parent = notification.object;
+            dispatch_async(dispatch_get_main_queue(), ^{ sciCancelSheet(parent); });
+        }];
+    for (NSWindow *parent in NSApp.windows) sciCancelSheet(parent);
+    [sciSplash orderOut:nil];
+}
 
 static void sciRevealIfReady(void) {
-    if (sciFinished || !sciMinimumElapsed || !sciMain) return;
+    if (sciQuitting || sciFinished || !sciMinimumElapsed || !sciMain) return;
     sciFinished = YES;
     sciMain.alphaValue = 0;
     sciShowLaunchWindow(sciMainID);
@@ -281,7 +304,7 @@ static void sciRevealIfReady(void) {
 }
 
 void sciLaunchBegin(void) {
-    if (sciStarted) return;
+    if (sciStarted || sciQuitting) return;
     sciStarted = YES;
     NSRect frame = NSMakeRect(0, 0, 620, 360);
     sciSplash = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskBorderless
@@ -305,7 +328,7 @@ void sciLaunchBegin(void) {
 }
 
 void sciLaunchReady(void *window, unsigned int windowID) {
-    if (sciFinished || !window) return;
+    if (sciQuitting || sciFinished || !window) return;
     sciMain = (__bridge NSWindow *)window;
     sciMainID = windowID;
     sciRevealIfReady();

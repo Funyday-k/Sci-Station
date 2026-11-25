@@ -6,6 +6,7 @@ package main
 #cgo CFLAGS: -fobjc-arc
 #cgo LDFLAGS: -framework AppKit -framework QuartzCore
 void sciLaunchBegin(void);
+void sciPrepareToQuit(void);
 void sciLaunchReady(void *window, unsigned int windowID);
 */
 import "C"
@@ -46,3 +47,6 @@ func sciShowLaunchWindow(id C.uint) {
 		window.Show()
 	}
 }
+
+// AppKit calls ShouldQuit on the main thread.
+func prepareNativeQuit() { C.sciPrepareToQuit() }
