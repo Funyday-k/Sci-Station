@@ -65,7 +65,7 @@ CI runs every gate on every pull request. Before opening one, run at least the c
 | Markdown, governance, CI or version files | `python3 Tools/scripts/check-docs-hygiene.py`, `python3 Tools/scripts/check-version-consistency.py`, `python3 -m unittest discover -s Tools/tests -v` |
 | Swift Core | `swift test --filter <Suite>`, then `swift test --enable-code-coverage`, `Tools/scripts/check-swift-coverage.sh "$(swift test --show-codecov-path)" 14.0` and `swift run SciStationCoreTestRunner`; `Tools/scripts/check-appviewmodel-architecture.sh`; the pinned Swift style check from the developer guide |
 | Legacy runner layout | `python3 Tools/scripts/check-core-runner-architecture.py` |
-| SwiftUI, layout or navigation | Build the app (`script/build_and_run.sh` or Xcode) and exercise the changed screen; run the native UI smoke test when navigation changes |
+| SwiftUI, layout or navigation | Build the Swift app with Xcode and exercise the changed screen; run the native UI smoke test when navigation changes |
 | Python sidecar | `.venv/bin/python -m pytest AgentRuntime/tests` |
 | Packaging and release scripts | `bash -n` on changed scripts; run full packaging only when preparing a release |
 

@@ -66,7 +66,7 @@ make -C RoundtableWorkstation run
 
 默认产物是 `RoundtableWorkstation/Sci-Station.app`。`app`、`verify` 和 `run` 接受相同的 `APP_OUTPUT`。构建对候选 bundle 做启用 hardened runtime 的 ad-hoc 签名，通过验证后再替换原产物。要验证原生退出、端口与数据锁释放及重开，需要登录 macOS 图形会话并运行 `python3 RoundtableWorkstation/tests/macos-close-smoke.py RoundtableWorkstation/Sci-Station.app`。
 
-`make -C RoundtableWorkstation headless` 生成可通过浏览器访问的本地服务。运行 `RoundtableWorkstation/build/bin/sci-station-server serve -data-dir /path/to/test-data`，访问 `http://127.0.0.1:18765/research`。原生启动、系统日历和系统对话框使用桌面模式。首次试用可在独立目录启动 `RoundtableWorkstation/Sci-Station.app/Contents/MacOS/sci-station app -data-dir /path/to/test-data`。
+`make -C RoundtableWorkstation headless` 生成可通过浏览器访问的本地服务。运行 `RoundtableWorkstation/build/bin/sci-station-server serve -port 18765 -data-dir /path/to/test-data`，访问 `http://127.0.0.1:18765/research`。原生启动、系统日历和系统对话框使用桌面模式。首次试用可在独立目录启动 `RoundtableWorkstation/Sci-Station.app/Contents/MacOS/sci-station app -data-dir /path/to/test-data`。
 
 Node 可加载 Playwright 时，可从仓库根目录运行 `node RoundtableWorkstation/tests/global-tasks-browser-smoke.cjs RoundtableWorkstation/build/bin/sci-station-server`。测试在无界面 Chromium 与临时工作区验证全局任务、日历和重启恢复。`SCI_STATION_SMOKE_CHROME` 可指定已安装的 Chrome 或 Chromium。
 

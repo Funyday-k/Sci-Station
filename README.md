@@ -8,6 +8,12 @@ Sci-Station 是一个面向科研工作的本地优先工作站。它把论文�
 
 英文文档见 [docs/README.en.md](docs/README.en.md)。完整中文教程见 [docs/TUTORIAL.zh-CN.md](docs/TUTORIAL.zh-CN.md)。
 
+## 从源码运行合并工作台
+
+在 Apple Silicon Mac 上安装 Go 1.26、Xcode Command Line Tools 和 macOS 15 或更新版本。在本仓库根目录运行 `make run`，即可构建并打开 `build/Sci-Station.app`。选择「工作区 → 新建科研工作区」和一个空文件夹开始使用。已有工作区可以通过同一菜单重开。
+
+这一版本使用一个 Go/Wails 桌面进程处理研究项目、论文与圆桌。可从 PDF 选择原文进入项目会议，审核笔记或任务后，从项目记录回到原页。构建与备份说明见[工作台指南](RoundtableWorkstation/README.md)。以下截图和公开下载说明对应已发布的 0.2.0 版本。
+
 ## 截图
 
 ![Sci-Station 首页截图](docs/assets/screenshots/home.png)

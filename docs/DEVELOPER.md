@@ -274,7 +274,7 @@ Xcode 的定向测试工具只接收测试标识，不能为每次安装副本�
 - macOS 签名身份：Xcode 显示的 **Sign to Run Locally**（`-`）。
 - 不配置 Provisioning Profile。
 
-`script/build_and_run.sh` 使用同一套配置，使 Codex Run 与 Xcode 日常构建保持一致。本机开发签名与公开发布都不依赖 Developer ID。
+上述设置用于构建 Swift 参考应用和运行原有回归测试。Codex Run 通过 `script/build_and_run.sh` 打开 Go/Wails 工作台。
 
 ### Roundtable 工作台候选应用
 
