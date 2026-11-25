@@ -328,7 +328,7 @@
           citekey: value(f, "citekey"),
           rating: Number(value(f, "rating")),
           priority: Number(value(f, "priority")),
-          references: f.elements.references.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+          references: value(f, "references").split(/\r?\n/).map(line => line.trim()).filter(Boolean)
         });
       } else {
         payload = importPayload(f, items[0], false);

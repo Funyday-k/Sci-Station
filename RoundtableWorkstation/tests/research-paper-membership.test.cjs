@@ -26,6 +26,7 @@ test("paper editor preserves invisible project and core memberships while updati
   };
   const controls = {
     title: {value: "Revised"},
+    references: {value: "Exact title, with a comma\n10.1000/method\n10.1000/method"},
     "pinned-active-add": {checked: true},
     "order-active-add": {value: "0"},
     "folder-active-add": {value: "Theory"},
@@ -60,11 +61,13 @@ test("paper editor preserves invisible project and core memberships while updati
   await ui.formAction("edit-paper", paper.id);
   assert.match(rendered, /name="order-active-add"/);
   assert.match(rendered, /name="folder-active-core" value="Background"/);
+  assert.match(rendered, /<textarea name="references"/);
   await submit({preventDefault() {}});
   assert.equal(saved.url, "papers/paper");
   assert.equal(saved.method, "PUT");
   assert.equal(saved.body.title, "Revised");
   assert.equal(saved.body.revision, 7);
+  assert.deepEqual(saved.body.references, ["Exact title, with a comma", "10.1000/method", "10.1000/method"]);
   assert.deepEqual(saved.body.project_links, {
     "active-add": {is_pinned: true, sort_order: 0, folder_path: "Theory", use_for: ["derive","compare"]},
     "active-core": {is_pinned: false, sort_order: null, folder_path: "Background", use_for: []},
