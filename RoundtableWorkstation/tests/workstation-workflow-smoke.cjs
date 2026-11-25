@@ -95,12 +95,13 @@ async function localGateway() {
       assert.ok(seat >= 0);
       const prompt = input.messages.at(-1).content;
       assert.equal(typeof prompt, "string");
-      const agenda = prompt.startsWith("AGENDA DRAFT REQUEST");
-      calls.push({model: input.model, prompt, agenda});
-      const result = agenda
+      const kind = prompt.startsWith("AGENDA DRAFT REQUEST") ? "agenda"
+        : prompt.startsWith("TITLE REQUEST:") ? "title" : "statement";
+      calls.push({model: input.model, prompt, kind});
+      const content = kind === "title" ? "Verify the cited source" : JSON.stringify(kind === "agenda"
         ? {agenda: [{title: "Verify the cited source", kind: "discussion"}]}
-        : {action: "say", text: statements[seat]};
-      send(200, {model: input.model, choices: [{finish_reason: "stop", message: {content: JSON.stringify(result)}}]});
+        : {action: "say", text: statements[seat]});
+      send(200, {model: input.model, choices: [{finish_reason: "stop", message: {content}}]});
     } catch (error) {
       errors.push(String(error));
       send(400, {error: "Unexpected smoke gateway request"});
@@ -373,7 +374,7 @@ async function enterAndRun(app, ui, fixture, gateway) {
   assert.ok(turns.every(turn => turn.status === "done"));
   for (const text of statements) await ui.visible("#rounds .message-body", text);
   assert.equal(complete.materials.length, 1, "reader handoff attached more than one source");
-  const calls = gateway.calls.filter(call => !call.agenda);
+  const calls = gateway.calls.filter(call => call.kind === "statement");
   assert.deepEqual(calls.map(call => call.model).sort(), [...models].sort());
   for (const call of calls) {
     assert.ok(call.prompt.includes(quote), "a seat did not receive the exact selected excerpt");
