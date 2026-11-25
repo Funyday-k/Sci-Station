@@ -108,6 +108,20 @@ func (m *Manager) Start(scope Scope, provider, executable string, adapter Adapte
 	if err := guard(scope); err != nil {
 		return nil, err
 	}
+	directory, err := os.Lstat(scope.Directory)
+	if err != nil || !directory.IsDir() {
+		return nil, errors.New("项目目录不可用")
+	}
+	check := func(current Scope) error {
+		if err := guard(current); err != nil {
+			return err
+		}
+		info, err := os.Lstat(current.Directory)
+		if err != nil || !os.SameFile(directory, info) {
+			return errors.New("项目目录已被替换，请重新发起编辑")
+		}
+		return nil
+	}
 	versions := map[string]string{}
 	for _, path := range scope.Paths {
 		file, err := selectedFile(scope.Directory, path)
@@ -138,7 +152,7 @@ func (m *Manager) Start(scope Scope, provider, executable string, adapter Adapte
 		m.runs = map[string]*Run{}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
-	r := &Run{scope: scope, cancel: cancel, check: guard, seen: map[string]bool{}, versions: versions, done: make(chan struct{}), state: State{Prompt: scope.Prompt, ID: key(), ProjectID: scope.ProjectID, MeetingID: scope.MeetingID, MeetingRound: scope.MeetingRound, Provider: provider, Paths: slices.Clone(scope.Paths), Status: "starting"}}
+	r := &Run{scope: scope, cancel: cancel, check: check, seen: map[string]bool{}, versions: versions, done: make(chan struct{}), state: State{Prompt: scope.Prompt, ID: key(), ProjectID: scope.ProjectID, MeetingID: scope.MeetingID, MeetingRound: scope.MeetingRound, Provider: provider, Paths: slices.Clone(scope.Paths), Status: "starting"}}
 	m.runs[scope.MeetingID] = r
 	go func() {
 		defer close(r.done)

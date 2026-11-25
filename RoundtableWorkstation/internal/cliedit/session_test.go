@@ -12,7 +12,7 @@ import (
 )
 
 func TestSingleDecisionScopeAndShutdown(t *testing.T) {
-	for _, mode := range []string{"accept", "decline", "stale", "shutdown", "scope"} {
+	for _, mode := range []string{"accept", "decline", "stale", "shutdown", "scope", "directory"} {
 		t.Run(mode, func(t *testing.T) {
 			dir, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
@@ -62,11 +62,23 @@ func TestSingleDecisionScopeAndShutdown(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				if mode == "directory" {
+					if err := os.Rename(dir, dir+"-moved"); err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() { _ = os.RemoveAll(dir + "-moved") })
+					if err := os.Mkdir(dir, 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(file, []byte("a\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if mode == "scope" {
 					valid = false
 				}
 				err = run.Decide("thread", "turn", "item", "2", mode != "decline")
-				if (mode == "stale" || mode == "scope") != (err != nil) {
+				if (mode == "stale" || mode == "scope" || mode == "directory") != (err != nil) {
 					t.Fatalf("unexpected decision error %v", err)
 				}
 			}
@@ -82,7 +94,7 @@ func TestSingleDecisionScopeAndShutdown(t *testing.T) {
 			if err := run.Decide("thread", "turn", "item", "2", true); err == nil {
 				t.Fatal("replayed response accepted")
 			}
-			if mode == "shutdown" || mode == "stale" || mode == "scope" {
+			if mode == "shutdown" || mode == "stale" || mode == "scope" || mode == "directory" {
 				if run.Snapshot().Status != "cancelled" {
 					t.Fatal(run.Snapshot())
 				}
