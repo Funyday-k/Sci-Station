@@ -4,6 +4,7 @@
   const handoff=window.ScienceLabHandoff;
   const api="/api/research/lab/";
   let presets=[], projects=[], sessions=[], current=null, original=null, preview=null, source=null;
+  let graphOwner="", graphPreview=null, graphGeneration=0;
   function tell(text){$("status").textContent=text;}
   async function req(path,method="GET",data,signal) {
     const opt={method,signal,cache:"no-store",headers:{"X-Roundtable":"1"}};
@@ -62,6 +63,13 @@
     }
     if(previousScope!==null && previousScope!==id) {markSource(null);resetResource();}
     previousScope=id;
+    if (graphOwner!==id) {
+      graphOwner=id;
+      graphGeneration++;
+      $("graph-controls").hidden=true;
+      clearGraphPreview();
+      if (source?.kind==="project-graph" && source.projectId!==id) markSource(null);
+    }
     $("session").replaceChildren(new Option("新建圆桌",""));
     if(p)for(const s of sessions){if(s.project_id===p.id&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
     const url=new URL(location.href);
@@ -97,6 +105,55 @@
   action("save",()=>save(false));action("fork",()=>save(true));
   action("delete",async()=>{if(!current||current.builtin||!confirm("删除个人模板「"+current.title+"」？"))return;
     await req(api+"presets/"+encodeURIComponent(current.id),"DELETE",{revision:current.revision});await refresh();tell("模板已删除。");});
+  function clearGraphPreview(){
+    graphPreview=null;
+    $("graph-preview-panel").hidden=true;
+    $("graph-preview-text").value="";
+  }
+  function graphOperation(){
+    const operation=$("graph-operation").value;
+    $("graph-target-field").hidden=operation!=="bridge";
+    $("graph-direction-field").hidden=operation==="reading";
+    graphGeneration++;
+    clearGraphPreview();
+  }
+  action("graph-nodes",async()=>{
+    const project=$("project").value;
+    if(!project)throw Error("请先选择科研项目。");
+    const ticket=++graphGeneration;
+    const graph=await req("/api/research/projects/"+encodeURIComponent(project)+"/graph");
+    if(ticket!==graphGeneration || project!==$("project").value)return;
+    const options=select=>select.replaceChildren(new Option("请选择",""),...graph.nodes.filter(n=>n.kind!=="missing").map(n=>new Option(n.label,n.id)));
+    options($("graph-node"));options($("graph-target"));
+    clearGraphPreview();
+    $("graph-controls").hidden=!graph.nodes.length;
+    if(!graph.nodes.length)tell("当前项目暂无可查询的图谱条目。");
+  });
+  action("graph-preview",async()=>{
+    const project=$("project").value, focus=$("graph-node").value;
+    if(!project||!focus)throw Error("请选择项目图谱起点。");
+    const ticket=++graphGeneration;
+    clearGraphPreview();
+    const operation=$("graph-operation").value;
+    const query=new URLSearchParams({operation,focus,depth:$("graph-depth").value});
+    if(operation==="bridge")query.set("target",$("graph-target").value);
+    if(operation!=="reading")query.set("direction",$("graph-direction").value);
+    const result=await req("/api/research/projects/"+encodeURIComponent(project)+"/graph/workflow?"+query);
+    if(ticket!==graphGeneration || result.projectId!==$("project").value)return;
+    graphPreview=result;
+    $("graph-preview-text").value=result.excerpt;
+    $("graph-preview-panel").hidden=false;
+  });
+  action("use-graph-preview",()=>{
+    if(!graphPreview||graphPreview.projectId!==$("project").value)throw Error("请先预览当前项目的图谱。");
+    markSource(graphPreview);
+    tell("图谱资料已加入本次会议草稿。");
+  });
+  $("graph-operation").onchange=graphOperation;
+  for(const id of ["graph-node","graph-target","graph-direction","graph-depth"])$(id).onchange=()=>{
+    graphGeneration++;
+    clearGraphPreview();
+  };
   action("list",async()=>{
     const endpoint=$("endpoint").value.trim();resetResource();$("resource-panel").hidden=true;
     const rows=await req(api+"resources/list","POST",{endpoint});

@@ -207,6 +207,8 @@ func New(dir string) (*Service, error) {
 	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/files", s.files)
 	s.mux.HandleFunc("PATCH "+prefix+"/projects/{project}/files", s.files)
 	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/graph", s.graph)
+	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/graph/citations", s.graphCitations)
+	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/graph/workflow", s.graphWorkflow)
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/graph/relations", s.relations)
 	s.mux.HandleFunc("DELETE "+prefix+"/projects/{project}/graph/relations/{relation}", s.relations)
 	return s, nil

@@ -13,10 +13,11 @@
     const chunks = ["科研工作流 · " + data.title.trim(), data.prompt.trim()];
     if (data.question) chunks.push("研究问题\n"+String(data.question).trim());
     if (data.resource) {
-      const {server,uri,sha256,excerpt} = data.resource;
+      const {server,uri,sha256,excerpt,kind,projectId} = data.resource;
+      if (kind === "project-graph" && projectId !== data.projectId) throw Error("图谱资料不属于当前项目。");
       if (!server || !uri || !/^[a-f0-9]{64}$/.test(sha256) || typeof excerpt !== "string" ||
           !excerpt.trim() || count(excerpt)>2000) throw Error("所选资源摘录不完整。");
-      chunks.push("外部资源摘录（供核对）\n来源服务："+server+"\n资源："+uri+"\n原文 SHA-256："+sha256+"\n\n"+excerpt.trim());
+      chunks.push((kind === "project-graph" ? "项目图谱资料（供核对）" : "外部资源摘录（供核对）") + "\n来源服务："+server+"\n资源："+uri+"\n原文 SHA-256："+sha256+"\n\n"+excerpt.trim());
     }
     const text = chunks.join("\n\n");
     if(count(text)>12000) throw Error("会议草稿超过 12,000 字，请缩短研究问题或摘录。");

@@ -72,6 +72,7 @@
     graphQuery: null,
     graphError: "",
     graphPending: false,
+    inspire: {seeds: [], rows: [], pending: false, error: ""},
     query: "",
     taskFilter: "open",
     taskKind: "",
@@ -87,6 +88,7 @@
   async function request(path, options = {}) {
     const init = {
       method: options.method || "GET",
+      signal: options.signal,
       headers: {
         Accept: "application/json"
       }
@@ -511,8 +513,52 @@
       project: state.project,
       query: state.graphQuery || graphUI.defaultQuery,
       error: state.graphError,
-      pending: state.graphPending
+      pending: state.graphPending,
+      citationPanel: window.SciInspireGraph?.renderPanel({...state.inspire, papers: scopedPapers()}, {esc, button, panel})
     }, {esc, button, heading, panel, empty, link, route: navigation.route});
+  }
+
+  let citationRequest;
+  async function applyInspire(online) {
+    if (!state.inspire.seeds.length || state.view !== "graph" || state.inspire.pending) return;
+    citationRequest?.abort();
+    const controller = new AbortController();
+    citationRequest = controller;
+    const project = state.project.id;
+    state.inspire.pending = true;
+    state.inspire.error = "";
+    render();
+    try {
+      const path = window.SciInspireGraph.lookupPath(projectPath("graph/citations", project), state.inspire.seeds, online);
+      const rows = await request(path, {signal: controller.signal});
+      if (citationRequest === controller && state.project?.id === project) state.inspire.rows = rows;
+    } catch (error) {
+      if (!controller.signal.aborted && citationRequest === controller) state.inspire.error = error.message;
+    } finally {
+      if (citationRequest === controller) {
+        state.inspire.pending = false;
+        citationRequest = null;
+        render();
+      }
+    }
+  }
+
+  async function changeCitationSeeds(action, id) {
+    if (state.inspire.pending) return;
+    if (action === "inspire-seed-remove") {
+      state.inspire.seeds = state.inspire.seeds.filter(seed => seed !== id);
+    } else {
+      if (state.inspire.seeds.length >= 6) throw new Error("最多同时查看 6 个种子。");
+      const raw = $("inspire-record")?.value?.trim();
+      const seed = id || (raw ? window.SciInspireGraph.publicSeed(raw) : $("inspire-paper")?.value);
+      if (!seed) throw new Error("请选择项目论文，或填写有效的 INSPIRE 编号。");
+      if (state.inspire.seeds.includes(seed)) return;
+      state.inspire.seeds = [...state.inspire.seeds, seed];
+    }
+    state.inspire.rows = [];
+    state.inspire.error = "";
+    if (state.inspire.seeds.length) await applyInspire(false);
+    else render();
   }
 
   let graphQueryNumber = 0;
@@ -550,6 +596,9 @@
   } = {}) {
     const token = ++navEpoch;
     let targetView = Object.hasOwn(names, view) ? view : "overview";
+    citationRequest?.abort();
+    citationRequest = null;
+    state.inspire.pending = false;
     state.loadError = "";
     $("main").setAttribute("aria-busy", "true");
     try {
@@ -595,6 +644,7 @@
       state.organization = organization;
       state.paperWikiStatus = paperWikiStatus;
       if (state.libraryCollection !== "unfiled" && !Object.hasOwn(organization.collections, state.libraryCollection)) state.libraryCollection = "";
+      if (nextProject?.id !== state.project?.id) state.inspire = {seeds: [], rows: [], pending: false, error: ""};
       state.project = nextProject;
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
       state.meetings = nextProject ? rooms.filter(m => m.project_id === nextProject.id) : rooms;
@@ -854,6 +904,8 @@
           1);
         render();
       } else if (action === "reload") await route();
+      else if (action === "inspire-online" || action === "inspire-local") await applyInspire(action === "inspire-online");
+      else if (action === "inspire-seed-add" || action === "inspire-seed-remove") await changeCitationSeeds(action, id);
       else if (action === "graph-rebuild") {
         const query = state.graphQuery;
         const project = state.project?.id;

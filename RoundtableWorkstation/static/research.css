@@ -1395,3 +1395,68 @@ details>summary {
 #project-modules[hidden] { display: none; }
 #project-modules a { white-space: nowrap; color: var(--soft); padding: 6px 9px; border-radius: 5px; }
 #project-modules a:hover, #project-modules a[aria-current="page"] { color: var(--accent); background: var(--fill); }
+
+.inspire-picker, .inspire-actions, .inspire-columns, .inspire-seeds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px 16px;
+}
+
+.inspire-picker {
+  align-items: end;
+}
+
+.inspire-picker label {
+  display: grid;
+  gap: 4px;
+  max-width: min(100%, 20rem);
+}
+
+.inspire-picker input, .inspire-picker select {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.inspire-seeds {
+  margin: 0;
+  list-style: none;
+}
+
+.inspire-seeds li {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.inspire-seeds button, .inspire-columns li button {
+  margin-inline-start: 8px;
+}
+
+.inspire-result {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.inspire-result h3, .inspire-result h4 {
+  margin: 4px 0;
+}
+
+.inspire-columns {
+  padding-inline: 0;
+}
+
+.inspire-columns > div {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.inspire-columns li {
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}

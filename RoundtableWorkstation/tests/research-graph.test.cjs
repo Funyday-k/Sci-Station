@@ -7,6 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 const navigation = require("../static/workspace-nav.js");
 const graph = require("../static/research-graph.js");
+const inspire = require("../static/research-inspire-graph.js");
 const source = require("../static/reader-graph-source.js");
 const base = "http://127.0.0.1:18765";
 
@@ -124,4 +125,15 @@ test("project graph lookup failure exposes a retry and retains current source en
   assert.match(elements.main.innerHTML, /重新生成/);
   assert.match(elements.main.innerHTML, /Solar note/);
   assert.equal(ui.state.graphPending,false);
+});
+
+test("INSPIRE seed parsing admits published record IDs and encodes repeated seeds", () => {
+  assert.equal(inspire.publicSeed("https://inspirehep.net/literature/000451647/"), "inspire:451647");
+  assert.equal(inspire.publicSeed("inspire: 123"), "inspire:123");
+  assert.equal(inspire.publicSeed("https://example.org/literature/123"), "");
+  assert.equal(inspire.publicSeed("0"), "");
+  const offline = query(inspire.lookupPath("/graph/citations", ["local", "inspire:451647"], false));
+  assert.deepEqual(offline.getAll("seed"), ["local", "inspire:451647"]);
+  assert.equal(offline.has("online"), false);
+  assert.equal(query(inspire.lookupPath("/graph/citations", ["local"], true)).get("online"), "1");
 });

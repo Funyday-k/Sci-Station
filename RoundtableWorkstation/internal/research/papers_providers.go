@@ -117,7 +117,13 @@ func lookupCrossref(ctx context.Context, doi string) (PaperMetadata, error) {
 
 type inspireRecord struct {
 	Metadata struct {
-		ID      int                      `json:"control_number"`
+		ID            int `json:"control_number"`
+		CitationCount int `json:"citation_count"`
+		References    []struct {
+			Record struct {
+				Ref string `json:"$ref"`
+			} `json:"record"`
+		} `json:"references"`
 		Titles  []struct{ Title string } `json:"titles"`
 		Authors []struct {
 			Name string `json:"full_name"`

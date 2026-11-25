@@ -11,6 +11,7 @@ import (
 type graphQuery struct {
 	focus, target string
 	depth         int
+	direction     string
 	edgeKinds     []string
 	nodeKinds     []string
 }
@@ -22,7 +23,7 @@ type graphPath struct {
 
 func parseGraphQuery(values url.Values) (graphQuery, error) {
 	q := graphQuery{focus: values.Get("focus"), target: values.Get("target"),
-		depth: 2, edgeKinds: values["kind"], nodeKinds: values["nodeKind"]}
+		depth: 2, direction: values.Get("direction"), edgeKinds: values["kind"], nodeKinds: values["nodeKind"]}
 	if q.target != "" && q.focus == "" {
 		return q, errors.New("请先选择路径起点")
 	}
@@ -36,9 +37,14 @@ func parseGraphQuery(values url.Values) (graphQuery, error) {
 		}
 		q.depth = depth
 	}
+	switch q.direction {
+	case "", "both", "outgoing", "incoming":
+	default:
+		return q, errors.New("无效的关系方向")
+	}
 	for _, kind := range q.edgeKinds {
 		switch kind {
-		case "cites", "evidence", "wikilink", "paper", "reading", "related", "supports", "contradicts", "extends":
+		case "cites", "possible-cites", "evidence", "wikilink", "paper", "reading", "related", "supports", "contradicts", "extends":
 		default:
 			return q, errors.New("无效的关系类型")
 		}
@@ -65,7 +71,8 @@ func (q graphQuery) run(ctx context.Context, nodes map[string]graphNode, edges [
 	for _, edge := range edges {
 		_, from := selected[edge.Source]
 		_, to := selected[edge.Target]
-		if from && to && (len(q.edgeKinds) == 0 || slices.Contains(q.edgeKinds, edge.Kind)) {
+		unfiltered := len(q.edgeKinds) == 0 && (q.focus == "" || edge.Kind != "possible-cites")
+		if from && to && (unfiltered || slices.Contains(q.edgeKinds, edge.Kind)) {
 			filtered = append(filtered, edge)
 		}
 	}
@@ -88,8 +95,10 @@ func (q graphQuery) run(ctx context.Context, nodes map[string]graphNode, edges [
 	}
 	adjacent := map[string][]int{}
 	for i, edge := range filtered {
-		adjacent[edge.Source] = append(adjacent[edge.Source], i)
-		if edge.Target != edge.Source {
+		if q.direction != "incoming" {
+			adjacent[edge.Source] = append(adjacent[edge.Source], i)
+		}
+		if q.direction != "outgoing" && (q.direction == "incoming" || edge.Target != edge.Source) {
 			adjacent[edge.Target] = append(adjacent[edge.Target], i)
 		}
 	}

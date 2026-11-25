@@ -5,17 +5,17 @@
     meeting: "会议", missing: "来源已移除"
   };
   const edgeKinds = {
-    wikilink: "双链", cites: "引用", reading: "阅读", supports: "支持", contradicts: "矛盾",
+    wikilink: "双链", cites: "引用", "possible-cites": "疑似引用", reading: "阅读", supports: "支持", contradicts: "矛盾",
     extends: "扩展", related: "相关", evidence: "证据", paper: "关联论文"
   };
   const statuses = {
     missing: "来源不可用", changed: "原件已变更", unversioned: "未保存原件指纹"
   };
-  const defaultQuery = Object.freeze({focus: "", target: "", depth: "2", kind: "", nodeKind: ""});
+  const defaultQuery = Object.freeze({focus: "", target: "", depth: "2", direction: "", kind: "", nodeKind: ""});
 
   function queryPath(base, query) {
     const params = new URLSearchParams();
-    for (const key of ["focus", "target", "depth", "kind", "nodeKind"]) {
+    for (const key of ["focus", "target", "depth", "direction", "kind", "nodeKind"]) {
       if (query[key] !== undefined && query[key] !== "") params.set(key, query[key]);
     }
     return params.size ? base + "?" + params : base;
@@ -82,7 +82,7 @@
     return `<div class="graph-diagram"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="部分关联预览">${lines}${items}</svg></div>`;
   }
 
-  function graphView({graph, result, project, query, error, pending}, ui) {
+  function graphView({graph, result, project, query, error, pending, citationPanel = ""}, ui) {
     const {esc, button, heading, panel, empty, link} = ui;
     const nodes = graph.nodes || [];
     const keys = new Map([...nodes, ...result.nodes].map(node => [node.id, node]));
@@ -101,12 +101,13 @@
       (nodes.length > 1 ? button("新增关系", "new-relation", {glyph: "plus", kind: "button primary"}) : "");
     let out = heading("知识关联", project.name, actions);
     if (error) out += '<p class="status" role="alert">' + esc(error) + "</p>";
-    if (!nodes.length) return out + panel("项目图谱", empty("暂无可关联的条目", "添加论文、笔记或任务后即可查看项目关系。"));
+    if (!nodes.length) return out + panel("项目图谱", empty("暂无可关联的条目", "添加论文、笔记或任务后即可查看项目关系。")) + citationPanel;
     const controls = '<form class="graph-picker" id="graph-query" aria-label="图谱筛选">' +
       select("起点", "focus", "全部条目", allEntries) +
       select("终点", "target", "仅查看邻居", allEntries) +
       select("深度", "depth", "", Object.fromEntries(Array.from({length: 11}, (_, n) => [n, String(n)]))) +
-      select("关系类型", "kind", "全部关系", edgeKinds) +
+      select("方向", "direction", "双向", {outgoing: "沿关系方向", incoming: "逆关系方向"}) +
+      select("关系类型", "kind", query.focus ? "全部确认关系" : "全部关系", edgeKinds) +
       select("条目类型", "nodeKind", "全部类型", nodeKinds) +
       '<button type="submit" class="button"' + (pending ? " disabled" : "") + ">应用</button></form>";
     const path = result.path;
@@ -127,7 +128,7 @@
         [...layers].map(([hop, ids]) => '<li><span>' + (hop === 0 ? "起点" : "距离 " + hop) +
           '</span><ul>' + ids.map(id => "<li>" + nodeButton(id) + "</li>").join("") + "</ul></li>").join("") + "</ol>";
     }
-    out += panel("项目图谱", controls + graphDiagram(result, keys, esc) + visualization);
+    out += panel("项目图谱", controls + graphDiagram(result, keys, esc) + visualization) + citationPanel;
 
     const labelOccurrence = occurrence => {
       const {source, ordinal, line, page} = occurrence;
@@ -141,11 +142,17 @@
       const href = occurrenceLink(project.id, edge, occurrence, ui.route);
       const action = href ? link(locator, href, "bare") : occurrence.source === "wikilink" ?
         button(locator, "graph-occurrence", {id: occurrence.id, kind: "bare"}) : esc(locator);
-      const flag = statuses[occurrence.status];
+      const flag = statuses[occurrence.status] || ({
+        "normalized-title": "按题名匹配",
+        "similar-title": "题名近似，待核对",
+        "ambiguous-title": "有多个可能匹配，待核对"
+      })[occurrence.resolution];
+      const candidates = occurrence.matches?.length && occurrence.resolution === "ambiguous-title" ?
+        '<ul>' + occurrence.matches.map(match => '<li>' + nodeButton(match.id) + '</li>').join("") + '</ul>' : "";
       const discussion = occurrence.source === "evidence" && occurrence.meetingId ?
         " · " + link("来源讨论", meetingLink(project.id, occurrence, ui.route), "bare") : "";
       return "<li>" + action + discussion + (flag ? '<span class="graph-source-status">' + esc(flag) + "</span>" : "") +
-        (occurrence.quote ? "<blockquote>" + esc(occurrence.quote) + "</blockquote>" : "") + "</li>";
+        (occurrence.quote ? "<blockquote>" + esc(occurrence.quote) + "</blockquote>" : "") + candidates + "</li>";
     };
     const relations = (result.edges || []).map(edge => {
       const details = edge.occurrences?.length ? '<details class="graph-occurrences"><summary>' + edge.occurrences.length +

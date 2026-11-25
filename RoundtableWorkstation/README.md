@@ -75,3 +75,9 @@ make -C RoundtableWorkstation run
 Node 可加载 Playwright 时，可从仓库根目录运行 `node RoundtableWorkstation/tests/global-tasks-browser-smoke.cjs RoundtableWorkstation/build/bin/sci-station-server`。测试在无界面 Chromium 与临时工作区验证全局任务、日历和重启恢复。`SCI_STATION_SMOKE_CHROME` 可指定已安装的 Chrome 或 Chromium。
 
 主要入口是 main.go、api.go、desktop_darwin.go，科研存储在 internal/research，会议编排在 internal/meeting，模型接入在 internal/gateway，界面在 static，应用打包脚本在 packaging/macos。原生启动窗口与 PDF 工具使用 Objective-C / AppKit / PDFKit，不需要 Swift 工程或 Python 服务。macOS 应用使用本地 ad-hoc 签名。
+
+### 引用图谱数据
+
+项目关系、引用位置和 AI 实验室中的图谱预览均从当前研究根目录的来源记录生成。确认加入后，AI 实验室会把图谱预览写入对应项目的未发送圆桌草稿。题名近似的候选会单独标注，默认路径查询跳过这些候选。
+
+点击查询 INSPIRE 会向该服务发送所选论文的公开标识符。图谱可同时查看至多六个种子。每次成功查询保存一个版本为 1 的研究根目录缓存 `inspire-graph-<identity-sha256>.json`，包含论文标识、下载时间、至多 25 条参考文献和 25 篇引用论文。离线读取会标记缓存来源，跳过损坏或不受支持的缓存，下一次成功查询可重建对应文件。删除这些缓存可移除下载的图谱数据。笔记、论文记录、PDF 和会议记录保存在各自的来源目录。

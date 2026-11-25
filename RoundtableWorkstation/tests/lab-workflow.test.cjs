@@ -46,3 +46,10 @@ test("global runs use an explicit scope and never match a legacy directory sessi
  assert.ok(ownsRun({project:"",seats:["seat-1"]},{id:"",global:true}));
  assert.ok(!ownsRun({project:"/fixture/legacy",seats:["seat-1"]},{id:"",global:true}));
 });
+
+test("a project graph preview keeps its source and cannot enter a different project",()=>{
+ const resource={kind:"project-graph",projectId:"p1",server:"本地项目图谱",uri:"/api/research/projects/p1/graph/workflow?operation=reading",sha256:"f".repeat(64),excerpt:"1. Foundation"};
+ const text=compose({...setup,resource});
+ assert.match(text,/项目图谱资料/);assert.match(text,/1\. Foundation/);
+ assert.throws(()=>compose({...setup,projectId:"p2",resource}),/图谱资料不属于当前项目/);
+});

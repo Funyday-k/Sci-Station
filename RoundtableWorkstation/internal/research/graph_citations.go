@@ -62,6 +62,7 @@ func paperNoteReferences(body string) []graphOccurrence {
 	var entries []graphOccurrence
 	active := false
 	fence := ""
+	body = strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\r", "\n")
 	for i, raw := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(raw)
 		if fence != "" {
@@ -110,6 +111,7 @@ func buildPaperGraph(ctx context.Context, papers []Paper) paperGraphResult {
 	ambiguous := map[string]bool{}
 	external := map[string]bool{}
 	edges := graphEdges{}
+	titles := indexCitationTitles(papers)
 	for _, paper := range papers {
 		graph.Nodes = append(graph.Nodes, paperGraphNode{paper.ID, paper.Title, "paper"})
 		for _, identifier := range []string{paper.ID, paper.DOI, paper.Arxiv, paper.Citekey, paper.URL, paper.Title} {
@@ -137,10 +139,29 @@ func buildPaperGraph(ctx context.Context, papers []Paper) paperGraphResult {
 			if key == "" {
 				continue
 			}
-			target := lookup[key]
-			if target == "" || ambiguous[key] {
+			target, kind := lookup[key], "cites"
+			if ambiguous[key] {
+				target = ""
+			}
+			identified := doiPattern.MatchString(key) || arxivPattern.MatchString(key)
+			if target == "" && !identified {
+				matches := titles.match(occurrence.Quote, paper.ID)
+				switch len(matches) {
+				case 0:
+				case 1:
+					target = matches[0].ID
+					occurrence.Resolution = "normalized-title"
+					if matches[0].Distance > 0 {
+						kind = "possible-cites"
+						occurrence.Resolution, occurrence.Matches = "similar-title", matches
+					}
+				default:
+					occurrence.Resolution, occurrence.Matches = "ambiguous-title", matches
+				}
+			}
+			if target == "" {
 				target = "reference:" + key
-				if !doiPattern.MatchString(key) && !arxivPattern.MatchString(key) {
+				if !identified {
 					target = fmt.Sprintf("reference:text:%x", sha256.Sum256([]byte(key)))
 				}
 				if !external[target] {
@@ -150,7 +171,7 @@ func buildPaperGraph(ctx context.Context, papers []Paper) paperGraphResult {
 			}
 			if target != paper.ID {
 				occurrence.SourceRevision = paper.Revision
-				edges.link(paper.ID, target, "cites").record(occurrence)
+				edges.link(paper.ID, target, kind).record(occurrence)
 			}
 		}
 	}

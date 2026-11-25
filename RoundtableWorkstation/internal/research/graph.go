@@ -18,23 +18,25 @@ type graphNode struct {
 }
 
 type graphOccurrence struct {
-	ID             string `json:"id"`
-	Source         string `json:"source"`
-	Ordinal        int    `json:"ordinal"`
-	Quote          string `json:"quote,omitempty"`
-	Line           int    `json:"line,omitempty"`
-	EndLine        int    `json:"endLine,omitempty"`
-	Column         int    `json:"column,omitempty"`
-	SourceRevision int    `json:"sourceRevision,omitempty"`
-	Page           int    `json:"page,omitempty"`
-	SourceHash     string `json:"sourceHash,omitempty"`
-	MeetingID      string `json:"meetingId,omitempty"`
-	TurnID         string `json:"turnId,omitempty"`
-	Status         string `json:"status,omitempty"`
-	Start          *int   `json:"start,omitempty"`
-	End            *int   `json:"end,omitempty"`
-	OCR            bool   `json:"ocr,omitempty"`
-	AnnotationID   string `json:"annotationId,omitempty"`
+	ID             string               `json:"id"`
+	Source         string               `json:"source"`
+	Ordinal        int                  `json:"ordinal"`
+	Quote          string               `json:"quote,omitempty"`
+	Line           int                  `json:"line,omitempty"`
+	EndLine        int                  `json:"endLine,omitempty"`
+	Column         int                  `json:"column,omitempty"`
+	SourceRevision int                  `json:"sourceRevision,omitempty"`
+	Page           int                  `json:"page,omitempty"`
+	SourceHash     string               `json:"sourceHash,omitempty"`
+	MeetingID      string               `json:"meetingId,omitempty"`
+	TurnID         string               `json:"turnId,omitempty"`
+	Status         string               `json:"status,omitempty"`
+	Start          *int                 `json:"start,omitempty"`
+	End            *int                 `json:"end,omitempty"`
+	OCR            bool                 `json:"ocr,omitempty"`
+	AnnotationID   string               `json:"annotationId,omitempty"`
+	Resolution     string               `json:"resolution,omitempty"`
+	Matches        []graphCitationMatch `json:"matches,omitempty"`
 }
 
 type graphEdge struct {
@@ -91,20 +93,35 @@ func (s *Service) graph(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.mu.RLock()
-	d, ok := s.loadProject(w, r.PathValue("project"))
-	var tasks map[string]Task
-	if ok {
-		tasks = s.visibleTasksLocked(d.Project.ID)
-	}
-	s.mu.RUnlock()
+	d, tasks, ok := s.projectGraphData(w, r)
 	if !ok {
 		return
 	}
-	nodes, edges := s.derivedGraph(r.Context(), d, tasks)
+	nodes, edges := s.projectGraph(r.Context(), d, tasks)
+	result, err := query.run(r.Context(), nodes, sortedGraphEdges(edges))
 	if r.Context().Err() != nil {
 		return
 	}
+	if err != nil {
+		jsonFail(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonReply(w, http.StatusOK, result)
+}
+
+func (s *Service) projectGraphData(w http.ResponseWriter, r *http.Request) (projectData, map[string]Task, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d, ok := s.loadProject(w, r.PathValue("project"))
+	if !ok {
+		return d, nil, false
+	}
+	return d, s.visibleTasksLocked(d.Project.ID), true
+}
+
+func (s *Service) projectGraph(ctx context.Context, d projectData, tasks map[string]Task) (map[string]graphNode, graphEdges) {
+	nodes, edges := s.derivedGraph(ctx, d, tasks)
 	// Manual relations are source records. Keep their IDs available for
 	// revision-checked deletion even when an endpoint has been removed.
 	for _, rel := range d.Relations {
@@ -116,16 +133,7 @@ func (s *Service) graph(w http.ResponseWriter, r *http.Request) {
 		edge := edges.link(rel.Source, rel.Target, rel.Kind)
 		edge.ID, edge.Revision, edge.Label = rel.ID, rel.Revision, rel.Label
 	}
-	result, err := query.run(r.Context(), nodes, sortedGraphEdges(edges))
-	if r.Context().Err() != nil {
-		return
-	}
-	if err != nil {
-		jsonFail(w, http.StatusNotFound, err.Error())
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	jsonReply(w, http.StatusOK, result)
+	return nodes, edges
 }
 
 func sortedGraphEdges(edges graphEdges) []graphEdge {
