@@ -652,6 +652,7 @@ main {
 .query,
 .field input,
 .field select,
+.graph-picker select,
 .field textarea,
 .query-input {
   background: var(--surface);
@@ -1226,10 +1227,7 @@ dialog::backdrop {
 }
 
 .graph-picker select {
-  min-width: 0;
-  width: 100%;
-  color: var(--ink);
-  background: var(--surface)
+  color: var(--ink)
 }
 
 .graph-diagram {

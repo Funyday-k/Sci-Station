@@ -36,7 +36,7 @@
     }
     if (occurrence.source === "evidence" && occurrence.status !== "missing") {
       return route("/reader", {project, paper: edge.target, page: occurrence.page, fingerprint: occurrence.sourceHash,
-        quote: occurrence.page && occurrence.quote?.length <= 4096 ? occurrence.quote : "",
+        quote: occurrence.page ? occurrence.quote : "",
         start: Number.isInteger(occurrence.start) ? String(occurrence.start) : "",
         end: occurrence.end, ocr: occurrence.ocr ? "1" : "", annotation: occurrence.annotationId});
     }

@@ -34,6 +34,10 @@ test("each citation opens the appropriate stable source with its individual loca
       ocr:true, annotationId:"ann"}, navigation.route);
   assert.deepEqual(Object.fromEntries(query(evidence)), {project:"project-A", paper:"paper-B", page:"4",
     fingerprint:"digest", quote:sentence, start:"0", end:String(sentence.length), ocr:"1", annotation:"ann"});
+  const unicodeQuote = "🔎".repeat(2800);
+  const longAnchor = graph.occurrenceLink("project-A", edge,
+    {source:"evidence", page:4, quote:unicodeQuote, sourceHash:"digest", status:"matched"}, navigation.route);
+  assert.equal(query(longAnchor).get("quote"), unicodeQuote);
   assert.equal(graph.occurrenceLink("project-A", edge, {source:"evidence", status:"missing"}, navigation.route), "");
   const meeting = graph.occurrenceLink("project-A", edge,
     {source:"meeting", meetingId:"abc", turnId:"round-2-codex"}, navigation.route);
