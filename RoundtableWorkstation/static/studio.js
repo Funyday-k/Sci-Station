@@ -530,7 +530,9 @@
     const projectName = state.draftOpen
       ? projects.available().find(project => project.id === state.activeProject)?.name
       : "";
-    const viewName = state.view === "settings" ? "设置" : state.view === "plugins" ? "插件市场" : "";
+    const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
+    const viewName = state.view === "settings" ? text("设置", "Settings")
+      : state.view === "plugins" ? text("插件市场", "Plugin marketplace") : "";
     const title = viewName || (state.selected
       ? sessionTitle(currentSummary())
       : projectName ? `${projectName} / 新建圆桌` : "新建圆桌");
@@ -551,7 +553,7 @@
     $("meeting-mode-status").hidden = !inMeeting;
     $("session-status").hidden =
       !state.session || state.session.status === "ready";
-    document.title = `${title} · 工作圆桌`;
+    document.title = `${title} · ${text("工作圆桌", "Roundtable")}`;
   }
   function requestTitle(id, { force = false } = {}) {
     if (!id || !state.enteredSessions.has(id)) return Promise.resolve(null);
@@ -3319,6 +3321,9 @@
   document.addEventListener("visibilitychange", syncBoardPresence);
   window.addEventListener("pagehide", boardPresence.stop);
   window.addEventListener("pageshow", syncBoardPresence);
+  window.addEventListener("sci:language", () => {
+    if (["settings", "plugins"].includes(state.view)) renderHeading();
+  });
   window.addEventListener("roundtable:settings-page", (event) => {
     if (!["settings", "plugins"].includes(state.view)) return;
     const nextView = event.detail === "plugins" ? "plugins" : "settings";

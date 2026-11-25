@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 const moduleSettingsFile = "modules.json"
@@ -231,18 +232,19 @@ func (s *Service) moduleSnapshot(config moduleConfig, project string) moduleResp
 // through a symlink or overwrite an existing non-directory entry.
 func (s *Service) moduleDirectoryStatus(path string) moduleDirectory {
 	status := moduleDirectory{Path: path}
-	for current := path; current != "."; current = filepath.Dir(current) {
-		info, err := os.Lstat(filepath.Join(s.dir, current))
+	current := s.dir
+	for _, component := range strings.Split(path, "/") {
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
 			status.Repairable = true
-			continue
+			return status
 		}
 		if err != nil || !info.IsDir() {
-			status.Repairable = false
 			return status
 		}
 	}
-	status.Exists = !status.Repairable
+	status.Exists = true
 	return status
 }
 

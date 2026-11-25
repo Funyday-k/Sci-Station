@@ -204,3 +204,28 @@ func TestRepairModuleDirectoryStaysWithinResearchRoot(t *testing.T) {
 		t.Fatalf("repair escaped research root: %v", err)
 	}
 }
+
+func TestFailedModuleSavePreservesThePreviousConfig(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory mode does not restrict root")
+	}
+	dir := t.TempDir()
+	s := newResearch(t, dir)
+	old := modulePatch(t, s, "", moduleChange{Action: "set", ModuleID: "wiki", Enabled: moduleBool(false)})
+	if err := os.Chmod(dir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0700) })
+	change := moduleChange{Action: "set", ModuleID: "wiki", Enabled: moduleBool(true), Revision: old.Revision}
+	callResearch(t, s, "PATCH", "/modules", change, 500)
+	unchanged := moduleGet(t, s, "")
+	if unchanged.Revision != old.Revision {
+		t.Fatal("failed save changed the on-disk configuration")
+	}
+	moduleCheck(t, unchanged, "wiki", false, false, false)
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	callResearch(t, s, "PATCH", "/modules", change, 200)
+	moduleCheck(t, moduleGet(t, newResearch(t, dir), ""), "wiki", true, true, false)
+}

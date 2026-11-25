@@ -144,7 +144,7 @@
               </div>
             </div>
           </div>
-          <button id="back-to-table" class="button secondary small" hidden>
+          <button id="back-to-table" class="button secondary small" data-en="Back to Roundtable" hidden>
             返回圆桌
           </button>
           <span id="connection-status" class="connection-status sr-only"
@@ -505,7 +505,7 @@
                       <strong>Magpie</strong>
                       <span id="magpie-connection" class="settings-status" role="status">正在连接…</span>
                     </div>
-                    <button id="open-magpie" type="button" class="button secondary small" disabled>
+                    <button id="open-magpie" type="button" class="button secondary small" disabled data-en="Open Magpie">
                       打开 Magpie
                     </button>
                   </div>
@@ -519,18 +519,18 @@
                       <strong>圆桌 Agent</strong>
                       <span id="magpie-agent-status" class="settings-status" role="status">正在读取…</span>
                     </div>
-                    <button id="register-magpie-agent" type="button" class="button secondary small" hidden>
+                    <button id="register-magpie-agent" type="button" class="button secondary small" hidden data-en="Register">
                       注册
                     </button>
                   </div>
                   <p id="magpie-agent-detail" class="settings-note" hidden></p>
-                  <p class="settings-note">在 Magpie 的 Agents 页面为 Sci-Station 选择模型。本机网关按应用标识记录请求，无需填写 API 密钥。</p>
+                  <p class="settings-note" data-en="Choose a Sci-Station model in Magpie’s Agents page. The local gateway identifies requests by application.">在 Magpie 的 Agents 页面为 Sci-Station 选择模型。本机网关按应用标识记录请求，无需填写 API 密钥。</p>
                 </div>
               </section>
                   </section>
                   <section id="settings-panel-tools" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-tools" hidden>
 <section class="settings-section" aria-labelledby="clients-heading">
-                <h2 id="clients-heading">本机工具</h2>
+                <h2 id="clients-heading" data-en="Local tools">本机工具</h2>
                 <div class="settings-card">
                   <p id="clients-state" class="settings-note" role="status">正在检查…</p>
                   <ul id="clients-list" class="clients-list"></ul>
@@ -542,29 +542,29 @@
                 <h2 id="collaboration-heading" data-en="Collaboration">协作</h2>
                 <div class="settings-card settings-options">
                   <div class="setting-row">
-                    <label for="setting-allow-edits">允许模型修改项目文件</label>
+                    <label for="setting-allow-edits" data-en="Allow models to edit project files">允许模型修改项目文件</label>
                     <input id="setting-allow-edits" type="checkbox" role="switch" />
                   </div>
                   <div class="setting-row">
-                    <label for="setting-max-children">每席工具代理上限</label>
+                    <label for="setting-max-children" data-en="Tool agents per seat">每席工具代理上限</label>
                     <input id="setting-max-children" type="number" min="0" max="5" required />
                   </div>
                   <div class="setting-row">
-                    <label for="setting-max-steps">工作步骤上限</label>
+                    <label for="setting-max-steps" data-en="Maximum work steps">工作步骤上限</label>
                     <input id="setting-max-steps" type="number" min="2" max="40" required />
                   </div>
                   <div class="setting-row">
-                    <label for="setting-timeout">单次模型调用超时（秒）</label>
+                    <label for="setting-timeout" data-en="Model call timeout (seconds)">单次模型调用超时（秒）</label>
                     <input id="setting-timeout" type="number" min="10" max="1800" required />
                   </div>
                 </div>
               </section>
                     <div class="settings-rules">
-                      <button id="open-rules-file" type="button" class="button secondary">讨论规则文件</button>
+                      <button id="open-rules-file" type="button" class="button secondary" data-en="Discussion rules file">讨论规则文件</button>
                     </div>
                     <div class="settings-footer">
                       <span class="settings-save-state quiet" role="status"></span>
-                      <button id="save-settings" type="submit" class="button primary" disabled>保存设置</button>
+                      <button id="save-settings" type="submit" class="button primary" disabled data-en="Save settings">保存设置</button>
                     </div>
                   </section>
                   <section id="settings-panel-appearance" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
@@ -585,54 +585,54 @@
                       <h2 id="appearance-heading" data-en="Appearance">外观</h2>
                       <div class="settings-card settings-options">
                         <div class="setting-row">
-                          <label for="setting-appearance">明暗模式</label>
+                          <label for="setting-appearance" data-en="Light and dark mode">明暗模式</label>
                           <select id="setting-appearance">
-                            <option value="system">随系统</option>
-                            <option value="light">浅色</option>
-                            <option value="dark">深色</option>
+                            <option value="system" data-en="Follow system">随系统</option>
+                            <option value="light" data-en="Light">浅色</option>
+                            <option value="dark" data-en="Dark">深色</option>
                           </select>
                         </div>
                         <div class="setting-row">
                           <div>
-                            <label for="setting-text-size">字号</label>
-                            <p class="reading-preview" id="text-size-preview">正文与对话预览</p>
+                            <label for="setting-text-size" data-en="Text size">字号</label>
+                            <p class="reading-preview" id="text-size-preview" data-en="Preview body and conversation text">正文与对话预览</p>
                           </div>
                           <select id="setting-text-size" aria-describedby="text-size-preview">
-                            <option value="standard">标准</option>
-                            <option value="large">大</option>
-                            <option value="extra-large">特大</option>
+                            <option value="standard" data-en="Standard">标准</option>
+                            <option value="large" data-en="Large">大</option>
+                            <option value="extra-large" data-en="Extra large">特大</option>
                           </select>
                         </div>
                         <div class="theme-settings">
                           <fieldset>
-                            <legend>配色主题</legend>
+                            <legend data-en="Color theme">配色主题</legend>
                             <div class="theme-choices">
                               <label class="theme-choice">
                                 <input class="sr-only" type="radio" name="color_theme" value="iris" checked />
                                 <span class="theme-choice-content">
                                   <span class="theme-swatch" data-color-theme="iris" aria-hidden="true"></span>
-                                  <span>鸢尾紫</span>
+                                  <span data-en="Iris">鸢尾紫</span>
                                 </span>
                               </label>
                               <label class="theme-choice">
                                 <input class="sr-only" type="radio" name="color_theme" value="teal" />
                                 <span class="theme-choice-content">
                                   <span class="theme-swatch" data-color-theme="teal" aria-hidden="true"></span>
-                                  <span>松石青</span>
+                                  <span data-en="Teal">松石青</span>
                                 </span>
                               </label>
                               <label class="theme-choice">
                                 <input class="sr-only" type="radio" name="color_theme" value="amber" />
                                 <span class="theme-choice-content">
                                   <span class="theme-swatch" data-color-theme="amber" aria-hidden="true"></span>
-                                  <span>暖琥珀</span>
+                                  <span data-en="Amber">暖琥珀</span>
                                 </span>
                               </label>
                               <label class="theme-choice">
                                 <input class="sr-only" type="radio" name="color_theme" value="blue" />
                                 <span class="theme-choice-content">
                                   <span class="theme-swatch" data-color-theme="blue" aria-hidden="true"></span>
-                                  <span>海蓝</span>
+                                  <span data-en="Blue">海蓝</span>
                                 </span>
                               </label>
                             </div>
@@ -642,7 +642,7 @@
                     </section>
                     <div class="settings-footer">
                       <span class="settings-save-state quiet" role="status"></span>
-                      <button id="save-settings-appearance" type="submit" class="button primary" disabled>保存设置</button>
+                      <button id="save-settings-appearance" type="submit" class="button primary" disabled data-en="Save settings">保存设置</button>
                     </div>
                   </section>
                 </form>
@@ -670,29 +670,29 @@
                   <h2 class="settings-panel-title" data-en="Plugin marketplace">插件市场</h2>
             <div class="plugin-market">
               <div class="plugin-market-main">
-                <p class="plugin-market-intro">启用的插件指引用于所有项目接下来的讨论轮次和新报告。插件工具须在会议中手动运行。</p>
+                <p class="plugin-market-intro" data-en="Enabled plugin guidance applies to upcoming rounds and new reports in all projects. Run plugin tools from a meeting.">启用的插件指引用于所有项目接下来的讨论轮次和新报告。插件工具须在会议中手动运行。</p>
                 <div class="plugin-market-tabs" role="group" aria-label="插件列表">
-                  <button id="plugin-tab-discover" class="button secondary" type="button" aria-pressed="true">发现插件</button>
-                  <button id="plugin-tab-installed" class="button secondary" type="button" aria-pressed="false">已安装</button>
+                  <button id="plugin-tab-discover" class="button secondary" type="button" aria-pressed="true" data-en="Discover plugins">发现插件</button>
+                  <button id="plugin-tab-installed" class="button secondary" type="button" aria-pressed="false" data-en="Installed">已安装</button>
                 </div>
                 <div class="plugin-market-filters">
-                  <label class="sr-only" for="plugin-search">搜索插件</label>
+                  <label class="sr-only" for="plugin-search" data-en="Search plugins">搜索插件</label>
                   <input id="plugin-search" type="search" placeholder="搜索插件、作者或用途" autocomplete="off" />
-                  <label class="sr-only" for="plugin-source-filter">筛选插件目录</label>
-                  <select id="plugin-source-filter"><option value="">所有目录</option></select>
+                  <label class="sr-only" for="plugin-source-filter" data-en="Filter by catalog">筛选插件目录</label>
+                  <select id="plugin-source-filter"><option value="" data-en="All catalogs">所有目录</option></select>
                 </div>
                 <div class="plugin-market-status">
                   <p id="plugin-market-status" role="status"></p>
-                  <button id="plugin-market-retry" class="button secondary small" type="button" hidden>重新读取</button>
+                  <button id="plugin-market-retry" class="button secondary small" type="button" hidden data-en="Reload">重新读取</button>
                 </div>
                 <div id="plugin-market-results"></div>
               </div>
               <section class="plugin-source-panel" aria-labelledby="plugin-source-title">
-                <h2 id="plugin-source-title">插件目录</h2>
+                <h2 id="plugin-source-title" data-en="Plugin catalogs">插件目录</h2>
                 <form id="plugin-source-form">
-                  <label for="plugin-source-url">订阅目录地址</label>
+                  <label for="plugin-source-url" data-en="Catalog URL">订阅目录地址</label>
                   <input id="plugin-source-url" type="url" placeholder="https://example.com/catalog.json" required autocomplete="off" spellcheck="false" />
-                  <button id="plugin-source-add" class="button secondary small" type="submit">订阅</button>
+                  <button id="plugin-source-add" class="button secondary small" type="submit" data-en="Subscribe">订阅</button>
                 </form>
                 <p id="plugin-source-status" class="plugin-source-status" role="status"></p>
                 <ul id="plugin-source-list" class="plugin-source-list"></ul>
