@@ -108,3 +108,43 @@ func TestContinuousStopsAtStallLimitAndRoundLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestShutdownPausesActiveGoalDuringReview(t *testing.T) {
+	reviewing := make(chan struct{})
+	e, project := engine(t, func(ctx context.Context, _, _, _, _ string) (string, error) {
+		if strings.Contains(deliberation.InstructionsFrom(ctx), "CONTINUOUS_REVIEW") {
+			close(reviewing)
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return say("已核对"), nil
+	})
+	s, err := e.Create("active goal", project, []string{"codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.StartRound(s.ID, "", "", 0, RoundOptions{Continuous: &ContinuousConfig{MaxRounds: 3}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reviewing:
+	case <-time.After(4 * time.Second):
+		t.Fatal("goal review did not begin")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := New(e.dir, e.call, testSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := reopened.Get(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Continuous.Status != "paused" || len(saved.Rounds) != 1 || saved.Rounds[0].Turns[0].Text != "已核对" {
+		t.Fatalf("expected one preserved round and a paused goal, got %+v", saved)
+	}
+}
