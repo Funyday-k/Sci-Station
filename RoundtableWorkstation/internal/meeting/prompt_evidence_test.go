@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"scistation.local/desktop/internal/workspace"
@@ -152,7 +153,22 @@ func TestLongMeetingKeepsReferencesAndFetchesVisibleOriginal(t *testing.T) {
 	if _, err = e.StartWithDiscussion(s.ID, "verify source", "", 24, "review", "challenge"); err != nil {
 		t.Fatal(err)
 	}
-	s = settled(t, e, s.ID)
+	// Polling Get would repeatedly decode the full archive under the worker's
+	// storage lock. Wait for the worker to finish its final save instead.
+	ended := make(chan struct{})
+	go func() {
+		e.workers.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+	case <-time.After(30 * time.Second):
+		t.Fatal("long meeting worker did not finish")
+	}
+	s, err = e.Get(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	turn := s.Rounds[24].Turns[1]
 	if s.Status != "ready" || len(turn.Positions) != 1 || turn.Positions[0].PointID != oldPoint {
 		t.Fatalf("long-round discussion failed: status = %s, turn error = %q, positions = %+v", s.Status, turn.Error, turn.Positions)
