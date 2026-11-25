@@ -469,6 +469,9 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 	recovered := false
 	if !isNew {
 		existing := clonePaper(other)
+		if tempFile != "" && !existing.HasPDF && conflictingArxivRevisions(existing.Arxiv, m.Arxiv) {
+			return Paper{}, false, fmt.Errorf("%w：已有不同版本的 arXiv 记录，请使用该版本的 PDF", errPaperExists)
+		}
 		recovered = recoverPaperMetadata(&existing, m)
 		addPaperImportAliases(&existing, m)
 		for _, id := range m.ProjectIDs {

@@ -229,3 +229,25 @@ func TestPaperImportRetryFillsProviderDataWithoutOverwritingEdits(t *testing.T) 
 		t.Fatalf("recovered paper: %d %+v", res.Code, got)
 	}
 }
+
+func TestPDFImportKeepsExactArxivRevisionOnLinkRecord(t *testing.T) {
+	lib := testPaperLib(t)
+	res := testPaperRequest(t, lib, "POST", "", `{"identifier":"arXiv:2404.12345v1","skip_metadata_lookup":true}`)
+	stored := decodeResearch[Paper](t, res.Body.Bytes())
+	if res.Code != http.StatusCreated || stored.Arxiv != "2404.12345v1" || stored.HasPDF {
+		t.Fatalf("link record %d %+v", res.Code, stored)
+	}
+	pdf, err := os.ReadFile(readerFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res = paperPDFRequest(t, lib, "", "2404.12345v2.pdf", pdf)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("different arXiv version %d %s", res.Code, res.Body)
+	}
+	res = paperPDFRequest(t, lib, "", "2404.12345v1.pdf", pdf)
+	record := decodeResearch[Paper](t, res.Body.Bytes())
+	if res.Code != http.StatusOK || !record.HasPDF || record.ID != stored.ID || record.Arxiv != stored.Arxiv {
+		t.Fatalf("matching revision %d %+v", res.Code, record)
+	}
+}

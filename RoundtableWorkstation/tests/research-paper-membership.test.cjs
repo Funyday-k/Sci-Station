@@ -137,7 +137,7 @@ test("identifier import previews the first target and retries only failed target
     if (!inputs.has(name)) inputs.set(name, {value: "", addEventListener() {}});
     return inputs.get(name);
   };
-  control("identifiers").value = "arXiv:2404.12345v2\nhttps://doi.org/10.1000/abc\narXiv:2404.12345v2";
+  control("identifiers").value = "arXiv 2404.12345v2, https://doi.org/10.1000/abc; arXiv:2404.12345v2";
   control("pdf").files = [];
   control("collection_id").value = "chosen-collection";
   const controls = new Map();

@@ -56,6 +56,12 @@ func arxivPaperIdentity(metadata PaperMetadata) string {
 	return ArxivWorkID(arxivDOIAlias(metadata.DOI))
 }
 
+func conflictingArxivRevisions(first, second string) bool {
+	first, second = normalizeArxiv(first), normalizeArxiv(second)
+	id := ArxivWorkID(first)
+	return id != "" && id == ArxivWorkID(second) && first != id && second != id && first != second
+}
+
 func addPaperImportAliases(existing *Paper, incoming PaperMetadata) {
 	if existing.DOI == "" {
 		existing.DOI = incoming.DOI
@@ -66,7 +72,7 @@ func addPaperImportAliases(existing *Paper, incoming PaperMetadata) {
 	if existing.InspireID == "" {
 		existing.InspireID = incoming.InspireID
 	}
-	if existing.PDFURL == "" && !existing.HasPDF {
+	if existing.PDFURL == "" && !existing.HasPDF && !conflictingArxivRevisions(existing.Arxiv, incoming.Arxiv) {
 		existing.PDFURL = incoming.PDFURL
 	}
 }

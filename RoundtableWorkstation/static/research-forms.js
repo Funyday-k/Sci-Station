@@ -243,11 +243,28 @@
       return body;
     }
 
+    function importIdentifiers(f) {
+      const raw = value(f, "identifiers")
+        .replace(/(^|[\s,;])(arxiv|doi|inspire)\s*:\s*/gi, "$1$2:")
+        .replace(/(^|[\s,;])arxiv[ \t]+(?=\d{4}\.)/gi, "$1arXiv:");
+      // A comma or semicolon inside a URL or DOI can be part of the identifier.
+      const values = raw.split(/[,，;；]\s+|\s+|[,，;；](?=https?:\/\/|(?:arxiv|doi|inspire):|10\.\d{4,9}\/|\d{4}\.\d{4,5})/i);
+      return [...new Set(values.filter(Boolean))];
+    }
+
     function importItems(f) {
       const files = [...(f.elements.pdf?.files || [])];
-      const targets = [...new Set(value(f, "identifiers").split(/\r?\n/).map(text => text.trim()).filter(Boolean))];
+      const targets = importIdentifiers(f);
       if (files.length && targets.length) throw Error("请分别提交本地 PDF 和在线标识符。");
       return files.length ? files : targets.length ? targets : [null];
+    }
+
+    function drawImportResults(f, items) {
+      f.querySelector("[data-import-results]").replaceChildren(...items.filter(Boolean).map(item => {
+        const entry = document.createElement("li");
+        entry.textContent = (item.name || item) + " · " + (outcomes.get(item) || "等待导入");
+        return entry;
+      }));
     }
 
     function importPayload(f, item, multiple) {
@@ -283,15 +300,7 @@
           done(token);
           return;
         }
-        const results = f.querySelector("[data-import-results]");
         const identifiers = f.elements.namedItem("identifiers");
-        const drawResults = () => {
-          results.replaceChildren(...items.map(item => {
-            const li = document.createElement("li");
-            li.textContent = (item.name || item) + " · " + (outcomes.get(item) || "等待导入");
-            return li;
-          }));
-        };
         const submissions = pending.map(item => [item, importPayload(f, item, true)]);
         f.elements.pdf.disabled = true;
         identifiers.disabled = true;
@@ -299,7 +308,7 @@
           for (const [item, payload] of submissions) {
             if (!f.closest("dialog")?.open || token !== formEpoch) break;
             outcomes.set(item, "正在导入");
-            drawResults();
+            drawImportResults(f, items);
             try {
               const record = await request("papers", {method: "POST", body: payload});
               const warning = [record.import_warning, record.metadata_warning].filter(Boolean).join(" · ");
@@ -308,7 +317,7 @@
             } catch (err) {
               outcomes.set(item, err.message);
             }
-            drawResults();
+            drawImportResults(f, items);
           }
         } finally {
           f.elements.pdf.disabled = false;
@@ -353,7 +362,7 @@
       }
       function syncInputs() {
         const files = form.elements.pdf.files.length;
-        const targets = value(form, "identifiers").split(/\r?\n/).filter(line => line.trim()).length;
+        const targets = importIdentifiers(form).length;
         for (const name of ["title", "doi", "arxiv", "url", "authors", "year", "abstract"]) {
           form.elements.namedItem(name).disabled = files > 1 || targets > 1 ||
             (targets > 0 && ["doi", "arxiv", "url"].includes(name));
@@ -364,9 +373,17 @@
         previewButton.textContent = Math.max(files, targets) > 1 ? "预览首篇文献" : "预览文献";
       }
       function resetBatch() {
-        completed.clear();
-        outcomes.clear();
-        form.querySelector("[data-import-results]").replaceChildren();
+        let items = [];
+        try {
+          items = importItems(form);
+        } catch {}
+        for (const item of outcomes.keys()) {
+          if (!items.includes(item)) {
+            completed.delete(item);
+            outcomes.delete(item);
+          }
+        }
+        drawImportResults(form, items);
         form.querySelector("[type=submit]").textContent = "导入文献";
         resetPreview();
         syncInputs();
