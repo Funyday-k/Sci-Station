@@ -20,6 +20,7 @@ The [macOS CI workflow](../.github/workflows/macos-ci.yml) has no path filters. 
 | Swift test gates | Swift Testing, coverage floor, every legacy integration check |
 | Python sidecar tests | Full `AgentRuntime/tests` suite |
 | Apple Silicon Release build and smoke test | Unsigned app build, bundled runtime, installation and UI checks |
+| Roundtable workstation tests and macOS build | Go race and vet, frontend and native bridge tests, ad-hoc signed arm64 bundle, deployment target, and native shutdown/relaunch smoke |
 
 CI cannot judge whether an Issue's acceptance criteria are actually met; that remains part of review. A linked Issue reference is syntactically checked; the maintainer verifies that it exists and is relevant. Local RFC/ADR paths and backlog anchors are checked against the checkout. Proposed RFCs are design artifacts, not permission to silently ship a new architecture.
 

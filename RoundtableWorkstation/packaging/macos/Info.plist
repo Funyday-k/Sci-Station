@@ -5,12 +5,9 @@
     <key>CFBundleName</key><string>Sci-Station</string>
     <key>CFBundleDisplayName</key><string>Sci-Station</string>
     <key>CFBundleIdentifier</key><string>com.funyday.scistation.desktop</string>
-    <key>CFBundleVersion</key><string>1</string>
-    <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleExecutable</key><string>sci-station</string>
     <key>CFBundleIconFile</key><string>roundtable.icns</string>
-    <key>LSMinimumSystemVersion</key><string>12.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSCalendarsFullAccessUsageDescription</key><string>读取你选择查看的系统日历事件。</string>

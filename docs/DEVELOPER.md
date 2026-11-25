@@ -276,6 +276,18 @@ Xcode 的定向测试工具只接收测试标识，不能为每次安装副本�
 
 `script/build_and_run.sh` 使用同一套配置，使 Codex Run 与 Xcode 日常构建保持一致。本机开发签名与公开发布都不依赖 Developer ID。
 
+### Roundtable 工作台候选应用
+
+从仓库根目录执行以下命令，可构建、验证并打开 [RFC-0002](rfcs/RFC-0002-roundtable-workstation.md) 的独立候选应用。
+
+```bash
+make -C RoundtableWorkstation app
+make -C RoundtableWorkstation verify
+make -C RoundtableWorkstation run
+```
+
+候选应用采用根目录 `VERSION` 和 Xcode build number，可用 `SCI_STATION_BUILD_NUMBER` 注入已验证的构建号。CI 对它执行 Go race tests、前端与原生桥接测试、签名与部署目标校验，并从打包产物运行原生退出与重开烟测。用户数据验收、macOS 15 安装及覆盖升级验证通过后，生产发布切换仍需按 RFC-0002 更新打包、校验和 provenance 流程。当前公开发布入口见下文。
+
 ### 无证书测试包
 
 默认使用 ad-hoc 签名：

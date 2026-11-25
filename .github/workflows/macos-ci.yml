@@ -165,11 +165,18 @@ jobs:
         with:
           go-version-file: RoundtableWorkstation/go.mod
           cache-dependency-path: RoundtableWorkstation/go.sum
-      - run: go test -race -tags nogui ./...
-      - run: node --test tests/*.test.cjs
-      - run: go vet -tags nogui ./...
-      - run: make app APP_OUTPUT="$RUNNER_TEMP/Sci-Station.app"
-      - run: codesign --verify --deep --strict "$RUNNER_TEMP/Sci-Station.app"
+      - name: Run Go race tests
+        run: go test -race -tags nogui ./...
+      - name: Run frontend and native bridge tests
+        run: node --test tests/*.test.cjs
+      - name: Vet Go sources
+        run: go vet -tags nogui ./...
+      - name: Build the signed arm64 workstation bundle
+        run: make app APP_OUTPUT="$RUNNER_TEMP/Sci-Station.app"
+      - name: Verify workstation bundle and deployment target
+        run: make verify APP_OUTPUT="$RUNNER_TEMP/Sci-Station.app"
+      - name: Exercise shutdown and relaunch on macOS
+        run: python3 tests/macos-close-smoke.py "$RUNNER_TEMP/Sci-Station.app"
 
   required-ci:
     name: Required CI

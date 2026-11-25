@@ -12,14 +12,17 @@ Sci-Station 是本地优先的科研桌面工作台。一个应用内包括共�
 
 新版从空工作区开始，使用独立应用目录 `~/Library/Application Support/Sci-Station Desktop`。文献保留原 PDF，科研项目可以关联明确选择的外部目录，会议记录与已审笔记分别存储。备份时先退出应用，再复制整个应用数据目录和自己关联的外部项目文件夹。
 
-需要 Go 1.26、Xcode Command Line Tools 和 macOS。当前分发包针对 Apple Silicon。构建使用已提交的 go.mod/go.sum，首次构建需获取依赖。
+需要 Go 1.26、Xcode Command Line Tools 和 macOS 15 或更新版本。候选应用面向 Apple Silicon。构建使用已提交的 `go.mod`、`go.sum` 和界面资源，首次构建需获取 Go 依赖。以下命令从仓库根目录运行。
 
 ```sh
-make test
-make app
-open Sci-Station.app
+make -C RoundtableWorkstation test
+make -C RoundtableWorkstation app
+make -C RoundtableWorkstation verify
+make -C RoundtableWorkstation run
 ```
 
-`make headless` 生成可通过浏览器访问的本地服务。运行 `build/bin/sci-station-server serve -data-dir /path/to/test-data`，访问 `http://127.0.0.1:18765/research`。原生启动、系统日历和系统对话框使用桌面模式。首次试用可在独立目录启动 `Sci-Station.app/Contents/MacOS/sci-station app -data-dir /path/to/test-data`。
+默认产物是 `RoundtableWorkstation/Sci-Station.app`。`app`、`verify` 和 `run` 接受相同的 `APP_OUTPUT`。构建对候选 bundle 做启用 hardened runtime 的 ad-hoc 签名，通过验证后再替换原产物。要验证原生退出、端口与数据锁释放及重开，需要登录 macOS 图形会话并运行 `python3 RoundtableWorkstation/tests/macos-close-smoke.py RoundtableWorkstation/Sci-Station.app`。
+
+`make -C RoundtableWorkstation headless` 生成可通过浏览器访问的本地服务。运行 `RoundtableWorkstation/build/bin/sci-station-server serve -data-dir /path/to/test-data`，访问 `http://127.0.0.1:18765/research`。原生启动、系统日历和系统对话框使用桌面模式。首次试用可在独立目录启动 `RoundtableWorkstation/Sci-Station.app/Contents/MacOS/sci-station app -data-dir /path/to/test-data`。
 
 主要入口是 main.go、api.go、desktop_darwin.go，科研存储在 internal/research，会议编排在 internal/meeting，模型接入在 internal/gateway，界面在 static，应用打包脚本在 packaging/macos。原生启动窗口与 PDF 工具使用 Objective-C / AppKit / PDFKit，不需要 Swift 工程或 Python 服务。macOS 应用使用本地 ad-hoc 签名。

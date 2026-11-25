@@ -4,8 +4,8 @@ App releases and persisted/protocol formats serve different compatibility contra
 
 | Component | Authoritative source / contract | Change rule |
 | --- | --- | --- |
-| App marketing version | Root [VERSION](../VERSION); Xcode `MARKETING_VERSION` and README version headers mirror it | `MAJOR.MINOR.PATCH`; release tag is exactly `v` plus this value |
-| App build number | Xcode `CURRENT_PROJECT_VERSION`, or the validated release build override | Positive integer, greater than the previous stable-format release tag's build number |
+| App marketing version | Root [VERSION](../VERSION). Xcode `MARKETING_VERSION` and README version headers mirror it. The workstation candidate build reads it directly. | `MAJOR.MINOR.PATCH`. The release tag is exactly `v` plus this value. |
+| App build number | Xcode `CURRENT_PROJECT_VERSION` supplies both builds during the host transition. Release builds may use a validated override. | Positive integer, greater than the previous stable-format release tag's build number |
 | Python AgentRuntime package | `AgentRuntime/pyproject.toml`; `sci_station_agent.__version__` mirrors it | Independent semantic version; CI checks these two agree without forcing agreement with the app |
 | Sidecar transport | `AgentInitializeParams` in `SidecarProcessSupervisor.swift` and Python server protocol/schema constants | Independent compatibility contract; both peers must agree and handshake tests must cover rejection |
 | Workspace preferences | `WorkspacePreferences.currentSchemaVersion` (currently 5) | Independent integer; update migration/defaulting and old-input tests with a format change |

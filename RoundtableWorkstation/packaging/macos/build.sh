@@ -3,9 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 GO="${GO:-go}"
-export MACOSX_DEPLOYMENT_TARGET=12.0
-export CGO_CFLAGS="-mmacosx-version-min=12.0 ${CGO_CFLAGS:-}"
-export CGO_LDFLAGS="-mmacosx-version-min=12.0 ${CGO_LDFLAGS:-}"
 APP="${APP_OUTPUT:-Sci-Station.app}"
 APP_PARENT="$(dirname "$APP")"
 APP_NAME="$(basename "$APP")"
@@ -21,6 +18,15 @@ if [[ -e "$APP" ]] && [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier
 	printf 'Existing output is not a Sci-Station app: %s\n' "$APP" >&2
 	exit 1
 fi
+VERSION="$(cat ../VERSION)"
+BUILD_NUMBER="${SCI_STATION_BUILD_NUMBER:-$(awk '/CURRENT_PROJECT_VERSION =/ { sub(/;$/, "", $3); print $3 }' ../Sci-Station.xcodeproj/project.pbxproj | sort -u)}"
+if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ || ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+	printf 'Expected a numeric VERSION and a positive integer build number.\n' >&2
+	exit 1
+fi
+export MACOSX_DEPLOYMENT_TARGET=15.0
+export CGO_CFLAGS="${CGO_CFLAGS:--O2 -g} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+export CGO_LDFLAGS="${CGO_LDFLAGS:--O2 -g} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
 STAGE_ROOT="$(/usr/bin/mktemp -d "$APP_PARENT/.roundtable-build.XXXXXX")"
 STAGED_APP="$STAGE_ROOT/$APP_NAME"
 BACKUP_APP="$STAGE_ROOT/previous.app"
@@ -40,14 +46,15 @@ cleanup() {
 trap cleanup EXIT
 CONTENTS="$STAGED_APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
-"$GO" build -tags production -trimpath -ldflags '-s -w' -o "$CONTENTS/MacOS/sci-station" .
-cp packaging/macos/Info.plist "$CONTENTS/Info.plist"
-cp packaging/macos/roundtable.icns "$CONTENTS/Resources/roundtable.icns"
-cp packaging/magpie/sci-station.agent.js "$CONTENTS/Resources/sci-station.agent.js"
+GOWORK=off GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 "$GO" build -mod=readonly -tags production -trimpath -buildvcs=false -ldflags '-s -w' -o "$CONTENTS/MacOS/sci-station" .
+cp -X packaging/macos/Info.plist "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" \
+	-c "Add :CFBundleVersion string $BUILD_NUMBER" \
+	-c "Add :LSMinimumSystemVersion string $MACOSX_DEPLOYMENT_TARGET" "$CONTENTS/Info.plist"
+cp -X packaging/macos/roundtable.icns packaging/magpie/sci-station.agent.js "$CONTENTS/Resources/"
 printf 'APPL????' > "$CONTENTS/PkgInfo"
-/usr/bin/plutil -lint "$CONTENTS/Info.plist"
-/usr/bin/codesign --force --sign - "$STAGED_APP"
-/usr/bin/codesign --verify --strict "$STAGED_APP"
+/usr/bin/codesign --force --options runtime --timestamp=none --sign - "$STAGED_APP"
+SCI_STATION_BUILD_NUMBER="$BUILD_NUMBER" ./packaging/macos/verify.sh "$STAGED_APP"
 if [[ -e "$APP" ]]; then
 	mv "$APP" "$BACKUP_APP"
 	HAD_BACKUP=1
