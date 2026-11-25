@@ -288,6 +288,8 @@ make -C RoundtableWorkstation run
 
 候选应用采用根目录 `VERSION` 和 Xcode build number，可用 `SCI_STATION_BUILD_NUMBER` 注入已验证的构建号。CI 对它执行 Go race tests、前端与原生桥接测试、签名与部署目标校验，并从打包产物运行原生退出与重开烟测。用户数据验收、macOS 15 安装及覆盖升级验证通过后，生产发布切换仍需按 RFC-0002 更新打包、校验和 provenance 流程。当前公开发布入口见下文。
 
+Swift 构建的 App Sandbox 允许用户所选文件、应用范围书签、下载目录、出站网络和日历访问，sidecar 使用继承权限。工作台候选包沿用 `com.funyday.scistation.desktop`，启用 hardened runtime，签名当前没有 entitlements。它通过本机回环地址提供 UI，由应用记录和检查用户批准的科研目录，日历与提醒事项通过 EventKit 请求系统授权。切换前需验收所选目录的授权、拒绝和撤销，新包的 Keychain 及 EventKit 权限在首次安装与覆盖升级后的行为，以及候选包是否需要额外的系统隔离。现有 Swift 书签与本机权限按 [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) 保留在原应用环境，工作台用独立目录完成验证。
+
 ### 无证书测试包
 
 默认使用 ad-hoc 签名：

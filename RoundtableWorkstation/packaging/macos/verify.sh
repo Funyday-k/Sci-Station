@@ -54,4 +54,9 @@ if ! grep -qx 'Signature=adhoc' <<<"$SIGNATURE" || ! grep -q '^CodeDirectory .*f
 	printf 'Expected an ad-hoc signature with hardened runtime.\n' >&2
 	exit 1
 fi
+ENTITLEMENTS="$(/usr/bin/codesign --display --entitlements - "$APP" 2>/dev/null)"
+if [[ -n "$ENTITLEMENTS" ]]; then
+	printf 'Unexpected signing entitlements in the workstation candidate.\n' >&2
+	exit 1
+fi
 printf 'Verified %s\n' "$APP"

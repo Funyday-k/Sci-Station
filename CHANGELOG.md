@@ -8,7 +8,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
-- Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Its macOS build and tests are included in the required checks.
+- Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Required CI builds and verifies the signed Apple Silicon candidate and exercises native shutdown.
 
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 
