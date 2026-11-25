@@ -290,6 +290,16 @@ make -C RoundtableWorkstation run
 
 Swift 构建的 App Sandbox 允许用户所选文件、应用范围书签、下载目录、出站网络和日历访问，sidecar 使用继承权限。工作台候选包沿用 `com.funyday.scistation.desktop`，启用 hardened runtime，签名当前没有 entitlements。它通过本机回环地址提供 UI，由应用记录和检查用户批准的科研目录，日历与提醒事项通过 EventKit 请求系统授权。切换前需验收所选目录的授权、拒绝和撤销，新包的 Keychain 及 EventKit 权限在首次安装与覆盖升级后的行为，以及候选包是否需要额外的系统隔离。现有 Swift 书签与本机权限按 [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) 保留在原应用环境，工作台用独立目录完成验证。
 
+#### 工作台端到端检查
+
+在登录图形会话的 Mac 上，可从仓库根目录用以下命令验证当前候选应用。两项测试都使用临时研究根。第一项测原样签名包的系统退出，并在独立测试副本触发原生窗口动作。服务收尾预算为 8 秒，测试允许总退出时间 10 秒。第二项使用真实 PDFKit、两个接本机测试网关的席位和独立重签的 WKWebView 测试副本，验证拒绝、确认、重试、重开及原页定位。
+
+```sh
+make app
+python3 RoundtableWorkstation/tests/macos-close-smoke.py build/Sci-Station.app
+SCI_STATION_WORKFLOW_SECONDARY=1 node RoundtableWorkstation/tests/workstation-workflow-smoke.cjs --native build/Sci-Station.app
+```
+
 ### 无证书测试包
 
 默认使用 ad-hoc 签名：

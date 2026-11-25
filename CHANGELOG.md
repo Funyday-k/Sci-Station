@@ -8,24 +8,18 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
-- AI Lab can run and continue a single-seat research session, review selections from project PDFs, notes and text materials, stop a run, and reopen its evidence and transcript offline. Researchers can search for passages across their project sources before selecting evidence. A redacted diagnostics ZIP includes event order, checkpoint state and source counts.
-
-- Navigate between research, papers, AI Lab and Roundtable in one workstation shell. Reopen the last route in its research root and follow project, paper and meeting links through the same navigation.
-
-- Restore the selected month's Apple calendar events and incomplete reminders, an opt-in for publishing new tasks, and project-scoped updates from linked reminders.
-
-- Project meetings and AI Lab now stage notes and tasks for review. Decisions and PDF citations survive reopening, and repeated confirmations return the original result.
-- Create unassigned tasks in the workstation even before adding a project. A task can lose its last project membership and keep its ID, calendar entry and reminder identity.
-
-- Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Required CI builds and verifies the signed Apple Silicon candidate and exercises native shutdown.
-- Save, replace and clear a workspace's MinerU token in macOS Keychain from PDF Conversion. Saved tokens are available after reopening the same data directory.
-- Configure OpenAI-compatible models in desktop Settings and select them in the shared model directory. API keys are scoped to the saved endpoint in macOS Keychain.
-
+- Build and launch the combined macOS research workstation with `make run`. Its native window hosts the shared library, PDF reader, project tools, AI Lab, and multi-seat Roundtable.
+- Keep one copy of a paper across projects with independent pins, ordering and core status. Preview imports, resume failed items, organize collections and tags, and export citations from the library or reader.
+- Follow individual references between Wiki pages, tasks and source passages. Preserve reading position, selected-text offsets and the PDF fingerprint when returning from a meeting.
+- Review proposals to write meeting results to notes or tasks, retry a confirmation and recover decisions after a restart. AI Lab can reopen a single-seat session and export redacted diagnostics.
+- Choose project modules and dashboard widgets, create tasks with optional project and paper associations, and explicitly connect selected Apple calendars and reminders. Literature discovery keeps ranked runs, filters and feedback.
+- Save MinerU tokens and credentials for OpenAI-compatible model profiles in macOS Keychain. The desktop model directory shares these profiles between research workflows.
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 
 ### Fixed
 
-- Reopen saved meetings under their original research project. Readers and AI Lab use project IDs for handoffs, and file access is checked against the project's active folder grant.
+- Close the desktop window during an active meeting or a native folder picker. Pending operations are cancelled, committed records are preserved and the next process can immediately reopen the workspace.
+- Reopen meetings under their original project after a folder changes. Verify the active folder grant whenever a project file is accessed.
 
 ## [0.2.0] - 2026-10-16
 

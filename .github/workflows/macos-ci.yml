@@ -177,6 +177,8 @@ jobs:
         run: make verify APP_OUTPUT="$RUNNER_TEMP/Sci-Station.app"
       - name: Exercise shutdown and relaunch on macOS
         run: python3 tests/macos-close-smoke.py "$RUNNER_TEMP/Sci-Station.app"
+      - name: Review a paper excerpt and reopen its source in WKWebView
+        run: node tests/workstation-workflow-smoke.cjs --native "$RUNNER_TEMP/Sci-Station.app"
 
   required-ci:
     name: Required CI
