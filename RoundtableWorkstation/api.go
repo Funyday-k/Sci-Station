@@ -28,6 +28,7 @@ import (
 var assets embed.FS
 
 type apiServer struct {
+	cliEdits        cliEditAPI
 	navigation      workspaceNavigation
 	calendar        calendarBridge
 	workspaceDir    string
@@ -427,6 +428,10 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[1]
+	if len(parts) == 3 && parts[2] == "cli-edits" {
+		a.serveCLIEdits(w, r, id)
+		return
+	}
 	if len(parts) == 3 && parts[2] == "research-reviews" {
 		a.meetingReviews(w, r, id)
 		return

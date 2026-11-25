@@ -6,6 +6,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ## [Unreleased]
 
+- The desktop meeting window can forward one-time native Codex and supported Claude Code edit approvals for selected project files. The CLI applies the reviewed change and reports its result.
+
 ### Added
 
 - Review a project CLI’s proposed file changes in its meeting, forward a one-time decision, cancel the run, and check its reported outcome.

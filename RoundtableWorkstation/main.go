@@ -215,6 +215,8 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 		cancelRequests()
+		api.forgetCLIEditWindow()
+		api.cliEdits.jobs.Close(ctx)
 		httpDone := make(chan error, 1)
 		go func() { httpDone <- server.Shutdown(ctx) }()
 		if err := engine.Shutdown(ctx); err != nil {

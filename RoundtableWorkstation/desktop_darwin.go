@@ -72,6 +72,9 @@ func runDesktop(explicit string, port int) error {
 		h.session.mu.Unlock()
 		go h.refreshMenu()
 		if current != nil && current.api != nil {
+			if script := current.api.cliEditWindowScript(current.address); script != "" {
+				h.window.ExecJS(script)
+			}
 			if script := current.api.desktopCredentialSessionScript(current.address); script != "" {
 				h.window.ExecJS(script)
 			}
@@ -142,6 +145,9 @@ func (h *desktopHost) choose(create bool, expected *apiServer) {
 			err = h.session.switchTo(token, func() (*workspaceInstance, error) { return h.start(rootChoice{dir: dir, create: create}, 0) }, func(next *workspaceInstance) error {
 				if err := h.roots.remember(next.dir); err != nil {
 					return err
+				}
+				if previous := h.session.active; previous != nil {
+					previous.api.forgetCLIEditWindow()
 				}
 				h.installPickers(next.api)
 				application.InvokeAsync(func() {
