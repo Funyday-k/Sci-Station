@@ -61,6 +61,17 @@ func TestReviewDecisionTransactions(t *testing.T) {
 	expect(req, 200)
 	req.Proposal.Body = "Changed replay"
 	expect(req, 409)
+	suspended := p.Path + "-temporarily-unavailable"
+	if err := os.Rename(p.Path, suspended); err != nil {
+		t.Fatal(err)
+	}
+	expect(decision(draft, "accept"), 403)
+	if len(s.projects[pid].Tasks) != 0 || s.projects[pid].Reviews[draft.ID].Status != "pending" {
+		t.Fatal("unavailable grant changed destination")
+	}
+	if err := os.Rename(suspended, p.Path); err != nil {
+		t.Fatal(err)
+	}
 	bad := decision(draft, "accept")
 	bad.ProjectID = other.ID
 	expect(bad, 403)
