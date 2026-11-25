@@ -183,7 +183,7 @@ func (s *PaperLibrary) editOrganization(edit paperOrganizationEdit) (paperOrgani
 		return paperOrganization{}, err
 	}
 	if disk != nil {
-		body = mergePaperFields(disk, before, body)
+		body = mergeRecordFields(disk, before, body)
 	}
 	if err = atomicWrite(s.organizationPath(), body); err != nil {
 		return paperOrganization{}, err

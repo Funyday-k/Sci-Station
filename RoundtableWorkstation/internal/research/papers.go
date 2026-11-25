@@ -235,7 +235,7 @@ func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	}
 	for key, value := range next {
 		if prior, exists := old[key]; exists && original[key] != nil {
-			if key == "annotations" && !bytes.Equal(prior, value) {
+			if key == "annotations" && (value[0] == '[' || bytes.Equal(value, []byte("null"))) && !bytes.Equal(prior, value) {
 				original[key] = mergePaperAnnotations(original[key], prior, value)
 			} else {
 				original[key] = mergeRecordFields(original[key], prior, value)
