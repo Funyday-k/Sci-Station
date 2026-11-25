@@ -7,6 +7,7 @@
   <meta name="color-scheme" content="light dark">
   <title>Sci-Station · 科研工作台</title>
   <link rel="icon" href="/static/roundtable-mark.png">
+  <script defer src="/static/workspace-nav.js"></script>
   <script src="/static/appearance.js"></script>
   <link rel="stylesheet" href="/static/research-vendor/katex.min.css">
   <link rel="stylesheet" href="/static/research.css">
@@ -17,19 +18,18 @@
   <script defer src="/static/research-vendor/auto-render.min.js"></script>
   <script defer src="/static/research.js"></script>
   <script defer src="/static/research-forms.js"></script>
-</head>
+<link rel="stylesheet" href="/static/workspace-nav.css">
+  </head>
 
 <body>
   <div id="shell">
     <aside id="sidebar" aria-label="工作区导航">
       <a class="brand" href="/research"><img src="/static/roundtable-mark.png" width="36" height="36"
           alt=""><span>Sci-Station</span></a>
-      <nav id="mainnav" aria-label="科研工具"></nav>
+      <nav data-workspace-nav aria-label="工作区导航"></nav>
       <div class="project-heading"><strong>我的项目</strong><button type="button" id="new-project" class="icon" aria-label="新建项目"
           title="新建项目">＋</button></div>
       <nav id="projectnav" aria-label="科研项目"></nav>
-      <div class="sidebar-foot"><a id="settings-link" class="navitem" href="/studio?view=settings"><span
-            data-icon="settings"></span>应用设置</a></div>
     </aside>
     <div id="workarea">
       <header class="topbar">
@@ -38,6 +38,7 @@
         <div id="crumb"><span>科研工作台</span></div>
         <button id="search-open" class="search-open"><span data-icon="search"></span><span>搜索工作区</span><kbd>⌘ K</kbd></button>
       </header>
+      <nav id="project-modules" aria-label="项目功能" hidden></nav>
       <main id="main" tabindex="-1" aria-busy="true">
         <p class="initial">正在读取工作区…</p>
       </main>

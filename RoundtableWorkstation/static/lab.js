@@ -18,7 +18,16 @@
     return {title:$("title").value.trim(),mode:$("mode").value,seats:Number($("seats").value),prompt:$("prompt").value.trim()};
   }
   function snapshot(p){return JSON.stringify([p.title,p.mode,p.seats,p.prompt]);}
-  function canLeave(){return original===null||snapshot(form())===original||confirm("放弃尚未保存的模板更改？");}
+  function dirtyTemplate(){return original!==null && snapshot(form())!==original;}
+  function canLeave(){return !dirtyTemplate()||confirm("放弃尚未保存的模板更改？");}
+  let handingOff = false;
+  window.addEventListener("beforeunload", event => {
+    if (!handingOff && (dirtyTemplate() || $("question").value.trim() || source)) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+  window.addEventListener("pageshow", () => { handingOff = false; });
   function select(p) {
     current=p;const x=p||{title:"",mode:"review",seats:1,prompt:""};original=snapshot(x);
     $("title").value=x.title;$("mode").value=x.mode;$("seats").value=String(x.seats);$("prompt").value=x.prompt;
@@ -45,8 +54,11 @@
     const id=$("project").value,p=projects.find(v=>v.id===id);
     $("session").replaceChildren(new Option("新建圆桌",""));
     if(p)for(const s of sessions){if(s.project===p.path&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
-    const qs=new URLSearchParams();if(id)qs.set("project",id);
-    $("back").href=qs.size?"/?"+qs:"/";$("handoff").disabled=!p;
+    const url=new URL(location.href);
+    if(id)url.searchParams.set("project",id);else url.searchParams.delete("project");
+    history.replaceState(null,"",url);
+    window.SciStationNav.update();
+    $("handoff").disabled=!p;
     hint();
   }
   function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
@@ -55,6 +67,7 @@
     handoff.compose(x);
     sessionStorage.setItem(handoff.key,JSON.stringify(x));
     const q=new URLSearchParams({project:x.projectId});if(x.sessionId)q.set("session",x.sessionId);
+    handingOff = true;
     location.assign("/studio?"+q);
   }
   function resetResource(){preview=null;$("resource-text").value="";$("preview-panel").hidden=true;}
@@ -91,7 +104,7 @@
   (async()=>{
     const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh()]);
     projects=list;sessions=Array.isArray(rooms)?rooms:rooms.sessions||[];
-    $("project").replaceChildren(...projects.map(p=>new Option(p.name,p.id)));
+    $("project").replaceChildren(new Option("选择项目",""), ...projects.map(p=>new Option(p.name,p.id)));
     const initial=new URLSearchParams(location.search).get("project");
     if(projects.some(p=>p.id===initial))$("project").value=initial;
     projectSelection();if(!projects.length)tell("可先编辑模板。创建科研项目后，即可将工作流带入圆桌。");

@@ -6,7 +6,8 @@
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/png" href="/static/roundtable-mark.png" />
     <title>科研圆桌 · Sci-Station</title>
-    <script src="/static/appearance.js"></script>
+    <script defer src="/static/workspace-nav.js"></script>
+  <script src="/static/appearance.js"></script>
     <link rel="stylesheet" href="/static/studio.css" />
     <link rel="stylesheet" href="/static/children-panel.css" />
     <link rel="stylesheet" href="/static/studio-setup.css" />
@@ -55,6 +56,7 @@
     <script src="/static/lab-handoff.js" defer></script>
     <script src="/static/studio.js" defer></script>
     <script src="/static/children-panel.js" defer></script>
+  <link rel="stylesheet" href="/static/workspace-nav.css">
   </head>
   <body>
     <div class="app">
@@ -63,6 +65,8 @@
           <img class="roundtable-mark" src="/static/roundtable-mark.png" alt="" width="32" height="32" />
           <span>Sci-Station</span>
         </a>
+        <nav data-workspace-nav aria-label="工作区导航"></nav>
+        <a data-project-back hidden href="/research">返回当前项目</a>
         <button id="new-session" class="button secondary new-button">
           <svg class="ui-icon" data-ui-icon="plus" width="16" height="16" aria-hidden="true"></svg>新建圆桌
         </button>
@@ -77,11 +81,7 @@
           <p>复制下方路径到 Finder 的「前往文件夹」可定位原始存档。建议先保留备份，再检查存档内容。</p>
           <ul></ul>
         </details>
-        <div class="sidebar-bottom">
-          <button class="sidebar-settings view-tab" data-view="settings">
-            <svg class="ui-icon" data-ui-icon="settings" width="17" height="17" aria-hidden="true"></svg>设置
-          </button>
-        </div>
+
       </aside>
       <button
         id="sidebar-scrim"

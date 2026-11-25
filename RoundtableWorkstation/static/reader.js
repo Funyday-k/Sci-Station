@@ -533,8 +533,7 @@
   }
   async function initialize() {
     updatePageControls();
-    if (projectID)
-      by('home').href = '/research?project=' + encodeURIComponent(projectID);
+    by('home').href = '/research?view=papers' + (projectID ? '&project=' + encodeURIComponent(projectID) : '');
     if (!paperID) {
       displayEmpty('未选择论文，请从科研工作区打开。');
       return;

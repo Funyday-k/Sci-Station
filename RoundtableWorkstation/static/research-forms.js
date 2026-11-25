@@ -307,8 +307,10 @@
   }
 
   function taskForm(t = null) {
-    const base = projectPath("tasks" + (t ? "/" + enc(t.id) : ""));
-    dialog(t ? "编辑任务" : "添加任务", '<form>' + field("任务", input("title", t?.title, 'required autofocus maxlength="300"')) +
+    const owner = t?.projectId || state.project?.id;
+    const projectPicker = owner ? "" : field("所属项目", '<select name="owner" required><option value="">选择项目</option>' +
+      state.projects.map(p => option(p.id, p.name, "")).join("") + '</select>');
+    dialog(t ? "编辑任务" : "添加任务", '<form>' + projectPicker + field("任务", input("title", t?.title, 'required autofocus maxlength="300"')) +
       '<div class="split">' + field("截止日期", input("dueDate", t?.dueDate, 'type="date"')) + field("状态", select("status",
         Object.entries({
           open: "待办",
@@ -325,6 +327,7 @@
         description: value(f, "description")
       };
       if (t) body.revision = t.revision;
+      const base = projectPath("tasks" + (t ? "/" + enc(t.id) : ""), owner || value(f, "owner"));
       await request(base, {
         method: t ? "PATCH" : "POST",
         body
@@ -503,7 +506,7 @@
       note: "notes",
       task: "tasks",
       material: "materials"
-    })[kind] + "/" + enc(key));
+    })[kind] + "/" + enc(key), obj.projectId);
     const verb = kind === "project" ? "归档" : "删除";
     dialog(verb + label, '<form><p>确认' + verb + '“' + esc(obj.title || obj.name) + '”？' + (kind === "project" ?
       "项目将从工作台隐藏；保留本地文件夹。" : "") + '</p>' + formFooter("确认" + verb) + '</form>');
@@ -512,7 +515,8 @@
         method: "DELETE"
       });
       done(token);
-      await refresh();
+      if (kind === "project") await load(null, "projects", {historyMode: "replace"});
+      else await refresh();
       toast("已" + verb + label);
     });
   }
@@ -542,6 +546,12 @@
       toast("项目已恢复");
       return;
     }
+    if (action === "new-task") return state.projects.length ? taskForm() : projectForm();
+    if (action === "edit-task") {
+      const t = state.tasks.find(item => item.id === id);
+      if (t) return taskForm(t);
+      return;
+    }
     if (!state.project) {
       projectForm();
       return;
@@ -551,11 +561,6 @@
     if (action === "read-note" || action === "edit-note") {
       const n = look(state.notes);
       if (n) return action === "read-note" ? readNote(n) : noteForm(n);
-    }
-    if (action === "new-task") return taskForm();
-    if (action === "edit-task") {
-      const t = look(state.tasks);
-      if (t) return taskForm(t);
     }
     if (action === "new-relation") return relationForm();
     if (action === "remove-relation") return removeRelation(id);

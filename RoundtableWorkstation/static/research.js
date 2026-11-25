@@ -9,8 +9,10 @@
     "'": "&#39;"
   } [ch]));
   const enc = encodeURIComponent;
+  const navigation = window.SciStationNav;
   const names = {
     overview: "项目概览",
+    projects: "项目",
     papers: "共享文献",
     notes: "知识笔记",
     tasks: "任务与日历",
@@ -59,7 +61,6 @@
     },
     view: "overview",
     graphFocus: "",
-    scope: "project",
     query: "",
     taskFilter: "open",
     calendar: false,
@@ -97,50 +98,25 @@
     return text ? JSON.parse(text) : null;
   }
 
-  function projectPath(suffix = "") {
-    return "projects/" + enc(state.project.id) + (suffix ? "/" + suffix : "");
+  function projectPath(suffix = "", id = state.project?.id) {
+    if (!id) throw new Error("请选择所属项目");
+    return "projects/" + enc(id) + (suffix ? "/" + suffix : "");
   }
 
-  function studio(session = "") {
-    const u = new URL("/studio", location.origin);
-    if (state.project) u.searchParams.set("project", state.project.id);
-    if (session) u.searchParams.set("session", session);
-    return u.pathname + u.search;
+  function studio(session) {
+    return navigation.route("/studio", {project: state.project?.id, session});
   }
 
-  function reader(id) {
-    const u = new URL("/reader", location.origin);
-    u.searchParams.set("paper", id);
-    if (state.project) u.searchParams.set("project", state.project.id);
-    return u.pathname + u.search;
+  function reader(paper) {
+    return navigation.route("/reader", {paper, project: state.project?.id});
   }
 
-  function toolsPage(tab = "") {
-    const u = new URL("/tools", location.origin);
-    if (state.project) u.searchParams.set("project", state.project.id);
-    if (tab) u.searchParams.set("tab", tab);
-    return u.pathname + u.search;
+  function toolsPage(tab) {
+    return navigation.route("/tools", {tab, project: state.project?.id});
   }
 
   function viewURL(view, id = state.project?.id) {
-    const u = new URL("/research", location.origin);
-    if (view !== "overview") u.searchParams.set("view", view);
-    if (id) u.searchParams.set("project", id);
-    return u.pathname + u.search;
-  }
-
-  function readLocal(key) {
-    try {
-      return localStorage.getItem(key)
-    } catch {
-      return null
-    }
-  }
-
-  function saveLocal(key, val) {
-    try {
-      localStorage.setItem(key, val)
-    } catch {}
+    return navigation.research(view, id);
   }
 
   function toast(msg) {
@@ -253,24 +229,51 @@
       '"><button type="button" class="task-check ' + (t.status === "done" ? "done" : "") + '" aria-label="' + esc((t
         .status === "done" ? "重新打开" : "完成") + "：" + t.title) + '" data-action="toggle-task" data-id="' + esc(t.id) +
       '">' + (t.status === "done" ? "✓" : "") + '</button><button class="row-main" data-action="edit-task" data-id="' +
-      esc(t.id) + '"><span class="title">' + esc(t.title) + '</span><span class="meta">' + esc([t.dueDate, t
-        .description].filter(Boolean).join(" · ").slice(0, 120)) + '</span></button><span class="tag">' + esc(
+      esc(t.id) + '"><span class="title">' + esc(t.title) + '</span><span class="meta">' + esc([!state.project && state.projects.find(p => p.id === t.projectId)?.name, t.dueDate, t.description].filter(Boolean).join(" · ").slice(0, 120)) + '</span></button><span class="tag">' + esc(
         statusLabel[t.status] || "待办") + '</span></div>'));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a
     .updated_at || a.createdAt || ""));
 
   function updateNav() {
-    $("mainnav").innerHTML = Object.entries(names).map(([id, name]) => '<a class="navitem ' + (state.view === id ?
-      "active" : "") + '" ' + (state.view === id ? 'aria-current="page"' : '') + ' data-view="' + id + '" href="' + esc(
-      viewURL(id)) + '">' + icon(glyphs[id]) + esc(name) + '</a>').join("") + link("科研工具", toolsPage(), "navitem",
-      "tools") + link("AI 实验室", "/lab" + (state.project ? "?project=" + enc(state.project.id) : ""), "navitem", "model");
+    navigation.update();
+    const modules = $("project-modules");
+    modules.hidden = !state.project;
+    modules.innerHTML = state.project ? Object.entries(names).filter(([id]) => id !== "projects").map(([id, name]) =>
+      '<a data-view="' + id + '" href="' + esc(viewURL(id)) + '"' +
+      (id === state.view ? ' aria-current="page"' : '') + '>' + esc(name) + '</a>').join("") +
+      link("文献推荐", toolsPage("discover"), "module") +
+      link("AI 工作流", navigation.route("/lab", {project: state.project.id}), "module") : "";
     $("projectnav").innerHTML = state.projects.map((p, i) => '<a class="project-item ' + (p.id === state.project?.id ?
         'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '"><span class="project-dot" style="--project-color:' + colors[i % colors.length] + '"></span><span>' + esc(p
       .name) + '</span></a>').join("");
-    $("crumb").innerHTML = '<span>科研工作台</span><span>/</span><strong>' + esc(names[state.view]) + '</strong>';
-    document.title = names[state.view] + " · Sci-Station";
+    const title = state.view === "overview" && !state.project ? "首页" : names[state.view];
+    $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">项目</a><span>/</span><a href="' +
+      esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
+    document.title = title + " · Sci-Station";
+  }
+
+  function projectDirectory() {
+    const create = button("新建项目", "new-project", {kind: "button primary", glyph: "plus"});
+    return heading("项目", "", button("已归档项目", "archived-projects") + create) +
+      panel("我的项目 · " + state.projects.length, state.projects.length ? projectRows(state.projects) : empty("暂无项目"));
+  }
+
+  function projectRows(projects) {
+    return list(projects.map(p => row("folder", p.name, p.description, 'a href="' + esc(viewURL("overview", p.id)) + '"')));
+  }
+
+  function dashboard() {
+    const recent = state.papers.slice().sort(byRecent).slice(0, 5);
+    const tasks = state.tasks.filter(t => t.status !== "done").sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999")).slice(0, 7);
+    return heading("首页", new Intl.DateTimeFormat("zh-CN", {dateStyle: "full"}).format(new Date())) +
+      '<div class="columns"><div>' + panel("最近文献", recent.length ? paperRows(recent) : empty("暂无文献", "", button("导入文献", "new-paper")),
+        navLink("papers", "文献库")) + panel("科研项目", state.projects.length ? projectRows(state.projects.slice(0, 5)) :
+          empty("暂无项目", "", button("新建项目", "new-project")), navLink("projects", "全部项目")) +
+      '</div><div>' + panel("待办任务", tasks.length ? taskRows(tasks) : empty("暂无待办任务"), navLink("tasks", "日历与任务")) +
+      panel("最近圆桌", state.meetings.length ? meetingRows(state.meetings.slice().sort(byRecent).slice(0, 4)) :
+        empty("暂无圆桌"), link("打开圆桌", studio(), "bare")) + '</div></div>';
   }
 
   function overview() {
@@ -278,22 +281,9 @@
       papers = scopedPapers().slice().sort(byRecent),
       tasks = state.tasks.filter(t => t.status !== "done").sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate ||
         "9999"));
-    let out = heading(p ? p.name : "科研工作台", p?.description || new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      weekday: "long"
-    }).format(new Date()), p ? button("项目设置", "edit-project", {
-      kind: "button",
+    let out = heading(p.name, p.description, button("项目设置", "edit-project", {
       glyph: "sliders"
-    }) + link("进入圆桌", studio(), "button primary", "chat") : button("新建项目", "new-project", {
-      glyph: "plus",
-      kind: "button primary"
-    }));
-    if (!p) out += '<section class="overview-intro"><div><h2>创建你的第一个科研项目</h2><p>在项目中整理文献、记录想法、安排任务，并与圆桌讨论。</p></div>' +
-      button("创建项目", "new-project", {
-        glyph: "folderPlus"
-      }) + '</section>';
+    }) + link("进入圆桌", studio(), "button primary", "chat"));
     const metrics = [
       ["papers", "文献", papers.length],
       ["notes", "知识笔记", state.notes.length],
@@ -330,7 +320,7 @@
   }
 
   function publicLibrary() {
-    const limited = state.scope === "project" && state.project;
+    const limited = Boolean(state.project);
     const all = (limited ? scopedPapers() : state.papers).slice().sort(byRecent);
     const query = state.query.trim().toLowerCase();
     const papers = all.filter(p => [p.title, ...(p.authors || []), p.year, p.doi, p.arxiv, p.citekey, ...(p.tags || [])]
@@ -340,12 +330,8 @@
       glyph: "import",
       kind: "button primary"
     });
-    return heading("文献库", "论文原文、阅读笔记和引用信息", actions) + '<div class="toolbar"><div class="filters">' + (state.project ?
-        button("当前项目", "scope-project", {
-          kind: "chip " + (limited ? "active" : "")
-        }) : "") + button("全部文献", "scope-all", {
-        kind: "chip " + (!limited ? "active" : "")
-      }) + '</div><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
+    return heading(limited ? "项目文献" : "文献库", "", link("文献发现", toolsPage("discover")) + link("PDF 转换", toolsPage("convert")) + actions) +
+      '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
       '" placeholder="搜索标题、作者、DOI…" aria-label="筛选文献"></div>' + panel(limited ? state.project.name + " · " + papers.length +
         " 篇" : "全部文献 · " + papers.length + " 篇", papers.length ? paperRows(papers) : empty(query ? "没有匹配的文献" : "还没有收录文献",
           query ? "可以尝试作者、标签或 DOI。" : "添加本地 PDF 或线上文献记录。", query ? "" : button("导入文献", "new-paper", {
@@ -354,7 +340,7 @@
   }
 
   function projectNeeded() {
-    return heading(names[state.view]) + panel("科研项目", empty("先创建一个科研项目", "笔记、任务、材料和圆桌可按项目整理。", button("新建项目",
+    return heading(names[state.view]) + panel("科研项目", empty("请选择科研项目", "", link("项目列表", viewURL("projects", null)) + button("新建项目",
     "new-project", {
       kind: "button primary",
       glyph: "plus"
@@ -391,15 +377,17 @@
     updateNav();
     let out = "";
     if (state.loadError) {
-      $("main").innerHTML = heading("读取工作区时遇到问题") + panel("本机服务", empty(state.loadError, "", button("重试", "reload")));
+      $("main").setAttribute("aria-busy", "false");
+      $("main").innerHTML = heading("读取工作区时遇到问题") + panel("本机服务", empty(state.loadError, "", button("重试", "reload") + link("项目列表", viewURL("projects", null))));
       return;
     }
-    if (state.view === "overview") out = overview();
+    if (state.view === "overview") out = state.project ? overview() : dashboard();
+    else if (state.view === "projects") out = projectDirectory();
     else if (state.view === "papers") out = publicLibrary();
     else if (state.view === "meetings") out = heading("工作圆桌", state.project?.name || "模型讨论与研究报告", link("进入圆桌", studio(),
       "button primary", "chat")) + panel("项目会议", state.meetings.length ? meetingRows(state.meetings) : empty("暂无项目会议",
       "进入圆桌后可以创建讨论。"));
-    else if (!state.project) out = projectNeeded();
+    else if (!state.project && state.view !== "tasks") out = projectNeeded();
     else if (state.view === "notes") out = heading("知识笔记", state.project.name, button("写笔记", "new-note", {
       glyph: "plus",
       kind: "button primary"
@@ -408,7 +396,7 @@
     else if (state.view === "tasks") {
       const t = state.tasks.filter(t => state.taskFilter === "all" || (state.taskFilter === "done" ? t.status === "done" : t
         .status !== "done")).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || byRecent(a, b));
-      out = heading("任务与日历", state.project.name, link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
+      out = heading("日历与任务", state.project?.name || "全部项目", link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
         "切换到列表" : "切换到月历", "switch-calendar", {
           glyph: "agenda"
         }) + button("添加任务", "new-task", {
@@ -422,7 +410,7 @@
       ].map(([key, title]) => button(title, "task-filter", {
         id: key,
         kind: "chip " + (state.taskFilter === key ? "active" : "")
-      })).join("") + '</div></div>' + panel("项目任务 · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
+      })).join("") + '</div></div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
         "可以创建带截止日期的项目任务。"));
     } else if (state.view === "materials") {
       out = heading("研究材料", state.project.name, button("打开项目目录", "project-files", {
@@ -512,7 +500,7 @@
     historyMode = "replace"
   } = {}) {
     const token = ++navEpoch;
-    state.view = Object.hasOwn(names, view) ? view : "overview";
+    const targetView = Object.hasOwn(names, view) ? view : "overview";
     state.loadError = "";
     $("main").setAttribute("aria-busy", "true");
     try {
@@ -520,21 +508,22 @@
         "/api/studio/sessions")]);
       if (token !== navEpoch) return;
       const allProjects = projects || [];
-      const nextProject = allProjects.find(p => p.id === projectId) ||
-        allProjects.find(p => p.id === readLocal("scistation.project")) || allProjects[0] || null;
+      const nextProject = allProjects.find(p => p.id === projectId) || null;
+      if (projectId && !nextProject) throw new Error("这个项目已归档或不存在。请从项目列表重新选择。");
       const suffixes = ["notes", "tasks", "materials", "graph"];
       const values = nextProject ?
         await Promise.all(suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k))) :
-        [[], [], [], {nodes: [], edges: []}];
+        [[], ["overview", "tasks"].includes(targetView) ? await request("tasks") : [], [], {nodes: [], edges: []}];
       if (token !== navEpoch) return;
       // Publish the complete snapshot together. Until this point the visible
       // controls and their actions both belong to the previous project.
+      state.view = targetView;
       state.projects = allProjects;
       state.papers = papers || [];
       state.project = nextProject;
-      state.meetings = (sessions.sessions || []).filter(m => m.project === nextProject?.path);
+      const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
+      state.meetings = nextProject ? rooms.filter(m => m.project === nextProject.path) : rooms;
       [state.notes, state.tasks, state.materials, state.graph] = values;
-      if (nextProject) saveLocal("scistation.project", nextProject.id);
       if (historyMode !== "none") history[historyMode + "State"](null, "", viewURL(state.view));
     } catch (err) {
       if (token !== navEpoch) return;
@@ -545,11 +534,9 @@
 
   function go(view) {
     if (!Object.hasOwn(names, view)) return;
-    state.view = view;
     state.query = "";
-    history.pushState(null, "", viewURL(view));
+    load(state.project?.id, view, {historyMode: "push"});
     $("shell").classList.remove("mobile-open");
-    render();
     window.scrollTo(0, 0);
   }
 
@@ -736,10 +723,7 @@
       id = target.dataset.id;
     if (!action) return;
     try {
-      if (action === "scope-project" || action === "scope-all") {
-        state.scope = action === "scope-all" ? "all" : "project";
-        render();
-      } else if (action === "task-filter") {
+      if (action === "task-filter") {
         state.taskFilter = id;
         render();
       } else if (action === "switch-calendar") {
@@ -749,7 +733,7 @@
         state.month = new Date(state.month.getFullYear(), state.month.getMonth() + (action === "month-prev" ? -1 : 1),
           1);
         render();
-      } else if (action === "reload") await refresh();
+      } else if (action === "reload") await route();
       else if (action === "graph-open") {
         const n = (state.graph.nodes || []).find(n => n.id === id);
         if (!n) return;
@@ -761,7 +745,7 @@
         const t = state.tasks.find(t => t.id === id);
         if (!t) return;
         target.disabled = true;
-        await request(projectPath("tasks/" + enc(id)), {
+        await request(projectPath("tasks/" + enc(id), t.projectId), {
           method: "PATCH",
           body: {
             revision: t.revision,

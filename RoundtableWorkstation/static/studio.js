@@ -478,6 +478,7 @@
       "",
       viewURL.pathname + viewURL.search + viewURL.hash,
     );
+    window.SciStationNav?.update();
     $("table-view").hidden = view !== "table";
     syncBoardPresence();
     if (state.session) schedulePoll();
@@ -3128,7 +3129,7 @@
   });
   window.addEventListener("hashchange", scrollAnchor);
   window.addEventListener("beforeunload", (event) => {
-    if (dirtyFile()) {
+    if (dirtyFile() || state.settingsDirty) {
       event.preventDefault();
       event.returnValue = "";
     }

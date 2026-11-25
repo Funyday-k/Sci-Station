@@ -116,6 +116,7 @@
       const active = project || projects.find(item => item.path === draftPath);
       if (active) param.searchParams.set("project",active.id); else param.searchParams.delete("project");
       history.replaceState(null,"",param);
+      window.SciStationNav?.update();
     }
   }
 

@@ -93,9 +93,7 @@
       if (project) u.set("project", project);
       a.href = "?" + u;
     }
-    const u = new URLSearchParams();
-    if (project) u.set("project", project);
-    $("home").href = "/research" + (u.size ? "?" + u : "");
+    globalThis.SciStationNav?.update();
   }
   async function loadProject() {
     nav();

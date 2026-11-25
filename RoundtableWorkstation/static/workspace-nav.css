@@ -1,0 +1,40 @@
+nav[data-workspace-nav] {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 4px;
+  margin: 0 0 20px;
+  padding: 0;
+  font: 500 13px/1.35 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+nav[data-workspace-nav] a {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: inherit;
+  border: 0;
+  border-radius: 6px;
+  text-decoration: none;
+}
+nav[data-workspace-nav] a[aria-current="page"] {
+  font-weight: 650;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+nav[data-workspace-nav] a:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+.workspace-menu { position: relative; margin: 0; }
+.workspace-menu summary { cursor: pointer; padding: 5px 8px; }
+.workspace-menu nav[data-workspace-nav] {
+  position: absolute;
+  z-index: 4;
+  min-width: 200px;
+  padding: 8px;
+  margin: 3px 0 0;
+  background: var(--surface);
+  box-shadow: 0 3px 14px #0002;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+}
+[data-project-back] { display: block; font-size: 13px; margin: 0 8px 15px; }
+[data-project-back][hidden] { display: none; }
