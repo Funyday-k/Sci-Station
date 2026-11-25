@@ -138,7 +138,8 @@ func TestOrganizationUnknownFieldsAndBadFormatRecovery(t *testing.T) {
 	}
 	for _, broken := range [][]byte{[]byte("{"), bytes.Replace(saved, []byte(`"version":1`), []byte(`"version":2`), 1)} {
 		write(broken)
-		if res = request(2); res.Code != http.StatusInternalServerError {
+		if res = request(2); res.Code != http.StatusUnprocessableEntity ||
+			!strings.Contains(res.Body.String(), errUnreadablePaperOrganization.Error()) {
 			t.Fatal(res.Code, res.Body.String())
 		}
 		if _, err = NewPaperLibrary(lib.dir); err == nil {

@@ -31,6 +31,7 @@ type paperOrganization struct {
 
 var tagColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 var errPaperOrganizationConflict = errors.New("文献集合或标签已更新，请重新打开后保存")
+var errUnreadablePaperOrganization = errors.New("无法读取文献集合与标签记录，请从备份恢复")
 
 func (s *PaperLibrary) organizationPath() string {
 	return filepath.Join(s.dir, "organization.json")
@@ -51,7 +52,7 @@ func (s *PaperLibrary) readOrganization() (paperOrganization, []byte, error) {
 		return organization, nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return organization, nil, errors.New("文献集合与标签记录不是普通文件")
+		return organization, nil, errUnreadablePaperOrganization
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -60,10 +61,10 @@ func (s *PaperLibrary) readOrganization() (paperOrganization, []byte, error) {
 	if err = json.Unmarshal(body, &organization); err != nil ||
 		organization.Version != 1 || organization.Revision < 1 ||
 		organization.Collections == nil || organization.Tags == nil {
-		return organization, nil, errors.New("无法读取文献集合与标签记录")
+		return organization, nil, errUnreadablePaperOrganization
 	}
 	if err = organization.validate(); err != nil {
-		return organization, nil, fmt.Errorf("无法读取文献集合与标签记录: %w", err)
+		return organization, nil, errUnreadablePaperOrganization
 	}
 	return organization, body, nil
 }

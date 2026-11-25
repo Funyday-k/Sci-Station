@@ -32,6 +32,7 @@ function mountResearch(start) {
   const tasks = projects.map(p => ({id:"task" + p.id, projectId:p.id, title:p.name + " task", revision:3,status:"open"}));
   const responses = new Map([
     ["/api/research/projects", projects], ["/api/research/papers", papers], ["/api/research/tasks", tasks],
+    ["/api/research/papers/organization", {revision: 0, collections: {}, tags: {}}],
     ["/api/studio/sessions", {sessions:[]}],
   ]);
   for (const p of projects) {
@@ -55,7 +56,10 @@ function mountResearch(start) {
   };
   const context={window,document,location,history,fetch,URL,URLSearchParams,FormData,
     localStorage:{getItem:()=>"B"},setTimeout,clearTimeout};
-  vm.runInNewContext(read("research.js"), context);
+  const sandbox = vm.createContext(context);
+  for (const script of ["research.js", "research-forms.js", "research-library.js"]) {
+    vm.runInContext(read(script), sandbox);
+  }
   return {ui:window.SciResearch,elements,calls,listeners};
 }
 

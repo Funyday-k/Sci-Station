@@ -30,6 +30,9 @@ func paperError(w http.ResponseWriter, err error) {
 	case errors.Is(err, errRemotePDF):
 		code = 502
 		msg = err.Error()
+	case errors.Is(err, errUnreadablePaperOrganization):
+		code = http.StatusUnprocessableEntity
+		msg = err.Error()
 	case errors.Is(err, errInvalidPaper):
 		code = 400
 		msg = err.Error()
