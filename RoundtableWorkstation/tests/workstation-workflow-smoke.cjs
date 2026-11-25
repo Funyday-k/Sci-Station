@@ -248,9 +248,9 @@ async function fixtureHome(base, port, connectionSpec) {
   return {HOME: homeDir, XDG_CONFIG_HOME: configDir, SCI_STATION_WORKSPACE_REGISTRY: path.join(base, "registry")};
 }
 
-async function launch(binary, port, dataDir, env, mode, quit) {
+async function launch(binary, port, dataDir, env, mode, quit, inherited = process.env) {
   const child = spawn(binary, [mode, "-port", String(port), "-data-dir", dataDir], {
-    env: {...process.env, ...env}, stdio: ["ignore", "ignore", "inherit"]
+    env: {...inherited, ...env}, stdio: ["ignore", "ignore", "inherit"]
   });
   const exited = once(child, "exit");
   // The returned close() handles the same exit promise after a startup error.
@@ -611,6 +611,8 @@ async function main() {
   }
   if (failure) throw failure;
 }
+
+module.exports = {buildNativeFixture, chromeDriver, webkitDriver, fixtureHome, listen, closeServer, localGateway, launch, eventually};
 
 if (require.main === module) main().catch(error => {
   console.error(error);
