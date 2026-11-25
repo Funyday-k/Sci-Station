@@ -17,6 +17,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 - Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Required CI builds and verifies the signed Apple Silicon candidate and exercises native shutdown.
 - Save, replace and clear a workspace's MinerU token in macOS Keychain from PDF Conversion. Saved tokens are available after reopening the same data directory.
+- Configure OpenAI-compatible models in desktop Settings and select them in the shared model directory. API keys are scoped to the saved endpoint in macOS Keychain.
 
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 

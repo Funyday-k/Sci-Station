@@ -11,7 +11,7 @@ import (
 	"scistation.local/desktop/internal/credentials"
 )
 
-const minerCredentialHeader = "X-Sci-Station-Miner-Session"
+const desktopCredentialHeader = "X-Sci-Station-Credential-Session"
 const minerCredentialUnavailable = "无法访问 macOS 钥匙串，请检查权限后重试。"
 
 type minerCredentials struct {
@@ -23,9 +23,9 @@ func newMinerCredentials(store credentials.Store) *minerCredentials {
 	return &minerCredentials{store: store, proof: rand.Text()}
 }
 
-// Wails runs this script after each page loads. Only the bundled conversion
-// view gets the in-memory proof.
-func (a *apiServer) minerCredentialSessionScript(address string) string {
+// Wails runs this script after each page loads. Only bundled credential
+// management views get the in-memory proof.
+func (a *apiServer) desktopCredentialSessionScript(address string) string {
 	if a == nil || !a.desktop || a.minerCreds == nil {
 		return ""
 	}
@@ -37,25 +37,25 @@ func (a *apiServer) minerCredentialSessionScript(address string) string {
 	proof, _ := json.Marshal(a.minerCreds.proof)
 	return `(() => {
 		if (location.origin !== ` + string(origin) + ` ||
-			(location.pathname !== "/tools" && location.pathname !== "/static/science-tools.html")) return;
-		window.sciStationMinerSession = ` + string(proof) + `;
-		window.dispatchEvent(new Event("scistation:miner-session"));
+			!["/tools", "/static/science-tools.html", "/studio", "/static/studio.html"].includes(location.pathname)) return;
+		window.sciStationCredentialSession = ` + string(proof) + `;
+		window.dispatchEvent(new Event("scistation:credential-session"));
 	})()`
 }
 
-func (a *apiServer) canUseMinerCredential(r *http.Request) bool {
+func (a *apiServer) canUseDesktopCredentials(r *http.Request) bool {
 	return a.desktop && a.minerCreds != nil &&
-		subtle.ConstantTimeCompare([]byte(r.Header.Get(minerCredentialHeader)), []byte(a.minerCreds.proof)) == 1
+		subtle.ConstantTimeCompare([]byte(r.Header.Get(desktopCredentialHeader)), []byte(a.minerCreds.proof)) == 1
 }
 
-func validMinerToken(token string) bool {
+func validStoredToken(token string) bool {
 	return len(token) > 0 && len(token) <= 4096 && strings.IndexFunc(token, func(r rune) bool {
 		return r < '!' || r > '~'
 	}) == -1
 }
 
 func (a *apiServer) minerCredential(w http.ResponseWriter, r *http.Request) {
-	if !a.canUseMinerCredential(r) {
+	if !a.canUseDesktopCredentials(r) {
 		reject(w, http.StatusForbidden, "请在 Sci-Station 桌面应用中管理 MinerU Token。")
 		return
 	}
@@ -74,7 +74,7 @@ func (a *apiServer) minerCredential(w http.ResponseWriter, r *http.Request) {
 		}
 		token := strings.TrimSpace(input.Token)
 		switch {
-		case input.Action == "save" && validMinerToken(token):
+		case input.Action == "save" && validStoredToken(token):
 			err = a.minerCreds.store.Save(token)
 			configured = true
 		case input.Action == "clear" && token == "":

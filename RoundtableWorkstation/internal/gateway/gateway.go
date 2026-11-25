@@ -33,6 +33,7 @@ type Model struct {
 type Catalog struct {
 	Models       []Model `json:"models"`
 	DefaultModel string  `json:"default_model"`
+	MagpieError  string  `json:"magpie_error,omitempty"`
 }
 type completion struct {
 	Text  string
@@ -40,8 +41,9 @@ type completion struct {
 	Usage map[string]any
 }
 type Gateway struct {
-	config func() (magpieconfig.Config, error)
-	client *http.Client
+	config     func() (magpieconfig.Config, error)
+	client     *http.Client
+	compatible CompatibleProfiles
 }
 
 var loopbackClient = &http.Client{
@@ -49,8 +51,8 @@ var loopbackClient = &http.Client{
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
-func NewManagedGateway(port func() int) *Gateway {
-	return &Gateway{config: func() (magpieconfig.Config, error) { return magpieconfig.Load(port()) }, client: loopbackClient}
+func NewManagedGateway(port func() int, compatible CompatibleProfiles) *Gateway {
+	return &Gateway{config: func() (magpieconfig.Config, error) { return magpieconfig.Load(port()) }, client: loopbackClient, compatible: compatible}
 }
 func newGateway(port func() int) *Gateway {
 	return &Gateway{config: func() (magpieconfig.Config, error) { return magpieconfig.Config{Port: port()}, nil }, client: loopbackClient}
@@ -117,11 +119,31 @@ func (g *Gateway) request(ctx context.Context, cfg magpieconfig.Config, route st
 // Catalog reopens the agent configuration on every call. A missing default
 // stays empty when the model is no longer offered by the active gateway key.
 func (g *Gateway) Catalog(ctx context.Context) (Catalog, error) {
-	cfg, err := g.config()
-	if err != nil {
-		return Catalog{}, err
+	var profiles []CompatibleProfile
+	if g.compatible != nil {
+		profiles = g.compatible.Profiles()
 	}
-	return g.catalog(ctx, cfg, false)
+	cfg, err := g.config()
+	var catalog Catalog
+	if err == nil {
+		catalog, err = g.catalog(ctx, cfg, false)
+	}
+	if ctx.Err() != nil {
+		return Catalog{}, ctx.Err()
+	}
+	if len(profiles) == 0 {
+		return catalog, err
+	}
+	if err != nil {
+		catalog.MagpieError = err.Error()
+	}
+	if len(catalog.Models) == 0 {
+		catalog.DefaultModel = profiles[0].CatalogModel().ID
+	}
+	for _, profile := range profiles {
+		catalog.Models = append(catalog.Models, profile.CatalogModel())
+	}
+	return catalog, nil
 }
 
 func (g *Gateway) catalog(ctx context.Context, cfg magpieconfig.Config, preferred bool) (Catalog, error) {
@@ -157,7 +179,7 @@ func (g *Gateway) catalog(ctx context.Context, cfg magpieconfig.Config, preferre
 	out := Catalog{Models: []Model{}}
 	seen := map[string]bool{}
 	for _, m := range raw.Data {
-		if strings.TrimSpace(m.ID) == "" || seen[m.ID] || (m.Kind != "" && m.Kind != "chat") {
+		if strings.TrimSpace(m.ID) == "" || strings.HasPrefix(m.ID, compatibleModelPrefix) || seen[m.ID] || (m.Kind != "" && m.Kind != "chat") {
 			continue
 		}
 		seen[m.ID] = true
@@ -278,6 +300,9 @@ func (c streamCallbacks) guardImageEcho() streamCallbacks {
 }
 
 func (g *Gateway) completeContext(ctx context.Context, id, effort string, messages []message, session string, images []InputImage, callbacks streamCallbacks) (completion, error) {
+	if profileID, ok := strings.CutPrefix(id, compatibleModelPrefix); ok {
+		return g.completeCompatible(ctx, profileID, effort, messages, images, callbacks)
+	}
 	cfg, err := g.config()
 	if err != nil {
 		return completion{}, err
@@ -373,6 +398,10 @@ func (g *Gateway) completeMessages(ctx context.Context, cfg magpieconfig.Config,
 		return completion{}, err
 	}
 	defer resp.Body.Close()
+	return decodeCompletion(resp, responses, len(images) != 0, callbacks)
+}
+
+func decodeCompletion(resp *http.Response, responses, hasImages bool, callbacks streamCallbacks) (completion, error) {
 	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		return parseStream(io.LimitReader(resp.Body, 64<<20), responses, callbacks.text, callbacks.reset)
 	}
@@ -381,7 +410,7 @@ func (g *Gateway) completeMessages(ctx context.Context, cfg magpieconfig.Config,
 		return completion{}, gatewayError("Magpie 返回无效的发言格式。")
 	}
 	if event["error"] != nil {
-		if len(images) != 0 && imageInputUnsupported(event) {
+		if hasImages && imageInputUnsupported(event) {
 			return completion{}, errImageInputUnsupported
 		}
 		return completion{}, gatewayError("Magpie 报告上游发言失败。")

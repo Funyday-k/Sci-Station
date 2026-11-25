@@ -44,7 +44,7 @@
   }
 
   function minerReq(route, body, format) {
-    const headers = minerSession ? {"X-Sci-Station-Miner-Session": minerSession} : {};
+    const headers = minerSession ? {"X-Sci-Station-Credential-Session": minerSession} : {};
     return req("tools/mineru/" + route, body, format, "POST", headers);
   }
 
@@ -73,8 +73,8 @@
   }
 
   function enableMinerCredential() {
-    if (minerSession || typeof window.sciStationMinerSession !== "string" || !window.sciStationMinerSession) return;
-    minerSession = window.sciStationMinerSession;
+    if (minerSession || typeof window.sciStationCredentialSession !== "string" || !window.sciStationCredentialSession) return;
+    minerSession = window.sciStationCredentialSession;
     $("minerCredentialActions").hidden = false;
     $("minerCredentialState").textContent = "正在检查钥匙串…";
     return updateMinerCredential();
@@ -299,7 +299,7 @@
     nav();
     initActions();
     if (tab === "convert") {
-      window.addEventListener("scistation:miner-session", enableMinerCredential);
+      window.addEventListener("scistation:credential-session", enableMinerCredential);
       enableMinerCredential();
     }
     projects = await req("projects");

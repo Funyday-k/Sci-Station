@@ -168,6 +168,9 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	if e != nil {
 		return nil, e
 	}
+	if desktop {
+		setupProviderProfiles(pref, dir)
+	}
 	gateway := studioGateway(pref)
 	call := gatewayCall(gateway)
 	engine, e := meeting.New(filepath.Join(dir, "studio"), call, func() meeting.Settings { return pref.get().Settings })

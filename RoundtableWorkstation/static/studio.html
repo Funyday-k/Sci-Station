@@ -21,6 +21,7 @@
     <script src="/static/composer-input.js" defer></script>
     <script src="/static/plugin-market.js" defer></script>
     <script src="/static/settings-nav.js" defer></script>
+    <script src="/static/provider-profiles.js" defer></script>
     <link rel="stylesheet" href="/static/meeting-room.css" />
     <link rel="stylesheet" href="/static/member-editor.css" />
     <link rel="stylesheet" href="/static/meeting-actions.css" />
@@ -509,6 +510,31 @@
                   </div>
                   <p id="magpie-agent-detail" class="settings-note" hidden></p>
                   <p class="settings-note" data-en="Choose a Sci-Station model in Magpie’s Agents page. The local gateway identifies requests by application.">在 Magpie 的 Agents 页面为 Sci-Station 选择模型。本机网关按应用标识记录请求，无需填写 API 密钥。</p>
+                </div>
+              </section>
+              <section class="settings-section" id="provider-profiles" aria-labelledby="provider-heading" hidden>
+                <h2 id="provider-heading">直接模型</h2>
+                <div class="settings-card settings-options">
+                  <label class="setting-row" for="provider-choice"><span>OpenAI-compatible 配置</span><select id="provider-choice"></select></label>
+                  <label class="setting-row" for="provider-name"><span>名称</span><input id="provider-name" maxlength="80" placeholder="用于模型列表"></label>
+                  <label class="setting-row" for="provider-url"><span>API Base URL</span><input id="provider-url" type="url" maxlength="2048" placeholder="https://provider.example/v1" spellcheck="false"></label>
+                  <label class="setting-row" for="provider-model"><span>服务端模型 ID</span><input id="provider-model" maxlength="512" spellcheck="false"></label>
+                  <label class="setting-row" for="provider-temperature"><span>温度</span><input id="provider-temperature" type="number" min="0" max="2" step="any" value="0.2"></label>
+                  <label class="setting-row" for="provider-max-tokens"><span>最大输出 Token</span><input id="provider-max-tokens" type="number" min="1" max="10000000" placeholder="服务默认值"></label>
+                  <label class="setting-row" for="provider-vision"><span>此模型支持图像输入</span><input id="provider-vision" type="checkbox"></label>
+                  <div class="settings-footer">
+                    <button id="provider-preset" class="button secondary small" type="button">填入 DeepSeek 配置</button>
+                    <button id="provider-remove" class="button secondary small" type="button">移除配置</button>
+                    <button id="provider-save" class="button primary" type="button">保存配置</button>
+                  </div>
+                  <label class="setting-row" for="provider-key"><span>API Key</span><input id="provider-key" type="password" autocomplete="off" spellcheck="false" maxlength="4096" placeholder="留空保留已保存的 Key"></label>
+                  <p id="provider-key-status" class="settings-note"></p>
+                  <div class="settings-footer">
+                    <button id="provider-clear-key" class="button secondary small" type="button">清除已保存的 Key</button>
+                    <button id="provider-save-key" class="button secondary small" type="button">保存 Key 到钥匙串</button>
+                    <button id="provider-test" class="button secondary small" type="button">测试连接</button>
+                  </div>
+                  <p id="provider-status" class="settings-note" role="status"></p>
                 </div>
               </section>
                   </section>

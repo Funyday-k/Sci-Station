@@ -68,7 +68,7 @@ func runDesktop(explicit string, port int) error {
 		current := h.session.active
 		h.session.mu.Unlock()
 		if current != nil && current.api != nil {
-			if script := current.api.minerCredentialSessionScript(current.address); script != "" {
+			if script := current.api.desktopCredentialSessionScript(current.address); script != "" {
 				h.window.ExecJS(script)
 			}
 		}

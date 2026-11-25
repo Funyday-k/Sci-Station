@@ -47,7 +47,7 @@ func minerRequest(t *testing.T, handler http.Handler, method, route, proof, body
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("X-Roundtable", "1")
 	r.Header.Set("User-Agent", desktopUserAgent)
-	r.Header.Set(minerCredentialHeader, proof)
+	r.Header.Set(desktopCredentialHeader, proof)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if strings.Contains(w.Body.String(), minerFixture) || (proof != "" && strings.Contains(w.Body.String(), proof)) {
@@ -179,7 +179,7 @@ func TestMinerUUsesSavedTokenOnlyInDesktopSession(t *testing.T) {
 	var remoteCalls int
 	scientificHTTP = &http.Client{Transport: conversionTransport(func(r *http.Request) (*http.Response, error) {
 		remoteCalls++
-		if r.Header.Get(minerCredentialHeader) != "" {
+		if r.Header.Get(desktopCredentialHeader) != "" {
 			t.Fatal("desktop proof reached external service")
 		}
 		respond := func(status int, body io.Reader) (*http.Response, error) {

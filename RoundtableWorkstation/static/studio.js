@@ -887,7 +887,8 @@
     try {
       const result = await api("/models");
       if (request !== settingsOverview.modelRequest) return;
-      const models = Array.isArray(result.models) ? result.models : [];
+      const catalog = Array.isArray(result.models) ? result.models : [];
+      const models = catalog.filter(model => !model.id.startsWith("sci-station-byok/"));
       const list = $("magpie-model-list");
       list.replaceChildren();
       for (const model of models) {
@@ -905,11 +906,11 @@
         empty.textContent = "目录为空";
         list.append(empty);
       }
-      setSettingsStatus("magpie-connection", "已连接", "settings-ready");
-      setSettingsNote("magpie-connection-detail", "");
+      setSettingsStatus("magpie-connection", result.magpie_error ? "目录暂不可用" : "已连接", result.magpie_error ? "settings-warning" : "settings-ready");
+      setSettingsNote("magpie-connection-detail", result.magpie_error || "");
       $("magpie-model-count").textContent = `${models.length} 个模型`;
-      $("magpie-models").hidden = false;
-      const key = JSON.stringify([result.default_model, models]);
+      $("magpie-models").hidden = Boolean(result.magpie_error);
+      const key = JSON.stringify([result.default_model, catalog]);
       if (settingsOverview.modelsKey !== key) {
         settingsOverview.modelsKey = key;
         window.dispatchEvent(new Event("roundtable:models-changed"));

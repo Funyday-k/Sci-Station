@@ -70,7 +70,7 @@ test("conversion uses an offline credential status, clears saved input, and send
     const route = url.replace("/api/research/", "");
     if (route === "projects") return Response.json([]);
     if (route === "papers") return Response.json([{id:"A", title:"Paper A", has_pdf:true}]);
-    assert.equal(options.headers["X-Sci-Station-Miner-Session"], "fixture-desktop-session");
+    assert.equal(options.headers["X-Sci-Station-Credential-Session"], "fixture-desktop-session");
     const body = options.body && JSON.parse(options.body);
     changes.push({route, body});
     if (route === "tools/mineru/start") return Response.json({batch:"fixture-batch"});
@@ -90,8 +90,8 @@ test("conversion uses an offline credential status, clears saved input, and send
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(controls.minerCredentialActions.hidden, true);
   assert.equal(changes.length, 0);
-  nativeWindow.sciStationMinerSession = "fixture-desktop-session";
-  nativeWindow.dispatchEvent(new Event("scistation:miner-session"));
+  nativeWindow.sciStationCredentialSession = "fixture-desktop-session";
+  nativeWindow.dispatchEvent(new Event("scistation:credential-session"));
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(controls.minerCredentialActions.hidden, false);
   assert.equal(controls.minerClear.disabled, true);

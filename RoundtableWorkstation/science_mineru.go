@@ -105,14 +105,14 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		return
 	}
 	token := strings.TrimSpace(input.Token)
-	if token == "" && a.canUseMinerCredential(r) {
+	if token == "" && a.canUseDesktopCredentials(r) {
 		token, e = a.minerCreds.store.Resolve()
 		if e != nil {
 			reject(w, http.StatusServiceUnavailable, minerCredentialUnavailable)
 			return
 		}
 	}
-	if !validMinerToken(token) {
+	if !validStoredToken(token) {
 		reject(w, 400, "请输入 MinerU Token 或在桌面应用中保存后重试。")
 		return
 	}

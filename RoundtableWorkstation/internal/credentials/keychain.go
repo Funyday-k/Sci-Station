@@ -25,6 +25,22 @@ func Open(dir string) (Store, error) {
 	return newKeychain(account), nil
 }
 
+// OpenProviders scopes each key to one workstation, profile, and endpoint.
+// Copying the metadata or changing its endpoint cannot carry the key with it.
+func OpenProviders(dir string) (func(profileID, endpoint string) Store, error) {
+	scope, err := accountForDirectory(dir)
+	if err != nil {
+		return nil, err
+	}
+	if newKeychain(scope) == nil {
+		return nil, nil
+	}
+	return func(profileID, endpoint string) Store {
+		account := sha256.Sum256([]byte(scope + "\x00" + profileID + "\x00" + endpoint))
+		return newKeychain(fmt.Sprintf("llm:%x", account))
+	}, nil
+}
+
 func accountForDirectory(dir string) (string, error) {
 	absolute, err := filepath.Abs(dir)
 	if err != nil {

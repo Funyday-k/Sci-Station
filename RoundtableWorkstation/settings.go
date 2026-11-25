@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"scistation.local/desktop/internal/cli"
+	"scistation.local/desktop/internal/gateway"
 	"scistation.local/desktop/internal/meeting"
 )
 
@@ -21,9 +22,12 @@ type preferences struct {
 }
 
 type settingsStore struct {
-	mu    sync.RWMutex
-	file  string
-	prefs preferences
+	mu               sync.RWMutex
+	file             string
+	prefs            preferences
+	providerProfiles *providerProfileStore
+	gatewayOnce      sync.Once
+	gateway          *gateway.Gateway
 }
 
 func openSettings(dir string) (*settingsStore, error) {

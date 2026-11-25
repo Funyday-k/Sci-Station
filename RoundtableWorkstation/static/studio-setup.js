@@ -69,7 +69,7 @@
     }
     function paintStatus() {
       const unavailable = members.some(member => !validMember(member));
-      $("member-status").textContent = loading ? "正在读取 Magpie 型号…" : issue ||
+      $("member-status").textContent = loading ? "正在读取模型…" : issue ||
         (unavailable ? "已选型号或思考程度已下线，请调整成员。" : members.length ? "" : "请选择至少一位成员。");
       $("retry-members").hidden = loading || !issue;
       $("create-submit").disabled = writing || !canSubmit();
@@ -238,11 +238,11 @@
         models = (result.models || []).filter(model => model && typeof model.id === "string");
         defaultModel = result.default_model || "";
         directoryLoaded = true;
-        if (!models.length) issue = "Magpie 目录中暂无可用型号。";
+        if (!models.length) issue = "模型目录中暂无可用型号。";
       } catch (error) {
         if (current !== request) return;
         models = []; defaultModel = ""; directoryLoaded = false;
-        issue = "无法读取 Magpie 型号目录。" + (error.message || "");
+        issue = "无法读取模型目录。" + (error.message || "");
       } finally {
         if (current === request) {
           loading = false; modelIndex = new Map(models.map(model => [model.id, model]));

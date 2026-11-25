@@ -262,6 +262,9 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 	case "projects/rules":
 		a.projectRulesHandler(w, r)
 		return
+	case "provider-profiles":
+		a.manageProviderProfiles(w, r)
+		return
 	}
 	if path == "discussion-presets" {
 		if r.Method != http.MethodGet {

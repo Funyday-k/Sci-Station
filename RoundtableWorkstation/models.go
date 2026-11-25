@@ -15,13 +15,20 @@ import (
 // Each operation reads the Magpie-managed connection again; the HTTP transport
 // reuses loopback connections across all classic and Studio callers.
 func studioGateway(prefs *settingsStore) *gateway.Gateway {
-	return gateway.NewManagedGateway(func() int { return prefs.get().MagpiePort })
+	prefs.gatewayOnce.Do(func() {
+		var profiles gateway.CompatibleProfiles
+		if prefs.providerProfiles != nil {
+			profiles = prefs.providerProfiles
+		}
+		prefs.gateway = gateway.NewManagedGateway(func() int { return prefs.get().MagpiePort }, profiles)
+	})
+	return prefs.gateway
 }
 
 func (a *apiServer) models(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
-		reject(w, http.StatusMethodNotAllowed, "请通过 GET 读取 Magpie 模型目录。")
+		reject(w, http.StatusMethodNotAllowed, "请通过 GET 读取模型目录。")
 		return
 	}
 	catalog, err := studioGateway(a.prefs).Catalog(r.Context())
@@ -54,14 +61,14 @@ func (a *apiServer) validateMembers(ctx context.Context, members []meeting.Membe
 		}
 		model, found := models[member.Model]
 		if !found {
-			return nil, fmt.Errorf("%s的模型 %q 未列在 Magpie 当前的目录中", seat, member.Model)
+			return nil, fmt.Errorf("%s的模型 %q 未列在当前模型目录中", seat, member.Model)
 		}
 		effort := member.Effort
 		if effort == "" {
 			effort = "auto"
 		}
 		if !slices.Contains(model.Efforts, effort) {
-			return nil, fmt.Errorf("Magpie 未列出%s模型 %q 的思考程度 %q", seat, model.ID, effort)
+			return nil, fmt.Errorf("当前目录未列出%s模型 %q 的思考程度 %q", seat, model.ID, effort)
 		}
 		configured[i] = meeting.Member{Model: model.ID, Effort: effort, Label: model.Label, Source: model.Source}
 	}
