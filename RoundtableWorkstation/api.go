@@ -45,6 +45,7 @@ type apiServer struct {
 	pick            func() (string, error)
 	projectAccess   sync.Once
 	materialActions *projectMaterialActions
+	minerCreds      *minerCredentials
 }
 
 func (a *apiServer) setPicker(p func() (string, error)) {

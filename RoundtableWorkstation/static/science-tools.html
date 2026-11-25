@@ -74,7 +74,13 @@
         </div>
         <details class="panel">
           <summary>MinerU 公式、表格和扫描件转换</summary>
-          <p>开始转换会将所选 PDF 上传到 MinerU。Token 仅在本次页面使用。</p><label for="token">MinerU API Token</label><input type="password" id="token" autocomplete="off"><label for="batch">转换任务编号</label><input id="batch" placeholder="开始后自动填写，也可以恢复已有任务">
+          <p>开始转换会将所选 PDF 上传到 MinerU。填入 Token 可在当前页面使用。</p>
+          <label for="token">MinerU API Token</label><input type="password" id="token" autocomplete="off" spellcheck="false" maxlength="4096">
+          <div id="minerCredentialActions" hidden>
+            <p id="minerCredentialState" role="status"></p>
+            <div class="line"><button type="button" id="minerSave">保存到钥匙串</button><button type="button" id="minerClear">清除已保存的 Token</button></div>
+          </div>
+          <label for="batch">转换任务编号</label><input id="batch" placeholder="开始后自动填写，也可以恢复已有任务">
           <div class="line"><button id="remote">上传并转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
         </details>
         <div id="result" class="panel" hidden><label for="markdown">转换结果，可在保存前编辑</label><textarea id="markdown" rows="15"></textarea>

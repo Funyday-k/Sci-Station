@@ -35,6 +35,7 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   }
   vm.runInNewContext(script,{
     document:{getElementById:id=>controls[id],querySelectorAll:()=>[]},
+    window:{addEventListener(){}},
     Option:class{constructor(text,value){this.value=value;}},
     location:{search:"?tab=convert&project=project"},URLSearchParams,
     fetch,crypto:{randomUUID:()=>"conversion-test"},confirm:()=>true
@@ -50,6 +51,66 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   controls.markdown.value="reviewed B"; await controls.saveNote.onclick();
   assert.equal(changes[0].body.paperId,"B");
   assert.deepEqual(changes[1],{route:"projects/project/notes/N",method:"PATCH",body:{revision:1,body:"reviewed B"}});
+});
+
+test("conversion uses an offline credential status, clears saved input, and sends no saved token from the page", async () => {
+  const controls = {};
+  class Control {
+    hidden = true;
+    value = "";
+    replaceChildren(){ this.value = ""; }
+    add(option){ if (!this.value) this.value = option.value; }
+  }
+  for (const match of html.matchAll(/id="([^"]+)"/g)) controls[match[1]] = new Control();
+  const nativeWindow = new EventTarget();
+  const changes = [];
+  let configured = false;
+  let savingFails = false;
+  const fetch = async (url, options) => {
+    const route = url.replace("/api/research/", "");
+    if (route === "projects") return Response.json([]);
+    if (route === "papers") return Response.json([{id:"A", title:"Paper A", has_pdf:true}]);
+    assert.equal(options.headers["X-Sci-Station-Miner-Session"], "fixture-desktop-session");
+    const body = options.body && JSON.parse(options.body);
+    changes.push({route, body});
+    if (route === "tools/mineru/start") return Response.json({batch:"fixture-batch"});
+    assert.equal(route, "tools/mineru/credential");
+    if (body?.action === "save") {
+      if (savingFails) return Response.json({error:"Keychain denied"}, {status:503});
+      configured = true;
+    }
+    if (body?.action === "clear") configured = false;
+    return Response.json({configured});
+  };
+  vm.runInNewContext(script, {
+    document:{getElementById:id=>controls[id],querySelectorAll:()=>[]},
+    window:nativeWindow, Option:class{constructor(text,value){this.value=value;}},
+    location:{search:"?tab=convert"}, URLSearchParams, fetch, confirm:()=>true
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(controls.minerCredentialActions.hidden, true);
+  assert.equal(changes.length, 0);
+  nativeWindow.sciStationMinerSession = "fixture-desktop-session";
+  nativeWindow.dispatchEvent(new Event("scistation:miner-session"));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(controls.minerCredentialActions.hidden, false);
+  assert.equal(controls.minerClear.disabled, true);
+
+  controls.token.value = "fixture-miner-input";
+  savingFails = true;
+  await controls.minerSave.onclick();
+  assert.equal(controls.token.value, "fixture-miner-input");
+  assert.equal(controls.status.textContent, "Keychain denied");
+  savingFails = false;
+  await controls.minerSave.onclick();
+  assert.equal(controls.token.value, "");
+  assert.equal(controls.minerClear.disabled, false);
+  await controls.remote.onclick();
+  assert.deepEqual(changes.at(-1), {route:"tools/mineru/start", body:{paper:"A", token:"", batch:""}});
+  assert.equal(controls.batch.value, "fixture-batch");
+  await controls.minerClear.onclick();
+  assert.equal(controls.minerClear.disabled, true);
+  assert.deepEqual(changes.at(-1), {route:"tools/mineru/credential", body:{action:"clear"}});
 });
 
 const discoveryScript = fs.readFileSync(path.join(base, "discovery-view.js"), "utf8");

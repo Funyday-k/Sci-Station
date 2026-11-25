@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"scistation.local/desktop/internal/credentials"
 	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/plugins"
 	"scistation.local/desktop/internal/research"
@@ -179,6 +180,14 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	}
 	market, marketErr := plugins.NewStore(filepath.Join(dir, "plugins"))
 	api := &apiServer{desktop: desktop, workspaceDir: dir, prefs: pref, meetings: engine, research: lab, plugins: market, pluginErr: marketErr}
+	if api.desktop {
+		store, err := credentials.Open(dir)
+		if err != nil {
+			log.Print("无法为此数据目录启用 MinerU 钥匙串")
+		} else if store != nil {
+			api.minerCreds = newMinerCredentials(store)
+		}
+	}
 	lab.SetPathValidator(api.approvedResearchPath)
 	if marketErr == nil {
 		engine.SetPluginGuidance(api.pluginGuidance)

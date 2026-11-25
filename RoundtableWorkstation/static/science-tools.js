@@ -10,7 +10,10 @@
     reminderBusy = false,
     discovery,
     conversionSequence = 0,
-    result = null;
+    result = null,
+    minerSession = "",
+    minerConfigured = false,
+    minerCredentialBusy = false;
   const views = {
     discover: "文献发现",
     convert: "PDF 转换",
@@ -18,7 +21,7 @@
   };
   const tab = Object.hasOwn(views, qs.get("tab")) ? qs.get("tab") : "discover";
   const apiBase = "/api/research/";
-  async function req(route, body, format = "json", method = "POST") {
+  async function req(route, body, format = "json", method = "POST", extraHeaders = {}) {
     const options = body === undefined ? {} : {
       method,
       headers: {
@@ -27,6 +30,7 @@
       },
       body: JSON.stringify(body)
     };
+    options.headers = {...options.headers, ...extraHeaders};
     const response = await fetch(apiBase + route, options);
     if (!response.ok) {
       const raw = await response.text();
@@ -37,6 +41,43 @@
       throw Error(msg || "请求失败");
     }
     return response[format]();
+  }
+
+  function minerReq(route, body, format) {
+    const headers = minerSession ? {"X-Sci-Station-Miner-Session": minerSession} : {};
+    return req("tools/mineru/" + route, body, format, "POST", headers);
+  }
+
+  function showMinerCredential(configured) {
+    minerConfigured = configured;
+    $("minerCredentialState").textContent = configured ? "此工作区的 Token 已保存在 macOS 钥匙串。输入框留空时使用已保存的 Token。" : "尚未在 macOS 钥匙串保存 Token。";
+  }
+
+  async function updateMinerCredential(input) {
+    if (minerCredentialBusy) return;
+    minerCredentialBusy = true;
+    $("minerSave").disabled = true;
+    $("minerClear").disabled = true;
+    try {
+      const state = await minerReq("credential", input);
+      showMinerCredential(state.configured);
+      if (input?.action === "save" && $("token").value === input.token) $("token").value = "";
+    } catch (e) {
+      if (input) tell(e.message);
+      else $("minerCredentialState").textContent = e.message;
+    } finally {
+      minerCredentialBusy = false;
+      $("minerSave").disabled = false;
+      $("minerClear").disabled = !minerConfigured;
+    }
+  }
+
+  function enableMinerCredential() {
+    if (minerSession || typeof window.sciStationMinerSession !== "string" || !window.sciStationMinerSession) return;
+    minerSession = window.sciStationMinerSession;
+    $("minerCredentialActions").hidden = false;
+    $("minerCredentialState").textContent = "正在检查钥匙串…";
+    return updateMinerCredential();
   }
 
   function make(tag, text) {
@@ -168,10 +209,10 @@
     $("remote").onclick = () => busy($("remote"), async () => {
       const v = remoteData(),
         seq = ++conversionSequence;
-      if (!v.token) throw Error("请输入 MinerU API Token");
+      if (!v.token.trim() && !minerSession) throw Error("请输入 MinerU API Token");
       if (!confirm("将这篇 PDF 上传到 MinerU 进行转换？")) return;
       tell("正在上传…");
-      const s = await req("tools/mineru/start", v);
+      const s = await minerReq("start", v);
       if (seq !== conversionSequence || v.paper !== $("paper").value) return;
       $("batch").value = s.batch;
       tell("已提交转换。任务编号可用于稍后查看进度。");
@@ -180,18 +221,24 @@
       const p = selectedPaper(),
         d = remoteData(),
         seq = ++conversionSequence,
-        s = await req("tools/mineru/status", d);
+        s = await minerReq("status", d);
       if (seq !== conversionSequence) return;
       if (s.state === "done") {
-        renderResult((await req("tools/mineru/result", d)).markdown, p, seq);
+        renderResult((await minerReq("result", d)).markdown, p, seq);
       } else tell("MinerU 任务状态：" + s.state);
     });
     $("getZip").onclick = () => busy($("getZip"), async () => {
       const d = remoteData(),
-        s = await req("tools/mineru/status", d);
+      s = await minerReq("status", d);
       if (s.state !== "done") throw Error("结果尚未完成：" + s.state);
-      saveBlob(await req("tools/mineru/result?format=zip", d, "blob"), "MinerU-" + d.paper + ".zip");
+      saveBlob(await minerReq("result?format=zip", d, "blob"), "MinerU-" + d.paper + ".zip");
     });
+    $("minerSave").onclick = () => updateMinerCredential({action: "save", token: $("token").value});
+    $("minerClear").onclick = () => {
+      if (confirm("清除此工作区保存在 macOS 钥匙串中的 MinerU Token？")) {
+        return updateMinerCredential({action: "clear"});
+      }
+    };
     $("download").onclick = () => saveBlob(new Blob([$("markdown").value], {
       type: "text/markdown"
     }), result.paper.title.replace(/[\/\\:]/g, "-") + ".md");
@@ -251,6 +298,10 @@
     $("heading").textContent = views[tab];
     nav();
     initActions();
+    if (tab === "convert") {
+      window.addEventListener("scistation:miner-session", enableMinerCredential);
+      enableMinerCredential();
+    }
     projects = await req("projects");
     const choicesList = projects.map(p => [p.id, p.name]);
     if (tab === "discover") choicesList.unshift(["", "整个文献库"]);

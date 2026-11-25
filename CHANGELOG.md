@@ -12,6 +12,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Create unassigned tasks in the workstation even before adding a project. A task can lose its last project membership and keep its ID, calendar entry and reminder identity.
 
 - Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Required CI builds and verifies the signed Apple Silicon candidate and exercises native shutdown.
+- Save, replace and clear a workspace's MinerU token in macOS Keychain from PDF Conversion. Saved tokens are available after reopening the same data directory.
 
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 

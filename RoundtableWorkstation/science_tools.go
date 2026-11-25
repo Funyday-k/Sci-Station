@@ -67,6 +67,8 @@ func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 			}
 			reply(w, 200, map[string]string{"id": id})
 		}
+	case "mineru/credential":
+		a.minerCredential(w, r)
 	case "mineru/start", "mineru/status", "mineru/result":
 		a.mineruTool(lab, w, r, route)
 	default:

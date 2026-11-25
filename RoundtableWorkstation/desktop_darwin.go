@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"html"
 	"os/exec"
 	"path/filepath"
@@ -62,6 +63,16 @@ func runDesktop(explicit string, port int) error {
 	if h.session.active != nil {
 		h.installPickers(h.session.active.api)
 	}
+	h.window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) {
+		h.session.mu.Lock()
+		current := h.session.active
+		h.session.mu.Unlock()
+		if current != nil && current.api != nil {
+			if script := current.api.minerCredentialSessionScript(current.address); script != "" {
+				h.window.ExecJS(script)
+			}
+		}
+	})
 	configureNativeLaunch(h.app, h.window)
 	h.menu()
 	defer h.session.shutdown()

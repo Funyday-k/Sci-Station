@@ -13,9 +13,10 @@ import (
 	"os"
 	"path"
 	"regexp"
-	"scistation.local/desktop/internal/research"
 	"strings"
 	"time"
+
+	"scistation.local/desktop/internal/research"
 )
 
 // A token is used only on MinerU's fixed API origin. Signed file URLs receive
@@ -33,7 +34,6 @@ type minerReply struct {
 			Name   string `json:"file_name"`
 			State  string `json:"state"`
 			ZipURL string `json:"full_zip_url"`
-			Error  string `json:"err_msg"`
 		} `json:"extract_result"`
 	} `json:"data"`
 }
@@ -95,14 +95,25 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 	if !jsonBody(w, r, &input) {
 		return
 	}
-	input.Token = strings.TrimSpace(input.Token)
-	if input.Token == "" || len(input.Token) > 4096 || strings.ContainsAny(input.Token, "\r\n") {
-		reject(w, 400, "请提供有效的 MinerU Token")
+	if route != "mineru/start" && !minerBatchID.MatchString(input.Batch) {
+		reject(w, 400, "任务编号无效")
 		return
 	}
 	pdf, e := lab.PaperPDFPath(input.Paper)
 	if e != nil {
 		reject(w, 404, "论文缺少本地 PDF")
+		return
+	}
+	token := strings.TrimSpace(input.Token)
+	if token == "" && a.canUseMinerCredential(r) {
+		token, e = a.minerCreds.store.Resolve()
+		if e != nil {
+			reject(w, http.StatusServiceUnavailable, minerCredentialUnavailable)
+			return
+		}
+	}
+	if !validMinerToken(token) {
+		reject(w, 400, "请输入 MinerU Token 或在桌面应用中保存后重试。")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
@@ -119,7 +130,7 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 			reject(w, 400, "MinerU 上传上限为 200 MiB")
 			return
 		}
-		res, e := minerAPI(ctx, input.Token, "POST", "file-urls/batch", map[string]any{"files": []map[string]string{{"name": input.Paper + ".pdf", "data_id": input.Paper}}, "model_version": "vlm", "enable_formula": true, "enable_table": true})
+		res, e := minerAPI(ctx, token, "POST", "file-urls/batch", map[string]any{"files": []map[string]string{{"name": input.Paper + ".pdf", "data_id": input.Paper}}, "model_version": "vlm", "enable_formula": true, "enable_table": true})
 		if e != nil {
 			reject(w, 502, e.Error())
 			return
@@ -147,11 +158,7 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		reply(w, 201, map[string]string{"batch": res.Data.Batch})
 		return
 	}
-	if !minerBatchID.MatchString(input.Batch) {
-		reject(w, 400, "任务编号无效")
-		return
-	}
-	res, e := minerAPI(ctx, input.Token, "GET", "extract-results/batch/"+input.Batch, nil)
+	res, e := minerAPI(ctx, token, "GET", "extract-results/batch/"+input.Batch, nil)
 	if e != nil {
 		reject(w, 502, e.Error())
 		return
@@ -160,12 +167,20 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		if item.DataID != input.Paper && item.Name != input.Paper+".pdf" {
 			continue
 		}
-		if item.State == "failed" {
-			reject(w, 422, "MinerU 转换失败："+item.Error)
+		switch item.State {
+		case "failed":
+			reject(w, 422, "MinerU 转换失败，请在 MinerU 中查看错误详情。")
+			return
+		case "pending", "running", "converting", "waiting-file":
+			reply(w, 200, map[string]string{"state": item.State})
+			return
+		case "done":
+		default:
+			reply(w, 200, map[string]string{"state": "pending"})
 			return
 		}
-		if item.State != "done" || route == "mineru/status" {
-			reply(w, 200, map[string]string{"state": item.State})
+		if route == "mineru/status" {
+			reply(w, 200, map[string]string{"state": "done"})
 			return
 		}
 		if !trustedMinerFile(item.ZipURL) {
