@@ -169,12 +169,16 @@
     dialog(edit ? "编辑文献" : "导入文献", '<form>' +
       (edit ? "" : '<div class="file-drop">' + field("本地 PDF",
           '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple>') +
-        '<p class="form-help">多份 PDF 分别按文件名入库，共用所选标签、阅读状态和项目。</p></div>') +
+        '<p class="form-help">所选 PDF 分别导入，共用标签、阅读状态和项目。</p></div>' +
+        field("按标识符或链接导入", area("identifiers", "", 'rows="3" placeholder="每行一个 DOI、arXiv 编号、INSPIRE 链接或网址"'))) +
       field("题名", input("title", p?.title, (edit ? "required " : "") + 'maxlength="1000" placeholder="可从文件名或在线元数据获取"')) +
       '<div class="split">' + field("DOI", input("doi", p?.doi, 'placeholder="10.…"')) + field("arXiv 编号", input("arxiv",
         p?.arxiv, 'placeholder="2404.10066"')) + '</div>' +
       field("原文链接", input("url", p?.url, 'type="url" placeholder="https://…"')) +
-      (edit ? "" : '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label><label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">在线 PDF 无法下载或阅读时仅保存链接</label>') +
+      (edit ? "" : '<label class="check"><input type="checkbox" name="lookup_metadata" checked>查询在线元数据</label>' +
+        '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label>' +
+        '<label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">在线 PDF 无法下载或阅读时仅保存链接</label>' +
+        '<button type="button" class="button" data-import-preview-button>预览文献</button><p data-import-preview role="status"></p>') +
       '<details ' + (edit ? "open" : "") + '><summary>元数据与阅读状态</summary>' + field("作者", input("authors", p?.authors?.join(
         ", "), 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field("年份", input("year", p?.year || "",
         'type="number" min="1" max="9999"')) + field("阅读状态", select("status", Object.entries({
@@ -194,9 +198,7 @@
       });
     const completed = new Set();
     const outcomes = new Map();
-    const form = bindForm(async (f, token) => {
-      const files = [...(f.elements.pdf?.files || [])];
-      const file = files[0];
+    function paperBody(f) {
       const body = {
         title: value(f, "title"),
         doi: value(f, "doi"),
@@ -236,35 +238,72 @@
         }
       }
       if (Object.keys(links).length) body.project_links = links;
-      if (!edit && !file && !body.title && !body.doi && !body.arxiv && !body.url) throw Error(
-        "请选择 PDF，或输入题名、DOI、arXiv 编号或网址。");
-      if (files.length > 1) {
-        const pending = files.filter(item => !completed.has(item));
+      const collection = value(f, "collection_id");
+      if (collection) body.collection_id = collection;
+      return body;
+    }
+
+    function importItems(f) {
+      const files = [...(f.elements.pdf?.files || [])];
+      const targets = [...new Set(value(f, "identifiers").split(/\r?\n/).map(text => text.trim()).filter(Boolean))];
+      if (files.length && targets.length) throw Error("请分别提交本地 PDF 和在线标识符。");
+      return files.length ? files : targets.length ? targets : [null];
+    }
+
+    function importPayload(f, item, multiple) {
+      const body = paperBody(f);
+      const file = item && typeof item !== "string";
+      if (!item && !body.title && !body.doi && !body.arxiv && !body.url) {
+        throw Error("请选择 PDF，或输入题名、DOI、arXiv 编号或网址。");
+      }
+      if (multiple) {
+        for (const key of ["title", "doi", "arxiv", "url", "authors", "year", "abstract"]) delete body[key];
+      }
+      if (file) {
+        const payload = new FormData();
+        payload.append("file", item);
+        payload.append("metadata", JSON.stringify(body));
+        return payload;
+      }
+      if (typeof item === "string") {
+        for (const key of ["doi", "arxiv", "url"]) delete body[key];
+        body.identifier = item;
+      }
+      body.fetch_pdf = Boolean(f.elements.fetch_pdf?.checked);
+      body.allow_link_only = body.fetch_pdf && Boolean(f.elements.allow_link_only?.checked);
+      body.skip_metadata_lookup = !f.elements.namedItem("lookup_metadata")?.checked;
+      return body;
+    }
+
+    const form = bindForm(async (f, token) => {
+      const items = edit ? [] : importItems(f);
+      if (items.length > 1) {
+        const pending = items.filter(item => !completed.has(item));
         if (!pending.length) {
           done(token);
           return;
         }
-        const metadata = {tags: body.tags, status: body.status, project_ids: body.project_ids, core_project_ids: body.core_project_ids, project_links: body.project_links};
         const results = f.querySelector("[data-import-results]");
+        const identifiers = f.elements.namedItem("identifiers");
         const drawResults = () => {
-          results.replaceChildren(...files.map(item => {
+          results.replaceChildren(...items.map(item => {
             const li = document.createElement("li");
-            li.textContent = item.name + " · " + (outcomes.get(item) || "等待导入");
+            li.textContent = (item.name || item) + " · " + (outcomes.get(item) || "等待导入");
             return li;
           }));
         };
+        const submissions = pending.map(item => [item, importPayload(f, item, true)]);
         f.elements.pdf.disabled = true;
+        identifiers.disabled = true;
         try {
-          for (const item of pending) {
+          for (const [item, payload] of submissions) {
             if (!f.closest("dialog")?.open || token !== formEpoch) break;
             outcomes.set(item, "正在导入");
             drawResults();
-            const payload = new FormData();
-            payload.append("file", item);
-            payload.append("metadata", JSON.stringify(metadata));
             try {
               const record = await request("papers", {method: "POST", body: payload});
-              outcomes.set(item, "已入库 · " + record.title);
+              const warning = [record.import_warning, record.metadata_warning].filter(Boolean).join(" · ");
+              outcomes.set(item, "已入库 · " + record.title + (warning ? " · " + warning : ""));
               completed.add(item);
             } catch (err) {
               outcomes.set(item, err.message);
@@ -273,16 +312,18 @@
           }
         } finally {
           f.elements.pdf.disabled = false;
+          identifiers.disabled = false;
         }
-        const missing = files.length - completed.size;
-        f.querySelector("[data-status]").textContent = "已入库 " + completed.size + " / " + files.length;
-        f.querySelector("[type=submit]").textContent = missing ? "重试未成功的文件" : "完成";
+        const missing = items.length - completed.size;
+        f.querySelector("[data-status]").textContent = "已入库 " + completed.size + " / " + items.length;
+        f.querySelector("[type=submit]").textContent = missing ?
+          (typeof items[0] === "string" ? "重试未成功的标识符" : "重试未成功的文件") : "完成";
         await refresh();
         return;
       }
-      let payload = body;
+      let payload;
       if (edit) {
-        Object.assign(body, {
+        payload = Object.assign(paperBody(f), {
           revision: p.revision,
           citekey: value(f, "citekey"),
           rating: Number(value(f, "rating")),
@@ -290,13 +331,7 @@
           references: split(value(f, "references"))
         });
       } else {
-        body.fetch_pdf = !file && Boolean(f.elements.fetch_pdf?.checked);
-        body.allow_link_only = body.fetch_pdf && Boolean(f.elements.allow_link_only?.checked);
-        if (file) {
-          payload = new FormData();
-          payload.append("file", file);
-          payload.append("metadata", JSON.stringify(body));
-        }
+        payload = importPayload(f, items[0], false);
       }
       const record = await request(base, {
         method: edit ? "PUT" : "POST",
@@ -304,25 +339,66 @@
       });
       done(token);
       await refresh();
-      toast(record?.import_warning ? "已仅保存链接 · " + record.import_warning : edit ? "文献已更新" : "文献已导入");
+      const warning = [record?.import_warning, record?.metadata_warning].filter(Boolean).join(" · ");
+      toast(warning ? "文献已导入 · " + warning : edit ? "文献已更新" : "文献已导入");
     });
     if (!edit) {
-      const syncInputs = () => {
-        const count = form.elements.pdf.files.length;
+      const identifiers = form.elements.namedItem("identifiers");
+      const preview = form.querySelector("[data-import-preview]");
+      const previewButton = form.querySelector("[data-import-preview-button]");
+      let previewEpoch = 0;
+      function resetPreview() {
+        previewEpoch++;
+        preview.textContent = "";
+      }
+      function syncInputs() {
+        const files = form.elements.pdf.files.length;
+        const targets = value(form, "identifiers").split(/\r?\n/).filter(line => line.trim()).length;
         for (const name of ["title", "doi", "arxiv", "url", "authors", "year", "abstract"]) {
-          form.elements.namedItem(name).disabled = count > 1;
+          form.elements.namedItem(name).disabled = files > 1 || targets > 1 ||
+            (targets > 0 && ["doi", "arxiv", "url"].includes(name));
         }
-        form.elements.fetch_pdf.disabled = count > 0;
-        form.querySelector("[data-link-fallback]").hidden = count > 0 || !form.elements.fetch_pdf.checked;
-      };
-      form.elements.pdf.addEventListener("change", () => {
+        form.elements.fetch_pdf.disabled = files > 0;
+        form.elements.namedItem("lookup_metadata").disabled = files > 0;
+        form.querySelector("[data-link-fallback]").hidden = files > 0 || !form.elements.fetch_pdf.checked;
+        previewButton.textContent = Math.max(files, targets) > 1 ? "预览首篇文献" : "预览文献";
+      }
+      function resetBatch() {
         completed.clear();
         outcomes.clear();
         form.querySelector("[data-import-results]").replaceChildren();
         form.querySelector("[type=submit]").textContent = "导入文献";
+        resetPreview();
         syncInputs();
-      });
+      }
+      form.elements.pdf.addEventListener("change", resetBatch);
+      identifiers.addEventListener("input", resetBatch);
       form.elements.fetch_pdf.addEventListener("change", syncInputs);
+      form.addEventListener("change", resetPreview);
+      form.addEventListener("input", resetPreview);
+      previewButton.addEventListener?.("click", async () => {
+        if (form.dataset.pending || !form.reportValidity()) return;
+        const epoch = ++previewEpoch;
+        preview.textContent = "正在预览…";
+        previewButton.disabled = true;
+        try {
+          const items = importItems(form);
+          const body = importPayload(form, items[0], items.length > 1);
+          const data = await request("papers/preview", {method: "POST", body});
+          if (epoch !== previewEpoch) return;
+          preview.textContent = [
+            data.title, data.authors?.join(", "), data.year, data.metadata_source,
+            data.doi, data.arxiv, data.inspire_id && "INSPIRE " + data.inspire_id,
+            data.existing_title && "复用文献库中的《" + data.existing_title + "》",
+            items.length > 1 && "已选 " + items.length + " 篇，预览首篇",
+            data.metadata_warning
+          ].filter(Boolean).join(" · ");
+        } catch (err) {
+          if (epoch === previewEpoch) preview.textContent = err.message;
+        } finally {
+          previewButton.disabled = false;
+        }
+      });
     }
     form.addEventListener("change", event => {
       if (!["project_ids", "core_project_ids"].includes(event.target.name)) return;

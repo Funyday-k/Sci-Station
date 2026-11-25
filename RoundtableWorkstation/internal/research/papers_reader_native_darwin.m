@@ -157,6 +157,20 @@ static NSData *findPages(PDFDocument *doc, NSString *query) {
     return jsonData(@{@"items" : items, @"limited" : @(limited)});
 }
 
+static NSData *importMetadata(PDFDocument *doc) {
+    NSDictionary *attributes = doc.documentAttributes;
+    NSString *title = attributes[PDFDocumentTitleAttribute];
+    NSString *author = attributes[PDFDocumentAuthorAttribute];
+    NSString *firstPage = [doc pageAtIndex:0].string ?: @"";
+    if (firstPage.length > 16000)
+        firstPage = [firstPage substringWithRange:[firstPage rangeOfComposedCharacterSequencesForRange:NSMakeRange(0, 16000)]];
+    return jsonData(@{
+        @"title" : [title isKindOfClass:NSString.class] ? title : @"",
+        @"author" : [author isKindOfClass:NSString.class] ? author : @"",
+        @"first_page" : firstPage
+    });
+}
+
 void *sci_reader_page(const char *path, const char *operation, int page, const char *query, int *length,
                       int *is_error) {
     @autoreleasepool {
@@ -170,6 +184,8 @@ void *sci_reader_page(const char *path, const char *operation, int page, const c
                 issue = @"无法访问 PDF 页面，文件可能损坏或已加密。";
             else if ([op isEqualToString:@"info"])
                 data = jsonData(@{@"pages" : @(doc.pageCount)});
+            else if ([op isEqualToString:@"import-metadata"])
+                data = importMetadata(doc);
             else if ([op isEqualToString:@"search"])
                 data = findPages(doc, [NSString stringWithUTF8String:query]);
             else if (page < 1 || (NSUInteger)page > doc.pageCount)

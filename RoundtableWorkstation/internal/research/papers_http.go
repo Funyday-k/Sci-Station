@@ -69,7 +69,7 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			paperReply(w, 200, filterPapers(s.all(), r.URL.Query().Get("project"), r.URL.Query().Get("q"), r.URL.Query().Get("status")))
 		case "POST":
-			s.importHTTP(w, r)
+			s.importHTTP(w, r, false)
 		default:
 			paperMethod(w, "GET, POST")
 		}
@@ -78,6 +78,13 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	chunks := strings.Split(path, "/")
 	if len(chunks) == 1 {
 		switch chunks[0] {
+		case "preview":
+			if r.Method != "POST" {
+				paperMethod(w, "POST")
+				return
+			}
+			s.importHTTP(w, r, true)
+			return
 		case "bibtex":
 			if r.Method != "GET" {
 				paperMethod(w, "GET")
@@ -256,9 +263,9 @@ func (s *PaperLibrary) remove(id string, revision int) error {
 	}
 	return nil
 }
-func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request, preview bool) {
 	var input paperImport
-	var temp, digest, warning string
+	var temp, digest, warning, metadataWarning string
 	var err error
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		r.Body = http.MaxBytesReader(w, r.Body, maxPaperPDF+(4<<20))
@@ -276,6 +283,10 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if err = input.prepare(); err != nil {
+			paperError(w, err)
+			return
+		}
 		f, h, e := r.FormFile("file")
 		if e != nil {
 			paperError(w, fmt.Errorf("%w：缺少 file", errInvalidPaper))
@@ -288,23 +299,30 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer os.Remove(temp)
-		if input.Title == "" {
-			name := filepath.Base(h.Filename)
-			input.Title = strings.TrimSuffix(name, filepath.Ext(name))
+		input.MetadataSource = ""
+		input.readLocalMetadata(r.Context(), temp, h.Filename)
+		input.SkipLookup = true
+		_, err = enrichPaper(r.Context(), &input)
+		if err != nil {
+			paperError(w, err)
+			return
 		}
 	} else {
 		if err = paperDecode(http.MaxBytesReader(w, r.Body, 4<<20), &input); err != nil {
 			paperError(w, err)
 			return
 		}
-		if len(input.URL) > 4096 || len(input.DOI) > 512 || len(input.Arxiv) > 128 {
-			paperError(w, errInvalidPaper)
+		input.MetadataSource = ""
+		metadataWarning, err = enrichPaper(r.Context(), &input)
+		if err != nil {
+			if r.Context().Err() != nil {
+				paperReply(w, http.StatusRequestTimeout, map[string]string{"error": "导入已取消"})
+				return
+			}
+			paperError(w, err)
 			return
 		}
-		if input.URL != "" || input.DOI != "" || input.Arxiv != "" {
-			enrichPaper(r.Context(), &input)
-		}
-		if input.FetchPDF {
+		if !preview && input.FetchPDF {
 			from := input.PDFURL
 			if from == "" {
 				from = input.URL
@@ -333,6 +351,22 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 		paperReply(w, http.StatusRequestTimeout, map[string]string{"error": "导入已取消"})
 		return
 	}
+	if preview {
+		if err := s.validate(&input.PaperMetadata, nil); err != nil {
+			paperError(w, err)
+			return
+		}
+		existing, err := s.findImport(input.PaperMetadata, digest)
+		if err != nil {
+			paperError(w, err)
+			return
+		}
+		paperReply(w, http.StatusOK, paperImportPreview{
+			PaperMetadata: input.PaperMetadata, ExistingPaperID: existing.ID, ExistingTitle: existing.Title,
+			HasLocalPDF: temp != "", MetadataWarning: metadataWarning,
+		})
+		return
+	}
 	rec, created, err := s.create(input.PaperMetadata, temp, digest)
 	if err != nil {
 		paperError(w, err)
@@ -342,15 +376,24 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 	if created {
 		status = http.StatusCreated
 	}
-	if warning != "" && !rec.HasPDF {
-		paperReply(w, status, struct {
-			Paper
-			ImportWarning string `json:"import_warning"`
-		}{rec, warning})
-		return
+	if rec.HasPDF {
+		warning = ""
 	}
-	paperReply(w, status, rec)
+	paperReply(w, status, struct {
+		Paper
+		ImportWarning   string `json:"import_warning,omitempty"`
+		MetadataWarning string `json:"metadata_warning,omitempty"`
+	}{rec, warning, metadataWarning})
 }
+
+type paperImportPreview struct {
+	PaperMetadata
+	ExistingPaperID string `json:"existing_paper_id,omitempty"`
+	ExistingTitle   string `json:"existing_title,omitempty"`
+	HasLocalPDF     bool   `json:"has_local_pdf,omitempty"`
+	MetadataWarning string `json:"metadata_warning,omitempty"`
+}
+
 func validAnnotation(a *PaperAnnotation) bool {
 	if a.Kind == "" {
 		a.Kind = "highlight"

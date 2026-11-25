@@ -70,6 +70,9 @@ type PaperMetadata struct {
 	References     []string                    `json:"references"`
 	Rating         int                         `json:"rating"`
 	Priority       int                         `json:"priority"`
+	InspireID      string                      `json:"inspire_id,omitempty"`
+	PDFURL         string                      `json:"pdf_url,omitempty"`
+	MetadataSource string                      `json:"metadata_source,omitempty"`
 }
 type Paper struct {
 	PaperMetadata
@@ -258,6 +261,10 @@ func (s *PaperLibrary) saveLocked(p Paper) error {
 		return err
 	}
 	defer lock.Close()
+	return s.saveWithRecordLock(p)
+}
+
+func (s *PaperLibrary) saveWithRecordLock(p Paper) error {
 	disk, err := s.currentRecord(p.ID)
 	if err != nil {
 		return err
@@ -306,26 +313,6 @@ func paperContains(values []string, key string) bool {
 	}
 	return false
 }
-func normalizeDOI(v string) string {
-	v = strings.TrimSpace(v)
-	lower := strings.ToLower(v)
-	for _, prefix := range []string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi:"} {
-		if strings.HasPrefix(lower, prefix) {
-			return strings.TrimSpace(v[len(prefix):])
-		}
-	}
-	return v
-}
-func normalizeArxiv(v string) string {
-	v = strings.TrimSpace(v)
-	lower := strings.ToLower(v)
-	for _, prefix := range []string{"https://arxiv.org/abs/", "https://arxiv.org/pdf/", "http://arxiv.org/abs/", "arxiv:"} {
-		if strings.HasPrefix(lower, prefix) {
-			return strings.TrimSuffix(strings.TrimSpace(v[len(prefix):]), ".pdf")
-		}
-	}
-	return v
-}
 func validatePaperLinks(m *PaperMetadata) error {
 	for id, link := range m.ProjectLinks {
 		if !paperContains(m.ProjectIDs, id) || utf8.RuneCountInString(link.FolderPath) > 512 {
@@ -348,6 +335,12 @@ func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) erro
 	m.Title = strings.TrimSpace(m.Title)
 	m.DOI = normalizeDOI(m.DOI)
 	m.Arxiv = normalizeArxiv(m.Arxiv)
+	m.InspireID = normalizeInspire(m.InspireID)
+	m.PDFURL = strings.TrimSpace(m.PDFURL)
+	if len(m.Arxiv) > 128 || len(m.PDFURL) > 4096 || len(m.MetadataSource) > 32 || (m.PDFURL != "" && !paperHTTPURL(m.PDFURL)) ||
+		(m.InspireID != "" && !inspirePattern.MatchString(m.InspireID)) {
+		return errInvalidPaper
+	}
 	m.URL = strings.TrimSpace(m.URL)
 	m.Citekey = strings.TrimSpace(m.Citekey)
 	if m.Title == "" || len(m.Title) > 4096 || len(m.Abstract) > 256*1024 || len(m.Notes) > 2<<20 || len(m.URL) > 4096 || len(m.DOI) > 512 || m.Year < 0 || m.Year > 9999 || m.Rating < 0 || m.Rating > 5 || m.Priority < 0 || m.Priority > 5 {
@@ -446,7 +439,12 @@ func ArxivWorkID(id string) string {
 }
 
 func samePaper(a, b Paper) bool {
-	return a.DOI != "" && strings.EqualFold(a.DOI, b.DOI) || a.Arxiv != "" && ArxivWorkID(a.Arxiv) == ArxivWorkID(b.Arxiv) || a.FileSHA256 != "" && a.FileSHA256 == b.FileSHA256 || a.URL != "" && a.URL == b.URL
+	aArxiv, bArxiv := arxivPaperIdentity(a.PaperMetadata), arxivPaperIdentity(b.PaperMetadata)
+	return a.DOI != "" && strings.EqualFold(a.DOI, b.DOI) ||
+		aArxiv != "" && aArxiv == bArxiv ||
+		a.InspireID != "" && a.InspireID == b.InspireID ||
+		a.FileSHA256 != "" && a.FileSHA256 == b.FileSHA256 ||
+		a.URL != "" && a.URL == b.URL
 }
 func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, bool, error) {
 	if err := s.validate(&m, nil); err != nil {
@@ -455,65 +453,57 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 	p := Paper{PaperMetadata: m, ID: paperID(), CreatedAt: time.Now().UTC(), HasPDF: tempFile != "", FileSHA256: digest, Annotations: []PaperAnnotation{}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	incoming := p
-	isNew := true
-	for _, other := range s.records {
-		if samePaper(incoming, other) {
-			if !isNew {
-				return Paper{}, false, errPaperExists
-			}
-			isNew = false
-			existing := clonePaper(other)
-			for _, id := range m.ProjectIDs {
-				if !paperContains(existing.ProjectIDs, id) {
-					existing.ProjectIDs = append(existing.ProjectIDs, id)
-					if link, ok := m.ProjectLinks[id]; ok {
-						if existing.ProjectLinks == nil {
-							existing.ProjectLinks = map[string]PaperProjectLink{}
-						}
-						existing.ProjectLinks[id] = link
+	other, err := s.findImportLocked(p)
+	if err != nil {
+		return Paper{}, false, err
+	}
+	isNew := other.ID == ""
+	recovered := false
+	if !isNew {
+		existing := clonePaper(other)
+		recovered = recoverPaperMetadata(&existing, m)
+		addPaperImportAliases(&existing, m)
+		for _, id := range m.ProjectIDs {
+			if !paperContains(existing.ProjectIDs, id) {
+				existing.ProjectIDs = append(existing.ProjectIDs, id)
+				if link, ok := m.ProjectLinks[id]; ok {
+					if existing.ProjectLinks == nil {
+						existing.ProjectLinks = map[string]PaperProjectLink{}
 					}
+					existing.ProjectLinks[id] = link
 				}
 			}
-			for _, id := range m.CoreProjectIDs {
-				if !paperContains(existing.CoreProjectIDs, id) {
-					existing.CoreProjectIDs = append(existing.CoreProjectIDs, id)
-				}
-			}
-			p = existing
 		}
+		for _, id := range m.CoreProjectIDs {
+			if !paperContains(existing.CoreProjectIDs, id) {
+				existing.CoreProjectIDs = append(existing.CoreProjectIDs, id)
+			}
+		}
+		p = existing
 	}
 	if !isNew && p.HasPDF && digest != "" && p.FileSHA256 != digest {
 		return Paper{}, false, fmt.Errorf("%w：同一文献已有不同 PDF", errPaperExists)
 	}
 	if !isNew && (p.HasPDF || tempFile == "") {
 		old := s.records[p.ID]
-		if len(old.ProjectIDs) == len(p.ProjectIDs) && len(old.CoreProjectIDs) == len(p.CoreProjectIDs) {
+		if !recovered && len(old.ProjectIDs) == len(p.ProjectIDs) && len(old.CoreProjectIDs) == len(p.CoreProjectIDs) &&
+			old.DOI == p.DOI && old.Arxiv == p.Arxiv && old.InspireID == p.InspireID && old.PDFURL == p.PDFURL {
 			return clonePaper(old), false, nil
 		}
+	}
+	if err := s.validate(&p.PaperMetadata, other.ProjectIDs); err != nil {
+		return Paper{}, false, err
 	}
 	if p.Citekey == "" {
 		p.Citekey = defaultPaperKey(p, s.records)
 	}
 	for _, other := range s.records {
-		if other.ID != p.ID && strings.EqualFold(other.Citekey, p.Citekey) {
+		if other.ID != p.ID && (samePaper(p, other) || strings.EqualFold(other.Citekey, p.Citekey)) {
 			return Paper{}, false, errPaperExists
 		}
 	}
-	pdfDest := ""
-	if tempFile != "" && (isNew || !p.HasPDF) {
-		pdfDest = filepath.Join(s.dir, "pdf", p.ID+".pdf")
-		if err := os.Rename(tempFile, pdfDest); err != nil {
-			return Paper{}, false, err
-		}
-		p.HasPDF = true
-		p.FileSHA256 = digest
-	}
 	changePaper(&p)
-	if err := s.saveLocked(p); err != nil {
-		if pdfDest != "" {
-			os.Remove(pdfDest)
-		}
+	if err := s.saveImportLocked(&p, tempFile, digest); err != nil {
 		return Paper{}, false, err
 	}
 	return clonePaper(p), isNew, nil

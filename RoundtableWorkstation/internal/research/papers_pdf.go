@@ -5,7 +5,6 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -76,12 +75,15 @@ func (s *PaperLibrary) attachPDF(w http.ResponseWriter, r *http.Request, p Paper
 		}
 		from := strings.TrimSpace(body.URL)
 		if from == "" {
+			from = p.PDFURL
+		}
+		if from == "" {
 			in := paperImport{PaperMetadata: p.PaperMetadata}
-			enrichPaper(r.Context(), &in)
-			from = in.PDFURL
-			if from == "" {
-				from = in.URL
+			if _, err = enrichPaper(r.Context(), &in); err != nil {
+				paperError(w, err)
+				return
 			}
+			from = firstPaperValue(in.PDFURL, in.URL)
 		}
 		if from == "" {
 			paperError(w, fmt.Errorf("%w：请输入 PDF 链接或上传文件", errInvalidPaper))
@@ -113,16 +115,8 @@ func (s *PaperLibrary) attachPDF(w http.ResponseWriter, r *http.Request, p Paper
 			return
 		}
 	}
-	dest := filepath.Join(s.dir, "pdf", p.ID+".pdf")
-	if err = os.Rename(tmp, dest); err == nil {
-		current.HasPDF = true
-		current.FileSHA256 = digest
-		changePaper(&current)
-		err = s.saveLocked(current)
-		if err != nil {
-			os.Remove(dest)
-		}
-	}
+	changePaper(&current)
+	err = s.saveImportLocked(&current, tmp, digest)
 	s.mu.Unlock()
 	if err != nil {
 		paperError(w, err)

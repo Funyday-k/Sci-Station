@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -26,9 +24,10 @@ const maxPaperPDF int64 = 256 << 20
 
 type paperImport struct {
 	PaperMetadata
+	Identifier    string `json:"identifier,omitempty"`
 	FetchPDF      bool   `json:"fetch_pdf"`
 	AllowLinkOnly bool   `json:"allow_link_only"`
-	PDFURL        string `json:"pdf_url"`
+	SkipLookup    bool   `json:"skip_metadata_lookup"`
 }
 
 func paperHTTPURL(raw string) bool {
@@ -173,25 +172,6 @@ func (s *PaperLibrary) stagePDF(ctx context.Context, reader io.Reader) (temp, di
 	return f.Name(), hex.EncodeToString(h.Sum(nil)), nil
 }
 
-type paperCrossref struct {
-	Message struct {
-		Title  []string                               `json:"title"`
-		Author []struct{ Given, Family, Name string } `json:"author"`
-		Issued struct {
-			Parts [][]int `json:"date-parts"`
-		} `json:"issued"`
-		DOI      string `json:"DOI"`
-		URL      string `json:"URL"`
-		Abstract string `json:"abstract"`
-		Links    []struct {
-			URL  string `json:"URL"`
-			Type string `json:"content-type"`
-		} `json:"link"`
-		References []struct {
-			DOI string `json:"DOI"`
-		} `json:"reference"`
-	} `json:"message"`
-}
 type arxivCategory struct {
 	Term string `xml:"term,attr"`
 }
@@ -237,6 +217,12 @@ func (f paperFeed) metadata() []paperImport {
 			m.Authors = append(m.Authors, a.Name)
 		}
 		m.PDFURL = "https://arxiv.org/pdf/" + id
+		for _, link := range e.Links {
+			if link.Type == "application/pdf" && normalizeArxiv(link.Href) == id && paperHTTPURL(link.Href) {
+				m.PDFURL = link.Href
+				break
+			}
+		}
 		out = append(out, m)
 	}
 	return out
@@ -252,107 +238,6 @@ func arxivPaperSearch(ctx context.Context, query url.Values) ([]paperImport, err
 		return nil, err
 	}
 	return f.metadata(), nil
-}
-
-var providerMarkup = regexp.MustCompile(`<[^>]{1,200}>`)
-
-func enrichPaper(ctx context.Context, p *paperImport) {
-	p.DOI = normalizeDOI(p.DOI)
-	p.Arxiv = normalizeArxiv(p.Arxiv)
-	if u, e := url.Parse(p.URL); e == nil {
-		host := strings.ToLower(u.Hostname())
-		if host == "arxiv.org" || host == "www.arxiv.org" {
-			for _, prefix := range []string{"/abs/", "/pdf/"} {
-				if strings.HasPrefix(u.Path, prefix) && p.Arxiv == "" {
-					p.Arxiv = strings.TrimSuffix(strings.TrimPrefix(u.Path, prefix), ".pdf")
-				}
-			}
-		}
-		if host == "doi.org" && p.DOI == "" {
-			p.DOI = strings.TrimPrefix(u.Path, "/")
-		}
-	}
-	ctx, cancel := context.WithTimeout(ctx, 7*time.Second)
-	defer cancel()
-	learned := paperImport{}
-	if p.Arxiv != "" && arxivPattern.MatchString(p.Arxiv) {
-		learned.PDFURL = "https://arxiv.org/pdf/" + p.Arxiv
-		learned.URL = "https://arxiv.org/abs/" + p.Arxiv
-		if feed, err := arxivPaperSearch(ctx, url.Values{"id_list": {p.Arxiv}, "max_results": {"1"}}); err == nil && len(feed) > 0 {
-			learned = feed[0]
-		}
-	} else if p.DOI != "" && doiPattern.MatchString(p.DOI) {
-		learned.URL = "https://doi.org/" + p.DOI
-		res, err := fetchPaperURL(ctx, "https://api.crossref.org/works/"+url.PathEscape(p.DOI), "application/json")
-		if err == nil {
-			defer res.Body.Close()
-			var record paperCrossref
-			if json.NewDecoder(io.LimitReader(res.Body, 3<<20)).Decode(&record) == nil {
-				m := record.Message
-				if len(m.Title) > 0 {
-					learned.Title = m.Title[0]
-				}
-				for _, a := range m.Author {
-					name := strings.TrimSpace(a.Given + " " + a.Family)
-					if name == "" {
-						name = a.Name
-					}
-					if name != "" {
-						learned.Authors = append(learned.Authors, name)
-					}
-				}
-				if len(m.Issued.Parts) > 0 && len(m.Issued.Parts[0]) > 0 {
-					learned.Year = m.Issued.Parts[0][0]
-				}
-				learned.Abstract = providerMarkup.ReplaceAllString(m.Abstract, "")
-				for _, l := range m.Links {
-					if l.Type == "application/pdf" {
-						learned.PDFURL = l.URL
-						break
-					}
-				}
-				for _, r := range m.References {
-					if r.DOI != "" && len(learned.References) < 4096 {
-						learned.References = append(learned.References, r.DOI)
-					}
-				}
-			}
-		}
-	}
-	if p.Title == "" {
-		p.Title = learned.Title
-	}
-	if len(p.Authors) == 0 {
-		p.Authors = learned.Authors
-	}
-	if p.Abstract == "" {
-		p.Abstract = learned.Abstract
-	}
-	if p.Year == 0 {
-		p.Year = learned.Year
-	}
-	if p.URL == "" {
-		p.URL = learned.URL
-	}
-	if p.DOI == "" {
-		p.DOI = learned.DOI
-	}
-	if p.PDFURL == "" {
-		p.PDFURL = learned.PDFURL
-	}
-	if len(p.References) == 0 {
-		p.References = learned.References
-	}
-	if p.Title == "" {
-		switch {
-		case p.Arxiv != "":
-			p.Title = "arXiv " + p.Arxiv
-		case p.DOI != "":
-			p.Title = p.DOI
-		default:
-			p.Title = p.URL
-		}
-	}
 }
 
 // SearchArxiv searches the Atom feed with the caller's arXiv query expression.
@@ -375,4 +260,52 @@ func SearchArxiv(ctx context.Context, expr string) ([]PaperMetadata, error) {
 		out = append(out, item.PaperMetadata)
 	}
 	return out, nil
+}
+
+func (s *PaperLibrary) findImport(m PaperMetadata, digest string) (Paper, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	existing, err := s.findImportLocked(Paper{PaperMetadata: m, FileSHA256: digest})
+	return clonePaper(existing), err
+}
+
+func (s *PaperLibrary) findImportLocked(incoming Paper) (Paper, error) {
+	var found Paper
+	for _, record := range s.records {
+		if !samePaper(incoming, record) {
+			continue
+		}
+		if found.ID != "" {
+			return Paper{}, errPaperExists
+		}
+		found = record
+	}
+	return found, nil
+}
+
+// Hold the record lock before publishing a staged file so an outdated writer
+// cannot replace or remove a PDF committed by another instance.
+func (s *PaperLibrary) saveImportLocked(p *Paper, tempFile, digest string) error {
+	if tempFile == "" || (s.records[p.ID].HasPDF && p.HasPDF) {
+		return s.saveLocked(*p)
+	}
+	lock, err := s.lockRecords()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if _, err := s.currentRecord(p.ID); err != nil {
+		return err
+	}
+	dest := filepath.Join(s.dir, "pdf", p.ID+".pdf")
+	if err := os.Rename(tempFile, dest); err != nil {
+		return err
+	}
+	p.HasPDF = true
+	p.FileSHA256 = digest
+	if err := s.saveWithRecordLock(*p); err != nil {
+		os.Remove(dest)
+		return err
+	}
+	return nil
 }

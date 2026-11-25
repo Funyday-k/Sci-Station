@@ -127,3 +127,59 @@ test("batch PDF import retries only failed files and inherits shared properties"
   assert.equal(calls.length, 3);
   assert.equal(closed, true);
 });
+
+test("identifier import previews the first target and retries only failed targets", async () => {
+  const inputs = new Map();
+  const control = name => {
+    if (!inputs.has(name)) inputs.set(name, {value: "", addEventListener() {}});
+    return inputs.get(name);
+  };
+  control("identifiers").value = "arXiv:2404.12345v2\nhttps://doi.org/10.1000/abc\narXiv:2404.12345v2";
+  control("pdf").files = [];
+  control("collection_id").value = "chosen-collection";
+  const controls = new Map();
+  const getElement = selector => {
+    if (!controls.has(selector)) controls.set(selector, {replaceChildren() {}, addEventListener(event, fn) { this[event] = fn; }});
+    return controls.get(selector);
+  };
+  let submit;
+  const form = {
+    dataset: {},
+    elements: {pdf: control("pdf"), fetch_pdf: control("fetch_pdf"), namedItem: control},
+    querySelector: getElement,
+    querySelectorAll: selector => selector.includes("core_project_ids") ? [] : [{value: "project-one"}],
+    addEventListener(event, fn) { if (event === "submit") submit = fn; },
+    closest: () => ({open: true}),
+    reportValidity: () => true,
+  };
+  const calls = [];
+  const ui = {
+    state: {projects: [], papers: []}, $: () => ({querySelector: () => form}),
+    esc: String, enc: encodeURIComponent, button: () => "", dialog() {}, toast() {},
+    close() {}, refresh: async () => {},
+    request: async (url, {body}) => {
+      calls.push([url, body.identifier]);
+      assert.equal(body.skip_metadata_lookup, true);
+      assert.equal(body.collection_id, "chosen-collection");
+      assert.equal(body.project_ids[0], "project-one");
+      if (url === "papers/preview") return {title: "First source", existing_title: "Saved source"};
+      if (calls.length === 3) throw Error("远端暂时不可用");
+      return {title: body.identifier};
+    }
+  };
+  const script = fs.readFileSync(path.join(__dirname, "..", "static", "research-forms.js"), "utf8");
+  vm.runInNewContext(script, {window: {SciResearch: ui}, document: {createElement: () => ({})}});
+  await ui.formAction("new-paper");
+  await getElement("[data-import-preview-button]").click();
+  assert.match(getElement("[data-import-preview]").textContent, /First source.*Saved source.*2 篇/);
+  await submit({preventDefault() {}});
+  assert.equal(getElement("[type=submit]").textContent, "重试未成功的标识符");
+  await submit({preventDefault() {}});
+  assert.deepEqual(calls, [
+    ["papers/preview", "arXiv:2404.12345v2"],
+    ["papers", "arXiv:2404.12345v2"],
+    ["papers", "https://doi.org/10.1000/abc"],
+    ["papers", "https://doi.org/10.1000/abc"],
+  ]);
+  assert.equal(getElement("[data-status]").textContent, "已入库 2 / 2");
+});
