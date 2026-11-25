@@ -218,7 +218,7 @@
     body.rows=10;title.maxLength=200;
     const actions=elem("footer"),prepare=btn("提交审核","button primary"); actions.append(cancel,prepare);
     form.append(field("会议输出",output),field("保存位置",target),field("标题",title),field("待审正文",body),actions);
-    const reviews=elem("section"); reviews.setAttribute("aria-label","会议写入审核");
+    const reviews=elem("section"); reviews.setAttribute("aria-label","科研笔记与任务审核");
     dialog.append(header,contextLine,evidence,form,reviews,status); document.body.append(dialog);
     cancel.addEventListener("click",()=>{forgetDraft(currentDraft);dialog.close();});
     const edit=()=>{if(currentDraft)currentDraft.operationId=null;rememberDraft();};
@@ -312,7 +312,7 @@
     if (currentDraft!==draft) return;
     const wrap=ui.reviews; wrap.replaceChildren();
     if (!rows.length) return;
-    wrap.append(elem("h3","写入审核"));
+    wrap.append(elem("h3","科研笔记与任务审核"));
     const requested=new URL(location.href).searchParams.get("review");
     const actions={"create-note":"新建笔记","create-task":"新建任务","append-note":"追加笔记"};
     for(const row of rows) {

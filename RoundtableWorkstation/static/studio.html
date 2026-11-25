@@ -46,6 +46,8 @@
     <script src="/static/board-presence.js" defer></script>
     <script src="/static/member-editor.js" defer></script>
     <link rel="stylesheet" href="/static/science-meeting.css" />
+    <link rel="stylesheet" href="/static/cli-edit-review.css" />
+    <script src="/static/cli-edit-review.js" defer></script>
     <script src="/static/science-meeting.js" defer></script>
     <script src="/static/lab-handoff.js" defer></script>
     <script src="/static/studio.js" defer></script>
@@ -96,6 +98,7 @@
           <div id="chat-toolbar" class="heading-actions" hidden>
             <span id="session-status" class="session-status" hidden></span>
             <button id="room-chat-toggle" class="icon-button rail-toggle" type="button" aria-controls="room-chat" aria-expanded="false" aria-label="会议对话" title="会议对话"><svg class="ui-icon" data-ui-icon="chat" width="17" height="17" aria-hidden="true"></svg></button>
+            <button id="cli-edit-open" class="science-meeting-open" type="button" aria-haspopup="dialog" aria-controls="cli-edit-dialog" hidden>CLI 文件编辑</button>
             <div id="meeting-actions" class="meeting-actions">
               <button id="meeting-actions-toggle" class="icon-button" type="button" aria-label="会议操作" aria-controls="meeting-actions-panel" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
               <div id="meeting-actions-panel" aria-label="会议操作" hidden>
@@ -859,4 +862,42 @@
       role="status"
       hidden
     ></div>
+  <dialog id="cli-edit-dialog" aria-labelledby="cli-edit-title">
+    <header>
+      <h2 id="cli-edit-title">CLI 文件编辑</h2>
+      <button id="cli-edit-close" type="button" class="button secondary small">关闭</button>
+    </header>
+    <p id="cli-edit-scope"></p>
+    <form id="cli-edit-start">
+      <label for="cli-edit-provider">编辑 CLI</label>
+      <select id="cli-edit-provider" required></select>
+      <ul id="cli-edit-capabilities" hidden></ul>
+      <label for="cli-edit-prompt">编辑要求</label>
+      <textarea id="cli-edit-prompt" rows="3" required></textarea>
+      <label for="cli-edit-paths">允许提议编辑的文件</label>
+      <textarea id="cli-edit-paths" rows="2" aria-describedby="cli-edit-paths-help" required></textarea>
+      <small id="cli-edit-paths-help">每行填写一个相对于项目目录的文件路径。</small>
+      <button id="cli-edit-submit" type="submit" class="button primary">向 CLI 发起编辑请求</button>
+    </form>
+    <section id="cli-edit-run" hidden aria-labelledby="cli-edit-run-title">
+      <h3 id="cli-edit-run-title"></h3>
+      <p id="cli-edit-run-detail"></p>
+      <section id="cli-edit-proposal" aria-labelledby="cli-edit-proposal-title" hidden>
+        <h3 id="cli-edit-proposal-title">CLI 请求本次修改</h3>
+        <p id="cli-edit-reason"></p>
+        <div id="cli-edit-changes"></div>
+        <div class="cli-edit-actions">
+          <button id="cli-edit-accept" type="button" class="button primary">仅允许本次修改</button>
+          <button id="cli-edit-decline" type="button" class="button secondary">拒绝本次修改</button>
+        </div>
+      </section>
+    </section>
+    <footer>
+      <p id="cli-edit-status" role="status" aria-live="polite"></p>
+      <div class="cli-edit-actions">
+        <button id="cli-edit-refresh" type="button" class="button secondary small">刷新状态</button>
+        <button id="cli-edit-cancel" type="button" class="button secondary small" hidden>取消 CLI 任务</button>
+      </div>
+    </footer>
+  </dialog>
 {{end}}

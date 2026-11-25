@@ -1,0 +1,43 @@
+#cli-edit-dialog {
+  width: min(740px, 94vw);
+  max-height: 88dvh;
+  overflow: auto;
+  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
+}
+#cli-edit-dialog::backdrop { background: #191a2566; }
+#cli-edit-dialog [hidden] { display: none !important; }
+#cli-edit-dialog header, #cli-edit-dialog footer, .cli-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#cli-edit-dialog header, #cli-edit-dialog footer { justify-content: space-between; }
+#cli-edit-dialog h2, #cli-edit-dialog h3 { margin: 0; }
+#cli-edit-dialog h2 { font-size: 20px; }
+#cli-edit-dialog h3 { font-size: 15px; }
+#cli-edit-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
+#cli-edit-scope, #cli-edit-dialog small { color: var(--muted); font-size: 13px; }
+#cli-edit-start { display: grid; gap: 7px; }
+#cli-edit-start label { margin-top: 7px; font-weight: 600; }
+#cli-edit-start select, #cli-edit-start textarea {
+  font: inherit; background: var(--editor, Canvas); color: inherit;
+  border-radius: 6px; border: 1px solid var(--line); padding: 8px; width: 100%;
+}
+#cli-edit-start textarea { resize: vertical; }
+#cli-edit-start button { justify-self: start; margin-top: 6px; }
+#cli-edit-capabilities { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+#cli-edit-proposal, #cli-edit-dialog footer { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 13px; }
+#cli-edit-changes section { margin: 10px 0 12px; }
+#cli-edit-changes h4 { font: 600 13px ui-monospace, monospace; margin: 0 0 4px; overflow-wrap: anywhere; }
+#cli-edit-changes pre {
+  margin: 0; overflow: auto; max-height: 28vh; padding: 10px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--editor, Canvas); font: 12px/1.5 ui-monospace, monospace;
+  direction: ltr; text-align: left; unicode-bidi: plaintext;
+}
+#cli-edit-dialog footer p { flex: 1 1 180px; font-size: 13px; margin: 0; }
