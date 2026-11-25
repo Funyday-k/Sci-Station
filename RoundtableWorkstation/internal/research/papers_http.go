@@ -398,5 +398,6 @@ func (s *PaperLibrary) recommendHTTP(w http.ResponseWriter, r *http.Request) {
 		paperReply(w, 200, items)
 		return
 	}
-	paperReply(w, 200, rankPapers(s.all(), r.URL.Query().Get("project")))
+	project := r.URL.Query().Get("project")
+	paperReply(w, 200, rankPapers(filterPapers(s.all(), project, "", ""), project))
 }

@@ -203,7 +203,7 @@ func TestPaperOnlineProvidersPreserveSourceMetadata(t *testing.T) {
 			if req.URL.Query().Get("sortBy") != "submittedDate" || req.URL.Query().Get("max_results") != "24" {
 				t.Fatalf("unexpected search: %s", req.URL)
 			}
-			body = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2404.10066v1</id><published>2024-04-15T15:15:00Z</published><title>Additional results</title><summary>A summary</summary><author><name>A. Lee</name></author></entry></feed>`
+			body = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2404.10066v1</id><published>2024-04-15T15:15:00Z</published><title>Additional results</title><summary>A summary</summary><author><name>A. Lee</name></author><category term="hep-ph"/><category term="hep-ex"/><arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="hep-ex"/></entry></feed>`
 		default:
 			t.Fatalf("unexpected URL %s", req.URL)
 		}
@@ -217,6 +217,9 @@ func TestPaperOnlineProvidersPreserveSourceMetadata(t *testing.T) {
 	results, err := SearchArxiv(context.Background(), "cat:astro-ph.HE")
 	if err != nil || len(results) != 1 || results[0].Arxiv != "2404.10066v1" || results[0].Year != 2024 || results[0].URL != "https://arxiv.org/abs/2404.10066v1" {
 		t.Fatalf("%+v %v", results, err)
+	}
+	if got := strings.Join(results[0].Tags, ","); got != "hep-ex,hep-ph" {
+		t.Fatalf("wrong primary or cross-list categories: %s", got)
 	}
 }
 
@@ -255,5 +258,26 @@ func TestArchivedProjectMembershipAndDeletePrecondition(t *testing.T) {
 	}
 	if r := testPaperRequest(t, lib, "DELETE", "/"+paper.ID+"?revision=2", ""); r.Code != 204 {
 		t.Fatal(r.Code)
+	}
+}
+
+func TestDiscoveryReusesArxivPaperAcrossVersionsAndScopesQueue(t *testing.T) {
+	s := newResearch(t, t.TempDir())
+	project := createResearchProject(t, s, "Scope")
+	other := createResearchProject(t, s, "Other")
+	first, created, err := s.papers.create(PaperMetadata{Title: "A", Arxiv: "2404.00001v1", ProjectIDs: []string{other.ID}}, "", "")
+	if err != nil || !created {
+		t.Fatal(first, created, err)
+	}
+	both, created, err := s.papers.create(PaperMetadata{Title: "A, revised", Arxiv: "2404.00001v2", ProjectIDs: []string{project.ID}}, "", "")
+	if err != nil || created || first.ID != both.ID || len(both.ProjectIDs) != 2 {
+		t.Fatal(both, created, err)
+	}
+	if _, _, err := s.papers.create(PaperMetadata{Title: "Other only", ProjectIDs: []string{other.ID}}, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	queue := decodeResearch[[]Paper](t, callResearch(t, s, "GET", "/papers/recommendations?project="+project.ID, nil, 200))
+	if len(queue) != 1 || queue[0].ID != first.ID {
+		t.Fatal(queue)
 	}
 }

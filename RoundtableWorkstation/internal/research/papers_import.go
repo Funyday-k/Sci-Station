@@ -162,6 +162,10 @@ type paperCrossref struct {
 		} `json:"reference"`
 	} `json:"message"`
 }
+type arxivCategory struct {
+	Term string `xml:"term,attr"`
+}
+
 type paperFeed struct {
 	Entries []struct {
 		ID        string    `xml:"id"`
@@ -171,8 +175,10 @@ type paperFeed struct {
 		Authors   []struct {
 			Name string `xml:"name"`
 		} `xml:"author"`
-		DOI   string `xml:"doi"`
-		Links []struct {
+		DOI        string          `xml:"doi"`
+		Primary    arxivCategory   `xml:"primary_category"`
+		Categories []arxivCategory `xml:"category"`
+		Links      []struct {
 			Href string `xml:"href,attr"`
 			Type string `xml:"type,attr"`
 		} `xml:"link"`
@@ -187,6 +193,13 @@ func (f paperFeed) metadata() []paperImport {
 			continue
 		}
 		m := paperImport{PaperMetadata: PaperMetadata{Title: strings.Join(strings.Fields(e.Title), " "), Abstract: strings.Join(strings.Fields(e.Summary), " "), DOI: e.DOI, Arxiv: id, URL: "https://arxiv.org/abs/" + id}}
+		// arXiv feed tags preserve the primary category first, followed by cross-lists.
+		for _, category := range append([]arxivCategory{e.Primary}, e.Categories...) {
+			term := strings.TrimSpace(category.Term)
+			if term != "" && !paperContains(m.Tags, term) {
+				m.Tags = append(m.Tags, term)
+			}
+		}
 		if !e.Published.IsZero() {
 			m.Year = e.Published.Year()
 		}

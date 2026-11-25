@@ -276,3 +276,5 @@ select:focus-visible {
 }
 
 @supports not (color:light-dark(black,white)){ :root{--paper:#fcfcfd;--side:#f4f4f7;--text:#242530;--muted:#666a76;--line:#dedfe5;--accent:#584a9c;--tint:#ece9f6;} }
+
+#crossList { width: auto; }

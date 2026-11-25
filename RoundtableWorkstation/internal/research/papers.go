@@ -289,8 +289,17 @@ func filterPapers(items []Paper, project, query, status string) []Paper {
 	return out
 }
 func changePaper(p *Paper) { p.Revision++; p.UpdatedAt = time.Now().UTC() }
+
+var arxivVersion = regexp.MustCompile(`(?i)v[0-9]+$`)
+
+// ArxivWorkID identifies the publication across revisions while its original
+// versioned ID remains available to retrieve and cite the exact source.
+func ArxivWorkID(id string) string {
+	return arxivVersion.ReplaceAllString(strings.ToLower(id), "")
+}
+
 func samePaper(a, b Paper) bool {
-	return a.DOI != "" && strings.EqualFold(a.DOI, b.DOI) || a.Arxiv != "" && strings.EqualFold(a.Arxiv, b.Arxiv) || a.FileSHA256 != "" && a.FileSHA256 == b.FileSHA256 || a.URL != "" && a.URL == b.URL
+	return a.DOI != "" && strings.EqualFold(a.DOI, b.DOI) || a.Arxiv != "" && ArxivWorkID(a.Arxiv) == ArxivWorkID(b.Arxiv) || a.FileSHA256 != "" && a.FileSHA256 == b.FileSHA256 || a.URL != "" && a.URL == b.URL
 }
 func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, bool, error) {
 	if err := s.validate(&m, nil); err != nil {

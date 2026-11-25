@@ -51,3 +51,67 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   assert.equal(changes[0].body.paperId,"B");
   assert.deepEqual(changes[1],{route:"projects/project/notes/N",method:"PATCH",body:{revision:1,body:"reviewed B"}});
 });
+
+const ranking = require("../static/discovery-ranking.js");
+test("arXiv ranking uses the project, category boundary, cross-lists, feedback and diversity", () => {
+  const one = {arxiv:"2401.00001v1", title:"Solar evaporation", tags:["hep-ph","hep-ex"]};
+  const duplicate = {...one, arxiv:"2401.00001v2"};
+  const neighbor = {...one, arxiv:"2401.00002"};
+  const different = {arxiv:"2401.00003", title:"Detector calibration", tags:["hep-ex"]};
+  const feed = {items:[different, one, duplicate, neighbor]};
+  const options = {category:"HEP-EX", crossList:true, filter:"all", papers:[], project:{description:"solar evaporation"}};
+  const rank = (changes = {}) => ranking.candidates(feed, {...options, ...changes}).map(p => p.arxiv);
+  assert.deepEqual(rank(), [one.arxiv, different.arxiv, neighbor.arxiv]);
+  assert.deepEqual(rank({crossList:false}), [different.arxiv]);
+  assert.deepEqual(rank({project:{description:"detector calibration"}})[0], different.arxiv);
+  feed.feedback = {"2401.00001":"hidden", "2401.00003v1":"saved"};
+  assert.deepEqual(rank({filter:"saved"}), [different.arxiv]);
+  assert.deepEqual(rank({filter:"hidden"}), [one.arxiv]);
+  assert.deepEqual(rank({category:"astro-ph.HE"}), []);
+});
+
+test("adding a candidate twice reuses the library ID and a project-scoped reading task key", async () => {
+  const controls = {};
+  class Control {
+    children = []; value = ""; checked = true;
+    replaceChildren(...nodes) {this.children = nodes;}
+    add(option) {this.children.push(option);}
+    append(...nodes) {this.children.push(...nodes);}
+  }
+  for (const match of html.matchAll(/id="([^"]+)"/g)) controls[match[1]] = new Control();
+  controls.filter.value = "all";
+  const p = {arxiv:"2404.12345v3", title:"Capture", tags:["hep-ph"]};
+  const addedTasks = [];
+  const imports = [];
+  const project = "project";
+  const fetch = async (url, options) => {
+    const route = url.replace("/api/research/", "");
+    if (route === "projects") return Response.json([{id:project, name:"Solar"}]);
+    if (route === "tools/discover?project=project") return Response.json({items:[p]});
+    if (["papers?project=project","papers/recommendations?project=project"].includes(route)) return Response.json([]);
+    if (route === "papers" && options.method === "POST") {
+      imports.push(JSON.parse(options.body));
+      return Response.json({id:"stable-id", title:p.title});
+    }
+    if (route === "projects/project/tasks" && options.method === "POST") {
+      addedTasks.push(JSON.parse(options.body));
+      return Response.json({id:"saved-task"});
+    }
+    throw Error("Unexpected route "+route);
+  };
+  vm.runInNewContext(script, {
+    document: {getElementById:id=>controls[id], querySelectorAll:()=>[], createElement:()=>new Control()},
+    Option:class{constructor(text,value){this.value=value;}},
+    location:{search:"?tab=discover&project=project"},URLSearchParams,fetch,SciStationDiscovery:ranking
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  for (let i=0; i<2; i++) {
+    const actions = controls.articles.children[0].children.at(-1);
+    await actions.children.find(el=>el.textContent==="入库并加入阅读待办").onclick();
+  }
+  assert.deepEqual(imports.map(p=>p.project_ids),[[project],[project]]);
+  assert.equal(addedTasks.length,2);
+  assert.deepEqual(addedTasks[0],addedTasks[1]);
+  assert.equal(addedTasks[0].idempotencyKey, "reading:stable-id");
+  assert.equal(addedTasks[0].paperId, "stable-id");
+});

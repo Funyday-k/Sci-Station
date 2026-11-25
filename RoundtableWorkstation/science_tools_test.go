@@ -77,3 +77,44 @@ func TestMinerURequestAndMarkdownDecoding(t *testing.T) {
 		t.Fatal(md, err)
 	}
 }
+
+func TestDiscoveryFeedbackIsProjectScopedAndVersionIndependent(t *testing.T) {
+	dir := t.TempDir()
+	prefs, err := openSettings(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab, err := research.New(filepath.Join(dir, "research"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := (&apiServer{prefs: prefs, research: lab}).serve(18765)
+	request := func(method, path, body string, want int) []byte {
+		t.Helper()
+		req := httptest.NewRequest(method, "http://localhost:18765/api/research/"+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Roundtable", "1")
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, req)
+		if w.Code != want {
+			t.Fatalf("%s %s: %d %s", method, path, w.Code, w.Body.String())
+		}
+		return w.Body.Bytes()
+	}
+	project := scienceWorkflowDecode[research.Project](t, request("POST", "projects", `{"name":"Study"}`, 201))
+	scope := "?project=" + project.ID
+	request("POST", "tools/feedback"+scope, `{"arxiv":"2402.00001v1","state":"saved"}`, 200)
+	got := scienceWorkflowDecode[discoveryState](t, request("GET", "tools/discover"+scope, "", 200))
+	if got.Feedback["2402.00001"] != "saved" {
+		t.Fatal(got)
+	}
+	global := scienceWorkflowDecode[discoveryState](t, request("GET", "tools/discover", "", 200))
+	if len(global.Feedback) != 0 {
+		t.Fatal(global)
+	}
+	removed := scienceWorkflowDecode[discoveryState](t, request("POST", "tools/feedback"+scope, `{"arxiv":"2402.00001v2","state":""}`, 200))
+	if len(removed.Feedback) != 0 {
+		t.Fatal(removed)
+	}
+	request("POST", "tools/feedback?project=unknown", `{"arxiv":"2402.00001","state":"saved"}`, 404)
+}

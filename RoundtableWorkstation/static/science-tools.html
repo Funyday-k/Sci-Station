@@ -8,6 +8,7 @@
   <title>科研工具 · Sci-Station</title>
   <link rel="stylesheet" href="/static/science-tools.css">
   <script defer src="/static/workspace-nav.js"></script>
+  <script defer src="/static/discovery-ranking.js"></script>
   <script defer src="/static/science-tools.js"></script>
 <link rel="stylesheet" href="/static/workspace-nav.css">
   </head>
@@ -22,16 +23,19 @@
       <h1 id="heading"></h1>
       <p id="status" role="status"></p>
       <section id="discover" hidden>
+        <details class="panel"><summary>文献库阅读队列</summary><div id="readingQueue"></div></details>
         <form id="search"><label for="expr">arXiv 检索式</label>
           <div class="line"><input id="expr" placeholder="关键词，或 cat:astro-ph.CO AND all:evaporation" required maxlength="350"><button class="primary">搜索最新论文</button></div>
         </form>
         <div class="bar">
-          <h2>检索结果</h2><select id="filter" aria-label="结果筛选">
+          <h2>arXiv 候选论文</h2><select id="filter" aria-label="结果筛选">
             <option value="all">未隐藏</option>
             <option value="saved">已收藏</option>
             <option value="hidden">已隐藏</option>
           </select>
         </div>
+        <div class="line"><label>筛选分类 <input type="text" id="categories" placeholder="例如 hep-ex, astro-ph.HE"></label>
+          <label><input type="checkbox" id="crossList" checked> 包含交叉收录</label></div>
         <div id="articles"></div>
       </section>
       <section id="convert" hidden>

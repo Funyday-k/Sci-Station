@@ -65,7 +65,15 @@ func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 	}
 	switch route {
 	case "discover", "feedback":
-		file := filepath.Join(filepath.Dir(a.prefs.file), "discovery.json")
+		name := "discovery.json"
+		if project := r.URL.Query().Get("project"); project != "" {
+			if !lab.HasActiveProject(project) {
+				reject(w, 404, "科研项目不存在或已归档")
+				return
+			}
+			name = "discovery." + project + ".json"
+		}
+		file := filepath.Join(filepath.Dir(a.prefs.file), name)
 		var input struct {
 			Query string `json:"query"`
 			Arxiv string `json:"arxiv"`
@@ -104,10 +112,16 @@ func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 				s.Query = input.Query
 				s.Items = items
 				s.Updated = time.Now().UTC().Format(time.RFC3339)
-			} else if input.State == "" {
-				delete(s.Feedback, input.Arxiv)
 			} else {
-				s.Feedback[input.Arxiv] = input.State
+				key := research.ArxivWorkID(input.Arxiv)
+				for id := range s.Feedback {
+					if research.ArxivWorkID(id) == key {
+						delete(s.Feedback, id)
+					}
+				}
+				if input.State != "" {
+					s.Feedback[key] = input.State
+				}
 			}
 			b, err := json.Marshal(s)
 			if err == nil {

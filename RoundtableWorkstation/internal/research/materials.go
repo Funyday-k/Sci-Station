@@ -104,7 +104,7 @@ func (s *Service) materials(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (s *Service) uploadMaterial(w http.ResponseWriter, r *http.Request, pid string) {
-	if !s.hasProject(pid) {
+	if !s.HasActiveProject(pid) {
 		jsonFail(w, 404, "未找到项目")
 		return
 	}

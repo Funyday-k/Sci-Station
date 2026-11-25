@@ -179,7 +179,9 @@ func (s *Service) projectExists(id string) bool {
 	_, exists := s.projects[id]
 	return exists
 }
-func (s *Service) hasProject(id string) bool {
+
+// HasActiveProject resolves an active project before a scoped operation.
+func (s *Service) HasActiveProject(id string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	d, ok := s.projects[id]
