@@ -316,7 +316,7 @@
         for (const param of ['annotation', 'fingerprint', 'quote', 'start', 'end', 'ocr'])
           u.searchParams.delete(param);
       }
-      if (window.SciStationNav)
+      if (window.SciStationNav?.commitURL)
         window.SciStationNav.commitURL(u, 'replace');
       else
         history.replaceState(null, '', u);

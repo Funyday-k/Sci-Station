@@ -41,6 +41,7 @@ async function mount(suffix = "", options = {}) {
   let destination, route;
   const browser = new EventTarget();
   browser.getSelection = () => null;
+  browser.SciStationNav = {update() {}};
   const env = {
     document:{getElementById:get,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),
       createTextNode:text=>text},
