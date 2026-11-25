@@ -251,3 +251,34 @@ func TestPDFImportKeepsExactArxivRevisionOnLinkRecord(t *testing.T) {
 		t.Fatalf("matching revision %d %+v", res.Code, record)
 	}
 }
+
+func TestPDFImportRollsBackAssetWhenRecordCannotPublish(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("fixture requires a non-root process to enforce directory permissions")
+	}
+	lib := testPaperLib(t)
+	records := filepath.Join(lib.dir, "records")
+	if err := os.Chmod(records, 0500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(records, 0700)
+	data, err := os.ReadFile(readerFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := paperPDFRequest(t, lib, "", "sample.pdf", data)
+	if res.Code != http.StatusInternalServerError || len(lib.all()) != 0 {
+		t.Fatalf("failed commit status %d %s", res.Code, res.Body)
+	}
+	pdfs, err := os.ReadDir(filepath.Join(lib.dir, "pdf"))
+	if err != nil || len(pdfs) != 0 {
+		t.Fatalf("PDFs after failed record write: %v %v", pdfs, err)
+	}
+	if err := os.Chmod(records, 0700); err != nil {
+		t.Fatal(err)
+	}
+	res = paperPDFRequest(t, lib, "", "sample.pdf", data)
+	if res.Code != http.StatusCreated || len(lib.all()) != 1 || !lib.all()[0].HasPDF {
+		t.Fatalf("retry after failed publish %d %s", res.Code, res.Body)
+	}
+}
