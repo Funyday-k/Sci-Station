@@ -627,6 +627,8 @@ main {
   flex-wrap: wrap
 }
 
+.library-filters { width: min(100%, 18rem); }
+
 .library-filters .field {
   flex: 1 1 128px;
   margin: 0;
