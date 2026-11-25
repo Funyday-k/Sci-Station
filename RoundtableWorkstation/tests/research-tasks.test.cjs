@@ -23,7 +23,7 @@ function researchUI() {
   };
   const context = {
     document: {
-      getElementById: element,
+      getElementById: id => id === "dashboard-view" ? null : element(id),
       querySelectorAll: () => [],
       addEventListener() {}
     },
