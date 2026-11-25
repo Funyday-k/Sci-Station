@@ -1,0 +1,62 @@
+# RFC-0002: One Sci-Station workstation on the Roundtable desktop host
+
+- Status: Proposed
+- Requirement: [Issue #13](https://github.com/Funyday-k/Sci-Station/issues/13)
+- Decision PR: Pending maintainer review.
+
+## Problem and acceptance criteria
+
+A researcher should be able to open a project, select a passage from a shared paper, discuss it with several seats, review a proposed note or task, and return to the original passage after restarting Sci-Station. The desktop process must also quit reliably during that workflow. The requested product retains the Sci-Station name and launch animation and uses the Roundtable icon for the application and its workspace.
+
+The Swift baseline exposes six global destinations: Home, Projects, Library, Calendar, AI Lab and Settings. Its project router connects Overview, Papers, Recommendations, Wiki, Tasks, Calendar, AI Workflows, Graph, Materials and PDF Reader. Code, Data, Experiments, Writing and Theory tabs display placeholders. Files under code, data and figures are accessible through Materials. KnowledgeAtom remains a separate [proposal](RFC-0001-knowledge-architecture.md).
+
+The starting implementation for the replacement is the Sci-Station desktop prototype at local commit `ba1a6bf4889d2922251d23f04fee3d68870fdf56`. It already runs Go/Wails, WKWebView and native AppKit/PDFKit bridges. It stores shared PDFs, tracks paper memberships and core flags, imports by identifier, reads and annotates PDFs, supports notes with evidence, tasks, materials, discovery and graphs, and has an in-process paper-to-meeting writeback test. The meeting engine already manages seats, agenda, turns, votes, board, reports and recovery. Preserve these implementations and their tests as the baseline for the new host.
+
+Several screens are separate HTML documents. The native menu navigates between research and studio URLs. Reader and AI Lab pass some context to meetings through URL parameters and browser storage. The research service records project IDs and optional paths, while the desktop project registry owns approved external directories and rules. A research task currently carries one project and an optional paper. Its model cannot express the full task relationships in the Swift source. A project graph assembled from notes, papers and manually declared relations also omits parts of the citation indexing and recovery contract. These differences affect which evidence and actions are available after navigation or restart.
+
+## Proposed design and boundaries
+
+Ship one executable and one desktop shell from this repository. Keep Wails responsible for the native window, menus, app lifecycle and dialogs. Limit Objective-C to native facilities including the existing launch animation, PDFKit and EventKit. The Go application composes workspace, research, meeting, provider and plugin services once. Production builds retire the Swift application, Swift Loop and Python sidecar after the acceptance matrix passes.
+
+| Owner | Responsibility |
+| --- | --- |
+| Workspace service | Own the research root, stable project identity, archive/restore, approved directory handles and module configuration. A project can hold zero or more meetings. A folder grant identifies a resource and is revocable; its path cannot serve as project identity. |
+| Shell and navigation | Own one per-window route and active selection, including workspace, project, section, paper, page/selection, task and meeting as applicable. Menus, modules, back navigation and deep links dispatch the same commands. Resolve each link against the active root. Project pages and Roundtable mount into the shell and share selection and settings. |
+| Domain repositories | Share one paper and PDF across projects. Store per-project membership, core flag, order and pin separately from reading progress and annotations. Keep Wiki, tasks, calendar and materials addressable by stable references. Generate dashboards, backlinks and graph views from their owning records. |
+| Meeting and AI Lab | Reuse the Roundtable engine, transcripts, plugin registry and gateway for both individual AI Lab and multi-seat workflows. Bind each run to a project or an explicit global scope and carry evidence locators into the review queue. Closing a view or switching projects cannot redirect a pending write. |
+| Permission and evidence services | Resolve file access through root-scoped handles. A user reviews the proposed action, destination, evidence and revision. Verify them again at commit, record the outcome, and deduplicate retries by operation ID. Rejected or stale drafts leave research records unchanged. A stored paper excerpt retains paper ID, source hash, page/section and quote; meeting/turn IDs identify its discussion. Store persistent credentials in macOS Keychain. |
+| Application lifecycle | One owner stops accepting commands, cancels work, records resumable meeting state, closes listeners and releases the data-directory lock. The startup panel, native dialogs and window/menu actions all participate in this lifecycle. Apply an explicit deadline to cancellation and cover it with a packaged-process test. |
+
+## Alternatives and tradeoffs
+
+Embedding the old Swift app would preserve some screens immediately but would require coordinating two window lifecycles, runtimes, data models and permission systems. Keeping the current research, reader, lab and studio pages independently responsible for their own context costs less initially but leaves stale project and evidence handling distributed across page transitions. The single host reuses the existing Go services and native bridges, at the cost of porting and testing individual Swift workflows. Migration proceeds in vertical slices so that each newly integrated action can be exercised through the actual desktop entry point.
+
+## Compatibility, migration and recovery
+
+Start a fresh workstation with an explicitly selected or newly created research root. Existing Swift Research Roots, bookmark files and sidecar state receive no automatic conversion or write. Users can continue to open their original documents with existing tools. Explicit import copies selected source material into the new root; the importer previews its scope, preserves original bytes, rejects unsupported input, and reports partial failures without switching to a partial workspace. A later general-purpose legacy importer would require its own decision. There is no requirement to run a legacy client.
+
+Treat data already written by the Go prototype as user data too. Before any on-disk change, document the affected records, version, rollback procedure and the behavior for unknown versions and fields. Preserve the original data directory and externally linked folders; any proposed conversion uses a separate destination, validates references and file hashes, and publishes the new root only after verification. Distinguish an external folder grant from permission to migrate, delete or back up its contents. Restore the last known-good root and release partial resources after failed opens. Rebuilding a graph or search index must preserve source notes, original PDFs, annotations and meeting transcripts.
+
+## Validation and rollout
+
+Use the Swift behavior suites, legacy runner and current Go/Node tests to establish concrete fixtures and expectations before moving each domain. The following rows specify release evidence, including actions through the installed app where the host participates.
+
+| Workflow | Acceptance evidence |
+| --- | --- |
+| Bootstrap and exit | Build from a clean clone with committed dependencies and assets. On macOS launch the signed bundle, compare name, icon and animation with their original references. Test the close button, Command-W and Command-Q during idle and active work, and quit during launch. Record the original PID, its exit within the documented deadline, lock and port release, immediate relaunch, and restoration of committed notes and resumable meeting state. |
+| Root, shell and home | Create two isolated roots and multiple projects. Cancel or fail a root switch during a pending load; subsequent writes still target the original root. Archive, restore and trash a project without affecting shared papers or other projects. Reopen to the selected route; missing projects/disabled modules fall back to valid destinations. Check dashboard dates, draft counts, project stages, configurable widgets, module dependencies and per-project overrides. |
+| Library and reader | Import a PDF and an identifier, deduplicate, associate one paper with two projects, vary its pin/core/order, edit metadata, organize by collections and tags, and export BibTeX. Reopen annotations, notes and last reading position at the expected page. Preserve PDF bytes, unsaved unrelated edits and recoverable state across failed/conflicting writes. Test local use offline and provider errors separately. |
+| Wiki, graph and materials | Create, edit, move and archive a page, resolve aliases/namespaced backlinks, and follow citations back to individual occurrences. Check project-scoped identities, depth/type filters, paths, deletion, rebuild and recovery from damaged derived state. Preview actual project files, reveal the selected folder, and verify editor/Python actions use the intended environment and granted path. |
+| Tasks, calendar and discovery | Create a multi-project reading task with linked papers, tags, priority, date range and due time. Compare the global and project lists after status changes and restart. Verify local and system calendar behavior with granted and denied permissions. Apply category filters during discovery, record feedback, reopen history and confirm a selected candidate can become a reading task without duplication. |
+| Roundtable, AI Lab and approvals | Exercise seats, project materials, agenda, board, votes, plugins, report and recovery with the shared project selected. Send a paper excerpt into discussion; reject one proposed write, accept another, retry, restart and follow its citation to the same source. Check revision conflicts, permission scopes and offline review of recorded material. Run the scenario in the packaged UI as well as through the services. |
+
+1. In the design PR, decide this RFC and record the decision in an ADR. The independently testable window-close fix can proceed under the existing desktop lifecycle. Create scoped implementation issues with obligations from the table.
+2. Bring the Go host into the governed repository from the recorded source commit. Preserve asset provenance, release history and the original regression fixtures. Establish offline fixtures for the GUI, source evidence and process lifecycle.
+3. Deliver the shell and project context, then the reader-to-roundtable workflow, then remaining domains. For every retired Swift or Python test, map its behavioral assertions to a passing replacement or document a maintainer-approved change to the feature. Review differences in coverage and architecture enforcement before retiring a gate.
+4. Keep the protected, unconditional Required CI aggregate, PR traceability, repository hygiene, version checks, immutable tags, artifact signing, install/upgrade smoke tests and provenance. Add Go race tests, frontend behavior tests and native shutdown/packaging checks. The prototype's shorter standalone CI job is insufficient for this repository. Retire implementation-specific jobs only in the reviewed cutover with equivalent controls in place. Update developer, release and version contracts in the change that switches production builds. Publish only through the existing release process.
+
+## Open questions
+
+- Should the first release offer a verified transfer of prototype records or preserve that directory for a later explicit import? Decide its supported versions and the human-readable files users can back up and restore independently.
+- Which original release and packaged macOS versions supply the launch-animation comparison and quit/relaunch acceptance baselines? Record them in the implementation issue with the shutdown deadline.
+- Which existing capabilities, if any, should be retired? Record each explicit decision against its observable behavior and tests before removing its implementation. Acceptance of this design alone does not demonstrate workflow parity.
