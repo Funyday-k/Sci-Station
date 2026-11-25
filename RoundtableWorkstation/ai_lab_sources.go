@@ -19,6 +19,7 @@ type labCitation struct {
 }
 
 type labSourcesRequest struct {
+	Line      int                     `json:"line,omitempty"`
 	Query     string                  `json:"query"`
 	Scope     string                  `json:"scope"`
 	ProjectID string                  `json:"projectId"`
@@ -64,7 +65,7 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 		return
 	}
 	if path == "sources/preview" {
-		source, err := lab.WorkflowSource(r.Context(), in.ProjectID, in.Location)
+		source, err := lab.WorkflowSourceAtLine(r.Context(), in.ProjectID, in.Location, in.Line)
 		if err != nil {
 			reject(w, 422, err.Error())
 			return
@@ -96,7 +97,11 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 			reject(w, 409, "来源内容已改变，请重新选择原文")
 			return
 		}
-		if source.Kind == "paper" {
+		if !source.HasBodyQuote(citation.Quote) {
+			reject(w, 422, "请选择论文正文中的原句，标题、元数据和占位行不能作为研究证据")
+			return
+		}
+		if source.Kind == "paper" || source.Kind == "paper-markdown" {
 			papers[source.ID] = true
 		}
 		name, body := labAttachment(in.ProjectID, source, citation.Quote)
@@ -125,7 +130,7 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 func labRequiredEvidence(workflow string, papers, sources int) error {
 	switch {
 	case workflow == "paper-reading" && papers < 1:
-		return errors.New("论文精读需要至少一段论文页正文")
+		return errors.New("论文精读需要至少一段 PDF 页或论文 Markdown 正文")
 	case workflow == "related-work" && papers < 2:
 		return errors.New("相关工作比较需要来自至少两篇论文的正文")
 	case workflow == "gap-planning" && sources < 1:
@@ -142,8 +147,14 @@ func labAttachment(project string, source research.WorkflowSource, quote string)
 		header, _ := json.Marshal(map[string]any{"selectionStart": start, "selectionEnd": end, "projectId": project, "paperId": source.ID, "page": source.Page, "title": string(title), "fingerprint": source.Hash, "offset": source.Offset})
 		return fmt.Sprintf("%s · p%d.txt", string(title), source.Page), meeting.PaperExcerptMarker + string(header) + "\n\n" + raw
 	}
-	header, _ := json.Marshal(map[string]any{"projectId": project, "kind": source.Kind, "id": source.ID,
-		"title": string(title), "sha256": source.Hash, "offset": source.Offset, "end": source.Offset + utf8.RuneCountInString(quote)})
+	metadata := map[string]any{"projectId": project, "kind": source.Kind, "id": source.ID, "title": string(title), "sha256": source.Hash, "offset": source.Offset, "end": source.Offset + utf8.RuneCountInString(quote)}
+	if source.Kind == "paper-markdown" {
+		metadata["revision"] = source.Revision
+		metadata["heading"] = source.Heading
+		metadata["lineStart"] = source.Line
+		metadata["lineEnd"] = source.Line + strings.Count(quote, "\n")
+	}
+	header, _ := json.Marshal(metadata)
 	return string(title) + ".txt", meeting.ProjectExcerptMarker + string(header) + "\n\n" + quote
 }
 
@@ -157,7 +168,7 @@ func requireLabModules(w http.ResponseWriter, lab *research.Service, in labSourc
 	case "gap-planning":
 		required = append(required, "wiki", "tasks", "citation-graph")
 	}
-	sourceModule := map[string]string{"paper": "pdf-reader", "note": "wiki", "material": "materials"}
+	sourceModule := map[string]string{"paper": "pdf-reader", "paper-markdown": "paper-library", "note": "wiki", "material": "materials"}
 	if preview {
 		required = append(required, sourceModule[in.Location.Kind])
 	} else {

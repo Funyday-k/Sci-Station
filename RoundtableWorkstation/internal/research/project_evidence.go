@@ -25,13 +25,18 @@ type ProjectEvidenceLocation struct {
 const maxProjectEvidenceRunes = 1000
 
 func (loc ProjectEvidenceLocation) valid() bool {
-	return validID(loc.ProjectID) && validID(loc.ID) && (loc.Kind == "note" || loc.Kind == "material") &&
+	return validID(loc.ProjectID) && validID(loc.ID) && (loc.Kind == "note" || loc.Kind == "material" || loc.Kind == "paper-markdown") &&
 		loc.Offset >= 0 && loc.End > loc.Offset && loc.End-loc.Offset <= maxProjectEvidenceRunes
 }
 
 func (loc ProjectEvidenceLocation) openURL(hash string) string {
 	params := url.Values{"project": {loc.ProjectID}, "fingerprint": {hash},
 		"offset": {strconv.Itoa(loc.Offset)}, "end": {strconv.Itoa(loc.End)}}
+	if loc.Kind == "paper-markdown" {
+		params.Set("tab", "convert")
+		params.Set("paper", loc.ID)
+		return "/tools?" + params.Encode()
+	}
 	if loc.Kind == "note" {
 		params.Set("view", "notes")
 		params.Set("note", loc.ID)
@@ -60,6 +65,9 @@ func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocati
 		return ProjectSourceExcerpt{}, ErrWorkflowSource
 	}
 	module := "wiki"
+	if loc.Kind == "paper-markdown" {
+		module = "paper-library"
+	}
 	if loc.Kind == "material" {
 		module = "materials"
 	}
@@ -67,7 +75,19 @@ func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocati
 	if err != nil || !config.effective(module, loc.ProjectID) {
 		return ProjectSourceExcerpt{}, os.ErrPermission
 	}
-	text, title, err := s.workflowRecordLocked(d, SourceLocation{Kind: loc.Kind, ID: loc.ID})
+	var text, title string
+	revision := 0
+	if loc.Kind == "paper-markdown" {
+		var p Paper
+		text, p, err = s.papers.projectMarkdown(d.Project.ID, loc.ID)
+		if err == nil {
+			title = p.Title
+			revision = p.Markdown.Revision
+		}
+	} else {
+		text, title, err = s.workflowRecordLocked(d, SourceLocation{Kind: loc.Kind, ID: loc.ID})
+		revision = d.Notes[loc.ID].Revision
+	}
 	if err != nil {
 		return ProjectSourceExcerpt{}, err
 	}
@@ -86,7 +106,6 @@ func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocati
 		}
 	}
 	const context = 160
-	revision := d.Notes[loc.ID].Revision
 	if loc.Kind == "material" {
 		revision = d.Materials[loc.ID].Revision
 	}

@@ -2,13 +2,12 @@
 #import <Foundation/Foundation.h>
 #import <PDFKit/PDFKit.h>
 
-char *sci_export_pdf_markdown(const char *filename, int *length, int *status) {
+char *sci_export_pdf_markdown(const char *filename, const void *bytes, size_t count, int *length, int *status) {
     @autoreleasepool {
         @try {
             *status = 1;
             *length = 0;
-            NSString *path = [NSString stringWithUTF8String:filename];
-            PDFDocument *doc = [[PDFDocument alloc] initWithURL:[NSURL fileURLWithPath:path]];
+            PDFDocument *doc = filename ? [[PDFDocument alloc] initWithURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:filename]]] : [[PDFDocument alloc] initWithData:[NSData dataWithBytes:bytes length:count]];
             if (!doc || doc.isLocked || !doc.pageCount) return NULL;
 
             NSMutableData *body = [NSMutableData data];

@@ -26,7 +26,11 @@ type SourceLocation struct {
 }
 
 type WorkflowSource struct {
-	rawText string
+	rawText  string
+	Revision int           `json:"revision,omitempty"`
+	Line     int           `json:"line,omitempty"`
+	Heading  string        `json:"heading,omitempty"`
+	Sections []BodySection `json:"sections,omitempty"`
 	SourceLocation
 	Title string `json:"title"`
 	Hash  string `json:"hash"`
@@ -39,10 +43,14 @@ var ErrWorkflowSource = errors.New("来源无效或不属于当前项目")
 const workflowWindow = 4000
 
 func (s *Service) WorkflowSource(ctx context.Context, project string, loc SourceLocation) (WorkflowSource, error) {
+	return s.WorkflowSourceAtLine(ctx, project, loc, 0)
+}
+func (s *Service) WorkflowSourceAtLine(ctx context.Context, project string, loc SourceLocation, line int) (WorkflowSource, error) {
 	var out WorkflowSource
 	if !validID(project) || !validID(loc.ID) || loc.Offset < 0 || (loc.Kind == "paper" && (loc.Page < 1 || loc.Page > 100000)) || (loc.Kind != "paper" && loc.Page != 0) {
 		return out, ErrWorkflowSource
 	}
+	var meta WorkflowSource
 	var text, title, hash string
 	var err error
 	if loc.Kind == "paper" {
@@ -50,6 +58,18 @@ func (s *Service) WorkflowSource(ctx context.Context, project string, loc Source
 			return out, ErrWorkflowSource
 		}
 		text, title, hash, err = s.workflowPaperPage(ctx, project, loc)
+	} else if loc.Kind == "paper-markdown" {
+		if !s.HasActiveProject(project) {
+			return out, ErrWorkflowSource
+		}
+		var p Paper
+		text, p, err = s.workflowMarkdown(project, loc.ID)
+		if err != nil {
+			return out, err
+		}
+		title = p.Title
+		hash = p.Markdown.Hash
+		meta.Revision = p.Markdown.Revision
 	} else {
 		text, title, err = s.workflowRecord(project, loc)
 		hash = fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
@@ -61,12 +81,32 @@ func (s *Service) WorkflowSource(ctx context.Context, project string, loc Source
 		return out, errors.New("来源没有可引用的正文。扫描版论文请先转换为可检索文本")
 	}
 	// HTML textareas normalize CR and CRLF to LF. Keep offsets reproducible across native and web previews.
-	runes := []rune(normalizeWorkflowText(text))
+	normalized := normalizeWorkflowText(text)
+	if loc.Kind == "paper-markdown" {
+		var target int
+		meta.Sections, target, err = markdownOutline(normalized, line)
+		if err != nil {
+			return out, err
+		}
+		if target >= 0 {
+			loc.Offset = target
+		}
+		meta.Line, meta.Heading = bodyLocation(normalized, loc.Offset)
+	} else if line != 0 {
+		return out, ErrWorkflowSource
+	}
+	runes := []rune(normalized)
 	if loc.Offset >= len(runes) {
 		return out, errors.New("原文位置超出范围，请重新预览")
 	}
 	end := loc.Offset + min(len(runes)-loc.Offset, workflowWindow)
-	return WorkflowSource{rawText: text, SourceLocation: loc, Title: title, Hash: hash, Text: string(runes[loc.Offset:end]), More: end < len(runes)}, nil
+	meta.rawText = text
+	meta.SourceLocation = loc
+	meta.Title = title
+	meta.Hash = hash
+	meta.Text = string(runes[loc.Offset:end])
+	meta.More = end < len(runes)
+	return meta, nil
 }
 
 func (s *Service) workflowPaperPage(ctx context.Context, project string, loc SourceLocation) (string, string, string, error) {

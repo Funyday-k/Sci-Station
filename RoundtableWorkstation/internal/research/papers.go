@@ -92,6 +92,7 @@ type PaperMetadata struct {
 	collectionExplicit bool
 }
 type Paper struct {
+	Markdown *PaperMarkdown `json:"markdown_source,omitempty"`
 	PaperMetadata
 	diskHash        [32]byte
 	ID              string              `json:"id"`
@@ -138,7 +139,7 @@ func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 		return nil, fmt.Errorf("文献库目录不可用")
 	}
 	p.dirInfo = info
-	for _, sub := range []string{"records", "pdf"} {
+	for _, sub := range []string{"records", "pdf", "markdown"} {
 		if err := workspace.ManagedMkdirAll(filepath.Join(dir, sub), 0700); err != nil {
 			return nil, err
 		}
@@ -181,6 +182,9 @@ func (s *PaperLibrary) Snapshot(id string) (Paper, bool) {
 	return clonePaper(p), ok
 }
 func clonePaper(p Paper) Paper {
+	if p.Markdown != nil {
+		p.Markdown = new(*p.Markdown)
+	}
 	if p.ProjectLinks != nil {
 		links := make(map[string]PaperProjectLink, len(p.ProjectLinks))
 		for id, link := range p.ProjectLinks {

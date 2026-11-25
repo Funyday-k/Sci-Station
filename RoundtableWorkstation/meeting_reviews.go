@@ -108,7 +108,7 @@ func recordedProjectEvidence(text, project string) (research.Evidence, error) {
 	meta, quote, ok := strings.Cut(text, "\n\n")
 	length := utf8.RuneCountInString(quote)
 	if !ok || json.Unmarshal([]byte(meta), &anchor) != nil || anchor.ProjectID != project ||
-		anchor.Kind != "note" && anchor.Kind != "material" || anchor.ID == "" || len(anchor.Hash) != 64 ||
+		anchor.Kind != "note" && anchor.Kind != "material" && anchor.Kind != "paper-markdown" || anchor.ID == "" || len(anchor.Hash) != 64 ||
 		anchor.Offset == nil || *anchor.Offset < 0 || length == 0 || length > 1000 || strings.TrimSpace(quote) == "" {
 		return research.Evidence{}, errors.New("会议中存在不完整或不属于此项目的 Wiki／材料证据")
 	}

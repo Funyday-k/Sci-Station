@@ -89,7 +89,7 @@
   });
   function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
   async function openDraft(){
-    const x={...form(),projectId:$("project").value,sessionId:$("session").value,question:$("question").value.trim(),resource:source};
+    const x={...form(),workflow:current?.id || "",projectId:$("project").value,sessionId:$("session").value,question:$("question").value.trim(),resource:source};
     x.skill = await projectContext.resolve(x.projectId);
     handoff.compose(x);
     x.materials = await runs.prepareHandoff(current?.id || "", x.projectId);

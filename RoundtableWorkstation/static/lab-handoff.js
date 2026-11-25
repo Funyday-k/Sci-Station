@@ -10,7 +10,8 @@
         data.seats < 1 || data.seats > 4 || typeof data.prompt !== "string" ||
         !data.prompt.trim() || count(data.prompt) > 6500 || typeof data.title !== "string" ||
         !data.title.trim() || count(data.title)>72) throw Error("工作流草稿无效。");
-    const chunks = ["科研工作流 · " + data.title.trim(), data.prompt.trim()];
+    const formal=["paper-reading","related-work","gap-planning"].includes(data.workflow);
+    const chunks = ["科研工作流 · " + data.title.trim()+(formal?"\n工作流 ID："+data.workflow:""), data.prompt.trim()];
     if (data.question) chunks.push("研究问题\n"+String(data.question).trim());
     if (data.skill) {
       const {name,digest,body,projectId} = data.skill;

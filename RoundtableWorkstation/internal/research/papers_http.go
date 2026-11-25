@@ -234,6 +234,11 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.paperPDF(w, r, p)
 			return
 		}
+	case "body":
+		if len(chunks) == 2 {
+			s.bodyHTTP(w, r, p)
+			return
+		}
 	case "markdown":
 		if len(chunks) == 2 {
 			s.downloadMarkdown(w, r, p)
@@ -297,6 +302,11 @@ func (s *PaperLibrary) remove(id string, revision int) error {
 		return err
 	}
 	delete(s.records, id)
+	if p.Markdown != nil && validID(p.Markdown.BlobID) {
+		if err := workspace.ManagedRemove(s.bodyPath(id, p.Markdown.BlobID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	if p.HasPDF {
 		if err := workspace.ManagedRemove(filepath.Join(s.dir, "pdf", id+".pdf")); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err

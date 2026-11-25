@@ -22,3 +22,4 @@
 .lab-evidence-source h5 { margin: 0; font-size: .9rem; }
 .lab-evidence-source code { display: block; overflow-wrap: anywhere; }
 .lab-evidence-warning { font-weight: 650; }
+.lab-artifact{max-width:100%;overflow:auto;margin:12px 0}.lab-artifact table{border-collapse:collapse;font-size:.9rem}.lab-artifact caption{text-align:left;font-weight:600}.lab-artifact th,.lab-artifact td{padding:.55rem;border:1px solid currentColor;text-align:left;vertical-align:top}.lab-artifact a{color:inherit}

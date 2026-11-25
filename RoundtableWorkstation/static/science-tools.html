@@ -73,7 +73,11 @@
         <div id="articles"></div>
       </section>
       <section id="convert" hidden>
-        <div class="panel"><label for="paper">文献库中的 PDF</label><select id="paper"></select>
+        <div class="panel"><label for="paper">文献库论文</label><select id="paper"></select>
+          <p id="bodyState" role="status"></p>
+          <div class="line"><label for="bodyFile">已获得的论文正文（.md 或 .markdown）</label><input id="bodyFile" type="file" accept=".md,.markdown"><button id="importBody">导入论文正文</button><button id="existingBody" hidden>查看已存 Markdown 正文</button></div>
+          <div id="bodyLocator" hidden><p id="bodyLocatorStatus" role="status"></p><pre id="bodyLocatorText" style="white-space:pre-wrap"></pre></div>
+          <details id="bodyFull" hidden><summary>论文 Markdown 全文</summary><pre id="bodyFullText" style="max-height:32rem;overflow:auto;white-space:pre-wrap"></pre></details>
           <div class="bar">
             <h2>本地文本</h2><button id="local">提取为 Markdown</button>
           </div>
@@ -91,7 +95,7 @@
           <div class="line"><button id="remote">上传并转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
         </details>
         <div id="result" class="panel" hidden><label for="markdown">转换结果，可在保存前编辑</label><textarea id="markdown" rows="15"></textarea>
-          <div class="line"><button id="download">下载 Markdown</button><button id="saveNote" class="primary">存为项目笔记</button></div>
+          <div class="line"><button id="download">下载 Markdown</button><button id="saveBody">保存原始转换结果为论文正文</button><button id="saveNote" class="primary">存为项目笔记</button></div>
         </div>
       </section>
       <section id="calendar" hidden>

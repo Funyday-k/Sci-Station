@@ -32,6 +32,7 @@
       },
       body: JSON.stringify(body)
     };
+    if(typeof FormData!=="undefined" && body instanceof FormData){options.body=body;delete options.headers["Content-Type"];}
     options.headers = {...options.headers, ...extraHeaders};
     const response = await fetch(apiBase + route, options);
     if (!response.ok) {
@@ -187,21 +188,40 @@
     $("reminder").disabled = reminderBusy || !tasks.some(t => t.id === $("task").value);
   }
 
-  function renderResult(md, paper, sequence) {
+  function renderResult(md, paper, sequence, source) {
     if (sequence !== conversionSequence || $("paper").value !== paper.id) return;
     result = {
-      paper,
+      paper,original:md,source,
       key: crypto.randomUUID(),
       saved: new Map()
     };
     $("markdown").value = md;
     $("result").hidden = false;
+    $("saveBody").disabled=!source || (source.kind==="mineru" && !source.bound);
     tell("转换完成，可以编辑、导出或保存到项目");
   }
 
+  function paperBodyStatus() {
+    const p=papers.find(row=>row.id===$("paper").value),body=p?.markdown_source;
+    $("bodyState").textContent=body?"已存论文正文 · 版本 "+body.revision+" · "+({pdfkit:"PDFKit 转换",mineru:"MinerU 转换",import:"导入文件"}[body.origin] || body.origin):
+      (p?.has_pdf?"已有 PDF，尚无 Markdown 正文。":"尚无 PDF 或 Markdown 正文。");
+    $("existingBody").hidden=!body;
+
+    for(const id of ["local","remote","checkBatch","getZip"]) $(id).disabled=!p?.has_pdf;
+    $("importBody").disabled=!p;
+  }
+
+  function savedBody(updated) {
+    const i=papers.findIndex(p=>p.id===updated.id);
+    if(i>=0) papers[i]=updated;
+    if($("paper").value===updated.id){paperBodyStatus();tell("已保存论文正文版本 "+updated.markdown_source.revision+"。");}
+  }
+  function allowReplace(p) {
+    return !p.markdown_source || confirm("更新这篇论文的正文版本？依赖旧指纹的选段仍会保留在会话中，写入前需要重新核对。");
+  }
   function selectedPaper() {
     const paper = papers.find(p => p.id === $("paper").value);
-    if (!paper) throw Error("请先在文献库中导入一份 PDF");
+    if (!paper) throw Error("请先选择文献库中的论文");
     return paper;
   }
 
@@ -227,14 +247,14 @@
       conversionSequence++;
       result = null;
       $("result").hidden = true;
-      $("batch").value = "";
+      $("batch").value = ""; $("bodyFile").value="";$("bodyFull").hidden=true;$("bodyLocator").hidden=true; paperBodyStatus();
     };
     $("local").onclick = () => busy($("local"), async () => {
       const p = selectedPaper(),
         seq = ++conversionSequence;
       tell("正在从原文提取…");
       const md = await req("papers/" + p.id + "/markdown", undefined, "text");
-      renderResult(md, p, seq);
+      renderResult(md, p, seq,{kind:"pdfkit"});
     });
     $("remote").onclick = () => busy($("remote"), async () => {
       const v = remoteData(),
@@ -254,7 +274,8 @@
         s = await minerReq("status", d);
       if (seq !== conversionSequence) return;
       if (s.state === "done") {
-        renderResult((await minerReq("result", d)).markdown, p, seq);
+        const output=await minerReq("result",d);
+        renderResult(output.markdown,p,seq,{kind:"mineru",batch:d.batch,bound:output.bound,hash:output.sha256});
       } else tell("MinerU 任务状态：" + s.state);
     });
     $("getZip").onclick = () => busy($("getZip"), async () => {
@@ -269,6 +290,29 @@
         return updateMinerCredential({action: "clear"});
       }
     };
+    $("existingBody").onclick=()=>busy($("existingBody"),async()=>{
+      const p=selectedPaper(),seq=conversionSequence;
+      const body=await req("papers/"+p.id+"/body",undefined,"text");
+      if(seq!==conversionSequence || p.id!==$("paper").value)return;
+      $("bodyFullText").textContent=body;$("bodyFull").hidden=false;$("bodyFull").open=true;
+    });
+    $("importBody").onclick=()=>busy($("importBody"),async()=>{
+      const p=selectedPaper(),file=$("bodyFile").files[0];
+      if(!file) throw Error("请选择这篇论文的 Markdown 原文文件。");
+      if(!allowReplace(p))return;
+      const data=new FormData();data.append("revision",p.revision);data.append("file",file,file.name);
+      const updated=await req("papers/"+p.id+"/body",data);
+      if($("paper").value===p.id)$("bodyFile").value="";savedBody(updated);
+    });
+    $("saveBody").onclick=()=>busy($("saveBody"),async()=>{
+      const r=result,p=selectedPaper();
+      if(!r || r.paper.id!==p.id || r.paper.revision!==p.revision)throw Error("请重新预览当前论文的转换结果。");
+      if($("markdown").value!==r.original)throw Error("编辑后的文本可存为项目笔记。要保存转换原文，请重新预览。");
+      if(!allowReplace(p))return;
+      const updated=r.source.kind==="pdfkit"?await req("papers/"+p.id+"/body",{action:"convert",revision:p.revision}):
+        await minerReq("result",{...remoteData(),paper:p.id,batch:r.source.batch,saveSource:true,revision:p.revision,expectedHash:r.source.hash});
+      savedBody(updated);
+    });
     $("download").onclick = () => saveBlob(new Blob([$("markdown").value], {
       type: "text/markdown"
     }), result.paper.title.replace(/[\/\\:]/g, "-") + ".md");
@@ -360,10 +404,22 @@
     $("project").value = project;
     await loadProject();
     if (tab === "convert") {
-      papers = (await req("papers")).filter(p => p.has_pdf);
+      papers = await req("papers");
       choices($("paper"), papers.map(p => [p.id, p.title]), "暂无本地 PDF");
       if (qs.get("paper") && papers.some(p => p.id === qs.get("paper"))) $("paper").value = qs.get("paper");
-      $("local").disabled = !papers.length;
+      paperBodyStatus();
+      if(qs.has("fingerprint") && qs.has("offset") && qs.has("end") && qs.get("paper") && project) {
+        $("bodyLocator").hidden=false;
+        const seq=conversionSequence, scope=project;
+        try {
+          const location=new URLSearchParams({offset:qs.get("offset"),end:qs.get("end"),fingerprint:qs.get("fingerprint")});
+          const hit=await req("projects/"+encodeURIComponent(project)+"/source-excerpts/paper-markdown/"+encodeURIComponent(qs.get("paper"))+"?"+location);
+          if(seq!==conversionSequence || scope!==project) return;
+          $("bodyLocatorStatus").textContent=hit.title+" · 版本 "+hit.revision+" · 第 "+hit.line+" 行，第 "+hit.column+" 列";
+          const mark=document.createElement("mark");mark.textContent=hit.quote;
+          $("bodyLocatorText").replaceChildren(document.createTextNode(hit.before),mark,document.createTextNode(hit.after));
+        } catch(error){if(seq===conversionSequence && scope===project)$("bodyLocatorStatus").textContent="无法核对已保存的引文。"+error.message;}
+      }
     }
   }
   globalThis.addEventListener?.("popstate",()=>{

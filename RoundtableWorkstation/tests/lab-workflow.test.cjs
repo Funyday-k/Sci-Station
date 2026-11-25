@@ -106,3 +106,21 @@ test("MCP confirmation, failure, and a project switch prevent stale or unauthori
   release([{uri:"urn:fixture"}]);
   assert.equal(await pending,null);
 });
+
+test("formal workflows identify structured scientific artifacts with turn-visible citations",()=>{
+  const {projectRows}=require("../static/lab-artifacts.js");
+  const topic=compose({...setup,workflow:"gap-planning"});
+  assert.equal(topic.split("\n")[1],"工作流 ID：gap-planning");
+  const paper={excerpt:'Sci-Station · 项目原文摘录 v1\n'+JSON.stringify({projectId:"p1",kind:"paper-markdown",id:"paper",offset:2,end:10,sha256:"a".repeat(64)})+'\n\nReal text.'};
+  const task={title:"Check loss",priority:"high",reason:"Measured loss",acceptance:"Repeat measurement",evidence_refs:["S1"]};
+  const reply=rows=>"Draft\n\x60\x60\x60research-tasks\n"+JSON.stringify(rows)+"\n\x60\x60\x60";
+  const out=projectRows(topic,reply([task]),[paper],1,[{title:"Check loss"}],"p1");
+  assert.equal(out.rows[0].duplicate,task.title);assert.equal(out.rows[0].refs[0].ref.kind,"paper-markdown");
+  assert.ok(projectRows(topic,reply([{...task,evidence_refs:["S2"]}]),[paper,{...paper,added_round:2}],1,[],"p1").error);
+  assert.ok(projectRows(topic,reply([task]),[paper],1,[],"foreign").error);
+  assert.ok(projectRows(topic,reply([{...task,evidence_refs:[]}]),[paper],1,[],"p1").error);
+  const comparison=compose({...setup,workflow:"related-work"});
+  const row={theme:"Temperature",claim:"Opposite dependence",conditions:"Matched entropy",evidence_refs:["S1","S2"]};
+  const matrix=projectRows(comparison,reply([row]).replace("research-tasks","research-comparison"),[paper,paper],1,[],"p1");
+  assert.equal(matrix.rows[0].refs.length,2);
+});

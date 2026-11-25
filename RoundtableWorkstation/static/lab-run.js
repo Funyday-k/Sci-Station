@@ -20,7 +20,7 @@
 
   function mount({req,tell,form,skillForRun}) {
     const $ = id => document.getElementById(id);
-    let project = null, records = [], preview = null, selected = [], generation = 0;
+    let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
     let enabledModules=null;
     const recentRooms=new Map();
     let visibleRoom=null, searchState=null;
@@ -49,7 +49,10 @@
       if(reset) resetSearch();
       preview=null;
       $("local-window").hidden=true;
-      $("local-page-label").hidden=records[$("local-record").value]?.kind!=="paper";
+      const chosen=records[$("local-record").value];$("local-page-label").hidden=chosen?.kind!=="paper";
+      $("body-controls").hidden=chosen?.kind!=="paper-markdown";
+      $("body-line").value="1";
+      if(chosen?.kind==="paper-markdown")$("body-manage").href="/tools?"+new URLSearchParams({tab:"convert",paper:chosen.id,project:project.id});
     }
     function displaySelected() {
       const rows=selected.map((item,index)=>{
@@ -62,7 +65,7 @@
     }
     async function selectProject(next, sessions) {
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
-      project=next; records=[]; selected=[]; clearTimeout(pollTimer); active=""; enabledModules=null;
+      project=next; records=[];existingTasks=[]; selected=[]; clearTimeout(pollTimer); active=""; enabledModules=null;
       $("local-record").replaceChildren(); chooseRecord(); displaySelected();
       $("local-sources").disabled=!project; $("lab-result").hidden=true;
       history=[...recentRooms.values(),...sessions.filter(s=>!recentRooms.has(s.id))].filter(s=>ownsRun(s,project)); displayHistory();
@@ -75,27 +78,39 @@
       const enabled = id=>window.SciStationModules.isEnabled(config,id);
       if(project.global){ $("local-sources").disabled=true; return; }
       $("local-sources").disabled=!enabled("ai-lab");
-      const [papers,notes,materials]=await Promise.all([
-        enabled("pdf-reader")?req("/api/research/papers?project="+encodeURIComponent(project.id)):[],
-        enabled("wiki")?req(prefix+"notes"):[], enabled("materials")?req(prefix+"materials"):[]
+      const [papers,notes,materials,tasks]=await Promise.all([
+        (enabled("paper-library")||enabled("pdf-reader"))?req("/api/research/papers?project="+encodeURIComponent(project.id)):[],
+        enabled("wiki")?req(prefix+"notes"):[], enabled("materials")?req(prefix+"materials"):[],enabled("tasks")?req(prefix+"tasks"):[]
       ]);
       if(generation!==token) return;
+      existingTasks=tasks;
+      if(visibleRoom && ownsRun(visibleRoom,project))renderRun(visibleRoom);
       records=[
-        ...papers.filter(p=>p.has_pdf).map(p=>({kind:"paper",id:p.id,label:"论文 · "+p.title})),
+        ...papers.filter(p=>p.has_pdf && enabled("pdf-reader")).map(p=>({kind:"paper",id:p.id,label:"论文 PDF · "+p.title})),
+        ...papers.filter(()=>enabled("paper-library")).map(p=>({kind:"paper-markdown",id:p.id,missing:!p.markdown_source,
+          label:"论文 Markdown · "+p.title+(p.markdown_source?"":"（待导入或转换）")})),
         ...notes.map(n=>({kind:"note",id:n.id,label:"笔记 · "+n.title})),
         ...materials.filter(m=>m.mediaType?.startsWith("text/plain")).map(m=>({kind:"material",id:m.id,label:"材料 · "+m.name}))
       ];
       $("local-record").replaceChildren(...records.map((x,i)=>new Option(x.label,String(i))));
       chooseRecord();
     }
-    async function showPreview(offset=0) {
+    async function showPreview(offset=0,line=0) {
       const record=records[$("local-record").value], token=++previewSequence;
       if(!record || !project) throw Error("请先选择项目原文。");
       const page=record.kind==="paper"?Number($("local-page").value):0;
       preview=null; $("local-window").hidden=true;
-      const data=await req(base+"preview","POST",{projectId:project.id,location:{kind:record.kind,id:record.id,page,offset}});
+      const data=await req(base+"preview","POST",{projectId:project.id,line,location:{kind:record.kind,id:record.id,page,offset}});
       if(token!==previewSequence) return;
-      preview=data; $("local-text").value=data.text; $("local-window").hidden=false;
+      preview=data;
+      const md=data.kind==="paper-markdown";
+      $("body-location").hidden=!md;$("body-sections-label").hidden=!md||!data.sections?.length;
+      if(md) {
+        $("body-line").value=String(data.line);
+        $("body-location").textContent="正文版本 "+data.revision+" · 第 "+data.line+" 行"+(data.heading?" · "+data.heading:"");
+        $("body-sections").replaceChildren(new Option("选择章节",""),...(data.sections||[]).map(h=>new Option("L"+h.line+" · "+h.heading,String(h.line))));
+      }
+      $("local-text").value=data.text; $("local-window").hidden=false;
       $("local-prev").hidden=!offset; $("local-next").hidden=!data.more;
     }
     function resetSearch() {
@@ -124,7 +139,7 @@
         const query=$("local-query").value.trim();
         if(!query || !project?.id) throw Error("请选择项目并输入要检索的词句。");
         const scope=$("local-search-scope").value;
-        const items=scope==="project"?records.slice():[records[$("local-record").value]].filter(Boolean);
+        const items=scope==="project"?records.filter(r=>!r.missing):[records[$("local-record").value]].filter(Boolean);
         searchState={query,items,index:0,failed:0,hits:0,limited:false};
       }
       const state=searchState;
@@ -234,7 +249,7 @@
           }
           if(ref.ocr)query.set("ocr","1");
           const link=document.createElement("a");link.href="/reader?"+query;link.textContent="打开原文第 "+ref.page+" 页";entries.push(link);
-        } else if ((ref.kind === "note" || ref.kind === "material") && Number.isSafeInteger(ref.offset)) {
+        } else if ((["note","material","paper-markdown"].includes(ref.kind)) && Number.isSafeInteger(ref.offset)) {
           const evidence={sourceHash:ref.sha256, source:{projectId:ref.projectId,kind:ref.kind,id:ref.id,
             offset:ref.offset,end:ref.end ?? ref.offset+Array.from(quote.textContent).length}};
           const link=document.createElement("a");
@@ -259,13 +274,15 @@
       for(const round of rounds) for(const turn of round.turns||[]) {
         const heading=document.createElement("h3");
         heading.textContent="第 "+round.number+" 轮 · "+(turn.model_label||turn.model||turn.seat)+" · "+(states[turn.status]||turn.status);
+        const structured=turn.status==="done" && window.SciLabArtifacts?.projectRows(room.topic,turn.text,room.materials||[],round.number,existingTasks,project.id);
         const body=document.createElement(turn.error ? "p" : "div");
         if(turn.error) body.textContent=turn.error;
         else if(turn.text) {
-          window.SciMarkdown.render(body,turn.text,{headingShift:3,cache:turn.status!=="running"});
+          window.SciMarkdown.render(body,structured && !structured.error ? structured.narrative : turn.text,{headingShift:3,cache:turn.status!=="running"});
           heading.append(window.SciMarkdown.copyButton(turn.text));
         }
         turns.push(heading,body);
+        if(structured) turns.push(window.SciLabArtifacts.render(structured));
         if (!project.global && room.status !== "running" && turn.status === "done" && !turn.error && turn.text?.trim()) {
           turns.push(window.SciLabEvidence.inspection({room: room.id, project: project.id, output: "round-"+round.number+"-"+turn.seat, req}));
         }
@@ -323,7 +340,8 @@
     $("local-query").oninput=resetSearch; $("local-search-scope").onchange=resetSearch;
     bind("local-find",()=>findSources());bind("local-search-more",()=>findSources(true));
     $("local-search-stop").onclick=()=>searchState?.controller?.abort();
-     bind("local-preview",()=>showPreview()); bind("local-add",addSelection);
+     $("body-sections").onchange=()=>{if($("body-sections").value)showPreview(0,Number($("body-sections").value)).catch(e=>tell(e.message));};
+    bind("local-preview",()=>showPreview(0,records[$("local-record").value]?.kind==="paper-markdown"?Number($("body-line").value):0)); bind("local-add",addSelection);
     bind("local-prev",()=>showPreview(Math.max(0,(preview?.offset || 0)-4000)));
     bind("local-next",()=>showPreview((preview?.offset || 0)+chars(preview?.text || "").length));
     bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay);

@@ -3,6 +3,7 @@
 package research
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -59,5 +60,29 @@ func TestLabPDFSelectionReplaysUTF16AcrossLineEndings(t *testing.T) {
 	quote, start, end := s.PDFSelection("Method\nline")
 	if quote != "Method\r\nline" || start != 5 || end != 17 {
 		t.Fatalf("quote %q at [%d,%d)", quote, start, end)
+	}
+}
+
+func TestLabAdoptVerifiedLocalPDFConversion(t *testing.T) {
+	s := newResearch(t, t.TempDir())
+	p := createResearchProject(t, s, "Conversion fixture")
+	raw, err := os.ReadFile(readerFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := uploadTestPDF(t, s.papers, string(raw), fmt.Sprintf(`{"title":"Source","project_ids":[%q]}`, p.ID))
+	path := "/papers/" + record.ID
+	export := callResearch(t, s, "GET", path+"/markdown", nil, 200)
+	adopted := decodeResearch[Paper](t, callResearch(t, s, "POST", path+"/body", map[string]any{"action": "convert", "revision": record.Revision}, 200))
+	if adopted.Markdown.Origin != "pdfkit" || adopted.Markdown.PDFHash != record.FileSHA256 || !bytes.Equal(export, callResearch(t, s, "GET", path+"/body", nil, 200)) {
+		t.Fatal("conversion differs from original preview")
+	}
+	pdf, _ := s.papers.PDFPath(record.ID)
+	if err = os.WriteFile(pdf, []byte("corrupt fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	callResearch(t, s, "POST", path+"/body", map[string]any{"action": "convert", "revision": adopted.Revision}, 409)
+	if !bytes.Equal(export, callResearch(t, s, "GET", path+"/body", nil, 200)) {
+		t.Fatal("failed conversion changed source")
 	}
 }

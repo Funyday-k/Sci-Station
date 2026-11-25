@@ -4,13 +4,13 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -88,9 +88,12 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		return
 	}
 	var input struct {
-		Paper string `json:"paper"`
-		Token string `json:"token"`
-		Batch string `json:"batch"`
+		Paper        string `json:"paper"`
+		Token        string `json:"token"`
+		Batch        string `json:"batch"`
+		SaveSource   bool   `json:"saveSource"`
+		Revision     int    `json:"revision"`
+		ExpectedHash string `json:"expectedHash"`
 	}
 	if !jsonBody(w, r, &input) {
 		return
@@ -99,8 +102,9 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		reject(w, 400, "任务编号无效")
 		return
 	}
-	pdf, e := lab.PaperPDFPath(input.Paper)
-	if e != nil {
+	paper, exists := lab.ConversionPaper(input.Paper)
+	var e error
+	if !exists || !paper.HasPDF {
 		reject(w, 404, "论文缺少本地 PDF")
 		return
 	}
@@ -119,18 +123,16 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	if route == "mineru/start" {
-		file, e := os.Open(pdf)
-		if e != nil {
-			reject(w, 404, "无法读取 PDF")
+		paper, pdf, readErr := lab.ConversionOriginal(ctx, input.Paper)
+		if readErr != nil {
+			reject(w, 422, "无法验证本地 PDF")
 			return
 		}
-		defer file.Close()
-		st, e := file.Stat()
-		if e != nil || st.Size() > 200<<20 {
+		if len(pdf) > 200<<20 {
 			reject(w, 400, "MinerU 上传上限为 200 MiB")
 			return
 		}
-		res, e := minerAPI(ctx, token, "POST", "file-urls/batch", map[string]any{"files": []map[string]string{{"name": input.Paper + ".pdf", "data_id": input.Paper}}, "model_version": "vlm", "enable_formula": true, "enable_table": true})
+		res, e := minerAPI(ctx, token, "POST", "file-urls/batch", map[string]any{"files": []map[string]string{{"name": input.Paper + ".pdf", "data_id": minerSourceID(input.Paper, paper.FileSHA256)}}, "model_version": "vlm", "enable_formula": true, "enable_table": true})
 		if e != nil {
 			reject(w, 502, e.Error())
 			return
@@ -139,12 +141,12 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 			reject(w, 502, "MinerU 返回的上传地址无效")
 			return
 		}
-		req, e := http.NewRequestWithContext(ctx, "PUT", res.Data.Files[0], file)
+		req, e := http.NewRequestWithContext(ctx, "PUT", res.Data.Files[0], bytes.NewReader(pdf))
 		if e != nil {
 			reject(w, 502, "上传地址格式无效")
 			return
 		}
-		req.ContentLength = st.Size()
+		req.ContentLength = int64(len(pdf))
 		put, e := scientificHTTP.Do(req)
 		if e != nil {
 			reject(w, 502, "上传至 MinerU 失败")
@@ -164,7 +166,8 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		return
 	}
 	for _, item := range res.Data.Results {
-		if item.DataID != input.Paper && item.Name != input.Paper+".pdf" {
+		bound := item.DataID == minerSourceID(input.Paper, paper.FileSHA256)
+		if !bound && item.DataID != input.Paper && item.Name != input.Paper+".pdf" {
 			continue
 		}
 		switch item.State {
@@ -218,7 +221,21 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 			reject(w, 422, e.Error())
 			return
 		}
-		reply(w, 200, map[string]string{"state": "done", "markdown": body})
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(body)))
+		if input.SaveSource {
+			if !bound || input.ExpectedHash != hash || input.Revision < 1 {
+				reject(w, 409, "转换输出无法与当前论文指纹和已预览正文匹配。旧转换稿可下载、核对后导入")
+				return
+			}
+			rec, err := lab.SaveMinerMarkdown(ctx, paper.ID, input.Revision, paper.FileSHA256, []byte(body))
+			if err != nil {
+				reject(w, 409, err.Error())
+				return
+			}
+			reply(w, 200, rec)
+			return
+		}
+		reply(w, 200, map[string]any{"state": "done", "markdown": body, "sha256": hash, "bound": bound})
 		return
 	}
 	reply(w, 200, map[string]string{"state": "pending"})
@@ -247,4 +264,11 @@ func markdownFromZip(b []byte) (string, error) {
 		return "", errors.New("Markdown 超过 8 MiB 或结果损坏")
 	}
 	return string(v), nil
+}
+
+// Keep the provider data ID the same length as the original library ID while
+// binding the result to the precise PDF uploaded for this paper.
+func minerSourceID(paperID, hash string) string {
+	sum := sha256.Sum256([]byte("sci-station/mineru/v1/" + paperID + "/" + hash))
+	return fmt.Sprintf("%x", sum[:16])
 }

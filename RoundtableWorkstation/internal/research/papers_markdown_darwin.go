@@ -6,7 +6,7 @@ package research
 #cgo CFLAGS: -fobjc-arc
 #cgo LDFLAGS: -framework Foundation -framework PDFKit
 #include <stdlib.h>
-char *sci_export_pdf_markdown(const char *, int *, int *);
+char *sci_export_pdf_markdown(const char *, const void *, size_t, int *, int *);
 */
 import "C"
 import (
@@ -17,8 +17,13 @@ import (
 func documentMarkdown(path string) ([]byte, error) {
 	name := C.CString(path)
 	defer C.free(unsafe.Pointer(name))
+	return extractPaperMarkdown(name, nil)
+}
+
+func documentMarkdownBytes(pdf []byte) ([]byte, error) { return extractPaperMarkdown(nil, pdf) }
+func extractPaperMarkdown(name *C.char, pdf []byte) ([]byte, error) {
 	var n, status C.int
-	buf := C.sci_export_pdf_markdown(name, &n, &status)
+	buf := C.sci_export_pdf_markdown(name, unsafe.Pointer(unsafe.SliceData(pdf)), C.size_t(len(pdf)), &n, &status)
 	if buf == nil {
 		switch status {
 		case 2:

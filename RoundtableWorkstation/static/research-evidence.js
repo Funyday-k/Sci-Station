@@ -2,6 +2,9 @@
 (() => {
   function href(project, evidence) {
     const source = evidence.source;
+    if (source?.kind === "paper-markdown") return "/tools?" + new URLSearchParams({
+      tab:"convert",project:source.projectId,paper:source.id,fingerprint:evidence.sourceHash,offset:source.offset,end:source.end
+    });
     if (source && (source.kind === "note" || source.kind === "material")) {
       const note = source.kind === "note";
       return "/research?" + new URLSearchParams({
@@ -20,6 +23,7 @@
   }
 
   function label(evidence) {
+    if(evidence.source?.kind==="paper-markdown") return "打开论文 Markdown 原文";
     if (evidence.source?.kind === "note") return "打开 Wiki 原文";
     if (evidence.source?.kind === "material") return "打开项目材料原文";
     return evidence.page > 0 ? "打开论文第 " + evidence.page + " 页" : "打开关联论文";

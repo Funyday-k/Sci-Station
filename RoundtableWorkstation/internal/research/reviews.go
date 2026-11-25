@@ -187,8 +187,8 @@ func (s *Service) applyMeetingReview(d *projectData, v *MeetingReview) error {
 		input := taskInput{Title: &v.Title, Description: &content}
 		papers := []string{}
 		for _, ref := range v.Evidence {
-			if ref.PaperID != "" && !slices.Contains(papers, ref.PaperID) {
-				papers = append(papers, ref.PaperID)
+			if ref.linkedPaperID() != "" && !slices.Contains(papers, ref.linkedPaperID()) {
+				papers = append(papers, ref.linkedPaperID())
 			}
 		}
 		input.RelatedPaperIDs = &papers
@@ -209,7 +209,7 @@ func (s *Service) applyMeetingReview(d *projectData, v *MeetingReview) error {
 	} else {
 		n = Note{Entity: fresh(), ProjectID: v.ProjectID, Title: v.Title, Tags: []string{}, SourceMeetingID: v.MeetingID, SourceTurnID: v.TurnID}
 		if len(v.Evidence) == 1 {
-			n.PaperID = v.Evidence[0].PaperID
+			n.PaperID = v.Evidence[0].linkedPaperID()
 		}
 	}
 	n.Evidence = append(slices.Clone(n.Evidence), v.Evidence...)
@@ -321,7 +321,7 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 			jsonFail(w, 409, "会议原文或共享证据已改变，请重新审核")
 			return
 		}
-		if slices.ContainsFunc(v.Evidence, func(e Evidence) bool { return e.PaperID != "" }) {
+		if slices.ContainsFunc(v.Evidence, func(e Evidence) bool { return e.linkedPaperID() != "" }) {
 			s.papers.mu.Lock()
 			defer s.papers.mu.Unlock()
 			records, err := s.papers.lockRecords()

@@ -265,6 +265,59 @@ func TestReviewedProjectSourceWorkflow(t *testing.T) {
 		decide(endpoint, proposal, "reject", 200)
 	})
 
+	t.Run("Markdown-only paper sections survive review and stale citations fail", func(t *testing.T) {
+		const quote = "The measured loss rate decreases."
+		p := scienceWorkflowDecode[research.Paper](t, js("POST", "/api/research/papers", map[string]any{"title": "Original text fixture", "project_ids": []string{project.ID}}, 201))
+		route := "/api/research/papers/" + p.ID + "/body"
+		save := func(p research.Paper, body string) research.Paper {
+			var buf bytes.Buffer
+			form := multipart.NewWriter(&buf)
+			if err := form.WriteField("revision", fmt.Sprint(p.Revision)); err != nil {
+				t.Fatal(err)
+			}
+			part, err := form.CreateFormFile("file", "source.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = io.WriteString(part, body); err != nil {
+				t.Fatal(err)
+			}
+			if err = form.Close(); err != nil {
+				t.Fatal(err)
+			}
+			return scienceWorkflowDecode[research.Paper](t, call("POST", route, form.FormDataContentType(), &buf, 200))
+		}
+		p = save(p, "# Rate\r\n## Result\r\n"+quote+"\r\n")
+		if p.HasPDF {
+			t.Fatal("fixture must have Markdown only")
+		}
+		loc := research.SourceLocation{Kind: "paper-markdown", ID: p.ID}
+		page := scienceWorkflowDecode[research.WorkflowSource](t, js("POST", sources+"preview", labSourcesRequest{ProjectID: project.ID, Location: loc, Line: 3}, 200))
+		if page.Line != 3 || page.Heading != "Result" {
+			t.Fatal(page)
+		}
+		ref := cite(project, page.SourceLocation, quote)
+		prepared := scienceWorkflowDecode[[]meeting.Material](t, js("POST", sources+"prepare", labSourcesRequest{ProjectID: project.ID, Workflow: "paper-reading", Citations: []labCitation{ref}}, 200))
+		if len(prepared) != 1 || !strings.Contains(prepared[0].Excerpt, `"lineStart":3`) {
+			t.Fatal(prepared)
+		}
+		endpoint := createMeeting(project, ref)
+		pending := draft(endpoint, project, "6", "create-task", "Check loss rate", 201)
+		accepted := decide(endpoint, pending, "accept", 200)
+		task := scienceWorkflowDecode[research.Task](t, js("GET", path(project)+"/tasks/"+accepted.ResultID, nil, 200))
+		if !slices.Equal(task.RelatedPaperIDs, []string{p.ID}) || len(task.Evidence) != 1 || task.Evidence[0].Source.Kind != "paper-markdown" {
+			t.Fatal(task)
+		}
+		link := locator(task.Evidence[0])
+		source := scienceWorkflowDecode[research.ProjectSourceExcerpt](t, js("GET", link, nil, 200))
+		if source.Line != 3 || source.Revision != 1 || source.Quote != quote {
+			t.Fatal(source)
+		}
+		again := draft(endpoint, project, "7", "create-note", "Another review", 201)
+		save(p, "# Changed\nCorrected observation.")
+		js("GET", link, nil, 409)
+		decide(endpoint, again, "accept", 409)
+	})
 	t.Run("mixed PDF and project sources", func(t *testing.T) {
 		const pdfQuote = "Verbatim text from the original PDF"
 		paper := scienceWorkflowDecode[research.Paper](t, upload("/api/research/papers", "source.pdf", scienceWorkflowPDF(pdfQuote),

@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/static/lab.css">
   <script defer src="/static/research-evidence.js"></script>
   <script defer src="/static/lab-evidence.js"></script>
-  <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-run.js"></script><script defer src="/static/lab.js"></script>
+  <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-artifacts.js"></script><script defer src="/static/lab-run.js"></script><script defer src="/static/lab.js"></script>
 {{end}}
 {{define "content"}}
 <div class="shell"><aside>
@@ -24,8 +24,10 @@
 <details id="local-search"><summary>检索项目原文</summary><label>检索范围<select id="local-search-scope"><option value="project">项目内已关联的论文、笔记和文本材料</option><option value="record">当前来源</option></select></label>
 <label>要查找的词句<input id="local-query" type="search" maxlength="240"></label><div class="actions"><button type="button" id="local-find">查找匹配段落</button><button type="button" id="local-search-more" hidden>继续检索后六份</button><button type="button" id="local-search-stop" hidden>停止检索</button></div><ul id="local-hits"></ul></details>
 <label id="local-page-label">PDF 页码<input id="local-page" type="number" value="1" min="1" step="1"></label>
+<div id="body-controls" hidden><a id="body-manage">导入、转换或查看论文正文</a>
+<label>跳到 Markdown 行号<input id="body-line" type="number" value="1" min="1" step="1"></label></div>
 <button type="button" id="local-preview">预览正文</button>
-<div id="local-window" hidden><label>选中要引用的正文（每段最多 1,000 字）<textarea id="local-text" rows="6" readonly></textarea></label>
+<div id="local-window" hidden><label id="body-sections-label" hidden>跳到章节<select id="body-sections"></select></label><p id="body-location" hidden></p><label>选中要引用的正文（每段最多 1,000 字）<textarea id="local-text" rows="6" readonly></textarea></label>
 <div class="actions"><button type="button" id="local-prev">上一段</button><button type="button" id="local-next">下一段</button><button type="button" id="local-add">加入选段</button></div></div>
 <ul id="local-list" aria-label="本次选用的项目原文"></ul>
 </fieldset>

@@ -18,18 +18,7 @@ func (s *PaperLibrary) downloadMarkdown(w http.ResponseWriter, r *http.Request, 
 		paperMethod(w, "GET")
 		return
 	}
-	path, err := s.PDFPath(p.ID)
-	if err != nil {
-		paperError(w, err)
-		return
-	}
-	select {
-	case markdownConversions <- struct{}{}:
-		defer func() { <-markdownConversions }()
-	case <-r.Context().Done():
-		return
-	}
-	body, err := documentMarkdown(path)
+	body, err := s.convertedMarkdown(r.Context(), p)
 	if err != nil {
 		paperReply(w, 422, map[string]string{"error": err.Error()})
 		return
@@ -37,7 +26,6 @@ func (s *PaperLibrary) downloadMarkdown(w http.ResponseWriter, r *http.Request, 
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": p.Citekey + ".md"}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	fmt.Fprintf(w, "# %s\n\n", strings.Join(strings.Fields(p.Title), " "))
 	_, _ = w.Write(body)
 }
 

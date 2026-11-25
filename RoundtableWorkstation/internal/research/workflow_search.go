@@ -28,6 +28,13 @@ func (s *Service) FindWorkflowSource(ctx context.Context, project string, loc So
 	if !validID(project) || !validID(loc.ID) || !s.HasActiveProject(project) || query == "" || utf8.RuneCountInString(query) > 240 {
 		return out, ErrWorkflowSource
 	}
+	if loc.Kind == "paper-markdown" {
+		text, _, err := s.workflowMarkdown(project, loc.ID)
+		if err != nil {
+			return out, err
+		}
+		return findWorkflowText(text, query), nil
+	}
 	if loc.Kind != "paper" {
 		text, _, err := s.workflowRecord(project, loc)
 		if err != nil {
