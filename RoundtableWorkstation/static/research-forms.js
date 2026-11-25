@@ -168,7 +168,8 @@
   function paperForm(p = null) {
     const edit = Boolean(p);
     const base = edit ? "papers/" + enc(p.id) : "papers";
-    dialog(edit ? "编辑文献" : "导入文献", '<form>' +
+    const originalValues = new Map();
+    dialog(edit ? "编辑文献" : "导入文献", '<form' + (edit ? ' data-library-paper="' + esc(p.id) + '"' : '') + '>' +
       (edit ? "" : '<div class="file-drop">' + field("本地 PDF",
           '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple>') +
         '<p class="form-help">所选 PDF 分别导入，共用标签、阅读状态和项目。</p></div>' +
@@ -181,33 +182,44 @@
         '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label>' +
         '<label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">在线 PDF 无法下载或阅读时仅保存链接</label>' +
         '<button type="button" class="button" data-import-preview-button>预览文献</button><p data-import-preview role="status"></p>') +
-      '<details ' + (edit ? "open" : "") + '><summary>元数据与阅读状态</summary>' + field("作者", input("authors", p?.authors?.join(
-        ", "), 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field("年份", input("year", p?.year || "",
+      '<details ' + (edit ? "open" : "") + '><summary>元数据与阅读状态</summary>' + field("作者", edit ?
+        area("authors", p.authors?.join("\n"), 'placeholder="每行一位作者"') :
+        input("authors", "", 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field("年份", input("year", p?.year || "",
         'type="number" min="1" max="9999"')) + field("阅读状态", select("status", Object.entries({
         unread: "未读",
         reading: "阅读中",
         read: "已读"
       }), p?.status || "unread")) + '</div>' +
-      field("标签", input("tags", p?.tags?.join(", "), 'placeholder="用逗号分隔"')) + field("摘要", area("abstract", p
-      ?.abstract)) +
+      field("标签", edit ? area("tags", p.tags?.join("\n"), 'placeholder="每行一个标签"') :
+        input("tags", "", 'placeholder="用逗号分隔"')) + E.library.collectionField(p) + field("摘要", area("abstract", p?.abstract)) +
       (edit ? '<div class="split">' + field("评分（0–5）", input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
         field("优先级（0–5）", input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' + field(
           "BibTeX 引用键", input("citekey", p.citekey)) + field("参考文献", area("references", p.references?.join("\n"),
           'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) : "") +
-      '</details>' + attachProjectBoxes(p, !edit) + (edit ? "" : '<ul data-import-results aria-live="polite"></ul>') + formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
+      '</details>' + (edit ? E.library.metadataFields(p) : "") + attachProjectBoxes(p, !edit) +
+      (edit ? button("导出 BibTeX", "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
+      formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
       '</form>', {
         wide: true
       });
     const completed = new Set();
     const outcomes = new Map();
+    function changed(f, name) {
+      const el = f.elements.namedItem(name);
+      const previous = originalValues.get(name);
+      return el?.type === "checkbox" ? el.checked !== previous : el?.value !== previous;
+    }
+
     function paperBody(f) {
+      const textList = edit ? E.library.lines : split;
       const body = {
         title: value(f, "title"),
         doi: value(f, "doi"),
         arxiv: value(f, "arxiv"),
         url: value(f, "url"),
-        authors: split(value(f, "authors")),
-        tags: split(value(f, "tags")),
+        authors: textList(value(f, "authors")),
+        tags: textList(value(f, "tags")),
+        collection_id: value(f, "collection_id"),
         abstract: value(f, "abstract"),
         year: Number(value(f, "year")) || 0,
         status: value(f, "status"),
@@ -235,13 +247,15 @@
           folder_path: value(f, "folder-" + id),
           use_for: split(value(f, "purpose-" + id))
         };
-        if (p?.project_links?.[project.id] || link.is_pinned || order !== "" || link.folder_path || link.use_for.length) {
+        if (edit) {
+          const keys = {is_pinned: "pinned-", sort_order: "order-", folder_path: "folder-", use_for: "purpose-"};
+          const patch = Object.fromEntries(Object.entries(link).filter(([key]) => changed(f, keys[key] + id)));
+          if (Object.keys(patch).length) links[project.id] = patch;
+        } else if (link.is_pinned || order !== "" || link.folder_path || link.use_for.length) {
           links[project.id] = link;
         }
       }
       if (Object.keys(links).length) body.project_links = links;
-      const collection = value(f, "collection_id");
-      if (collection) body.collection_id = collection;
       return body;
     }
 
@@ -332,28 +346,42 @@
         await refresh();
         return;
       }
-      let payload;
+      let record;
       if (edit) {
-        payload = Object.assign(paperBody(f), {
+        const body = Object.assign(paperBody(f), {
           revision: p.revision,
           citekey: value(f, "citekey"),
           rating: Number(value(f, "rating")),
           priority: Number(value(f, "priority")),
-          references: value(f, "references").split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+          references: value(f, "references").split(/\r?\n/).map(line => line.trim()).filter(Boolean),
+          ...E.library.metadataPayload(f)
         });
+        const readingChoicesChanged = name =>
+          [...f.querySelectorAll('input[name="' + name + '"]')].some(option => option.checked !== option.defaultChecked);
+        const membershipChanged = readingChoicesChanged("project_ids") || readingChoicesChanged("core_project_ids");
+        for (const key of Object.keys(body)) {
+          if (key === "revision" || key === "project_links") continue;
+          const membership = key === "project_ids" || key === "core_project_ids";
+          if (!(membership ? membershipChanged : changed(f, key))) delete body[key];
+        }
+        if (Object.keys(body).length === 1) {
+          done(token);
+          return;
+        }
+        record = await E.library.saveMetadata(base, p, body);
       } else {
-        payload = importPayload(f, items[0], false);
+        record = await request(base, {method: "POST", body: importPayload(f, items[0], false)});
       }
-      const record = await request(base, {
-        method: edit ? "PUT" : "POST",
-        body: payload
-      });
       done(token);
       await refresh();
       const warning = [record?.import_warning, record?.metadata_warning].filter(Boolean).join(" · ");
       toast(warning ? "文献已导入 · " + warning : edit ? "文献已更新" : "文献已导入");
     });
-    if (!edit) {
+    if (edit) {
+      for (const el of form.elements) {
+        if (el.name) originalValues.set(el.name, el.type === "checkbox" ? el.checked : el.value);
+      }
+    } else {
       const identifiers = form.elements.namedItem("identifiers");
       const preview = form.querySelector("[data-import-preview]");
       const previewButton = form.querySelector("[data-import-preview-button]");
@@ -871,6 +899,7 @@
       toast("已" + verb + label);
     });
   }
+  E.libraryForm = {field, input, area, select, bindForm, formFooter, done, value};
   E.formAction = async function(action, id) {
     if (action === "close-dialog") return close();
     if (action === "new-project" || action === "edit-project") return projectForm(action === "edit-project");

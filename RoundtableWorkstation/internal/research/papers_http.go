@@ -36,7 +36,7 @@ func paperError(w http.ResponseWriter, err error) {
 	case errors.Is(err, os.ErrNotExist):
 		code = 404
 		msg = "未找到文献或文件"
-	case errors.Is(err, errPaperConflict) || errors.Is(err, errPaperExists):
+	case errors.Is(err, errPaperConflict) || errors.Is(err, errPaperExists) || errors.Is(err, errPaperOrganizationConflict):
 		code = 409
 		msg = err.Error()
 	}
@@ -67,7 +67,12 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		switch r.Method {
 		case "GET":
-			paperReply(w, 200, filterPapers(s.all(), r.URL.Query().Get("project"), r.URL.Query().Get("q"), r.URL.Query().Get("status")))
+			papers, err := s.libraryPapers(r.URL.Query())
+			if err != nil {
+				paperError(w, err)
+				return
+			}
+			paperReply(w, 200, papers)
 		case "POST":
 			s.importHTTP(w, r, false)
 		default:
@@ -85,12 +90,20 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			s.importHTTP(w, r, true)
 			return
+		case "organization":
+			s.organizationHTTP(w, r)
+			return
 		case "bibtex":
 			if r.Method != "GET" {
 				paperMethod(w, "GET")
 				return
 			}
-			sendBibtex(w, filterPapers(s.all(), r.URL.Query().Get("project"), "", ""))
+			papers, err := s.libraryPapers(r.URL.Query())
+			if err != nil {
+				paperError(w, err)
+				return
+			}
+			sendBibtex(w, papers)
 			return
 		case "graph":
 			if r.Method != "GET" {
@@ -140,6 +153,7 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			for key := range fields {
 				switch key {
 				case "title", "authors", "year", "doi", "arxiv", "url", "abstract", "tags", "project_ids", "core_project_ids", "citekey", "status", "notes", "references", "priority", "rating":
+				case "collection_id", "publication_title", "publisher", "volume", "issue", "pages", "item_type", "categories", "bibtex":
 				default:
 					paperError(w, fmt.Errorf("%w：不支持字段 %s", errInvalidPaper, key))
 					return

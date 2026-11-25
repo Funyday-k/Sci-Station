@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -56,26 +57,35 @@ func (link *PaperProjectLink) UnmarshalJSON(data []byte) error {
 }
 
 type PaperMetadata struct {
-	ProjectLinks   map[string]PaperProjectLink `json:"project_links,omitempty"`
-	Title          string                      `json:"title"`
-	Authors        []string                    `json:"authors"`
-	Year           int                         `json:"year"`
-	DOI            string                      `json:"doi"`
-	Arxiv          string                      `json:"arxiv"`
-	URL            string                      `json:"url"`
-	Abstract       string                      `json:"abstract"`
-	Tags           []string                    `json:"tags"`
-	ProjectIDs     []string                    `json:"project_ids"`
-	CoreProjectIDs []string                    `json:"core_project_ids"`
-	Citekey        string                      `json:"citekey"`
-	Status         string                      `json:"status"`
-	Notes          string                      `json:"notes"`
-	References     []string                    `json:"references"`
-	Rating         int                         `json:"rating"`
-	Priority       int                         `json:"priority"`
-	InspireID      string                      `json:"inspire_id,omitempty"`
-	PDFURL         string                      `json:"pdf_url,omitempty"`
-	MetadataSource string                      `json:"metadata_source,omitempty"`
+	ProjectLinks     map[string]PaperProjectLink `json:"project_links,omitempty"`
+	Title            string                      `json:"title"`
+	PublicationTitle string                      `json:"publication_title,omitempty"`
+	Publisher        string                      `json:"publisher,omitempty"`
+	Volume           string                      `json:"volume,omitempty"`
+	Issue            string                      `json:"issue,omitempty"`
+	Pages            string                      `json:"pages,omitempty"`
+	ItemType         string                      `json:"item_type,omitempty"`
+	Categories       []string                    `json:"categories,omitempty"`
+	BibTeX           string                      `json:"bibtex,omitempty"`
+	Authors          []string                    `json:"authors"`
+	Year             int                         `json:"year"`
+	DOI              string                      `json:"doi"`
+	Arxiv            string                      `json:"arxiv"`
+	URL              string                      `json:"url"`
+	Abstract         string                      `json:"abstract"`
+	Tags             []string                    `json:"tags"`
+	CollectionID     string                      `json:"collection_id,omitempty"`
+	ProjectIDs       []string                    `json:"project_ids"`
+	CoreProjectIDs   []string                    `json:"core_project_ids"`
+	Citekey          string                      `json:"citekey"`
+	Status           string                      `json:"status"`
+	Notes            string                      `json:"notes"`
+	References       []string                    `json:"references"`
+	Rating           int                         `json:"rating"`
+	Priority         int                         `json:"priority"`
+	InspireID        string                      `json:"inspire_id,omitempty"`
+	PDFURL           string                      `json:"pdf_url,omitempty"`
+	MetadataSource   string                      `json:"metadata_source,omitempty"`
 }
 type Paper struct {
 	PaperMetadata
@@ -119,6 +129,9 @@ func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, "records"))
 	if err != nil {
+		return nil, err
+	}
+	if _, _, err := p.readOrganization(); err != nil {
 		return nil, err
 	}
 	for _, ent := range entries {
@@ -165,6 +178,7 @@ func clonePaper(p Paper) Paper {
 		p.ProjectLinks = links
 	}
 	p.Authors = append([]string{}, p.Authors...)
+	p.Categories = append([]string{}, p.Categories...)
 	p.Tags = append([]string{}, p.Tags...)
 	p.ProjectIDs = append([]string{}, p.ProjectIDs...)
 	p.CoreProjectIDs = append([]string{}, p.CoreProjectIDs...)
@@ -194,7 +208,8 @@ func (s *PaperLibrary) PDFPath(id string) (string, error) {
 }
 func decodePaperRecord(id string, data []byte) (Paper, error) {
 	var p Paper
-	if err := json.Unmarshal(data, &p); err != nil || p.ID != id || p.Revision < 1 || validatePaperLinks(&p.PaperMetadata) != nil {
+	if err := json.Unmarshal(data, &p); err != nil || p.ID != id || p.Revision < 1 ||
+		(p.CollectionID != "" && !validID(p.CollectionID)) || validatePaperLinks(&p.PaperMetadata) != nil {
 		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json", id)
 	}
 	p.diskHash = sha256.Sum256(data)
@@ -324,6 +339,15 @@ func (s *PaperLibrary) saveWithRecordLock(p Paper) error {
 	if err != nil {
 		return err
 	}
+	if p.CollectionID != "" && p.CollectionID != s.records[p.ID].CollectionID {
+		organization, _, err := s.readOrganization()
+		if err != nil {
+			return err
+		}
+		if _, exists := organization.Collections[p.CollectionID]; !exists {
+			return fmt.Errorf("%w：文献集合不存在", errInvalidPaper)
+		}
+	}
 	body, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -391,6 +415,9 @@ func validatePaperLinks(m *PaperMetadata) error {
 	return nil
 }
 func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) error {
+	if err := normalizeBibliography(m); err != nil {
+		return err
+	}
 	m.Title = strings.TrimSpace(m.Title)
 	m.DOI = normalizeDOI(m.DOI)
 	m.Arxiv = normalizeArxiv(m.Arxiv)
@@ -470,7 +497,9 @@ func filterPapers(items []Paper, project, query, status string) []Paper {
 		}
 		if q != "" {
 			link := p.ProjectLinks[project]
-			text := strings.Join([]string{p.Title, strings.Join(p.Authors, " "), p.DOI, p.Arxiv, p.Abstract, strings.Join(p.Tags, " "), p.Citekey, link.FolderPath, strings.Join(link.UseFor, " ")}, " ")
+			text := strings.Join([]string{p.Title, strings.Join(p.Authors, " "), strconv.Itoa(p.Year), p.DOI,
+				p.Arxiv, p.Citekey, strings.Join(p.Tags, " "), p.PublicationTitle, p.Abstract,
+				link.FolderPath, strings.Join(link.UseFor, " ")}, " ")
 			if !strings.Contains(strings.ToLower(text), q) {
 				continue
 			}

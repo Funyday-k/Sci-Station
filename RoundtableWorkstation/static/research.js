@@ -53,6 +53,9 @@
     projects: [],
     project: null,
     papers: [],
+    organization: {revision: 0, collections: {}, tags: {}},
+    libraryCollection: "",
+    libraryTag: "",
     notes: [],
     tasks: [],
     materials: [],
@@ -238,10 +241,14 @@
     return state.project ? state.papers.filter(p => (p.project_ids || []).includes(state.project.id)) : state.papers;
   }
 
-  function paperRows(papers, projectID = "") {
+  function paperRows(papers, projectID = "", showOrganization = false) {
     return list(papers.map(p => {
       const link = p.project_links?.[projectID];
       const meta = [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey];
+      if (showOrganization) {
+        meta.push(p.publication_title);
+        if (p.collection_id) meta.push(E.library.collectionPath(p.collection_id));
+      }
       if (projectID) {
         if (p.core_project_ids?.includes(projectID)) meta.push("核心文献");
         if (link?.is_pinned) meta.push("已置顶");
@@ -250,7 +257,9 @@
         if (link?.use_for?.length) meta.push("用途 " + link.use_for.join("、"));
       }
       return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
-        statusLabel[p.status] || "未读", button("编辑", "edit-paper", {id: p.id, kind: "bare"}));
+        statusLabel[p.status] || "未读", (showOrganization ? E.library.paperTags(p) : "") +
+        button("编辑", "edit-paper", {id: p.id, kind: "bare"}) +
+        (showOrganization ? E.library.selectionCheckbox(p) : ""));
     }));
   }
 
@@ -342,20 +351,19 @@
       }
       return byRecent(a, b) || a.id.localeCompare(b.id);
     });
-    const query = state.query.trim().toLowerCase();
-    const papers = all.filter(p => [p.title, ...(p.authors || []), p.year, p.doi, p.arxiv, p.citekey, ...(p.tags || []),
-      p.project_links?.[projectID]?.folder_path, ...(p.project_links?.[projectID]?.use_for || [])]
-      .join(" ").toLowerCase().includes(query));
-    const actions = link("导出 BibTeX", "/api/research/papers/bibtex" + (limited ? "?project=" + enc(state.project.id) : ""),
-      "button") + button("导入文献", "new-paper", {
+    const papers = E.library.filterPapers(all, projectID);
+    const filtered = Boolean(state.query.trim() || state.libraryCollection || state.libraryTag);
+    const actions = (papers.length ? E.library.exportButton(papers) : "") +
+      button("管理集合和标签", "manage-library") + button("导入文献", "new-paper", {
       glyph: "import",
       kind: "button primary"
     });
     return heading(limited ? "项目文献" : "文献库", "", link("文献发现", toolsPage("discover")) + link("PDF 转换", toolsPage("convert")) + actions) +
       '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
-      '" placeholder="搜索标题、作者、DOI…" aria-label="筛选文献"></div>' + panel(limited ? state.project.name + " · " + papers.length +
-        " 篇" : "全部文献 · " + papers.length + " 篇", papers.length ? paperRows(papers, projectID) : empty(query ? "没有匹配的文献" : "还没有收录文献",
-          query ? "可以尝试作者、标签或 DOI。" : "添加本地 PDF 或线上文献记录。", query ? "" : button("导入文献", "new-paper", {
+      '" placeholder="搜索标题、作者、DOI…" aria-label="筛选文献">' + E.library.renderFilters(all) + '</div>' +
+      panel((limited ? state.project.name : "文献") + " · " + papers.length + " 篇",
+        papers.length ? paperRows(papers, projectID, true) : empty(filtered ? "没有匹配的文献" : "还没有收录文献",
+          filtered ? "" : "添加本地 PDF 或线上文献记录。", filtered ? "" : button("导入文献", "new-paper", {
             glyph: "import"
           })));
   }
@@ -517,8 +525,9 @@
     state.loadError = "";
     $("main").setAttribute("aria-busy", "true");
     try {
-      const [projects, papers, sessions] = await Promise.all([request("projects"), request("papers"), request(
-        "/api/studio/sessions")]);
+      const [projects, papers, sessions, organization] = await Promise.all([
+        request("projects"), request("papers"), request("/api/studio/sessions"), request("papers/organization")
+      ]);
       if (token !== navEpoch) return;
       const allProjects = projects || [];
       const nextProject = allProjects.find(p => p.id === projectId) || null;
@@ -542,6 +551,8 @@
       state.view = targetView;
       state.projects = allProjects;
       state.papers = papers || [];
+      state.organization = organization;
+      if (state.libraryCollection !== "unfiled" && !Object.hasOwn(organization.collections, state.libraryCollection)) state.libraryCollection = "";
       state.project = nextProject;
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
       state.meetings = nextProject ? rooms.filter(m => m.project === nextProject.path) : rooms;
@@ -562,6 +573,9 @@
   function go(view) {
     if (!Object.hasOwn(names, view)) return;
     state.query = "";
+    state.libraryCollection = "";
+    state.libraryTag = "";
+    E.library.clearSelection();
     load(state.project?.id, view, {historyMode: "push"});
     $("shell").classList.remove("mobile-open");
     window.scrollTo(0, 0);
@@ -730,7 +744,8 @@
     markdown,
     math,
     bytes,
-    search
+    search,
+    start: route
   };
   window.SciResearch = E;
   document.addEventListener("click", async ev => {
@@ -874,5 +889,4 @@
     if (ev.persisted) route();
   });
   for (const el of document.querySelectorAll("[data-icon]")) el.innerHTML = icon(el.dataset.icon);
-  route();
 })();

@@ -619,6 +619,36 @@ main {
   flex-wrap: wrap
 }
 
+.library-filters,
+.paper-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap
+}
+
+.library-filters .field {
+  flex: 1 1 128px;
+  margin: 0;
+  max-width: 220px;
+  min-width: 0
+}
+
+.paper-tags {
+  max-width: min(13em, 25%)
+}
+
+.paper-tags .paper-tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+[data-library-selection] {
+  flex: none;
+  accent-color: var(--accent)
+}
+
 .query,
 .field input,
 .field select,

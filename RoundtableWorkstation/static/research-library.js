@@ -1,0 +1,319 @@
+"use strict";
+(() => {
+  const E = window.SciResearch;
+  const {state, esc, enc, request, button, dialog, render, toast} = E;
+  const {field, input, area, select, bindForm, formFooter, done, value} = E.libraryForm;
+  const organizationPath = "papers/organization";
+  const bibtexPath = "papers/bibtex";
+  const selected = new Set();
+  let visiblePapers = [];
+  let selectedProject = "";
+  const lines = text => String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const hexColor = /^#[0-9a-f]{6}$/i;
+
+  function collectionPath(id) {
+    const names = [];
+    while (id && Object.hasOwn(state.organization.collections, id)) {
+      const collection = state.organization.collections[id];
+      names.unshift(collection.name);
+      id = collection.parent_id;
+    }
+    return names.join(" / ");
+  }
+
+  function collectionOptions() {
+    return Object.keys(state.organization.collections).map(id => [id, collectionPath(id)])
+      .sort((a, b) => a[1].localeCompare(b[1]));
+  }
+
+  function collectionField(paper) {
+    const initial = paper ? paper.collection_id || "" : state.libraryCollection;
+    return field("文献集合", select("collection_id", [["", "未归类"], ...collectionOptions()], initial));
+  }
+
+  const stringMetadata = [
+    ["publication_title", "期刊或会议论文集"], ["publisher", "出版者"], ["volume", "卷"],
+    ["issue", "期"], ["pages", "页码"], ["item_type", "文献类型"]
+  ];
+
+  function metadataFields(paper) {
+    const controls = stringMetadata.map(([key, title]) => field(title, input(key, paper[key],
+      key === "item_type" ? 'placeholder="例如 journal-article、conference-paper 或 thesis"' : "")));
+    return '<details><summary>出版信息与来源 BibTeX</summary><div class="split">' + controls.join("") +
+      '</div>' + field("分类（每行一个）", area("categories", paper.categories?.join("\n"))) +
+      field("来源 BibTeX", area("bibtex", paper.bibtex, 'spellcheck="false"')) + '</details>';
+  }
+
+  function metadataPayload(form) {
+    return Object.assign(Object.fromEntries(stringMetadata.map(([key]) => [key, value(form, key)])), {
+      categories: lines(value(form, "categories")),
+      bibtex: form.elements.namedItem("bibtex").value
+    });
+  }
+
+  function changedFields(original, latest, body) {
+    const canonical = value => Array.isArray(value) && value.length === 0 ? null : (value ?? null);
+    const differs = (a, b) => JSON.stringify(canonical(a)) !== JSON.stringify(canonical(b));
+    return Object.keys(body).some(key => {
+      if (key === "revision") return false;
+      if (key === "project_links") return Object.entries(body[key]).some(([id, fields]) =>
+        Object.keys(fields).some(field => differs(original[key]?.[id]?.[field], latest[key]?.[id]?.[field])) ||
+        original.project_ids?.includes(id) !== latest.project_ids?.includes(id));
+      return differs(original[key], latest[key]);
+    });
+  }
+
+  async function saveMetadata(path, original, body) {
+    const patch = body => request(path, {method: "PATCH", body});
+    try {
+      return await patch(body);
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      const latest = await request(path);
+      if (changedFields(original, latest, body)) {
+        throw Error("同一字段已在其他位置修改。此处的草稿仍保留，请先核对最新记录。");
+      }
+      return patch({...body, revision: latest.revision});
+    }
+  }
+
+  function filterPapers(papers, projectID) {
+    if (projectID !== selectedProject) {
+      selected.clear();
+      selectedProject = projectID;
+    }
+    const query = state.query.trim().toLowerCase();
+    const collection = state.libraryCollection;
+    const tag = state.libraryTag;
+    visiblePapers = papers.filter(p => {
+      if (tag && !p.tags?.includes(tag)) return false;
+      if (collection === "unfiled" && p.collection_id) return false;
+      if (collection && collection !== "unfiled") {
+        let ancestor = p.collection_id;
+        while (ancestor && ancestor !== collection) {
+          ancestor = state.organization.collections[ancestor]?.parent_id;
+        }
+        if (ancestor !== collection) return false;
+      }
+      const scope = p.project_links?.[projectID];
+      return [p.title, (p.authors || []).join(" "), p.year || 0, p.doi, p.arxiv, p.citekey,
+        (p.tags || []).join(" "), p.publication_title, p.abstract, scope?.folder_path, (scope?.use_for || []).join(" ")]
+        .join(" ").toLowerCase().includes(query);
+    });
+    return visiblePapers;
+  }
+
+  function renderFilters(papers) {
+    const collections = [["", "全部集合"], ["unfiled", "未归类"], ...collectionOptions()];
+    const tags = [...new Set([state.libraryTag, ...papers.flatMap(p => p.tags || []), ...Object.keys(state.organization.tags)])]
+      .filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return '<div class="library-filters">' +
+      field("集合", select("library-collection", collections, state.libraryCollection)) +
+      field("标签", select("library-tag", [["", "全部标签"], ...tags.map(tag => [tag, tag])], state.libraryTag)) +
+      '</div>';
+  }
+
+  function paperTags(paper) {
+    if (!paper.tags?.length) return "";
+    const chips = paper.tags.slice(0, 3).map(name => {
+      const {color, text_color: text} = Object.hasOwn(state.organization.tags, name) ? state.organization.tags[name] : {};
+      let style = "";
+      if (hexColor.test(color)) {
+        const [r, g, b] = color.slice(1).match(/../g).map(pair => {
+          const c = parseInt(pair, 16) / 255;
+          return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4;
+        });
+        const foreground = hexColor.test(text) ? text : r * .2126 + g * .7152 + b * .0722 > .179 ? "#000000" : "#ffffff";
+        style = ' style="background:' + color + ';color:' + foreground + '"';
+      }
+      return '<button class="tag paper-tag" type="button" data-action="filter-paper-tag" data-id="' +
+        esc(name) + '" title="' + esc(name) + '"' + style + '>' + esc(name) + '</button>';
+    });
+    if (paper.tags.length > 3) chips.push('<span class="tag">+' + (paper.tags.length - 3) + '</span>');
+    return '<div class="paper-tags">' + chips.join("") + '</div>';
+  }
+
+  function selectionCheckbox(paper) {
+    return '<input type="checkbox" data-library-selection="' + esc(paper.id) + '" aria-label="' + esc("选择文献 " + paper.title) +
+      '"' + (selected.has(paper.id) ? " checked" : "") + '>';
+  }
+
+  const selection = papers => papers.filter(paper => selected.has(paper.id));
+  const clearSelection = () => selected.clear();
+  const exportButton = papers => button(selection(papers).length ? "导出所选 BibTeX" : "导出 BibTeX", "export-library-bibtex");
+
+  function exportQuery(ids = [], filter = false) {
+    const q = new URLSearchParams();
+    if (state.project) q.set("project", state.project.id);
+    if (filter && state.query) q.set("q", state.query);
+    if (filter && state.libraryTag) q.set("tag", state.libraryTag);
+    if (filter && state.libraryCollection) q.set("collection", state.libraryCollection);
+    for (const id of ids) q.append("paper", id);
+    return "?" + q;
+  }
+
+  async function exportBibtex(ids, filtered) {
+    const query = exportQuery(ids, filtered);
+    const result = await request(bibtexPath + "/save" + query, {method: "POST", body: {}});
+    if (result.saved) toast("已保存 BibTeX");
+    if (result.browser_download) {
+      const element = document.createElement("a");
+      element.href = "/api/research/" + bibtexPath + query;
+      element.download = "references.bib";
+      document.body.append(element);
+      element.click();
+      element.remove();
+    }
+  }
+
+  function citationLine(paper) {
+    const authors = paper.authors?.length ? paper.authors.join(", ") : "Unknown";
+    const venue = paper.publication_title?.trim();
+    return authors + " (" + (paper.year || "n.d.") + "). " + paper.title + "." + (venue ? " " + venue + "." : "");
+  }
+
+  async function copyText(text) {
+    if (window.ClipboardItem && navigator.clipboard?.write) {
+      const content = Promise.resolve(text).then(value => new Blob([value], {type: "text/plain"}));
+      await navigator.clipboard.write([new ClipboardItem({"text/plain": content})]);
+    } else {
+      await navigator.clipboard.writeText(await text);
+    }
+    toast("已复制");
+  }
+
+  async function bibtexText(ids) {
+    const response = await fetch("/api/research/" + bibtexPath + exportQuery(ids, false));
+    if (!response.ok) throw Error("无法读取 BibTeX");
+    return response.text();
+  }
+
+  async function paperCommand(command) {
+    const editing = document.querySelector("dialog[open] [data-library-paper]")?.dataset.libraryPaper;
+    const active = editing ? state.papers.filter(p => p.id === editing) : state.view === "papers" ? selection(visiblePapers) : [];
+    if (!active.length) throw Error("请先在文献库中选择文献");
+    const ids = active.map(p => p.id);
+    if (command === "copyCitation") return copyText(active.map(citationLine).join("\n"));
+    if (command === "copyBibtex") return copyText(bibtexText(ids));
+    if (command === "bibtex") return exportBibtex(ids, false);
+    if (active.length !== 1) throw Error("此操作只能用于一篇文献");
+    const paper = active[0];
+    if (command === "reader" || command === "preview") {
+      if (editing) throw Error("请先保存或关闭当前文献的编辑窗口");
+      return location.assign(E.reader(paper.id));
+    }
+    if (command === "deletePaper") {
+      if (editing) throw Error("请在当前文献的编辑窗口中确认删除");
+      return E.formAction("confirm-delete", "paper:" + paper.id);
+    }
+    if (!paper.has_pdf) throw Error("此文献尚无本地 PDF");
+    return request("papers/" + enc(paper.id) + "/native-file", {
+      method: "POST", body: {action: command === "reveal" ? "reveal" : "open"}
+    });
+  }
+
+  const paperCommands = new Set(["reader", "externalPDF", "preview", "reveal", "copyCitation", "copyBibtex", "bibtex", "deletePaper"]);
+  window.addEventListener("scistation:command", event => {
+    if (!paperCommands.has(event.detail) || event.defaultPrevented) return;
+    event.preventDefault();
+    paperCommand(event.detail).catch(error => toast(error.message));
+  });
+
+  function manageLibrary() {
+    const collections = collectionOptions();
+    const tags = Object.keys(state.organization.tags).sort((a, b) => a.localeCompare(b));
+    const collectionRows = collections.map(([id, path]) => '<div class="row"><span class="row-main">' + esc(path) + '</span>' +
+      button("重命名", "rename-library-collection", {id, kind: "bare"}) +
+      button("删除", "delete-library-collection", {id, kind: "bare danger"}) + '</div>');
+    const tagRows = tags.map(name => '<div class="row"><span class="row-main">' + esc(name) + '</span>' +
+      button("颜色", "set-library-tag", {id: name, kind: "bare"}) +
+      button("移除颜色", "delete-library-tag", {id: name, kind: "bare danger"}) + '</div>');
+    dialog("管理集合和标签", '<div class="split"><section><h3>文献集合</h3>' +
+      collectionRows.join("") + button("新建集合", "create-library-collection") +
+      '</section><section><h3>标签颜色</h3>' + tagRows.join("") + button("添加标签颜色", "set-library-tag") +
+      '</section></div><div class="form-foot">' + button("完成", "close-dialog") + '</div>', {wide: true});
+  }
+
+  const collectionActions = {
+    "create-library-collection": "create_collection",
+    "rename-library-collection": "rename_collection",
+    "delete-library-collection": "delete_collection"
+  };
+
+  function collectionForm(action, id) {
+    const revision = state.organization.revision;
+    const operation = collectionActions[action];
+    const item = state.organization.collections[id];
+    const creating = operation === "create_collection";
+    const removing = operation === "delete_collection";
+    const fields = removing ? '<p>删除空集合“' + esc(collectionPath(id)) + '”？</p>' :
+      field("集合名称", input("name", item?.name, 'required maxlength="128" autofocus')) +
+      (creating ? field("上级集合", select("parent_id", [["", "无"], ...collectionOptions()],
+        state.libraryCollection)) : "");
+    organizationForm(creating ? "新建集合" : removing ? "删除集合" : "重命名集合", fields, {
+      revision, operation, collection_id: id
+    }, form => ({name: value(form, "name"), parent_id: value(form, "parent_id")}));
+  }
+
+  function tagForm(action, name) {
+    const revision = state.organization.revision;
+    const tag = Object.hasOwn(state.organization.tags, name) ? state.organization.tags[name] : undefined;
+    const removing = action === "delete-library-tag";
+    const fields = removing ? '<p>移除“' + esc(name) + '”的颜色定义？文献上的标签会保留。</p>' :
+      field("标签名称", input("name", name, 'required maxlength="128"' + (name ? " readonly" : " autofocus"))) +
+      field("标签颜色", input("color", tag?.color || "#617faa", 'type="color" required')) +
+      field("文字颜色（可选）", input("text_color", tag?.text_color, 'placeholder="#ffffff" pattern="#[0-9A-Fa-f]{6}"'));
+    organizationForm(removing ? "移除标签颜色" : "设置标签颜色", fields, {
+      revision, operation: removing ? "delete_tag" : "set_tag"
+    }, form => ({name: form.elements.namedItem("name") ? value(form, "name") : name,
+      color: value(form, "color"), text_color: value(form, "text_color")}));
+  }
+
+  function organizationForm(title, fields, edit, read) {
+    dialog(title, '<form>' + fields + formFooter("确认") + '</form>');
+    bindForm(async (form, token) => {
+      state.organization = await request(organizationPath, {method: "PATCH", body: {...edit, ...read(form)}});
+      if (state.libraryCollection !== "unfiled" && !Object.hasOwn(state.organization.collections, state.libraryCollection)) {
+        state.libraryCollection = "";
+      }
+      done(token);
+      render();
+      toast("文献分类已更新");
+    });
+  }
+
+  document.addEventListener("change", ({target}) => {
+    if (target.name === "library-collection" || target.name === "library-tag") {
+      state[target.name === "library-collection" ? "libraryCollection" : "libraryTag"] = target.value;
+      render();
+      document.querySelector('select[name="' + target.name + '"]')?.focus();
+    } else if (target.dataset.librarySelection) {
+      const id = target.dataset.librarySelection;
+      if (target.checked) selected.add(id);
+      else selected.delete(id);
+      render();
+      document.querySelector('[data-library-selection="' + id + '"]')?.focus();
+    }
+  });
+
+  const otherActions = E.formAction;
+  E.formAction = async function(action, id) {
+    if (action === "manage-library") {
+      state.organization = await request(organizationPath);
+      return manageLibrary();
+    }
+    if (Object.hasOwn(collectionActions, action)) return collectionForm(action, id);
+    if (["set-library-tag", "delete-library-tag"].includes(action)) return tagForm(action, id);
+    if (action === "filter-paper-tag") {
+      state.libraryTag = state.libraryTag === id ? "" : id;
+      return render();
+    }
+    if (action === "export-library-bibtex") return exportBibtex(selection(visiblePapers).map(paper => paper.id), true);
+    if (action === "export-paper-bibtex") return exportBibtex([id], false);
+    return otherActions(action, id);
+  };
+
+  E.library = {lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
+    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection};
+  E.start();
+})();

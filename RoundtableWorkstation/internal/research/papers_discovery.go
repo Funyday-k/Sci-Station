@@ -2,7 +2,6 @@ package research
 
 import (
 	"fmt"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,40 +49,6 @@ func defaultPaperKey(p Paper, records map[string]Paper) string {
 		key = fmt.Sprintf("%s%d", stem, i)
 	}
 	return key
-}
-func bibField(value string) string {
-	return strings.NewReplacer("\\", `\textbackslash{}`, "{", `\{`, "}", `\}`, "&", `\&`, "%", `\%`, "#", `\#`, "_", `\_`).Replace(strings.Join(strings.Fields(value), " "))
-}
-func paperBibtex(p Paper) string {
-	var fields []string
-	add := func(k, v string) {
-		if v != "" {
-			fields = append(fields, "  "+k+" = {"+bibField(v)+"}")
-		}
-	}
-	add("title", p.Title)
-	add("author", strings.Join(p.Authors, " and "))
-	if p.Year > 0 {
-		add("year", strconv.Itoa(p.Year))
-	}
-	add("doi", p.DOI)
-	add("url", p.URL)
-	if p.Arxiv != "" {
-		add("eprint", p.Arxiv)
-		add("archivePrefix", "arXiv")
-	}
-	return "@misc{" + p.Citekey + ",\n" + strings.Join(fields, ",\n") + "\n}\n"
-}
-func sendBibtex(w http.ResponseWriter, papers []Paper) {
-	sort.Slice(papers, func(i, j int) bool { return strings.ToLower(papers[i].Citekey) < strings.ToLower(papers[j].Citekey) })
-	w.Header().Set("Content-Type", "application/x-bibtex; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="references.bib"`)
-	for i, p := range papers {
-		if i > 0 {
-			fmt.Fprintln(w)
-		}
-		fmt.Fprint(w, paperBibtex(p))
-	}
 }
 
 func rankPapers(papers []Paper, project string) []Paper {

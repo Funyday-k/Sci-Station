@@ -160,6 +160,10 @@ func (a *apiServer) serve(port int) http.Handler {
 			a.serveProjectMaterial(w, r)
 		case strings.HasPrefix(path, "/api/research/tools/"):
 			a.serveScienceTools(w, r)
+		case path == "/api/research/papers/bibtex/save" && a.research != nil:
+			a.saveLibraryBibtex(w, r)
+		case strings.HasPrefix(path, "/api/research/papers/") && strings.HasSuffix(path, "/native-file") && a.research != nil:
+			a.openLibraryPDF(w, r)
 		case strings.HasPrefix(path, "/api/research/") && a.research != nil:
 			a.research.ServeHTTP(w, r)
 		case strings.HasPrefix(path, "/api/studio/"):
