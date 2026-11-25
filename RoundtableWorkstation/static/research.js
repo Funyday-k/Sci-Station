@@ -115,6 +115,11 @@
     return "projects/" + enc(id) + (suffix ? "/" + suffix : "");
   }
 
+  function taskPath(id = "", project) {
+    const path = "tasks" + (id ? "/" + enc(id) : "");
+    return project ? projectPath(path, project) : path;
+  }
+
   function studio(session) {
     return navigation.route("/studio", {project: state.project?.id, session});
   }
@@ -278,7 +283,7 @@
     return list(tasks.map(t => {
       const closed = closedTask(t);
       const projects = (t.projectIds || [t.projectId]).map(id => state.projects.find(p => p.id === id)?.name);
-      const meta = [!state.project ? projects.filter(Boolean).join("、") : "", t.kind === "reading" ? "论文阅读" : "", taskDateLabel(t),
+      const meta = [!state.project ? projects.filter(Boolean).join("、") || "未分配" : "", t.kind === "reading" ? "论文阅读" : "", taskDateLabel(t),
         taskPriorityLabels[t.priority] ? taskPriorityLabels[t.priority] + "优先级" : "", ...(t.tags || []), t.description];
       return '<div class="row ' + (closed ? "completed" : "") + '"><button type="button" class="task-check ' +
         (closed ? "done" : "") + '" aria-label="' + esc((closed ? "重新打开" : "完成") + "：" + t.title) +
@@ -439,7 +444,7 @@
         (!state.taskKind || t.kind === state.taskKind) &&
         (!chosenTag || t.tags?.includes(chosenTag))
       );
-      out = heading("日历与任务", state.project?.name || "全部项目", link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
+      out = heading("日历与任务", state.project?.name || "工作区", link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
         "切换到列表" : "切换到月历", "switch-calendar", {
           glyph: "agenda"
         }) + button("添加任务", "new-task", {
@@ -458,7 +463,7 @@
         [["general", "普通任务"], ["reading", "论文阅读"]]) +
         (tags.length ? taskFilterSelect("task-tag", "任务标签", "全部标签", chosenTag, tags.map(tag => [tag, tag])) : "") +
         '</div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
-        "可以创建带截止日期的项目任务。"));
+        "可以创建带截止日期的任务。"));
     } else if (state.view === "materials") {
       out = heading("研究材料", state.project.name, button("浏览项目目录", "linked-materials", {
         glyph: "folder"
@@ -726,6 +731,7 @@
     enc,
     request,
     projectPath,
+    taskPath,
     refresh,
     load,
     render,
@@ -810,7 +816,7 @@
         const t = state.tasks.find(t => t.id === id);
         if (!t) return;
         target.disabled = true;
-        await request(projectPath("tasks/" + enc(id), t.projectId), {
+        await request(taskPath(id, t.projectId || state.project?.id), {
           method: "PATCH",
           body: {
             revision: t.revision,

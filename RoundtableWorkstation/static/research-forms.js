@@ -652,7 +652,8 @@
     const linked = (t?.evidence || []).filter(e => e.paperId && e.page > 0);
     if (!linked.length) return "";
     return '<section class="task-evidence"><h3>原文证据</h3>' + linked.map(e => {
-      const query = new URLSearchParams({project: t.projectId, paper: e.paperId, page: e.page});
+      const query = new URLSearchParams({paper: e.paperId, page: e.page});
+      if (t.projectId) query.set("project", t.projectId);
       for (const [key, value] of Object.entries({
         fingerprint: e.sourceHash, quote: e.quote, start: e.selectionStart, end: e.selectionEnd,
         ocr: e.ocr ? 1 : null, annotation: e.annotationId
@@ -664,9 +665,9 @@
   }
 
   function taskForm(t = null) {
-    const pid = t?.projectId || state.project?.id;
-    const members = t?.projectIds || (pid ? [pid] : []);
-    if (!state.projects.length) return;
+    const pid = state.project?.id;
+    const member = t ? t.projectId : pid;
+    const members = t?.projectIds || (member ? [member] : []);
     const hiddenMembers = members.filter(id => !state.projects.some(project => project.id === id));
     const paperIds = t?.relatedPaperIds || (t?.paperId ? [t.paperId] : []);
     const multi = (label, name, choices, selected) => '<fieldset class="task-picker"><legend>' + esc(label) +
@@ -682,7 +683,7 @@
       '<div class="split">' + field("开始日期", input("startDate", t?.startDate, 'type="date"')) +
       field("截止日期", input("dueDate", t?.dueDate, 'type="date"')) + '</div>' +
       field("截止时间", input("dueTime", t?.dueTime, 'type="time"')) +
-      multi("关联项目", "projectIds", state.projects.map(p => [p.id, p.name]), members) +
+      (state.projects.length ? multi("关联项目（可选）", "projectIds", state.projects.map(p => [p.id, p.name]), members) : "") +
       (papers.length ? multi("关联论文", "relatedPaperIds", papers, paperIds) : "") +
       field("标签", input("tags", t?.tags?.join(", "), 'placeholder="用逗号分隔"')) +
       field("说明", area("description", t?.description)) + taskEvidence(t) + formFooter("保存任务", t ? "task:" + t.id : "") + '</form>', {wide: true});
@@ -693,10 +694,8 @@
       }
       body.tags = split(value(f, "tags"));
       const projects = chosen(f, "projectIds");
-      if (!projects.length) throw Error("请至少选择一个项目");
-      const routeProject = pid || projects[0];
-      if (!t && !projects.includes(routeProject)) throw Error("新任务须关联当前项目");
-      body.projectIds = [...projects, ...hiddenMembers];
+      body.projectIds = projects.length ? [...projects, ...hiddenMembers] : [];
+      const routeProject = t ? (t.projectId || pid) : (projects.includes(pid) ? pid : projects[0]);
       // Keep links to papers that are absent from the current library snapshot
       // when editing an unrelated field. Send an explicit list if links changed.
       const visiblePaperIDs = paperIds.filter(id => papers.some(([paperID]) => id === paperID));
@@ -705,7 +704,7 @@
         body.relatedPaperIds = selectedPaperIDs;
       }
       if (t) body.revision = t.revision;
-      await request(projectPath("tasks" + (t ? "/" + enc(t.id) : ""), routeProject), {
+      await request(E.taskPath(t?.id, routeProject), {
         method: t ? "PATCH" : "POST",
         body
       });
@@ -880,9 +879,8 @@
     if (!map[kind]) return;
     const [label, items] = map[kind], obj = items.find(x => x.id === key);
     if (!obj) return;
-    const path = kind === "project" ? "projects/" + enc(key) : kind === "paper" ? "papers/" + enc(key) : projectPath(({
+    const path = kind === "project" ? "projects/" + enc(key) : kind === "paper" ? "papers/" + enc(key) : kind === "task" ? E.taskPath(key, obj.projectId) : projectPath(({
       note: "notes",
-      task: "tasks",
       material: "materials"
     })[kind] + "/" + enc(key), obj.projectId);
     const verb = (kind === "project" || kind === "note") ? "归档" : "删除";
@@ -948,7 +946,7 @@
       toast("项目已恢复");
       return;
     }
-    if (action === "new-task") return state.projects.length ? taskForm() : projectForm();
+    if (action === "new-task") return taskForm();
     if (action === "edit-task") {
       const t = state.tasks.find(item => item.id === id);
       if (t) return taskForm(t);

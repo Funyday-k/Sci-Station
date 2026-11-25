@@ -117,12 +117,13 @@ type projectData struct {
 // Published project snapshots are immutable. Each mutation copies only its own map
 // and installs the new snapshot after the single on-disk replacement succeeds.
 type Service struct {
-	dir           string
-	mux           *http.ServeMux
-	papers        *PaperLibrary
-	mu            sync.RWMutex
-	projects      map[string]projectData
-	pathValidator func(string) bool
+	dir            string
+	mux            *http.ServeMux
+	papers         *PaperLibrary
+	mu             sync.RWMutex
+	projects       map[string]projectData
+	workspaceTasks workspaceTaskData
+	pathValidator  func(string) bool
 }
 
 func New(dir string) (*Service, error) {
@@ -169,6 +170,9 @@ func New(dir string) (*Service, error) {
 			return nil, err
 		}
 		s.projects[id] = d
+	}
+	if err = s.loadWorkspaceTasks(); err != nil {
+		return nil, err
 	}
 	s.papers, err = NewPaperLibrary(filepath.Join(s.dir, "library"))
 	if err != nil {
@@ -513,10 +517,6 @@ func (s *Service) PaperPDFPath(id string) (string, error) { return s.papers.PDFP
 func (s *Service) Task(projectID, taskID string) (Task, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	d, ok := s.projects[projectID]
-	if !ok || d.Archived {
-		return Task{}, false
-	}
 	_, task, ok := s.findTaskLocked(projectID, taskID)
 	task.ProjectIDs = slices.Clone(task.ProjectIDs)
 	task.RelatedPaperIDs = slices.Clone(task.RelatedPaperIDs)

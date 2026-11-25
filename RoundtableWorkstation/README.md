@@ -37,4 +37,6 @@ make -C RoundtableWorkstation run
 
 `make -C RoundtableWorkstation headless` 生成可通过浏览器访问的本地服务。运行 `RoundtableWorkstation/build/bin/sci-station-server serve -data-dir /path/to/test-data`，访问 `http://127.0.0.1:18765/research`。原生启动、系统日历和系统对话框使用桌面模式。首次试用可在独立目录启动 `RoundtableWorkstation/Sci-Station.app/Contents/MacOS/sci-station app -data-dir /path/to/test-data`。
 
+Node 可加载 Playwright 时，可从仓库根目录运行 `node RoundtableWorkstation/tests/global-tasks-browser-smoke.cjs RoundtableWorkstation/build/bin/sci-station-server`。测试在无界面 Chromium 与临时工作区验证全局任务、日历和重启恢复。`SCI_STATION_SMOKE_CHROME` 可指定已安装的 Chrome 或 Chromium。
+
 主要入口是 main.go、api.go、desktop_darwin.go，科研存储在 internal/research，会议编排在 internal/meeting，模型接入在 internal/gateway，界面在 static，应用打包脚本在 packaging/macos。原生启动窗口与 PDF 工具使用 Objective-C / AppKit / PDFKit，不需要 Swift 工程或 Python 服务。macOS 应用使用本地 ad-hoc 签名。

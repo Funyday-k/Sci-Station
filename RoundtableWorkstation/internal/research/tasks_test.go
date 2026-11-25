@@ -20,6 +20,118 @@ func taskTestPaper(t *testing.T, s *Service, title string) Paper {
 	return paper
 }
 
+func TestUnassignedTasksAcrossWorkspaceAndProjectRoutes(t *testing.T) {
+	dir := t.TempDir()
+	s := newResearch(t, dir)
+	input := map[string]any{"title": "Review notebook", "projectIds": []string{}, "idempotencyKey": "workspace-task",
+		"dueDate": "2026-11-25", "dueTime": "00:05"}
+	global := decodeResearch[Task](t, callResearch(t, s, "POST", "/tasks", input, 201))
+	path := "/tasks/" + global.ID
+	if global.ProjectID != "" || global.ProjectIDs == nil || len(global.ProjectIDs) != 0 || global.DueTime != "00:05" {
+		t.Fatalf("incorrect initial global task: %+v", global)
+	}
+	if projects := decodeResearch[[]Project](t, callResearch(t, s, "GET", "/projects", nil, 200)); len(projects) != 0 {
+		t.Fatal("global task created a project")
+	}
+	project := createResearchProject(t, s, "Associated project")
+	base := "/projects/" + project.ID + "/tasks"
+	callResearch(t, s, "GET", base+"/"+global.ID, nil, 404)
+	callResearch(t, s, "PATCH", path, map[string]any{"revision": 1, "projectIds": []string{makeID()}}, 400)
+	callResearch(t, s, "PATCH", path, map[string]any{"revision": 1, "projectIds": []string{project.ID}}, 200)
+	if task, ok := s.Task(project.ID, global.ID); !ok || task.ProjectID != "" || task.ID != global.ID {
+		t.Fatal("assignment changed the original reminder identity", task)
+	}
+	callResearch(t, s, "PATCH", base+"/"+global.ID, map[string]any{"revision": 2, "status": "done", "projectIds": []string{}}, 200)
+	callResearch(t, s, "GET", base+"/"+global.ID, nil, 404)
+	callResearch(t, s, "PATCH", path, map[string]any{"revision": 2, "status": "open"}, 409)
+	unassigned := decodeResearch[Task](t, callResearch(t, s, "GET", path, nil, 200))
+	if unassigned.Revision != 3 || unassigned.ProjectID != "" || len(unassigned.ProjectIDs) != 0 || unassigned.Status != "done" || unassigned.CompletedAt == "" {
+		t.Fatal(unassigned)
+	}
+
+	original := decodeResearch[Task](t, callResearch(t, s, "POST", base, map[string]any{"title": "Originally a project task"}, 201))
+	callResearch(t, s, "PATCH", "/tasks/"+original.ID, map[string]any{"revision": 1, "projectIds": []string{}}, 200)
+	s = newResearch(t, dir)
+	if retry := decodeResearch[Task](t, callResearch(t, s, "POST", "/tasks", input, 200)); retry.ID != global.ID || retry.Revision != 3 {
+		t.Fatal("global retry did not reuse original task", retry)
+	}
+	if task, ok := s.Task("", original.ID); !ok || task.ProjectID != project.ID || task.ID != original.ID {
+		t.Fatal("unassignment changed the legacy reminder identity", task)
+	}
+	if _, ok := s.Task(project.ID, original.ID); ok {
+		t.Fatal("unassigned task can still be resolved through its original project")
+	}
+	globalList := decodeResearch[[]Task](t, callResearch(t, s, "GET", "/tasks", nil, 200))
+	if len(globalList) != 2 || globalList[0].ID != global.ID || globalList[1].ID != original.ID || globalList[1].ProjectID != "" || len(globalList[1].ProjectIDs) != 0 {
+		t.Fatal(globalList)
+	}
+	if projectList := decodeResearch[[]Task](t, callResearch(t, s, "GET", base, nil, 200)); len(projectList) != 0 {
+		t.Fatal(projectList)
+	}
+	callResearch(t, s, "DELETE", path+"?revision=3", nil, 204)
+	callResearch(t, newResearch(t, dir), "POST", "/tasks", input, 410)
+}
+
+func TestWorkspaceTaskFilePreservesExtensionsAndRejectsUnreadableState(t *testing.T) {
+	dir := t.TempDir()
+	s := newResearch(t, dir)
+	task := decodeResearch[Task](t, callResearch(t, s, "POST", "/tasks", map[string]any{"title": "Task with extension"}, 201))
+	path := s.workspaceTaskPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	record["futureSetting"] = map[string]any{"flags": []string{"keep workspace extension"}}
+	record["tasks"].(map[string]any)[task.ID].(map[string]any)["futureField"] = map[string]any{"items": []string{"keep task extension"}}
+	data, err = json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s = newResearch(t, dir)
+	route := "/tasks/" + task.ID
+	if err := os.Rename(path, path+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	callResearch(t, s, "PATCH", route, map[string]any{"revision": 1, "status": "done"}, 500)
+	if unchanged := decodeResearch[Task](t, callResearch(t, s, "GET", route, nil, 200)); unchanged.Status != "open" || unchanged.Revision != 1 {
+		t.Fatal("failed write changed the published task", unchanged)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path+".saved", path); err != nil {
+		t.Fatal(err)
+	}
+	callResearch(t, s, "PATCH", route, map[string]any{"revision": 1, "status": "done"}, 200)
+	data, err = os.ReadFile(path)
+	if err != nil || !bytes.Contains(data, []byte(`"keep workspace extension"`)) || !bytes.Contains(data, []byte(`"keep task extension"`)) {
+		t.Fatalf("unknown fields did not round-trip: %s %v", data, err)
+	}
+	bad := bytes.Replace(data, []byte(`"version":1`), []byte(`"version":2`), 1)
+	for _, fixture := range [][]byte{bad, []byte(`{"version":1`)} {
+		if err := os.WriteFile(path, fixture, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(dir); err == nil {
+			t.Fatal("opened an unsupported or malformed task file")
+		}
+		stored, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(stored, fixture) {
+			t.Fatal("invalid file was overwritten", err)
+		}
+	}
+}
+
 func TestSharedReadingTaskAndArchivedOwner(t *testing.T) {
 	dir := t.TempDir()
 	s := newResearch(t, dir)
@@ -104,6 +216,8 @@ func TestLegacyTaskPreservesFieldsAcrossFailureAndCompetingEdits(t *testing.T) {
 	}
 	raw["status"] = "doing"
 	raw["futureField"] = map[string]any{"items": []string{"preserve me"}}
+	record["project"].(map[string]any)["futureProjectField"] = map[string]any{"items": []string{"preserve project extension"}}
+	record["futureRootField"] = []string{"preserve project record extension"}
 	data, err = json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +270,10 @@ func TestLegacyTaskPreservesFieldsAcrossFailureAndCompetingEdits(t *testing.T) {
 	item, ok := s.Task(project.ID, task.ID)
 	if !ok || item.Status != "done" || item.CompletedAt == "" || item.Revision != 2 || !bytes.Contains(item.extra["futureField"], []byte("preserve me")) {
 		t.Fatal(item)
+	}
+	check, err = os.ReadFile(path)
+	if err != nil || !bytes.Contains(check, []byte(`"preserve project extension"`)) || !bytes.Contains(check, []byte(`"preserve project record extension"`)) {
+		t.Fatal("task edit dropped unrelated project record fields", err)
 	}
 }
 

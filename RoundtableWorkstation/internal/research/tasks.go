@@ -1,10 +1,13 @@
 package research
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -47,8 +50,11 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 	}
 	*t = Task(record)
 	t.extra = fields
-	if t.ProjectIDs == nil && t.ProjectID != "" {
-		t.ProjectIDs = []string{t.ProjectID}
+	if t.ProjectIDs == nil {
+		t.ProjectIDs = []string{}
+		if t.ProjectID != "" {
+			t.ProjectIDs = append(t.ProjectIDs, t.ProjectID)
+		}
 	}
 	if t.RelatedPaperIDs == nil {
 		t.RelatedPaperIDs = []string{}
@@ -85,19 +91,23 @@ func (t Task) MarshalJSON() ([]byte, error) {
 }
 
 func (s *Service) registerTasks() {
-	s.mux.HandleFunc("GET "+prefix+"/tasks", s.workspaceTasks)
-	base := prefix + "/projects/{project}/tasks"
-	for _, m := range []string{"GET", "POST"} {
-		s.mux.HandleFunc(m+" "+base, s.tasks)
-	}
-	for _, m := range []string{"GET", "PATCH", "DELETE"} {
-		s.mux.HandleFunc(m+" "+base+"/{task}", s.tasks)
+	for _, base := range []string{prefix + "/tasks", prefix + "/projects/{project}/tasks"} {
+		for _, m := range []string{"GET", "POST"} {
+			s.mux.HandleFunc(m+" "+base, s.tasks)
+		}
+		for _, m := range []string{"GET", "PATCH", "DELETE"} {
+			s.mux.HandleFunc(m+" "+base+"/{task}", s.tasks)
+		}
 	}
 }
 
 func newTask(projectID string) Task {
+	projectIDs := []string{}
+	if projectID != "" {
+		projectIDs = append(projectIDs, projectID)
+	}
 	return Task{
-		Entity: fresh(), ProjectID: projectID, ProjectIDs: []string{projectID},
+		Entity: fresh(), ProjectID: projectID, ProjectIDs: projectIDs,
 		Kind: "general", Status: "open", Priority: "medium", Tags: []string{}, RelatedPaperIDs: []string{},
 	}
 }
@@ -117,40 +127,146 @@ func taskBefore(a, b Task) bool {
 	return a.ID < b.ID
 }
 
-// Each task is committed only in its original project's file, even when that
-// project is archived. Membership controls visibility and the mutation route.
+// Keep the original storage location and reminder identity through membership edits.
+// Task visibility and public projectId follow current active memberships.
+func (s *Service) taskInScope(t Task, pid string) (Task, bool) {
+	if len(t.ProjectIDs) == 0 && pid == "" {
+		t.ProjectID = ""
+		return t, true
+	}
+	for _, member := range t.ProjectIDs {
+		if project, ok := s.projects[member]; ok && !project.Archived && (pid == "" || member == pid) {
+			t.ProjectID = member
+			return t, true
+		}
+	}
+	return Task{}, false
+}
+
 func (s *Service) visibleTasksLocked(pid string) map[string]Task {
 	out := make(map[string]Task)
-	for _, owner := range s.projects {
-		for _, t := range owner.Tasks {
-			for _, member := range t.ProjectIDs {
-				project, ok := s.projects[member]
-				if !ok || project.Archived || (pid != "" && member != pid) {
-					continue
-				}
-				t.ProjectID = member
-				out[t.ID] = t
-				break
+	add := func(tasks map[string]Task) {
+		for _, t := range tasks {
+			if view, ok := s.taskInScope(t, pid); ok {
+				out[t.ID] = view
 			}
 		}
+	}
+	add(s.workspaceTasks.Tasks)
+	for _, owner := range s.projects {
+		add(owner.Tasks)
 	}
 	return out
 }
 
-func (s *Service) findTaskLocked(pid, id string) (projectData, Task, bool) {
-	for _, owner := range s.projects {
-		if t, ok := owner.Tasks[id]; ok && slices.Contains(t.ProjectIDs, pid) {
-			return owner, t, true
+func (s *Service) findTaskLocked(pid, id string) (string, Task, bool) {
+	if t, exists := s.workspaceTasks.Tasks[id]; exists {
+		if _, visible := s.taskInScope(t, pid); visible {
+			return "", t, true
+		}
+		return "", Task{}, false
+	}
+	for owner, record := range s.projects {
+		if t, exists := record.Tasks[id]; exists {
+			if _, visible := s.taskInScope(t, pid); visible {
+				return owner, t, true
+			}
+			return "", Task{}, false
 		}
 	}
-	return projectData{}, Task{}, false
+	return "", Task{}, false
 }
 
-func (s *Service) workspaceTasks(w http.ResponseWriter, _ *http.Request) {
-	s.mu.RLock()
-	out := s.visibleTasksLocked("")
-	s.mu.RUnlock()
-	jsonReply(w, 200, valuesBy(out, taskBefore))
+type taskCollection struct {
+	Tasks    map[string]Task   `json:"tasks"`
+	TaskKeys map[string]string `json:"taskKeys"`
+}
+
+type workspaceTaskData struct {
+	taskCollection
+	Version int `json:"version"`
+	disk    []byte
+}
+
+func (s *Service) workspaceTaskPath() string { return filepath.Join(s.dir, "tasks.json") }
+
+func (s *Service) readWorkspaceTasks() ([]byte, error) {
+	path := s.workspaceTaskPath()
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("工作区任务文件无效")
+	}
+	return os.ReadFile(path)
+}
+
+func (s *Service) loadWorkspaceTasks() error {
+	data, err := s.readWorkspaceTasks()
+	if errors.Is(err, os.ErrNotExist) {
+		s.workspaceTasks = workspaceTaskData{Version: 1, taskCollection: taskCollection{map[string]Task{}, map[string]string{}}}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var record workspaceTaskData
+	if json.Unmarshal(data, &record) != nil || record.Version != 1 || record.Tasks == nil || record.TaskKeys == nil {
+		return errors.New("工作区任务文件无法读取或版本不支持")
+	}
+	for id, task := range record.Tasks {
+		if !validID(id) || task.ID != id || task.Revision < 1 || task.ProjectID != "" {
+			return errors.New("工作区任务记录无效")
+		}
+	}
+	record.disk = data
+	s.workspaceTasks = record
+	return nil
+}
+
+func (s *Service) taskCollectionLocked(owner string) taskCollection {
+	if owner == "" {
+		return s.workspaceTasks.taskCollection
+	}
+	return taskCollection{s.projects[owner].Tasks, s.projects[owner].TaskKeys}
+}
+
+func (s *Service) saveTasks(w http.ResponseWriter, owner string, collection taskCollection) bool {
+	if owner != "" {
+		project := s.projects[owner]
+		project.Tasks, project.TaskKeys = collection.Tasks, collection.TaskKeys
+		return s.save(w, project)
+	}
+	old := s.workspaceTasks
+	disk, err := s.readWorkspaceTasks()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		jsonFail(w, 500, "无法读取科研任务")
+		return false
+	}
+	if !bytes.Equal(old.disk, disk) {
+		jsonFail(w, 409, "任务文件已更改，请重新打开工作区")
+		return false
+	}
+	record := old
+	record.taskCollection = collection
+	data, err := json.Marshal(record)
+	if err == nil && disk != nil {
+		var before []byte
+		if before, err = json.Marshal(old); err == nil {
+			data = mergeRecordFields(disk, before, data)
+		}
+	}
+	if err == nil {
+		err = atomicWrite(s.workspaceTaskPath(), data)
+	}
+	if err != nil {
+		jsonFail(w, 500, "无法保存科研任务")
+		return false
+	}
+	record.disk = data
+	s.workspaceTasks = record
+	return true
 }
 
 func uniqueTaskValues(raw []string, limit int, valid func(string) bool) ([]string, bool) {
@@ -225,8 +341,8 @@ func (s *Service) updateTaskLocked(t *Task, in taskInput) error {
 	}
 	if in.ProjectIDs != nil {
 		ids, ok := uniqueTaskValues(*in.ProjectIDs, 256, validID)
-		if !ok || len(ids) == 0 {
-			return errors.New("至少需要一个有效项目")
+		if !ok {
+			return errors.New("任务关联项目无效")
 		}
 		active := false
 		for _, id := range ids {
@@ -236,7 +352,7 @@ func (s *Service) updateTaskLocked(t *Task, in taskInput) error {
 			}
 			active = active || !project.Archived
 		}
-		if !active {
+		if len(ids) != 0 && !active {
 			return errors.New("至少需要一个启用的项目")
 		}
 		t.ProjectIDs = ids
@@ -290,7 +406,7 @@ func (s *Service) resolveTaskPapers(in *taskInput) bool {
 // Reading-queue retries reuse an existing reading task in the destination
 // project, including a task already completed by the researcher.
 func (s *Service) existingReadingTaskLocked(pid string, candidate Task, key string) (Task, bool) {
-	if candidate.Kind != "reading" || candidate.PaperID == "" || key != "reading:"+candidate.PaperID {
+	if pid == "" || candidate.Kind != "reading" || candidate.PaperID == "" || key != "reading:"+candidate.PaperID {
 		return Task{}, false
 	}
 	var oldest Task
@@ -308,7 +424,7 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" || r.Method == "HEAD" {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
-		if _, ok := s.loadProject(w, pid); !ok {
+		if project, ok := s.projects[pid]; pid != "" && !found(w, ok && !project.Archived) {
 			return
 		}
 		if id == "" {
@@ -317,8 +433,8 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 		}
 		_, t, ok := s.findTaskLocked(pid, id)
 		if found(w, ok) {
-			t.ProjectID = pid
-			jsonReply(w, 200, t)
+			view, _ := s.taskInScope(t, pid)
+			jsonReply(w, 200, view)
 		}
 		return
 	}
@@ -334,19 +450,19 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, ok := s.loadProject(w, pid)
-	if !ok {
+	if project, ok := s.projects[pid]; pid != "" && !found(w, ok && !project.Archived) {
 		return
 	}
 	if r.Method == "POST" {
+		d := s.taskCollectionLocked(pid)
 		if existing, seen := d.TaskKeys[in.IdempotencyKey]; seen && in.IdempotencyKey != "" {
 			_, t, ok := s.findTaskLocked(pid, existing)
 			if !ok {
 				jsonFail(w, 410, "该任务已移除")
 				return
 			}
-			t.ProjectID = pid
-			jsonReply(w, 200, t)
+			view, _ := s.taskInScope(t, pid)
+			jsonReply(w, 200, view)
 			return
 		}
 		t := newTask(pid)
@@ -354,14 +470,14 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 			jsonFail(w, 400, err.Error())
 			return
 		}
-		if !slices.Contains(t.ProjectIDs, pid) {
+		if pid != "" && !slices.Contains(t.ProjectIDs, pid) {
 			jsonFail(w, 400, "新任务必须关联当前项目")
 			return
 		}
 		if existing, ok := s.existingReadingTaskLocked(pid, t, in.IdempotencyKey); ok {
 			d.TaskKeys = maps.Clone(d.TaskKeys)
 			d.TaskKeys[in.IdempotencyKey] = existing.ID
-			if s.save(w, d) {
+			if s.saveTasks(w, pid, d) {
 				jsonReply(w, 200, existing)
 			}
 			return
@@ -372,8 +488,9 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 			d.TaskKeys = maps.Clone(d.TaskKeys)
 			d.TaskKeys[in.IdempotencyKey] = t.ID
 		}
-		if s.save(w, d) {
-			jsonReply(w, 201, t)
+		if s.saveTasks(w, pid, d) {
+			view, _ := s.taskInScope(t, pid)
+			jsonReply(w, 201, view)
 		}
 		return
 	}
@@ -381,13 +498,14 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 	if !found(w, ok) {
 		return
 	}
+	d := s.taskCollectionLocked(owner)
 	if r.Method == "DELETE" {
 		if !revisionOK(w, t.Revision, queryRevision(r.URL.Query())) {
 			return
 		}
-		owner.Tasks = maps.Clone(owner.Tasks)
-		delete(owner.Tasks, id)
-		if s.save(w, owner) {
+		d.Tasks = maps.Clone(d.Tasks)
+		delete(d.Tasks, id)
+		if s.saveTasks(w, owner, d) {
 			w.WriteHeader(204)
 		}
 		return
@@ -400,18 +518,13 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.bump()
-	owner.Tasks = maps.Clone(owner.Tasks)
-	owner.Tasks[id] = t
-	if s.save(w, owner) {
-		for _, member := range t.ProjectIDs {
-			if !s.projects[member].Archived {
-				t.ProjectID = member
-				break
-			}
+	d.Tasks = maps.Clone(d.Tasks)
+	d.Tasks[id] = t
+	if s.saveTasks(w, owner, d) {
+		view, visible := s.taskInScope(t, pid)
+		if !visible {
+			view, _ = s.taskInScope(t, "")
 		}
-		if slices.Contains(t.ProjectIDs, pid) {
-			t.ProjectID = pid
-		}
-		jsonReply(w, 200, t)
+		jsonReply(w, 200, view)
 	}
 }
