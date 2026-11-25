@@ -770,18 +770,18 @@
       dialog("从论文创建 Wiki 页面", empty("请选择要关联的论文", "先将论文加入共享文献库。", button("导入论文", "new-paper")));
       return;
     }
+    let form;
     dialog("从论文创建 Wiki 页面", '<form>' + field("论文", '<select name="sourcePaper" aria-label="论文" required>' +
       '<option value="">选择论文</option>' + papers.map(p => option(p.id, p.title, selected)).join("") + '</select>') +
-      formFooter("创建论文页面") + '</form>');
-    bindForm(async (f, token) => {
+      formFooter("创建论文页面") + '</form>', {canDismiss: () => !form?.dataset.pending});
+    form = bindForm(async (f, token) => {
       const p = papers.find(p => p.id === value(f, "sourcePaper"));
       if (!p) throw Error("请选择要关联的论文");
       const n = await request(projectPath("notes/paper-template", owner), {
         method: "POST", body: {paperId: p.id, revision: p.revision}
       });
-      done(token);
       await refresh();
-      if (state.project?.id === owner) await E.openWikiNote(n.id);
+      if (token === formEpoch && state.project?.id === owner && f.isConnected) await E.openWikiNote(n.id);
       toast("论文页面已创建");
     });
   }

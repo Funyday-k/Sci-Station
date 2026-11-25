@@ -48,6 +48,7 @@ function mountResearch(start, sessions=[]) {
   for (const match of read("research.html").matchAll(/\bid="([^"]+)"/g)) {
     elements[match[1]] = {classList:{remove(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
   }
+  elements.modal.addEventListener = (event, handler) => { listeners["modal." + event] = handler; };
   const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
   const location = {href:new URL(start, origin).href,origin};
   const history = {pushState:(_s,_t,url)=>{location.href=new URL(url,origin).href;},replaceState:(_s,_t,url)=>{location.href=new URL(url,origin).href;}};
@@ -170,4 +171,17 @@ test("declining to leave a draft leaves the active root and history entry intact
   assert.equal(stopped,2);
   assert.equal(beforeunload,2);
   assert.equal(sent.length,savedCount);
+});
+
+test("an earlier modal close event preserves newly opened Wiki page content", async () => {
+  const {elements, listeners} = mountResearch("/research?view=notes&project=A");
+  await new Promise(resolve => setImmediate(resolve));
+  let cleared = 0;
+  elements["dialog-content"].replaceChildren = () => { cleared++; };
+  elements.modal.open = true;
+  listeners["modal.close"]();
+  assert.equal(cleared, 0);
+  elements.modal.open = false;
+  listeners["modal.close"]();
+  assert.equal(cleared, 1);
 });

@@ -174,6 +174,8 @@
     if (modalCanDismiss && !modalCanDismiss()) ev.preventDefault();
   });
   $("modal").addEventListener("close", () => {
+    // A queued close event can arrive after another workflow opens this dialog.
+    if ($("modal").open) return;
     if (modalCleanup) modalCleanup();
     modalCleanup = null;
     modalCanDismiss = null;
