@@ -185,6 +185,7 @@ func New(dir string) (*Service, error) {
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/trash", s.trashProject)
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/directory", s.changeDirectory)
 	s.registerNotes()
+	s.mux.HandleFunc("GET "+prefix+"/dashboard/projects", s.dashboardProjects)
 	s.registerTasks()
 	s.registerMaterials()
 	s.registerModules()

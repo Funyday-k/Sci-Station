@@ -311,50 +311,10 @@
     return list(projects.map(p => row("folder", p.name, p.description, 'a href="' + esc(viewURL("overview", p.id)) + '"')));
   }
 
-  function dashboard() {
-    const recent = state.papers.slice().sort(byRecent).slice(0, 5);
-    const tasks = state.tasks.filter(t => t.status !== "done").sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999")).slice(0, 7);
-    return heading("首页", new Intl.DateTimeFormat("zh-CN", {dateStyle: "full"}).format(new Date())) +
-      '<div class="columns"><div>' + panel("最近文献", recent.length ? paperRows(recent) : empty("暂无文献", "", button("导入文献", "new-paper")),
-        navLink("papers", "文献库")) + panel("科研项目", state.projects.length ? projectRows(state.projects.slice(0, 5)) :
-          empty("暂无项目", "", button("新建项目", "new-project")), navLink("projects", "全部项目")) +
-      '</div><div>' + panel("待办任务", tasks.length ? taskRows(tasks) : empty("暂无待办任务"), navLink("tasks", "日历与任务")) +
-      panel("最近圆桌", state.meetings.length ? meetingRows(state.meetings.slice().sort(byRecent).slice(0, 4)) :
-        empty("暂无圆桌"), link("打开圆桌", studio(), "bare")) + '</div></div>';
-  }
-
-  function overview() {
-    const p = state.project,
-      papers = scopedPapers().slice().sort(byRecent),
-      tasks = state.tasks.filter(t => t.status !== "done").sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate ||
-        "9999"));
-    let out = heading(p.name, p.description, button("项目设置", "edit-project", {
-      glyph: "sliders"
-    }) + link("进入圆桌", studio(), "button primary", "chat"));
-    const metrics = [
-      ["papers", "文献", papers.length],
-      ["notes", "知识笔记", state.notes.length],
-      ["tasks", "未完成任务", tasks.length],
-      ["meetings", "项目圆桌", state.meetings.length]
-    ];
-    out += '<div class="metrics">' + metrics.map(([v, l, n]) => '<a class="metric" data-view="' + v + '" href="' + esc(
-      viewURL(v)) + '"><span>' + l + '</span>' + icon(glyphs[v]) + '<strong>' + n + '</strong></a>').join("") + '</div>';
-    out += '<div class="columns"><div>' + panel("最近文献", papers.length ? paperRows(papers.slice(0, 5)) : empty("还没有文献",
-        "可以导入 PDF，或用 DOI、arXiv 编号添加。", button("导入文献", "new-paper", {
-          glyph: "import"
-        })), navLink("papers", "查看文献库")) +
-      panel("近期圆桌", state.meetings.length ? meetingRows(state.meetings.slice(0, 3)) : empty("还没有项目会议",
-        "从圆桌中选择模型、设置议题并开始讨论。", link("打开圆桌", studio(), "bare", "arrowUpRight")), navLink("meetings", "全部会议")) +
-      '</div><div>' + panel("待办任务", tasks.length ? taskRows(tasks.slice(0, 5)) : empty("暂无待办任务", "给下一次阅读、计算或复核安排时间。",
-        button("添加任务", "new-task", {
-          glyph: "plus"
-        })), navLink("tasks", "查看日历")) +
-      panel("最近笔记", state.notes.length ? noteRows(state.notes.slice().sort(byRecent).slice(0, 3)) : empty("暂无笔记",
-        "记录项目想法，或从论文选段建立笔记。", button("写笔记", "new-note", {
-          glyph: "plus"
-        })), navLink("notes", "全部笔记")) + '</div></div>';
-    return out;
-  }
+  const dashboard = window.SciStationDashboard;
+  const dashboardUI = {
+    esc, heading, button, link, panel, paperRows, taskRows, meetingRows, viewURL, studio, fmtDate, row, rowAction, list, empty, reader, toolsPage
+  };
 
   function meetingRows(items) {
     return list(items.map(m => row("chat", m.title || m.topic || "未命名圆桌", fmtDate(m.updated_at || m.created_at),
@@ -451,7 +411,7 @@
       $("main").innerHTML = heading("读取工作区时遇到问题") + panel("本机服务", empty(state.loadError, "", button("重试", "reload") + link("项目列表", viewURL("projects", null))));
       return;
     }
-    if (state.view === "overview") out = state.project ? overview() : dashboard();
+    if (state.view === "overview") out = dashboard.markup(state, dashboardUI);
     else if (state.view === "projects") out = projectDirectory();
     else if (state.view === "papers") out = publicLibrary();
     else if (state.view === "meetings") out = heading("工作圆桌", state.project?.name || "模型讨论与研究报告", link("进入圆桌", studio(),
@@ -502,6 +462,8 @@
           ) : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。"));
     } else if (state.view === "graph") out = graphView();
     $("main").innerHTML = out;
+    const dashboardRoot = $("dashboard-view");
+    if (dashboardRoot) dashboard.mount(dashboardRoot, state, render, toast);
     $("main").setAttribute("aria-busy", "false");
   }
 
@@ -569,9 +531,11 @@
           graphError = err.message;
           return graph;
         }) : graph;
-      const values = nextProject ?
-        await Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad]) :
-        [[], ["overview", "tasks"].includes(targetView) ? await request("tasks") : [], [], {nodes: [], edges: []}];
+      const [values,dashboardData] = await Promise.all([nextProject ?
+        Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad]) :
+        Promise.all([[], ["overview", "tasks"].includes(targetView) ? request("tasks") : [], [], {nodes: [], edges: []}]),
+        targetView === "overview" ? dashboard.load(request, nextProject?.id) : null
+      ]);
       if (token !== navEpoch) return;
       // Publish the complete snapshot together. Until this point the visible
       // controls and their actions both belong to the previous project.
@@ -586,6 +550,7 @@
       state.graphQuery = null;
       state.graphError = graphError;
       state.graphPending = false;
+      state.dashboardData = dashboardData;
       if (historyMode !== "none") history[historyMode + "State"](null, "", viewURL(state.view));
     } catch (err) {
       if (token !== navEpoch) return;
