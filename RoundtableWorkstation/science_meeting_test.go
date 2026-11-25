@@ -88,7 +88,7 @@ func TestScientificMeetingEvidenceToReviewedNote(t *testing.T) {
 	var project research.Project
 	js("POST", "/api/research/projects", map[string]any{"name": "Reference test"}, &project)
 	var paper research.Paper
-	upload("/api/research/papers", "one.pdf", "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF", map[string]any{"title": "Source", "project_ids": []string{project.ID}}, &paper)
+	upload("/api/research/papers", "one.pdf", string(scienceWorkflowPDF("An observed line.")), map[string]any{"title": "Source", "project_ids": []string{project.ID}}, &paper)
 	if paper.FileSHA256 == "" {
 		t.Fatal("missing PDF fingerprint")
 	}

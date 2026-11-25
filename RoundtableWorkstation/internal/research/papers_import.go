@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -25,8 +26,9 @@ const maxPaperPDF int64 = 256 << 20
 
 type paperImport struct {
 	PaperMetadata
-	FetchPDF bool   `json:"fetch_pdf"`
-	PDFURL   string `json:"pdf_url"`
+	FetchPDF      bool   `json:"fetch_pdf"`
+	AllowLinkOnly bool   `json:"allow_link_only"`
+	PDFURL        string `json:"pdf_url"`
 }
 
 func paperHTTPURL(raw string) bool {
@@ -110,7 +112,29 @@ func fetchPaperURL(ctx context.Context, raw, accept string) (*http.Response, err
 	}
 	return res, nil
 }
-func (s *PaperLibrary) stagePDF(reader io.Reader) (temp, digest string, err error) {
+
+var errRemotePDF = errors.New("在线 PDF 无法下载")
+var errPDFReaderUnavailable = errors.New("当前构建缺少 PDF 阅读支持")
+
+func (s *PaperLibrary) downloadPDF(ctx context.Context, from string) (string, string, error) {
+	response, err := fetchPaperURL(ctx, from, "application/pdf")
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", "", ctx.Err()
+		}
+		return "", "", errRemotePDF
+	}
+	defer response.Body.Close()
+	if raw := response.Header.Get("Content-Type"); raw != "" {
+		kind, _, err := mime.ParseMediaType(raw)
+		if err != nil || (kind != "application/pdf" && kind != "application/octet-stream" && kind != "application/x-pdf" && kind != "binary/octet-stream") {
+			return "", "", fmt.Errorf("%w：远端响应不是 PDF", errInvalidPaper)
+		}
+	}
+	return s.stagePDF(ctx, response.Body)
+}
+
+func (s *PaperLibrary) stagePDF(ctx context.Context, reader io.Reader) (temp, digest string, err error) {
 	r := bufio.NewReader(reader)
 	prefix, err := r.Peek(5)
 	if err != nil || string(prefix) != "%PDF-" {
@@ -138,6 +162,12 @@ func (s *PaperLibrary) stagePDF(reader io.Reader) (temp, digest string, err erro
 		err = e
 	}
 	if err != nil {
+		return "", "", err
+	}
+	if err = ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if err = validatePaperPDF(ctx, f.Name()); err != nil {
 		return "", "", err
 	}
 	return f.Name(), hex.EncodeToString(h.Sum(nil)), nil

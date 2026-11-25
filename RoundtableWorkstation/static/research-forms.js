@@ -156,13 +156,13 @@
     const base = edit ? "papers/" + enc(p.id) : "papers";
     dialog(edit ? "编辑文献" : "导入文献", '<form>' +
       (edit ? "" : '<div class="file-drop">' + field("本地 PDF",
-          '<input type="file" name="pdf" accept=".pdf,application/pdf">') +
-        '<p class="form-help">可以上传 PDF，也可以仅填写 DOI、arXiv 编号、网址或标题。</p></div>') +
+          '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple>') +
+        '<p class="form-help">多份 PDF 分别按文件名入库，共用所选标签、阅读状态和项目。</p></div>') +
       field("题名", input("title", p?.title, (edit ? "required " : "") + 'maxlength="1000" placeholder="可从文件名或在线元数据获取"')) +
       '<div class="split">' + field("DOI", input("doi", p?.doi, 'placeholder="10.…"')) + field("arXiv 编号", input("arxiv",
         p?.arxiv, 'placeholder="2404.10066"')) + '</div>' +
       field("原文链接", input("url", p?.url, 'type="url" placeholder="https://…"')) +
-      (edit ? "" : '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label>') +
+      (edit ? "" : '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label><label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">在线 PDF 无法下载或阅读时仅保存链接</label>') +
       '<details ' + (edit ? "open" : "") + '><summary>元数据与阅读状态</summary>' + field("作者", input("authors", p?.authors?.join(
         ", "), 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field("年份", input("year", p?.year || "",
         'type="number" min="1" max="9999"')) + field("阅读状态", select("status", Object.entries({
@@ -176,12 +176,15 @@
         field("优先级（0–5）", input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' + field(
           "BibTeX 引用键", input("citekey", p.citekey)) + field("引用的论文", input("references", p.references?.join(", "),
           'placeholder="论文 ID、DOI、arXiv 编号或 citekey，用逗号分隔"')) : "") +
-      '</details>' + attachProjectBoxes(p, !edit) + formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
+      '</details>' + attachProjectBoxes(p, !edit) + (edit ? "" : '<ul data-import-results aria-live="polite"></ul>') + formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
       '</form>', {
         wide: true
       });
-    bindForm(async (f, token) => {
-      const file = f.elements.pdf?.files?.[0];
+    const completed = new Set();
+    const outcomes = new Map();
+    const form = bindForm(async (f, token) => {
+      const files = [...(f.elements.pdf?.files || [])];
+      const file = files[0];
       const body = {
         title: value(f, "title"),
         doi: value(f, "doi"),
@@ -207,6 +210,48 @@
       body.project_ids = [...new Set([...body.project_ids, ...body.core_project_ids])];
       if (!edit && !file && !body.title && !body.doi && !body.arxiv && !body.url) throw Error(
         "请选择 PDF，或输入题名、DOI、arXiv 编号或网址。");
+      if (files.length > 1) {
+        const pending = files.filter(item => !completed.has(item));
+        if (!pending.length) {
+          done(token);
+          return;
+        }
+        const metadata = {tags: body.tags, status: body.status, project_ids: body.project_ids, core_project_ids: body.core_project_ids};
+        const results = f.querySelector("[data-import-results]");
+        const drawResults = () => {
+          results.replaceChildren(...files.map(item => {
+            const li = document.createElement("li");
+            li.textContent = item.name + " · " + (outcomes.get(item) || "等待导入");
+            return li;
+          }));
+        };
+        f.elements.pdf.disabled = true;
+        try {
+          for (const item of pending) {
+            if (!f.closest("dialog")?.open || token !== formEpoch) break;
+            outcomes.set(item, "正在导入");
+            drawResults();
+            const payload = new FormData();
+            payload.append("file", item);
+            payload.append("metadata", JSON.stringify(metadata));
+            try {
+              const record = await request("papers", {method: "POST", body: payload});
+              outcomes.set(item, "已入库 · " + record.title);
+              completed.add(item);
+            } catch (err) {
+              outcomes.set(item, err.message);
+            }
+            drawResults();
+          }
+        } finally {
+          f.elements.pdf.disabled = false;
+        }
+        const missing = files.length - completed.size;
+        f.querySelector("[data-status]").textContent = "已入库 " + completed.size + " / " + files.length;
+        f.querySelector("[type=submit]").textContent = missing ? "重试未成功的文件" : "完成";
+        await refresh();
+        return;
+      }
       let payload = body;
       if (edit) {
         Object.assign(body, {
@@ -217,21 +262,40 @@
           references: split(value(f, "references"))
         });
       } else {
-        body.fetch_pdf = Boolean(f.elements.fetch_pdf?.checked);
+        body.fetch_pdf = !file && Boolean(f.elements.fetch_pdf?.checked);
+        body.allow_link_only = body.fetch_pdf && Boolean(f.elements.allow_link_only?.checked);
         if (file) {
           payload = new FormData();
           payload.append("file", file);
           payload.append("metadata", JSON.stringify(body));
         }
       }
-      await request(base, {
+      const record = await request(base, {
         method: edit ? "PUT" : "POST",
         body: payload
       });
       done(token);
       await refresh();
-      toast(edit ? "文献已更新" : "文献已导入");
+      toast(record?.import_warning ? "已仅保存链接 · " + record.import_warning : edit ? "文献已更新" : "文献已导入");
     });
+    if (!edit) {
+      const syncInputs = () => {
+        const count = form.elements.pdf.files.length;
+        for (const name of ["title", "doi", "arxiv", "url", "authors", "year", "abstract"]) {
+          form.elements.namedItem(name).disabled = count > 1;
+        }
+        form.elements.fetch_pdf.disabled = count > 0;
+        form.querySelector("[data-link-fallback]").hidden = count > 0 || !form.elements.fetch_pdf.checked;
+      };
+      form.elements.pdf.addEventListener("change", () => {
+        completed.clear();
+        outcomes.clear();
+        form.querySelector("[data-import-results]").replaceChildren();
+        form.querySelector("[type=submit]").textContent = "导入文献";
+        syncInputs();
+      });
+      form.elements.fetch_pdf.addEventListener("change", syncInputs);
+    }
   }
 
   function noteForm(n = null) {

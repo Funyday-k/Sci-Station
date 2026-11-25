@@ -10,44 +10,9 @@ import (
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// PDF numbered objects and xref positions are generated here so both rotation
-// and a non-zero crop origin are known independently of PDFKit.
-func readerFixture(t *testing.T) string {
-	t.Helper()
-	stream := "BT /F1 24 Tf 55 148 Td (Evidence sample) Tj ET\n"
-	page := "/Type /Page /Parent 2 0 R /MediaBox [0 0 300 260] /CropBox [20 30 270 220] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R"
-	objects := []string{
-		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
-		"<< " + page + " >>",
-		"<< " + page + " /Rotate 90 >>",
-		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(stream), stream),
-	}
-	var pdf strings.Builder
-	pdf.WriteString("%PDF-1.5\n")
-	offsets := []int{0}
-	for i, o := range objects {
-		offsets = append(offsets, pdf.Len())
-		fmt.Fprintf(&pdf, "%d 0 obj\n%s\nendobj\n", i+1, o)
-	}
-	start := pdf.Len()
-	fmt.Fprintf(&pdf, "xref\n0 %d\n0000000000 65535 f \n", len(offsets))
-	for _, pos := range offsets[1:] {
-		fmt.Fprintf(&pdf, "%010d 00000 n \n", pos)
-	}
-	fmt.Fprintf(&pdf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offsets), start)
-	file := filepath.Join(t.TempDir(), "cropped-rotated.pdf")
-	if err := os.WriteFile(file, []byte(pdf.String()), 0600); err != nil {
-		t.Fatal(err)
-	}
-	return file
-}
 
 func TestReaderCropRotateSearchAndRasterAlignment(t *testing.T) {
 	file := readerFixture(t)

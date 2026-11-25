@@ -24,6 +24,12 @@ func paperError(w http.ResponseWriter, err error) {
 	code := http.StatusInternalServerError
 	msg := "无法完成文献操作"
 	switch {
+	case errors.Is(err, errPDFReaderUnavailable):
+		code = 503
+		msg = err.Error()
+	case errors.Is(err, errRemotePDF):
+		code = 502
+		msg = err.Error()
 	case errors.Is(err, errInvalidPaper):
 		code = 400
 		msg = err.Error()
@@ -205,7 +211,7 @@ func (s *PaperLibrary) remove(id string, revision int) error {
 }
 func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 	var input paperImport
-	var temp, digest string
+	var temp, digest, warning string
 	var err error
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		r.Body = http.MaxBytesReader(w, r.Body, maxPaperPDF+(4<<20))
@@ -228,7 +234,7 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 			paperError(w, fmt.Errorf("%w：缺少 file", errInvalidPaper))
 			return
 		}
-		temp, digest, err = s.stagePDF(f)
+		temp, digest, err = s.stagePDF(r.Context(), f)
 		f.Close()
 		if err != nil {
 			paperError(w, err)
@@ -256,19 +262,29 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 			if from == "" {
 				from = input.URL
 			}
-			res, e := fetchPaperURL(r.Context(), from, "application/pdf")
-			if e != nil {
-				paperReply(w, 502, map[string]string{"error": "PDF 下载失败，可关闭下载后保留文献链接"})
-				return
-			}
-			temp, digest, err = s.stagePDF(res.Body)
-			res.Body.Close()
+			temp, digest, err = s.downloadPDF(r.Context(), from)
 			if err != nil {
-				paperError(w, err)
-				return
+				if r.Context().Err() != nil {
+					paperReply(w, http.StatusRequestTimeout, map[string]string{"error": "导入已取消"})
+					return
+				}
+				if !errors.Is(err, errRemotePDF) && !errors.Is(err, errInvalidPaper) {
+					paperError(w, err)
+					return
+				}
+				if !input.AllowLinkOnly || !(paperHTTPURL(input.URL) || input.Arxiv != "" || input.DOI != "") {
+					paperError(w, fmt.Errorf("%w；可关闭下载后仅保存文献链接", err))
+					return
+				}
+				warning = err.Error()
+			} else {
+				defer os.Remove(temp)
 			}
-			defer os.Remove(temp)
 		}
+	}
+	if r.Context().Err() != nil {
+		paperReply(w, http.StatusRequestTimeout, map[string]string{"error": "导入已取消"})
+		return
 	}
 	rec, created, err := s.create(input.PaperMetadata, temp, digest)
 	if err != nil {
@@ -278,6 +294,13 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
+	}
+	if warning != "" && !rec.HasPDF {
+		paperReply(w, status, struct {
+			Paper
+			ImportWarning string `json:"import_warning"`
+		}{rec, warning})
+		return
 	}
 	paperReply(w, status, rec)
 }

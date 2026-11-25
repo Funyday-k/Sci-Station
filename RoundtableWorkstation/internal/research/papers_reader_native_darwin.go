@@ -11,7 +11,9 @@ void *sci_reader_page(const char *path, const char *operation, int page, const c
 import "C"
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -31,4 +33,17 @@ func nativePDFPage(path, operation string, page int, query string) ([]byte, erro
 		return nil, pageError(data)
 	}
 	return data, nil
+}
+
+func validatePaperPDF(ctx context.Context, path string) error {
+	select {
+	case pageWorkers <- struct{}{}:
+		defer func() { <-pageWorkers }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if _, err := nativePDFPage(path, "info", 0, ""); err != nil {
+		return fmt.Errorf("%w：%v", errInvalidPaper, err)
+	}
+	return ctx.Err()
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -62,7 +64,11 @@ func uploadTestPDF(t *testing.T, s *PaperLibrary, paper string, metadata string)
 func TestPaperLibraryDurableSharedPDFNotesAndAnnotations(t *testing.T) {
 	s := testPaperLib(t)
 	s.SetProjectValidator(func(id string) bool { return id == "one" || id == "two" })
-	const pdf = "%PDF-1.7\noriginal paper fixture\n%%EOF\n"
+	pdfBytes, err := os.ReadFile(readerFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf := string(pdfBytes)
 	p := uploadTestPDF(t, s, pdf, `{"title":"Solar Capture","authors":["Ada Jones"],"year":2026,"project_ids":["one"]}`)
 	if !p.HasPDF || len(p.FileSHA256) != 64 || p.Revision != 1 || p.Citekey != "Jones2026Solar" {
 		t.Fatalf("unexpected paper %+v", p)
@@ -178,7 +184,7 @@ func TestPaperUnsafeDownloadRejectedAndPredictableMetadata(t *testing.T) {
 		t.Fatal("accepted file URL")
 	}
 	s := testPaperLib(t)
-	if _, _, e := s.stagePDF(strings.NewReader("not a PDF")); !errors.Is(e, errInvalidPaper) {
+	if _, _, e := s.stagePDF(context.Background(), strings.NewReader("not a PDF")); !errors.Is(e, errInvalidPaper) {
 		t.Fatal(e)
 	}
 	q := testPaperRequest(t, s, "POST", "", `{"title":"Plain link","url":"https://example.org/paper","status":"reading"}`)
@@ -190,6 +196,82 @@ func TestPaperUnsafeDownloadRejectedAndPredictableMetadata(t *testing.T) {
 type paperTestRoundTrip func(*http.Request) (*http.Response, error)
 
 func (f paperTestRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestUnreadablePDFsDoNotPublishOrLeaveStagingFiles(t *testing.T) {
+	lib := testPaperLib(t)
+	valid, err := os.ReadFile(readerFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := bytes.Replace(valid, []byte("/Kids [3 0 R 4 0 R] /Count 2"), []byte("/Kids []            /Count 0"), 1)
+	for _, data := range [][]byte{[]byte("%PDF-1.7\nnot a document"), empty} {
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		part, err := w.CreateFormFile("file", "unreadable.pdf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = part.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		if err = w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest("POST", "/api/research/papers", &buf)
+		req.Header.Set("Content-Type", w.FormDataContentType())
+		res := httptest.NewRecorder()
+		lib.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("bad import = %d %s", res.Code, res.Body)
+		}
+		for _, dir := range []string{"pdf", "records"} {
+			files, err := os.ReadDir(filepath.Join(lib.dir, dir))
+			if err != nil || len(files) != 0 {
+				t.Fatalf("%s after failed import = %v, %v", dir, files, err)
+			}
+		}
+	}
+}
+
+func TestRemotePDFRequiresExplicitLinkFallback(t *testing.T) {
+	original := paperHTTPClient
+	defer func() { paperHTTPClient = original }()
+	mimeType := "application/pdf"
+	contents := "%PDF-1.7\nnot a document"
+	paperHTTPClient = &http.Client{Transport: paperTestRoundTrip(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {mimeType}}, Body: io.NopCloser(strings.NewReader(contents)), Request: req}, nil
+	})}
+	lib := testPaperLib(t)
+	const url = "https://example.org/paper.pdf"
+	importPaper := func(allow bool) *httptest.ResponseRecorder {
+		return testPaperRequest(t, lib, "POST", "", fmt.Sprintf(`{"url":%q,"fetch_pdf":true,"allow_link_only":%t}`, url, allow))
+	}
+	if r := importPaper(false); r.Code != 400 || len(lib.all()) != 0 {
+		t.Fatalf("implicit fallback = %d %s", r.Code, r.Body)
+	}
+	r := importPaper(true)
+	papers := lib.all()
+	if r.Code != 201 || len(papers) != 1 || papers[0].HasPDF || papers[0].URL != url || !strings.Contains(r.Body.String(), "import_warning") {
+		t.Fatalf("explicit fallback = %d %s", r.Code, r.Body)
+	}
+	valid, err := os.ReadFile(readerFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = string(valid)
+	mimeType = "text/html"
+	if r = testPaperRequest(t, lib, "POST", "/"+papers[0].ID+"/pdf", `{"url":"https://example.org/a.pdf"}`); r.Code != 400 {
+		t.Fatalf("bad attachment MIME = %d %s", r.Code, r.Body)
+	}
+	files, err := os.ReadDir(filepath.Join(lib.dir, "pdf"))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("staged files = %v, %v", files, err)
+	}
+	mimeType = "application/pdf; version=1.5"
+	if r = importPaper(false); r.Code != 200 || len(lib.all()) != 1 || !lib.all()[0].HasPDF || lib.all()[0].ID != papers[0].ID {
+		t.Fatalf("retry with valid PDF = %d %s", r.Code, r.Body)
+	}
+}
 
 func TestPaperOnlineProvidersPreserveSourceMetadata(t *testing.T) {
 	original := paperHTTPClient
@@ -280,4 +362,38 @@ func TestDiscoveryReusesArxivPaperAcrossVersionsAndScopesQueue(t *testing.T) {
 	if len(queue) != 1 || queue[0].ID != first.ID {
 		t.Fatal(queue)
 	}
+}
+
+// PDF numbered objects and xref positions are generated here so both rotation
+// and a non-zero crop origin are known independently of PDFKit.
+func readerFixture(t *testing.T) string {
+	t.Helper()
+	stream := "BT /F1 24 Tf 55 148 Td (Evidence sample) Tj ET\n"
+	page := "/Type /Page /Parent 2 0 R /MediaBox [0 0 300 260] /CropBox [20 30 270 220] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R"
+	objects := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+		"<< " + page + " >>",
+		"<< " + page + " /Rotate 90 >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(stream), stream),
+	}
+	var pdf strings.Builder
+	pdf.WriteString("%PDF-1.5\n")
+	offsets := []int{0}
+	for i, o := range objects {
+		offsets = append(offsets, pdf.Len())
+		fmt.Fprintf(&pdf, "%d 0 obj\n%s\nendobj\n", i+1, o)
+	}
+	start := pdf.Len()
+	fmt.Fprintf(&pdf, "xref\n0 %d\n0000000000 65535 f \n", len(offsets))
+	for _, pos := range offsets[1:] {
+		fmt.Fprintf(&pdf, "%010d 00000 n \n", pos)
+	}
+	fmt.Fprintf(&pdf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offsets), start)
+	file := filepath.Join(t.TempDir(), "cropped-rotated.pdf")
+	if err := os.WriteFile(file, []byte(pdf.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return file
 }

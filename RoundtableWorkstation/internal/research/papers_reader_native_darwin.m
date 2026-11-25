@@ -166,7 +166,7 @@ void *sci_reader_page(const char *path, const char *operation, int page, const c
             NSString *op = [NSString stringWithUTF8String:operation];
             NSData *data = nil;
             NSString *issue = nil;
-            if (!doc || doc.pageCount == 0 || doc.isLocked)
+            if (!doc || doc.isLocked || doc.pageCount == 0 || ![doc pageAtIndex:0].pageRef)
                 issue = @"无法访问 PDF 页面，文件可能损坏或已加密。";
             else if ([op isEqualToString:@"info"])
                 data = jsonData(@{@"pages" : @(doc.pageCount)});

@@ -62,7 +62,7 @@ func (s *PaperLibrary) attachPDF(w http.ResponseWriter, r *http.Request, p Paper
 			paperError(w, errInvalidPaper)
 			return
 		}
-		tmp, digest, err = s.stagePDF(file)
+		tmp, digest, err = s.stagePDF(r.Context(), file)
 		file.Close()
 	} else {
 		var body struct {
@@ -87,13 +87,7 @@ func (s *PaperLibrary) attachPDF(w http.ResponseWriter, r *http.Request, p Paper
 			paperError(w, fmt.Errorf("%w：请输入 PDF 链接或上传文件", errInvalidPaper))
 			return
 		}
-		res, e := fetchPaperURL(r.Context(), from, "application/pdf")
-		if e != nil {
-			paperReply(w, 502, map[string]string{"error": "PDF 下载失败，可选择本地 PDF"})
-			return
-		}
-		tmp, digest, err = s.stagePDF(res.Body)
-		res.Body.Close()
+		tmp, digest, err = s.downloadPDF(r.Context(), from)
 	}
 	if err != nil {
 		paperError(w, err)
