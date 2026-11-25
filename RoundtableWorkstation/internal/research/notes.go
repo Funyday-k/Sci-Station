@@ -32,8 +32,15 @@ func (s *Service) registerNotes() {
 	}
 	s.mux.HandleFunc("POST "+base+"/{note}/restore", s.restoreNote)
 	s.mux.HandleFunc("GET "+base+"/{note}/links", s.noteLinks)
+	s.mux.HandleFunc("GET "+base+"/{note}/frontmatter", s.noteFrontmatter)
+	s.mux.HandleFunc("POST "+base+"/paper-template", s.createPaperWikiPage)
 	s.mux.HandleFunc("GET "+base+"/{note}/backlinks", s.backlinks)
 	s.mux.HandleFunc("GET "+base+"/{note}/markdown", s.markdown)
+	folders := prefix + "/projects/{project}/wiki/folders"
+	s.mux.HandleFunc("GET "+folders, s.wikiFolders)
+	s.mux.HandleFunc("POST "+folders, s.wikiFolders)
+	s.mux.HandleFunc("GET "+prefix+"/wiki/snippets", s.wikiSnippets)
+	s.mux.HandleFunc("PUT "+prefix+"/wiki/snippets", s.wikiSnippets)
 }
 
 // Only the reviewed-write transaction may attach meeting provenance. Manual
@@ -147,6 +154,9 @@ func updateNote(n *Note, in noteInput) bool {
 		}
 	}
 	if in.PaperID != nil {
+		if n.Template == "paper" && n.PaperID != *in.PaperID {
+			return false
+		}
 		n.PaperID = *in.PaperID
 	}
 	if in.SourceMeetingID != nil {
@@ -238,6 +248,9 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 	d.Notes = maps.Clone(d.Notes)
 	if r.Method == "POST" {
 		n := Note{Entity: fresh(), ProjectID: pid, Tags: []string{}, Evidence: []Evidence{}}
+		if !wikiContentsOK(w, n, in) {
+			return
+		}
 		if !updateNote(&n, in) {
 			jsonFail(w, 400, "笔记的标题、目录、别名、内容或标签无效")
 			return
@@ -276,6 +289,9 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	previous := n
+	if !wikiContentsOK(w, n, in) {
+		return
+	}
 	if !updateNote(&n, in) {
 		jsonFail(w, 400, "笔记的标题、目录、别名、内容或标签无效")
 		return

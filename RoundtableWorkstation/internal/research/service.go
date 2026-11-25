@@ -62,6 +62,7 @@ type Note struct {
 	Aliases         []string   `json:"aliases,omitempty"`
 	PreviousPaths   []string   `json:"previousPaths,omitempty"`
 	Archived        bool       `json:"archived,omitempty"`
+	Template        string     `json:"template,omitempty"`
 	Body            string     `json:"body"`
 	Tags            []string   `json:"tags"`
 	PaperID         string     `json:"paperId,omitempty"`
@@ -101,17 +102,18 @@ type Material struct {
 }
 
 type projectData struct {
-	Trashed   bool                     `json:"trashed,omitempty"`
-	Reviews   map[string]MeetingReview `json:"reviews,omitempty"`
-	Project   Project                  `json:"project"`
-	Archived  bool                     `json:"archived,omitempty"`
-	Notes     map[string]Note          `json:"notes"`
-	Tasks     map[string]Task          `json:"tasks"`
-	Materials map[string]Material      `json:"materials"`
-	NoteKeys  map[string]string        `json:"noteKeys"`
-	TaskKeys  map[string]string        `json:"taskKeys"`
-	Relations map[string]GraphRelation `json:"relations,omitempty"`
-	disk      json.RawMessage
+	Trashed     bool                     `json:"trashed,omitempty"`
+	Reviews     map[string]MeetingReview `json:"reviews,omitempty"`
+	Project     Project                  `json:"project"`
+	Archived    bool                     `json:"archived,omitempty"`
+	Notes       map[string]Note          `json:"notes"`
+	Tasks       map[string]Task          `json:"tasks"`
+	Materials   map[string]Material      `json:"materials"`
+	NoteKeys    map[string]string        `json:"noteKeys"`
+	TaskKeys    map[string]string        `json:"taskKeys"`
+	Relations   map[string]GraphRelation `json:"relations,omitempty"`
+	disk        json.RawMessage
+	WikiFolders []string `json:"wikiFolders,omitempty"`
 }
 
 // Published project snapshots are immutable. Each mutation copies only its own map

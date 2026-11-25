@@ -1,6 +1,7 @@
 "use strict";
 (() => {
   const E = window.SciResearch;
+  const wikiEditor = window.SciWikiEditor;
   const {
     state,
     $,
@@ -39,18 +40,18 @@
       label) + '</option>';
   }
 
-  function select(name, items, current, label = "") {
+  function select(name, items, current, label = "", disabled = false) {
     const accessibleName = label ? ' aria-label="' + esc(label) + '"' : "";
-    return '<select name="' + name + '"' + accessibleName + '>' +
+    return '<select name="' + name + '"' + accessibleName + (disabled ? " disabled" : "") + '>' +
       items.map(([v, l]) => option(v, l, current)).join("") + '</select>';
   }
 
   function split(s) {
     return String(s || "").split(/[,，;；\n]+/).map(s => s.trim()).filter(Boolean);
   }
-  const paperSelect = id => select("paperId", [
+  const paperSelect = (id, disabled = false) => select("paperId", [
     ["", "无关联论文"], ...state.papers.map(p => [p.id, p.title])
-  ], id || "");
+  ], id || "", "", disabled);
   const value = (f, name) => String(f.elements.namedItem(name)?.value || "").trim();
   const chosen = (f, name) => [...f.querySelectorAll('input[name="' + name + '"]:checked')].map(i => i.value);
   const formStatus = () => '<p class="error" data-error role="alert"></p><p class="status" data-status role="status"></p>';
@@ -469,10 +470,11 @@
     return {frontmatter: "", body: source};
   }
 
-  function noteForm(n = null, moving = false) {
+  function noteForm(n = null, moving = false, folder = "") {
     const base = projectPath("notes" + (n ? "/" + enc(n.id) : ""), n?.projectId);
-    const namespace = field("目录", input("namespace", n?.namespace,
-      'maxlength="500" placeholder="例如：concept 或 methods/statistics"'));
+    const namespace = field("目录", input("namespace", n?.namespace ?? folder,
+      'list="wiki-folder-suggestions" maxlength="500" placeholder="例如：concept 或 methods/statistics"')) +
+      '<datalist id="wiki-folder-suggestions">' + state.wikiFolders.map(path => '<option value="' + esc(path) + '"></option>').join("") + '</datalist>';
     let f, current = n, saved = false, original;
     const snapshot = () => JSON.stringify([...new FormData(f).entries()]);
     const dirty = () => f && !saved && !f.dataset.pending && snapshot() !== original;
@@ -491,9 +493,10 @@
       (moving ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' + namespace :
         '<div class="split">' + field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace + '</div>' +
         field("别名", area("aliases", n?.aliases?.join("\n"), 'aria-label="别名" rows="2" placeholder="每行一个。可用目录/名称指定完整路径。"')) +
-        '<div class="split">' + field("关联论文", paperSelect(n?.paperId)) +
+        '<div class="split">' + field("关联论文", paperSelect(n?.paperId, n?.template === "paper")) +
         field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div>' +
         '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
+        wikiFormatTools() +
         field("内容", area("body", n?.body, 'aria-label="内容" id="note-body" placeholder="支持 Markdown、数学公式和 [[concept:页面|显示文字]]"')) +
         '<div id="draft-preview" class="note-preview" hidden></div>') +
       '</fieldset><div data-wiki-conflict hidden></div>' + formFooter(moving ? "移动页面" : "保存页面") + '</form>', {
@@ -509,6 +512,7 @@
       const open = preview.hidden;
       preview.hidden = !open;
       edit.hidden = open;
+      $("wiki-format-tools").hidden = open;
       $("preview-toggle").textContent = open ? "返回编辑" : "预览";
       if (open) {
         preview.innerHTML = markdown(splitWikiBody($("note-body").value).body);
@@ -519,10 +523,10 @@
       const body = {namespace: value(form, "namespace")};
       if (!moving) Object.assign(body, {
         title: value(form, "title"),
-        body: form.elements.body.value,
+        body: form.elements.body.value || (n ? "" : "# " + value(form, "title") + "\n"),
         tags: split(value(form, "tags")),
         aliases: value(form, "aliases").split(/\r?\n/).map(s => s.trim()).filter(Boolean),
-        paperId: value(form, "paperId")
+        paperId: n?.template === "paper" ? n.paperId : value(form, "paperId")
       });
       if (current) body.revision = current.revision;
       const controls = form.querySelector("fieldset");
@@ -553,6 +557,63 @@
     original = snapshot();
     window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener("scistation:command", command);
+    if (!moving) bindWikiFormatTools(f);
+  }
+
+  function wikiFormatTools() {
+    return '<div class="actions wiki-format-tools" id="wiki-format-tools" role="group" aria-label="Markdown 格式">' +
+      Object.entries(wikiEditor.formats).map(([key, [label]]) => '<button type="button" class="button" data-format="' +
+        esc(key) + '">' + esc(label) + '</button>').join("") +
+      '<button type="button" class="button" id="wiki-add-frontmatter">添加 YAML 元数据</button>' +
+      '<select id="wiki-snippets" aria-label="插入 Markdown 片段" disabled><option value="">Markdown 片段</option></select>' +
+      '<span id="wiki-snippet-status" role="status"></span></div>';
+  }
+
+  async function bindWikiFormatTools(form) {
+    const source = form.elements.body, tools = $("wiki-format-tools"), snippets = $("wiki-snippets"),
+      status = $("wiki-snippet-status");
+    const apply = result => {
+      if (!result) return;
+      source.value = result.value;
+      source.focus();
+      source.setSelectionRange(result.caret, result.caret);
+    };
+    const addMetadata = $("wiki-add-frontmatter");
+    const updateMetadataAction = () => { addMetadata.disabled = source.value.trimStart().startsWith("---"); };
+    updateMetadataAction();
+    tools.addEventListener("click", event => {
+      const key = event.target.dataset.format;
+      if (key) apply(wikiEditor.format(source.value, source.selectionStart, source.selectionEnd, key));
+      else if (event.target === addMetadata) {
+        const title = value(form, "title") || "Untitled";
+        const frontmatter = "---\ntitle: " + JSON.stringify(title) + "\ntags: []\n---\n\n";
+        apply(wikiEditor.insert(source.value, 0, 0, frontmatter));
+        updateMetadataAction();
+      }
+    });
+    let available = [];
+    source.addEventListener("input", event => {
+      if (!event.isComposing && event.inputType === "insertText" && source.selectionStart === source.selectionEnd) {
+        apply(wikiEditor.expand(source.value, source.selectionStart, available));
+      }
+      updateMetadataAction();
+    });
+    snippets.onchange = () => {
+      const selected = available.find(item => item.trigger === snippets.value);
+      if (selected) apply(wikiEditor.insert(source.value, source.selectionStart, source.selectionEnd, selected.body));
+      snippets.value = "";
+      updateMetadataAction();
+    };
+    try {
+      const settings = await request("wiki/snippets");
+      if (!tools.isConnected) return;
+      available = settings.snippets || [];
+      snippets.innerHTML += available.map(item => option(item.trigger, item.trigger + " · " + item.title, "")).join("");
+      snippets.disabled = available.length === 0;
+      if (settings.parseError) status.textContent = "自定义设置有误，已加载内置片段";
+    } catch (err) {
+      if (tools.isConnected) status.textContent = "无法加载片段";
+    }
   }
 
   function showNoteConflict(host, latest, useRevision) {
@@ -615,8 +676,9 @@
       link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") +
       (n.sourceMeetingId ? link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button", "chat") : "") +
       (n.paperId ? link("关联论文", reader(n.paperId), "button", "book") : "") + '</div>' +
-      noteOccurrence(n, locator) + (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary><pre>' +
-        esc(frontmatter) + '</pre></details>' : "") +
+      noteOccurrence(n, locator) + (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
+        '<div id="wiki-metadata" aria-live="polite"></div><details><summary>原始 YAML</summary><pre>' +
+        esc(frontmatter) + '</pre></details></details>' : "") +
       '<article class="note-preview" id="note-preview">' + markdown(body) + '</article><p class="form-help" id="wiki-link-status" role="status"></p>' +
       ((n.evidence || []).length ? '<div class="subheading">论文证据</div>' + n.evidence.map(e => '<p>' + (e.paperId ? link(
         (state.papers.find(p => p.id === e.paperId)?.title || "查看论文") + (e.page ? " · 第 " + e.page + " 页" : ""),
@@ -626,6 +688,7 @@
     const preview = $("note-preview"), backlinks = $("backlinks"), status = $("wiki-link-status");
     math(preview);
     const revision = "?revision=" + enc(n.revision);
+    if (frontmatter) showWikiMetadata(base + "/frontmatter" + revision, $("wiki-metadata"));
     const [links, refs] = await Promise.allSettled([
       request(base + "/links" + revision), request(base + "/backlinks" + revision)
     ]);
@@ -639,6 +702,16 @@
         refs.value.map(ref => button(wikiPath(ref), "read-note", {id: ref.id, kind: "bare"})).join("");
     } else backlinks.textContent = "反向链接读取失败：" + refs.reason.message;
   };
+
+  async function showWikiMetadata(path, host) {
+    try {
+      const entries = await request(path);
+      if (host.isConnected && entries.length) host.innerHTML = '<dl>' + entries.map(entry =>
+        '<dt>' + esc(entry.key) + '</dt><dd><pre>' + esc(entry.value) + '</pre></dd>').join("") + '</dl>';
+    } catch (err) {
+      if (host.isConnected) host.textContent = err.message;
+    }
+  }
 
   async function archivedNotes() {
     const owner = state.project.id;
@@ -664,6 +737,117 @@
       }
       return '<blockquote>' + esc(e.quote) + '</blockquote>' + link("查看论文第 " + e.page + " 页", "/reader?" + query, "bare");
     }).join("") + '</section>';
+  }
+
+  function wikiFolderForm() {
+    const owner = state.project.id;
+    dialog("新建 Wiki 目录", '<form>' + field("目录路径", input("path", "",
+      'required autofocus maxlength="500" placeholder="例如：methods/statistics"')) + formFooter("创建目录") + '</form>');
+    bindForm(async (f, token) => {
+      await request(projectPath("wiki/folders", owner), {
+        method: "POST", body: {path: value(f, "path")}
+      });
+      done(token);
+      await refresh();
+      toast("Wiki 目录已创建");
+    });
+  }
+
+  function readWikiFolder(path) {
+    const records = state.notes.filter(n => n.namespace?.toLowerCase() === path.toLowerCase());
+    const children = state.wikiFolders.filter(folder => folder.toLowerCase().startsWith(path.toLowerCase() + "/") &&
+      !folder.slice(path.length + 1).includes("/"));
+    dialog(path, '<div class="actions">' + button("在此目录新建页面", "new-note", {id: path, glyph: "plus"}) + '</div>' +
+      (children.length ? '<div class="subheading">子目录</div><div class="list">' + children.map(folder =>
+        button(folder, "read-wiki-folder", {id: folder, kind: "search-result", glyph: "folder"})).join("") + '</div>' : "") +
+      (records.length ? '<div class="subheading">页面</div><div class="list">' + records.map(n =>
+        button(n.title, "read-note", {id: n.id, kind: "search-result", glyph: "file"})).join("") + '</div>' : empty("此目录没有页面")));
+  }
+
+  function paperWikiForm(selected = "") {
+    const owner = state.project.id, papers = state.papers;
+    if (!papers.length) {
+      dialog("从论文创建 Wiki 页面", empty("请选择要关联的论文", "先将论文加入共享文献库。", button("导入论文", "new-paper")));
+      return;
+    }
+    dialog("从论文创建 Wiki 页面", '<form>' + field("论文", '<select name="sourcePaper" aria-label="论文" required>' +
+      '<option value="">选择论文</option>' + papers.map(p => option(p.id, p.title, selected)).join("") + '</select>') +
+      formFooter("创建论文页面") + '</form>');
+    bindForm(async (f, token) => {
+      const p = papers.find(p => p.id === value(f, "sourcePaper"));
+      if (!p) throw Error("请选择要关联的论文");
+      const n = await request(projectPath("notes/paper-template", owner), {
+        method: "POST", body: {paperId: p.id, revision: p.revision}
+      });
+      done(token);
+      await refresh();
+      if (state.project?.id === owner) await E.openWikiNote(n.id);
+      toast("论文页面已创建");
+    });
+  }
+
+  async function wikiSnippetSettings() {
+    const endpoint = "wiki/snippets";
+    const initial = await request(endpoint);
+    let f, current = initial, saved = false;
+    const dirty = () => f && !saved && f.elements.snippetYAML.value !== initial.content;
+    const beforeUnload = event => {
+      if (dirty()) {
+        event.preventDefault();
+        event.returnValue = true;
+      }
+    };
+    const command = event => {
+      if (event.detail !== "save") return;
+      event.preventDefault();
+      f.requestSubmit();
+    };
+    dialog("Markdown 片段", '<form class="note-edit"><p class="form-help">片段在此科研工作区的项目中通用。YAML 条目包含 trigger、title 和 body。</p>' +
+      (initial.parseError ? '<p role="alert" class="error">' + esc(initial.parseError) + '</p>' : "") +
+      field("片段 YAML", area("snippetYAML", initial.content, 'aria-label="片段 YAML" spellcheck="false"')) +
+      '<div data-wiki-conflict hidden></div>' + formFooter("保存片段") + '</form>', {
+        wide: true,
+        canDismiss: () => !f?.dataset.pending && (!dirty() || window.confirm("放弃尚未保存的 Markdown 片段更改？")),
+        cleanup: () => {
+          window.removeEventListener("beforeunload", beforeUnload);
+          window.removeEventListener("scistation:command", command);
+        }
+      });
+    f = bindForm(async (form, token) => {
+      const conflict = form.querySelector("[data-wiki-conflict]");
+      const source = form.elements.snippetYAML;
+      conflict.hidden = true;
+      source.readOnly = true;
+      try {
+        await request(endpoint, {
+          method: "PUT", body: {content: source.value, revision: current.revision}
+        });
+        saved = true;
+      } catch (err) {
+        if (err.status === 409) {
+          try {
+            const latest = await request(endpoint);
+            conflict.innerHTML = '<details open><summary>对照已保存片段</summary>' +
+              field("已保存片段", area("savedSnippets", latest.content, 'aria-label="已保存片段" readonly')) +
+              '</details><button type="button" class="button">保留草稿并使用此修订</button>';
+            conflict.hidden = false;
+            conflict.querySelector("button").onclick = () => {
+              current = latest;
+              conflict.textContent = "已采用查看到的修订。保存时将应用当前草稿。";
+            };
+            conflict.querySelector("summary").focus();
+          } catch { /* Preserve the draft even if the newer snippet file cannot be loaded. */ }
+        }
+        throw err;
+      } finally {
+        source.readOnly = false;
+      }
+      delete form.dataset.pending;
+      done(token);
+      toast("Markdown 片段已保存");
+    });
+    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("scistation:command", command);
   }
 
   function taskForm(t = null) {
@@ -959,7 +1143,15 @@
       return;
     }
     const look = (arr) => arr.find(x => x.id === id);
-    if (action === "new-note") return noteForm();
+    if (action === "new-note") return noteForm(null, false, id);
+    if (action === "new-wiki-folder") return wikiFolderForm();
+    if (action === "read-wiki-folder") return readWikiFolder(id);
+    if (action === "new-paper-wiki") return paperWikiForm();
+    if (action === "open-paper-wiki") {
+      const existing = state.notes.find(n => n.template === "paper" && n.paperId === id);
+      return existing ? E.openWikiNote(existing.id) : paperWikiForm(id);
+    }
+    if (action === "wiki-snippet-settings") return wikiSnippetSettings();
     if (action === "read-note") return E.openWikiNote(id);
     if (action === "edit-note" || action === "move-note") {
       const n = selectedWikiNote?.id === id && selectedWikiNote.projectId === state.project.id ?

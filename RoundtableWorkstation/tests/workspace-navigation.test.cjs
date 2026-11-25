@@ -40,7 +40,7 @@ function mountResearch(start, sessions=[]) {
     ["/api/studio/sessions", {sessions}],
   ]);
   for (const p of projects) {
-    for (const [k,v] of Object.entries({notes:[],tasks:tasks.filter(t => t.projectId === p.id),materials:[],graph:{nodes:[],edges:[]}})) {
+    for (const [k,v] of Object.entries({notes:[],tasks:tasks.filter(t => t.projectId === p.id),materials:[],graph:{nodes:[],edges:[]}, "wiki/folders":[]})) {
       responses.set("/api/research/projects/" + p.id + "/" + k,v);
     }
   }

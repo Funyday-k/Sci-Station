@@ -58,6 +58,7 @@
     libraryCollection: "",
     libraryTag: "",
     notes: [],
+    wikiFolders: [],
     tasks: [],
     materials: [],
     meetings: [],
@@ -264,6 +265,7 @@
       }
       return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
         statusLabel[p.status] || "未读", (showOrganization ? E.library.paperTags(p) : "") +
+        (projectID ? button("论文 Wiki", "open-paper-wiki", {id: p.id, kind: "bare"}) : "") +
         button("编辑", "edit-paper", {id: p.id, kind: "bare"}) +
         (showOrganization ? E.library.selectionCheckbox(p) : ""));
     }));
@@ -351,6 +353,19 @@
   function noteRows(notes) {
     return list(notes.map(n => row("file", n.title, [n.namespace, n.tags?.join(" · "), fmtDate(n.updatedAt)].filter(Boolean).join(" · "),
       rowAction("read-note", n.id))));
+  }
+
+  function wikiPage() {
+    const tools = button("Markdown 片段", "wiki-snippet-settings") +
+      button("已归档页面", "archived-notes") +
+      button("新建目录", "new-wiki-folder", {glyph: "folder"}) +
+      button("从论文创建", "new-paper-wiki") +
+      button("新建页面", "new-note", {glyph: "plus", kind: "button primary"});
+    const folders = state.wikiFolders.length ? panel("目录", list(state.wikiFolders.map(path =>
+      row("folder", path, "", rowAction("read-wiki-folder", path))))) : "";
+    return heading("项目 Wiki", state.project.name, tools) + folders +
+      panel("页面 · " + state.notes.length, state.notes.length ? noteRows(state.notes.slice().sort(byRecent)) :
+        empty("暂无 Wiki 页面", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
   }
 
   function publicLibrary() {
@@ -447,11 +462,7 @@
       "button primary", "chat")) + panel("项目会议", state.meetings.length ? meetingRows(state.meetings) : empty("暂无项目会议",
       "进入圆桌后可以创建讨论。"));
     else if (!state.project && state.view !== "tasks") out = projectNeeded();
-    else if (state.view === "notes") out = heading("项目 Wiki", state.project.name, button("已归档页面", "archived-notes") + button("新建页面", "new-note", {
-      glyph: "plus",
-      kind: "button primary"
-    })) + panel("页面 · " + state.notes.length, state.notes.length ? noteRows(state.notes.slice().sort(byRecent)) : empty(
-      "暂无 Wiki 页面", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
+    else if (state.view === "notes") out = wikiPage();
     else if (state.view === "tasks") {
       const tags = [...new Set(state.tasks.flatMap(t => t.tags || []))].sort((a, b) => a.localeCompare(b));
       const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
@@ -571,7 +582,7 @@
           return graph;
         }) : graph;
       const [values,dashboardData] = await Promise.all([nextProject ?
-        Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad]) :
+        Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad, targetView === "notes" ? request("projects/" + enc(nextProject.id) + "/wiki/folders") : []]) :
         Promise.all([[], ["overview", "tasks"].includes(targetView) ? request("tasks") : [], [], {nodes: [], edges: []}]),
         targetView === "overview" ? dashboard.load(request, nextProject?.id) : null
       ]);
@@ -588,7 +599,7 @@
       state.project = nextProject;
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
       state.meetings = nextProject ? rooms.filter(m => m.project_id === nextProject.id) : rooms;
-      [state.notes, state.tasks, state.materials, state.graph] = values;
+      [state.notes, state.tasks, state.materials, state.graph, state.wikiFolders = []] = values;
       state.graphResult = null;
       state.graphQuery = null;
       state.graphError = graphError;

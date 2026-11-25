@@ -6,6 +6,7 @@ require (
 	github.com/tetratelabs/wazero v1.12.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.24
 	golang.org/x/sys v0.46.0
+	go.yaml.in/yaml/v3 v3.0.4
 )
 
 require (
