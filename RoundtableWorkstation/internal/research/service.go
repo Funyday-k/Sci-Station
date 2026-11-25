@@ -131,6 +131,8 @@ type Service struct {
 	workspaceTasks  workspaceTaskData
 	pathValidator   func(string) bool
 	newTaskReminder func(Task) (string, error)
+
+	onInterfaceLanguageChanged func()
 }
 
 func New(dir string) (*Service, error) {

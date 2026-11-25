@@ -10,16 +10,22 @@
   } [ch]));
   const enc = encodeURIComponent;
   const navigation = window.SciStationNav;
+  const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
+  const local = (key, zh, en) => window.SciStationI18n?.message?.(key) ?? text(zh, en);
   const names = {
-    overview: "项目概览",
-    projects: "项目",
-    papers: "共享文献",
-    notes: "项目 Wiki",
-    tasks: "任务与日历",
-    materials: "研究材料",
-    graph: "知识关联",
-    meetings: "工作圆桌",
-    code: "代码", data: "数据", experiments: "实验", writing: "写作", theory: "理论笔记"
+    get overview() { return local("routeOverview", "概览", "Overview"); },
+    get projects() { return local("routeProjects", "项目", "Projects"); },
+    get papers() { return local("routePapers", "论文", "Papers"); },
+    get notes() { return local("routeWiki", "Wiki", "Wiki"); },
+    get tasks() { return local("routeTasks", "任务", "Tasks"); },
+    get materials() { return local("routeMaterials", "材料", "Materials"); },
+    get graph() { return local("routeGraph", "图谱", "Graph"); },
+    get meetings() { return local("roundtable", "圆桌", "Roundtable"); },
+    get code() { return text("代码", "Code"); },
+    get data() { return text("数据", "Data"); },
+    get experiments() { return text("实验", "Experiments"); },
+    get writing() { return text("写作", "Writing"); },
+    get theory() { return text("理论笔记", "Theory Notes"); },
   };
   const glyphs = {
     overview: "dashboard",
@@ -40,14 +46,14 @@
     '<svg aria-hidden="true" class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round">' +
     shapes[key] + '</svg>' : window.RoundtableIcons.icon(key);
   const statusLabel = {
-    unread: "未读",
-    reading: "阅读中",
-    read: "已读",
-    open: "待办",
-    doing: "进行中",
-    inProgress: "进行中",
-    cancelled: "已取消",
-    done: "已完成"
+    get unread() { return text("未读", "Unread"); },
+    get reading() { return text("阅读中", "Reading"); },
+    get read() { return text("已读", "Read"); },
+    get open() { return text("待办", "Open"); },
+    get doing() { return text("进行中", "In progress"); },
+    get inProgress() { return text("进行中", "In progress"); },
+    get cancelled() { return text("已取消", "Cancelled"); },
+    get done() { return text("已完成", "Completed"); },
   };
   const colors = ["#8170c1", "#4c9188", "#cb835c", "#708abe", "#a1698e"];
   const state = {
@@ -235,7 +241,7 @@
   function fmtDate(raw) {
     if (!raw) return "";
     const d = new Date(raw);
-    return Number.isNaN(d.getTime()) ? raw : new Intl.DateTimeFormat("zh-CN", {
+    return Number.isNaN(d.getTime()) ? raw : new Intl.DateTimeFormat(window.SciStationI18n?.language || "zh-Hans", {
       month: "short",
       day: "numeric"
     }).format(d);
@@ -258,14 +264,15 @@
       const link = p.project_links?.[projectID];
       const meta = [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey];
       if (projectID) {
-        if (p.core_project_ids?.includes(projectID)) meta.push("核心文献");
-        if (link?.is_pinned) meta.push("已置顶");
-        if (link?.sort_order != null) meta.push("序号 " + link.sort_order);
-        if (link?.folder_path) meta.push("文件夹 " + link.folder_path);
-        if (link?.use_for?.length) meta.push("用途 " + link.use_for.join("、"));
+        if (p.core_project_ids?.includes(projectID)) meta.push(text("核心文献", "Core paper"));
+        if (link?.is_pinned) meta.push(text("已置顶", "Pinned"));
+        if (link?.sort_order != null) meta.push(text("序号 ", "Order ") + link.sort_order);
+        if (link?.folder_path) meta.push(text("文件夹 ", "Folder ") + link.folder_path);
+        if (link?.use_for?.length) meta.push(text("用途 ", "Purpose ") + link.use_for.join("、"));
       }
       return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
-        statusLabel[p.status] || "未读", (projectID ? button("论文 Wiki","open-paper-wiki",{id:p.id,kind:"bare"}) : "") + button("编辑", "edit-paper", {id: p.id, kind: "bare"}));
+        statusLabel[p.status] || statusLabel.unread, (projectID ? button(text("论文 Wiki", "Paper Wiki"), "open-paper-wiki", {id:p.id,kind:"bare"}) : "") +
+        button(local("settingsEdit", "编辑", "Edit"), "edit-paper", {id:p.id,kind:"bare"}));
     }));
   }
 
@@ -304,9 +311,9 @@
     const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
       ({key,name,href:viewURL(key),local:true}));
     tabs.push(
-      {key:"calendar",name:"日历",href:navigation.route("/research",{view:"tasks",tab:"calendar",project:state.project?.id})},
-      {key:"recommendations",name:"文献推荐",href:toolsPage("discover")},
-      {key:"lab",name:"AI 工作流",href:navigation.route("/lab",{project:state.project?.id})}
+      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:navigation.route("/research",{view:"tasks",tab:"calendar",project:state.project?.id})},
+      {key:"recommendations",name:text("文献推荐", "Recommendations"),href:toolsPage("discover")},
+      {key:"lab",name:text("AI 工作流", "AI Workflows"),href:navigation.route("/lab",{project:state.project?.id})}
     );
     const pins = state.modules?.pinnedOrder || [];
     const rank = tab => {
@@ -322,16 +329,16 @@
         'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '"><span class="project-dot" style="--project-color:' + colors[i % colors.length] + '"></span><span>' + esc(p
       .name) + '</span></a>').join("");
-    const title = state.view === "overview" && !state.project ? "首页" : names[state.view];
-    $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">项目</a><span>/</span><a href="' +
+    const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
+    $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
       esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
     document.title = title + " · Sci-Station";
   }
 
   function projectDirectory() {
-    const create = button("新建项目", "new-project", {kind: "button primary", glyph: "plus"});
-    return heading("项目", "", button("已归档项目", "archived-projects") + create) +
-      panel("我的项目 · " + state.projects.length, state.projects.length ? projectRows(state.projects) : empty("暂无项目"));
+    const create = button(local("toolbarNewProject", "新建项目", "New Project"), "new-project", {kind: "button primary", glyph: "plus"});
+    return heading(names.projects, "", button(local("projectsArchivedTitle", "已归档项目", "Archived Projects"), "archived-projects") + create) +
+      panel("我的项目 · " + state.projects.length, state.projects.length ? projectRows(state.projects) : empty(local("sidebarNoProjects", "暂无项目", "No projects")));
   }
 
   function projectRows(projects) {
@@ -358,7 +365,7 @@
       button("已归档页面", "archived-notes") +
       button("新建目录", "new-wiki-folder", {glyph: "folder"}) +
       button("从论文创建", "new-paper-wiki") +
-      button("新建页面", "new-note", {glyph: "plus", kind: "button primary"});
+      button(local("toolbarWikiNewPage", "新建页面", "New Page"), "new-note", {glyph: "plus", kind: "button primary"});
     const folders = state.wikiFolders.length ? panel("目录", list(state.wikiFolders.map(path =>
       row("folder", path, "", rowAction("read-wiki-folder", path))))) : "";
     return heading("项目 Wiki", state.project.name, tools) + folders +
@@ -385,22 +392,23 @@
     const papers = E.library.filterPapers(all, projectID);
     const filtered = Boolean(state.query.trim() || state.libraryCollection || state.libraryTag);
     const actions = (papers.length ? E.library.exportButton(papers) : "") +
-      button("管理集合和标签", "manage-library") + button("导入文献", "new-paper", {
+      button(text("管理集合和标签", "Manage collections and tags"), "manage-library") + button(text("导入文献", "Import papers"), "new-paper", {
       glyph: "import",
       kind: "button primary"
     });
-    return heading(limited ? "项目文献" : "文献库", "", link("文献发现", toolsPage("discover")) + link("PDF 转换", toolsPage("convert")) + actions) +
+    return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", link(text("文献发现", "Discover papers"), toolsPage("discover")) + link(text("PDF 转换", "PDF conversion"), toolsPage("convert")) + actions) +
       '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
-      '" placeholder="搜索标题、作者、DOI…" aria-label="筛选文献">' + E.library.renderFilters(all) + '</div>' +
-      panel((limited ? state.project.name : "文献") + " · " + papers.length + " 篇",
-        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? "没有匹配的文献" : "还没有收录文献",
-          filtered ? "" : "添加本地 PDF 或线上文献记录。", filtered ? "" : button("导入文献", "new-paper", {
+      '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
+      '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) + '</div>' +
+      panel((limited ? state.project.name : local("routePapers", "论文", "Papers")) + " · " + papers.length,
+        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? text("没有匹配的文献", "No matching papers") : text("还没有收录文献", "The library is empty"),
+          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier."), filtered ? "" : button(text("导入文献", "Import papers"), "new-paper", {
             glyph: "import"
           })));
   }
 
   function projectNeeded() {
-    return heading(names[state.view]) + panel("科研项目", empty("请选择科研项目", "", link("项目列表", viewURL("projects", null)) + button("新建项目",
+    return heading(names[state.view]) + panel(text("科研项目", "Research projects"), empty(text("请选择科研项目", "Select a research project"), "", link(text("项目列表", "Projects"), viewURL("projects", null)) + button(local("toolbarNewProject", "新建项目", "New Project"),
     "new-project", {
       kind: "button primary",
       glyph: "plus"
@@ -447,12 +455,12 @@
     let out = "";
     if (state.loadError) {
       $("main").setAttribute("aria-busy", "false");
-      $("main").innerHTML = heading("读取工作区时遇到问题") + panel("本机服务", empty(state.loadError, "", button("重试", "reload") + link("项目列表", viewURL("projects", null))));
+      $("main").innerHTML = heading(text("读取工作区时遇到问题", "Could not load workspace")) + panel(text("本机服务", "Local service"), empty(state.loadError, "", button(local("homeRetry", "重试", "Retry"), "reload") + link(text("项目列表", "Projects"), viewURL("projects", null))));
       return;
     }
     if (state.view === "overview") out = dashboard.markup(state, dashboardUI);
     else if (["code","data","experiments","writing","theory"].includes(state.view)) {
-      out = heading(names[state.view], state.project?.name) + panel(names[state.view], empty("此模块尚未提供编辑器", "", state.project ? link("查看研究材料",viewURL("materials")) : ""));
+      out = heading(names[state.view], state.project?.name) + panel(names[state.view], empty(text("此模块尚未提供编辑器", "This module has no editor yet"), "", state.project ? link(text("查看研究材料", "Open Materials"),viewURL("materials")) : ""));
     }
     else if (state.view === "projects") out = projectDirectory();
     else if (state.view === "papers") out = publicLibrary();
@@ -819,6 +827,8 @@
   }
   const E = {
     state,
+    text,
+    local,
     $,
     esc,
     enc,
@@ -926,7 +936,7 @@
         const n = state.graphResult?.nodes.find(n => n.id === id) || state.graph.nodes.find(n => n.id === id);
         if (!n) return;
         const raw = n.id.replace(/^(?:note|paper|task)[:/]/, "");
-        if (n.kind === "reference") dialog("外部引文", empty(n.label, "此标识符尚未关联到库内论文。", button("导入文献", "new-paper")));
+        if (n.kind === "reference") dialog("外部引文", empty(n.label, "此标识符尚未关联到库内论文。", button(text("导入文献", "Import papers"), "new-paper")));
         else if (n.kind === "paper") location.href = reader(raw);
         else if (n.kind === "meeting") location.href = studio(n.id.slice("meeting:".length));
         else if (n.kind === "missing") dialog("来源已移除", empty("此条目当前不可用"));
@@ -993,6 +1003,7 @@
     const view = u.searchParams.get("view") || "overview";
     const task = u.searchParams.get("task");
     state.calendar = u.searchParams.get("calendar") === "1";
+    await window.SciStationI18n?.ready;
     await load(project, view, {historyMode: "none"});
     if (task && view === "tasks" && !state.loadError && location.href === u.href &&
         (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
@@ -1009,6 +1020,9 @@
       return;
     }
     route();
+  });
+  window.addEventListener("sci:language", () => {
+    if ($("main").getAttribute("aria-busy") === "false" && !$("modal").open) render();
   });
   window.addEventListener("pageshow", ev => {
     if (ev.persisted) route();

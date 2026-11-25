@@ -470,7 +470,7 @@
           <div class="page-scroll">
             <div class="settings-layout">
               <nav class="settings-nav" aria-label="设置分类" data-en-aria-label="Settings categories" role="tablist" aria-orientation="vertical">
-                <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-en="Workspace modules" tabindex="-1">工作区模块</button>
+                <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-l10n-text="settingsWorkspaceModules" tabindex="-1">工作区模块</button>
                 <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models" data-en="Model sources">模型来源</button>
                 <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
                 <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
@@ -580,15 +580,15 @@
                   </section>
                   <section id="settings-panel-appearance" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
                     <section class="settings-section" aria-labelledby="interface-language-heading">
-                      <h2 id="interface-language-heading" data-en="Interface language">界面语言</h2>
+                      <h2 id="interface-language-heading" data-l10n-text="settingsInterfaceLanguage">界面语言</h2>
                       <div class="settings-card">
-                        <label class="sr-only" for="interface-language" data-en="Interface language">界面语言</label>
+                        <label class="sr-only" for="interface-language" data-l10n-text="settingsInterfaceLanguage">界面语言</label>
                         <select id="interface-language" disabled aria-describedby="interface-language-help">
                           <option value="system" data-en="Follow system">跟随系统</option>
                           <option value="zh-Hans">简体中文</option>
                           <option value="en">English</option>
                         </select>
-                        <p id="interface-language-help" class="quiet" data-en="Applies to navigation and workspace modules. Some work screens still use Chinese.">适用于导航和工作区模块。部分功能界面仍使用中文。</p>
+                        <p id="interface-language-help" class="quiet" data-l10n-text="settingsLanguageHelp">语言设置会用于已经统一的新界面文案。</p>
                         <p id="interface-language-status" class="quiet" role="status"></p>
                       </div>
                     </section>
@@ -667,7 +667,7 @@
                   </div>
                 </section>
                 <section id="settings-panel-modules" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-modules" hidden>
-                  <h2 class="settings-panel-title" data-en="Workspace modules">工作区模块</h2>
+                  <h2 class="settings-panel-title" data-l10n-text="settingsWorkspaceModules">工作区模块</h2>
                   <div class="module-settings-scope">
                     <label for="module-settings-project" data-en="Scope">范围</label>
                     <select id="module-settings-project" disabled><option data-en="Workspace defaults" value="">工作区默认</option></select>

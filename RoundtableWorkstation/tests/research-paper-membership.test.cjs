@@ -9,6 +9,7 @@ const vm = require("node:vm");
 function loadLibrary(ui, globals = {}) {
   ui.state.organization ||= {revision: 0, collections: {}, tags: {}};
   ui.start = () => {};
+  ui.statusLabel = {unread: "Unread", reading: "Reading", read: "Read"};
   const ctx = vm.createContext({
     window: {SciResearch: ui, addEventListener() {}},
     document: {addEventListener() {}, createElement: () => ({})},

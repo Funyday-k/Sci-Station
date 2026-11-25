@@ -1,5 +1,8 @@
 "use strict";
 (() => {
+  const text = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
+  const local = (key, zh, en) => globalThis.SciStationI18n?.message?.(key) ?? text(zh, en);
+  const locale = () => globalThis.SciStationI18n?.language || "zh-Hans";
   const sizes = {small: "小", wide: "宽", tall: "高", medium: "中", large: "大"};
   const homeWidgets = [
     ["today", "今日任务", "medium", "tasks"],
@@ -12,6 +15,12 @@
     ["quick_actions", "快速操作", "medium"],
     ["meetings", "最近圆桌", "medium", "ai-lab"]
   ];
+  const homeTitles = {
+    today: ["homeWidgetToday", "Today"], active_projects: ["homeWidgetActiveProjects", "Active Projects"],
+    ai_review: ["homeWidgetAIReview", "AI Review"], calendar: ["homeWidgetCalendar", "Calendar"],
+    recent_papers: ["homeWidgetRecentPapers", "Recent Papers"], reading_plan: ["homeWidgetReading", "Reading"],
+    project_health: ["homeWidgetProjectHealth", "Project Health"], quick_actions: ["homeWidgetQuickActions", "Quick Actions"]
+  };
   const projectWidgets = [
     ["project_status", "项目状态", "small"],
     ["research_questions", "研究问题", "small", "wiki"],
@@ -25,6 +34,13 @@
     ["workflow", "工作流", "medium", "ai-lab"]
   ];
 
+  const projectTitles = {project_status: "Project Status", research_questions: "Research Questions", project_brief: "Project Brief",
+    core_papers: "Core Papers", current_tasks: "Current Tasks", materials: "Materials", knowledge_gaps: "Knowledge Gaps",
+    recent_activity: "Recent Activity", project_documents: "Project Documents", workflow: "Workflows"};
+  function widgetTitle([id, zh]) {
+    const [key, english] = homeTitles[id] || [];
+    return key ? local(key, zh, english) : text(zh, projectTitles[id] || "Recent Roundtables");
+  }
   const layouts = new Map();
   const timestamp = item => item.last_read_at || item.updatedAt || item.updated_at || item.createdAt || item.created_at || "";
   const instant = value => Date.parse(value) || 0;
@@ -80,12 +96,12 @@
   }
 
   function stage({papers, notes, gaps, kinds, activity}, now) {
-    if (activity && +now - activity > 21 * 86400000) return ["on_hold", "搁置", "最近 21 天无活动"];
-    if (kinds.has("reviewer_response")) return ["reviewing", "审阅", "已登记审稿回复"];
-    if (kinds.has("writing_revision") || kinds.has("related_work")) return ["drafting", "撰写", "已登记写作修订或相关工作"];
-    if (papers >= 5 && gaps > 0 && kinds.has("research_plan")) return ["planning", "规划", "已有研究计划、论文和待研究缺口"];
-    if (papers < 5 && notes < 3 && !kinds.size) return ["exploration", "探索", "论文少于五篇，且项目笔记少于三篇"];
-    return ["planning", "规划", "已积累项目资料"];
+    if (activity && +now - activity > 21 * 86400000) return ["on_hold", text("搁置", "On hold"), text("最近 21 天无活动", "No activity in the last 21 days")];
+    if (kinds.has("reviewer_response")) return ["reviewing", text("审阅", "In review"), text("已登记审稿回复", "Reviewer response recorded")];
+    if (kinds.has("writing_revision") || kinds.has("related_work")) return ["drafting", text("撰写", "Drafting"), text("已登记写作修订或相关工作", "Writing revisions or related work recorded")];
+    if (papers >= 5 && gaps > 0 && kinds.has("research_plan")) return ["planning", text("规划", "Planning"), text("已有研究计划、论文和待研究缺口", "Research plan, papers, and research gaps recorded")];
+    if (papers < 5 && notes < 3 && !kinds.size) return ["exploration", text("探索", "Exploration"), text("论文少于五篇，且项目笔记少于三篇", "Fewer than five papers and three project notes")];
+    return ["planning", text("规划", "Planning"), text("已积累项目资料", "Project materials recorded")];
   }
 
   function grouped(items, keys) {
@@ -203,7 +219,7 @@
     const board = preference(state, descriptors);
     const isEnabled = id => enabled(modules, id);
     const today = calendarKey(now);
-    const dateHeading = new Intl.DateTimeFormat("zh-CN", {dateStyle: "full"}).format(now);
+    const dateHeading = new Intl.DateTimeFormat(locale(), {dateStyle: "full"}).format(now);
     const dateStr = value => /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fmtDate(value);
     const dashboardNav = (title, view, id = project?.id) => link(title, viewURL(view, id), "bare");
     const reviewURL = r => window.SciStationNav.route("/studio", {project: r.projectId, session: r.meetingId, review: r.id});
@@ -224,36 +240,38 @@
     const pending = (reviews || []).filter(r => r.status === "pending" && (!project || r.projectId === project.id)).sort(recent);
     const paperLimit = size => ({small: 1, wide: 2, tall: 3, medium: 4, large: 6})[size];
     const sections = project ? projectSections() : homeSections();
-    const title = project ? project.name : (workspace?.name || "首页");
+    const title = project ? project.name : (workspace?.name || local("routeHome", "首页", "Home"));
     const edit = '<button type="button" class="button" data-dashboard-control="edit" aria-expanded="' + board.editing + '"' +
-      ' aria-controls="dashboard-layout">' + (board.editing ? "完成布局" : "自定义组件") + '</button>';
-    const projectActions = project ? button("项目设置", "edit-project", {glyph: "sliders"}) +
-      (isEnabled("ai-lab") ? link("进入圆桌", studio(), "button primary", "chat") : "") : "";
+      ' aria-controls="dashboard-layout">' + (board.editing ? local("homeDoneEditing", "完成布局", "Done") : local("homeEditLayout", "自定义组件", "Edit Layout")) + '</button>';
+    const projectActions = project ? button(local("projectsEditInfo", "项目设置", "Edit Project Info"), "edit-project", {glyph: "sliders"}) +
+      (isEnabled("ai-lab") ? link(text("进入圆桌", "Open Roundtable"), studio(), "button primary", "chat") : "") : "";
     const available = new Map(descriptors.filter(([, , , required]) => isEnabled(required)).map(d => [d[0], d]));
     const visible = board.items.filter(item => item.visible && available.has(item.id));
     const widget = item => {
-      const [, title] = available.get(item.id);
+      const title = widgetTitle(available.get(item.id));
       const handle = board.editing ? '<span aria-hidden="true" class="dashboard-drag" draggable="true" title="拖动排序">⠿</span>' : "";
       return '<article class="dashboard-widget dashboard-' + item.size + '" data-dashboard-widget="' + item.id + '">' +
         handle + panel(title, sections[item.id](paperLimit(item.size))) + '</article>';
     };
     const layoutOption = (item, index, availableItems) => {
-      const [id, label] = available.get(item.id);
+      const id = item.id, label = widgetTitle(available.get(item.id));
       const options = Object.entries(sizes).map(([size, label]) => '<option value="' + size + '"' +
-        (item.size === size ? ' selected' : '') + '>' + label + '</option>').join("");
+        (item.size === size ? ' selected' : '') + '>' + text(label, size) + '</option>').join("");
       return '<div class="dashboard-layout-row" data-dashboard-option="' + id + '"><label><input type="checkbox" data-dashboard-control="visible"' +
-        (item.visible ? ' checked' : '') + '> ' + label + '</label><select aria-label="' + label + '尺寸" data-dashboard-control="size">' +
-        options + '</select>' + direction("up", "上移", index === 0) + direction("down", "下移", index === availableItems.length - 1) + '</div>';
+        (item.visible ? ' checked' : '') + '> ' + esc(label) + '</label><select aria-label="' + esc(text(`${label}尺寸`, `Size of ${label}`)) + '" data-dashboard-control="size">' +
+        options + '</select>' + direction("up", local("homeMoveEarlier", "上移", "Move earlier"), index === 0) +
+        direction("down", local("homeMoveLater", "下移", "Move later"), index === availableItems.length - 1) + '</div>';
       function direction(direction, text, disabled) {
-        return '<button type="button" class="bare" data-dashboard-control="' + direction + '" aria-label="' + text + label + '"' +
+        return '<button type="button" class="bare" data-dashboard-control="' + direction + '" aria-label="' + esc(`${text} ${label}`) + '"' +
           (disabled ? ' disabled' : '') + '>' + text + '</button>';
       }
     };
-    const gallery = board.editing ? '<section id="dashboard-layout" class="panel dashboard-layout" aria-label="自定义组件">' +
+    const gallery = board.editing ? '<section id="dashboard-layout" class="panel dashboard-layout" aria-label="' +
+      esc(local("homeWidgetGallery", "小组件库", "Widget Gallery")) + '">' +
       '<div class="dashboard-layout-options">' + board.items.filter(i => available.has(i.id)).map(layoutOption).join("") + '</div>' +
-      '<button type="button" class="button" data-dashboard-control="reset">恢复默认布局</button></section>' : '<div id="dashboard-layout" hidden></div>';
+      '<button type="button" class="button" data-dashboard-control="reset">' + esc(local("homeResetDefault", "恢复默认布局", "Reset Default")) + '</button></section>' : '<div id="dashboard-layout" hidden></div>';
     return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit) + gallery +
-      (visible.length ? '<div class="dashboard-grid">' + visible.map(widget).join("") + '</div>' : ui.empty("没有显示的组件")) + '</div>';
+      (visible.length ? '<div class="dashboard-grid">' + visible.map(widget).join("") + '</div>' : ui.empty(local("homeNoEnabledWidgets", "没有显示的组件", "No widgets are enabled."))) + '</div>';
 
     function homeSections() {
       const reading = state.papers.filter(p => p.status === "unread" || p.status === "reading")
@@ -262,26 +280,26 @@
         [isEnabled("paper-library") && summary.core.length + " 篇核心文献", isEnabled("tasks") && summary.activeTasks.length + " 项待办",
           isEnabled("tasks") && summary.next && dateLabel(summary.next)].filter(Boolean).join(" · "),
         'a data-project="' + esc(summary.project.id) + '" href="' + esc(viewURL("overview", summary.project.id)) + '"',
-        summary.stage?.[1] || "阶段暂不可用")));
+        summary.stage?.[1] || text("阶段暂不可用", "Stage unavailable"))));
       return {
-        today: limit => groupedMetrics(metric(due.length, "今日到期或逾期"), metric(upcoming.length, "未来两周"),
-          isEnabled("paper-library") && metric(reading.length, "篇待读"), isEnabled("ai-lab") && reviews && metric(pending.length, "项待审核")) +
-          callout(due.slice(0, limit), taskRows, "今天没有到期任务") + (upcoming.length && limit > 1
-            ? subhead("近期截止") + taskRows(upcoming.slice(0, Math.min(limit - 1, 3))) : "") + dashboardNav("查看任务", "tasks"),
-        active_projects: limit => callout(overview.slice(0, limit), projectRows, "暂无活跃项目") + dashboardNav("全部项目", "projects"),
-        ai_review: limit => reviews ? groupedMetrics(metric(pending.length, "项待审核")) + callout(pending.slice(0, limit), items =>
+        today: limit => groupedMetrics(metric(due.length, text("今日到期或逾期", "due today or overdue")), metric(upcoming.length, text("未来两周", "in the next two weeks")),
+          isEnabled("paper-library") && metric(reading.length, text("篇待读", "to read")), isEnabled("ai-lab") && reviews && metric(pending.length, text("项待审核", "for review"))) +
+          callout(due.slice(0, limit), taskRows, text("今天没有到期任务", "No tasks are due today")) + (upcoming.length && limit > 1
+            ? subhead(text("近期截止", "Upcoming deadlines")) + taskRows(upcoming.slice(0, Math.min(limit - 1, 3))) : "") + dashboardNav(text("查看任务", "View tasks"), "tasks"),
+        active_projects: limit => callout(overview.slice(0, limit), projectRows, text("暂无活跃项目", "No active projects")) + dashboardNav(text("全部项目", "All projects"), "projects"),
+        ai_review: limit => reviews ? groupedMetrics(metric(pending.length, text("项待审核", "for review"))) + callout(pending.slice(0, limit), items =>
           list(items.map(r => row("file", r.title, [state.projects.find(p => p.id === r.projectId)?.name, fmtDate(r.createdAt)].filter(Boolean).join(" · "),
-            'a href="' + esc(reviewURL(r)) + '"'))), "暂无待审核草稿") : message("暂时无法读取审核队列"),
+            'a href="' + esc(reviewURL(r)) + '"'))), text("暂无待审核草稿", "No drafts to review")) : message(text("暂时无法读取审核队列", "Could not load the review queue")),
         calendar: calendarWidget,
-        recent_papers: limit => callout(state.papers.slice().sort(recent).slice(0, limit), paperRows, "暂无文献") + dashboardNav("文献库", "papers"),
-        reading_plan: limit => groupedMetrics(metric(reading.length, "篇待读")) +
-          callout(reading.slice(0, limit), paperRows, "暂无待读论文") + dashboardNav("文献库", "papers"),
-        project_health: () => groupedMetrics(metric(overview.length, "个活跃项目"),
-          isEnabled("tasks") && metric(due.filter(t => t.dueDate < today).length, "项逾期任务")) + dashboardNav("全部项目", "projects"),
-        quick_actions: () => '<div class="actions">' + [isEnabled("projects") && button("新建项目", "new-project"),
-          isEnabled("paper-library") && button("导入文献", "new-paper"), isEnabled("tasks") && button("添加任务", "new-task"),
-          isEnabled("ai-lab") && link("AI 实验室", url("/lab"))].filter(Boolean).join("") + '</div>',
-        meetings: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, "暂无圆桌") + link("打开圆桌", studio(), "bare")
+        recent_papers: limit => callout(state.papers.slice().sort(recent).slice(0, limit), paperRows, text("暂无文献", "No papers yet")) + dashboardNav(local("routeLibrary", "文献库", "Library"), "papers"),
+        reading_plan: limit => groupedMetrics(metric(reading.length, text("篇待读", "to read"))) +
+          callout(reading.slice(0, limit), paperRows, local("homeReadingEmpty", "暂无待读论文", "No papers to read yet.")) + dashboardNav(local("routeLibrary", "文献库", "Library"), "papers"),
+        project_health: () => groupedMetrics(metric(overview.length, text("个活跃项目", "active projects")),
+          isEnabled("tasks") && metric(due.filter(t => t.dueDate < today).length, text("项逾期任务", "overdue tasks"))) + dashboardNav(text("全部项目", "All projects"), "projects"),
+        quick_actions: () => '<div class="actions">' + [isEnabled("projects") && button(local("toolbarNewProject", "新建项目", "New Project"), "new-project"),
+          isEnabled("paper-library") && button(text("导入文献", "Import papers"), "new-paper"), isEnabled("tasks") && button(text("添加任务", "New task"), "new-task"),
+          isEnabled("ai-lab") && link(local("routeAILab", "AI 实验室", "AI Lab"), url("/lab"))].filter(Boolean).join("") + '</div>',
+        meetings: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, text("暂无圆桌", "No Roundtables yet")) + link(local("openRoundtable", "打开圆桌", "Open Roundtable"), studio(), "bare")
       };
     }
 
@@ -289,15 +307,16 @@
       const selected = board.selected || today;
       const selectedDate = localDay(selected);
       const display = monthAt(board.month || selectedDate, 0);
-      const dateFormat = new Intl.DateTimeFormat("zh-CN", {dateStyle: "long"});
+      const dateFormat = new Intl.DateTimeFormat(locale(), {dateStyle: "long"});
       const calendarTasks = isEnabled("tasks") ? state.tasks : [];
       const events = tasksOn(calendarTasks, selected);
       const controls = '<div class="dashboard-calendar-head"><b>' +
-        new Intl.DateTimeFormat("zh-CN", {year: "numeric", month: "long"}).format(display) + '</b>' +
-        '<div><button type="button" class="bare" data-dashboard-control="prev-month" aria-label="上一月">‹</button>' +
-        '<button type="button" class="bare" data-dashboard-control="today">今天</button>' +
-        '<button type="button" class="bare" data-dashboard-control="next-month" aria-label="下一月">›</button></div></div>';
-      const weekdays = Array.from("一二三四五六日", label => '<span aria-hidden="true">' + label + '</span>').join("");
+        new Intl.DateTimeFormat(locale(), {year: "numeric", month: "long"}).format(display) + '</b>' +
+        '<div><button type="button" class="bare" data-dashboard-control="prev-month" aria-label="' + esc(text("上一月", "Previous month")) + '">‹</button>' +
+        '<button type="button" class="bare" data-dashboard-control="today">' + esc(local("homeWidgetToday", "今天", "Today")) + '</button>' +
+        '<button type="button" class="bare" data-dashboard-control="next-month" aria-label="' + esc(text("下一月", "Next month")) + '">›</button></div></div>';
+      const weekdays = text(["一", "二", "三", "四", "五", "六", "日"], ["M", "T", "W", "T", "F", "S", "S"])
+        .map(label => '<span aria-hidden="true">' + label + '</span>').join("");
       const days = calendarMonth(display).map(date => {
         const key = calendarKey(date);
         if (date.getMonth() !== display.getMonth()) return '<span aria-hidden="true"></span>';
@@ -305,14 +324,14 @@
           const start = t.startDate || t.dueDate;
           return start && start <= key && (t.dueDate || start) >= key;
         }).length;
-        const label = dateFormat.format(date) + (count ? "，" + count + " 项任务" : "");
+        const label = dateFormat.format(date) + (count ? text(`，${count} 项任务`, `, ${count} tasks`) : "");
         return '<button type="button" class="dashboard-day' + (count ? ' has-events' : '') + '" data-dashboard-control="pick-day" value="' + key +
           '" aria-label="' + esc(label) + '" aria-pressed="' + (key === selected) + '"' + (key === today ? ' aria-current="date"' : '') +
           '>' + date.getDate() + '</button>';
       }).join("");
       return controls + '<div class="dashboard-month">' + weekdays + days + '</div>' + subhead(dateFormat.format(selectedDate)) +
-        callout(events.slice(0, limit), taskRows, "当天没有任务") + '<div class="dashboard-calendar-links">' + link("打开日历", calendar, "bare") +
-        link("系统日历", ui.toolsPage("calendar"), "bare") + '</div>';
+        callout(events.slice(0, limit), taskRows, text("当天没有任务", "No tasks on this day")) + '<div class="dashboard-calendar-links">' + link(text("打开日历", "Open calendar"), calendar, "bare") +
+        link(text("系统日历", "System calendar"), ui.toolsPage("calendar"), "bare") + '</div>';
     }
 
     function projectSections() {
@@ -327,24 +346,24 @@
           'a href="' + esc(ui.reader(p.id)) + '"')})) : []),
         ...(isEnabled("materials") ? materials.map(m => ({date: timestamp(m), html: row("file", m.name, fmtDate(m.updatedAt), rowAction("read-material", m.id))})) : []),
         ...(isEnabled("ai-lab") ? info.drafts.filter(r => r.status !== "rejected").map(r => ({date: timestamp(r), html: row("file", r.title,
-          fmtDate(timestamp(r)), 'a href="' + esc(reviewURL(r)) + '"', r.status === "accepted" ? "已接受" : "待审核")})) : [])
+          fmtDate(timestamp(r)), 'a href="' + esc(reviewURL(r)) + '"', r.status === "accepted" ? text("已接受", "Accepted") : text("待审核", "In review"))})) : [])
       ].sort((a, b) => instant(b.date) - instant(a.date));
       return {
         project_status: () => stageBadge(info) + (info.stage ? message(info.stage[2]) : "") + groupedMetrics(
-          isEnabled("paper-library") && metric(info.linked.length, "篇论文"), isEnabled("paper-library") && metric(core.length, "篇核心论文"),
-          isEnabled("wiki") && metric(notes.length, "篇笔记"), isEnabled("tasks") && metric(info.activeTasks.length, "项待办"),
-          isEnabled("ai-lab") && reviews && metric(pending.length, "项待审核")) + (isEnabled("tasks") && info.next
-          ? subhead("下一项截止") + taskRows([info.next]) : ""),
+          isEnabled("paper-library") && metric(info.linked.length, text("篇论文", "papers")), isEnabled("paper-library") && metric(core.length, text("篇核心论文", "core papers")),
+          isEnabled("wiki") && metric(notes.length, text("篇笔记", "notes")), isEnabled("tasks") && metric(info.activeTasks.length, text("项待办", "open tasks")),
+          isEnabled("ai-lab") && reviews && metric(pending.length, text("项待审核", "for review"))) + (isEnabled("tasks") && info.next
+          ? subhead(text("下一项截止", "Next deadline")) + taskRows([info.next]) : ""),
         research_questions: limit => callout(researchQuestions(brief?.body).slice(0, limit), items => '<ul class="dashboard-questions">' +
           items.map(item => '<li>' + esc(item) + '</li>').join("") + '</ul>', "简报中暂无研究问题"),
         project_brief: limit => (brief ? '<p class="dashboard-brief">' + esc(brief.body.slice(0, limit * 180)) + '</p>' +
-          button("编辑简报", "edit-note", {id: brief.id, kind: "bare"}) : message("暂无项目简报") + dashboardNav("打开 Wiki", "notes")),
-        core_papers: limit => callout(core.slice(0, limit), items => paperRows(items, project.id), "暂无核心论文") + dashboardNav("项目论文", "papers"),
-        current_tasks: limit => callout(info.activeTasks.slice(0, limit), taskRows, "暂无未完成任务") + dashboardNav("查看任务", "tasks"),
+          button("编辑简报", "edit-note", {id: brief.id, kind: "bare"}) : message(text("暂无项目简报", "No project brief")) + dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes")),
+        core_papers: limit => callout(core.slice(0, limit), items => paperRows(items, project.id), text("暂无核心论文", "No core papers yet")) + dashboardNav(text("项目论文", "Project papers"), "papers"),
+        current_tasks: limit => callout(info.activeTasks.slice(0, limit), taskRows, text("暂无未完成任务", "No open tasks")) + dashboardNav(text("查看任务", "View tasks"), "tasks"),
         materials: limit => callout(materials.slice(0, limit), items => list(items.map(m => row("file", m.name, fmtDate(m.updatedAt),
-          rowAction("read-material", m.id)))), "暂无材料") + dashboardNav("全部材料", "materials"),
-        knowledge_gaps: limit => callout(gaps.slice(0, limit), noteRows, "没有登记的研究缺口") + dashboardNav("打开 Wiki", "notes"),
-        recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)), "暂无近期活动"),
+          rowAction("read-material", m.id)))), text("暂无材料", "No materials")) + dashboardNav("全部材料", "materials"),
+        knowledge_gaps: limit => callout(gaps.slice(0, limit), noteRows, "没有登记的研究缺口") + dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes"),
+        recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)), text("暂无近期活动", "No recent activity")),
         project_documents: limit => callout(notes.slice(0, limit), noteRows, "暂无项目文档") + dashboardNav("全部文档", "notes"),
         workflow: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, "暂无项目圆桌") +
           link("AI 工作流", url("/lab", {project: project.id}), "bare") + dashboardNav("全部圆桌", "meetings")

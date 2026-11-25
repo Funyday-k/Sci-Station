@@ -17,14 +17,14 @@
   <div class="workspace-bar">
     <a class="workspace-brand" href="/research" aria-label="Sci-Station"><img src="/static/roundtable-mark.png" width="25" height="25" alt=""><span>Sci-Station</span></a>
     <div class="workspace-history">
-      <button type="button" data-command="back" aria-label="后退" data-en-aria-label="Back" title="后退">‹</button>
-      <button type="button" data-command="forward" aria-label="前进" data-en-aria-label="Forward" title="前进">›</button>
+      <button type="button" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back">‹</button>
+      <button type="button" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward">›</button>
     </div>
-    <nav data-workspace-nav aria-label="工作区导航" data-en-aria-label="Workspace navigation"></nav>
+    <nav data-workspace-nav aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation"></nav>
     <a data-project-back hidden href="/research">返回当前项目</a>
     {{if .Desktop}}<details class="workspace-roots">
-      <summary data-en="Workspace">工作区</summary>
-      <div><button type="button" data-root-action="open" data-en="Open workspace…">打开工作区…</button><button type="button" data-root-action="create" data-en="Create workspace…">创建工作区…</button></div>
+      <summary data-l10n-text="toolbarWorkspace">工作区</summary>
+      <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
     </details>{{end}}
   </div>
   {{template "content" .}}

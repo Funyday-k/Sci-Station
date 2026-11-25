@@ -3,6 +3,8 @@
   const E = window.SciResearch;
   const {state, esc, enc, request, button, dialog, render, refresh, toast} = E;
   const {field, input, area, select, bindForm, formFooter, done, value} = E.libraryForm;
+  const text = (zh, en) => E.text?.(zh, en) ?? zh;
+  const local = (key, zh, en) => E.local?.(key, zh, en) ?? text(zh, en);
   const organizationPath = "papers/organization";
   const bibtexPath = "papers/bibtex";
   const selected = new Set();
@@ -38,7 +40,7 @@
   function collectionField(paper) {
     const initial = paper ? paper.collection_id || "" :
       state.libraryCollection === "unfiled" ? "" : state.libraryCollection || libraryPreferences().default_collection || "";
-    return field("文献集合", select("collection_id", [["", "未归类"], ...collectionOptions()], initial));
+    return field(text("文献集合", "Collection"), select("collection_id", [["", text("未归类", "Unfiled")], ...collectionOptions()], initial));
   }
 
   const stringMetadata = [
@@ -114,12 +116,12 @@
   }
 
   function renderFilters(papers) {
-    const collections = [["", "全部集合"], ["unfiled", "未归类"], ...collectionOptions()];
+    const collections = [["", text("全部集合", "All collections")], ["unfiled", text("未归类", "Unfiled")], ...collectionOptions()];
     const tags = [...new Set([state.libraryTag, ...papers.flatMap(p => p.tags || []), ...Object.keys(state.organization.tags)])]
       .filter(Boolean).sort((a, b) => a.localeCompare(b));
     return '<div class="library-filters">' +
-      field("集合", select("library-collection", collections, state.libraryCollection, "集合")) +
-      field("标签", select("library-tag", [["", "全部标签"], ...tags.map(tag => [tag, tag])], state.libraryTag, "标签")) +
+      field(text("集合", "Collection"), select("library-collection", collections, state.libraryCollection, text("集合", "Collection"))) +
+      field(text("标签", "Tag"), select("library-tag", [["", text("全部标签", "All tags")], ...tags.map(tag => [tag, tag])], state.libraryTag, text("标签", "Tag"))) +
       '</div>';
   }
 
@@ -144,7 +146,7 @@
   }
 
   function selectionCheckbox(paper) {
-    return '<input type="checkbox" data-library-selection="' + esc(paper.id) + '" aria-label="' + esc("选择文献 " + paper.title) +
+    return '<input type="checkbox" data-library-selection="' + esc(paper.id) + '" aria-label="' + esc(text("选择文献 ", "Select paper ") + paper.title) +
       '"' + (selected.has(paper.id) ? " checked" : "") + '>';
   }
 
@@ -152,8 +154,8 @@
   const clearSelection = () => selected.clear();
   function exportButton(papers) {
     const count = selection(papers).length;
-    return (count ? button("批量编辑（" + count + " 篇）", "edit-library-selection") : "") +
-      button(count ? "导出所选 BibTeX" : "导出 BibTeX", "export-library-bibtex");
+    return (count ? button(text(`批量编辑（${count} 篇）`, `Edit ${count} selected`), "edit-library-selection") : "") +
+      button(count ? local("menuExportBibTeXForSelection", "导出所选 BibTeX", "Export BibTeX for Selection") : local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-library-bibtex");
   }
 
   const projectNames = ids => (ids || []).map(id => state.projects.find(project => project.id === id)?.name).filter(Boolean).join("、");
@@ -298,7 +300,7 @@
     const papers = selection(visiblePapers);
     if (!papers.length) return;
     const keep = ["keep", "保留当前"];
-    const fields = field("移动到集合", select("collection_id", [keep, ["", "未归类"], ...collectionOptions()], "keep")) +
+    const fields = field("移动到集合", select("collection_id", [keep, ["", text("未归类", "Unfiled")], ...collectionOptions()], "keep")) +
       field("阅读状态", select("status", [keep, ...Object.entries(E.statusLabel).filter(([key]) =>
         ["unread", "reading", "read"].includes(key))], "keep")) +
       '<div class="split">' + field("评分（0–5）", input("rating", "", 'type="number" min="0" max="5" placeholder="留空则保留"')) +

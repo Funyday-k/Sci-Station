@@ -42,15 +42,29 @@ func (s *Service) readInterface() (string, map[string]json.RawMessage, error) {
 	return language, fields, nil
 }
 
+// InterfaceLanguage returns the choice owned by this research root.
+func (s *Service) InterfaceLanguage() (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	language, _, err := s.readInterface()
+	return language, err
+}
+
+// OnInterfaceLanguageChanged registers the desktop host's notification.
+// It runs after a successful write and outside the research service lock.
+func (s *Service) OnInterfaceLanguageChanged(listener func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onInterfaceLanguageChanged = listener
+}
+
 func (s *Service) registerInterface() {
 	s.mux.HandleFunc("GET "+prefix+"/interface", s.getInterface)
 	s.mux.HandleFunc("PATCH "+prefix+"/interface", s.changeInterface)
 }
 
 func (s *Service) getInterface(w http.ResponseWriter, _ *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	language, _, err := s.readInterface()
+	language, err := s.InterfaceLanguage()
 	if err != nil {
 		jsonFail(w, 500, "无法读取界面偏好")
 		return
@@ -70,7 +84,13 @@ func (s *Service) changeInterface(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var listener func()
+	defer func() {
+		s.mu.Unlock()
+		if listener != nil {
+			listener()
+		}
+	}()
 	_, fields, err := s.readInterface()
 	if err != nil {
 		jsonFail(w, 500, "无法读取界面偏好")
@@ -82,5 +102,6 @@ func (s *Service) changeInterface(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 500, "无法保存界面偏好")
 		return
 	}
+	listener = s.onInterfaceLanguageChanged
 	jsonReply(w, 200, map[string]string{"language": in.Language})
 }

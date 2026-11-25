@@ -21,6 +21,8 @@ type desktopHost struct {
 	window           *application.WebviewWindow
 	roots            desktopRoots
 	session          rootSession
+	languageUpdate   atomic.Uint64
+	menuLanguage     atomic.Value
 }
 
 func runDesktop(explicit string, port int) error {
@@ -52,12 +54,13 @@ func runDesktop(explicit string, port int) error {
 			options.URL = instance.address + "/resume"
 		}
 	}
+	language := resolveInterfaceLanguage(h.session.active.interfaceChoice(), preferredSystemLanguage())
 	if options.URL == "" {
-		message := "请在“工作区”菜单中选择已有工作区，或在空文件夹中新建工作区。"
+		message := interfaceText(language, "rootStartupPrompt")
 		if issue != nil {
 			message = issue.Error() + "。" + message
 		}
-		options.HTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>body{font:18px system-ui;margin:12%;line-height:1.7;color-scheme:light dark}</style><h1>打开科研工作区</h1><p>` + html.EscapeString(message) + `</p></html>`
+		options.HTML = `<!doctype html><html lang="` + language + `"><meta charset="utf-8"><style>body{font:18px system-ui;margin:12%;line-height:1.7;color-scheme:light dark}</style><h1>` + interfaceText(language, "rootOpenTitle") + `</h1><p>` + html.EscapeString(message) + `</p></html>`
 	}
 	h.window = h.app.Window.NewWithOptions(options)
 	if h.session.active != nil {
@@ -67,6 +70,7 @@ func runDesktop(explicit string, port int) error {
 		h.session.mu.Lock()
 		current := h.session.active
 		h.session.mu.Unlock()
+		go h.refreshMenu()
 		if current != nil && current.api != nil {
 			if script := current.api.desktopCredentialSessionScript(current.address); script != "" {
 				h.window.ExecJS(script)
@@ -74,7 +78,10 @@ func runDesktop(explicit string, port int) error {
 		}
 	})
 	configureNativeLaunch(h.app, h.window)
-	h.menu()
+	h.menu(language)
+	h.app.Event.OnApplicationEvent(events.Mac.ApplicationDidBecomeActive, func(*application.ApplicationEvent) {
+		go h.refreshMenu()
+	})
 	defer h.session.shutdown()
 	return h.app.Run()
 }
@@ -107,10 +114,12 @@ func (h *desktopHost) choose(create bool, expected *apiServer) {
 		return
 	}
 	panel := h.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(create).AttachToWindow(h.window)
+	language := h.currentLanguage()
+	copy := func(key string) string { return interfaceText(language, key) }
 	if create {
-		panel.SetTitle("新建科研工作区").SetMessage("选择空文件夹，或点击新建文件夹。").SetButtonText("新建工作区")
+		panel.SetTitle(copy("rootCreateTitle")).SetMessage(copy("rootCreatePrompt")).SetButtonText(copy("toolbarCreateWorkspace"))
 	} else {
-		panel.SetTitle("打开科研工作区").SetMessage("选择一个 Sci-Station 桌面工作区。").SetButtonText("打开工作区")
+		panel.SetTitle(copy("rootOpenTitle")).SetMessage(copy("rootOpenPrompt")).SetButtonText(copy("toolbarOpenWorkspace"))
 	}
 	path, err := panel.PromptForSingleSelection()
 	h.panelMu.Unlock()
@@ -141,10 +150,13 @@ func (h *desktopHost) choose(create bool, expected *apiServer) {
 				})
 				return nil
 			})
+			if err == nil {
+				go h.refreshMenu()
+			}
 		}
 	}
 	if err != nil {
-		h.app.Dialog.Error().AttachToWindow(h.window).SetTitle("无法打开工作区").SetMessage(err.Error()).Show()
+		h.app.Dialog.Error().AttachToWindow(h.window).SetTitle(copy("rootOpenError")).SetMessage(err.Error()).Show()
 	}
 }
 func (h *desktopHost) installPickers(host *apiServer) {
@@ -152,6 +164,9 @@ func (h *desktopHost) installPickers(host *apiServer) {
 		return
 	}
 	app, window := h.app, h.window
+	if service, ok := host.research.(interface{ OnInterfaceLanguageChanged(func()) }); ok {
+		service.OnInterfaceLanguageChanged(func() { go h.refreshMenu() })
+	}
 	configureMaterialDesktop(host, app, window, &h.panelMu)
 	host.pickMu.Lock()
 	host.chooseWorkspace = func(create bool) { h.choose(create, host) }
@@ -166,14 +181,15 @@ func (h *desktopHost) installPickers(host *apiServer) {
 		if h.closing.Load() {
 			return "", context.Canceled
 		}
+		language := h.currentLanguage()
 		return app.Dialog.OpenFile().
 			CanChooseDirectories(true).
 			CanChooseFiles(false).
 			CanCreateDirectories(true).
 			AttachToWindow(window).
-			SetTitle("选择项目文件夹").
-			SetMessage("圆桌会关联所选文件夹，项目协作使用这里的文件。").
-			SetButtonText("选择文件夹").
+			SetTitle(interfaceText(language, "pickProjectFolder")).
+			SetMessage(interfaceText(language, "pickProjectPrompt")).
+			SetButtonText(interfaceText(language, "chooseFolder")).
 			PromptForSingleSelection()
 	})
 	host.setSavePicker(func(filename, _ string) (string, error) {
@@ -183,19 +199,24 @@ func (h *desktopHost) installPickers(host *apiServer) {
 			return "", context.Canceled
 		}
 		// The plugin export endpoint validates its own file extensions.
+		language := h.currentLanguage()
 		return app.Dialog.SaveFile().AttachToWindow(window).
 			SetFilename(filename).
 			HideExtension(false).AllowsOtherFileTypes(true).CanCreateDirectories(true).
-			SetMessage("选择文件的保存位置").SetButtonText("保存").
+			SetMessage(interfaceText(language, "chooseSaveLocation")).SetButtonText(interfaceText(language, "toolbarSave")).
 			PromptForSingleSelection()
 	})
 }
-func (h *desktopHost) menu() {
+func (h *desktopHost) menu(language string) {
+	if h.menuLanguage.Load() == language {
+		return
+	}
+	copy := func(key string) string { return interfaceText(language, key) }
 	app := h.app
 	menu := app.NewMenu()
 	menu.AddRole(application.AppMenu)
 	menu.AddRole(application.FileMenu)
-	ws := menu.AddSubmenu("工作区")
+	ws := menu.AddSubmenu(copy("toolbarWorkspace"))
 	choose := func(create bool) {
 		h.session.mu.Lock()
 		live := h.session.active != nil && h.session.active.api != nil
@@ -210,8 +231,8 @@ func (h *desktopHost) menu() {
 		}
 		h.window.ExecJS(fmt.Sprintf("window.SciStationNav?.command(%q)", command))
 	}
-	ws.Add("新建科研工作区…").OnClick(func(*application.Context) { choose(true) })
-	ws.Add("打开科研工作区…").SetAccelerator("CmdOrCtrl+O").OnClick(func(*application.Context) { choose(false) })
+	ws.Add(copy("toolbarCreateWorkspace") + "…").OnClick(func(*application.Context) { choose(true) })
+	ws.Add(copy("toolbarOpenWorkspace") + "…").SetAccelerator("CmdOrCtrl+O").OnClick(func(*application.Context) { choose(false) })
 	ws.AddSeparator()
 	type entry struct{ label, command, key string }
 	add := func(submenu *application.Menu, rows []entry) {
@@ -226,11 +247,12 @@ func (h *desktopHost) menu() {
 			})
 		}
 	}
-	add(ws, []entry{{"新建项目…", "newProject", "CmdOrCtrl+N"}, {"在访达中显示工作区", "revealWorkspace", ""}, {"科研工作台", "home", "CmdOrCtrl+1"}, {"打开圆桌", "roundtable", "CmdOrCtrl+2"}, {"插件市场", "plugins", ""}, {"设置…", "settings", "CmdOrCtrl+,"}})
-	add(menu.AddSubmenu("文献"), []entry{{"导入 PDF…", "importPDF", ""}, {"按标识符导入…", "importIdentifier", ""}, {"阅读文献", "reader", ""}, {"使用外部阅读器", "externalPDF", ""}, {"在访达中显示文献", "reveal", ""}, {"复制引用", "copyCitation", ""}, {"复制 BibTeX", "copyBibtex", ""}, {"导出 BibTeX…", "bibtex", ""}, {"移除文献", "deletePaper", "CmdOrCtrl+Backspace"}})
-	add(menu.AddSubmenu("显示"), []entry{{"后退", "back", "CmdOrCtrl+["}, {"前进", "forward", "CmdOrCtrl+]"}, {"查找", "find", "CmdOrCtrl+F"}, {"查找下一处", "findNext", "CmdOrCtrl+G"}, {"查找上一处", "findPrevious", "CmdOrCtrl+Shift+G"}, {"检查器", "inspector", "CmdOrCtrl+I"}})
-	add(menu.AddSubmenu("Wiki"), []entry{{"保存页面", "save", "CmdOrCtrl+S"}})
+	add(ws, []entry{{copy("toolbarNewProject") + "…", "newProject", "CmdOrCtrl+N"}, {copy("revealWorkspace"), "revealWorkspace", ""}, {copy("sidebarResearchShell"), "home", "CmdOrCtrl+1"}, {copy("openRoundtable"), "roundtable", "CmdOrCtrl+2"}, {copy("pluginMarketplace"), "plugins", ""}, {copy("routeSettings") + "…", "settings", "CmdOrCtrl+,"}})
+	add(menu.AddSubmenu(copy("libraryMenu")), []entry{{copy("toolbarImportPDF") + "…", "importPDF", ""}, {copy("toolbarAddByIdentifier") + "…", "importIdentifier", ""}, {copy("menuOpenInReader"), "reader", ""}, {copy("menuOpenExternalPDF"), "externalPDF", ""}, {copy("menuRevealPaperInFinder"), "reveal", ""}, {copy("menuCopyCitation"), "copyCitation", ""}, {copy("menuCopyBibTeX"), "copyBibtex", ""}, {copy("menuExportBibTeX") + "…", "bibtex", ""}, {copy("menuDeleteSelectedPaper"), "deletePaper", "CmdOrCtrl+Backspace"}})
+	add(menu.AddSubmenu(copy("menuView")), []entry{{copy("back"), "back", "CmdOrCtrl+["}, {copy("forward"), "forward", "CmdOrCtrl+]"}, {copy("find"), "find", "CmdOrCtrl+F"}, {copy("findNext"), "findNext", "CmdOrCtrl+G"}, {copy("findPrevious"), "findPrevious", "CmdOrCtrl+Shift+G"}, {copy("toolbarInspector"), "inspector", "CmdOrCtrl+I"}})
+	add(menu.AddSubmenu("Wiki"), []entry{{copy("toolbarSave"), "save", "CmdOrCtrl+S"}})
 	menu.AddRole(application.EditMenu)
 	menu.AddRole(application.WindowMenu)
 	app.Menu.Set(menu)
+	h.menuLanguage.Store(language)
 }

@@ -49,6 +49,9 @@
       void flushPosition();
     }
   }
+  const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
+  const local = (key, zh, en, ...args) => window.SciStationI18n?.message?.(key, ...args) ?? text(zh, en);
+  const pageLabel = page => local('readerPageFormat', `第 ${page} 页`, `Page ${page}`, page);
   const message = text => {
     by('message').textContent = text;
   };
@@ -147,7 +150,7 @@
     const padding = Number.parseFloat(getComputedStyle(viewport).paddingLeft) || 0;
     by('pageSurface').style.width = Math.max(140, (viewport.clientWidth - 2 * padding) * zoom) + 'px';
     by('pageSurface').style.maxWidth = 'none';
-    by('fit').textContent = Math.abs(zoom - 1) < .01 ? '适宽' : Math.round(zoom * 100) + '%';
+    by('fit').textContent = Math.abs(zoom - 1) < .01 ? text('适宽', 'Fit width') : Math.round(zoom * 100) + '%';
     sizeWords();
   }
   function updatePageControls() {
@@ -173,20 +176,25 @@
   }
   function activateSelected(value, editing = false, revision = 0) {
     if (hasAnnotationDraft()) {
-      message('先保存或取消当前批注草稿。');
+      message(text('先保存或取消当前批注草稿。', 'Save or cancel the current annotation draft first.'));
       return false;
     }
     selection = value;
     editingAnnotation = editing ? {id:value.id, revision} : null;
-    by('selectedText').textContent = value.selected_text || '第 ' + value.page + ' 页 · 已选原文区域';
+    by('selectedText').textContent = value.selected_text || `${pageLabel(value.page)} · ${text('已选原文区域', 'Selected region')}`;
     by('selectionBox').hidden = false;
     by('handoff').disabled = !value.selected_text;
     by('addHighlight').disabled = false;
     by('comment').value = value.note || '';
     by('kind').value = value.kind || 'highlight';
-    by('saveSelection').textContent = editing ? '保存修改' : '保存批注';
-    by('selectionPage').textContent = '第 ' + value.page + ' 页';
+    updateSelectionLabels();
     return true;
+  }
+  function updateSelectionLabels() {
+    by('saveSelection').textContent = editingAnnotation
+      ? local('readerSaveChanges', '保存修改', 'Save changes')
+      : local('readerSaveAnnotation', '保存批注', 'Save annotation');
+    by('selectionPage').textContent = selection ? pageLabel(selection.page) : '';
   }
   function collectSelection() {
     const s = window.getSelection();
@@ -381,7 +389,7 @@
   function renderAnn() {
     const host = by('annotations');
     host.replaceChildren();
-    by('annotationCount').textContent = annotations.length + ' 条';
+    by('annotationCount').textContent = local('readerAnnotationCount', `${annotations.length} 条`, `${annotations.length} annotations`, annotations.length);
     if (!annotations.length) {
       host.append(node('p', '在原文中拖选文字，即可保存第一条批注。', 'muted'));
       return;
@@ -400,7 +408,7 @@
       }, 'where'));
       actions.append(button('编辑', async () => {
         if (hasAnnotationDraft()) {
-          message('先保存或取消当前批注草稿。');
+          message(text('先保存或取消当前批注草稿。', 'Save or cancel the current annotation draft first.'));
           return;
         }
         await goPage(a.page);
@@ -412,7 +420,7 @@
       const remove = button('删除', async () => {
         if (remove.dataset.confirm !== 'yes') {
           remove.dataset.confirm = 'yes';
-          remove.textContent = '确认删除';
+          remove.textContent = text('确认删除', 'Confirm deletion');
           return;
         }
         try {
@@ -515,7 +523,7 @@
       noteRevision = fresh.revision;
       editingNote = by('notes').value !== draft;
       applyPaperSnapshot(fresh);
-      by('notesStatus').textContent = editingNote ? '有未保存的更改' : '已保存';
+      by('notesStatus').textContent = editingNote ? text('有未保存的更改', 'Unsaved changes') : text('已保存', 'Saved');
       by('reloadNote').hidden = true;
     } catch (e) {
       by('notesStatus').textContent = e.status === 409 ?
@@ -532,7 +540,7 @@
     el.replaceChildren(new Option('新建圆桌', ''));
     if (p)
       sessions.filter(s => s.project_id === p.id && s.status !== 'closed')
-          .forEach(s => el.append(new Option(s.title || s.topic || '已有圆桌', s.id)));
+          .forEach(s => el.append(new Option(s.title || s.topic || text('已有圆桌', 'Existing Roundtable'), s.id)));
     by('submitHandoff').disabled = !p;
   }
   let handoffSelection = null;
@@ -628,7 +636,7 @@
     if (!query)
       return;
     const n = ++searchNumber, host = by('findResults');
-    host.textContent = '正在查找…';
+    host.textContent = text('正在查找…', 'Searching…');
     try {
       const data = await fetchJSON(apiRoot + '/pages/search?q=' + encodeURIComponent(query));
       if (n !== searchNumber)
@@ -746,10 +754,13 @@
       document.getElementById('annotation-' + sourceAnn.id)?.scrollIntoView({block:'nearest'});
   }
   async function initialize() {
+    if (window.SciStationI18n) await window.SciStationI18n.ready;
     updatePageControls();
     by('home').href = '/research?view=papers' + (projectID ? '&project=' + encodeURIComponent(projectID) : '');
+    by('title').textContent = local('routePDFReader', 'PDF 阅读器', 'PDF Reader');
+    by('empty').textContent = local('readerOpening', '正在打开论文…', 'Opening paper…');
     if (!paperID) {
-      displayEmpty('未选择论文，请从科研工作区打开。');
+      displayEmpty(text('未选择论文，请从科研工作区打开。', 'Open a paper from the research workspace.'));
       return;
     }
     try {
@@ -770,7 +781,7 @@
       if (!paper.has_pdf) {
         if (inputs.has('fingerprint'))
           sourceNotice('此论文当前缺少摘录所引用的 PDF 原件。');
-        displayEmpty('此条文献暂未附有本地 PDF。');
+        displayEmpty(text('此条文献暂未附有本地 PDF。', 'This paper has no local PDF.'));
         const controls = node('div', null, 'actions');
         const file = node('input');
         file.type = 'file';
@@ -861,7 +872,7 @@
   by('notes').oninput = () => {
     editingNote = by('notes').value !== savedNote;
     by('saveNotes').disabled = !editingNote || savingNote;
-    by('notesStatus').textContent = editingNote ? '有未保存的更改' : '';
+    by('notesStatus').textContent = editingNote ? text('有未保存的更改', 'Unsaved changes') : '';
   };
   by('reloadAnnotations').onclick = async () => {
     try {
@@ -877,7 +888,7 @@
       applyPaperSnapshot(await fetchJSON(apiRoot), {replaceNote:true});
       editingNote = false;
       by('saveNotes').disabled = true;
-      by('notesStatus').textContent = '已读取保存版本。';
+      by('notesStatus').textContent = text('已读取保存版本。', 'Saved version loaded.');
       by('reloadNote').hidden = true;
     } catch (e) {
       message(errorText(e));
@@ -975,6 +986,10 @@
   by('cancelHandoff').onclick = () => by('handoffDialog').close();
   by('submitHandoff').onclick = submitHandoff;
   window.addEventListener('resize', applyZoom);
+  window.addEventListener('sci:language', () => {
+    updateSelectionLabels();
+    applyZoom();
+  });
   const viewport = by('viewport');
   viewport.addEventListener('scroll', () => rememberPosition());
   for (const event of ['wheel', 'pointerdown', 'keydown'])

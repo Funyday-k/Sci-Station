@@ -5,7 +5,13 @@
     return String(system).toLowerCase().startsWith("zh") ? "zh-Hans" : "en";
   }
 
-  if (typeof module !== "undefined" && module.exports) module.exports = {resolve};
+  function translate(catalog, language, key, substitutions = []) {
+    let index = 0;
+    const copy = catalog[key]?.[language] ?? catalog[key]?.en ?? key;
+    return copy.replace(/%[@d]/g, token => index < substitutions.length ? String(substitutions[index++]) : token);
+  }
+
+  if (typeof module !== "undefined" && module.exports) module.exports = {resolve, translate};
   if (typeof window === "undefined") return;
 
   const originals = new WeakMap();
@@ -13,6 +19,13 @@
   let preference = "system";
   let language = "zh-Hans";
   let loadSerial = 0;
+  let catalog = {};
+  const preferredLanguage = () => navigator.languages?.[0] || navigator.language;
+  const message = (key, ...values) => catalog[key] ? translate(catalog, language, key, values) : undefined;
+  const catalogReady = fetch("/static/interface-catalog.json")
+    .then(response => response.ok ? response.json() : {})
+    .then(entries => { catalog = entries; })
+    .catch(() => {});
   const text = (zh, en) => language === "en" ? en : zh;
 
   function apply() {
@@ -26,12 +39,20 @@
       if (element.dataset.en !== undefined) element.textContent = text(original.copy, element.dataset.en);
       if (element.dataset.enAriaLabel !== undefined) element.setAttribute("aria-label", text(original.ariaLabel, element.dataset.enAriaLabel));
     }
+    for (const attribute of ["text", "aria-label", "title", "placeholder"]) {
+      for (const element of document.querySelectorAll(`[data-l10n-${attribute}]`)) {
+        const key = element.getAttribute(`data-l10n-${attribute}`);
+        if (!catalog[key]) continue;
+        if (attribute === "text") element.textContent = message(key);
+        else element.setAttribute(attribute, message(key));
+      }
+    }
     window.dispatchEvent(new Event("sci:language"));
   }
 
   function update(next) {
     preference = next;
-    language = resolve(next, navigator.language);
+    language = resolve(next, preferredLanguage());
     apply();
   }
 
@@ -44,7 +65,7 @@
   async function refresh() {
     const serial = ++loadSerial;
     try {
-      const next = await request();
+      const [next] = await Promise.all([request().catch(() => preference), catalogReady]);
       if (serial === loadSerial) update(next);
     } catch (_) {
       // Keep the existing visible language if a root is unavailable.
@@ -64,7 +85,7 @@
   const ready = document.readyState === "loading"
     ? new Promise(resolve => document.addEventListener("DOMContentLoaded", () => resolve(refresh()), {once: true}))
     : refresh();
-  window.SciStationI18n = Object.freeze({text, ready, get preference() { return preference; }});
+  window.SciStationI18n = Object.freeze({text, message, ready, get language() { return language; }, get preference() { return preference; }});
 
   window.addEventListener("pageshow", event => { if (event.persisted) refresh(); });
   window.addEventListener("languagechange", () => { if (preference === "system") update(preference); });

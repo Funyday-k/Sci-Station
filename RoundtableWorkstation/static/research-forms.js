@@ -24,6 +24,8 @@
     math,
     bytes
   } = E;
+  const copy = (zh, en) => E.text?.(zh, en) ?? zh;
+  const local = (key, zh, en) => E.local?.(key, zh, en) ?? copy(zh, en);
   const attr = (v) => esc(v ?? "");
   const field = (label, content) => '<label class="field"><span>' + esc(label) + '</span>' + content + '</label>';
 
@@ -56,11 +58,11 @@
   const chosen = (f, name) => [...f.querySelectorAll('input[name="' + name + '"]:checked')].map(i => i.value);
   const formStatus = () => '<p class="error" data-error role="alert"></p><p class="status" data-status role="status"></p>';
   const formFooter = (label, del = "") => formStatus() + '<div class="form-foot">' + (del ? button(del.startsWith(
-      "project:") ? "归档项目" : "删除", "confirm-delete", {
+      "project:") ? local("projectArchiveAction", "归档项目", "Archive Project") : copy("删除", "Delete"), "confirm-delete", {
       id: del,
       kind: "bare danger"
     }) : "") +
-    '<button type="button" class="button" data-action="close-dialog">取消</button><button type="submit" class="button primary">' +
+    '<button type="button" class="button" data-action="close-dialog">' + esc(local("appCancel", "取消", "Cancel")) + '</button><button type="submit" class="button primary">' +
     esc(label) + '</button></div>';
   let formEpoch = 0;
 
@@ -76,7 +78,7 @@
       const error = f.querySelector("[data-error]"),
         status = f.querySelector("[data-status]");
       error.textContent = "";
-      status.textContent = "正在保存…";
+      status.textContent = copy("正在保存…", "Saving…");
       try {
         await onSubmit(f, token);
       } catch (err) {
@@ -103,32 +105,32 @@
       return '<div data-paper-project><div class="project-choice"><label class="check"><input type="checkbox" name="project_ids" value="' +
         esc(project.id) + '" ' + (selected.includes(project.id) ? "checked" : "") + '>' + esc(project.name) +
         '</label><label class="check"><input type="checkbox" name="core_project_ids" value="' + esc(project.id) + '" ' +
-        (core.includes(project.id) ? "checked" : "") + '>核心文献</label></div>' +
-        '<details><summary>' + esc(project.name) + '的阅读安排</summary><fieldset ' +
+        (core.includes(project.id) ? "checked" : "") + '>' + esc(copy("核心文献", "Core paper")) + '</label></div>' +
+        '<details><summary>' + esc(copy(`${project.name}的阅读安排`, `Reading plan for ${project.name}`)) + '</summary><fieldset ' +
         (selected.includes(project.id) || core.includes(project.id) ? "" : "disabled") + '>' +
         '<label class="check"><input type="checkbox" name="pinned-' + id + '" ' +
-        (link.is_pinned ? "checked" : "") + '>置顶</label><div class="split">' +
-        field("排序序号", input("order-" + id, link.sort_order, 'type="number" step="1" min="-9007199254740991" max="9007199254740991" placeholder="可留空，较小值优先"')) +
-        field("文献文件夹", input("folder-" + id, link.folder_path, 'maxlength="512" placeholder="例如：理论/散射"')) +
-        '</div>' + field("研究用途", input("purpose-" + id, link.use_for?.join(", "), 'placeholder="例如：比较方法，核对推导"')) +
+        (link.is_pinned ? "checked" : "") + '>' + esc(local("sidebarPin", "置顶", "Pin")) + '</label><div class="split">' +
+        field(copy("排序序号", "Sort order"), input("order-" + id, link.sort_order, 'type="number" step="1" min="-9007199254740991" max="9007199254740991" placeholder="可留空，较小值优先"')) +
+        field(copy("文献文件夹", "Paper folder"), input("folder-" + id, link.folder_path, 'maxlength="512" placeholder="例如：理论/散射"')) +
+        '</div>' + field(copy("研究用途", "Research use"), input("purpose-" + id, link.use_for?.join(", "), 'placeholder="例如：比较方法，核对推导"')) +
         '</fieldset></details></div>';
     });
-    return '<fieldset class="file-drop"><legend>收录到项目</legend><div class="project-choices">' +
+    return '<fieldset class="file-drop"><legend>' + esc(copy("收录到项目", "Add to projects")) + '</legend><div class="project-choices">' +
       choices.join("") + '</div></fieldset>';
   }
 
   function projectForm(edit = false) {
     const p = edit ? state.project : null;
-    dialog(edit ? "项目设置" : "新建科研项目", '<form>' + field("项目名称", input("name", p?.name,
-      'required maxlength="160" autofocus placeholder="例如：太阳暗物质"')) + field("项目简介", area("description", p?.description,
+    dialog(edit ? local("projectsEditInfo", "项目设置", "Edit Project Info") : local("toolbarNewProject", "新建科研项目", "New Project"), '<form>' + field(copy("项目名称", "Project name"), input("name", p?.name,
+      'required maxlength="160" autofocus placeholder="例如：太阳暗物质"')) + field(copy("项目简介", "Project description"), area("description", p?.description,
       'maxlength="12000" placeholder="研究问题、目标或记录范围"')) + (p ? "" :
-      '<div class="field"><span>项目文件夹</span><p id="chosen-folder" class="form-help">默认使用 Sci-Station 管理的本地目录。</p><button id="pick-folder" type="button" class="button">选择已有文件夹…</button><input name="path" type="hidden"></div>'
+      '<div class="field"><span>' + esc(copy("项目文件夹", "Project folder")) + '</span><p id="chosen-folder" class="form-help">' + esc(copy("默认使用 Sci-Station 管理的本地目录。", "Sci-Station manages the local folder by default.")) + '</p><button id="pick-folder" type="button" class="button">' + esc(copy("选择已有文件夹…", "Choose an existing folder…")) + '</button><input name="path" type="hidden"></div>'
       ) + (p && !p.managedDirectory ? '<p>' +
-        button("重新授权文件夹…", "grant-directory", {id:p.id+":"+p.revision}) +
-        (p.directoryGrant ? button("撤销文件夹授权", "revoke-directory", {id:p.id+":"+p.revision}) : "") + '</p>' : "") + (p?.path ? '<p class="form-help">圆桌项目文件夹<br>' + esc(p.path) + '</p>' : "") + button("已归档项目",
+        button(copy("重新授权文件夹…", "Grant folder access again…"), "grant-directory", {id:p.id+":"+p.revision}) +
+        (p.directoryGrant ? button(copy("撤销文件夹授权", "Revoke folder access"), "revoke-directory", {id:p.id+":"+p.revision}) : "") + '</p>' : "") + (p?.path ? '<p class="form-help">圆桌项目文件夹<br>' + esc(p.path) + '</p>' : "") + button(local("projectsArchivedTitle", "已归档项目", "Archived Projects"),
       "archived-projects", {
         kind: "bare"
-      }) + formFooter(edit ? "保存更改" : "创建项目", p ? "project:" + p.id : "") + '</form>');
+      }) + formFooter(edit ? copy("保存更改", "Save changes") : copy("创建项目", "Create project"), p ? "project:" + p.id : "") + '</form>');
     if (!p) $("pick-folder").onclick = async () => {
       const el = $("pick-folder");
       el.disabled = true;
@@ -172,37 +174,36 @@
     const edit = Boolean(p);
     const base = edit ? "papers/" + enc(p.id) : "papers";
     const originalValues = new Map();
-    dialog(edit ? "编辑文献" : "导入文献", '<form' + (edit ? ' data-library-paper="' + esc(p.id) + '"' : '') + '>' +
-      (edit ? "" : '<div class="file-drop">' + field("本地 PDF",
+    dialog(edit ? copy("编辑文献", "Edit paper") : copy("导入文献", "Import papers"), '<form' + (edit ? ' data-library-paper="' + esc(p.id) + '"' : '') + '>' +
+      (edit ? "" : '<div class="file-drop">' + field(copy("本地 PDF", "Local PDF"),
           '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple>') +
-        '<p class="form-help">所选 PDF 分别导入，共用标签、阅读状态和项目。</p></div>' +
-        field("按标识符或链接导入", area("identifiers", "", 'rows="3" placeholder="每行一个 DOI、arXiv 编号、INSPIRE 链接或网址"'))) +
-      field("题名", input("title", p?.title, (edit ? "required " : "") + 'maxlength="1000" placeholder="可从文件名或在线元数据获取"')) +
-      '<div class="split">' + field("DOI", input("doi", p?.doi, 'placeholder="10.…"')) + field("arXiv 编号", input("arxiv",
+        '<p class="form-help">' + esc(copy("所选 PDF 分别导入，共用标签、阅读状态和项目。", "Import PDFs individually with shared tags, reading status, and projects.")) + '</p></div>' +
+        field(copy("按标识符或链接导入", "Add by identifier or link"), area("identifiers", "", 'rows="3" placeholder="每行一个 DOI、arXiv 编号、INSPIRE 链接或网址"'))) +
+      field(copy("题名", "Title"), input("title", p?.title, (edit ? "required " : "") + 'maxlength="1000" placeholder="可从文件名或在线元数据获取"')) +
+      '<div class="split">' + field("DOI", input("doi", p?.doi, 'placeholder="10.…"')) + field(copy("arXiv 编号", "arXiv ID"), input("arxiv",
         p?.arxiv, 'placeholder="2404.10066"')) + '</div>' +
-      field("原文链接", input("url", p?.url, 'type="url" placeholder="https://…"')) +
+      field(copy("原文链接", "Source URL"), input("url", p?.url, 'type="url" placeholder="https://…"')) +
       (edit ? "" : '<label class="check"><input type="checkbox" name="lookup_metadata" checked>查询在线元数据</label>' +
         '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label>' +
         '<label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">在线 PDF 无法下载或阅读时仅保存链接</label>' +
         '<button type="button" class="button" data-import-preview-button>预览文献</button><p data-import-preview role="status"></p>') +
-      '<details ' + (edit ? "open" : "") + '><summary>元数据与阅读状态</summary>' + field("作者", edit ?
+      '<details ' + (edit ? "open" : "") + '><summary>' + esc(copy("元数据与阅读状态", "Metadata and reading status")) + '</summary>' + field(copy("作者", "Authors"), edit ?
         area("authors", p.authors?.join("\n"), 'placeholder="每行一位作者"') :
-        input("authors", "", 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field("年份", input("year", p?.year || "",
-        'type="number" min="1" max="9999"')) + field("阅读状态", select("status", Object.entries({
-        unread: "未读",
-        reading: "阅读中",
-        read: "已读"
+        input("authors", "", 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field(copy("年份", "Year"), input("year", p?.year || "",
+        'type="number" min="1" max="9999"')) + field(copy("阅读状态", "Reading status"), select("status", Object.entries({
+        unread: statusLabel.unread,
+        reading: statusLabel.reading,
+        read: statusLabel.read
       }), p?.status || "unread")) + '</div>' +
-      field("标签", edit ? area("tags", p.tags?.join("\n"), 'placeholder="每行一个标签"') :
-        input("tags", "", 'placeholder="用逗号分隔"')) + E.library.collectionField(p) + field("摘要", area("abstract", p?.abstract)) +
-      (edit ? '<div class="split">' + field("评分（0–5）", input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
-        field("优先级（0–5）", input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' + field(
-          "BibTeX 引用键", input("citekey", p.citekey)) + field("参考文献", area("references", p.references?.join("\n"),
+      field(copy("标签", "Tags"), edit ? area("tags", p.tags?.join("\n"), 'placeholder="每行一个标签"') :
+        input("tags", "", 'placeholder="用逗号分隔"')) + E.library.collectionField(p) + field(copy("摘要", "Abstract"), area("abstract", p?.abstract)) +
+      (edit ? '<div class="split">' + field(copy("评分（0–5）", "Rating (0–5)"), input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
+        field(copy("优先级（0–5）", "Priority (0–5)"), input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' + field(
+          copy("BibTeX 引用键", "BibTeX citation key"), input("citekey", p.citekey)) + field(copy("参考文献", "References"), area("references", p.references?.join("\n"),
           'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) : "") +
       '</details>' + (edit ? E.library.metadataFields(p) : "") + attachProjectBoxes(p, !edit) +
-      (edit ? button("引用文献", "show-citation", {id: p.id, kind: "bare"}) +
-        button("导出 BibTeX", "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
-      formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
+      (edit ? button(copy("引用文献", "Cite paper"), "show-citation", {id: p.id, kind: "bare"}) + button(local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
+      formFooter(edit ? copy("保存更改", "Save changes") : copy("导入文献", "Import papers"), edit ? "paper:" + p.id : "") +
       '</form>', {
         wide: true
       });
@@ -960,10 +961,10 @@
   async function archivedProjects(trashed = false) {
     const all = await request(trashed ? "projects?trashed=1" : "projects?archived=1");
     const rows = all.map(p => '<div class="row"><span class="row-main">' + esc(p.name) + '</span>' +
-      button("恢复", "restore-project", {id:p.id+":"+p.revision}) +
-      (trashed ? "" : button("移至回收站", "trash-project",{id:p.id+":"+p.revision})) + '</div>').join("");
-    dialog(trashed ? "项目回收站" : "已归档项目", (rows || empty(trashed ? "回收站为空" : "暂无已归档项目")) +
-      button(trashed ? "已归档项目" : "查看回收站",trashed ? "archived-projects" : "trashed-projects"));
+      button(local("projectsRestore", "恢复", "Restore"), "restore-project", {id:p.id+":"+p.revision}) +
+      (trashed ? "" : button(local("projectTrashAction", "移至回收站", "Move to Trash"), "trash-project",{id:p.id+":"+p.revision})) + '</div>').join("");
+    dialog(trashed ? copy("项目回收站", "Project trash") : local("projectsArchivedTitle", "已归档项目", "Archived Projects"), (rows || empty(trashed ? copy("回收站为空", "Project trash is empty") : copy("暂无已归档项目", "No archived projects"))) +
+      button(trashed ? local("projectsArchivedTitle", "已归档项目", "Archived Projects") : copy("查看回收站", "View trash"),trashed ? "archived-projects" : "trashed-projects"));
   }
 
   function relationForm() {

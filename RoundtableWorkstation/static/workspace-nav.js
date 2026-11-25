@@ -11,6 +11,7 @@
     return route("/research", {view: view === "overview" ? "" : view, project});
   }
   const label = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
+  const local = (key, zh, en) => globalThis.SciStationI18n?.message?.(key) ?? label(zh, en);
   function destinations(url) {
     const project = url.searchParams.get("project");
     const view = url.searchParams.get("view");
@@ -22,13 +23,13 @@
       : view === "tasks" || url.searchParams.get("tab") === "calendar" ? "calendar"
       : url.pathname === "/tools" ? "library" : "home";
     return [
-      ["home", label("首页","Home"), research("overview")],
-      ["projects", label("项目","Projects"), research("projects")],
-      ["library", label("文献库","Library"), research("papers")],
-      ["calendar", label("日历与任务","Calendar"), route("/research",{view:"tasks",tab:"calendar"})],
-      ["lab", label("AI 实验室","AI Lab"), route("/lab", {project})],
-      ["roundtable", label("圆桌","Roundtable"), route("/studio",{project})],
-      ["settings", label("设置","Settings"), route("/studio",{view:"settings",project})]
+      ["home", local("routeHome","首页","Home"), research("overview")],
+      ["projects", local("routeProjects","项目","Projects"), research("projects")],
+      ["library", local("routeLibrary","文献库","Library"), research("papers")],
+      ["calendar", local("routeCalendar","日历与任务","Calendar"), route("/research",{view:"tasks",tab:"calendar"})],
+      ["lab", local("routeAILab","AI 实验室","AI Lab"), route("/lab", {project})],
+      ["roundtable", local("roundtable","圆桌","Roundtable"), route("/studio",{project})],
+      ["settings", local("routeSettings","设置","Settings"), route("/studio",{view:"settings",project})]
     ].map(([key,name,href]) => ({key,name,href,active:active===key}));
   }
   const globalSections={projects:"projects",library:"paper-library",calendar:"calendar",lab:"ai-lab"};
@@ -79,7 +80,7 @@
       const back = document.querySelector("[data-project-back]");
       back.hidden = !project;
       back.href = research("overview",project);
-      back.textContent = label("返回当前项目","Back to project");
+      back.textContent = local("projectSpaceBackToProjects","返回当前项目","Back to project");
     }
     remember();
   }
@@ -104,7 +105,7 @@
       });
       if (!res.ok) {
         const detail=await res.json().catch(()=>({}));
-        throw Error(detail.error?.message || detail.error || "工作区操作失败");
+        throw Error(detail.error?.message || detail.error || local("workspaceActionFailed", "工作区操作失败", "Workspace action failed"));
       }
     } catch (error) { window.alert(error.message); }
   }

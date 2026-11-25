@@ -49,3 +49,21 @@ func TestInterfaceLanguageRoundTripIsRootScoped(t *testing.T) {
 		t.Fatalf("failed update overwrote preferences: %s", got)
 	}
 }
+
+func TestInterfaceLanguageNotifiesDesktopAfterCommit(t *testing.T) {
+	s := newResearch(t, t.TempDir())
+	var updates []string
+	s.OnInterfaceLanguageChanged(func() {
+		language, err := s.InterfaceLanguage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		updates = append(updates, language)
+	})
+	callResearch(t, s, "PATCH", "/interface", map[string]string{"language": "en"}, 200)
+	callResearch(t, s, "PATCH", "/interface", map[string]string{"language": "invalid"}, 400)
+	callResearch(t, s, "PATCH", "/interface", map[string]string{"language": "zh-Hans"}, 200)
+	if len(updates) != 2 || updates[0] != "en" || updates[1] != "zh-Hans" {
+		t.Fatal(updates)
+	}
+}
