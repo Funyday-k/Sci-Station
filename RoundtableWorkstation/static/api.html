@@ -115,6 +115,7 @@ X-Roundtable: 1
 
     <section aria-labelledby="discussion">
       <h2 id="discussion">讨论方式与阶段</h2>
+      <p>创建时提交 <code>project_id</code>，取自当前科研项目；全局圆桌提交 <code>scope:"global"</code> 并省略项目字段。全局圆桌没有项目文件权限。已保存的项目标识用于后续打开会话和接收论文摘录。项目目录授权失效后，仍可读取已保存的会议记录。</p>
       <p>当前四个预设 <code>work</code>、<code>review</code>、<code>prioritize</code>、<code>forum</code> 都能使用同一持续推进配置；持续推进不是第五种预设。每轮按所选预设继续其阶段和读写约束。</p>
       <p><code>GET /api/studio/discussion-presets</code> 返回 <code>{"presets":[{"id":"…","label":"…","phases":[{"id":"…","label":"…","instructions":"…"}]}]}</code>。<code>instructions</code> 是实际使用的共享规则、场景与阶段指令，来自项目的 <code>internal/deliberation/policy.go</code>；读取不启动模型、不保存设置。</p>
       <div class="table-wrap">

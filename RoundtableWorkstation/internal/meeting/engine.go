@@ -210,6 +210,7 @@ type Session struct {
 	ID                string            `json:"id"`
 	Topic             string            `json:"topic"`
 	Title             string            `json:"title,omitempty"`
+	ProjectID         string            `json:"project_id,omitempty"`
 	Project           string            `json:"project"`
 	Seats             []string          `json:"seats"`
 	Status            string            `json:"status"`
@@ -229,6 +230,7 @@ type Summary struct {
 	ID            string            `json:"id"`
 	Topic         string            `json:"topic"`
 	Title         string            `json:"title,omitempty"`
+	ProjectID     string            `json:"project_id,omitempty"`
 	Project       string            `json:"project"`
 	Seats         []string          `json:"seats"`
 	Status        string            `json:"status"`
@@ -240,6 +242,7 @@ type Summary struct {
 type Engine struct {
 	presence            boardPresenceHub
 	projectRuleSnapshot func(string) (ProjectRuleSnapshot, error)
+	projectAccess       func(string, func(string) error) error
 	pluginGuidance      func() ([]PluginGuidance, error)
 	dir                 string
 	call                func(context.Context, string, string, string, string) (string, error)
@@ -458,6 +461,10 @@ func (e *Engine) Create(topic, project string, seats []string) (*Session, error)
 }
 
 func (e *Engine) CreateWithMaterials(topic, project string, seats []string, materialIDs []string) (*Session, error) {
+	return e.CreateScopedWithMaterials(topic, ProjectScope{Directory: project}, seats, materialIDs)
+}
+
+func (e *Engine) CreateScopedWithMaterials(topic string, scope ProjectScope, seats []string, materialIDs []string) (*Session, error) {
 	if len(seats) == 0 {
 		seats = []string{"codex", "cursor"}
 	}
@@ -468,7 +475,7 @@ func (e *Engine) CreateWithMaterials(topic, project string, seats []string, mate
 		}
 		seen[seat] = true
 	}
-	return e.create(topic, project, seats, nil, "work", nil, nil, materialIDs)
+	return e.create(topic, scope, seats, nil, "work", nil, nil, materialIDs)
 }
 
 // CreateConfigured gives every chair a stable identity, independently of its
@@ -482,6 +489,10 @@ func (e *Engine) CreateWithContinuous(topic, project string, members []Member, p
 }
 
 func (e *Engine) CreateConfiguredWithMaterials(topic, project string, members []Member, preset string, continuous *ContinuousConfig, materialIDs []string, agenda ...AgendaInput) (*Session, error) {
+	return e.CreateScopedConfiguredWithMaterials(topic, ProjectScope{Directory: project}, members, preset, continuous, materialIDs, agenda...)
+}
+
+func (e *Engine) CreateScopedConfiguredWithMaterials(topic string, scope ProjectScope, members []Member, preset string, continuous *ContinuousConfig, materialIDs []string, agenda ...AgendaInput) (*Session, error) {
 	if len(members) == 0 {
 		return nil, errors.New("请选择至少一位参会成员")
 	}
@@ -499,17 +510,23 @@ func (e *Engine) CreateConfiguredWithMaterials(topic, project string, members []
 		}
 		seats[i] = m.ID
 	}
-	return e.create(topic, project, seats, configured, preset, agenda, continuous, materialIDs)
+	return e.create(topic, scope, seats, configured, preset, agenda, continuous, materialIDs)
 }
-func (e *Engine) create(topic, project string, seats []string, members []Member, preset string, agenda []AgendaInput, continuous *ContinuousConfig, materialIDs []string) (*Session, error) {
+func (e *Engine) create(topic string, scope ProjectScope, seats []string, members []Member, preset string, agenda []AgendaInput, continuous *ContinuousConfig, materialIDs []string) (*Session, error) {
 	if err := ValidateTopic(topic); err != nil {
 		return nil, err
 	}
-	validated, err := workspace.Validate(project)
-	if err != nil {
-		return nil, err
+	if scope.Global && (scope.ID != "" || scope.Directory != "") {
+		return nil, errors.New("全局圆桌不能关联项目目录")
 	}
-	s := &Session{Board: MeetingBoard{State: boardEmpty}, ID: newID(), Topic: topic, Project: validated, Members: members, Seats: append([]string{}, seats...), Status: "ready", CreatedAt: now(), Rounds: []Round{}, Events: []Event{}, UserChanges: []UserChange{}, Operations: []Operation{}, Materials: []Material{}}
+	s := &Session{Board: MeetingBoard{State: boardEmpty}, ID: newID(), Topic: topic, ProjectID: scope.ID, Members: members, Seats: append([]string{}, seats...), Status: "ready", CreatedAt: now(), Rounds: []Round{}, Events: []Event{}, UserChanges: []UserChange{}, Operations: []Operation{}, Materials: []Material{}}
+	if !scope.Global {
+		validated, err := workspace.Validate(scope.Directory)
+		if err != nil {
+			return nil, err
+		}
+		s.Project = validated
+	}
 	if continuous != nil {
 		cfg, err := continuousConfig(*continuous, topic)
 		if err != nil {
@@ -517,13 +534,16 @@ func (e *Engine) create(topic, project string, seats []string, members []Member,
 		}
 		s.Continuous = &ContinuousState{Config: cfg, Status: "configured"}
 	}
-	if err = InitAgenda(s, preset, agenda); err != nil {
+	if err := InitAgenda(s, preset, agenda); err != nil {
 		return nil, err
 	}
 	addEvent(s, "created", "", "Created without sending a model request.")
-	err = e.locked(func() error {
+	err := e.locked(func() error {
 		if _, err := e.bindMaterials(s, materialIDs); err != nil {
 			return err
+		}
+		if !scope.Global {
+			return e.WithProjectDirectory(s, func(string) error { return e.save(s) })
 		}
 		return e.save(s)
 	})
@@ -559,7 +579,7 @@ func (e *Engine) ListWithRecovery() ([]Summary, []sessionstore.Unreadable, error
 			unreadable = append(unreadable, *issue)
 			return
 		}
-		result = append(result, Summary{ID: s.ID, Topic: s.Topic, Title: s.Title, Project: s.Project, Preset: s.Preset, Members: s.Members, SeatOverrides: s.SeatOverrides, Seats: append([]string{}, s.Seats...), Status: s.Status, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, RoundCount: len(s.Rounds)})
+		result = append(result, Summary{ID: s.ID, Topic: s.Topic, Title: s.Title, ProjectID: s.ProjectID, Project: s.Project, Preset: s.Preset, Members: s.Members, SeatOverrides: s.SeatOverrides, Seats: append([]string{}, s.Seats...), Status: s.Status, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, RoundCount: len(s.Rounds)})
 	})
 	if err != nil {
 		return nil, nil, err
@@ -791,8 +811,8 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 		if err != nil {
 			return err
 		}
-		settings.AllowEdits = settings.AllowEdits && !plan.ReadOnly() && (options.AllowEdits == nil || *options.AllowEdits)
-		projectRules, err = e.loadRoundRules(s.Project)
+		settings.AllowEdits = settings.AllowEdits && !s.isGlobal() && !plan.ReadOnly() && (options.AllowEdits == nil || *options.AllowEdits)
+		projectRules, err = e.loadRoundRules(s)
 		if err != nil {
 			return err
 		}
@@ -841,11 +861,17 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 	go e.run(ctx, id, lease, cancel, projectRules.Guidance)
 	return snapshot, nil
 }
-func (e *Engine) loadRoundRules(project string) (ProjectRuleSnapshot, error) {
+func (e *Engine) loadRoundRules(s *Session) (ProjectRuleSnapshot, error) {
+	if s.isGlobal() {
+		return ProjectRuleSnapshot{}, nil
+	}
+	if err := e.WithProjectDirectory(s, func(string) error { return nil }); err != nil {
+		return ProjectRuleSnapshot{}, err
+	}
 	if e.projectRuleSnapshot == nil {
 		return ProjectRuleSnapshot{}, nil
 	}
-	rules, err := e.projectRuleSnapshot(project)
+	rules, err := e.projectRuleSnapshot(s.Project)
 	if err != nil {
 		return rules, fmt.Errorf("无法读取本轮项目规则：%w", err)
 	}
@@ -1383,6 +1409,19 @@ func (e *Engine) SetProjectRuleSnapshot(f func(string) (ProjectRuleSnapshot, err
 }
 
 func (e *Engine) context(s *Session, index int, importedGuidance string) (map[string]any, error) {
+	if s.isGlobal() {
+		return e.projectContext(s, index, importedGuidance, "")
+	}
+	var data map[string]any
+	err := e.WithProjectDirectory(s, func(project string) error {
+		var err error
+		data, err = e.projectContext(s, index, importedGuidance, project)
+		return err
+	})
+	return data, err
+}
+
+func (e *Engine) projectContext(s *Session, index int, importedGuidance, project string) (map[string]any, error) {
 	r := &s.Rounds[len(s.Rounds)-1]
 	t := &r.Turns[index]
 	model := r.catalogTurnModel(*t)
@@ -1395,9 +1434,12 @@ func (e *Engine) context(s *Session, index int, importedGuidance string) (map[st
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := workspace.Catalog(s.Project)
-	if err != nil {
-		return nil, err
+	catalog := []string{}
+	if project != "" {
+		catalog, err = workspace.Catalog(project)
+		if err != nil {
+			return nil, err
+		}
 	}
 	covered := 0
 	if s.Continuous.active() && s.Continuous.Checkpoint != nil {
@@ -1480,7 +1522,7 @@ func (e *Engine) context(s *Session, index int, importedGuidance string) (map[st
 	for i := len(s.UserChanges) - 1; i >= 0; i-- {
 		path := s.UserChanges[i].Change.Path
 		if _, found := userFiles[path]; !found {
-			if f, err := evidence.read(s.Project, path); err == nil {
+			if f, err := evidence.read(project, path); err == nil {
 				userFiles[path] = f
 			}
 		}
@@ -1497,7 +1539,7 @@ func (e *Engine) context(s *Session, index int, importedGuidance string) (map[st
 	for _, p := range paths {
 		entry := changes[p]
 		entry["change"] = evidence.change(entry["change"].(workspace.Change))
-		f, err := evidence.read(s.Project, p)
+		f, err := evidence.read(project, p)
 		if err != nil {
 			entry["current_content_error"] = err.Error()
 		} else {
@@ -1512,7 +1554,7 @@ func (e *Engine) context(s *Session, index int, importedGuidance string) (map[st
 		}
 		if op.Status == "unknown" {
 			entry := map[string]any{"operation": op}
-			f, err := evidence.read(s.Project, op.Path)
+			f, err := evidence.read(project, op.Path)
 			if err != nil {
 				entry["read_error"] = err.Error()
 			} else {
@@ -1753,7 +1795,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 			path, err = relative(a.Path)
 			if err == nil {
 				var f workspace.File
-				f, err = readFile(snapshot.Project, path)
+				f, err = e.readProjectFile(snapshot, path)
 				if err == nil {
 					result = f
 					err = e.mutate(id, index, func(s *Session, t *Turn) error {
@@ -1834,7 +1876,12 @@ func (e *Engine) agentWrite(ctx context.Context, id string, index int, a action)
 		if err = e.save(s); err != nil {
 			return err
 		}
-		actual, writeErr := workspace.Write(s.Project, path, *a.Text, baseline.Version)
+		var actual workspace.Change
+		writeErr := e.WithProjectDirectory(s, func(project string) error {
+			var err error
+			actual, err = workspace.Write(project, path, *a.Text, baseline.Version)
+			return err
+		})
 		delete(t.Reads, path)
 		if writeErr != nil {
 			s.Operations[oi].Status, s.Operations[oi].Error = "error", writeErr.Error()
@@ -2042,7 +2089,11 @@ func (e *Engine) UserWrite(id, path, text, version string) (workspace.Change, er
 		if err = e.save(s); err != nil {
 			return err
 		}
-		result, err = workspace.Write(s.Project, path, text, version)
+		err = e.WithProjectDirectory(s, func(project string) error {
+			var err error
+			result, err = workspace.Write(project, path, text, version)
+			return err
+		})
 		if err != nil {
 			s.Operations[oi].Status, s.Operations[oi].Error = "error", err.Error()
 			addEvent(s, "user_write_failed", "user", err.Error()).OperationID = op.ID

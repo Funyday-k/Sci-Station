@@ -84,25 +84,23 @@
   const elem = (tag, text) => {const e = document.createElement(tag); if (text !== undefined) e.textContent = text; return e;};
   const option = (value, label) => new Option(label, value);
   const btn = (label, className="") => {const node = elem("button",label); node.type="button"; node.className=className; return node;};
-  const url = new URL(location.href);
-  let projects = [], session = null, project = null, btnOpen, fetched = false, ui;
+  let projects = [], session = null, project = null, btnOpen, ui;
   let currentDraft = null;
 
-  async function loadProject() {
-    // Resolve all paths before accepting a reader handoff. The same workspace
-    // is used for the meeting, the attachment and the eventual note.
+  async function loadProjects() {
     projects = await request("/api/research/projects");
-    fetched = true;
-    const id = url.searchParams.get("project");
+    return projects;
+  }
+  function requestedProject(id) {
     if (!id) return null;
     const result = projects.find(item => item.id === id);
     if (!result) throw new Error("科研项目已移除，无法将这次阅读发送到圆桌。");
     return result;
   }
 
-  function update(next, draftPath) {
+  function update(next) {
     session = next || null;
-    project = session && projects.find(item => item.path === session.project) || null;
+    project = session && projects.find(item => item.id === session.project_id) || null;
     if (!btnOpen && byId("chat-toolbar")) {
       btnOpen = btn("科研记录", "science-meeting-open"); btnOpen.title = "核对论文原文、保存笔记或建立项目任务";
       btnOpen.addEventListener("click", show);
@@ -111,13 +109,6 @@
     if (btnOpen) btnOpen.hidden = !project;
     renderReportSources();
     if (currentDraft && (currentDraft.sessionId !== session?.id || currentDraft.projectId !== project?.id)) ui?.dialog.close();
-    const param = new URL(location.href);
-    if ((session || draftPath) && fetched) {
-      const active = project || projects.find(item => item.path === draftPath);
-      if (active) param.searchParams.set("project",active.id); else param.searchParams.delete("project");
-      history.replaceState(null,"",param);
-      window.SciStationNav?.update();
-    }
   }
 
   function renderReportSources() {
@@ -147,9 +138,9 @@
     if (!raw || raw.projectId !== context.id || (raw.sessionId || "") !== (expectedSession || "")) return;
     const source = reference(raw);
     if (!source) throw new Error("论文摘录无效，或超过 2,800 个字符，请回到阅读器重新选择。");
-    if (expectedSession && (session?.project !== context.path || session?.status === "closed"))
+    if (expectedSession && (session?.project_id !== context.id || session?.status === "closed"))
       throw new Error("所选会议已经结束或属于另一项目。请返回阅读器另选会议。");
-    const alive = () => getCurrent() === context.path && (expectedSession ? session?.id === expectedSession : !session);
+    const alive = () => getCurrent() === context.id && (expectedSession ? session?.id === expectedSession : !session);
     if (!alive()) return;
     const paper = await request("/api/research/papers/" + enc(source.paperId));
     if (!alive()) return;
@@ -345,5 +336,5 @@
     }
   }
 
-  window.ScienceMeeting={loadProject,update,receive};
+  window.ScienceMeeting={loadProjects,requestedProject,update,receive};
 })();

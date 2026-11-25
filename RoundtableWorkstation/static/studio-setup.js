@@ -24,13 +24,13 @@
       const stored = JSON.parse(storageGet(draftsKey) || "{}");
       if (stored && typeof stored === "object" && !Array.isArray(stored)) drafts = stored;
     } catch (_) {}
-    let draftKey = null, members = [], preset = "work", selectionTouched = false;
+    let draftKey = null, scope = null, members = [], preset = "work", selectionTouched = false;
     let lastDraftSeat = 0;
     let models = [], modelIndex = new Map(), defaultModel = "", loading = false, issue = "", writing = false;
     let request = 0, directoryLoaded = false, editingAllowed = false, directoryRequest = null;
 
     function paintEditingDefault() {
-      $("create-project-access").textContent = preset === "work"
+      $("create-project-access").textContent = scope?.scope === "global" ? "全局圆桌无项目文件访问" : preset === "work"
         ? (editingAllowed ? "可修改文件" : "只读（设置中已关闭写入）")
         : "只读（由讨论模式限定）";
     }
@@ -276,10 +276,12 @@
       return true;
     }
     function open(project) {
-      const key = project.path;
+      const key = project.id || project.path;
       if (draftKey === key) return;
       save();
       draftKey = key;
+      scope = project.global ? {scope: "global"} :
+        (project.id ? {project_id: project.id} : {project: project.path});
       continuous.open(key);
       const draft = drafts[key] || {};
       members = restoreMembers(draft.members, draft.lastDraftSeat);
@@ -313,7 +315,7 @@
     function payload(target = "") {
       const chief = members.find(member => target === "seat-" + member.draftSeat);
       const roster = chief ? [chief, ...members.filter(member => member !== chief)] : members;
-      const result = {project: draftKey, members:roster.map(({model,effort}) => ({model,effort})), preset};
+      const result = {...scope, members:roster.map(({model,effort}) => ({model,effort})), preset};
       const attachments = materials?.ready() || [];
       if (attachments.length) result.material_ids = attachments.map(item => item.id);
       const configured = continuous.payload($("new-topic").value);

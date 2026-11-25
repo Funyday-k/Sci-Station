@@ -39,6 +39,7 @@ type apiServer struct {
 	selectedPaths sync.Map
 	pickMu        sync.RWMutex
 	pick          func() (string, error)
+	projectAccess sync.Once
 }
 
 func (a *apiServer) setPicker(p func() (string, error)) {
@@ -83,6 +84,9 @@ func fail(w http.ResponseWriter, err error) {
 	if errors.Is(err, os.ErrNotExist) {
 		status = 404
 	}
+	if errors.Is(err, os.ErrPermission) {
+		status = http.StatusForbidden
+	}
 	if errors.Is(err, meeting.ErrConflict) || errors.Is(err, workspace.ErrConflict) {
 		status = 409
 	}
@@ -99,6 +103,9 @@ func replyUnreadableSession(w http.ResponseWriter, err error) bool {
 }
 
 func (a *apiServer) serve(port int) http.Handler {
+	if _, ok := a.research.(meetingProjects); a.meetings != nil && ok {
+		a.projectAccess.Do(func() { a.meetings.SetProjectAccess(a.withMeetingProject) })
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if host != fmt.Sprintf("127.0.0.1:%d", port) && host != fmt.Sprintf("localhost:%d", port) {
@@ -316,12 +323,15 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			var b struct {
 				Topic, Project string
+				ProjectID      string `json:"project_id"`
+				Scope          string `json:"scope"`
 				Seats          []string
 				Members        []meeting.Member
 				Preset         string
 				Agenda         []json.RawMessage
 				Continuous     *meeting.ContinuousConfig `json:"continuous"`
 				MaterialIDs    []string                  `json:"material_ids"`
+				StartAgenda    *bool                     `json:"start_agenda_draft"`
 			}
 			if !jsonBody(w, r, &b) {
 				return
@@ -334,7 +344,7 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				reject(w, 400, "请仅使用本场圆桌的模型席位")
 				return
 			}
-			dir, e := workspace.Validate(b.Project)
+			scope, e := a.meetingScope(b.ProjectID, b.Project, b.Scope)
 			if e != nil {
 				fail(w, e)
 				return
@@ -357,19 +367,19 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 					}
 					items = append(items, item)
 				}
-				s, e = a.meetings.CreateConfiguredWithMaterials(b.Topic, dir, members, b.Preset, b.Continuous, b.MaterialIDs, items...)
+				s, e = a.meetings.CreateScopedConfiguredWithMaterials(b.Topic, scope, members, b.Preset, b.Continuous, b.MaterialIDs, items...)
 			} else {
 				if b.Preset != "" || len(b.Agenda) != 0 || b.Continuous != nil {
 					reject(w, 400, "请先为新圆桌选择模型")
 					return
 				}
-				s, e = a.meetings.CreateWithMaterials(b.Topic, dir, b.Seats, b.MaterialIDs)
+				s, e = a.meetings.CreateScopedWithMaterials(b.Topic, scope, b.Seats, b.MaterialIDs)
 			}
 			if e != nil {
 				fail(w, e)
 				return
 			}
-			if b.Members != nil {
+			if b.Members != nil && (b.StartAgenda == nil || *b.StartAgenda) {
 				// The session already exists even if the service is closing before a
 				// draft can start. Returning its ID allows the host to reopen/retry.
 				if started, err := a.meetings.StartAgendaDraft(s.ID, &s.AgendaVersion); err == nil {
@@ -493,14 +503,24 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="meeting-%s.md"`, url.PathEscape(id)))
 		_, _ = io.WriteString(w, content)
 	case "GET files":
-		files, e := workspace.Catalog(s.Project)
+		var files []string
+		e := a.meetings.WithProjectDirectory(s, func(dir string) error {
+			var err error
+			files, err = workspace.Catalog(dir)
+			return err
+		})
 		if e != nil {
 			fail(w, e)
 			return
 		}
 		reply(w, 200, map[string]any{"files": files})
 	case "GET file":
-		file, e := workspace.Read(s.Project, r.URL.Query().Get("path"))
+		var file workspace.File
+		e := a.meetings.WithProjectDirectory(s, func(dir string) error {
+			var err error
+			file, err = workspace.Read(dir, r.URL.Query().Get("path"))
+			return err
+		})
 		if e != nil {
 			fail(w, e)
 			return

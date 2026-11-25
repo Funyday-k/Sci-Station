@@ -13,5 +13,9 @@ test("a preset only enters the selected project and stays an unsent draft",async
  await receive({id:"wrong",path:"/tmp/q"},"",null,box,()=>{throw Error("wrong project")});assert.equal(box.value,"原有问题");
  await receive({id:"p1",path:"/tmp/p"},"",null,box,async(mode,seats)=>{assert.equal(mode,"review");assert.equal(seats,2);calls++});
  assert.equal(calls,1);assert.match(box.value,/原有问题/);assert.match(box.value,/检查近似/);assert.equal(stored,null);
- stored=JSON.stringify({...setup,sessionId:"s1"});await assert.rejects(receive({id:"p1",path:"/tmp/p"},"s1",{id:"s1",project:"/tmp/q"},box,null));assert.notEqual(stored,null);
+ stored=JSON.stringify({...setup,sessionId:"s1"});
+ await assert.rejects(receive({id:"p1",path:"/tmp/p"},"s1",{id:"s1",project_id:"other",project:"/tmp/p"},box,null));
+ assert.notEqual(stored,null);
+ await receive({id:"p1",path:"/tmp/p"},"s1",{id:"s1",project_id:"p1",project:"/tmp/previous"},box,null);
+ assert.equal(stored,null);
 });

@@ -1028,11 +1028,11 @@
       },
       "post": {
         "operationId": "createStudioSession",
-        "summary": "创建项目圆桌，暂不运行",
+        "summary": "创建项目或全局圆桌",
         "tags": [
           "项目"
         ],
-        "description": "验证项目目录与 Magpie 型号并保存会话。使用 members 模式时异步请求首席拟议程。201 表示会话已保存，草拟状态和结果从会话读取。兼容 seats 省略或为空时使用 codex 与 cursor 的旧请求。 四种既有讨论预设均可接收 continuous 配置；创建仅保存 configured 状态，不会运行首轮。",
+        "description": "按 project_id 关联当前科研项目，或使用 scope: global 创建无项目文件权限的圆桌。校验 Magpie 型号并保存会话。members 模式默认异步请求首席拟议程，可用 start_agenda_draft: false 跳过。201 表示会话已保存。四种讨论预设均可保存 continuous 配置；创建不会运行首轮。",
         "responses": {
           "201": {
             "description": "成功。",
@@ -1080,7 +1080,7 @@
                   "summary": "使用 Magpie 型号的新圆桌",
                   "value": {
                     "topic": "讨论当前方案",
-                    "project": "/absolute/path/to/project",
+                    "project_id": "workspace-project-id",
                     "members": [
                       {
                         "model": "provider/model",
@@ -3727,9 +3727,13 @@
             "description": "首席模型生成并保存的显示短标题。可省略；原始 topic 保持原样。",
             "maxLength": 48
           },
+          "project_id": {
+            "type": "string",
+            "description": "科研工作区内的稳定项目标识。全局圆桌与尚未绑定的旧会话省略。"
+          },
           "project": {
             "type": "string",
-            "description": "所选项目的绝对路径；会写入本机记录与导出文件。"
+            "description": "建会时获准使用的项目目录。全局圆桌的值为空。"
           },
           "seats": {
             "type": "array",
@@ -3886,6 +3890,10 @@
             "description": "首席模型生成并保存的显示短标题。可省略；原始 topic 保持原样。",
             "maxLength": 48
           },
+          "project_id": {
+            "type": "string",
+            "description": "会话关联的科研项目标识。"
+          },
           "project": {
             "type": "string"
           },
@@ -3954,9 +3962,24 @@
             "maxLength": 12000,
             "minLength": 1
           },
+          "project_id": {
+            "type": "string",
+            "description": "当前科研工作区的有效项目标识。",
+            "minLength": 1
+          },
           "project": {
             "type": "string",
-            "description": "必须显式选择的绝对目录；不可是根目录、整个用户目录或其祖先，且路径各级不可是符号链接。"
+            "minLength": 1,
+            "description": "兼容旧请求的已授权绝对目录。与 project_id 同时提交时必须与该项目的目录一致。"
+          },
+          "scope": {
+            "const": "global",
+            "description": "显式创建无项目目录的全局圆桌；省略 project_id 和 project。"
+          },
+          "start_agenda_draft": {
+            "type": "boolean",
+            "default": true,
+            "description": "使用 members 时，是否立即请求首席草拟议程。"
           },
           "seats": {
             "type": "array",
@@ -4030,13 +4053,19 @@
             "description": "可选，关联已上传的材料；每个请求最多 12 个 ID，重复项会折叠。创建时绑定到会话；运行时绑定到会话并仅作为本轮材料优先提供。省略保持旧请求行为。"
           }
         },
-        "required": [
-          "topic",
-          "project"
+        "required": ["topic"],
+        "anyOf": [
+          { "required": ["project_id"] },
+          { "required": ["project"] },
+          { "required": ["scope"] }
         ],
         "additionalProperties": false,
         "description": "桌面创建提交 members，由 Magpie 目录校验型号和思考档位。按顺序分配席位，首项为首席。可用 agenda 提交既定事项作为首席草拟上下文，未提交时首席按议题拟议程。提交 members 时须省略 seats 或提供空列表；早期固定席位的请求不能指定非空 agenda 或 preset。 continuous 仅能与 members 配置席位模式一起提交；只预配置状态，不自动发起首轮。",
         "allOf": [
+          {
+            "if": { "required": ["scope"] },
+            "then": { "not": { "anyOf": [{ "required": ["project_id"] }, { "required": ["project"] }] } }
+          },
           {
             "if": {
               "required": [

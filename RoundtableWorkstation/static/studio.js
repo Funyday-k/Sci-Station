@@ -528,7 +528,7 @@
   }
   function renderHeading() {
     const projectName = state.draftOpen
-      ? projects.available().find(project => project.path === state.activeProject)?.name
+      ? projects.available().find(project => project.id === state.activeProject)?.name
       : "";
     const viewName = state.view === "settings" ? "设置" : state.view === "plugins" ? "插件市场" : "";
     const title = viewName || (state.selected
@@ -1754,7 +1754,8 @@
       : "发送消息，输入 @ 点名席位…";
     const access = $("run-access");
     const running = sessionWorking();
-    const editable = choice.preset === "work" && Boolean(state.settings?.allow_edits);
+    const hasProject = Boolean(state.session?.project_id);
+    const editable = hasProject && choice.preset === "work" && Boolean(state.settings?.allow_edits);
     const last = running ? latestRound() : null;
     const allowEdits = last
       ? roundDiscussion(last).preset === "work" && last.settings?.allow_edits
@@ -1767,7 +1768,7 @@
     $("round-settings").hidden = Boolean(closed);
     access.value = allowEdits ? "write" : "read";
     access.disabled = state.writing || running || !editable;
-    access.title = running ? "本轮启动时确定的文件权限" : choice.preset !== "work" ? "此预设只读" :
+    access.title = running ? "本轮启动时确定的文件权限" : !hasProject ? "没有已关联的项目目录" : choice.preset !== "work" ? "此预设只读" :
       editable ? "选择模型在本轮是否可以修改项目文件" : "全局设置关闭了模型文件写入";
   }
   function updateControls() {
@@ -1893,7 +1894,7 @@
     $("setup-scroll").hidden = true;
     $("board-workspace").hidden = false;
     paintChatLayout();
-    setActiveProject(session.project);
+    setActiveProject(window.RoundtableProjects.sessionProjectKey(session));
     syncDiscussionRound(session);
     $("stage-layout").classList.remove("is-new");
     $("create-form").hidden = true;
@@ -1924,6 +1925,7 @@
       id: session.id,
       topic: session.topic,
       title: session.title,
+      project_id: session.project_id,
       project: session.project,
       status: session.status,
       created_at: session.created_at,
@@ -2004,7 +2006,7 @@
     setup.suspend();
     window.MeetingAgenda.clear();
     reportUI.update(null);
-    window.ScienceMeeting?.update(null, project || state.activeProject);
+    window.ScienceMeeting?.update(null);
     pluginsUI.updateSession(null);
     $("create-form").hidden = true;
     $("draft-project-required").hidden = true;
@@ -2022,7 +2024,8 @@
     clearBoard();
     continuousUI.update(null);
     state.draftOpen = false;
-    setActiveProject(state.sessions.find(session => session.id === id)?.project);
+    const summary = state.sessions.find(session => session.id === id);
+    setActiveProject(summary ? window.RoundtableProjects.sessionProjectKey(summary) : "");
     state.roundsKey = "";
     state.seatKeys = {};
     state.file = null;
@@ -2051,10 +2054,10 @@
       }
     }
   }
-  function setActiveProject(path = "") {
-    if (state.activeProject === path) return;
-    state.activeProject = path;
-    storageSet("studio.active-project", path);
+  function setActiveProject(key = "") {
+    if (state.activeProject === key) return;
+    state.activeProject = key;
+    storageSet("studio.active-project", key);
   }
   function paintDraftProject() {
     if (!state.draftOpen) return;
@@ -2066,7 +2069,7 @@
     $("create-form").hidden = !project;
     $("draft-project-required").hidden = !!project;
     if (project) {
-      setActiveProject(project.path);
+      setActiveProject(project.id);
       createCommands.close();
       setup.open(project);
       paintTextLimit("new-topic");
@@ -2077,18 +2080,18 @@
     createCommands.close();
     setup.suspend();
     $("draft-project-message").textContent =
-      options.length ? "选择要创建圆桌的项目" :
+      options.some(option => !option.global) ? "选择要创建圆桌的项目" :
       state.projectListStatus === "loading" ? "正在读取项目…" :
-      state.projectListStatus === "failed" ? "暂时无法读取项目" : "添加项目后即可创建圆桌";
+      state.projectListStatus === "failed" ? "暂时无法读取项目" : "添加项目，或创建全局圆桌";
     $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
     const buttons = options.map(option => {
       const button = document.createElement("button");
       button.className = "button secondary";
       button.type = "button";
       button.textContent = options.some(other => other !== option && other.name === option.name)
-        ? option.path : option.name;
-      button.title = option.path;
-      button.addEventListener("click", () => openDraft(option.path));
+        ? option.path || option.name : option.name;
+      button.title = option.path || option.name;
+      button.addEventListener("click", () => openDraft(option.id));
       return button;
     });
     $("draft-project-options").replaceChildren(...buttons);
@@ -2107,7 +2110,7 @@
     clearBoard();
     window.MeetingAgenda.clear();
     reportUI.update(null);
-    window.ScienceMeeting?.update(null, project || state.activeProject);
+    window.ScienceMeeting?.update(null);
     pluginsUI.updateSession(null);
     storageSet("studio.last-session", "new");
     state.file = null;
@@ -2751,8 +2754,9 @@
       return;
     }
     const payload = setup.payload(chief.target);
-    if (payload.project !== state.activeProject ||
-        !projects.available().some(project => project.path === payload.project)) return;
+    const scope = payload.scope === "global" ? "@global" : payload.project_id || payload.project;
+    if (scope !== state.activeProject ||
+        !projects.available().some(project => (project.id || project.path) === scope)) return;
     state.writing = true;
     updateControls();
     clearError();
@@ -3156,16 +3160,12 @@
     const last = storageGet("studio.last-session");
     let research = null;
     try {
-      research = await window.ScienceMeeting?.loadProject();
-      if (research && !projects.available().some(item => item.path === research.path)) {
-        await api("/projects", {path:research.path});
-        await projects.load();
-      }
+      research = window.ScienceMeeting?.requestedProject(entry.searchParams.get("project"));
     } catch (error) {
       if (entry.searchParams.has("project")) { showError(error); return; }
     }
     if (linked) await openSession(linked, { preserveHash: true });
-    else if (research) openDraft(research.path);
+    else if (research) openDraft(research.id);
     else if (!state.selected && last && state.sessions.some(session => session.id === last))
       await openSession(last);
     else if (!state.selected) openDraft();
@@ -3175,7 +3175,8 @@
           linked ? runMaterials : createMaterials, () => state.activeProject,
           $(linked ? "run-note" : "new-topic"));
         await window.ScienceLabHandoff?.receive(research, linked, state.session,
-          $(linked ? "run-note" : "new-topic"), linked ? null : setup.applyLabPreset);
+          $(linked ? "run-note" : "new-topic"), linked ? null : setup.applyLabPreset,
+          linked ? runMaterials : createMaterials);
       } catch (error) { showError(error); }
     }
     if (["settings", "files", "plugins"].includes(requestedView))
@@ -3399,7 +3400,8 @@
       { label: "讨论模式与权限", group: "讨论", icon: "sliders", run: () => meetingActions.openSettings($("run-preset")) },
     ]);
   const projects = window.RoundtableProjects.mount({
-    api, history:$("history"), newSession:openDraft, projectsChanged:paintDraftProject,
+    api, history:$("history"), loadResearch:window.ScienceMeeting.loadProjects,
+    newSession:openDraft, projectsChanged:paintDraftProject,
     rerender:() => { state.historyKey = ""; renderHistory(); },
   });
   $("draft-add-project").addEventListener("click", event => projects.openAdd(event.currentTarget));

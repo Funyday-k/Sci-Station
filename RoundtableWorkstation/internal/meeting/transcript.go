@@ -22,8 +22,8 @@ func renderTranscript(s *Session) string {
 		fmt.Fprintf(&b, "## Task\n\n议题原文：\n\n%s\n\n", s.Topic)
 	}
 	project := filepath.Base(filepath.Clean(s.Project))
-	if project == "." || project == string(filepath.Separator) {
-		project = "未指定"
+	if s.isGlobal() {
+		project = "全局圆桌"
 	}
 	fmt.Fprintf(&b, "Project: %s\n\nStatus: %s（%s）\n", project, s.Status, sessionStatusLabel(s.Status))
 

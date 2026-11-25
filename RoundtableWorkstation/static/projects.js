@@ -23,14 +23,19 @@
     return button;
   };
   const pathName = (path) => path.split("/").filter(Boolean).at(-1) || path;
-  function resolveSelection(projects, preferredPath, complete) {
-    return projects.find(project => project.path === preferredPath) ||
-      (complete && projects.length === 1 ? projects[0] : null);
+  const globalProject = {id: "@global", name: "全局圆桌", path: "", global: true};
+  const projectKey = project => project.id || project.path;
+  const sessionProjectKey = session => session.project_id ||
+    (session.project ? "legacy:" + session.project : globalProject.id);
+  function resolveSelection(projects, preferredKey, complete) {
+    const ordinary = projects.filter(project => !project.global);
+    return projects.find(project => projectKey(project) === preferredKey) ||
+      (complete && ordinary.length === 1 ? ordinary[0] : null);
   }
 
-  function mount({ api, history, rerender, newSession, projectsChanged }) {
+  function mount({ api, history, loadResearch, rerender, newSession, projectsChanged }) {
     let registered = [];
-    let legacyPaths = new Set();
+    let research = [];
     let lastSelected = null;
     let lastProject = "";
     const collapsed = new Set();
@@ -135,8 +140,12 @@
     }
     async function load() {
       const initialRevision = revision;
-      const result = await api("/projects");
-      if (revision === initialRevision) updateProjects(result);
+      const [catalog, legacy] = await Promise.allSettled([loadResearch(), api("/projects")]);
+      if (revision !== initialRevision) return;
+      if (catalog.status === "fulfilled") research = catalog.value;
+      updateProjects(legacy.status === "fulfilled" ? legacy.value : {projects: registered});
+      if (catalog.status === "rejected") throw catalog.reason;
+      if (legacy.status === "rejected") throw legacy.reason;
     }
 
     function openAdd(opener = addButton) {
@@ -154,7 +163,8 @@
         status.textContent = "";
         setBusy(true);
         try {
-          updateProjects(await api("/projects", { path }));
+          await api("/projects", { path });
+          await load();
           dialog.close();
         } catch (error) {
           status.textContent = error.message;
@@ -309,8 +319,8 @@
           const id = ++requestId;
           try {
             const selections = [...choices].map(([path, rules]) => ({ path, rules: [...rules.values()] }));
-            const result = await api("/projects/import", { action: "apply", selections });
-            updateProjects(result);
+            await api("/projects/import", { action: "apply", selections });
+            await load();
             if (useResult(id)) dialog.close();
           } catch (error) {
             if (useResult(id)) status.textContent = error.message;
@@ -421,39 +431,35 @@
     }
 
     function available() {
-      const items = new Map();
-      for (const project of registered) {
-        items.set(project.path, project);
-      }
-      for (const path of legacyPaths) {
-        if (!items.has(path)) items.set(path, { path, name: pathName(path) });
-      }
-      return [...items.values()].sort((a, b) =>
-        a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
-      );
+      const rules = new Map(registered.filter(project => project.id).map(project => [project.id, project]));
+      const sorted = research.map(project => ({
+        ...project, rule_count: rules.get(project.id)?.rule_count,
+      })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+      return [...sorted, globalProject];
     }
     function render(sessions, rows, selected, activeProject) {
-      legacyPaths = new Set(sessions.map(session => session.project).filter(Boolean));
-      const groups = new Map(available().map(project => [project.path, { ...project, sessions: [] }]));
+      const groups = new Map(available().map(project => [projectKey(project), { ...project, sessions: [], canCreate: true }]));
       for (const session of sessions) {
-        const path = session.project || "";
-        if (!groups.has(path)) {
-          groups.set(path, { path, name: "未关联项目", sessions: [] });
+        const key = sessionProjectKey(session);
+        if (!groups.has(key)) {
+          const path = session.project || "";
+          const label = session.project_id ? "项目已停用" : "旧会话";
+          groups.set(key, { path, name: path ? label + " · " + pathName(path) : label, sessions: [] });
         }
-        groups.get(path).sessions.push(session);
-        if (session.id === selected && selected !== lastSelected) collapsed.delete(path);
+        groups.get(key).sessions.push(session);
+        if (session.id === selected && selected !== lastSelected) collapsed.delete(key);
       }
       lastSelected = selected;
       if (activeProject !== lastProject) collapsed.delete(activeProject);
       lastProject = activeProject;
       const fragment = document.createDocumentFragment();
       if (!groups.size) fragment.append(element("p", "quiet", "还没有项目。"));
-      [...groups.values()].forEach((group, index) => {
+      [...groups].forEach(([key, group], index) => {
         const section = element("section", "project-rail-group");
         const header = element("div", "project-rail-header");
-        const current = Boolean(group.path && group.path === activeProject);
+        const current = key === activeProject;
         if (current) header.classList.add("current-project");
-        const trigger = element(group.path ? "button" : "span", "project-rail-trigger");
+        const trigger = element(group.canCreate ? "button" : "span", "project-rail-trigger");
         trigger.title = group.path || group.name;
         const toggle = iconButton("chevronRight", group.name, "project-rail-chevron");
         toggle.disabled = !group.sessions.length;
@@ -462,13 +468,13 @@
         const name = element("span", "project-rail-name", group.name);
         trigger.append(folder, name);
         header.append(toggle, trigger);
-        if (group.path) {
+        if (group.canCreate) {
           trigger.type = "button";
           if (current) trigger.setAttribute("aria-current", "true");
           trigger.addEventListener("click", () => {
-            collapsed.delete(group.path);
+            collapsed.delete(key);
             updateVisibility();
-            newSession(group.path);
+            newSession(key);
           });
           if (Number.isInteger(group.rule_count)) {
             const rules = iconButton("file", `查看 ${group.name} 的项目规则（${group.rule_count} 条生效）`, "project-rail-rules");
@@ -477,14 +483,14 @@
             header.append(rules);
           }
           const add = iconButton("plus", `在 ${group.name} 中新建圆桌`, "project-rail-new");
-          add.addEventListener("click", () => newSession(group.path));
+          add.addEventListener("click", () => newSession(key));
           header.append(add);
         }
         const children = element("div", "project-rail-sessions");
         children.id = `project-rail-sessions-${index}`;
         toggle.setAttribute("aria-controls", children.id);
         function updateVisibility() {
-          const closed = collapsed.has(group.path);
+          const closed = collapsed.has(key);
           children.hidden = closed;
           const label = `${closed ? "展开" : "折叠"} ${group.name} 的圆桌`;
           toggle.setAttribute("aria-expanded", String(!closed));
@@ -492,8 +498,8 @@
           toggle.title = label;
         }
         toggle.addEventListener("click", () => {
-          if (collapsed.has(group.path)) collapsed.delete(group.path);
-          else collapsed.add(group.path);
+          if (collapsed.has(key)) collapsed.delete(key);
+          else collapsed.add(key);
           updateVisibility();
         });
         group.sessions.forEach((session) => {
@@ -509,5 +515,5 @@
     return { render, available, load, openAdd, openImport };
   }
 
-  window.RoundtableProjects = { mount, resolveSelection };
+  window.RoundtableProjects = { mount, resolveSelection, projectKey, sessionProjectKey };
 })();

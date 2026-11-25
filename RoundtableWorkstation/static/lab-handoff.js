@@ -25,7 +25,7 @@
     let data;
     try { data=JSON.parse(sessionStorage.getItem(key)||"null"); } catch { return; }
     if (!data || !project || data.projectId!==project.id || (data.sessionId||"")!==(linked||"")) return;
-    if (linked && (!session || session.id!==linked || session.project!==project.path || session.status==="closed")) throw Error("目标会议已结束或不属于此项目。");
+    if (linked && (!session || session.id!==linked || session.project_id!==project.id || session.status==="closed")) throw Error("目标会议已结束或不属于此项目。");
     const text=compose(data);
     const prior=box.value.trim();
     const next=prior.endsWith(text)?prior:[prior,text].filter(Boolean).join("\n\n");

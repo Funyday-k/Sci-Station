@@ -223,7 +223,7 @@ func (e *Engine) assessContinuous(ctx context.Context, s *Session) (ContinuousVe
 			return ContinuousVerdict{}, errors.New("continuous review cannot cover all explicitly named files")
 		}
 		seenPaths[path] = true
-		f, err := readFile(s.Project, path)
+		f, err := e.readProjectFile(s, path)
 		if err != nil {
 			files = append(files, continuousFileSource{ID: "FILE:" + path + "@unreadable", Path: path, Version: "unavailable", MissingReason: "读取失败：" + shorten(err.Error(), 180)})
 			continue

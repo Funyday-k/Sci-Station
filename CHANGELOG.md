@@ -12,6 +12,10 @@ Development, validation, versioning, and release conventions are maintained in `
 
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 
+### Fixed
+
+- Reopen saved meetings under their original research project. Readers and AI Lab use project IDs for handoffs, and file access is checked against the project's active folder grant.
+
 ## [0.2.0] - 2026-10-16
 
 ### Fixed

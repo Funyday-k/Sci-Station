@@ -53,7 +53,7 @@
   function projectSelection(){
     const id=$("project").value,p=projects.find(v=>v.id===id);
     $("session").replaceChildren(new Option("新建圆桌",""));
-    if(p)for(const s of sessions){if(s.project===p.path&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
+    if(p)for(const s of sessions){if(s.project_id===p.id&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
     const url=new URL(location.href);
     if(id)url.searchParams.set("project",id);else url.searchParams.delete("project");
     history.replaceState(null,"",url);

@@ -48,18 +48,22 @@ test('reader handoff queues only the selected excerpt, enforces project and sour
   const context=vm.createContext({window:{},URL,URLSearchParams,FormData,Blob,Event,location:new URL('http://localhost/studio?project=project_1'),
     document,history:{replaceState(){}},fetch,sessionStorage:{getItem:k=>storage.get(k),removeItem:k=>storage.delete(k)}});
   vm.runInContext(src,context);
-  const bridge=context.window.ScienceMeeting; assert.equal((await bridge.loadProject()).id,project.id);
+  const bridge=context.window.ScienceMeeting; await bridge.loadProjects();
+  assert.equal(bridge.requestedProject(project.id).id,project.id);
   let materials=[];
   const control={busy:()=>false,failed:()=>false,items:()=>materials,ready:()=>materials,set(items){materials=items;}};
   const box={value:'',dispatchEvent(){}}, key='sci-station.paper-handoff';
-  storage.set(key,JSON.stringify(ref)); await bridge.receive(project,'',control,()=>project.path,box);
+  storage.set(key,JSON.stringify(ref)); await bridge.receive(project,'',control,()=>project.id,box);
   assert.equal(materials.length,1);assert.equal(box.value.includes(ref.title),true);assert.equal(storage.has(key),false);
   assert.ok(operations.every(([url])=>!url.includes('/sessions')));
   storage.set(key,JSON.stringify(ref));paper={...paper,file_sha256:'b'.repeat(64)};
-  await assert.rejects(bridge.receive(project,'',control,()=>project.path,box),/重新|核对/);
+  await assert.rejects(bridge.receive(project,'',control,()=>project.id,box),/重新|核对/);
   paper={...paper,project_ids:[]};
-  await assert.rejects(bridge.receive(project,'',control,()=>project.path,box),/加入/);
+  await assert.rejects(bridge.receive(project,'',control,()=>project.id,box),/加入/);
   assert.equal(materials.length,1);
+  storage.set(key,JSON.stringify({...ref,sessionId:'existing'}));
+  bridge.update({id:'existing',project_id:'other-project',project:project.path});
+  await assert.rejects(bridge.receive(project,'existing',control,()=>project.id,box),/另一项目/);
 });
 test('reviewing is read-only until confirmation; notes honor revision and meeting tasks are deduplicated',async()=>{
   class Node {
@@ -74,7 +78,7 @@ test('reviewing is read-only until confirmation; notes honor revision and meetin
   }
   class Option extends Node {constructor(label,value){super('option',label);this.value=value;}}
   const body=new Node('body'),toolbar=new Node('div'),map=new Map(),writes=[];
-  const project={id:ref.projectId,name:'Study',path:'/tmp/one'},session={id:'s018',title:'研究会',project:project.path,agenda:[{id:'a1',title:'检查公式'}],materials:[],
+  const project={id:ref.projectId,name:'Study',path:'/tmp/one'},session={id:'s018',title:'研究会',project_id:project.id,project:project.path,agenda:[{id:'a1',title:'检查公式'}],materials:[],
     rounds:[{number:3,turns:[{seat:'a',model:'A',status:'done',text:'结论'}]}]};
   const existing={id:'note01',title:'已有笔记',body:'以前的内容',revision:4,evidence:[]};
   const fetch=async(url,opt)=>{
@@ -96,7 +100,7 @@ test('reviewing is read-only until confirmation; notes honor revision and meetin
     location:new URL('http://localhost/studio?project='+project.id),history:{replaceState(){}},
     document:{body,createElement:t=>new Node(t),getElementById:id=>id==='chat-toolbar'?toolbar:null}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../static/science-meeting.js'),'utf8'),ctx);
-  const bridge=ctx.window.ScienceMeeting;await bridge.loadProject();bridge.update(session);
+  const bridge=ctx.window.ScienceMeeting;await bridge.loadProjects();bridge.update(session);
   const open=()=>toolbar.children[0].fire('click');
   await open();const dialog=body.children[0], [out,target]=dialog.all('select'), findButton=text=>dialog.all('button').find(b=>b.textContent===text);
   assert.equal(writes.length,0);await findButton('取消').fire('click');assert.equal(writes.length,0);
