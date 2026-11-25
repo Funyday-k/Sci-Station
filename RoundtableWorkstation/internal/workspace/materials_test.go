@@ -21,6 +21,8 @@ func TestMaterialsShowActualProjectFilesAndRestrictPreview(t *testing.T) {
 	put(t, project, "code/plain.txt", strings.Repeat("x", MaxMaterialTextBytes+1), 0600)
 	put(t, project, "data/spectrum.npy", "\x93NUMPY\x00", 0600)
 	put(t, project, "figures/plot.png", "\x89PNG\r\n\x1a\n", 0600)
+	put(t, project, "figures/scan.tif", "II*\x00", 0600)
+	put(t, project, "figures/scan.heic", "\x00\x00\x00\x18ftypheic\x00\x00\x00\x00", 0600)
 	put(t, project, "figures/masquerade.png", "<svg></svg>", 0600)
 	put(t, project, "outputs/report.pdf", "%PDF-1.7\n", 0600)
 	put(t, project, "notes/unlisted.md", "not in the materials collections", 0600)
@@ -42,7 +44,7 @@ func TestMaterialsShowActualProjectFilesAndRestrictPreview(t *testing.T) {
 	}
 	want := map[string]string{
 		"code/analysis.py": "python", "code/view.html": "text", "code/plain.txt": "text",
-		"data/spectrum.npy": "data", "figures/plot.png": "image", "figures/masquerade.png": "image", "outputs/report.pdf": "pdf",
+		"data/spectrum.npy": "data", "figures/plot.png": "image", "figures/scan.heic": "image", "figures/scan.tif": "image", "figures/masquerade.png": "image", "outputs/report.pdf": "pdf",
 	}
 	if !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("wrong material inventory: %v", kinds)
@@ -50,7 +52,7 @@ func TestMaterialsShowActualProjectFilesAndRestrictPreview(t *testing.T) {
 
 	for path, mediaType := range map[string]string{
 		"code/analysis.py": "text/plain; charset=utf-8", "code/view.html": "text/plain; charset=utf-8",
-		"figures/plot.png": "image/png", "outputs/report.pdf": "application/pdf",
+		"figures/plot.png": "image/png", "figures/scan.heic": "image/heic", "figures/scan.tif": "image/tiff", "outputs/report.pdf": "application/pdf",
 	} {
 		f, file, got, err := MaterialPreview(project, path)
 		if err != nil {

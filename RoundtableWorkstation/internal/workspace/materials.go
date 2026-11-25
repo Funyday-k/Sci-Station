@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"io/fs"
@@ -185,9 +186,9 @@ func materialPreviewType(f *os.File, item MaterialFile) (string, error) {
 		if err != nil && err != io.EOF {
 			return "", err
 		}
-		detected := http.DetectContentType(header[:n])
+		detected := materialMediaType(header[:n])
 		switch detected {
-		case "image/png", "image/jpeg", "image/gif", "image/webp":
+		case "image/png", "image/jpeg", "image/gif", "image/webp", "image/tiff", "image/heic":
 			if item.Kind == "image" {
 				return detected, nil
 			}
@@ -198,6 +199,19 @@ func materialPreviewType(f *os.File, item MaterialFile) (string, error) {
 		}
 	}
 	return "", invalid("file type is unavailable for inline preview")
+}
+
+func materialMediaType(header []byte) string {
+	switch {
+	case bytes.HasPrefix(header, []byte("II*\x00")), bytes.HasPrefix(header, []byte("MM\x00*")):
+		return "image/tiff"
+	case len(header) >= 16 && string(header[4:8]) == "ftyp":
+		switch string(header[8:12]) {
+		case "heic", "heix", "hevc", "hevx":
+			return "image/heic"
+		}
+	}
+	return http.DetectContentType(header)
 }
 
 // MaterialLocation resolves a single regular file immediately before a

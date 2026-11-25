@@ -36,7 +36,7 @@ func configureMaterialDesktop(host *apiServer, app *application.App, window appl
 			defer pickerMu.Unlock()
 			return app.Dialog.OpenFile().AttachToWindow(window).
 				CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(false).
-				SetTitle("选择 Python 虚拟环境").SetMessage("请选择包含 pyvenv.cfg 和 bin/python 的文件夹。").
+				SetTitle("选择 Python 虚拟环境").SetMessage("请选择包含可执行 bin/python 的环境文件夹。").
 				SetButtonText("选择环境").PromptForSingleSelection()
 		},
 		launch: launchProjectMaterial,
@@ -116,7 +116,7 @@ func stageMaterialCommand(m materialLaunch) (string, error) {
 			" && /bin/mkdir -- .venv && " + materialShellQuote(m.interpreter) + " -m venv .venv"
 	}
 	script := "#!/bin/zsh\n/bin/rm -f -- \"$0\"\n" + command +
-		"\nstatus=$?\nprintf '\\nPython exited with status %s. Press Return to close.\\n' \"$status\"\nread -r _\nexit \"$status\"\n"
+		"\nexit_code=$?\nprintf '\\nPython exited with status %s. Press Return to close.\\n' \"$exit_code\"\nread -r _\nexit \"$exit_code\"\n"
 	file, err := os.CreateTemp("", "scistation-python-*.command")
 	if err != nil {
 		return "", err

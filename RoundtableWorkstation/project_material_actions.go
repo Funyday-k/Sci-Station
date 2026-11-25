@@ -275,12 +275,8 @@ func (a *projectMaterialActions) resolve(directory string, input projectMaterial
 }
 
 func environmentPython(directory string) (string, error) {
-	invalid := errors.New("所选目录需要是包含 pyvenv.cfg 和可执行 bin/python 的虚拟环境")
+	invalid := errors.New("所选环境目录需要包含可执行的 bin/python")
 	if _, err := workspace.Validate(filepath.Join(directory, "bin")); err != nil {
-		return "", invalid
-	}
-	config, err := os.Lstat(filepath.Join(directory, "pyvenv.cfg"))
-	if err != nil || !config.Mode().IsRegular() {
 		return "", invalid
 	}
 	// A standard venv's bin/python is often a symlink to the base interpreter.

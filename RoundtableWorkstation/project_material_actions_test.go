@@ -126,7 +126,6 @@ func TestSelectedPythonEnvironmentIsProjectSpecific(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	materialTestWrite(t, env, "pyvenv.cfg", "home = /usr/bin", 0600)
 	materialTestWrite(t, env, "bin/python", "#!/bin/sh\n", 0700)
 	a.materialActions = &projectMaterialActions{pick: func() (string, error) { return env, nil }}
 	input := `{"project":"` + alpha.ID + `","action":"select-venv"}`
