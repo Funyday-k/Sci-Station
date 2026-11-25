@@ -253,7 +253,6 @@ func (e *Engine) afterContinuousRound(ctx context.Context, id string) (guidance 
 			if er != nil {
 				return er
 			}
-			settings.AllowEdits = settings.AllowEdits && r.Settings.AllowEdits && !plan.ReadOnly()
 			rules, er := e.loadRoundRules(s)
 			if er != nil {
 				return er

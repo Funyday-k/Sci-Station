@@ -37,7 +37,7 @@ func openSettings(dir string) (*settingsStore, error) {
 			Models:      map[string]string{"codex": "gpt-6.2-sol", "cursor": "composer-2.5"},
 			ChildModels: map[string]string{"codex": "gpt-6-luna", "cursor": "composer-2.5"},
 			CLIPaths:    map[string]string{"codex": "", "cursor": ""},
-			Timeout:     180, MaxChildren: 1, MaxSteps: 10, AllowEdits: true,
+			Timeout:     180, MaxChildren: 1, MaxSteps: 10,
 			CodexTransport: "magpie", MagpiePort: 3425,
 		},
 		Appearance: "system",
@@ -69,6 +69,7 @@ func openSettings(dir string) (*settingsStore, error) {
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return nil, e
 	}
+	p.AllowEdits = false // Older preference files may still grant the retired write tool.
 	if err := validatePrefs(p, false); err != nil {
 		return nil, err
 	}
@@ -153,6 +154,7 @@ func (s *settingsStore) update(raw map[string]json.RawMessage) error {
 	if e := json.Unmarshal(patch, &next); e != nil {
 		return errors.New("设置格式有误")
 	}
+	next.AllowEdits = false
 	if e := validatePrefs(next, true); e != nil {
 		return e
 	}

@@ -33,8 +33,7 @@ func Resolve(preset, phase string) (Plan, error) {
 	return Plan{}, errors.New("请选择有效的讨论方式和阶段")
 }
 
-func (p Plan) ReadOnly() bool    { return p.Preset != "work" }
-func (p Plan) Independent() bool { return p.ReadOnly() }
+func (p Plan) Independent() bool { return p.Preset != "work" }
 func (p Plan) Synthesis() bool   { return p.Phase == "synthesis" }
 
 type presetDefinition struct {
@@ -49,7 +48,7 @@ const shared = "You are a principal participant in a roundtable chaired by the u
 var definitions = map[string]presetDefinition{
 	"work": {
 		label: "项目协作", phaseLabels: map[string]string{"work": "协作"},
-		intro: "Advance the user's requested work. Read the relevant current files and preceding contributions before relying on them. Do the smallest useful piece of work consistent with the request. Check what changed, then hand the next seat the result, its location and any outstanding question. When the task is only a question, answer it directly. Do not add ceremonial debate, extra rounds or a vote.",
+		intro: "Advance the user's requested work using the relevant current files and preceding contributions. Assess what has changed and propose the smallest useful next step, with its location and any outstanding question. If project files need an edit, describe what should change for the host's CLI editing workflow. When the task is only a question, answer it directly. Do not add ceremonial debate, extra rounds or a vote.",
 	},
 	"review": {
 		label: "方案评审", phaseLabels: map[string]string{"proposal": "独立提案", "challenge": "检验异议", "synthesis": "汇总建议"},
@@ -86,7 +85,7 @@ func (p Plan) PhaseLabel() string { return definitions[p.Preset].phaseLabels[p.P
 func (p Plan) Instructions() string {
 	d := definitions[p.Preset]
 	policy := shared + "\n" + d.intro
-	if p.ReadOnly() {
+	if p.Independent() {
 		policy += "\nThis is a read-only discussion round. Use prior completed public contributions and cite decisive evidence when available. Distinguish an untested suggestion from a completed check. A missing or failed response supplies no position. Only the host advances rounds. If there is nothing new to verify, report the outcome or the decision needed and stop.\n" + d.stages[p.Phase]
 	}
 	return policy

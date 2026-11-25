@@ -11,17 +11,16 @@ import (
 	"scistation.local/desktop/internal/deliberation"
 )
 
-func TestRoundWritePermissionUsesTheSavedEffectiveValue(t *testing.T) {
+func TestLegacyWriteFlagsNeverGrantMeetingFileEdits(t *testing.T) {
 	allow, deny := true, false
 	cases := []struct {
 		name, preset string
 		global       bool
 		requested    *bool
-		want         bool
 	}{
-		{name: "legacy project collaboration", preset: "work", global: true, want: true},
+		{name: "legacy project collaboration", preset: "work", global: true},
 		{name: "project collaboration read-only", preset: "work", global: true, requested: &deny},
-		{name: "project collaboration writable", preset: "work", global: true, requested: &allow, want: true},
+		{name: "project collaboration writable", preset: "work", global: true, requested: &allow},
 		{name: "global limit", preset: "work", requested: &allow},
 		{name: "preset limit", preset: "review", global: true, requested: &allow},
 	}
@@ -36,17 +35,17 @@ func TestRoundWritePermissionUsesTheSavedEffectiveValue(t *testing.T) {
 				case 1:
 					global.Store(!tc.global)
 					rules := deliberation.InstructionsFrom(ctx)
-					if strings.Contains(rules, `{"action":"write"`) != tc.want {
+					if strings.Contains(rules, `{"action":"write"`) {
 						t.Error("write action in instructions disagrees with the effective permission")
 					}
-					if strings.Contains(prompt, `"allow_edits":true`) != tc.want {
+					if !strings.Contains(prompt, `"allow_edits":false`) {
 						t.Error("model context disagrees with the effective permission")
 					}
 					return `{"action":"read","path":"test.md"}`, nil
 				case 2:
 					return `{"action":"write","path":"test.md","text":"changed"}`, nil
 				default:
-					if strings.Contains(prompt, "edits are disabled for this round") == tc.want {
+					if !strings.Contains(prompt, modelFileEditUnavailable) {
 						t.Error("write feedback disagrees with the effective permission")
 					}
 					return say("complete"), nil
@@ -70,15 +69,11 @@ func TestRoundWritePermissionUsesTheSavedEffectiveValue(t *testing.T) {
 				t.Fatal(err)
 			}
 			final := settled(t, engine, s.ID)
-			if started.Rounds[0].Settings.AllowEdits != tc.want || final.Rounds[0].Settings.AllowEdits != tc.want || final.Status != "ready" {
+			if started.Rounds[0].Settings.AllowEdits || final.Rounds[0].Settings.AllowEdits || final.Status != "ready" {
 				t.Fatalf("unexpected persisted round: %+v", final.Rounds[0])
 			}
 			text, err := os.ReadFile(filepath.Join(project, "test.md"))
-			if tc.want {
-				if err != nil || string(text) != "changed" || len(final.Operations) != 1 {
-					t.Fatalf("authorized write was not applied: %q, %v", text, err)
-				}
-			} else if !os.IsNotExist(err) || len(final.Operations) != 0 {
+			if !os.IsNotExist(err) || len(final.Operations) != 0 {
 				t.Fatalf("read-only round touched the file or write journal: %q, %v", text, err)
 			}
 		})

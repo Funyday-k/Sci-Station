@@ -58,7 +58,7 @@ type Settings struct {
 	Timeout         int               `json:"timeout"`
 	MaxChildren     int               `json:"max_children"`
 	MaxSteps        int               `json:"max_steps"`
-	AllowEdits      bool              `json:"allow_edits"`
+	AllowEdits      bool              `json:"allow_edits"` // Historical round metadata; new rounds are read-only.
 	CodexTransport  string            `json:"codex_transport,omitempty"`
 	MagpiePort      int               `json:"magpie_port,omitempty"`
 }
@@ -603,6 +603,9 @@ func (e *Engine) snapshotSettings(session *Session) (Settings, error) {
 	if err = json.Unmarshal(encoded, &s); err != nil {
 		return s, err
 	}
+	// Preserve the archive field without carrying legacy write permission
+	// into new meeting work or into a resumed continuous batch.
+	s.AllowEdits = false
 	if len(session.Members) > 0 {
 		s.Models = map[string]string{}
 		s.ChildModels = map[string]string{}
@@ -707,7 +710,7 @@ type RoundOptions struct {
 	Preset, Phase string
 	AgendaVersion *int
 	MaterialIDs   []string
-	// Nil preserves the preset and global editing policy for legacy clients.
+	// Accepted for older callers. Roundtable models never edit project files.
 	AllowEdits *bool
 }
 
@@ -788,7 +791,6 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 		if err != nil {
 			return err
 		}
-		settings.AllowEdits = settings.AllowEdits && !s.isGlobal() && !plan.ReadOnly() && (options.AllowEdits == nil || *options.AllowEdits)
 		projectRules, err = e.loadRoundRules(s)
 		if err != nil {
 			return err
@@ -1307,14 +1309,12 @@ func outerJSONBlocks(value string) []string {
 	return blocks
 }
 
-func protocolCorrection(child, allowEdits bool) string {
+func protocolCorrection(child bool) string {
 	allowed := "read、read_statement、delegate 或 say"
 	if child {
 		allowed = "read、read_statement 或 say"
-	} else if allowEdits {
-		allowed = "read、read_statement、delegate、write 或 say"
 	}
-	return "上一回复不符合动作协议，尚未执行其中任何动作。请只返回一个 " + allowed + " JSON 对象，不要添加解释或代码围栏。保留操作历史；已成功的读取、委派和写入不要重复执行。"
+	return "上一回复不符合动作协议，尚未执行其中任何动作。请只返回一个 " + allowed + " JSON 对象，不要添加解释或代码围栏。保留操作历史；已成功的读取和委派不要重复执行。"
 }
 
 func (e *Engine) protocolFailure(id string, index, step int, childID, raw string, cause error) error {
@@ -1354,18 +1354,18 @@ func readFile(project, path string) (workspace.File, error) {
 	}
 	return f, err
 }
-func protocol(child, allowEdits bool) string {
-	base := `You are a model participating in a shared-project roundtable. Speak only for yourself; never simulate another seat or invent success. Native shell commands, file tools and edits are forbidden. All project operations must use this JSON protocol; the application executes them and verifies versions. Return exactly ONE JSON object, without commentary or Markdown. Actions: {"action":"read","path":"relative/file"}; {"action":"read_statement","round":1,"seat":"codex"}; {"action":"say","text":"your final statement"}. Use the user's language. Cite original public statements as [R1 · seat/model]. When a visible statement has text_omitted, read_statement retrieves its original text if needed to evaluate or quote it. A text_excerpt is only a prefix. For project evidence, read supplies the exact current file when text_omitted or diff_omitted is set. text_elsewhere refers to the same file version included elsewhere in the prompt. already_read feedback refers to content already in the turn's input. `
+
+const modelFileEditUnavailable = "Project file edits require the host to start a CLI edit session and review the changes."
+
+func protocol(child bool) string {
+	base := `You are a model participating in a shared-project roundtable. Speak only for yourself; never simulate another seat or invent success. Project file access is read-only. The host can separately request project edits from the CLI and review its changes. Native shell commands and file tools are forbidden. Use only this JSON protocol. Return exactly ONE JSON object, without commentary or Markdown. Actions: {"action":"read","path":"relative/file"}; {"action":"read_statement","round":1,"seat":"codex"}; {"action":"say","text":"your final statement"}. Use the user's language. Cite original public statements as [R1 · seat/model]. When a visible statement has text_omitted, read_statement retrieves its original text if needed to evaluate or quote it. A text_excerpt is only a prefix. For project evidence, read supplies the exact current file when text_omitted or diff_omitted is set. text_elsewhere refers to the same file version included elsewhere in the prompt. already_read feedback refers to content already in the turn's input. `
 	base += materialPromptInstructions + "\n" + boardContextInstructions + "\n"
 	base += "Use each public statement's recorded model for attribution. A seat is a stable discussion role and different models may have occupied it. A previous model's words and positions belong to that model.\n"
 	if child {
 		return base + `You are a PRIVATE read-only child. Only read, read_statement and say are allowed. Never write or delegate. Your answer goes only to your own parent, not the public discussion. If your CLI has already provided your own agent name, relay it exactly as an optional "name" field of your action. Omit the field if no name was provided. Never make up a name.`
 	}
 	base += `You are the current parent/chair for your own seat. You may also use {"action":"delegate","task":"bounded task for your own read-only child"}. Use selected files; do not repeatedly read unchanged content. When enough evidence is available, return say. Only your final say becomes a public statement. Assess private child results yourself. Address the peer's actual latest changes and explain which position you maintain or revise. Respect steps_remaining and max_children. `
-	if !allowEdits {
-		return base + `Project files are read-only this round. Do not return a write action.`
-	}
-	return base + `You may use {"action":"write","path":"relative/file","text":"complete new file text"}. Read every path before writing it, including a missing new file. After each write or conflict, explicitly read again before any later write. Only claim edits confirmed by successful feedback.`
+	return base
 }
 func marshal(v any) string { b, _ := json.Marshal(v); return string(b) }
 
@@ -1564,7 +1564,7 @@ private:
 	for _, seat := range s.Seats {
 		members = append(members, s.effectiveMember(seat, r.Settings))
 	}
-	data := map[string]any{"active_agenda": s.findAgenda(r.AgendaItemID), "open_agenda": openAgenda(s), "imported_project_reference": importedGuidance, "topic": s.Topic, "project": s.Project, "seat": t.Seat, "model": t.Model, "members": members, "round": r.Number, "preset": plan.Preset, "phase": plan.Phase, "latest_instruction": r.Note, "prior_rounds": priorRounds, "catalog": catalog, "prior_statements": prior, "public_participation": participation, "peer_changes": peer, "user_changes": userChanges, "user_changed_content": userFiles, "uncertain_edits": uncertain, "own_private_child_memory": privateMemory, "allow_edits": r.Settings.AllowEdits && !plan.ReadOnly(), "max_children": r.Settings.MaxChildren}
+	data := map[string]any{"active_agenda": s.findAgenda(r.AgendaItemID), "open_agenda": openAgenda(s), "imported_project_reference": importedGuidance, "topic": s.Topic, "project": s.Project, "seat": t.Seat, "model": t.Model, "members": members, "round": r.Number, "preset": plan.Preset, "phase": plan.Phase, "latest_instruction": r.Note, "prior_rounds": priorRounds, "catalog": catalog, "prior_statements": prior, "public_participation": participation, "peer_changes": peer, "user_changes": userChanges, "user_changed_content": userFiles, "uncertain_edits": uncertain, "own_private_child_memory": privateMemory, "allow_edits": false, "max_children": r.Settings.MaxChildren}
 	if member != nil && member.ModelEpoch > 0 {
 		data["model_handoff"] = map[string]any{"after_round": handoffAfter, "previous_model": member.PreviousModel}
 	}
@@ -1638,9 +1638,6 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 	if err != nil {
 		return err
 	}
-	if plan.ReadOnly() {
-		settings.AllowEdits = false
-	}
 	contextData, err := e.context(snapshot, index, importedGuidance)
 	if err != nil {
 		return err
@@ -1659,7 +1656,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		requestSession = fmt.Sprintf("%s-continuous-%d-%d", requestSession, c.StartRound, through)
 	}
 	ctx = context.WithValue(ctx, sessionKey{}, requestSession)
-	instructions := protocol(false, settings.AllowEdits) + "\n" + positionInstructions + "\n" + plan.Instructions() + "\n" + agendaInstructions + "\n" + agendaUpdateInstructions + "\n" + boardInstructions + "\n" + publicBoardContextInstructions
+	instructions := protocol(false) + "\n" + positionInstructions + "\n" + plan.Instructions() + "\n" + agendaInstructions + "\n" + agendaUpdateInstructions + "\n" + boardInstructions + "\n" + publicBoardContextInstructions
 	if contextData["model_handoff"] != nil {
 		instructions += "\nMODEL_HANDOFF: You are taking over the same seat from a previous model. Continue the topic using the public record and its stable point IDs. Evaluate earlier statements independently, including this seat's prior statements, and identify their actual model when attributing them."
 	}
@@ -1696,7 +1693,6 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		}
 	}
 	statements := newStatementReader(visibleStatements, inlineStatements)
-	writeEvidence := newProjectEvidence()
 	history := []map[string]any{}
 	protocolFailures := 0
 	blindRound := 0
@@ -1743,7 +1739,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 			if protocolFailures > 2 {
 				return fmt.Errorf("动作协议累计三次无效，已用完两次纠正机会：%w", err)
 			}
-			history = append(history, map[string]any{"ok": false, "protocol_error": err.Error(), "correction": protocolCorrection(false, settings.AllowEdits)})
+			history = append(history, map[string]any{"ok": false, "protocol_error": err.Error(), "correction": protocolCorrection(false)})
 			continue
 		}
 		if a.Action == "say" {
@@ -1788,12 +1784,8 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		case "read_statement":
 			result, err = statements.read(a)
 		case "write":
-			var change *workspace.Change
-			change, err = e.agentWrite(ctx, id, index, a)
-			if err == nil {
-				result = writeEvidence.change(*change)
-			}
 			a.Text = nil
+			err = errors.New(modelFileEditUnavailable)
 		case "delegate":
 			result, err = e.delegate(ctx, id, index, a.Task, contextData, visibleStatements, settings)
 		default:
@@ -1814,67 +1806,6 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		history = append(history, feedback)
 	}
 	return errors.New("已达到步骤上限，尚未获得最终公开发言。")
-}
-
-func (e *Engine) agentWrite(ctx context.Context, id string, index int, a action) (*workspace.Change, error) {
-	if a.Text == nil {
-		return nil, errors.New("write requires complete text")
-	}
-	path, err := relative(a.Path)
-	if err != nil {
-		return nil, err
-	}
-	var change *workspace.Change
-	err = e.locked(func() error {
-		s, err := e.load(id)
-		if err != nil {
-			return err
-		}
-		if s.CancelRequested || ctx.Err() != nil {
-			return context.Canceled
-		}
-		round := &s.Rounds[len(s.Rounds)-1]
-		plan, planErr := deliberation.Resolve(round.Preset, round.Phase)
-		if planErr != nil {
-			return planErr
-		}
-		if !round.Settings.AllowEdits || plan.ReadOnly() {
-			return errors.New("edits are disabled for this round")
-		}
-		t := &round.Turns[index]
-		baseline, ok := t.Reads[path]
-		if !ok {
-			return errors.New("read this path before writing it")
-		}
-		op := Operation{ID: newID(), Seat: t.Seat, Round: len(s.Rounds), Path: path, ExpectedVersion: baseline.Version, Text: *a.Text, Status: "pending"}
-		s.Operations = append(s.Operations, op)
-		oi := len(s.Operations) - 1
-		addEvent(s, "write_intent", t.Seat, path).OperationID = op.ID
-		if err = e.save(s); err != nil {
-			return err
-		}
-		var actual workspace.Change
-		writeErr := e.WithProjectDirectory(s, func(project string) error {
-			var err error
-			actual, err = workspace.Write(project, path, *a.Text, baseline.Version)
-			return err
-		})
-		delete(t.Reads, path)
-		if writeErr != nil {
-			s.Operations[oi].Status, s.Operations[oi].Error = "error", writeErr.Error()
-			addEvent(s, "write_failed", t.Seat, writeErr.Error()).OperationID = op.ID
-		} else {
-			s.Operations[oi].Status, s.Operations[oi].Change = "applied", &actual
-			t.Changes = append(t.Changes, actual)
-			change = &actual
-			addEvent(s, "write", t.Seat, path).OperationID = op.ID
-		}
-		if err = e.save(s); err != nil {
-			return err
-		}
-		return writeErr
-	})
-	return change, err
 }
 
 func (e *Engine) delegate(ctx context.Context, id string, index int, task string, contextData map[string]any, visibleStatements []publicStatement, settings Settings) (map[string]any, error) {
@@ -1933,7 +1864,7 @@ func (e *Engine) child(ctx context.Context, id string, index int, childID, seat,
 	// Replace, rather than append to, the parent's stage program. A private
 	// helper is never promoted into an extra public participant or chair.
 	ctx = context.WithValue(ctx, sessionKey{}, id+"-"+seat+"-"+childID)
-	ctx = deliberation.WithInstructions(ctx, protocol(true, false))
+	ctx = deliberation.WithInstructions(ctx, protocol(true))
 	childData := make(map[string]any, len(contextData))
 	for key, value := range contextData {
 		childData[key] = value
@@ -1984,7 +1915,7 @@ func (e *Engine) child(ctx context.Context, id string, index int, childID, seat,
 			if protocolFailures > 2 {
 				return "", fmt.Errorf("子任务动作协议累计三次无效，已用完两次纠正机会：%w", err)
 			}
-			history = append(history, map[string]any{"ok": false, "protocol_error": err.Error(), "correction": protocolCorrection(true, false)})
+			history = append(history, map[string]any{"ok": false, "protocol_error": err.Error(), "correction": protocolCorrection(true)})
 			continue
 		}
 		// A child may relay its own CLI's name. A parent request carries only the task.

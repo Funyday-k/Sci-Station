@@ -56,7 +56,7 @@ func say(text string) string {
 	b, _ := json.Marshal(map[string]string{"action": "say", "text": text})
 	return string(b)
 }
-func TestSequentialParentsReadWriteAndPrivateChild(t *testing.T) {
+func TestSequentialParentsReadAndKeepChildPrivate(t *testing.T) {
 	var mu sync.Mutex
 	counts := map[string]int{}
 	order := []string{}
@@ -89,6 +89,9 @@ func TestSequentialParentsReadWriteAndPrivateChild(t *testing.T) {
 				}
 				return `{"action":"write","path":"note.md","text":"actual edited draft"}`, nil
 			case 4:
+				if !strings.Contains(prompt, modelFileEditUnavailable) || strings.Contains(prompt, "actual edited draft") {
+					return "", errors.New("blocked file write was not explained or its text leaked")
+				}
 				return say("Codex public position"), nil
 			case 5:
 				if !strings.Contains(prompt, "own_private_child_memory") || !strings.Contains(prompt, "PRIVATE CHILD RESULT") {
@@ -105,15 +108,14 @@ func TestSequentialParentsReadWriteAndPrivateChild(t *testing.T) {
 			}
 			return say("PRIVATE CHILD RESULT"), nil
 		case "cursor/main":
-			if !strings.Contains(prompt, "Codex public position") || !strings.Contains(prompt, "actual edited draft") || !strings.Contains(prompt, "peer_changes") {
-				return "", errors.New("peer actual changes missing")
+			if !strings.Contains(prompt, "Codex public position") || strings.Contains(prompt, "actual edited draft") {
+				return "", errors.New("peer's public view includes an unapplied change or misses the statement")
 			}
 			if strings.Contains(prompt, "PRIVATE CHILD RESULT") {
 				return "", errors.New("private child leaked to peer")
 			}
-			data, err := os.ReadFile(filepath.Join(project, "note.md"))
-			if err != nil || string(data) != "actual edited draft" {
-				return "", errors.New("second seat started before write")
+			if _, err := os.Stat(filepath.Join(project, "note.md")); !os.IsNotExist(err) {
+				return "", errors.New("meeting wrote a project file before the second seat")
 			}
 			return say("Cursor public response"), nil
 		}
@@ -135,8 +137,8 @@ func TestSequentialParentsReadWriteAndPrivateChild(t *testing.T) {
 	if s.Status != "ready" {
 		t.Fatalf("session failed: %+v", s.Rounds[0].Turns)
 	}
-	if len(s.Rounds[0].Turns[0].Children) != 1 || len(s.Rounds[0].Turns[0].Changes) != 1 {
-		t.Fatal("missing child/change state")
+	if len(s.Rounds[0].Turns[0].Children) != 1 || len(s.Rounds[0].Turns[0].Changes) != 0 {
+		t.Fatal("missing child or unexpected agent file change")
 	}
 	if s.Rounds[0].Turns[0].Children[0].Name != "Draft Reader" {
 		t.Fatal("the child-reported nickname was not saved")
@@ -144,8 +146,8 @@ func TestSequentialParentsReadWriteAndPrivateChild(t *testing.T) {
 	if s.Rounds[0].Turns[0].Text != "Codex public position" {
 		t.Fatal("child replaced public speaker")
 	}
-	if s.Operations[0].Status != "applied" {
-		t.Fatal("write journal incomplete")
+	if len(s.Operations) != 0 {
+		t.Fatal("blocked model edit entered the write journal")
 	}
 	markdown, err := e.Markdown(s.ID)
 	if err != nil || strings.Contains(markdown, "PRIVATE CHILD RESULT") {
@@ -173,7 +175,7 @@ func TestSequentialParentsReadWriteAndPrivateChild(t *testing.T) {
 	}
 }
 
-func TestWriteNeedsReadAndChildCannotWrite(t *testing.T) {
+func TestParentAndChildCannotWriteProjectFiles(t *testing.T) {
 	count := 0
 	e, project := engine(t, func(ctx context.Context, seat, model, prompt, executable string) (string, error) {
 		if model == "codex/child" {
@@ -184,7 +186,7 @@ func TestWriteNeedsReadAndChildCannotWrite(t *testing.T) {
 		case 1:
 			return `{"action":"write","path":"blocked.md","text":"bad"}`, nil
 		case 2:
-			if !strings.Contains(prompt, "read this path before writing") {
+			if !strings.Contains(prompt, modelFileEditUnavailable) {
 				return "", errors.New("write was not rejected")
 			}
 			return `{"action":"delegate","name":"Parent placeholder","task":"attempt write"}`, nil
@@ -260,7 +262,7 @@ func TestCancelAcrossEngineInstancesAndImmediateRestart(t *testing.T) {
 	}
 }
 
-func TestStaleReadCannotOverwriteUserEdit(t *testing.T) {
+func TestLegacyModelWriteCannotOverwriteUserEdit(t *testing.T) {
 	project := tempDir(t)
 	if err := os.WriteFile(filepath.Join(project, "note.md"), []byte("original"), 0600); err != nil {
 		t.Fatal(err)
@@ -281,10 +283,13 @@ func TestStaleReadCannotOverwriteUserEdit(t *testing.T) {
 			if _, err = e.UserWrite(id, "note.md", "human revision", f.Version); err != nil {
 				return "", err
 			}
+			if _, err = e.UserWrite(id, "note.md", "stale manual revision", f.Version); !errors.Is(err, workspace.ErrConflict) {
+				return "", errors.New("manual edit did not preserve the original version check")
+			}
 			return `{"action":"write","path":"note.md","text":"stale agent revision"}`, nil
 		default:
-			if !strings.Contains(prompt, "conflict") {
-				return "", errors.New("version conflict missing from parent feedback")
+			if !strings.Contains(prompt, modelFileEditUnavailable) {
+				return "", errors.New("CLI approval boundary missing from parent feedback")
 			}
 			return say("I preserved the human change."), nil
 		}
@@ -307,7 +312,9 @@ func TestStaleReadCannotOverwriteUserEdit(t *testing.T) {
 	if err != nil || f.Text != "human revision" {
 		t.Fatal("human edit overwritten")
 	}
-	if len(s.UserChanges) != 1 || len(s.Rounds[0].Turns[0].Changes) != 0 || s.Operations[1].Status != "error" {
+	if len(s.UserChanges) != 1 || len(s.Rounds[0].Turns[0].Changes) != 0 || len(s.Operations) != 2 ||
+		s.Operations[0].Seat != "user" || s.Operations[0].Status != "applied" ||
+		s.Operations[1].Seat != "user" || s.Operations[1].Status != "error" {
 		t.Fatal("change timeline inconsistent")
 	}
 }
@@ -324,7 +331,10 @@ func TestRecoveryNoReplayAndUnknownWrite(t *testing.T) {
 	}
 	err = e.locked(func() error {
 		s.Status = "running"
-		s.Rounds = append(s.Rounds, Round{Number: 1, Turns: []Turn{{Seat: "codex", Status: "running", Children: []Child{{ID: "child", Status: "running"}}, Reads: map[string]workspace.File{}, Changes: []workspace.Change{}}}})
+		s.Rounds = append(s.Rounds, Round{
+			Number: 1, Settings: Settings{AllowEdits: true},
+			Turns: []Turn{{Seat: "codex", Status: "running", Children: []Child{{ID: "child", Status: "running"}}, Reads: map[string]workspace.File{}, Changes: []workspace.Change{}}},
+		})
 		s.Operations = append(s.Operations, Operation{ID: "pending", Path: "note.md", Status: "pending", Text: "possibly written"})
 		return e.save(s)
 	})
@@ -339,8 +349,19 @@ func TestRecoveryNoReplayAndUnknownWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 0 || s.Status != "partial" || s.Rounds[0].Turns[0].Status != "error" || s.Rounds[0].Turns[0].Children[0].Status != "error" || s.Operations[0].Status != "unknown" {
+	if calls != 0 || s.Status != "partial" || s.Rounds[0].Turns[0].Status != "error" || s.Rounds[0].Turns[0].Children[0].Status != "error" ||
+		!s.Rounds[0].Settings.AllowEdits || s.Operations[0].Status != "unknown" || s.Operations[0].Text != "possibly written" {
 		t.Fatalf("incorrect recovery: %+v", s)
+	}
+	if _, err = other.Start(s.ID, "Inspect the previous result", "codex", 1); err != nil {
+		t.Fatal(err)
+	}
+	s = settled(t, other, s.ID)
+	if s.Status != "ready" || !s.Rounds[0].Settings.AllowEdits || s.Rounds[1].Settings.AllowEdits || len(s.Operations) != 1 {
+		t.Fatal("opening an old writable meeting changed history or restored its edit permission")
+	}
+	if _, err = os.Stat(filepath.Join(project, "note.md")); !os.IsNotExist(err) {
+		t.Fatal("the recovered file edit was replayed")
 	}
 	if _, err = other.Get("../../bad"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("invalid ID not rejected")
@@ -514,11 +535,9 @@ func TestProtocolCorrectionPreservesSuccessfulOperationsAndPrivateChild(t *testi
 		case 1:
 			return `{"action":"read","path":"note.md"}`, nil
 		case 2:
-			return `{"action":"write","path":"note.md","text":"one actual write"}`, nil
-		case 3:
 			return `模型说明很多，但没有动作。` + strings.Repeat("诊断", 500), nil
-		case 4:
-			if !strings.Contains(prompt, "已成功的读取、委派和写入不要重复执行") || !strings.Contains(prompt, `"ok":true`) || !strings.Contains(prompt, "one actual write") {
+		case 3:
+			if !strings.Contains(prompt, "已成功的读取和委派不要重复执行") || !strings.Contains(prompt, `"ok":true`) || !strings.Contains(prompt, "existing draft") {
 				return "", errors.New("history lost during correction")
 			}
 			return `{"action":"delegate","task":"检查现有文本"}`, nil
@@ -529,6 +548,9 @@ func TestProtocolCorrectionPreservesSuccessfulOperationsAndPrivateChild(t *testi
 			return "完成。\n" + say("只有父席公开发言。"), nil
 		}
 	})
+	if err := os.WriteFile(filepath.Join(project, "note.md"), []byte("existing draft"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	s, err := e.Create("protocol repair", project, []string{"codex"})
 	if err != nil {
 		t.Fatal(err)
@@ -538,7 +560,7 @@ func TestProtocolCorrectionPreservesSuccessfulOperationsAndPrivateChild(t *testi
 	}
 	s = settled(t, e, s.ID)
 	turn := s.Rounds[0].Turns[0]
-	if s.Status != "ready" || len(turn.Changes) != 1 || len(s.Operations) != 1 || turn.Text != "只有父席公开发言。" {
+	if s.Status != "ready" || len(turn.Changes) != 0 || len(s.Operations) != 0 || turn.Text != "只有父席公开发言。" {
 		t.Fatalf("unexpected repaired state: %+v", turn)
 	}
 	parentErrors, childErrors := 0, 0
@@ -558,8 +580,8 @@ func TestProtocolCorrectionPreservesSuccessfulOperationsAndPrivateChild(t *testi
 		t.Fatalf("protocol errors parent=%d child=%d", parentErrors, childErrors)
 	}
 	f, err := workspace.Read(project, "note.md")
-	if err != nil || f.Text != "one actual write" {
-		t.Fatal("confirmed write missing")
+	if err != nil || f.Text != "existing draft" {
+		t.Fatal("protocol recovery changed the project draft")
 	}
 }
 

@@ -236,15 +236,18 @@ func TestStudioModelMembersThroughHTTP(t *testing.T) {
 			}
 			output = `{"action":"say","display_name":"Rhea","text":"private evidence"}`
 		case payload.Effort == "high":
-			actions := []string{`{"action":"read","path":"note.md"}`, `{"action":"delegate","name":"Ignored Parent Name","task":"inspect the note"}`, `{"action":"write","path":"note.md","text":"updated"}`, `{"action":"say","text":"Updated the note."}`}
+			actions := []string{`{"action":"read","path":"note.md"}`, `{"action":"delegate","name":"Ignored Parent Name","task":"inspect the note"}`, `{"action":"write","path":"note.md","text":"updated"}`, `{"action":"say","text":"Reviewed the note."}`}
 			step := int(parentStep.Add(1)) - 1
 			if step >= len(actions) {
 				t.Error("unexpected parent step")
 				return
 			}
+			if step == 3 && (!strings.Contains(last.Content, "start a CLI edit session") || strings.Contains(last.Content, `"text":"updated"`)) {
+				t.Error("legacy write was not blocked in the gateway model feedback")
+			}
 			output = actions[step]
 		case payload.Effort == "":
-			if !strings.Contains(last.Content, "updated") || strings.Contains(last.Content, "private evidence") {
+			if !strings.Contains(last.Content, "Reviewed the note.") || strings.Contains(last.Content, "private evidence") {
 				t.Error("second seat context mismatch")
 			}
 			output = `{"action":"say","text":"Verified the note."}`
@@ -314,7 +317,7 @@ func TestStudioModelMembersThroughHTTP(t *testing.T) {
 		t.Fatalf("initial agenda missing: %+v", s)
 	}
 	do("POST", path+"/title", map[string]any{}, 200)
-	do("POST", path+"/run", map[string]any{"expected_round": 0}, 202)
+	do("POST", path+"/run", map[string]any{"expected_round": 0, "allow_edits": true}, 202)
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
 		if err = json.Unmarshal(do("GET", path, nil, 200), &s); err != nil {
 			t.Fatal(err)
@@ -328,14 +331,14 @@ func TestStudioModelMembersThroughHTTP(t *testing.T) {
 		t.Fatalf("meeting failed: %v", s.Rounds)
 	}
 	ts := s.Rounds[0].Turns
-	if len(ts[0].Children) != 1 || ts[0].Children[0].Effort != "high" || ts[0].Effort != "high" || ts[1].Effort != "auto" || len(ts[0].Changes) != 1 || posts.Load() != 8 {
+	if len(ts[0].Children) != 1 || ts[0].Children[0].Effort != "high" || ts[0].Effort != "high" || ts[1].Effort != "auto" || len(ts[0].Changes) != 0 || s.Rounds[0].Settings.AllowEdits || len(s.Operations) != 0 || posts.Load() != 8 {
 		t.Fatalf("lost actions, members or efforts: %v", ts)
 	}
 	if ts[0].Children[0].Name != "Rhea" {
 		t.Fatalf("lost the child name from the gateway response: %+v", ts[0].Children[0])
 	}
-	if data, err := os.ReadFile(note); err != nil || string(data) != "updated" {
-		t.Fatal("missing project edit", err)
+	if data, err := os.ReadFile(note); err != nil || string(data) != "old" {
+		t.Fatal("gateway model modified the project", err)
 	}
 	b["members"] = []map[string]string{{"model": model, "effort": "fake"}}
 	do("POST", "sessions", b, 400)

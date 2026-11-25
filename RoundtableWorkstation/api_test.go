@@ -16,7 +16,7 @@ import (
 
 func TestStudioSettingsAndVersionedFileThroughHTTP(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"appearance":"light"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"appearance":"light","allow_edits":true}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := openSettings(dir)
@@ -44,10 +44,10 @@ func TestStudioSettingsAndVersionedFileThroughHTTP(t *testing.T) {
 	if w := do("POST", "/api/studio/settings", `{"appearance":"dark"}`, false); w.Code != 403 {
 		t.Fatal(w.Code)
 	}
-	if w := do("GET", "/api/studio/settings", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"color_theme":"iris"`) || !strings.Contains(w.Body.String(), `"text_size":"standard"`) {
+	if w := do("GET", "/api/studio/settings", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"color_theme":"iris"`) || !strings.Contains(w.Body.String(), `"text_size":"standard"`) || !strings.Contains(w.Body.String(), `"allow_edits":false`) {
 		t.Fatal(w.Body)
 	}
-	if w := do("POST", "/api/studio/settings", `{"color_theme":"teal","models":{"codex":"sample"}}`, true); w.Code != 200 || !strings.Contains(w.Body.String(), `"appearance":"light"`) {
+	if w := do("POST", "/api/studio/settings", `{"color_theme":"teal","models":{"codex":"sample"},"allow_edits":true}`, true); w.Code != 200 || !strings.Contains(w.Body.String(), `"appearance":"light"`) || !strings.Contains(w.Body.String(), `"allow_edits":false`) {
 		t.Fatal(w.Body)
 	}
 	if w := do("POST", "/api/studio/settings", `{"text_size":"extra-large"}`, true); w.Code != 200 {
@@ -69,7 +69,7 @@ func TestStudioSettingsAndVersionedFileThroughHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := loaded.get(); p.Appearance != "dark" || p.ColorTheme != "teal" || p.TextSize != "extra-large" || p.Models["codex"] != "sample" || p.Models["cursor"] == "" {
+	if p := loaded.get(); p.Appearance != "dark" || p.ColorTheme != "teal" || p.TextSize != "extra-large" || p.Models["codex"] != "sample" || p.Models["cursor"] == "" || p.AllowEdits {
 		t.Fatal(p)
 	}
 	project, err := os.MkdirTemp("/private/tmp", "roundtable-api-")

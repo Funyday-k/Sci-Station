@@ -76,7 +76,7 @@ func TestPluginGuidanceManualAndContinuousRounds(t *testing.T) {
 			switch {
 			case !strings.Contains(prompt, childResult):
 				return `{"action":"delegate","task":"Check current assumptions."}`, nil
-			case !strings.Contains(prompt, "edits are disabled for this round"):
+			case !strings.Contains(prompt, modelFileEditUnavailable):
 				return `{"action":"write","path":"test.md","text":"Do not save"}`, nil
 			}
 		}

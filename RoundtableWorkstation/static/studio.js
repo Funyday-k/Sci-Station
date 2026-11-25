@@ -801,8 +801,6 @@
     appearance.setMode($("setting-appearance").value, true);
     appearance.setColorTheme(colorThemeControl.value, true);
     appearance.setTextSize($("setting-text-size").value, true);
-    $("setting-allow-edits").checked = Boolean(settings.allow_edits);
-    setup.setEditingAllowed(Boolean(settings.allow_edits));
     for (const [id, key] of [
       ["setting-max-children", "max_children"],
       ["setting-max-steps", "max_steps"],
@@ -819,7 +817,6 @@
       appearance: $("setting-appearance").value,
       color_theme: colorThemeControl.value,
       text_size: $("setting-text-size").value,
-      allow_edits: $("setting-allow-edits").checked,
       max_children: Number($("setting-max-children").value),
       max_steps: Number($("setting-max-steps").value),
       timeout: Number($("setting-timeout").value),
@@ -841,7 +838,7 @@
   function updateSettingsNavigation() {
     if (!state.settings) return;
     const patch = settingsPatch();
-    const collaborationChanged = ["allow_edits", "max_children", "max_steps", "timeout"]
+    const collaborationChanged = ["max_children", "max_steps", "timeout"]
       .some((key) => patch[key] !== state.settings[key]);
     const appearanceChanged = patch.appearance !== (state.settings.appearance || "system") ||
       patch.color_theme !== (state.settings.color_theme || "iris") ||
@@ -1457,7 +1454,7 @@
       const roundLabel = document.createElement("summary");
       roundLabel.textContent = `第 ${round.number} 轮`;
       const roundMode = document.createElement("span");
-      const access = actual.preset === "work" && round.settings?.allow_edits ? "可写" : "只读";
+      const access = actual.preset === "work" && round.settings?.allow_edits ? "旧版可写" : "只读";
       roundMode.textContent = `${discussionPresets[actual.preset].label}${actual.preset !== "work" ? ` · ${discussionPresets[actual.preset].phases[actual.phase]}` : ""} · ${access}`;
       context.append(roundLabel, roundMode);
       if (round.project_rules?.length) {
@@ -1757,24 +1754,12 @@
     $("run-note").placeholder = phase === "synthesis" && chief
       ? `默认由首席 ${seatName(chief.id)} 汇总，输入 @ 可点名其他席位…`
       : "发送消息，输入 @ 点名席位…";
-    const access = $("run-access");
     const running = sessionWorking();
-    const hasProject = Boolean(state.session?.project_id);
-    const editable = hasProject && choice.preset === "work" && Boolean(state.settings?.allow_edits);
-    const last = running ? latestRound() : null;
-    const allowEdits = last
-      ? roundDiscussion(last).preset === "work" && last.settings?.allow_edits
-      : editable && choice.allowEdits !== false;
     const closed = state.session?.status === "closed";
     const shown = (running || closed) && latestRound() ? roundDiscussion(latestRound()) : choice;
-    const shownWrite = closed && latestRound() ? latestRound().settings?.allow_edits : allowEdits;
     $("meeting-mode-label").textContent = discussionPresets[shown.preset].label;
-    $("meeting-mode-access").textContent = shownWrite && shown.preset === "work" ? "可写" : "只读";
+    $("meeting-mode-access").textContent = "只读";
     $("round-settings").hidden = Boolean(closed);
-    access.value = allowEdits ? "write" : "read";
-    access.disabled = state.writing || running || !editable;
-    access.title = running ? "本轮启动时确定的文件权限" : !hasProject ? "没有已关联的项目目录" : choice.preset !== "work" ? "此预设只读" :
-      editable ? "选择模型在本轮是否可以修改项目文件" : "全局设置关闭了模型文件写入";
   }
   function updateControls() {
     const running = sessionWorking();
@@ -1951,6 +1936,7 @@
     $("agenda-toggle").title = activeItem(session)?.title || "展开会议议程";
     reportUI.update(session);
     window.ScienceMeeting?.update(session);
+    window.SciCLIEdit?.setSession(session, projects.available().find(item => item.id === session.project_id)?.name || "");
     board.render(session, {animateInitial});
     syncBoardPresence();
     if (firstBoard && hadChatFocus && $("room-chat").hidden) $("meeting-board").focus({preventScroll: true});
@@ -2018,6 +2004,7 @@
     window.MeetingAgenda.clear();
     reportUI.update(null);
     window.ScienceMeeting?.update(null);
+    window.SciCLIEdit?.setSession(null);
     pluginsUI.updateSession(null);
     $("create-form").hidden = true;
     $("draft-project-required").hidden = true;
@@ -2131,6 +2118,7 @@
     window.MeetingAgenda.clear();
     reportUI.update(null);
     window.ScienceMeeting?.update(null);
+    window.SciCLIEdit?.setSession(null);
     pluginsUI.updateSession(null);
     state.file = null;
     state.filesSession = null;
@@ -2202,7 +2190,6 @@
       $("run-note").reportValidity();
       return;
     }
-    const allowEdits = $("run-access").value === "write";
     const id = state.selected;
     state.writing = true;
     stopPoll();
@@ -2220,7 +2207,6 @@
         target: recipient.target,
         agenda_version: state.session.agenda_version || 0,
         expected_round: latestRound()?.number || 0,
-        allow_edits: allowEdits,
         preset: discussionChoice().preset,
         phase: discussionChoice().preset === "work" ? "work" : discussionChoice().phases[discussionChoice().preset],
       };
@@ -2811,10 +2797,6 @@
   });
   $("run-phase").addEventListener("change", () => {
     const choice = discussionChoice(); choice.phases[choice.preset] = $("run-phase").value;
-    paintDiscussionControls();
-  });
-  $("run-access").addEventListener("change", () => {
-    discussionChoice().allowEdits = $("run-access").value === "write";
     paintDiscussionControls();
   });
   window.addEventListener("meeting-agenda-updated", event => {
@@ -3430,7 +3412,7 @@
     ]);
   const runCommands = mountComposerCommands("run", $("run-form"), runMaterials, seatMention,
     () => sessionMembers().length, [
-      { label: "讨论模式与权限", group: "讨论", icon: "sliders", run: () => meetingActions.openSettings($("run-preset")) },
+      { label: "讨论模式", group: "讨论", icon: "sliders", run: () => meetingActions.openSettings($("run-preset")) },
     ]);
   const projects = window.RoundtableProjects.mount({
     api, history:$("history"), loadResearch:window.ScienceMeeting.loadProjects,

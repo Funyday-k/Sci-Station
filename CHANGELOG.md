@@ -16,6 +16,10 @@ Development, validation, versioning, and release conventions are maintained in `
 - Save MinerU tokens and credentials for OpenAI-compatible model profiles in macOS Keychain. The desktop model directory shares these profiles between research workflows.
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 
+### Changed
+
+- Roundtable discussions and continuous runs use read-only project file access. AI-file changes go through a host-initiated CLI session and its review controls. Existing meeting histories retain old edit records.
+
 ### Fixed
 
 - Close the desktop window during an active meeting or a native folder picker. Pending operations are cancelled, committed records are preserved and the next process can immediately reopen the workspace.

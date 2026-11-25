@@ -27,13 +27,8 @@
     let draftKey = null, scope = null, members = [], preset = "work", selectionTouched = false;
     let lastDraftSeat = 0;
     let models = [], modelIndex = new Map(), defaultModel = "", loading = false, issue = "", writing = false;
-    let request = 0, directoryLoaded = false, editingAllowed = false, directoryRequest = null;
+    let request = 0, directoryLoaded = false, directoryRequest = null;
 
-    function paintEditingDefault() {
-      $("create-project-access").textContent = scope?.scope === "global" ? "全局圆桌无项目文件访问" : preset === "work"
-        ? (editingAllowed ? "可修改文件" : "只读（设置中已关闭写入）")
-        : "只读（由讨论模式限定）";
-    }
 
     function save() {
       if (draftKey === null) return;
@@ -260,7 +255,6 @@
       if (!Number.isInteger(seats) || seats < 1 || seats > 4) return false;
       preset = mode;
       $("preset-" + mode).checked = true;
-      paintEditingDefault();
       save();
       if (!directoryLoaded) await (loading && directoryRequest ? directoryRequest : refresh());
       if (draftKey !== key || writing || preset !== mode || !models.length) return false;
@@ -282,6 +276,7 @@
       draftKey = key;
       scope = project.global ? {scope: "global"} :
         (project.id ? {project_id: project.id} : {project: project.path});
+      $("create-project-access").textContent = project.global ? "全局圆桌无项目文件访问" : "讨论仅读取项目文件";
       continuous.open(key);
       const draft = drafts[key] || {};
       members = restoreMembers(draft.members, draft.lastDraftSeat);
@@ -290,7 +285,6 @@
       $("new-topic").value = typeof draft.topic === "string" ? draft.topic : "";
       materials?.set(draft.materials);
       $("preset-" + preset).checked = true;
-      paintEditingDefault();
       $("member-search").value = ""; $("member-source").value = "";
       setDirectory(false); selectDefault(); paintOptions(); paintMembers();
       if (!directoryLoaded && !loading) refresh();
@@ -329,7 +323,7 @@
       art.innerHTML = '<svg viewBox="0 0 90 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + drawing + "</svg>";
       label.title = caption;
       label.append(input, art, make("strong", "", title), make("span", "sr-only", caption));
-      input.addEventListener("change", () => { preset = id; paintEditingDefault(); save(); });
+      input.addEventListener("change", () => { preset = id; save(); });
       $("preset-options").append(label);
     }
     $("new-topic").addEventListener("input", save);
@@ -352,7 +346,6 @@
     });
     return { open, suspend, complete, setBusy, payload, canSubmit, mentionMembers, applyLabPreset,
       materialsChanged() { save(); paintStatus(); },
-      setEditingAllowed: allowed => { editingAllowed = allowed; paintEditingDefault(); },
       resume:() => { if (!directoryLoaded && !loading) refresh(); } };
   }
   window.RoundtableSetup = Object.freeze({mount, effortName});

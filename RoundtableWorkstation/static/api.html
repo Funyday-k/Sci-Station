@@ -112,7 +112,7 @@ X-Roundtable: 1
           <caption>preset 与有效 phase</caption>
           <thead><tr><th>预设</th><th>阶段与输出</th><th>模型写权限</th></tr></thead>
           <tbody>
-            <tr><td><code>work</code> 项目协作</td><td><code>work</code>：读取实际文件、继续协作并交接结果</td><td>仍须开启编辑且通过文件版本检查</td></tr>
+            <tr><td><code>work</code> 项目协作</td><td><code>work</code>：读取实际文件、继续协作并交接结果</td><td>只读</td></tr>
             <tr><td><code>review</code> 方案评审</td><td><code>proposal</code> 独立提案；<code>challenge</code> 检验异议；<code>synthesis</code> 汇总建议</td><td>只读</td></tr>
             <tr><td><code>prioritize</code> 优先级排序</td><td><code>proposal</code> 独立排序；<code>challenge</code> 核对标准；<code>synthesis</code> 汇总排序</td><td>只读</td></tr>
             <tr><td><code>forum</code> 多方权衡</td><td><code>proposal</code> 独立立场；<code>challenge</code> 比较取舍；<code>synthesis</code> 汇总分歧</td><td>只读</td></tr>
@@ -127,7 +127,7 @@ X-Roundtable: 1
       <p>指定 <code>target</code> 时可传本场席位 ID、唯一对应的模型 ID 或显示名称；在持续推进批次中，该席位固定执行自动轮。省略 <code>target</code> 时由预设确定参与席位（例如 synthesis 仅运行首席）。停止用现有 <code>POST …/{id}/cancel</code>；它会暂停批次并保留检查点。之后必须再次显式提交 <code>continuous</code> 对象启动新一批，不能只靠轮询或恢复接口自动续跑。</p>
       <p><code>continuous</code> 可包含 <code>goal</code>、<code>criteria</code>、<code>max_rounds</code>、<code>summary_every</code>。goal 省略或为空时使用原议题；两个文本各限 12,000 个 Unicode codepoints。轮数默认 12，范围 1–60；摘要间隔默认 4，范围 2–12。每轮全部席位完成后进行证据复核；有席位失败时先暂停，不作完成判定。达到摘要间隔时生成滚动检查点。摘要请求上限 64 KiB、输出上限 32 KiB，每份最多 24 项；每项正文最多 600 个码点、引文最多 240 个码点。达到 max_rounds、实际阻塞、席位失败、连续两轮无可核实进展或用户取消会暂停批次。<code>continuous.manual:true</code> 表示最近一次显式启动是手动单轮，此时原持续推进配置和检查点仍保留。</p>
       <p>每次自动复核最多纳入 12 条公开发言并使用有界文件与变更摘录；复核输入上限 36,000 个 Unicode codepoints，输出上限 16 KiB、最多 12 条原文依据。出处无法完整覆盖时会暂停持续推进而不凭不完整材料判定完成。重新提交相同 goal 与 criteria 会沿用上次检查点；更换目标或验收条件会建立新的检查点链。应用退出也会暂停当前批次，已保存工作不自动重放。</p>
-      <p>省略预设时按会话和当前议程确定：实施用 <code>work</code>，旧模板阶段用议程项的预设和阶段，其他讨论沿用会话只读预设，项目协作会话里的讨论事项默认用 <code>review</code>。没有预设或议程的旧记录按 <code>work/work</code>。<code>allow_edits:false</code> 强制本轮只读；<code>true</code> 仍受全局编辑开关和 <code>work</code> 预设约束，省略或 <code>null</code> 沿用旧默认。实际生效值保存在轮次的 <code>settings.allow_edits</code>。每轮快照还可含 <code>project_rules</code>（路径与摘要），标识启动时读取的规则版本；正文只作为本轮上下文。无效组合返回 400；轮号或议程版本过期返回 409。</p>
+      <p>省略预设时按会话和当前议程确定：实施用 <code>work</code>，旧模板阶段用议程项的预设和阶段，其他讨论沿用会话预设，项目协作会话里的讨论事项默认用 <code>review</code>。没有预设或议程的旧记录按 <code>work/work</code>。所有讨论轮次仅读取项目文件。旧调用可以继续发送 <code>allow_edits</code>，新轮次的 <code>settings.allow_edits</code> 始终为 <code>false</code>。历史轮次保留原权限与变更记录。每轮快照还可含 <code>project_rules</code>（路径与摘要），标识启动时读取的规则版本；正文只作为本轮上下文。无效组合返回 400；轮号或议程版本过期返回 409。</p>
       <p>持续推进状态可含 <code>checkpoint</code>，由 <code>through_round</code> 与有依据的 <code>items</code> 构成。每项保存简明内容、原轮次、席位和逐字引文；无法生成新摘要时保留上一份有效检查点。每个自动轮在 <code>rounds[]</code> 中标记 <code>auto:true</code>，到检查点后另存该轮 <code>checkpoint</code>，便于按历史轮次回看。自动轮由复核决定继续阶段和下一步，不重放用户指令；明确 target 时该席位在自动批次中保持固定，否则沿用预设的席位规则。</p>
       <p>议程从完整会话中读取。<code>agenda</code> 中的事项状态为 <code>pending</code> 或 <code>done</code>，类型为 <code>discussion</code> 或 <code>implementation</code>，来源为 <code>host</code>、<code>template</code>、<code>chair</code> 或 <code>discussion</code>。收束产生的待办记录为 <code>synthesis</code>。会话还可含 <code>active_agenda_id</code>，有效焦点保存为轮次的 <code>agenda_item_id</code>。</p>
       <p><code>POST …/{id}/agenda</code> 需提交 <code>expected_version</code>，取自会话的 <code>agenda_version</code>。操作 <code>add</code> 带 <code>title</code> 与可选 <code>kind</code>；<code>select</code>、<code>complete</code>、<code>reopen</code> 带 <code>item_id</code>。对议程项的 <code>candidates</code>，可用 <code>adopt_candidate</code> 或 <code>dismiss_candidate</code>，并同时传 <code>item_id</code> 与候选 <code>candidate_id</code>。采用会将候选标题和类型作为新修订，忽略只移除该候选；候选已变化或议程版本过期返回 409。<code>select</code> 可附 <code>kind</code>，将未完成事项改为讨论或实施。普通操作成功返回完整会话。首席草拟状态见 <code>agenda_draft_status</code>。失败时可提交 <code>action:"draft"</code> 重试。该操作返回 202 与会话快照，已经在草拟或完成时直接返回状态。普通更新遇到正在草拟、正在运行或版本不符时返回 409。</p>
@@ -139,7 +139,7 @@ X-Roundtable: 1
       <p>修改共享议题板时，向 <code>POST /api/studio/sessions/{id}/board</code> 提交编辑项的 <code>expected_version</code>。例如 <code>{"op":"rename_board","expected_version":1,"title":"候补确认时限"}</code>。成功后返回完整会话；若另一端已修改同一项，409 响应附带最新会话供核对。主持人批注在板上署名 <code>user</code>，下一次公开模型请求会读取当前内容。</p>
       <p>桌面圆桌使用 <code>POST /api/studio/materials/{id}/save</code> 保存原件，请发送 <code>X-Roundtable: 1</code> 和 JSON 空对象 <code>{}</code>。用户在系统窗口选择保存位置，成功返回 <code>saved: true</code>，取消返回 <code>saved: false</code>。若返回 <code>browser_download: true</code>，改用 GET 下载。</p>
       <p><code>board.modules</code> 包含议程、材料审阅、观点立场及便笺视图。材料审阅与便笺可带 <code>material_ids</code> 引用本会话附件。AI 对看板的修改提议只有在相应席的公开 <code>say</code> 成功、且本轮成功完成后才会写入；保存的 <code>source_seat</code> 和 <code>source_round</code> 标记公开来源。失败或未确认的轮次不会提交这些提议。旧创建与运行调用无需提供材料字段，继续使用原有行为。</p>
-      <p>只有 <code>work</code> 且 <code>settings.allow_edits:true</code> 时模型父代理可以写入。子代理只读，人工显式保存走独立文件接口。规则通过 Magpie 的 Chat <code>system</code> 消息或 Responses <code>instructions</code> 传入，标题命名独立。当前预设尚未经过本项目的讨论质量评测。</p>
+      <p>主持人可在项目会议中显式发起 CLI 编辑并在软件中审核变更。主持人的人工保存走独立文件接口和版本检查。规则通过 Magpie 的 Chat <code>system</code> 消息或 Responses <code>instructions</code> 传入，标题命名独立。当前预设尚未经过本项目的讨论质量评测。</p>
     </section>
 
     <section aria-labelledby="files">
@@ -175,7 +175,7 @@ X-Roundtable: 1
       <p><code>GET /api/studio/models</code> 从当前 Magpie 连接读取 <code>{"models":[{"id":"…","label":"…","source":"…","endpoints":[],"efforts":["auto"]}],"default_model":"…"}</code>。成功时目录可以为空。思考等级由 Magpie 公布；请求选择 <code>auto</code> 时省略推理控制字段。<code>default_model</code> 只有在当前目录里找到已连接模型时才含该模型 ID，否则为 <code>""</code>。连接或目录读取失败返回 502。</p>
       <p><code>GET /api/studio/magpie-agent</code> 返回 <code>id</code>、<code>installed</code>、<code>enabled</code>、<code>registered</code>、<code>connected</code>、<code>can_install</code>、<code>can_open</code>、<code>restart_required</code>、<code>detail</code> 和可选 <code>model</code>、<code>port</code>。<code>registered</code> 表示 Magpie 能加载 Agent，<code>connected</code> 表示已获得有效连接配置。它们均不执行推理验证。</p>
       <p>向同一路径 <code>POST</code> 发送 <code>{"action":"install"}</code> 或 <code>{}</code>，由 Magpie 登记签名应用内置的 Agent。<code>{"action":"open"}</code> 打开 Magpie 桌面应用。注册后在 Magpie 的 Agents 页面刷新、选模型并连接。返回 200 时仍应读取响应里的 <code>registered</code>、<code>connected</code> 与 <code>detail</code>。</p>
-      <p><code>POST /api/studio/settings</code> 部分更新设置。桌面协作表单保存 <code>timeout</code>（每次模型请求 10–1800 秒）、<code>max_steps</code>（每位代理 2–40 步）、<code>max_children</code>（每席每轮 0–5 个）和 <code>allow_edits</code>。外观 <code>appearance</code> 可为 <code>system</code>、<code>light</code> 或 <code>dark</code>。早期固定席位的型号和 CLI 字段保留给兼容记录与诊断。</p>
+      <p><code>POST /api/studio/settings</code> 部分更新设置。桌面协作表单保存 <code>timeout</code>（每次模型请求 10–1800 秒）、<code>max_steps</code>（每位代理 2–40 步）、<code>max_children</code>（每席每轮 0–5 个）。旧设置的 <code>allow_edits</code> 保留为兼容字段。外观 <code>appearance</code> 可为 <code>system</code>、<code>light</code> 或 <code>dark</code>。早期固定席位的型号和 CLI 字段保留给兼容记录与诊断。</p>
       <p>模型内部动作仍为 <code>read / write / delegate / say</code>。新圆桌私有子代理继承本席型号和思考档位，只能使用 <code>read / say</code>。父代理最终 <code>say</code> 是公开发言，可附 <code>agenda_updates</code>，并兼容原有收束 <code>followups</code>。子代理结果先交本席主代理，也会随完整会话保存。内部动作由应用协调执行。</p>
     </section>
 

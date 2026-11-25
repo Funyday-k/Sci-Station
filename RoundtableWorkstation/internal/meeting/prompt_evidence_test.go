@@ -178,9 +178,9 @@ func TestLongMeetingKeepsReferencesAndFetchesVisibleOriginal(t *testing.T) {
 	}
 }
 
-func TestPromptEvidenceOmitsRepeatedFileAndWriteBodies(t *testing.T) {
+func TestPromptEvidenceOmitsRepeatedFileAndBlockedWriteBodies(t *testing.T) {
 	const initialMarker = "INITIAL_FILE_BODY_TAIL"
-	const newMarker = "WRITTEN_FILE_BODY_TAIL"
+	const newMarker = "BLOCKED_FILE_BODY_TAIL"
 	initial := strings.Repeat("first revision\n", 9000) + initialMarker
 	written := strings.Repeat("second revision\n", 9000) + newMarker
 	parentCalls, childCalls := 0, 0
@@ -220,15 +220,15 @@ func TestPromptEvidenceOmitsRepeatedFileAndWriteBodies(t *testing.T) {
 			return marshal(map[string]string{"action": "write", "path": "work.md", "text": written}), nil
 		case 5:
 			if strings.Contains(prompt, newMarker) || !strings.Contains(prompt, `"action":{"action":"write","path":"work.md"}`) ||
-				!strings.Contains(prompt, `"diff_omitted":true`) {
-				return "", errors.New("write feedback lost confirmation or echoed the full submitted body")
+				!strings.Contains(prompt, modelFileEditUnavailable) {
+				return "", errors.New("blocked write feedback lost the redirect or echoed the submitted body")
 			}
 			return `{"action":"read","path":"work.md"}`, nil
 		default:
-			if strings.Count(prompt, marshal(written)) != 1 {
-				return "", errors.New("new version was not read verbatim after writing")
+			if strings.Count(prompt, marshal(initial)) != 1 || strings.Contains(prompt, newMarker) {
+				return "", errors.New("blocked edit invalidated the authorized read or was echoed")
 			}
-			return say("Confirmed new version."), nil
+			return say("Confirmed the original version."), nil
 		}
 	})
 	if err := os.WriteFile(filepath.Join(project, "work.md"), []byte(initial), 0600); err != nil {
@@ -243,7 +243,7 @@ func TestPromptEvidenceOmitsRepeatedFileAndWriteBodies(t *testing.T) {
 	}
 	s = settled(t, e, s.ID)
 	turn := s.Rounds[0].Turns[0]
-	if s.Status != "ready" || len(turn.Changes) != 1 || len(s.Operations) != 1 || s.Operations[0].Text != written {
+	if s.Status != "ready" || len(turn.Changes) != 0 || len(s.Operations) != 0 {
 		t.Fatalf("file workflow changed: status = %s, turn error = %q", s.Status, turn.Error)
 	}
 }

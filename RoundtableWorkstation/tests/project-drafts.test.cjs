@@ -125,8 +125,7 @@ test("project switching restores only that project's draft and drops legacy path
   setup.open(one);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal($("new-topic").value, "first project draft");
-  setup.setEditingAllowed(true);
-  assert.equal($("create-project-access").textContent, "只读（由讨论模式限定）");
+  assert.equal($("create-project-access").textContent, "讨论仅读取项目文件");
   assert.deepEqual(plain(setup.payload()), {
     project: one.path, members: [{ model: "test", effort: "auto" }], preset: "review",
   });
@@ -134,9 +133,7 @@ test("project switching restores only that project's draft and drops legacy path
   $("new-topic").listeners.input();
   setup.open(two);
   assert.equal($("new-topic").value, "second project draft");
-  assert.equal($("create-project-access").textContent, "可修改文件");
-  setup.setEditingAllowed(false);
-  assert.equal($("create-project-access").textContent, "只读（设置中已关闭写入）");
+  assert.equal($("create-project-access").textContent, "讨论仅读取项目文件");
   assert.equal(setup.payload().project, two.path);
   setup.suspend();
   assert.equal(setup.canSubmit(), false);
@@ -215,7 +212,7 @@ test("project attachments and a named chief survive switching drafts", async () 
   assert.equal(setup.payload().material_ids, undefined);
 });
 
-test("setup permission explanation covers every preset and both global file-write settings", async () => {
+test("setup shows read-only discussion in every preset and no project directories in the global scope", async () => {
   const { $, document } = fakeDOM();
   const window = {
     addEventListener() {},
@@ -239,15 +236,10 @@ test("setup permission explanation covers every preset and both global file-writ
     const input = $("preset-options").children.find(card => card.children[0].value === id).children[0];
     input.checked = true;
     input.listeners.change();
-    setup.setEditingAllowed(false);
-    assert.equal($("create-project-access").textContent, id === "work"
-      ? "只读（设置中已关闭写入）"
-      : "只读（由讨论模式限定）");
-    setup.setEditingAllowed(true);
-    assert.equal($("create-project-access").textContent, id === "work"
-      ? "可修改文件"
-      : "只读（由讨论模式限定）");
+    assert.equal($("create-project-access").textContent, "讨论仅读取项目文件");
   }
+  setup.open({id: "@global", path: "", global: true});
+  assert.equal($("create-project-access").textContent, "全局圆桌无项目文件访问");
   const html = read("studio.html");
   assert.match(html, /配置持续推进/);
   assert.match(html, /创建后请先核对议程，再点击「开始持续推进」/);
@@ -390,7 +382,7 @@ test("continuous settings persist in drafts and survive all four meeting mode ch
 
   const choice = {preset:"work", phases:{review:"proposal",prioritize:"proposal",forum:"proposal"}};
   const changeStart = studio.indexOf('  $("run-preset").addEventListener("change"');
-  const changeEnd = studio.indexOf('  $("run-access").addEventListener("change"', changeStart);
+  const changeEnd = studio.indexOf('  window.addEventListener("meeting-agenda-updated"', changeStart);
   vm.runInNewContext(studio.slice(changeStart, changeEnd), {
     $, discussionChoice:() => choice, paintDiscussionControls() {},
   });
@@ -423,7 +415,6 @@ test("continuous settings persist in drafts and survive all four meeting mode ch
     schedulePoll() {}, handleSessionError:async () => { rejected++; },
   };
   $("run-note").value = "Continue with this constraint";
-  $("run-access").value = "read";
   vm.runInNewContext(studio.slice(runStart, runEnd), context);
   await context.run();
   assert.equal(sent.length, 0);
@@ -446,6 +437,7 @@ test("continuous settings persist in drafts and survive all four meeting mode ch
   assert.equal(attached.length, 0);
   assert.equal(sent[0].path, "/sessions/session/run");
   assert.equal(sent[0].payload.preset, "forum");
+  assert.equal("allow_edits" in sent[0].payload, false);
   assert.equal(sent[0].payload.target, "member-2");
   assert.deepEqual(plain(sent[0].payload.material_ids), ["material-1"]);
   assert.deepEqual(plain(sent[0].payload.continuous), {

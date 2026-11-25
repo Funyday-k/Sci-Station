@@ -81,7 +81,7 @@ func TestDiscussionStagesBlindReadOnlyAndSelectedSynthesis(t *testing.T) {
 						case 2:
 							return `{"action":"write","path":"evidence.txt","text":"discussion-must-not-write"}`, nil
 						case 3:
-							if !strings.Contains(prompt, "edits are disabled") {
+							if !strings.Contains(prompt, modelFileEditUnavailable) {
 								return "", errors.New("write prohibition was not enforced")
 							}
 							return `{"action":"delegate","task":"check evidence privately"}`, nil
@@ -106,8 +106,8 @@ func TestDiscussionStagesBlindReadOnlyAndSelectedSynthesis(t *testing.T) {
 					}
 					return say(seat + " synthesis"), nil
 				case "work":
-					if data["allow_edits"] != true {
-						return "", errors.New("prior discussion permanently disabled work edits")
+					if data["allow_edits"] != false {
+						return "", errors.New("project collaboration enabled automatic file edits")
 					}
 					switch calls[key] {
 					case 1:
@@ -115,7 +115,10 @@ func TestDiscussionStagesBlindReadOnlyAndSelectedSynthesis(t *testing.T) {
 					case 2:
 						return `{"action":"write","path":"evidence.txt","text":"work-edited"}`, nil
 					default:
-						return say("work completed"), nil
+						if !strings.Contains(prompt, modelFileEditUnavailable) {
+							return "", errors.New("legacy work write was not rejected")
+						}
+						return say("review completed"), nil
 					}
 				}
 				return "", errors.New("unexpected stage")
@@ -165,13 +168,13 @@ func TestDiscussionStagesBlindReadOnlyAndSelectedSynthesis(t *testing.T) {
 			if len(s.Rounds[0].Turns[1].Children) != 0 {
 				t.Fatal("child attached to peer")
 			}
-			if _, err = e.Start(s.ID, "resume editing", "codex", 4); err != nil {
+			if _, err = e.Start(s.ID, "review the remaining evidence", "codex", 4); err != nil {
 				t.Fatal(err)
 			}
 			s = settled(t, e, s.ID)
 			body, _ = os.ReadFile(evidence)
-			if s.Status != "ready" || string(body) != "work-edited" || s.Rounds[4].Preset != "work" || s.Rounds[4].Phase != "work" {
-				t.Fatal("legacy work round no longer edits")
+			if s.Status != "ready" || string(body) != "original evidence" || s.Rounds[4].Preset != "work" || s.Rounds[4].Phase != "work" {
+				t.Fatal("legacy collaboration round altered the file or lost its preset")
 			}
 			md, err := e.Markdown(s.ID)
 			if err != nil || !strings.Contains(md, "Mode:") || strings.Contains(md, "private evidence for owning parent") {

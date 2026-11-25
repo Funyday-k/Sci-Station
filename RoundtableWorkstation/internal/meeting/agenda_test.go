@@ -32,7 +32,7 @@ func TestAgendaFromSynthesisThroughExecutionAndRecovery(t *testing.T) {
 			}
 			return `{"action":"say","text":"The dry run found an unchecked boundary. Add a reproducible boundary test, then compare its result and document outstanding exceptions.","followups":[{"title":"Compare alternatives","kind":"discussion"},{"title":"Broken entry","kind":"unknown"},{"title":15,"kind":"discussion"},{"title":"Add a boundary test","kind":"implementation"},{"title":"  ADD  a boundary test  ","kind":"implementation"},{"title":"Compare the result","kind":"discussion"},{"title":"Document exceptions","kind":"discussion"},{"title":"Past the limit","kind":"implementation"}]}`, nil
 		case 3:
-			if current["title"] != "Add a boundary test" || data["preset"] != "work" || data["allow_edits"] != true {
+			if current["title"] != "Add a boundary test" || data["preset"] != "work" || data["allow_edits"] != false {
 				return "", errors.New("selected implementation was not the actual work round")
 			}
 			close(entered)

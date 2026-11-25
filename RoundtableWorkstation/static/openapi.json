@@ -1421,7 +1421,7 @@
         "tags": [
           "文件"
         ],
-        "description": "这是实际磁盘写入，不是建议或暂存。先 GET 获取 version，再完整替换；新文件须 version=missing 且父目录已存在。版本变化返回 409；成功保留原换行及现有权限。允许用户在模型运行中显式保存，模型后续写入仍须版本检查。allow_edits 只约束模型写入。不会执行脚本、构建、删除文件或创建目录。外部编辑器不遵守服务锁，最终校验与替换之间的极短窗口不具备跨程序绝对原子比较保证。",
+        "description": "这是实际磁盘写入，不是建议或暂存。先 GET 获取 version，再完整替换；新文件须 version=missing 且父目录已存在。版本变化返回 409；成功保留原换行及现有权限。此接口用于主持人手动保存。CLI 项目编辑通过会议的 CLI 编辑审核流程执行。不会执行脚本、构建、删除文件或创建目录。外部编辑器不遵守服务锁，最终校验与替换之间的极短窗口不具备跨程序绝对原子比较保证。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -3010,8 +3010,9 @@
           },
           "allow_edits": {
             "type": "boolean",
-            "default": true,
-            "description": "控制 work 预设模型父代理写入；其他讨论预设的有效轮次值强制 false。用户的显式 POST file 不受此开关控制。"
+            "default": false,
+            "deprecated": true,
+            "description": "兼容旧设置字段。设置响应始终返回 false。会议中的项目文件编辑需要由主持人发起 CLI 审核。"
           },
           "magpie_port": {
             "type": "integer",
@@ -3142,8 +3143,9 @@
           },
           "allow_edits": {
             "type": "boolean",
-            "default": true,
-            "description": "控制 work 预设模型父代理写入；其他讨论预设的有效轮次值强制 false。用户的显式 POST file 不受此开关控制。"
+            "default": false,
+            "deprecated": true,
+            "description": "兼容旧设置字段。设置响应始终返回 false。会议中的项目文件编辑需要由主持人发起 CLI 审核。"
           },
           "magpie_port": {
             "type": "integer",
@@ -3574,8 +3576,8 @@
           },
           "allow_edits": {
             "type": "boolean",
-            "default": true,
-            "description": "控制 work 预设模型父代理写入；其他讨论预设的有效轮次值强制 false。用户的显式 POST file 不受此开关控制。"
+            "default": false,
+            "description": "新讨论轮次始终为 false。历史轮次仍保留当时的权限快照。"
           },
           "codex_transport": {
             "type": "string",
@@ -4167,7 +4169,7 @@
                 "type": "null"
               }
             ],
-            "description": "false 强制本轮只读；true 仍受全局设置和 work 预设限制。省略或 null 沿用旧默认。实际生效值回显于 rounds[].settings.allow_edits。"
+            "description": "兼容旧调用，无论该字段取何值，新讨论轮次的 rounds[].settings.allow_edits 始终为 false。"
           },
           "continuous": {
             "anyOf": [
@@ -4194,7 +4196,7 @@
           "expected_round"
         ],
         "additionalProperties": false,
-        "description": "启动时保存议程焦点和有效预设。allow_edits=false 强制只读；true 仍受全局设置和 work 预设约束。 四种既有讨论预设都可启用持续推进。省略或 null 的 continuous 始终为手动单轮。",
+        "description": "启动时保存议程焦点和有效预设。所有讨论轮次保留只读项目文件权限。 四种既有讨论预设都可启用持续推进。省略或 null 的 continuous 始终为手动单轮。",
         "allOf": [
           {
             "if": {

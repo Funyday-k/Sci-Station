@@ -106,9 +106,6 @@
                       <option value="prioritize">优先级排序</option><option value="forum">多方权衡</option>
                     </select></label>
                   <label id="run-phase-field" class="meeting-menu-field" for="run-phase" hidden><span>当前阶段</span><select id="run-phase"></select></label>
-                  <label class="meeting-menu-field" for="run-access"><span>文件权限</span><select id="run-access">
-                    <option value="read">只读</option><option value="write">可写</option>
-                  </select></label>
                   <div id="run-continuous" class="continuous-panel meeting-continuous-settings" data-continuous-prefix="run">
                 <label class="continuous-toggle" for="run-continuous-enabled"><input id="run-continuous-enabled" type="checkbox" aria-controls="run-continuous-options" />持续推进</label>
                 <div id="run-continuous-options" class="continuous-options" hidden>
@@ -556,10 +553,6 @@
 <section class="settings-section" aria-labelledby="collaboration-heading">
                 <h2 id="collaboration-heading" data-en="Collaboration">协作</h2>
                 <div class="settings-card settings-options">
-                  <div class="setting-row">
-                    <label for="setting-allow-edits" data-en="Allow models to edit project files">允许模型修改项目文件</label>
-                    <input id="setting-allow-edits" type="checkbox" role="switch" />
-                  </div>
                   <div class="setting-row">
                     <label for="setting-max-children" data-en="Tool agents per seat">每席工具代理上限</label>
                     <input id="setting-max-children" type="number" min="0" max="5" required />

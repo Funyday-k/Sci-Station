@@ -17,12 +17,11 @@ func TestContinuousModesAdvanceToCompletion(t *testing.T) {
 		name       string
 		preset     string
 		wantPhases []string
-		wantEdits  bool
 	}{
 		{name: "review", preset: "review", wantPhases: []string{"proposal", "challenge", "synthesis"}},
 		{name: "prioritize", preset: "prioritize", wantPhases: []string{"proposal", "challenge", "synthesis"}},
 		{name: "forum", preset: "forum", wantPhases: []string{"proposal", "challenge", "synthesis"}},
-		{name: "work", preset: "work", wantPhases: []string{"work", "work"}, wantEdits: true},
+		{name: "work", preset: "work", wantPhases: []string{"work", "work"}},
 	}
 
 	for _, tc := range tests {
@@ -109,16 +108,16 @@ func TestContinuousModesAdvanceToCompletion(t *testing.T) {
 				}
 			}
 			for i, allowEdits := range permissions {
-				if allowEdits != tc.wantEdits {
-					t.Fatalf("round %d allow_edits = %v, want %v", i+1, allowEdits, tc.wantEdits)
+				if allowEdits {
+					t.Fatalf("round %d allow_edits = %v, want false", i+1, allowEdits)
 				}
 			}
 			for i, round := range final.Rounds {
 				if round.Preset != tc.preset || round.Phase != tc.wantPhases[min(i, len(tc.wantPhases)-1)] {
 					t.Fatalf("round %d plan = %s/%s, phases should follow %v", i+1, round.Preset, round.Phase, tc.wantPhases)
 				}
-				if round.Settings.AllowEdits != tc.wantEdits {
-					t.Fatalf("round %d snapshotted allow_edits = %v, want %v", i+1, round.Settings.AllowEdits, tc.wantEdits)
+				if round.Settings.AllowEdits {
+					t.Fatalf("round %d snapshotted allow_edits = %v, want false", i+1, round.Settings.AllowEdits)
 				}
 			}
 		})
