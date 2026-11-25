@@ -44,16 +44,17 @@ type Project struct {
 }
 
 type Evidence struct {
-	PaperID        string `json:"paperId,omitempty"`
-	Page           int    `json:"page,omitempty"`
-	Quote          string `json:"quote"`
-	SourceHash     string `json:"sourceHash,omitempty"`
-	MeetingID      string `json:"meetingId,omitempty"`
-	TurnID         string `json:"turnId,omitempty"`
-	AnnotationID   string `json:"annotationId,omitempty"`
-	SelectionStart *int   `json:"selectionStart,omitempty"`
-	SelectionEnd   *int   `json:"selectionEnd,omitempty"`
-	OCR            bool   `json:"ocr,omitempty"`
+	Source         *ProjectEvidenceLocation `json:"source,omitempty"`
+	PaperID        string                   `json:"paperId,omitempty"`
+	Page           int                      `json:"page,omitempty"`
+	Quote          string                   `json:"quote"`
+	SourceHash     string                   `json:"sourceHash,omitempty"`
+	MeetingID      string                   `json:"meetingId,omitempty"`
+	TurnID         string                   `json:"turnId,omitempty"`
+	AnnotationID   string                   `json:"annotationId,omitempty"`
+	SelectionStart *int                     `json:"selectionStart,omitempty"`
+	SelectionEnd   *int                     `json:"selectionEnd,omitempty"`
+	OCR            bool                     `json:"ocr,omitempty"`
 }
 
 type Note struct {
@@ -200,6 +201,7 @@ func New(dir string) (*Service, error) {
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/trash", s.trashProject)
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/directory", s.changeDirectory)
 	s.registerReviews()
+	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/source-excerpts/{kind}/{source}", s.projectSourceExcerpt)
 	s.registerNotes()
 	s.mux.HandleFunc("GET "+prefix+"/dashboard/projects", s.dashboardProjects)
 	s.registerTasks()

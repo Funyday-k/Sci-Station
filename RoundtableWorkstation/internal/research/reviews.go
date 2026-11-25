@@ -118,7 +118,15 @@ func (v MeetingReview) content() string {
 	if len(v.Evidence) > 0 {
 		b.WriteString("\n\n会议共享原文")
 		for _, e := range v.Evidence {
-			fmt.Fprintf(&b, "\n- [第 %d 页](%s)", e.Page, v.readerLink(e))
+			if e.Source == nil {
+				fmt.Fprintf(&b, "\n- [第 %d 页](%s)", e.Page, v.readerLink(e))
+			} else {
+				name := "Wiki 原文"
+				if e.Source.Kind == "material" {
+					name = "项目材料原文"
+				}
+				fmt.Fprintf(&b, "\n- [%s](%s)", name, e.Source.openURL(e.SourceHash))
+			}
 		}
 	}
 	return b.String()
@@ -147,10 +155,16 @@ func checkReviewDestination(d projectData, v MeetingReview) error {
 	return nil
 }
 
-// Call while holding both s.mu and s.papers.mu. The reader validates the
-// original bytes and location, including ambiguous or OCR selections.
-func (s *Service) checkReviewEvidence(ctx context.Context, v MeetingReview) error {
+// Hold s.mu, and s.papers.mu when the review includes a PDF. The reader
+// validates the original text and location against each owning record.
+func (s *Service) checkReviewEvidence(ctx context.Context, d projectData, v MeetingReview) error {
 	for _, e := range v.Evidence {
+		if e.Source != nil {
+			if err := s.verifyProjectReviewEvidence(d, e); err != nil {
+				return err
+			}
+			continue
+		}
 		p, ok := s.papers.records[e.PaperID]
 		if !ok || !slices.Contains(p.ProjectIDs, v.ProjectID) {
 			return errors.New("引用的论文未关联此项目")
@@ -172,7 +186,7 @@ func (s *Service) applyMeetingReview(d *projectData, v *MeetingReview) error {
 		input := taskInput{Title: &v.Title, Description: &content}
 		papers := []string{}
 		for _, ref := range v.Evidence {
-			if !slices.Contains(papers, ref.PaperID) {
+			if ref.PaperID != "" && !slices.Contains(papers, ref.PaperID) {
 				papers = append(papers, ref.PaperID)
 			}
 		}
@@ -200,6 +214,9 @@ func (s *Service) applyMeetingReview(d *projectData, v *MeetingReview) error {
 	n.Evidence = append(slices.Clone(n.Evidence), v.Evidence...)
 	if !updateNote(&n, noteInput{Body: &content}) || len(n.Evidence) > 128 {
 		return errors.New("合并后笔记的正文或证据条目超出限制")
+	}
+	if _, err := readWikiFrontmatter(n.Body); err != nil {
+		return fmt.Errorf("Markdown 元数据有误：%w", err)
 	}
 	if wikiNameTaken(*d, n) {
 		return errors.New("项目中已有同名笔记")
@@ -296,7 +313,7 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 			jsonFail(w, 409, "会议原文或共享证据已改变，请重新审核")
 			return
 		}
-		if len(v.Evidence) > 0 {
+		if slices.ContainsFunc(v.Evidence, func(e Evidence) bool { return e.PaperID != "" }) {
 			s.papers.mu.Lock()
 			defer s.papers.mu.Unlock()
 			records, err := s.papers.lockRecords()
@@ -305,10 +322,10 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 				return
 			}
 			defer records.Close()
-			if err := s.checkReviewEvidence(r.Context(), v); err != nil {
-				jsonFail(w, 409, err.Error())
-				return
-			}
+		}
+		if err := s.checkReviewEvidence(r.Context(), d, v); err != nil {
+			jsonFail(w, 409, err.Error())
+			return
 		}
 		if !propose {
 			if err := s.applyMeetingReview(&d, &v); err != nil {

@@ -109,13 +109,15 @@ func materialPromptContext(materials []Material) []promptMaterial {
 			record.ReadStatus = MaterialReadOriginal
 		}
 		if record.ReadStatus == MaterialReadText {
-			excerpt := []rune(strings.TrimSpace(m.Excerpt))
+			text := strings.TrimSpace(m.Excerpt)
 			perMaterial := maxPromptExcerptRunes
-			if strings.HasPrefix(m.Excerpt, "Sci-Station · 论文原文摘录 v1\n") {
+			if isResearchExcerpt(m.Excerpt) {
 				// The reader has already limited the selected passage and its
 				// source locator. Preserve both under the shared round budget.
 				perMaterial = maxMaterialExcerptRunes
+				text = m.Excerpt
 			}
+			excerpt := []rune(text)
 			length := min(len(excerpt), perMaterial, remaining/withText)
 			record.Excerpt = string(excerpt[:length])
 			record.ExcerptShortened = length < len(excerpt)

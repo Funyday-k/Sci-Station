@@ -57,13 +57,13 @@ func introducesMeetingSource(in noteInput, current Note) bool {
 	}
 	old := map[string]int{}
 	for _, e := range current.Evidence {
-		if e.MeetingID != "" || e.TurnID != "" {
+		if e.Source != nil || e.MeetingID != "" || e.TurnID != "" {
 			b, _ := json.Marshal(e)
 			old[string(b)]++
 		}
 	}
 	for _, e := range *in.Evidence {
-		if e.MeetingID != "" || e.TurnID != "" {
+		if e.Source != nil || e.MeetingID != "" || e.TurnID != "" {
 			b, _ := json.Marshal(e)
 			key := string(b)
 			if old[key] == 0 {

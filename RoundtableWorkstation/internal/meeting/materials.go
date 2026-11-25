@@ -23,6 +23,8 @@ var ErrMaterialTooLarge = errors.New("material exceeds 12 MiB")
 const (
 	MaxMaterialBytes        = 12 << 20
 	maxMaterialExcerptRunes = 4000
+	PaperExcerptMarker      = "Sci-Station · 论文原文摘录 v1\n"
+	ProjectExcerptMarker    = "Sci-Station · 项目原文摘录 v1\n"
 )
 
 type Material struct {
@@ -95,7 +97,13 @@ func (e *Engine) StoreMaterial(name string, src io.Reader) (Material, error) {
 			m.Excerpt, m.ReadStatus = boundedExcerpt(excerpt), MaterialReadText
 		}
 	} else if strings.HasPrefix(contentType, "text/") && utf8.Valid(data) && plainText(data) {
-		m.Excerpt = boundedExcerpt(strings.TrimPrefix(string(data), "\ufeff"))
+		text := strings.TrimPrefix(string(data), "\ufeff")
+		if isResearchExcerpt(text) && utf8.RuneCountInString(text) <= maxMaterialExcerptRunes {
+			// The quoted bytes, including trailing whitespace, determine its original range.
+			m.Excerpt = text
+		} else {
+			m.Excerpt = boundedExcerpt(text)
+		}
 		if m.Excerpt == "" {
 			m.ReadStatus = MaterialReadNoText
 		} else {
@@ -113,6 +121,10 @@ func (e *Engine) StoreMaterial(name string, src io.Reader) (Material, error) {
 	}
 	ok = true
 	return m, nil
+}
+
+func isResearchExcerpt(text string) bool {
+	return strings.HasPrefix(text, PaperExcerptMarker) || strings.HasPrefix(text, ProjectExcerptMarker)
 }
 
 func (e *Engine) FindMaterial(id string) (Material, error) {

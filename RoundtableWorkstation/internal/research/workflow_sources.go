@@ -61,7 +61,7 @@ func (s *Service) WorkflowSource(ctx context.Context, project string, loc Source
 		return out, errors.New("来源没有可引用的正文。扫描版论文请先转换为可检索文本")
 	}
 	// HTML textareas normalize CR and CRLF to LF. Keep offsets reproducible across native and web previews.
-	runes := []rune(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"))
+	runes := []rune(normalizeWorkflowText(text))
 	if loc.Offset >= len(runes) {
 		return out, errors.New("原文位置超出范围，请重新预览")
 	}
@@ -85,16 +85,28 @@ func (s *Service) workflowRecord(project string, loc SourceLocation) (string, st
 	if !ok || d.Archived {
 		return "", "", ErrWorkflowSource
 	}
+	if _, err := s.directory(d); err != nil {
+		return "", "", os.ErrPermission
+	}
+	return s.workflowRecordLocked(d, loc)
+}
+
+func normalizeWorkflowText(text string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+}
+
+// The caller holds the project lock and has authorized the owning directory.
+func (s *Service) workflowRecordLocked(d projectData, loc SourceLocation) (string, string, error) {
 	switch loc.Kind {
 	case "note":
 		n, ok := d.Notes[loc.ID]
-		if !ok || n.Archived {
+		if !ok || n.Archived || n.ProjectID != d.Project.ID {
 			return "", "", ErrWorkflowSource
 		}
 		return n.Body, n.Title, nil
 	case "material":
 		m, ok := d.Materials[loc.ID]
-		if !ok {
+		if !ok || m.ProjectID != d.Project.ID {
 			return "", "", ErrWorkflowSource
 		}
 		if !strings.HasPrefix(m.MediaType, "text/plain") {

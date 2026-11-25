@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/research"
 )
-
-const paperExcerptMarker = "Sci-Station · 论文原文摘录 v1\n"
 
 // Review the selected public output, excluding a round until publication has
 // completed. Material.AddedRound excludes sources introduced after that turn.
@@ -50,8 +49,21 @@ func recordedReviewSource(s *meeting.Session, key string) (research.ReviewSource
 	source.Text = body
 	seen := map[string]bool{}
 	for _, m := range s.Materials {
-		text, isPaper := strings.CutPrefix(m.Excerpt, paperExcerptMarker)
-		if !isPaper || m.AddedRound > round || seen[text] {
+		if m.AddedRound > round || seen[m.Excerpt] {
+			continue
+		}
+		if text, ok := strings.CutPrefix(m.Excerpt, meeting.ProjectExcerptMarker); ok {
+			evidence, err := recordedProjectEvidence(text, s.ProjectID)
+			if err != nil {
+				return source, err
+			}
+			evidence.MeetingID, evidence.TurnID = s.ID, key
+			source.Evidence = append(source.Evidence, evidence)
+			seen[m.Excerpt] = true
+			continue
+		}
+		text, isPaper := strings.CutPrefix(m.Excerpt, meeting.PaperExcerptMarker)
+		if !isPaper {
 			continue
 		}
 		var loc struct {
@@ -69,9 +81,33 @@ func recordedReviewSource(s *meeting.Session, key string) (research.ReviewSource
 			return source, errors.New("会议中存在不完整或不属于此项目的论文证据")
 		}
 		source.Evidence = append(source.Evidence, research.Evidence{PaperID: loc.PaperID, Page: loc.Page, SourceHash: loc.Fingerprint, Quote: quote, MeetingID: s.ID, TurnID: key, AnnotationID: loc.AnnotationID, SelectionStart: loc.SelectionStart, SelectionEnd: loc.SelectionEnd, OCR: loc.OCR})
-		seen[text] = true
+		seen[m.Excerpt] = true
 	}
 	return source, nil
+}
+
+func recordedProjectEvidence(text, project string) (research.Evidence, error) {
+	var anchor struct {
+		ProjectID string `json:"projectId"`
+		Kind      string `json:"kind"`
+		ID        string `json:"id"`
+		Hash      string `json:"sha256"`
+		Offset    *int   `json:"offset"`
+		End       *int   `json:"end"`
+	}
+	meta, quote, ok := strings.Cut(text, "\n\n")
+	length := utf8.RuneCountInString(quote)
+	if !ok || json.Unmarshal([]byte(meta), &anchor) != nil || anchor.ProjectID != project ||
+		anchor.Kind != "note" && anchor.Kind != "material" || anchor.ID == "" || len(anchor.Hash) != 64 ||
+		anchor.Offset == nil || *anchor.Offset < 0 || length == 0 || length > 1000 || strings.TrimSpace(quote) == "" {
+		return research.Evidence{}, errors.New("会议中存在不完整或不属于此项目的 Wiki／材料证据")
+	}
+	loc := research.ProjectEvidenceLocation{ProjectID: anchor.ProjectID, Kind: anchor.Kind, ID: anchor.ID,
+		Offset: *anchor.Offset, End: *anchor.Offset + length}
+	if loc.End <= loc.Offset || anchor.End != nil && *anchor.End != loc.End {
+		return research.Evidence{}, errors.New("项目原文选段范围与已记录文本不一致")
+	}
+	return research.Evidence{Source: &loc, SourceHash: anchor.Hash, Quote: quote}, nil
 }
 
 func (a *apiServer) meetingReviews(w http.ResponseWriter, r *http.Request, id string) {

@@ -630,15 +630,25 @@
     host.querySelector("summary").focus();
   }
 
-  function evidenceURL(e) {
-    const href = new URL(reader(e.paperId), location.href);
-    for (const [name, value] of Object.entries({
-      page: e.page, fingerprint: e.sourceHash, quote: e.quote,
-      start: e.selectionStart, end: e.selectionEnd, ocr: e.ocr ? "1" : "", annotation: e.annotationId
-    })) {
-      if (value !== undefined && value !== null && value !== "" && value !== false) href.searchParams.set(name, value);
-    }
-    return href.pathname + href.search + href.hash;
+  function reviewedEvidence(entries, owner) {
+    if (!entries?.length) return "";
+    return '<section class="task-evidence"><h3>原文证据</h3>' + entries.map(e => {
+      const href = window.SciEvidence.href(owner, e);
+      const citation = href ? link(window.SciEvidence.label(e), href, "bare") : "";
+      const meeting = e.meetingId ? link("来源会议", "/studio?project=" + enc(e.source?.projectId ?? owner) +
+        "&session=" + enc(e.meetingId), "bare") : "";
+      return '<blockquote>' + esc(e.quote) + '</blockquote><div class="actions">' + citation + meeting + '</div>';
+    }).join("") + '</section>';
+  }
+
+  function projectSourceExcerpt(owner, kind, id, locator) {
+    return request(projectPath("source-excerpts/" + kind + "/" + enc(id), owner) + "?" + window.SciEvidence.query(locator));
+  }
+
+  function sourceExcerptMarkup(excerpt) {
+    return '<section class="wiki-occurrence" aria-label="引用所在原文"><p class="form-help">第 ' + esc(excerpt.line) +
+      ' 行 · 第 ' + esc(excerpt.column) + ' 列</p><pre>' + esc(excerpt.before) + '<mark>' + esc(excerpt.quote) +
+      '</mark>' + esc(excerpt.after) + '</pre></section>';
   }
 
   function noteOccurrence(n, locator) {
@@ -663,8 +673,10 @@
     if (!owner || !id) return;
     const token = ++wikiRequest;
     const base = projectPath("notes/" + enc(id), owner);
+    const excerpt = locator?.citation ? await projectSourceExcerpt(owner, "note", id, locator.citation) : null;
     const n = await request(base);
     if (token !== wikiRequest || state.project?.id !== owner) return;
+    if (excerpt && excerpt.revision !== n.revision) throw Error("Wiki 页面已更新，请重新打开引用。");
     selectedWikiNote = n;
     const {frontmatter, body} = splitWikiBody(n.body);
     const noteURL = E.wikiURL(n.id, owner);
@@ -676,15 +688,12 @@
       link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") +
       (n.sourceMeetingId ? link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button", "chat") : "") +
       (n.paperId ? link("关联论文", reader(n.paperId), "button", "book") : "") + '</div>' +
-      noteOccurrence(n, locator) + (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
+      (excerpt ? sourceExcerptMarkup(excerpt) : noteOccurrence(n, locator)) +
+      (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
         '<div id="wiki-metadata" aria-live="polite"></div><details><summary>原始 YAML</summary><pre>' +
         esc(frontmatter) + '</pre></details></details>' : "") +
       '<article class="note-preview" id="note-preview"></article><p class="form-help" id="wiki-link-status" role="status"></p>' +
-      ((n.evidence || []).length ? '<div class="subheading">论文证据</div>' + n.evidence.map(e => '<p>' + (e.paperId ? link(
-        (state.papers.find(p => p.id === e.paperId)?.title || "查看论文") + (e.page ? " · 第 " + e.page + " 页" : ""),
-        evidenceURL(e), "bare") : "") + (e.meetingId ? link("来源会议",
-        "/studio?project=" + enc(owner) + "&session=" + enc(e.meetingId), "bare") : "") +
-        '</p><blockquote>' + esc(e.quote) + '</blockquote>').join("") : "") + '<div id="backlinks"></div>', {wide: true});
+      reviewedEvidence(n.evidence, owner) + '<div id="backlinks"></div>', {wide: true});
     const preview = $("note-preview"), backlinks = $("backlinks"), status = $("wiki-link-status");
     renderWikiMarkdown(preview, body);
     const revision = "?revision=" + enc(n.revision);
@@ -723,19 +732,7 @@
   }
 
   function taskEvidence(t) {
-    const linked = (t?.evidence || []).filter(e => e.paperId && e.page > 0);
-    if (!linked.length) return "";
-    return '<section class="task-evidence"><h3>原文证据</h3>' + linked.map(e => {
-      const query = new URLSearchParams({paper: e.paperId, page: e.page});
-      if (t.projectId) query.set("project", t.projectId);
-      for (const [key, value] of Object.entries({
-        fingerprint: e.sourceHash, quote: e.quote, start: e.selectionStart, end: e.selectionEnd,
-        ocr: e.ocr ? 1 : null, annotation: e.annotationId
-      })) {
-        if (value != null && value !== "") query.set(key, value);
-      }
-      return '<blockquote>' + esc(e.quote) + '</blockquote>' + link("查看论文第 " + e.page + " 页", "/reader?" + query, "bare");
-    }).join("") + '</section>';
+    return reviewedEvidence(t?.evidence, t?.projectId);
   }
 
   function wikiFolderForm() {
@@ -925,7 +922,17 @@
       toast("材料已保存");
     });
   }
-  async function readMaterial(m) {
+  E.openMaterialEvidence = async function (id, citation) {
+    const owner = state.project?.id;
+    if (!owner || !id) return;
+    const excerpt = await projectSourceExcerpt(owner, "material", id, citation);
+    const material = await request(projectPath("materials/" + enc(id), owner));
+    if (state.project?.id !== owner) return;
+    if (excerpt.revision !== material.revision) throw Error("材料已更新，请重新打开引用。");
+    return readMaterial(material, excerpt);
+  };
+
+  async function readMaterial(m, excerpt = null) {
     const url = "/api/research/" + projectPath("materials/" + enc(m.id) + "/content");
     const img = /^image\/(png|jpeg|webp|gif)$/i.test(m.mediaType || "");
     const pdf = /^application\/pdf(?:;|$)/i.test(m.mediaType || "");
@@ -933,11 +940,12 @@
       /\.(txt|md|csv|py|tex|yml|yaml|json|tsv)$/i.test(m.name);
     dialog(m.name, '<div class="actions">' + button("重命名或删除", "edit-material", {
         id: m.id
-      }) + '<a class="button" href="' + esc(url) + '" download="' + esc(m.name) +
+      }) + (excerpt ? button("查看完整材料", "read-material", {id:m.id}) : "") + '<a class="button" href="' + esc(url) + '" download="' + esc(m.name) +
       '">下载文件</a></div><p class="subheading">' + esc(bytes(m.size)) + ' · ' + esc(m.mediaType) +
-      '</p><div id="file-display"></div>', {
+      '</p>' + (excerpt ? sourceExcerptMarkup(excerpt) : '<div id="file-display"></div>'), {
         wide: true
       });
+    if (excerpt) return;
     const el = $("file-display");
     if (img) el.innerHTML = '<img class="file-preview" src="' + esc(url) + '" alt="' + esc(m.name) + '">';
     else if (pdf) {

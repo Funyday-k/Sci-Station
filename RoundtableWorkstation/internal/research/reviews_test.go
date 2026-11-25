@@ -1,6 +1,7 @@
 package research
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,46 @@ import (
 	"sync"
 	"testing"
 )
+
+func TestApprovedWikiWritesPreserveRecordOnMalformedFrontmatter(t *testing.T) {
+	s := newResearch(t, t.TempDir())
+	p := createResearchProject(t, s, "Wiki review")
+	// While unclosed, this is an ordinary Markdown horizontal rule. Appending
+	// another rule makes it a delimited, malformed frontmatter block.
+	n := decodeResearch[Note](t, callResearch(t, s, "POST", "/projects/"+p.ID+"/notes",
+		map[string]string{"title": "Unclosed source", "body": "---\ntitle: [unclosed"}, 201))
+	resolve := func(string) (ReviewSource, error) { return ReviewSource{Text: "Published review"}, nil }
+	execute := func(req ReviewRequest, status int) []byte {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.ServeMeetingReview(w, httptest.NewRequest("POST", "/meeting/research-reviews", nil), p.ID, "meeting-1", req, resolve)
+		if w.Code != status {
+			t.Fatalf("%s: %d want %d: %s", req.Decision, w.Code, status, w.Body.String())
+		}
+		return w.Body.Bytes()
+	}
+	for _, proposed := range []ReviewProposal{
+		{Action: "create-note", Title: "Malformed generated page", Body: "---\nsummary: [unclosed\n---\n"},
+		{Action: "append-note", Title: n.Title, DestinationID: n.ID, DestinationRevision: n.Revision, Body: "---\nAppended text"},
+	} {
+		proposed.ProjectRevision, proposed.TurnID = p.Revision, "agenda-one"
+		request := ReviewRequest{ProjectID: p.ID, OperationID: makeID(), Decision: "propose", Proposal: &proposed}
+		pending := decodeResearch[MeetingReview](t, execute(request, 201))
+		before, err := os.ReadFile(s.recordPath(p.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		accept := ReviewRequest{ProjectID: p.ID, OperationID: pending.ID, Decision: "accept", Revision: pending.Revision}
+		if message := execute(accept, 409); !bytes.Contains(message, []byte("Markdown 元数据有误")) {
+			t.Fatalf("write did not fail for the frontmatter: %s", message)
+		}
+		after, err := os.ReadFile(s.recordPath(p.ID))
+		if err != nil || !bytes.Equal(before, after) || s.projects[p.ID].Reviews[pending.ID].Status != "pending" ||
+			len(s.projects[p.ID].Notes) != 1 || s.projects[p.ID].Notes[n.ID].Body != n.Body {
+			t.Fatal("invalid approval changed the project file, note or pending review", err)
+		}
+	}
+}
 
 // These transaction tests use recorded, non-paper meeting outputs. The
 // cross-service workflow independently exercises a real PDF and meeting.

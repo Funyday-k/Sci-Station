@@ -231,6 +231,13 @@
           }
           if(ref.ocr)query.set("ocr","1");
           const link=document.createElement("a");link.href="/reader?"+query;link.textContent="打开原文第 "+ref.page+" 页";entries.push(link);
+        } else if ((ref.kind === "note" || ref.kind === "material") && Number.isSafeInteger(ref.offset)) {
+          const evidence={sourceHash:ref.sha256, source:{projectId:ref.projectId,kind:ref.kind,id:ref.id,
+            offset:ref.offset,end:ref.end ?? ref.offset+Array.from(quote.textContent).length}};
+          const link=document.createElement("a");
+          link.href=window.SciEvidence.href(ref.projectId,evidence);
+          link.textContent=window.SciEvidence.label(evidence);
+          entries.push(link);
         }
       }
       $("lab-citation-items").replaceChildren(...entries);$("lab-citations").hidden=!entries.length;

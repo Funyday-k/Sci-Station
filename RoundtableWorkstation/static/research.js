@@ -959,9 +959,18 @@
         (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
       await E.formAction?.("edit-task", task);
     }
-    const note = u.searchParams.get("note");
-    if (note && state.view === "notes" && state.project?.id === project) {
-      try { await E.openWikiNote(note); } catch (error) { toast(error.message); }
+    if (state.loadError || location.href !== u.href || state.project?.id !== project) return;
+    const note = u.searchParams.get("note"), material = u.searchParams.get("material");
+    const citation = window.SciEvidence?.locator(u.searchParams);
+    if (note && state.view === "notes") {
+      try { await E.openWikiNote(note, {citation}); }
+      catch (error) {
+        if (citation) dialog("引用原文不可用", empty(error.message));
+        else toast(error.message);
+      }
+    } else if (material && citation && state.view === "materials") {
+      try { await E.openMaterialEvidence(material, citation); }
+      catch (error) { dialog("引用原文不可用", empty(error.message)); }
     }
   }
   window.addEventListener("popstate", () => {

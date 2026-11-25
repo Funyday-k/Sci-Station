@@ -81,8 +81,9 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 	seen := make(map[research.SourceLocation]bool)
 	papers := make(map[string]bool)
 	for _, citation := range in.Citations {
-		if seen[citation.SourceLocation] || strings.TrimSpace(citation.Quote) == "" || utf8.RuneCountInString(citation.Quote) > 1000 {
-			reject(w, 400, "选段重复、为空或超过 1,000 字")
+		if seen[citation.SourceLocation] || strings.TrimSpace(citation.Quote) == "" ||
+			strings.ContainsRune(citation.Quote, 0) || utf8.RuneCountInString(citation.Quote) > 1000 {
+			reject(w, 400, "选段重复、为空、包含空字符或超过 1,000 字")
 			return
 		}
 		seen[citation.SourceLocation] = true
@@ -112,6 +113,10 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 			reject(w, 500, "无法保存原文摘录")
 			return
 		}
+		if m.ReadStatus != meeting.MaterialReadText || m.Excerpt != item.body {
+			reject(w, 422, "无法完整保留所选原文及其位置")
+			return
+		}
 		materials = append(materials, m)
 	}
 	reply(w, 200, materials)
@@ -135,10 +140,11 @@ func labAttachment(project string, source research.WorkflowSource, quote string)
 	if source.Kind == "paper" {
 		raw, start, end := source.PDFSelection(quote)
 		header, _ := json.Marshal(map[string]any{"selectionStart": start, "selectionEnd": end, "projectId": project, "paperId": source.ID, "page": source.Page, "title": string(title), "fingerprint": source.Hash, "offset": source.Offset})
-		return fmt.Sprintf("%s · p%d.txt", string(title), source.Page), "Sci-Station · 论文原文摘录 v1\n" + string(header) + "\n\n" + raw
+		return fmt.Sprintf("%s · p%d.txt", string(title), source.Page), meeting.PaperExcerptMarker + string(header) + "\n\n" + raw
 	}
-	header, _ := json.Marshal(map[string]any{"projectId": project, "kind": source.Kind, "id": source.ID, "title": string(title), "sha256": source.Hash, "offset": source.Offset})
-	return string(title) + ".txt", "Sci-Station · 项目原文摘录 v1\n" + string(header) + "\n\n" + quote
+	header, _ := json.Marshal(map[string]any{"projectId": project, "kind": source.Kind, "id": source.ID,
+		"title": string(title), "sha256": source.Hash, "offset": source.Offset, "end": source.Offset + utf8.RuneCountInString(quote)})
+	return string(title) + ".txt", meeting.ProjectExcerptMarker + string(header) + "\n\n" + quote
 }
 
 func requireLabModules(w http.ResponseWriter, lab *research.Service, in labSourcesRequest, preview bool) bool {

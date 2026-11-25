@@ -156,6 +156,7 @@ test("task editor preserves archived project membership, multiple papers and rev
       };
     }
   });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../static/research-evidence.js"), "utf8"), context);
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../static/research-forms.js"), "utf8"), context);
   await ui.formAction("edit-task", "task");
   assert.match(dialogHTML, /<blockquote>&lt;excerpt&gt;<\/blockquote>/);

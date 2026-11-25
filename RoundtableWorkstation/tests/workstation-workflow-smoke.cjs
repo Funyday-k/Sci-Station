@@ -473,6 +473,68 @@ async function reopen(app, ui, fixture, reviewed) {
   }
 }
 
+async function reviewProjectSources(app, ui, fixture) {
+  const {project} = fixture, path = "/api/research/projects/" + project.id;
+  const wiki = "A recorded Wiki observation.";
+  const material = "Source data documented in the actual project attachment.";
+  const source = await app.request(path + "/notes", "POST", {title:"Wiki evidence page", body:"😀\r\n" + wiki}, 201);
+  const file = new FormData();
+  file.append("file", new Blob(["Context\n" + material]), "source-data.txt");
+  const attachment = await app.request(path + "/materials", "POST", file, 201);
+  const sourcePath = "/api/research/lab/sources/";
+  const citations = [];
+  for (const [kind, id, offset, quote] of [["note",source.id,2,wiki],["material",attachment.id,8,material]]) {
+    const location = {kind,id,offset};
+    const preview = await app.request(sourcePath + "preview", "POST", {projectId:project.id, workflow:"gap-planning", location});
+    assert.equal(preview.text, quote);
+    citations.push({...location, hash:preview.hash, quote});
+  }
+  const materials = await app.request(sourcePath + "prepare", "POST", {projectId:project.id, workflow:"gap-planning", citations});
+  const room = await app.request("/api/studio/sessions", "POST", {topic:"Review Wiki and material originals",
+    project_id:project.id, project:project.path, members:[{model:models[0],effort:"auto"}], preset:"work",
+    material_ids:materials.map(record => record.id)}, 201);
+  const sessionPath = "/api/studio/sessions/" + room.id;
+  await eventually(async () => (await app.request(sessionPath)).agenda_draft_status !== "drafting", "project evidence agenda");
+  await app.request(sessionPath + "/run", "POST", {expected_round:0,allow_edits:false}, 202);
+  const done = await eventually(async () => {
+    const current = await app.request(sessionPath);
+    return current.status === "ready" && current.rounds[0]?.turns[0]?.text && current;
+  }, "project evidence meeting output");
+  const operationId = randomUUID().replaceAll("-", "");
+  const pending = await app.request(sessionPath + "/research-reviews", "POST", {operationId, projectId:project.id,
+    decision:"propose", proposal:{projectRevision:project.revision, turnId:"round-1-" + done.rounds[0].turns[0].seat,
+      action:"create-note", title:"Reviewed project sources", body:"Review of the Wiki and material."}}, 201);
+  assert.equal(pending.evidence.length, 2);
+  await ui.navigate(app.origin + "/studio?project=" + project.id + "&session=" + room.id);
+  await ui.click(".science-meeting-open", "科研记录");
+  await ui.visible(dialog + " a", "打开 Wiki 原文");
+  await ui.visible(dialog + " a", "打开项目材料原文");
+  await ui.click(dialog + " button", "确认写入");
+  const accepted = await eventually(async () => {
+    const rows = await app.request(path + "/reviews?meeting=" + room.id);
+    return rows.find(row => row.id === operationId && row.status === "accepted");
+  }, "approved Wiki and material write");
+  return {project, resultId:accepted.resultId, wiki, material, source, attachment};
+}
+
+async function reopenProjectSources(app, ui, evidence) {
+  const route = app.origin + "/research?view=notes&project=" + evidence.project.id + "&note=" + evidence.resultId;
+  for (const [key, id, quote] of [["note", evidence.source.id, evidence.wiki], ["material", evidence.attachment.id, evidence.material]]) {
+    await ui.navigate(route);
+    await ui.visible("dialog blockquote", quote);
+    await ui.click("dialog a[href*='" + key + "=" + id + "']");
+    assert.equal((await ui.visible("dialog .wiki-occurrence mark", quote)).text, quote);
+    const url = new URL(await ui.evaluate(() => location.href));
+    assert.equal(url.searchParams.get("project"), evidence.project.id);
+    assert.equal(url.searchParams.get(key), id);
+  }
+  const artifacts = process.env.SCI_STATION_SMOKE_ARTIFACTS;
+  if (artifacts && ui.screenshot) {
+    await mkdir(artifacts, {recursive: true});
+    await ui.screenshot(path.resolve(artifacts, "restored-project-material-evidence.png"));
+  }
+}
+
 async function main() {
   assert.ok(process.platform === "darwin", "This smoke uses the macOS PDFKit adapter");
   const native = process.argv[2] === "--native";
@@ -518,6 +580,8 @@ async function main() {
     console.log("PASS reader selection reaches both seats in the existing meeting");
     const reviewed = await review(workstation, browser.ui, fixture, turns);
     console.log("PASS rejected and accepted proposals; accept retry reuses the note");
+    const projectReviewed = await reviewProjectSources(workstation, browser.ui, fixture);
+    console.log("PASS reviewed Wiki and material evidence reaches the saved note");
     if (browser.errors) assert.deepEqual(browser.errors, []);
     await stopWorkstation();
 
@@ -525,6 +589,9 @@ async function main() {
     await reopen(workstation, browser.ui, fixture, reviewed);
     if (browser.errors) assert.deepEqual(browser.errors, []);
     console.log("PASS restart, project note citation and restored PDF page, quote and hash");
+    await reopenProjectSources(workstation, browser.ui, projectReviewed);
+    if (browser.errors) assert.deepEqual(browser.errors, []);
+    console.log("PASS restart and Wiki/material links highlight the original selected ranges");
   } catch (error) {
     failure = error;
     if (browser) {

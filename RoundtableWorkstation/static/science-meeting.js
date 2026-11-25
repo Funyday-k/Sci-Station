@@ -306,7 +306,7 @@
   }
   const reviewURL = draft => "/api/studio/sessions/"+enc(draft.sessionId)+"/research-reviews";
   function evidenceLink(review,e) {
-    return paperHref({...e,projectId:review.projectId,fingerprint:e.sourceHash});
+    return window.SciEvidence.href(review.projectId,e);
   }
   function renderReviews(draft,rows) {
     if (currentDraft!==draft) return;
@@ -325,7 +325,7 @@
       const original=elem("details");original.append(elem("summary","会议原文 · "+row.turnId),elem("pre",row.sourceText));
       item.append(original);
       for(const e of row.evidence||[]){
-        const citation=elem("a","打开第 "+e.page+" 页原文 ↗");citation.href=evidenceLink(row,e);
+        const citation=elem("a",window.SciEvidence.label(e)+" ↗");citation.href=evidenceLink(row,e);
         item.append(elem("blockquote",e.quote),citation,elem("code",e.sourceHash));
       }
       if(pending) {
