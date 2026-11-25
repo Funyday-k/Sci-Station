@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const inspireLiteratureAPI = "https://inspirehep.net/api/literature"
@@ -245,7 +247,7 @@ func inspireCacheName(key string) string {
 }
 
 func (s *Service) readInspireGraph(key string) (inspireCacheRecord, bool) {
-	root, err := os.OpenRoot(s.dir)
+	root, err := workspace.ManagedOpenDirectory(s.dir)
 	if err != nil {
 		return inspireCacheRecord{}, false
 	}

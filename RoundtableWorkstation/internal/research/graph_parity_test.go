@@ -3,6 +3,7 @@ package research
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGraphDirectedPathsAndWorkflowReadingOrder(t *testing.T) {
@@ -191,5 +193,49 @@ func TestInspireGraphMultiSeedCacheAndLocalFallback(t *testing.T) {
 	}
 	if repaired := read(false); repaired[0].Source != "cache" {
 		t.Fatalf("repaired cache was not saved: %+v", repaired)
+	}
+}
+
+func TestInspireGraphCacheRejectsLinkedDirectoriesAndFiles(t *testing.T) {
+	parent := t.TempDir()
+	s := newResearch(t, filepath.Join(parent, "research"))
+	key := "inspire:123"
+	cache := inspireCacheRecord{
+		Version: 1, Key: key, FetchedAt: time.Now(), Data: inspireNeighbors{
+			Paper: inspireGraphPaper{ID: "123", Title: "Cached paper"},
+		},
+	}
+	blob, err := json.Marshal(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(s.dir, inspireCacheName(key))
+	if err = os.WriteFile(path, blob, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.readInspireGraph(key); !ok {
+		t.Fatal("could not read regular cache")
+	}
+	relocated := filepath.Join(parent, "relocated")
+	if err = os.Rename(s.dir, relocated); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(relocated, s.dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.readInspireGraph(key); ok {
+		t.Fatal("cache read followed a replacement directory link")
+	}
+	if err = os.Remove(s.dir); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Mkdir(s.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(filepath.Join(relocated, inspireCacheName(key)), path); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.readInspireGraph(key); ok {
+		t.Fatal("cache read followed a replacement file link")
 	}
 }
