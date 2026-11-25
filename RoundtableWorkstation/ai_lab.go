@@ -13,6 +13,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
 )
 
@@ -68,8 +69,12 @@ func (a *apiServer) serveAILab(w http.ResponseWriter, r *http.Request) {
 		a.serveLabSources(w, r, path)
 		return
 	}
+	if path == "context" || strings.HasPrefix(path, "context/") {
+		a.serveLabContext(w, r, path)
+		return
+	}
 	if path == "resources/list" || path == "resources/read" {
-		serveLabResources(w, r, path)
+		a.serveLabResources(w, r, path, research.PublicResourceClient())
 		return
 	}
 	pathParts := strings.Split(path, "/")

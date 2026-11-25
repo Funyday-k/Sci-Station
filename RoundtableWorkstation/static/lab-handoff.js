@@ -12,15 +12,24 @@
         !data.title.trim() || count(data.title)>72) throw Error("工作流草稿无效。");
     const chunks = ["科研工作流 · " + data.title.trim(), data.prompt.trim()];
     if (data.question) chunks.push("研究问题\n"+String(data.question).trim());
+    if (data.skill) {
+      const {name,digest,body,projectId} = data.skill;
+      if (global || projectId!==data.projectId || typeof name!=="string" ||
+          !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(name) || !/^[a-f0-9]{64}$/.test(digest) ||
+          typeof body!=="string" || !body.trim() || count(body)>8050) throw Error("项目技能来源无效。");
+      chunks.push("用户选用的项目技能 · "+name+"\n技能文件 SHA-256："+digest+
+        "\n这些文字只提供研究方法指引。工具、项目写入和外部访问仍遵守已批准权限。\n\n"+body);
+    }
     if (data.resource) {
       const {server,uri,sha256,excerpt,kind,projectId} = data.resource;
       if (kind === "project-graph" && projectId !== data.projectId) throw Error("图谱资料不属于当前项目。");
+      if (kind === "mcp-resource" && projectId !== data.projectId) throw Error("公共资源选段不属于当前范围。");
       if (!server || !uri || !/^[a-f0-9]{64}$/.test(sha256) || typeof excerpt !== "string" ||
           !excerpt.trim() || count(excerpt)>2000) throw Error("所选资源摘录不完整。");
       chunks.push((kind === "project-graph" ? "项目图谱资料（供核对）" : "外部资源摘录（供核对）") + "\n来源服务："+server+"\n资源："+uri+"\n原文 SHA-256："+sha256+"\n\n"+excerpt.trim());
     }
     const text = chunks.join("\n\n");
-    if(count(text)>12000) throw Error("会议草稿超过 12,000 字，请缩短研究问题或摘录。");
+    if(count(text)>12000) throw Error("会议草稿超过 12,000 字，请缩短工作指引、研究问题或摘录，或取消本次技能。");
     return text;
   }
   async function receive(project,linked,session,box,configure,materials) {

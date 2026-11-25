@@ -4,3 +4,11 @@
 @media(prefers-color-scheme:dark){:root{background:#1b1b23;color:#e8e8f0}aside{background:#22232e;border-color:#373844}.card{background:#252530;border-color:#3b3c48}.back,aside h2,label,.hint,.section-head span,details p,#source-title,.eyebrow{color:#b9bacd}input,select,textarea,.card button{background:#2c2c39;color:#efedf5;border-color:#4c4c60}nav button.active,#status{background:#39314f;color:#d9cbff}.new{color:#c3b4ff}details{border-color:#41414c}.card .primary{background:#7061be}}
 
 #local-sources{margin:0 0 18px;padding:14px;border:1px solid #ced0dd;border-radius:8px}#local-list:empty{display:none}#local-list{padding-left:22px}#local-list li{margin-top:8px;overflow-wrap:anywhere}#local-list button{margin-left:8px}#local-window{margin-top:12px}.run-controls{display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin:8px 0 22px}.run-controls label{flex:1 1 165px;margin:0}#lab-turns>p{white-space:pre-wrap;overflow-wrap:anywhere}#lab-turns>h3{display:flex;align-items:center;gap:10px}#lab-turns .scientific-content{min-width:0;overflow-wrap:anywhere}#lab-open{color:inherit}
+#lab-skills label:first-of-type,#mcp label:first-of-type{margin-top:12px}
+#lab-skill-list:empty{display:none}
+#lab-skill-list{padding-left:22px}
+#lab-skill-list li{margin:8px 0;overflow-wrap:anywhere}
+#lab-skill-list button{margin:4px 0 0 6px}
+#lab-mcp-settings{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:12px}
+#lab-mcp-settings label{display:flex;align-items:center;gap:6px;margin:0}
+#lab-mcp-enabled{width:auto}

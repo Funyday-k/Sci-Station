@@ -118,7 +118,8 @@ type projectData struct {
 	TaskKeys    map[string]string        `json:"taskKeys"`
 	Relations   map[string]GraphRelation `json:"relations,omitempty"`
 	disk        json.RawMessage
-	WikiFolders []string `json:"wikiFolders,omitempty"`
+	WikiFolders []string     `json:"wikiFolders,omitempty"`
+	Lab         *LabSettings `json:"lab,omitempty"`
 }
 
 // Published project snapshots are immutable. Each mutation copies only its own map

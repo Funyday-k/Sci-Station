@@ -13,9 +13,10 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"scistation.local/desktop/internal/research"
 	"strings"
 	"time"
+
+	"scistation.local/desktop/internal/research"
 )
 
 type labResource struct {
@@ -229,14 +230,18 @@ func labReadResources(ctx context.Context, client *http.Client, endpoint, uri st
 	}
 	return nil, errors.New("此资源没有可预览的文字")
 }
-func serveLabResources(w http.ResponseWriter, r *http.Request, path string) {
+func (a *apiServer) serveLabResources(w http.ResponseWriter, r *http.Request, path string, client *http.Client) {
 	if r.Method != "POST" {
 		reject(w, 405, "请从实验室读取资源")
 		return
 	}
 	var input struct {
-		Endpoint string `json:"endpoint"`
-		URI      string `json:"uri"`
+		Endpoint  string `json:"endpoint"`
+		URI       string `json:"uri"`
+		ProjectID string `json:"projectId"`
+		Scope     string `json:"scope"`
+		Revision  int    `json:"revision"`
+		Confirmed bool   `json:"confirmed"`
 	}
 	if !jsonBody(w, r, &input) {
 		return
@@ -245,9 +250,44 @@ func serveLabResources(w http.ResponseWriter, r *http.Request, path string) {
 		reject(w, 400, "请输入公开 HTTPS MCP 地址，地址不应包含查询参数或凭据")
 		return
 	}
+	if !input.Confirmed {
+		reject(w, 403, "访问公共资源前请明确确认")
+		return
+	}
+	lab, ok := a.research.(*research.Service)
+	if !ok {
+		reject(w, 503, "未打开科研工作区")
+		return
+	}
+	if input.Scope == "global" && input.ProjectID == "" {
+		if !checkLabModule(w, lab, "") {
+			return
+		}
+	} else {
+		if input.Scope != "" {
+			reject(w, 400, "无效的实验室资源范围")
+			return
+		}
+		if !checkLabProject(w, lab, input.ProjectID) {
+			return
+		}
+		config, err := lab.LabSettings(input.ProjectID)
+		if err != nil {
+			labContextError(w, err)
+			return
+		}
+		if config.Revision != input.Revision {
+			labContextError(w, research.ErrLabSettingsConflict)
+			return
+		}
+		if !config.MCPEnabled || input.Endpoint != config.Endpoint {
+			reject(w, 403, "请先确认并启用此项目的公开 MCP 服务")
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
 	defer cancel()
-	res, e := labReadResources(ctx, research.PublicResourceClient(), input.Endpoint, input.URI)
+	res, e := labReadResources(ctx, client, input.Endpoint, input.URI)
 	if e != nil {
 		reject(w, 422, e.Error())
 		return

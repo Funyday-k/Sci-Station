@@ -15,7 +15,9 @@
     if(!res.ok)throw Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
     return x;
   }
-  const runs = window.SciLabRun.mount({req, tell, form:() => ({...form(), workflow:current?.id || "", question:$("question").value.trim(), resource:source})});
+  const projectContext = window.SciLabContext.mount({req, tell, resetResource});
+  const runs = window.SciLabRun.mount({req, tell, skillForRun:projectContext.resolve,
+    form:() => ({...form(), workflow:current?.id || "", question:$("question").value.trim(), resource:source})});
   function form(){
     return {title:$("title").value.trim(),mode:$("mode").value,seats:Number($("seats").value),prompt:$("prompt").value.trim()};
   }
@@ -77,6 +79,7 @@
     if(id==="@global")url.searchParams.set("scope","global");else url.searchParams.delete("scope");
     if (commit) window.SciStationNav.commitURL(url,"push");
     $("handoff").disabled=!p;
+    projectContext.select(id, p?.name || "").catch(e => tell(e.message));
     runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
     hint();
   }
@@ -87,6 +90,7 @@
   function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
   async function openDraft(){
     const x={...form(),projectId:$("project").value,sessionId:$("session").value,question:$("question").value.trim(),resource:source};
+    x.skill = await projectContext.resolve(x.projectId);
     handoff.compose(x);
     x.materials = await runs.prepareHandoff(current?.id || "", x.projectId);
     if ($("project").value !== x.projectId || $("session").value !== x.sessionId) return;
@@ -155,25 +159,26 @@
     clearGraphPreview();
   };
   action("list",async()=>{
-    const endpoint=$("endpoint").value.trim();resetResource();$("resource-panel").hidden=true;
-    const rows=await req(api+"resources/list","POST",{endpoint});
-    if(endpoint!==$("endpoint").value.trim())return;
+    const result=await projectContext.resource("list");
+    if(!result)return;
+    const {data:rows}=result;
     const pick=$("resources");pick.replaceChildren(...rows.map(item=>new Option(item.name||item.uri,item.uri)));$("resource-panel").hidden=!rows.length;
     tell(rows.length?"已列出 "+rows.length+" 条资源。":"此服务没有公开可读的资源。");
   });
   action("read",async()=>{
-    const endpoint=$("endpoint").value.trim(),uri=$("resources").value;resetResource();
-    const data=await req(api+"resources/read","POST",{endpoint,uri});if(endpoint!==$("endpoint").value.trim()||uri!==$("resources").value)return;
-    preview=data;$("resource-text").value=data.text;$("preview-panel").hidden=false;
+    const uri=$("resources").value;
+    const result=await projectContext.resource("read",uri);
+    if(!result || uri!==$("resources").value)return;
+    preview={...result.data,projectId:result.projectId};$("resource-text").value=preview.text;$("preview-panel").hidden=false;
   });
   action("select-excerpt",()=>{
     const area=$("resource-text");if(!preview)throw Error("请先预览资源。");
     const snippet=area.value.slice(area.selectionStart,area.selectionEnd).trim();if(!snippet||Array.from(snippet).length>2000)throw Error("请在预览中选中 1–2,000 字。");
-    const {uri,server,sha256}=preview;markSource({uri,server,sha256,excerpt:snippet});tell("选段已加入本次会议草稿。");
+    const {uri,server,sha256,projectId}=preview;markSource({kind:"mcp-resource",uri,server,sha256,projectId,excerpt:snippet});tell("选段已加入本次会议草稿。");
   });
   action("remove",()=>markSource(null));
   action("handoff",openDraft);$("project").onchange=()=>projectSelection(true);$("session").onchange=hint;
-  $("endpoint").oninput=()=>{resetResource();$("resource-panel").hidden=true;};
+  $("endpoint").oninput=projectContext.clearResource;
   $("resources").onchange=resetResource;
   (async()=>{
     const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh()]);

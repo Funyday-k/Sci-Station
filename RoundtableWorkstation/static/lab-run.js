@@ -18,7 +18,7 @@
     return project.global ? !session.project_id && !session.project : session.project_id === project.id;
   }
 
-  function mount({req,tell,form}) {
+  function mount({req,tell,form,skillForRun}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], preview = null, selected = [], generation = 0;
     let enabledModules=null;
@@ -196,9 +196,12 @@
       const member={model:$("lab-model").value,effort:$("lab-effort").value};
       if(!member.model || !member.effort) throw Error("请先读取模型目录并选择模型。");
       const scope=project.global?"global":"";
-      const topic=window.ScienceLabHandoff.compose({...data,scope,projectId:pid});
+      const skill=await skillForRun(pid);
+      if(token!==generation) return;
+      const topic=window.ScienceLabHandoff.compose({...data,scope,projectId:pid,skill});
       const used=selected.slice();
       const materials=await prepare(data.workflow,pid);
+      if(token!==generation) return;
       // Creating the session records a recoverable ID before the first model call.
       const room=await req(studio+"sessions","POST",{project_id:pid, scope, topic, members:[member],preset:data.mode,
         material_ids:materials.map(m=>m.id),start_agenda_draft:false});

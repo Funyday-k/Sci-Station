@@ -53,3 +53,56 @@ test("a project graph preview keeps its source and cannot enter a different proj
  assert.match(text,/项目图谱资料/);assert.match(text,/1\. Foundation/);
  assert.throws(()=>compose({...setup,projectId:"p2",resource}),/图谱资料不属于当前项目/);
 });
+
+test("a selected project skill contributes hashed guidance only within its own scope",()=>{
+  const {skillMatches,eligible}=require("../static/lab-context.js");
+  const skill={name:"convergence-check",description:"Review numerical error",capabilities:["uncertainty"],trusted:true,enabled:true};
+  assert.equal(skillMatches(skill,"error uncertainty"),true);
+  assert.equal(skillMatches(skill,"literature"),false);
+  assert.equal(eligible(skill),true);
+  assert.equal(eligible({...skill, trusted:false}),false);
+  assert.equal(eligible({...skill, enabled:false}),false);
+  const selected={...skill,projectId:"p1",digest:"c".repeat(64),body:"Repeat at two settings."};
+  const text=compose({...setup,skill:selected});
+  assert.match(text,/Repeat at two settings/);
+  assert.match(text,/SHA-256：c{64}/);
+  assert.throws(()=>compose({...setup,projectId:"p2",skill:selected}),/项目技能来源无效/);
+  assert.throws(()=>compose({...setup,projectId:"",scope:"global",skill:selected}),/项目技能来源无效/);
+});
+
+test("MCP confirmation, failure, and a project switch prevent stale or unauthorized previews",async()=>{
+  const {mount}=require("../static/lab-context.js");
+  const nodes=new Map(), messages=[], calls=[];
+  const element=()=>({
+    value:"",children:[],replaceChildren(...rows){this.children=rows;this.value=rows[0]?.value||"";},
+    append(item){this.children.push(item);},addEventListener(){},
+  });
+  const $=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
+  global.document={getElementById:$,createElement:element};
+  global.Option=function(label,value){this.label=label;this.value=value;};
+  let approve=false;
+  global.confirm=()=>approve;
+  const endpoint="https://fixtures.example/mcp";
+  const config={revision:2,endpoint,mcpEnabled:true,skills:[]};
+  let release, rejectRead=true;
+  const ui=mount({tell:message=>messages.push(message),resetResource(){},req:async(path,method,body,signal)=>{
+    calls.push({path,method,body,signal});
+    if(path.includes("context?"))return config;
+    if(rejectRead)throw Error("测试连接失败");
+    return new Promise(resolve=>{release=resolve;});
+  }});
+  await ui.select("p1","Project 1");
+  assert.equal($("endpoint").value,endpoint);
+  assert.equal(await ui.resource("list"),null);
+  assert.match(messages.at(-1),/未连接/);
+  assert.equal(calls.length,1);
+  approve=true;
+  await assert.rejects(ui.resource("list"),/继续使用项目原文/);
+  assert.deepEqual(calls.at(-1).body,{endpoint,uri:"",projectId:"p1",scope:"",revision:2,confirmed:true});
+  rejectRead=false;
+  const pending=ui.resource("list"), dispatched=calls.at(-1);
+  await ui.select("p2","Project 2");
+  assert.equal(dispatched.signal.aborted,true);
+  release([{uri:"urn:fixture"}]);
+  assert.equal(await pending,null);
+});
