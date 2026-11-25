@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"sort"
 	"strings"
 )
 
@@ -283,15 +282,6 @@ func (s *Service) restoreNote(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func referencedTitles(body string) map[string]bool {
-	out := map[string]bool{}
-	for _, match := range wikiLink.FindAllStringSubmatch(body, -1) {
-		if key := strings.ToLower(strings.TrimSpace(match[1])); key != "" {
-			out[key] = true
-		}
-	}
-	return out
-}
 func (s *Service) backlinks(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -199,9 +199,10 @@ func TestProjectGraphEvidenceAnchorsAndMissingPDF(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "/projects/" + project.ID
+	start, end := 0, len("Evidence sample")
 	note := decodeResearch[Note](t, callResearch(t, s, "POST", path+"/notes", map[string]any{
 		"title": "Reviewed passage", "evidence": []Evidence{
-			{PaperID: paper.ID, Page: 1, Quote: "first", SourceHash: paper.FileSHA256, MeetingID: "discussion", TurnID: "turn-1"},
+			{PaperID: paper.ID, Page: 1, Quote: "Evidence sample", SourceHash: paper.FileSHA256, MeetingID: "discussion", TurnID: "round-1-analyst", SelectionStart: &start, SelectionEnd: &end},
 			{PaperID: paper.ID, Page: 2, Quote: "also considered"},
 			{MeetingID: "discussion", TurnID: "turn-5", Quote: "another discussion"},
 		},
@@ -219,6 +220,10 @@ func TestProjectGraphEvidenceAnchorsAndMissingPDF(t *testing.T) {
 			t.Fatalf("invalid PDF locator: %+v", a)
 		}
 	}
+	if first := edge.Occurrences[0]; first.Start == nil || *first.Start != 0 || first.End == nil || *first.End != end ||
+		first.TurnID != "round-1-analyst" {
+		t.Fatalf("lost exact PDF selection: %+v", first)
+	}
 	meeting := findGraphEdge(t, g.Edges, note.ID, "meeting:discussion", "evidence")
 	if len(meeting.Occurrences) != 1 || meeting.Occurrences[0].TurnID != "turn-5" {
 		t.Fatalf("lost meeting source anchor: %+v", meeting)
@@ -233,5 +238,53 @@ func TestProjectGraphEvidenceAnchorsAndMissingPDF(t *testing.T) {
 	if missing.Occurrences[0].Status != "missing" || missing.Occurrences[0].Quote != edge.Occurrences[0].Quote ||
 		missing.Occurrences[0].ID != edge.Occurrences[0].ID {
 		t.Fatalf("invalid missing-file recovery: %+v", missing)
+	}
+}
+
+func TestProjectGraphUsesSharedWikiResolverAndTaskProjection(t *testing.T) {
+	s := newResearch(t, t.TempDir())
+	primary := createResearchProject(t, s, "Primary")
+	shared := createResearchProject(t, s, "Shared")
+	isolated := createResearchProject(t, s, "Isolated")
+	path := "/projects/" + primary.ID
+	projectGraph := func(project Project) graphResult {
+		return decodeResearch[graphResult](t, callResearch(t, s, "GET", "/projects/"+project.ID+"/graph", nil, 200))
+	}
+	createNote := func(input map[string]any) Note {
+		return decodeResearch[Note](t, callResearch(t, s, "POST", path+"/notes", input, 201))
+	}
+	target := createNote(map[string]any{"title": "Reference", "namespace": "concepts", "aliases": []string{"Ref"}})
+	method := createNote(map[string]any{"title": "Reference", "namespace": "methods"})
+	source := createNote(map[string]any{"title": "Claim", "body": "See [[concept:Ref]] and [[methods/Reference]].\n`[[concept:Ref]]`\n[[Reference]]"})
+	first := decodeResearch[Paper](t, callResearch(t, s, "POST", "/papers", map[string]string{"title": "First"}, 201))
+	second := decodeResearch[Paper](t, callResearch(t, s, "POST", "/papers", map[string]string{"title": "Second"}, 201))
+	task := decodeResearch[Task](t, callResearch(t, s, "POST", path+"/tasks", map[string]any{
+		"title": "Read both", "kind": "reading", "projectIds": []string{primary.ID, shared.ID},
+		"relatedPaperIds": []string{first.ID, second.ID},
+	}, 201))
+	g := projectGraph(primary)
+	link := findGraphEdge(t, g.Edges, source.ID, target.ID, "wikilink")
+	if len(link.Occurrences) != 1 || link.Occurrences[0].Line != 1 || link.Occurrences[0].Column != 5 {
+		t.Fatalf("graph and wiki resolver disagree: %+v", link)
+	}
+	findGraphEdge(t, g.Edges, source.ID, method.ID, "wikilink")
+	for _, project := range []Project{primary, shared} {
+		g = projectGraph(project)
+		findGraphEdge(t, g.Edges, task.ID, first.ID, "reading")
+		findGraphEdge(t, g.Edges, task.ID, second.ID, "reading")
+	}
+	if g = projectGraph(isolated); len(g.Nodes) != 0 || len(g.Edges) != 0 {
+		t.Fatalf("task links leaked to another project's graph: %+v", g)
+	}
+	callResearch(t, s, "DELETE", path+"/notes/"+target.ID+"?revision=1", nil, 204)
+	for _, node := range projectGraph(primary).Nodes {
+		if node.ID == target.ID {
+			t.Fatalf("archived note still in project graph: %+v", node)
+		}
+	}
+	callResearch(t, s, "POST", path+"/notes/"+target.ID+"/restore", map[string]int{"revision": 2}, 200)
+	restored := findGraphEdge(t, projectGraph(primary).Edges, source.ID, target.ID, "wikilink")
+	if restored.Occurrences[0].ID != link.Occurrences[0].ID {
+		t.Fatalf("restoring the same target changed the linked occurrence: %+v", restored)
 	}
 }

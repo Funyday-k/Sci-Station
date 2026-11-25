@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
-	"unicode/utf8"
 )
 
 type graphNode struct {
@@ -33,6 +31,10 @@ type graphOccurrence struct {
 	MeetingID      string `json:"meetingId,omitempty"`
 	TurnID         string `json:"turnId,omitempty"`
 	Status         string `json:"status,omitempty"`
+	Start          *int   `json:"start,omitempty"`
+	End            *int   `json:"end,omitempty"`
+	OCR            bool   `json:"ocr,omitempty"`
+	AnnotationID   string `json:"annotationId,omitempty"`
 }
 
 type graphEdge struct {
@@ -71,9 +73,13 @@ func (e *graphEdge) record(occurrence graphOccurrence) {
 	h := sha256.New()
 	for _, field := range []string{e.Source, e.Target, e.Kind, occurrence.Source,
 		strconv.Itoa(occurrence.Ordinal), strconv.Itoa(occurrence.Line),
-		strconv.Itoa(occurrence.Column), occurrence.SourceHash, occurrence.Quote,
+		strconv.Itoa(occurrence.Column), strconv.Itoa(occurrence.EndLine),
+		strconv.Itoa(occurrence.Page), occurrence.SourceHash, occurrence.Quote, occurrence.AnnotationID, strconv.FormatBool(occurrence.OCR),
 		occurrence.MeetingID, occurrence.TurnID} {
 		_, _ = h.Write([]byte(strconv.Itoa(len(field)) + ":" + field))
+	}
+	if occurrence.Start != nil && occurrence.End != nil {
+		_, _ = h.Write([]byte(":" + strconv.Itoa(*occurrence.Start) + ":" + strconv.Itoa(*occurrence.End)))
 	}
 	occurrence.ID = hex.EncodeToString(h.Sum(nil))
 	e.Occurrences = append(e.Occurrences, occurrence)
@@ -157,7 +163,7 @@ func (s *Service) derivedGraph(ctx context.Context, d projectData, tasks map[str
 	for _, e := range library.Edges {
 		edges.link(e.Source, e.Target, e.Kind).Occurrences = e.Occurrences
 	}
-	addWikiGraph(d, nodes, edges)
+	addWikiGraph(ctx, d, nodes, edges)
 
 	// An explicit note/task link can point to one shared paper outside this
 	// project. Its own outgoing edges remain outside this project.
@@ -174,7 +180,8 @@ func (s *Service) derivedGraph(ctx context.Context, d projectData, tasks map[str
 		for i, evidence := range all {
 			occurrence := graphOccurrence{Source: "evidence", Ordinal: i + 1, Page: evidence.Page,
 				SourceHash: evidence.SourceHash, Quote: evidence.Quote, SourceRevision: revision,
-				MeetingID: evidence.MeetingID, TurnID: evidence.TurnID}
+				MeetingID: evidence.MeetingID, TurnID: evidence.TurnID,
+				Start: evidence.SelectionStart, End: evidence.SelectionEnd, OCR: evidence.OCR, AnnotationID: evidence.AnnotationID}
 			if evidence.PaperID == "" {
 				if evidence.MeetingID != "" {
 					occurrence.Source = "meeting"
@@ -226,27 +233,25 @@ func (s *Service) derivedGraph(ctx context.Context, d projectData, tasks map[str
 	return nodes, edges
 }
 
-func addWikiGraph(d projectData, nodes map[string]graphNode, edges graphEdges) {
-	titles := map[string]string{}
+func addWikiGraph(ctx context.Context, d projectData, nodes map[string]graphNode, edges graphEdges) {
+	index := wikiLinkIndex(d)
 	for _, note := range d.Notes {
-		nodes[note.ID] = graphNode{note.ID, note.Title, "note"}
-		titles[strings.ToLower(note.Title)] = note.ID
+		if !note.Archived {
+			nodes[note.ID] = graphNode{note.ID, wikiPath(note), "note"}
+		}
 	}
 	for _, note := range d.Notes {
-		lineStart, prior, line := 0, 0, 1
-		for i, loc := range wikiLink.FindAllStringSubmatchIndex(note.Body, -1) {
-			between := note.Body[prior:loc[0]]
-			line += strings.Count(between, "\n")
-			if newline := strings.LastIndexByte(between, '\n'); newline >= 0 {
-				lineStart = prior + newline + 1
-			}
-			prior = loc[0]
-			target := titles[strings.ToLower(strings.TrimSpace(note.Body[loc[2]:loc[3]]))]
-			if target != "" {
+		if ctx.Err() != nil {
+			return
+		}
+		if note.Archived {
+			continue
+		}
+		for i, link := range wikiLinks(note.Body) {
+			if target := index.resolve(link.Target); target != "" {
 				edges.link(note.ID, target, "wikilink").record(graphOccurrence{
-					Source: "wikilink", Ordinal: i + 1, Line: line,
-					Column: utf8.RuneCountInString(note.Body[lineStart:loc[0]]) + 1,
-					Quote:  note.Body[loc[0]:loc[1]], SourceRevision: note.Revision,
+					Source: "wikilink", Ordinal: i + 1, Line: link.Line,
+					Column: link.Column, Quote: link.Text, SourceRevision: note.Revision,
 				})
 			}
 		}
