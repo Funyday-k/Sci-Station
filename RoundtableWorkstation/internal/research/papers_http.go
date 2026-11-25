@@ -123,6 +123,13 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			delete(fields, "revision")
+			if updates, present := fields["project_links"]; present {
+				if err := applyPaperLinkPatch(&p.PaperMetadata, updates); err != nil {
+					paperError(w, err)
+					return
+				}
+				delete(fields, "project_links")
+			}
 			for key := range fields {
 				switch key {
 				case "title", "authors", "year", "doi", "arxiv", "url", "abstract", "tags", "project_ids", "core_project_ids", "citekey", "status", "notes", "references", "priority", "rating":
@@ -188,6 +195,38 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	http.NotFound(w, r)
 }
+
+// Updates name only the projects and fields the caller edited. Archived or
+// hidden links stay intact when a different project's reading choices change.
+func applyPaperLinkPatch(metadata *PaperMetadata, raw json.RawMessage) error {
+	var patch map[string]json.RawMessage
+	if json.Unmarshal(raw, &patch) != nil || patch == nil || len(patch) > 512 {
+		return errInvalidPaper
+	}
+	if metadata.ProjectLinks == nil {
+		metadata.ProjectLinks = map[string]PaperProjectLink{}
+	}
+	for project, values := range patch {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(values, &fields) != nil || fields == nil {
+			return errInvalidPaper
+		}
+		for key := range fields {
+			switch key {
+			case "is_pinned", "sort_order", "folder_path", "use_for":
+			default:
+				return fmt.Errorf("%w：不支持的项目文献字段 %s", errInvalidPaper, key)
+			}
+		}
+		link := metadata.ProjectLinks[project]
+		if err := json.Unmarshal(values, &link); err != nil {
+			return errInvalidPaper
+		}
+		metadata.ProjectLinks[project] = link
+	}
+	return nil
+}
+
 func (s *PaperLibrary) remove(id string, revision int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -197,6 +236,14 @@ func (s *PaperLibrary) remove(id string, revision int) error {
 	}
 	if revision < 1 || revision != p.Revision {
 		return errPaperConflict
+	}
+	lock, err := s.lockRecords()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if _, err = s.currentRecord(id); err != nil {
+		return err
 	}
 	if err := os.Remove(filepath.Join(s.dir, "records", id+".json")); err != nil {
 		return err

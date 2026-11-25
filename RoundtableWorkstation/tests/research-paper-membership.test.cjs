@@ -20,13 +20,26 @@ test("paper editor preserves invisible project and core memberships while updati
     project_ids: ["archived", "archived-core", "active-remove"],
     core_project_ids: ["archived-core", "active-remove"],
   };
+  paper.project_links = {
+    archived: {is_pinned: true, use_for: ["hidden fixture"]},
+    "active-core": {folder_path: "Background"},
+  };
+  const controls = {
+    title: {value: "Revised"},
+    "pinned-active-add": {checked: true},
+    "order-active-add": {value: "0"},
+    "folder-active-add": {value: "Theory"},
+    "purpose-active-add": {value: "derive, compare"},
+    "folder-active-core": {value: "Background"},
+  };
+  let rendered = "";
   let submit;
   let saved;
   const form = {
     dataset: {},
     querySelector: () => ({}),
     querySelectorAll: selector => selections[selector].map(value => ({value})),
-    elements: {namedItem: name => ({value: name === "title" ? "Revised" : ""})},
+    elements: {namedItem: name => (controls[name] || {value: ""})},
     addEventListener: (event, handler) => { if (event === "submit") submit = handler; },
     reportValidity: () => true,
   };
@@ -36,7 +49,7 @@ test("paper editor preserves invisible project and core memberships while updati
     esc: String,
     enc: encodeURIComponent,
     button: () => "",
-    dialog() {},
+    dialog(title, html) { rendered = html; },
     close() {},
     toast() {},
     refresh: async () => {},
@@ -45,11 +58,17 @@ test("paper editor preserves invisible project and core memberships while updati
   const js = fs.readFileSync(path.join(__dirname, "..", "static", "research-forms.js"), "utf8");
   vm.runInNewContext(js, {window: {SciResearch: ui}});
   await ui.formAction("edit-paper", paper.id);
+  assert.match(rendered, /name="order-active-add"/);
+  assert.match(rendered, /name="folder-active-core" value="Background"/);
   await submit({preventDefault() {}});
   assert.equal(saved.url, "papers/paper");
   assert.equal(saved.method, "PUT");
   assert.equal(saved.body.title, "Revised");
   assert.equal(saved.body.revision, 7);
+  assert.deepEqual(saved.body.project_links, {
+    "active-add": {is_pinned: true, sort_order: 0, folder_path: "Theory", use_for: ["derive","compare"]},
+    "active-core": {is_pinned: false, sort_order: null, folder_path: "Background", use_for: []},
+  });
   assert.deepEqual(saved.body.project_ids.sort(), ["active-add", "active-core", "archived", "archived-core"]);
   assert.deepEqual(saved.body.core_project_ids.sort(), ["active-core", "archived-core"]);
 });

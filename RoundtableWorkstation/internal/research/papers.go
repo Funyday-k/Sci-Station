@@ -1,7 +1,9 @@
 package research
 
 import (
+	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -32,26 +35,45 @@ type PaperAnnotation struct {
 	Rects        []AnnotationRect `json:"rects"`
 	CreatedAt    time.Time        `json:"created_at"`
 }
+
+// A shared paper has one set of reading choices for each project that uses it.
+type PaperProjectLink struct {
+	IsPinned   bool     `json:"is_pinned"`
+	SortOrder  *int     `json:"sort_order"`
+	FolderPath string   `json:"folder_path"`
+	UseFor     []string `json:"use_for"`
+}
+
+func (link *PaperProjectLink) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("%w：项目文献设置应为对象", errInvalidPaper)
+	}
+	type plainLink PaperProjectLink
+	return json.Unmarshal(data, (*plainLink)(link))
+}
+
 type PaperMetadata struct {
-	Title          string   `json:"title"`
-	Authors        []string `json:"authors"`
-	Year           int      `json:"year"`
-	DOI            string   `json:"doi"`
-	Arxiv          string   `json:"arxiv"`
-	URL            string   `json:"url"`
-	Abstract       string   `json:"abstract"`
-	Tags           []string `json:"tags"`
-	ProjectIDs     []string `json:"project_ids"`
-	CoreProjectIDs []string `json:"core_project_ids"`
-	Citekey        string   `json:"citekey"`
-	Status         string   `json:"status"`
-	Notes          string   `json:"notes"`
-	References     []string `json:"references"`
-	Rating         int      `json:"rating"`
-	Priority       int      `json:"priority"`
+	ProjectLinks   map[string]PaperProjectLink `json:"project_links,omitempty"`
+	Title          string                      `json:"title"`
+	Authors        []string                    `json:"authors"`
+	Year           int                         `json:"year"`
+	DOI            string                      `json:"doi"`
+	Arxiv          string                      `json:"arxiv"`
+	URL            string                      `json:"url"`
+	Abstract       string                      `json:"abstract"`
+	Tags           []string                    `json:"tags"`
+	ProjectIDs     []string                    `json:"project_ids"`
+	CoreProjectIDs []string                    `json:"core_project_ids"`
+	Citekey        string                      `json:"citekey"`
+	Status         string                      `json:"status"`
+	Notes          string                      `json:"notes"`
+	References     []string                    `json:"references"`
+	Rating         int                         `json:"rating"`
+	Priority       int                         `json:"priority"`
 }
 type Paper struct {
 	PaperMetadata
+	diskHash    [32]byte
 	ID          string            `json:"id"`
 	HasPDF      bool              `json:"has_pdf"`
 	FileSHA256  string            `json:"file_sha256"`
@@ -98,16 +120,16 @@ func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 			continue
 		}
 		id := strings.TrimSuffix(name, ".json")
-		if !libraryIDPattern.MatchString(id) || ent.Type()&os.ModeSymlink != 0 {
+		if !libraryIDPattern.MatchString(id) || !ent.Type().IsRegular() {
 			return nil, fmt.Errorf("损坏的文献记录 %q", name)
 		}
 		body, e := os.ReadFile(filepath.Join(dir, "records", name))
 		if e != nil {
 			return nil, e
 		}
-		var rec Paper
-		if e = json.Unmarshal(body, &rec); e != nil || rec.ID != id || rec.Revision < 1 {
-			return nil, fmt.Errorf("无法读取文献记录 %s", name)
+		rec, e := decodePaperRecord(id, body)
+		if e != nil {
+			return nil, e
 		}
 		p.records[id] = rec
 	}
@@ -123,6 +145,18 @@ func (s *PaperLibrary) Snapshot(id string) (Paper, bool) {
 	return clonePaper(p), ok
 }
 func clonePaper(p Paper) Paper {
+	if p.ProjectLinks != nil {
+		links := make(map[string]PaperProjectLink, len(p.ProjectLinks))
+		for id, link := range p.ProjectLinks {
+			link.UseFor = append([]string{}, link.UseFor...)
+			if link.SortOrder != nil {
+				order := *link.SortOrder
+				link.SortOrder = &order
+			}
+			links[id] = link
+		}
+		p.ProjectLinks = links
+	}
 	p.Authors = append([]string{}, p.Authors...)
 	p.Tags = append([]string{}, p.Tags...)
 	p.ProjectIDs = append([]string{}, p.ProjectIDs...)
@@ -141,29 +175,108 @@ func (s *PaperLibrary) PDFPath(id string) (string, error) {
 	}
 	return filepath.Join(s.dir, "pdf", p.ID+".pdf"), nil
 }
+func decodePaperRecord(id string, data []byte) (Paper, error) {
+	var p Paper
+	if err := json.Unmarshal(data, &p); err != nil || p.ID != id || p.Revision < 1 || validatePaperLinks(&p.PaperMetadata) != nil {
+		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json", id)
+	}
+	p.diskHash = sha256.Sum256(data)
+	return p, nil
+}
+
+// Merge changes to known JSON fields into the on-disk object. An unchanged
+// value retains its original representation, including any newer nested fields.
+func mergePaperFields(disk, before, after json.RawMessage) json.RawMessage {
+	if bytes.Equal(before, after) {
+		return disk
+	}
+	var original, old, next map[string]json.RawMessage
+	if json.Unmarshal(disk, &original) != nil || original == nil ||
+		json.Unmarshal(before, &old) != nil || old == nil ||
+		json.Unmarshal(after, &next) != nil || next == nil {
+		return after
+	}
+	for key := range old {
+		if _, keep := next[key]; !keep {
+			delete(original, key)
+		}
+	}
+	for key, value := range next {
+		if prior, exists := old[key]; exists && original[key] != nil {
+			original[key] = mergePaperFields(original[key], prior, value)
+		} else if !exists || !bytes.Equal(prior, value) {
+			original[key] = value
+		}
+	}
+	merged, _ := json.Marshal(original) // entries come only from parsed JSON
+	return merged
+}
+
+func (s *PaperLibrary) lockRecords() (*os.File, error) {
+	dir, err := os.Open(filepath.Join(s.dir, "records"))
+	if err != nil {
+		return nil, err
+	}
+	if err = syscall.Flock(int(dir.Fd()), syscall.LOCK_EX); err != nil {
+		dir.Close()
+		return nil, err
+	}
+	return dir, nil // closing the descriptor releases the lock
+}
+
+func (s *PaperLibrary) currentRecord(id string) ([]byte, error) {
+	path := filepath.Join(s.dir, "records", id+".json")
+	old, exists := s.records[id]
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) && !exists {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("无效的文献记录 %s.json", id)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if !exists || old.diskHash != sha256.Sum256(data) {
+		updated, err := decodePaperRecord(id, data)
+		if err != nil {
+			return nil, err
+		}
+		s.records[id] = updated
+		return nil, errPaperConflict
+	}
+	return data, nil
+}
+
 func (s *PaperLibrary) saveLocked(p Paper) error {
-	body, err := json.MarshalIndent(p, "", "  ")
+	lock, err := s.lockRecords()
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Join(s.dir, "records"), ".pending-*")
+	defer lock.Close()
+	disk, err := s.currentRecord(p.ID)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
-	if _, err = tmp.Write(body); err == nil {
-		err = tmp.Sync()
-	}
-	closeErr := tmp.Close()
+	body, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
+	if disk != nil {
+		before, err := json.Marshal(s.records[p.ID])
+		if err != nil {
+			return err
+		}
+		body = mergePaperFields(disk, before, body)
 	}
-	if err = os.Rename(tmp.Name(), filepath.Join(s.dir, "records", p.ID+".json")); err != nil {
+	if err = atomicWrite(filepath.Join(s.dir, "records", p.ID+".json"), body); err != nil {
 		return err
 	}
+	p.diskHash = sha256.Sum256(body)
 	s.records[p.ID] = clonePaper(p)
 	return nil
 }
@@ -213,6 +326,24 @@ func normalizeArxiv(v string) string {
 	}
 	return v
 }
+func validatePaperLinks(m *PaperMetadata) error {
+	for id, link := range m.ProjectLinks {
+		if !paperContains(m.ProjectIDs, id) || utf8.RuneCountInString(link.FolderPath) > 512 {
+			return fmt.Errorf("%w：项目文献设置无效", errInvalidPaper)
+		}
+		if link.SortOrder != nil && (*link.SortOrder < -9007199254740991 || *link.SortOrder > 9007199254740991) {
+			return fmt.Errorf("%w：项目顺序超出范围", errInvalidPaper)
+		}
+		purposes, err := paperListClean(link.UseFor, 128, 256)
+		if err != nil {
+			return err
+		}
+		link.UseFor = purposes
+		link.FolderPath = strings.TrimSpace(link.FolderPath)
+		m.ProjectLinks[id] = link
+	}
+	return nil
+}
 func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) error {
 	m.Title = strings.TrimSpace(m.Title)
 	m.DOI = normalizeDOI(m.DOI)
@@ -254,7 +385,7 @@ func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) erro
 			return fmt.Errorf("%w：项目不存在", errInvalidPaper)
 		}
 	}
-	return nil
+	return validatePaperLinks(m)
 }
 func (s *PaperLibrary) all() []Paper {
 	s.mu.RLock()
@@ -281,10 +412,26 @@ func filterPapers(items []Paper, project, query, status string) []Paper {
 		if status != "" && p.Status != status {
 			continue
 		}
-		if q != "" && !strings.Contains(strings.ToLower(strings.Join([]string{p.Title, strings.Join(p.Authors, " "), p.DOI, p.Arxiv, p.Abstract, strings.Join(p.Tags, " "), p.Citekey}, " ")), q) {
-			continue
+		if q != "" {
+			link := p.ProjectLinks[project]
+			text := strings.Join([]string{p.Title, strings.Join(p.Authors, " "), p.DOI, p.Arxiv, p.Abstract, strings.Join(p.Tags, " "), p.Citekey, link.FolderPath, strings.Join(link.UseFor, " ")}, " ")
+			if !strings.Contains(strings.ToLower(text), q) {
+				continue
+			}
 		}
 		out = append(out, p)
+	}
+	if project != "" {
+		sort.SliceStable(out, func(i, j int) bool {
+			a, b := out[i].ProjectLinks[project], out[j].ProjectLinks[project]
+			if a.IsPinned != b.IsPinned {
+				return a.IsPinned
+			}
+			if a.SortOrder == nil {
+				return false
+			}
+			return b.SortOrder == nil || *a.SortOrder < *b.SortOrder
+		})
 	}
 	return out
 }
@@ -320,6 +467,12 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 			for _, id := range m.ProjectIDs {
 				if !paperContains(existing.ProjectIDs, id) {
 					existing.ProjectIDs = append(existing.ProjectIDs, id)
+					if link, ok := m.ProjectLinks[id]; ok {
+						if existing.ProjectLinks == nil {
+							existing.ProjectLinks = map[string]PaperProjectLink{}
+						}
+						existing.ProjectLinks[id] = link
+					}
 				}
 			}
 			for _, id := range m.CoreProjectIDs {
@@ -375,6 +528,11 @@ func (s *PaperLibrary) update(id string, revision int, meta PaperMetadata) (Pape
 	}
 	// A project may have been archived since this paper was linked to it.
 	// Its retained membership should not block unrelated paper edits.
+	for id := range meta.ProjectLinks {
+		if paperContains(current.ProjectIDs, id) && !paperContains(meta.ProjectIDs, id) && !paperContains(meta.CoreProjectIDs, id) {
+			delete(meta.ProjectLinks, id)
+		}
+	}
 	if err := s.validate(&meta, current.ProjectIDs); err != nil {
 		return Paper{}, err
 	}

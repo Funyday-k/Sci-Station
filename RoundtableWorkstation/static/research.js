@@ -215,13 +215,20 @@
     return state.project ? state.papers.filter(p => (p.project_ids || []).includes(state.project.id)) : state.papers;
   }
 
-  function paperRows(papers) {
-    return list(papers.map(p => row("book", p.title, [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey].filter(
-      Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"', statusLabel[p.status] || "未读", button("编辑",
-      "edit-paper", {
-        id: p.id,
-        kind: "bare"
-      }))));
+  function paperRows(papers, projectID = "") {
+    return list(papers.map(p => {
+      const link = p.project_links?.[projectID];
+      const meta = [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey];
+      if (projectID) {
+        if (p.core_project_ids?.includes(projectID)) meta.push("核心文献");
+        if (link?.is_pinned) meta.push("已置顶");
+        if (link?.sort_order != null) meta.push("序号 " + link.sort_order);
+        if (link?.folder_path) meta.push("文件夹 " + link.folder_path);
+        if (link?.use_for?.length) meta.push("用途 " + link.use_for.join("、"));
+      }
+      return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
+        statusLabel[p.status] || "未读", button("编辑", "edit-paper", {id: p.id, kind: "bare"}));
+    }));
   }
 
   function taskRows(tasks) {
@@ -321,9 +328,23 @@
 
   function publicLibrary() {
     const limited = Boolean(state.project);
-    const all = (limited ? scopedPapers() : state.papers).slice().sort(byRecent);
+    const projectID = limited ? state.project.id : "";
+    const all = (limited ? scopedPapers() : state.papers).slice().sort((a, b) => {
+      if (projectID) {
+        const first = a.project_links?.[projectID], second = b.project_links?.[projectID];
+        const pin = Number(Boolean(second?.is_pinned)) - Number(Boolean(first?.is_pinned));
+        if (pin) return pin;
+        if (first?.sort_order != null || second?.sort_order != null) {
+          if (first?.sort_order == null) return 1;
+          if (second?.sort_order == null) return -1;
+          if (first.sort_order !== second.sort_order) return first.sort_order - second.sort_order;
+        }
+      }
+      return byRecent(a, b) || a.id.localeCompare(b.id);
+    });
     const query = state.query.trim().toLowerCase();
-    const papers = all.filter(p => [p.title, ...(p.authors || []), p.year, p.doi, p.arxiv, p.citekey, ...(p.tags || [])]
+    const papers = all.filter(p => [p.title, ...(p.authors || []), p.year, p.doi, p.arxiv, p.citekey, ...(p.tags || []),
+      p.project_links?.[projectID]?.folder_path, ...(p.project_links?.[projectID]?.use_for || [])]
       .join(" ").toLowerCase().includes(query));
     const actions = link("导出 BibTeX", "/api/research/papers/bibtex" + (limited ? "?project=" + enc(state.project.id) : ""),
       "button") + button("导入文献", "new-paper", {
@@ -333,7 +354,7 @@
     return heading(limited ? "项目文献" : "文献库", "", link("文献发现", toolsPage("discover")) + link("PDF 转换", toolsPage("convert")) + actions) +
       '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
       '" placeholder="搜索标题、作者、DOI…" aria-label="筛选文献"></div>' + panel(limited ? state.project.name + " · " + papers.length +
-        " 篇" : "全部文献 · " + papers.length + " 篇", papers.length ? paperRows(papers) : empty(query ? "没有匹配的文献" : "还没有收录文献",
+        " 篇" : "全部文献 · " + papers.length + " 篇", papers.length ? paperRows(papers, projectID) : empty(query ? "没有匹配的文献" : "还没有收录文献",
           query ? "可以尝试作者、标签或 DOI。" : "添加本地 PDF 或线上文献记录。", query ? "" : button("导入文献", "new-paper", {
             glyph: "import"
           })));

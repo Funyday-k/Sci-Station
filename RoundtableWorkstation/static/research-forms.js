@@ -95,11 +95,23 @@
     if (!state.projects.length) return "";
     const selected = paper?.project_ids || (creating && state.project ? [state.project.id] : []),
       core = paper?.core_project_ids || [];
-    return '<fieldset class="file-drop"><legend>收录到项目</legend><div class="project-choices">' + state.projects.map(p =>
-      '<div class="project-choice"><label class="check"><input type="checkbox" name="project_ids" value="' + esc(p.id) +
-      '" ' + (selected.includes(p.id) ? "checked" : "") + '>' + esc(p.name) +
-      '</label><label class="check"><input type="checkbox" name="core_project_ids" value="' + esc(p.id) + '" ' + (core
-        .includes(p.id) ? "checked" : "") + '>核心文献</label></div>').join("") + '</div></fieldset>';
+    const choices = state.projects.map(project => {
+      const id = enc(project.id), link = paper?.project_links?.[project.id] || {};
+      return '<div data-paper-project><div class="project-choice"><label class="check"><input type="checkbox" name="project_ids" value="' +
+        esc(project.id) + '" ' + (selected.includes(project.id) ? "checked" : "") + '>' + esc(project.name) +
+        '</label><label class="check"><input type="checkbox" name="core_project_ids" value="' + esc(project.id) + '" ' +
+        (core.includes(project.id) ? "checked" : "") + '>核心文献</label></div>' +
+        '<details><summary>' + esc(project.name) + '的阅读安排</summary><fieldset ' +
+        (selected.includes(project.id) || core.includes(project.id) ? "" : "disabled") + '>' +
+        '<label class="check"><input type="checkbox" name="pinned-' + id + '" ' +
+        (link.is_pinned ? "checked" : "") + '>置顶</label><div class="split">' +
+        field("排序序号", input("order-" + id, link.sort_order, 'type="number" step="1" min="-9007199254740991" max="9007199254740991" placeholder="可留空，较小值优先"')) +
+        field("文献文件夹", input("folder-" + id, link.folder_path, 'maxlength="512" placeholder="例如：理论/散射"')) +
+        '</div>' + field("研究用途", input("purpose-" + id, link.use_for?.join(", "), 'placeholder="例如：比较方法，核对推导"')) +
+        '</fieldset></details></div>';
+    });
+    return '<fieldset class="file-drop"><legend>收录到项目</legend><div class="project-choices">' +
+      choices.join("") + '</div></fieldset>';
   }
 
   function projectForm(edit = false) {
@@ -208,6 +220,22 @@
         }
       }
       body.project_ids = [...new Set([...body.project_ids, ...body.core_project_ids])];
+      const links = {};
+      for (const project of state.projects) {
+        if (!body.project_ids.includes(project.id)) continue;
+        const id = enc(project.id);
+        const order = value(f, "order-" + id);
+        const link = {
+          is_pinned: Boolean(f.elements.namedItem("pinned-" + id)?.checked),
+          sort_order: order === "" ? null : Number(order),
+          folder_path: value(f, "folder-" + id),
+          use_for: split(value(f, "purpose-" + id))
+        };
+        if (p?.project_links?.[project.id] || link.is_pinned || order !== "" || link.folder_path || link.use_for.length) {
+          links[project.id] = link;
+        }
+      }
+      if (Object.keys(links).length) body.project_links = links;
       if (!edit && !file && !body.title && !body.doi && !body.arxiv && !body.url) throw Error(
         "请选择 PDF，或输入题名、DOI、arXiv 编号或网址。");
       if (files.length > 1) {
@@ -216,7 +244,7 @@
           done(token);
           return;
         }
-        const metadata = {tags: body.tags, status: body.status, project_ids: body.project_ids, core_project_ids: body.core_project_ids};
+        const metadata = {tags: body.tags, status: body.status, project_ids: body.project_ids, core_project_ids: body.core_project_ids, project_links: body.project_links};
         const results = f.querySelector("[data-import-results]");
         const drawResults = () => {
           results.replaceChildren(...files.map(item => {
@@ -296,6 +324,11 @@
       });
       form.elements.fetch_pdf.addEventListener("change", syncInputs);
     }
+    form.addEventListener("change", event => {
+      if (!["project_ids", "core_project_ids"].includes(event.target.name)) return;
+      const group = event.target.closest("[data-paper-project]");
+      group.querySelector("fieldset").disabled = !group.querySelector('.project-choice input:checked');
+    });
   }
 
   function noteForm(n = null) {
