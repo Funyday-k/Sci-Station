@@ -33,6 +33,8 @@ type Entity struct {
 }
 
 type Project struct {
+	ManagedDirectory bool            `json:"managedDirectory,omitempty"`
+	DirectoryGrant   *DirectoryGrant `json:"directoryGrant,omitempty"`
 	Entity
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -99,6 +101,7 @@ type Material struct {
 }
 
 type projectData struct {
+	Trashed   bool                     `json:"trashed,omitempty"`
 	Project   Project                  `json:"project"`
 	Archived  bool                     `json:"archived,omitempty"`
 	Notes     map[string]Note          `json:"notes"`
@@ -134,7 +137,7 @@ func New(dir string) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{dir: absolute, mux: http.NewServeMux(), projects: map[string]projectData{}}
-	for _, name := range []string{"records", "workspaces", "blobs"} {
+	for _, name := range []string{"records", "workspaces", "blobs", "trash"} {
 		if err = os.MkdirAll(filepath.Join(s.dir, name), 0700); err != nil {
 			return nil, err
 		}
@@ -161,6 +164,9 @@ func New(dir string) (*Service, error) {
 			return nil, fmt.Errorf("科研项目文件无法读取 %q", name)
 		}
 		d.disk = b
+		if err = s.recoverManagedDirectory(&d); err != nil {
+			return nil, err
+		}
 		s.projects[id] = d
 	}
 	s.papers, err = NewPaperLibrary(filepath.Join(s.dir, "library"))
@@ -176,6 +182,8 @@ func New(dir string) (*Service, error) {
 		s.mux.HandleFunc(method+" "+prefix+"/projects/{project}", s.project)
 	}
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/restore", s.restoreProject)
+	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/trash", s.trashProject)
+	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/directory", s.changeDirectory)
 	s.registerNotes()
 	s.registerTasks()
 	s.registerMaterials()
@@ -369,7 +377,7 @@ func (s *Service) listProjects(w http.ResponseWriter, r *http.Request) {
 	out := []Project{}
 	archived := r.URL.Query().Get("archived") == "1"
 	for _, d := range s.projects {
-		if d.Archived == archived {
+		if d.Trashed == (r.URL.Query().Get("trashed") == "1") && (d.Trashed || d.Archived == archived) {
 			out = append(out, d.Project)
 		}
 	}
@@ -412,7 +420,8 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	managed := in.Path == nil || strings.TrimSpace(*in.Path) == ""
 	if managed {
-		p.Path = filepath.Join(s.dir, "workspaces", p.ID)
+		p.ManagedDirectory = true
+		p.Path = s.managedDirectory(p.ID, false)
 		if err := os.Mkdir(p.Path, 0700); err != nil {
 			jsonFail(w, 500, "无法建立项目文件夹")
 			return
@@ -423,8 +432,8 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 			jsonFail(w, 403, "请先在圆桌登记所选项目文件夹")
 			return
 		}
-		info, err := os.Stat(path)
-		if err != nil || !info.IsDir() {
+		grant, err := s.externalDirectory(path)
+		if err != nil {
 			jsonFail(w, 400, "项目文件夹不可用")
 			return
 		}
@@ -435,8 +444,9 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		p.Path = path
+		p.DirectoryGrant = &grant
 	}
-	d := projectData{Project: p, Notes: map[string]Note{}, Tasks: map[string]Task{}, Materials: map[string]Material{}, NoteKeys: map[string]string{}, TaskKeys: map[string]string{}}
+	d := newProjectData(p)
 	if !s.save(w, d) {
 		if managed {
 			_ = os.Remove(p.Path)
@@ -534,7 +544,7 @@ func (s *Service) restoreProject(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Archived = false
 	d.Project.bump()
-	if s.save(w, d) {
-		jsonReply(w, 200, d.Project)
+	if s.moveLifecycle(w, d, false) {
+		jsonReply(w, 200, s.projects[d.Project.ID].Project)
 	}
 }

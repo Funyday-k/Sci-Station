@@ -120,7 +120,9 @@
       'required maxlength="160" autofocus placeholder="例如：太阳暗物质"')) + field("项目简介", area("description", p?.description,
       'maxlength="12000" placeholder="研究问题、目标或记录范围"')) + (p ? "" :
       '<div class="field"><span>项目文件夹</span><p id="chosen-folder" class="form-help">默认使用 Sci-Station 管理的本地目录。</p><button id="pick-folder" type="button" class="button">选择已有文件夹…</button><input name="path" type="hidden"></div>'
-      ) + (p?.path ? '<p class="form-help">圆桌项目文件夹<br>' + esc(p.path) + '</p>' : "") + button("已归档项目",
+      ) + (p && !p.managedDirectory ? '<p>' +
+        button("重新授权文件夹…", "grant-directory", {id:p.id+":"+p.revision}) +
+        (p.directoryGrant ? button("撤销文件夹授权", "revoke-directory", {id:p.id+":"+p.revision}) : "") + '</p>' : "") + (p?.path ? '<p class="form-help">圆桌项目文件夹<br>' + esc(p.path) + '</p>' : "") + button("已归档项目",
       "archived-projects", {
         kind: "bare"
       }) + formFooter(edit ? "保存更改" : "创建项目", p ? "project:" + p.id : "") + '</form>');
@@ -741,12 +743,13 @@
       if (el.isConnected) el.append(pre);
     } else el.textContent = "可下载原文件并在对应应用中查看。";
   }
-  async function archivedProjects() {
-    const all = await request("projects?archived=1");
-    dialog("已归档项目", all.length ? all.map(p => '<div class="row"><span class="row-main">' + esc(p.name) + '</span>' +
-      button("恢复", "restore-project", {
-        id: p.id + ":" + p.revision
-      }) + '</div>').join("") : empty("暂无已归档项目"));
+  async function archivedProjects(trashed = false) {
+    const all = await request(trashed ? "projects?trashed=1" : "projects?archived=1");
+    const rows = all.map(p => '<div class="row"><span class="row-main">' + esc(p.name) + '</span>' +
+      button("恢复", "restore-project", {id:p.id+":"+p.revision}) +
+      (trashed ? "" : button("移至回收站", "trash-project",{id:p.id+":"+p.revision})) + '</div>').join("");
+    dialog(trashed ? "项目回收站" : "已归档项目", (rows || empty(trashed ? "回收站为空" : "暂无已归档项目")) +
+      button(trashed ? "已归档项目" : "查看回收站",trashed ? "archived-projects" : "trashed-projects"));
   }
 
   function relationForm() {
@@ -879,6 +882,28 @@
     }
     if (action === "confirm-delete") return confirmRemoval(id);
     if (action === "archived-projects") return archivedProjects();
+    if (action === "trashed-projects") return archivedProjects(true);
+    if (action === "trash-project") {
+      const [pid, rev] = id.split(":");
+      await request("projects/"+enc(pid)+"/trash", {method:"POST",body:{revision:Number(rev)}});
+      await archivedProjects();
+      toast("项目已移至回收站");
+      return;
+    }
+    if (action === "grant-directory" || action === "revoke-directory") {
+      const [pid, rev] = id.split(":");
+      let path="";
+      if (action==="grant-directory") {
+        const selected=await request("/api/studio/pick-project",{method:"POST",body:{}});
+        if(!selected.path)return;
+        path=selected.path;
+      }
+      await request("projects/"+enc(pid)+"/directory",{method:"POST",body:{revision:Number(rev),path}});
+      close();
+      await load(pid,"overview");
+      toast(path?"文件夹授权已更新":"文件夹授权已撤销");
+      return;
+    }
     if (action === "restore-project") {
       const [pid, rev] = id.split(":");
       const p = await request("projects/" + enc(pid) + "/restore", {

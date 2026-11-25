@@ -190,6 +190,15 @@ func openDirectoryNoLinks(absolute string) (*os.Root, error) {
 	return current, nil
 }
 
+func nestedResearchRoot(root *os.Root, path string) bool {
+	for _, marker := range []string{RootMarker, ".sci-station"} {
+		if _, err := root.Lstat(filepath.Join(path, marker)); !errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkPath rejects symlinks at every component, including links staying inside
 // the project. os.Root additionally prevents escapes if names change concurrently.
 func checkPath(root *os.Root, path string, allowMissing bool) error {
@@ -204,6 +213,9 @@ func checkPath(root *os.Root, path string, allowMissing bool) error {
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return invalid("symbolic links are not editable")
+		}
+		if info.IsDir() && nestedResearchRoot(root, strings.Join(parts[:i+1], "/")) {
+			return invalid("workspace records belong to a separate root")
 		}
 		if i < len(parts)-1 && !info.IsDir() {
 			return invalid("file parent is not a directory")
@@ -314,6 +326,9 @@ func Catalog(project string) ([]string, error) {
 			return nil
 		}
 		if entry.IsDir() {
+			if nestedResearchRoot(root, path) {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if !editableName(entry.Name()) {
