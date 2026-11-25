@@ -2,8 +2,8 @@
 
 package main
 
-import "fmt"
+import "errors"
 
-func runDesktop(address string, _ *apiServer, _ func()) error {
-	return fmt.Errorf("native desktop is unavailable in this build; run with --headless to serve %s", address)
+func runDesktop(_ string, _ int) error {
+	return errors.New("native desktop is unavailable in this build; run with --headless to open the web interface")
 }

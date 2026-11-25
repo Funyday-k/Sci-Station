@@ -1,0 +1,15 @@
+# Desktop research workspaces
+
+At first launch, use the Workspace menu to create a workspace in an empty folder or open one previously created by the workstation. The native chooser returns to the current window on cancellation. A successful switch loads the selected root in that window. Each root has a separate loopback origin, meeting engine, settings store, research repository and process lock. A failed switch preserves the previous selection. The command-line equivalent is `sci-station serve -data-dir /path/to/workspace`. The server prints its local address at startup.
+
+## What the workstation stores
+
+The file `.sci-station-desktop` identifies desktop workspace format 1. The workstation checks its exact version before opening records. Unmarked nonempty folders, Swift Research Roots, workspaces nested inside another workspace, and unsupported versions are rejected. Existing prototype data must be restored to an independent destination through the explicit recovery workflow. Starting the workstation does not create or select a copy of that data.
+
+The user configuration directory contains a separate `Sci-Station Workstation` registry. It records the last selected workspace and reserves browser origins for roots. The registry contains no research records. A headless invocation with an explicit data directory does not switch the desktop's remembered selection.
+
+Project records in `research/records` keep a stable ID. The optional project fields `managedDirectory` and `directoryGrant` distinguish a workstation-owned folder from an external directory approved by the user. The latter stores the selected directory's device and inode. A changed or replaced external folder needs an explicit new approval in project settings. Revoking the grant leaves research records accessible and disables project-file access. Project settings can associate a new external directory with the same project ID. The rules registry in `projects.json` stores selected rule snapshots and the corresponding external directory grant. Existing unbound external paths require a new approval.
+
+Archiving removes a project from active views. Moving it to trash moves its managed directory from `research/workspaces/<id>` to `research/trash/<id>`, marks the record archived and trashed, and retains its notes and tasks. An external folder stays in its original location. Restore the project from the project trash to return it to active use. A recorded state and its managed directory are reconciled after an interrupted move. Shared paper bytes and project membership stay in the root's library throughout.
+
+For a complete rollback, quit the workstation and restore the entire root from a verified copy, including its project records, `research/workspaces`, `research/trash`, library, and meeting data. Use a separate destination for verification. External folder contents have their own backup and restore policy.

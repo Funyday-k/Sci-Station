@@ -19,6 +19,7 @@ import (
 	"scistation.local/desktop/internal/deliberation"
 	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/plugins"
+	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/sessionstore"
 	"scistation.local/desktop/internal/workspace"
 )
@@ -27,20 +28,22 @@ import (
 var assets embed.FS
 
 type apiServer struct {
-	savePick      func(filename, extension string) (string, error)
-	saveDialog    sync.Mutex
-	plugins       *plugins.Store
-	pluginErr     error
-	desktop       bool
-	diag          diagnosticStore
-	prefs         *settingsStore
-	meetings      *meeting.Engine
-	research      http.Handler
-	selectedPaths sync.Map
-	pickMu        sync.RWMutex
-	pick          func() (string, error)
-	projectAccess sync.Once
-
+	workspaceDir    string
+	chooseWorkspace func(bool)
+	revealWorkspace func() error
+	savePick        func(filename, extension string) (string, error)
+	saveDialog      sync.Mutex
+	plugins         *plugins.Store
+	pluginErr       error
+	desktop         bool
+	diag            diagnosticStore
+	prefs           *settingsStore
+	meetings        *meeting.Engine
+	research        http.Handler
+	selectedPaths   sync.Map
+	pickMu          sync.RWMutex
+	pick            func() (string, error)
+	projectAccess   sync.Once
 	materialActions *projectMaterialActions
 }
 
@@ -82,6 +85,9 @@ func fail(w http.ResponseWriter, err error) {
 	status := 400
 	if errors.Is(err, errModelCatalog) {
 		status = http.StatusBadGateway
+	}
+	if errors.Is(err, os.ErrPermission) {
+		status = 403
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		status = 404
@@ -145,7 +151,9 @@ func (a *apiServer) serve(port int) http.Handler {
 		path := r.URL.Path
 		switch {
 		case path == "/api/health" && r.Method == "GET":
-			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3"})
+			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3", "workspace": rootID(a.workspaceDir)})
+		case path == "/api/workspace" || path == "/api/workspace/open" || path == "/api/workspace/create" || path == "/api/workspace/reveal":
+			a.workspaceAPI(w, r)
 		case strings.HasPrefix(path, "/api/research/lab/"):
 			a.serveAILab(w, r)
 		case path == projectMaterialActionPath:
@@ -309,7 +317,23 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if selected != "" {
-			a.selectedPaths.Store(filepath.Clean(selected), true)
+			selected, err = filepath.EvalSymlinks(selected)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			if lab, ok := a.research.(*research.Service); ok {
+				if err := lab.ValidateExternalDirectory(selected); err != nil {
+					fail(w, err)
+					return
+				}
+			}
+			grant, err := research.IdentifyDirectory(selected)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			a.selectedPaths.Store(selected, grant)
 		}
 		reply(w, 200, map[string]string{"path": selected})
 		return
@@ -579,13 +603,17 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 
 func (a *apiServer) approvedResearchPath(path string) bool {
 	path = filepath.Clean(path)
-	if _, ok := a.selectedPaths.Load(path); ok {
+	actual, err := research.IdentifyDirectory(path)
+	if err != nil {
+		return false
+	}
+	if selected, ok := a.selectedPaths.Load(path); ok && selected == actual {
 		return true
 	}
 	if a.prefs == nil {
 		return false
 	}
 	records, err := a.projectRecords()
-	_, ok := records[path]
-	return err == nil && ok
+	entry, ok := records[path]
+	return err == nil && ok && entry.DirectoryGrant != nil && *entry.DirectoryGrant == actual
 }

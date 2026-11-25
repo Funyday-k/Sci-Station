@@ -22,35 +22,41 @@ import (
 	"scistation.local/desktop/internal/research"
 )
 
-func defaultData() string {
-	// A Finder launch must not read Documents before its first window exists.
-	// Only an explicitly selected project belongs in the editing path.
-	conf, err := os.UserConfigDir()
-	if err != nil {
-		log.Fatal(err)
+func rootRegistry() (desktopRoots, error) {
+	if dir := os.Getenv("SCI_STATION_WORKSPACE_REGISTRY"); filepath.IsAbs(dir) {
+		return desktopRoots{dir: dir}, nil
 	}
-	return filepath.Join(conf, "Sci-Station Desktop")
+	conf, err := os.UserConfigDir()
+	return desktopRoots{dir: filepath.Join(conf, "Sci-Station Workstation")}, err
 }
 
-func isStudio(url string) bool {
-	client := http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil}}
-	resp, e := client.Get(url + "/api/health")
-	if e != nil {
-		return false
+// A window may borrow a headless server only for the explicitly selected root.
+func attachedWorkspace(dir string, port int) *workspaceInstance {
+	if port == 0 {
+		return nil
 	}
-	defer resp.Body.Close()
-	var health struct {
-		Name    string
-		Version int
+	address := fmt.Sprintf("http://127.0.0.1:%d", port)
+	client := http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Get(address + "/api/health")
+	if err != nil {
+		return nil
 	}
-	return resp.StatusCode == 200 && json.NewDecoder(resp.Body).Decode(&health) == nil && health.Name == "sci-station" && health.Version == 2
+	defer res.Body.Close()
+	var info struct {
+		Name, Workspace string
+		Version         int
+	}
+	if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&info) != nil || info.Name != "sci-station" || info.Version != 2 || info.Workspace != rootID(dir) {
+		return nil
+	}
+	return &workspaceInstance{dir: dir, address: address, close: func() {}}
 }
 
 func run() error {
 	flags := flag.NewFlagSet("sci-station", flag.ContinueOnError)
 	port := flags.Int("port", 18765, "local HTTP port")
 	headless := flags.Bool("headless", false, "run only the local web interface and JSON API")
-	data := flags.String("data-dir", defaultData(), "meeting and settings directory")
+	data := flags.String("data-dir", "", "meeting and settings directory")
 	args := os.Args[1:]
 	if len(args) > 0 && (args[0] == "serve" || args[0] == "app") {
 		*headless = args[0] == "serve"
@@ -66,44 +72,113 @@ func run() error {
 	if *port < 1 || *port > 65535 {
 		return errors.New("port must be between 1 and 65535")
 	}
-	addr := fmt.Sprintf("127.0.0.1:%d", *port)
-	address := "http://" + addr
-	listener, e := net.Listen("tcp4", addr)
-	if e != nil {
-		if !*headless && isStudio(address) {
-			return runDesktop(address+"/research", nil, nil)
+	var requested int
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "port" {
+			requested = *port
 		}
-		return fmt.Errorf("无法监听 %s: %w", addr, e)
+	})
+	if !*headless {
+		return runDesktop(*data, requested)
 	}
-	defer listener.Close()
-	if e = os.MkdirAll(*data, 0700); e != nil {
-		return e
+	roots, err := rootRegistry()
+	if err != nil {
+		return err
 	}
-	// A second port must never recover a first instance's running sessions.
-	guard, e := os.OpenFile(filepath.Join(*data, ".studio-process.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	choice, err := roots.initial(*data)
+	if err != nil {
+		return err
+	}
+	if choice.dir == "" {
+		return errors.New("请通过 --data-dir 指定一个新工作区，或先在桌面端选择工作区")
+	}
+	dir, _, err := inspectRoot(choice.dir, choice.create)
+	if err != nil {
+		return err
+	}
+	bindPort, err := roots.reserve(dir, requested)
+	if err != nil {
+		return err
+	}
+	instance, err := startWorkspace(dir, bindPort, false, choice.create)
+	if err != nil {
+		return err
+	}
+	defer instance.close()
+	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	select {
+	case <-stop.Done():
+		return nil
+	case err := <-instance.done:
+		return err
+	}
+}
+
+type workspaceInstance struct {
+	dir     string
+	address string
+	api     *apiServer
+	done    <-chan error
+	close   func()
+}
+
+func startWorkspace(dir string, port int, desktop bool, create bool) (*workspaceInstance, error) {
+	dir, _, err := inspectRoot(dir, create)
+	if err != nil {
+		return nil, err
+	}
+	owned := false
+	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return nil, fmt.Errorf("工作区端口不可用：%w", err)
+	}
+	defer func() {
+		if !owned {
+			listener.Close()
+		}
+	}()
+	flags := os.O_CREATE | os.O_RDWR | syscall.O_NOFOLLOW
+	if create {
+		flags |= os.O_EXCL
+	}
+	guard, err := os.OpenFile(filepath.Join(dir, ".studio-process.lock"), flags, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = syscall.Flock(int(guard.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		guard.Close()
+		return nil, fmt.Errorf("此工作区已在其他进程中打开：%w", err)
+	}
+
+	defer func() {
+		if !owned {
+			guard.Close()
+		}
+	}()
+	address := "http://" + listener.Addr().String()
+	if create {
+		if err = markNewRoot(dir); err != nil {
+			_ = os.Remove(filepath.Join(dir, ".studio-process.lock"))
+			return nil, err
+		}
+	}
+	pref, e := openSettings(dir)
 	if e != nil {
-		return e
-	}
-	defer guard.Close()
-	if e = syscall.Flock(int(guard.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); e != nil {
-		return errors.New("此数据目录已有一个圆桌实例在运行")
-	}
-	pref, e := openSettings(*data)
-	if e != nil {
-		return e
+		return nil, e
 	}
 	gateway := studioGateway(pref)
 	call := gatewayCall(gateway)
-	engine, e := meeting.New(filepath.Join(*data, "studio"), call, func() meeting.Settings { return pref.get().Settings })
+	engine, e := meeting.New(filepath.Join(dir, "studio"), call, func() meeting.Settings { return pref.get().Settings })
 	if e != nil {
-		return e
+		return nil, e
 	}
-	lab, e := research.New(filepath.Join(*data, "research"))
+	lab, e := research.New(filepath.Join(dir, "research"))
 	if e != nil {
-		return e
+		return nil, e
 	}
-	market, marketErr := plugins.NewStore(filepath.Join(*data, "plugins"))
-	api := &apiServer{desktop: !*headless, prefs: pref, meetings: engine, research: lab, plugins: market, pluginErr: marketErr}
+	market, marketErr := plugins.NewStore(filepath.Join(dir, "plugins"))
+	api := &apiServer{desktop: desktop, workspaceDir: dir, prefs: pref, meetings: engine, research: lab, plugins: market, pluginErr: marketErr}
 	lab.SetPathValidator(api.approvedResearchPath)
 	if marketErr == nil {
 		engine.SetPluginGuidance(api.pluginGuidance)
@@ -115,7 +190,7 @@ func run() error {
 	requestContext, cancelRequests := context.WithCancel(context.Background())
 	server := &http.Server{
 		BaseContext:       func(net.Listener) context.Context { return requestContext },
-		Handler:           api.serve(*port),
+		Handler:           api.serve(listener.Addr().(*net.TCPAddr).Port),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		MaxHeaderBytes:    32 << 10,
@@ -135,22 +210,13 @@ func run() error {
 			_ = server.Close()
 			log.Printf("结束本机请求: %v", err)
 		}
+		guard.Close()
 	})
-	defer shutdown()
-	fmt.Fprintf(os.Stderr, "Sci-Station · %s · %s\n", address, *data)
+	fmt.Fprintf(os.Stderr, "Sci-Station · %s · %s\n", address, dir)
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	if !*headless {
-		return runDesktop(address+"/research", api, shutdown)
-	}
-	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-	select {
-	case <-stop.Done():
-		return nil
-	case e := <-done:
-		return e
-	}
+	owned = true
+	return &workspaceInstance{dir: dir, address: address, api: api, done: done, close: shutdown}, nil
 }
 
 func main() {

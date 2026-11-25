@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"scistation.local/desktop/internal/meeting"
+	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
 )
 
@@ -39,11 +40,14 @@ type projectRule struct {
 }
 
 type projectRecord struct {
-	Path  string        `json:"path"`
-	Rules []projectRule `json:"rules"`
+	disk           json.RawMessage
+	DirectoryGrant *research.DirectoryGrant `json:"directoryGrant,omitempty"`
+	Path           string                   `json:"path"`
+	Rules          []projectRule            `json:"rules"`
 }
 
 type projectSummary struct {
+	ID        string `json:"id,omitempty"`
 	Path      string `json:"path"`
 	Name      string `json:"name"`
 	RuleCount int    `json:"rule_count"`
@@ -116,15 +120,91 @@ func loadProjectRecords(file string) (map[string]projectRecord, error) {
 			return nil, invalid
 		}
 	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	for path, project := range projects {
+		project.disk = raw[path]
+		projects[path] = project
+	}
 	return projects, nil
 }
 
 func saveProjectRecords(file string, projects map[string]projectRecord) error {
-	body, err := json.MarshalIndent(projects, "", "  ")
+	updated := make(map[string]json.RawMessage, len(projects))
+	for path, record := range projects {
+		data, err := marshalProjectRecord(record)
+		if err != nil {
+			return err
+		}
+		updated[path] = data
+	}
+	body, err := json.MarshalIndent(updated, "", "  ")
 	if err != nil {
 		return err
 	}
 	return atomicFile(file, body)
+}
+
+// Keep unrecognized registry fields when updating approved rule snapshots.
+func marshalProjectRecord(record projectRecord) (json.RawMessage, error) {
+	if record.disk == nil {
+		return json.Marshal(record)
+	}
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(record.disk, &out); err != nil {
+		return nil, err
+	}
+	var originals []json.RawMessage
+	if err := json.Unmarshal(out["rules"], &originals); err != nil {
+		return nil, err
+	}
+	byPath := map[string]json.RawMessage{}
+	for _, raw := range originals {
+		var old projectRule
+		if err := json.Unmarshal(raw, &old); err != nil {
+			return nil, err
+		}
+		byPath[old.Path] = raw
+	}
+	rules := make([]json.RawMessage, 0, len(record.Rules))
+	for _, rule := range record.Rules {
+		raw, err := overlayFields(byPath[rule.Path], rule)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, raw)
+	}
+	out["rules"], _ = json.Marshal(rules)
+	if record.DirectoryGrant != nil {
+		raw, err := overlayFields(out["directoryGrant"], record.DirectoryGrant)
+		if err != nil {
+			return nil, err
+		}
+		out["directoryGrant"] = raw
+	}
+	return json.Marshal(out)
+}
+func overlayFields(raw json.RawMessage, value any) (json.RawMessage, error) {
+	known, err := json.Marshal(value)
+	if err != nil || len(raw) == 0 {
+		return known, err
+	}
+	var original, fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &original); err != nil {
+		return nil, err
+	}
+	if original == nil {
+		return known, nil
+	}
+	if err = json.Unmarshal(known, &fields); err != nil {
+		return nil, err
+	}
+	for key, value := range fields {
+		original[key] = value
+	}
+	return json.Marshal(original)
 }
 
 func (a *apiServer) projectRecords() (map[string]projectRecord, error) {
@@ -454,6 +534,43 @@ func projectContextText(rules []projectRule) string {
 }
 
 func (a *apiServer) applyProjectSelections(selections []projectImportSelection) ([]projectSummary, error) {
+	lab, _ := a.research.(*research.Service)
+	if lab != nil {
+		for _, item := range selections {
+			if err := lab.ValidateExternalDirectory(item.Path); err != nil {
+				return nil, err
+			}
+		}
+	}
+	list, err := a.recordProjectSelections(selections)
+	if err != nil || lab == nil {
+		return list, err
+	}
+	// Never call into research with the registry lock held. Its grant validator
+	// takes the registry read lock while writing the research record.
+	for _, item := range selections {
+		if _, err := lab.EnsureDirectoryProject(item.Path); err != nil {
+			return nil, err
+		}
+	}
+	return a.identifySummaries(list), nil
+}
+func (a *apiServer) identifySummaries(list []projectSummary) []projectSummary {
+	lab, ok := a.research.(*research.Service)
+	if !ok {
+		return list
+	}
+	out := make([]projectSummary, 0, len(list))
+	for _, item := range list {
+		if p, ok := lab.ProjectForDirectory(item.Path); ok {
+			item.ID = p.ID
+			item.Name = p.Name
+			out = append(out, item)
+		}
+	}
+	return out
+}
+func (a *apiServer) recordProjectSelections(selections []projectImportSelection) ([]projectSummary, error) {
 	projectsMu.Lock()
 	defer projectsMu.Unlock()
 	entries, err := collectProjectImports(selections)
@@ -470,6 +587,14 @@ func (a *apiServer) applyProjectSelections(selections []projectImportSelection) 
 		current, exists := records[entry.Path]
 		if !exists {
 			current = projectRecord{Path: entry.Path, Rules: []projectRule{}}
+			changed = true
+		}
+		grant, err := research.IdentifyDirectory(entry.Path)
+		if err != nil {
+			return nil, err
+		}
+		if current.DirectoryGrant == nil || *current.DirectoryGrant != grant {
+			current.DirectoryGrant = &grant
 			changed = true
 		}
 		index := make(map[string]int, len(current.Rules))
@@ -613,7 +738,7 @@ func (a *apiServer) projectsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		var records map[string]projectRecord
 		records, err = a.projectRecords()
-		summaries = projectSummaries(records)
+		summaries = a.identifySummaries(projectSummaries(records))
 	} else {
 		var request struct {
 			Path string `json:"path"`
@@ -646,6 +771,14 @@ func (a *apiServer) projectImportHandler(w http.ResponseWriter, r *http.Request)
 	}
 	switch request.Action {
 	case "preview":
+		if lab, ok := a.research.(*research.Service); ok {
+			for _, path := range request.Paths {
+				if err := lab.ValidateExternalDirectory(path); err != nil {
+					fail(w, err)
+					return
+				}
+			}
+		}
 		records, err := a.projectRecords()
 		if err != nil {
 			fail(w, err)
