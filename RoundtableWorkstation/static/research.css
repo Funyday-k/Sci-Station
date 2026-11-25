@@ -649,6 +649,24 @@ main {
   accent-color: var(--accent)
 }
 
+dialog:has([data-library-paper]) .dialog-head {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--surface)
+}
+
+[data-library-paper] .project-choices {
+  max-height: none;
+  overflow: visible
+}
+
+[data-bulk-fields] {
+  border: 0;
+  padding: 0;
+  min-width: 0
+}
+
 .query,
 .field input,
 .field select,

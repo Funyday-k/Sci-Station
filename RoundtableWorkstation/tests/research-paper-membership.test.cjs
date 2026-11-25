@@ -151,6 +151,17 @@ test("collection descendants and an exact tag filter compose without changing pa
   assert.equal(ui.library.filterPapers(rows, "project")[0], included);
 });
 
+test("bulk library changes preserve unedited classifications and avoid rewriting unchanged records", () => {
+  const ui = {state: {}};
+  loadLibrary(ui);
+  const paper = {tags:["keep", "old"], collection_id:"existing", status:"reading", priority:3, rating:5};
+  const edit = {tags: ["keep", "add"], collection_id:"", rating:0};
+  const result = ui.library.bulkPatch(paper, {addTags:["keep", "add"], removeTags:["old"], collection_id:"", status:"reading", rating:0});
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), edit);
+  assert.equal(Object.keys(ui.library.bulkPatch(paper, {addTags:[], removeTags:[]})).length, 0);
+  assert.deepEqual(paper.tags, ["keep", "old"]);
+});
+
 test("batch PDF import retries only failed files and inherits shared properties", async () => {
   const files = [{name: "first.pdf"}, {name: "retry.pdf"}];
   const fields = new Map();

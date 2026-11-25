@@ -39,8 +39,10 @@
       label) + '</option>';
   }
 
-  function select(name, items, current) {
-    return '<select name="' + name + '">' + items.map(([v, l]) => option(v, l, current)).join("") + '</select>';
+  function select(name, items, current, label = "") {
+    const accessibleName = label ? ' aria-label="' + esc(label) + '"' : "";
+    return '<select name="' + name + '"' + accessibleName + '>' +
+      items.map(([v, l]) => option(v, l, current)).join("") + '</select>';
   }
 
   function split(s) {

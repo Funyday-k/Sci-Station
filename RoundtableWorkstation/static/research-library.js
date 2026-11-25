@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const E = window.SciResearch;
-  const {state, esc, enc, request, button, dialog, render, toast} = E;
+  const {state, esc, enc, request, button, dialog, render, refresh, toast} = E;
   const {field, input, area, select, bindForm, formFooter, done, value} = E.libraryForm;
   const organizationPath = "papers/organization";
   const bibtexPath = "papers/bibtex";
@@ -108,8 +108,8 @@
     const tags = [...new Set([state.libraryTag, ...papers.flatMap(p => p.tags || []), ...Object.keys(state.organization.tags)])]
       .filter(Boolean).sort((a, b) => a.localeCompare(b));
     return '<div class="library-filters">' +
-      field("集合", select("library-collection", collections, state.libraryCollection)) +
-      field("标签", select("library-tag", [["", "全部标签"], ...tags.map(tag => [tag, tag])], state.libraryTag)) +
+      field("集合", select("library-collection", collections, state.libraryCollection, "集合")) +
+      field("标签", select("library-tag", [["", "全部标签"], ...tags.map(tag => [tag, tag])], state.libraryTag, "标签")) +
       '</div>';
   }
 
@@ -140,7 +140,86 @@
 
   const selection = papers => papers.filter(paper => selected.has(paper.id));
   const clearSelection = () => selected.clear();
-  const exportButton = papers => button(selection(papers).length ? "导出所选 BibTeX" : "导出 BibTeX", "export-library-bibtex");
+  function exportButton(papers) {
+    const count = selection(papers).length;
+    return (count ? button("批量编辑（" + count + " 篇）", "edit-library-selection") : "") +
+      button(count ? "导出所选 BibTeX" : "导出 BibTeX", "export-library-bibtex");
+  }
+
+  function bulkPatch(paper, changes) {
+    const patch = {};
+    for (const key of ["collection_id", "status", "rating", "priority"]) {
+      if (Object.hasOwn(changes, key) && changes[key] !== (paper[key] ?? "")) patch[key] = changes[key];
+    }
+    if (changes.addTags.length || changes.removeTags.length) {
+      const original = paper.tags || [];
+      const tags = [...new Set([...original, ...changes.addTags])].filter(tag => !changes.removeTags.includes(tag));
+      if (tags.length !== original.length || tags.some((tag, index) => tag !== original[index])) patch.tags = tags;
+    }
+    return patch;
+  }
+
+  function bulkEditForm() {
+    const papers = selection(visiblePapers);
+    if (!papers.length) return;
+    const keep = ["keep", "保留当前"];
+    const fields = field("移动到集合", select("collection_id", [keep, ["", "未归类"], ...collectionOptions()], "keep")) +
+      field("阅读状态", select("status", [keep, ...Object.entries(E.statusLabel).filter(([key]) =>
+        ["unread", "reading", "read"].includes(key))], "keep")) +
+      '<div class="split">' + field("评分（0–5）", input("rating", "", 'type="number" min="0" max="5" placeholder="留空则保留"')) +
+      field("优先级（0–5）", input("priority", "", 'type="number" min="0" max="5" placeholder="留空则保留"')) +
+      '</div><div class="split">' + field("添加标签（每行一个）", area("addTags")) +
+      field("移除标签（每行一个）", area("removeTags")) + '</div>';
+    dialog("批量编辑 " + papers.length + " 篇文献", '<form><fieldset data-bulk-fields>' + fields +
+      '</fieldset><ul data-bulk-results aria-live="polite"></ul>' + formFooter("应用更改") + '</form>', {wide: true});
+    const completed = new Set();
+    const outcomes = new Map();
+    let changes;
+    bindForm(async (form, token) => {
+      if (!changes) {
+        const addTags = lines(value(form, "addTags")), removeTags = lines(value(form, "removeTags"));
+        if (addTags.some(tag => removeTags.includes(tag))) throw Error("同一标签不能同时添加和移除");
+        changes = {addTags, removeTags};
+        for (const key of ["collection_id", "status"]) {
+          const next = value(form, key);
+          if (next !== "keep") changes[key] = next;
+        }
+        for (const key of ["rating", "priority"]) {
+          const next = value(form, key);
+          if (next !== "") changes[key] = Number(next);
+        }
+        form.querySelector("[data-bulk-fields]").disabled = true;
+      }
+      const results = form.querySelector("[data-bulk-results]");
+      for (const paper of papers) {
+        if (completed.has(paper.id)) continue;
+        if (!form.closest("dialog")?.open) break;
+        const patch = bulkPatch(paper, changes);
+        try {
+          if (Object.keys(patch).length) {
+            await saveMetadata("papers/" + enc(paper.id), paper, {...patch, revision: paper.revision});
+          }
+          completed.add(paper.id);
+          outcomes.set(paper.id, Object.keys(patch).length ? "已更新" : "无需更改");
+        } catch (error) {
+          outcomes.set(paper.id, error.message);
+        }
+        results.replaceChildren(...papers.map(item => {
+          const li = document.createElement("li");
+          li.textContent = item.title + " · " + (outcomes.get(item.id) || "等待处理");
+          return li;
+        }));
+      }
+      await refresh();
+      if (completed.size === papers.length) {
+        done(token);
+        toast("已处理 " + completed.size + " 篇文献");
+      } else {
+        form.querySelector("[data-status]").textContent = "已处理 " + completed.size + " / " + papers.length;
+        form.querySelector("[type=submit]").textContent = "重试未完成的文献";
+      }
+    });
+  }
 
   function exportQuery(ids = [], filter = false) {
     const q = new URLSearchParams();
@@ -198,6 +277,10 @@
     if (command === "bibtex") return exportBibtex(ids, false);
     if (active.length !== 1) throw Error("此操作只能用于一篇文献");
     const paper = active[0];
+    if (command === "inspector") {
+      if (!editing) return E.formAction("edit-paper", paper.id);
+      return;
+    }
     if (command === "reader" || command === "preview") {
       if (editing) throw Error("请先保存或关闭当前文献的编辑窗口");
       return location.assign(E.reader(paper.id));
@@ -212,7 +295,7 @@
     });
   }
 
-  const paperCommands = new Set(["reader", "externalPDF", "preview", "reveal", "copyCitation", "copyBibtex", "bibtex", "deletePaper"]);
+  const paperCommands = new Set(["reader", "externalPDF", "preview", "reveal", "copyCitation", "copyBibtex", "bibtex", "deletePaper", "inspector"]);
   window.addEventListener("scistation:command", event => {
     if (!paperCommands.has(event.detail) || event.defaultPrevented) return;
     event.preventDefault();
@@ -309,11 +392,12 @@
       return render();
     }
     if (action === "export-library-bibtex") return exportBibtex(selection(visiblePapers).map(paper => paper.id), true);
+    if (action === "edit-library-selection") return bulkEditForm();
     if (action === "export-paper-bibtex") return exportBibtex([id], false);
     return otherActions(action, id);
   };
 
   E.library = {lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
-    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection};
+    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection, bulkPatch};
   E.start();
 })();
