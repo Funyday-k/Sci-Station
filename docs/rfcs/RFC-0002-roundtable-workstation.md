@@ -1,8 +1,9 @@
 # RFC-0002: One Sci-Station workstation on the Roundtable desktop host
 
-- Status: Proposed
+- Status: Accepted on 2026-11-25 for implementation under the release criteria below.
 - Requirement: [Issue #13](https://github.com/Funyday-k/Sci-Station/issues/13)
-- Decision PR: Pending maintainer review.
+- Design PR: [#14](https://github.com/Funyday-k/Sci-Station/pull/14)
+- Decision record: [ADR-0004](../architecture/ADR-0004-roundtable-workstation.md)
 
 ## Problem and acceptance criteria
 
@@ -35,7 +36,7 @@ Embedding the old Swift app would preserve some screens immediately but would re
 
 Start a fresh workstation with an explicitly selected or newly created research root. Existing Swift Research Roots, bookmark files and sidecar state receive no automatic conversion or write. Users can continue to open their original documents with existing tools. Explicit import copies selected source material into the new root; the importer previews its scope, preserves original bytes, rejects unsupported input, and reports partial failures without switching to a partial workspace. A later general-purpose legacy importer would require its own decision. There is no requirement to run a legacy client.
 
-Treat data already written by the Go prototype as user data too. Before any on-disk change, document the affected records, version, rollback procedure and the behavior for unknown versions and fields. Preserve the original data directory and externally linked folders; any proposed conversion uses a separate destination, validates references and file hashes, and publishes the new root only after verification. Distinguish an external folder grant from permission to migrate, delete or back up its contents. Restore the last known-good root and release partial resources after failed opens. Rebuilding a graph or search index must preserve source notes, original PDFs, annotations and meeting transcripts.
+Keep the Go prototype data directory intact by default and start fresh. Before switching production hosts, save a restorable copy of the prototype data and verify it can be reopened in isolation. Preserve explicitly linked external research folders separately from the application data. Before any on-disk change, document the affected records, version, rollback procedure and the behavior for unknown versions and fields. Preserve the original data directory and externally linked folders; any proposed conversion uses a separate destination, validates references and file hashes, and publishes the new root only after verification. Distinguish an external folder grant from permission to migrate, delete or back up its contents. Restore the last known-good root and release partial resources after failed opens. Rebuilding a graph or search index must preserve source notes, original PDFs, annotations and meeting transcripts.
 
 ## Validation and rollout
 
@@ -50,13 +51,13 @@ Use the Swift behavior suites, legacy runner and current Go/Node tests to establ
 | Tasks, calendar and discovery | Create a multi-project reading task with linked papers, tags, priority, date range and due time. Compare the global and project lists after status changes and restart. Verify local and system calendar behavior with granted and denied permissions. Apply category filters during discovery, record feedback, reopen history and confirm a selected candidate can become a reading task without duplication. |
 | Roundtable, AI Lab and approvals | Exercise seats, project materials, agenda, board, votes, plugins, report and recovery with the shared project selected. Send a paper excerpt into discussion; reject one proposed write, accept another, retry, restart and follow its citation to the same source. Check revision conflicts, permission scopes and offline review of recorded material. Run the scenario in the packaged UI as well as through the services. |
 
-1. In the design PR, decide this RFC and record the decision in an ADR. The independently testable window-close fix can proceed under the existing desktop lifecycle. Create scoped implementation issues with obligations from the table.
+1. Deliver the independently testable window-close fix under the current desktop lifecycle. Track each implementation slice under the accepted decision with its obligations from the table.
 2. Bring the Go host into the governed repository from the recorded source commit. Preserve asset provenance, release history and the original regression fixtures. Establish offline fixtures for the GUI, source evidence and process lifecycle.
 3. Deliver the shell and project context, then the reader-to-roundtable workflow, then remaining domains. For every retired Swift or Python test, map its behavioral assertions to a passing replacement or document a maintainer-approved change to the feature. Review differences in coverage and architecture enforcement before retiring a gate.
 4. Keep the protected, unconditional Required CI aggregate, PR traceability, repository hygiene, version checks, immutable tags, artifact signing, install/upgrade smoke tests and provenance. Add Go race tests, frontend behavior tests and native shutdown/packaging checks. The prototype's shorter standalone CI job is insufficient for this repository. Retire implementation-specific jobs only in the reviewed cutover with equivalent controls in place. Update developer, release and version contracts in the change that switches production builds. Publish only through the existing release process.
 
 ## Open questions
 
-- Should the first release offer a verified transfer of prototype records or preserve that directory for a later explicit import? Decide its supported versions and the human-readable files users can back up and restore independently.
+- If a separate import of prototype records is requested, which versions and documented export files should it support? The default startup and pre-cutover backup policy above apply independently of that future choice.
 - Which original release and packaged macOS versions supply the launch-animation comparison and quit/relaunch acceptance baselines? Record them in the implementation issue with the shutdown deadline.
 - Which existing capabilities, if any, should be retired? Record each explicit decision against its observable behavior and tests before removing its implementation. Acceptance of this design alone does not demonstrate workflow parity.
