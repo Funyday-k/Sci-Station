@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const defaultWikiSnippets = `- trigger: ";h2"
@@ -110,7 +112,7 @@ func readWikiSnippetFile(path string) (wikiSnippetSettings, error) {
 	if !info.Mode().IsRegular() || info.Size() > 512<<10 {
 		return wikiSnippetSettings{}, errors.New("片段设置必须是普通 YAML 文件，且不超过 512 KiB")
 	}
-	body, err := os.ReadFile(path)
+	body, err := workspace.ManagedReadFile(path)
 	if err != nil {
 		return wikiSnippetSettings{}, err
 	}
@@ -154,7 +156,7 @@ func (s *Service) wikiSnippets(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 400, "Markdown 片段设置有误："+next.ParseError)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil || atomicWrite(path, []byte(in.Content)) != nil {
+	if err := workspace.ManagedMkdirAll(filepath.Dir(path), 0700); err != nil || atomicWrite(path, []byte(in.Content)) != nil {
 		jsonFail(w, 500, "无法保存 Markdown 片段设置")
 		return
 	}

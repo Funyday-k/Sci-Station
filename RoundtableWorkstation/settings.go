@@ -12,6 +12,7 @@ import (
 	"scistation.local/desktop/internal/cli"
 	"scistation.local/desktop/internal/gateway"
 	"scistation.local/desktop/internal/meeting"
+	"scistation.local/desktop/internal/workspace"
 )
 
 type preferences struct {
@@ -60,7 +61,7 @@ func openSettings(dir string) (*settingsStore, error) {
 		}
 	}
 	s := &settingsStore{file: filepath.Join(dir, "settings.json")}
-	b, e := os.ReadFile(s.file)
+	b, e := workspace.ManagedReadFile(s.file)
 	if e == nil {
 		if e = json.Unmarshal(b, &p); e != nil {
 			return nil, fmt.Errorf("无法读取圆桌设置: %w", e)
@@ -167,20 +168,5 @@ func (s *settingsStore) update(raw map[string]json.RawMessage) error {
 }
 
 func atomicFile(path string, body []byte) error {
-	f, e := os.CreateTemp(filepath.Dir(path), ".roundtable-*")
-	if e != nil {
-		return e
-	}
-	defer os.Remove(f.Name())
-	if _, e = f.Write(body); e == nil {
-		e = f.Sync()
-	}
-	closeErr := f.Close()
-	if e != nil {
-		return e
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(f.Name(), path)
+	return workspace.ManagedAtomicWrite(path, body)
 }

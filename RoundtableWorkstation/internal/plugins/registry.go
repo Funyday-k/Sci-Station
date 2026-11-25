@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const (
@@ -93,7 +95,7 @@ func NewStore(dir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("内置目录无效: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "packages"), 0700); err != nil {
+	if err := workspace.ManagedMkdirAll(filepath.Join(dir, "packages"), 0700); err != nil {
 		return nil, err
 	}
 	s := &Store{dir: dir, files: files, builtin: cachedSource{Source: Source{ID: builtinID, Name: catalog.Name, Builtin: true}, Entries: catalog.Plugins}}
@@ -104,7 +106,7 @@ func NewStore(dir string) (*Store, error) {
 }
 
 func readFileLimited(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := workspace.ManagedOpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +148,7 @@ func (s *Store) load() (*registryState, error) {
 // The permanent lock file has a different inode from registry.json, which is
 // atomically replaced. No network operation runs while any registry lock is held.
 func (s *Store) access(write bool, fn func(*registryState) error) error {
-	lock, err := os.OpenFile(filepath.Join(s.dir, "registry.lock"), os.O_RDWR|os.O_CREATE, 0600)
+	lock, err := workspace.ManagedOpenFile(filepath.Join(s.dir, "registry.lock"), os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return err
 	}
@@ -185,33 +187,7 @@ func (s *Store) access(write bool, fn func(*registryState) error) error {
 	return nil
 }
 
-func writeAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, ".pending-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if _, err = f.Write(data); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
-}
+func writeAtomic(path string, data []byte) error { return workspace.ManagedAtomicWrite(path, data) }
 
 // After publication no reader holds an obsolete reference. Clean up any old
 // package, including one staged before a previous process was interrupted.
@@ -221,14 +197,14 @@ func (s *Store) prunePackages(st *registryState) {
 		keep[p.SHA256] = true
 	}
 	dir := filepath.Join(s.dir, "packages")
-	entries, err := os.ReadDir(dir)
+	entries, err := workspace.ManagedReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
 		name := entry.Name()
 		if !entry.IsDir() && ((validChecksum(name) && !keep[name]) || strings.HasPrefix(name, ".pending-")) {
-			_ = os.Remove(filepath.Join(dir, name))
+			_ = workspace.ManagedRemove(filepath.Join(dir, name))
 		}
 	}
 }

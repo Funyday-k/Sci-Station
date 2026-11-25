@@ -12,6 +12,7 @@ import (
 
 	"scistation.local/desktop/internal/credentials"
 	"scistation.local/desktop/internal/gateway"
+	"scistation.local/desktop/internal/workspace"
 )
 
 const providerProfileVersion = 1
@@ -35,7 +36,7 @@ type providerProfileStore struct {
 
 func openProviderProfiles(dir string, key func(profileID, endpoint string) credentials.Store) (*providerProfileStore, error) {
 	s := &providerProfileStore{file: filepath.Join(dir, "provider-profiles.json"), key: key}
-	raw, err := os.ReadFile(s.file)
+	raw, err := workspace.ManagedReadFile(s.file)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}

@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const titleTimeout = 30 * time.Second
@@ -104,7 +106,7 @@ func (e *Engine) titleLocked(ctx context.Context, fn func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(e.dir, ".meeting.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := workspace.ManagedOpenFile(filepath.Join(e.dir, ".meeting.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
@@ -131,7 +133,7 @@ func (e *Engine) titleLocked(ctx context.Context, fn func() error) error {
 }
 
 func (e *Engine) titleLease(ctx context.Context, id string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(e.dir, id+".title.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := workspace.ManagedOpenFile(filepath.Join(e.dir, id+".title.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 type paperCollection struct {
@@ -107,7 +109,7 @@ func (s *PaperLibrary) readOrganization() (paperOrganization, []byte, error) {
 	if !info.Mode().IsRegular() {
 		return organization, nil, errUnreadablePaperOrganization
 	}
-	body, err := os.ReadFile(path)
+	body, err := workspace.ManagedReadFile(path)
 	if err != nil {
 		return organization, nil, err
 	}
@@ -266,7 +268,7 @@ func (s *PaperLibrary) deletePaperCollection(organization *paperOrganization, id
 		}
 	}
 	dir := filepath.Join(s.dir, "records")
-	entries, err := os.ReadDir(dir)
+	entries, err := workspace.ManagedReadDir(dir)
 	if err != nil {
 		return err
 	}
@@ -280,7 +282,7 @@ func (s *PaperLibrary) deletePaperCollection(organization *paperOrganization, id
 		if !validID(paperID) || !entry.Type().IsRegular() {
 			return fmt.Errorf("无效的文献记录 %q", entry.Name())
 		}
-		body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		body, err := workspace.ManagedReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			return err
 		}

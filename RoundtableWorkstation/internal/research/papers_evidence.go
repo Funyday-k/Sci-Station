@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"unicode/utf16"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 // PDFKit reports positions in UTF-16 code units, which also index the
@@ -76,7 +78,7 @@ func (s *PaperLibrary) verifiedPageText(ctx context.Context, p Paper, e Evidence
 }
 
 func (s *PaperLibrary) verifiedPDFBytes(ctx context.Context, p Paper) ([]byte, error) {
-	root, err := os.OpenRoot(s.dir)
+	root, err := workspace.ManagedOpenDirectory(s.dir)
 	if err != nil {
 		return nil, err
 	}

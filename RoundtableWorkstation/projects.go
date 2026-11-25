@@ -89,7 +89,7 @@ func (a *apiServer) projectsFile() string {
 }
 
 func loadProjectRecords(file string) (map[string]projectRecord, error) {
-	data, err := os.ReadFile(file)
+	data, err := workspace.ManagedReadFile(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return make(map[string]projectRecord), nil
 	}

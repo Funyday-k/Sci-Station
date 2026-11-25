@@ -323,3 +323,39 @@ func TestRestoreRefusesBadSnapshotAndPreservesDestination(t *testing.T) {
 		}
 	})
 }
+
+func TestRecoveryRequiresAnIndependentDestination(t *testing.T) {
+	parent := testParent(t)
+	prototype := fixture(t, parent)
+	backupDir := filepath.Join(parent, "snapshot")
+	if err := backup(prototype, backupDir); err != nil {
+		t.Fatal(err)
+	}
+	inGrant := filepath.Join(parent, "external", "recovery")
+	if err := restore(backupDir, inGrant); err == nil {
+		t.Fatal("restored into a linked project")
+	}
+	if err := backup(prototype, inGrant); err == nil {
+		t.Fatal("backed up into a linked project")
+	}
+	absent(t, inGrant)
+	current := filepath.Join(parent, "current")
+	putFile(t, current, workspace.RootMarker, workspace.RootFormat)
+	copy := filepath.Join(current, "restore-here")
+	if err := restore(backupDir, copy); err == nil {
+		t.Fatal("restored inside an existing workspace")
+	}
+	absent(t, copy)
+	actual := filepath.Join(parent, "copies")
+	if err := os.Mkdir(actual, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(parent, "shortcut")
+	if err := os.Symlink("copies", alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := restore(backupDir, filepath.Join(alias, "restored")); err == nil {
+		t.Fatal("published through an alias")
+	}
+	absent(t, filepath.Join(actual, "restored"))
+}

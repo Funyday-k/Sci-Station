@@ -276,7 +276,7 @@ func New(dir string, call func(context.Context, string, string, string, string) 
 	if err != nil {
 		return nil, err
 	}
-	if err = os.MkdirAll(abs, 0700); err != nil {
+	if err = workspace.ManagedMkdirAll(abs, 0700); err != nil {
 		return nil, err
 	}
 	e := &Engine{dir: abs, call: call, settings: settings, cancels: make(map[string]context.CancelFunc), activeRounds: make(map[string]int)}
@@ -289,7 +289,7 @@ func New(dir string, call func(context.Context, string, string, string, string) 
 func (e *Engine) locked(fn func() error) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	f, err := os.OpenFile(filepath.Join(e.dir, ".meeting.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := workspace.ManagedOpenFile(filepath.Join(e.dir, ".meeting.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (e *Engine) locked(fn func() error) error {
 }
 
 func (e *Engine) lease(id string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(e.dir, id+".run.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := workspace.ManagedOpenFile(filepath.Join(e.dir, id+".run.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -350,30 +350,7 @@ func (e *Engine) save(s *Session) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(e.dir, ".meeting-*.tmp")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if _, err = f.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), filepath.Join(e.dir, s.ID+".json")); err != nil {
-		return err
-	}
-	d, err := os.Open(e.dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	if err := d.Sync(); err != nil {
+	if err := workspace.ManagedAtomicWrite(filepath.Join(e.dir, s.ID+".json"), append(data, '\n')); err != nil {
 		return err
 	}
 	e.presence.sync(s)

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const moduleSettingsFile = "modules.json"
@@ -73,7 +75,7 @@ func (s *Service) readModuleConfig(project string) (moduleConfig, error) {
 	info, err := os.Lstat(path)
 	switch {
 	case err == nil && info.Mode().IsRegular():
-		data, err = os.ReadFile(path)
+		data, err = workspace.ManagedReadFile(path)
 		if err != nil {
 			return config, err
 		}
@@ -232,10 +234,15 @@ func (s *Service) moduleSnapshot(config moduleConfig, project string) moduleResp
 // through a symlink or overwrite an existing non-directory entry.
 func (s *Service) moduleDirectoryStatus(path string) moduleDirectory {
 	status := moduleDirectory{Path: path}
-	current := s.dir
+	root, err := workspace.ManagedOpenDirectory(s.dir)
+	if err != nil {
+		return status
+	}
+	defer root.Close()
+	current := "."
 	for _, component := range strings.Split(path, "/") {
 		current = filepath.Join(current, component)
-		info, err := os.Lstat(current)
+		info, err := root.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
 			status.Repairable = true
 			return status
@@ -360,12 +367,7 @@ func (s *Service) repairModuleDirectory(in moduleChange) error {
 	if !status.Repairable {
 		return errors.New("目录不可修复")
 	}
-	root, err := os.OpenRoot(s.dir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	return root.MkdirAll(in.Path, 0700)
+	return workspace.ManagedMkdirAll(filepath.Join(s.dir, in.Path), 0700)
 }
 
 func (s *Service) registerModules() {

@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"scistation.local/desktop/internal/research"
+	"scistation.local/desktop/internal/workspace"
 )
 
 const discoverySchema = 1
@@ -93,7 +94,7 @@ var discoveryCategory = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-.][a-z0-9]+)*$`)
 
 func loadDiscovery(path string) (discoveryState, error) {
 	s := discoveryState{Schema: discoverySchema, Runs: []discoveryRun{}, Feedback: map[string]string{}, FeedbackPapers: map[string]discoveryFeedback{}}
-	b, err := os.ReadFile(path)
+	b, err := workspace.ManagedReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}

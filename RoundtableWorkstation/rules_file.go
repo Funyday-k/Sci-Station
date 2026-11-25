@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"scistation.local/desktop/internal/deliberation"
+	"scistation.local/desktop/internal/workspace"
 )
 
 const rulesFileName = "discussion-rules.md"
@@ -40,15 +40,15 @@ func rulesMarkdown(catalog []deliberation.PresetInfo) []byte {
 }
 
 func writeRulesFile(path string, body []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := workspace.ManagedMkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".discussion-rules-*")
+	f, err := workspace.ManagedCreateTemp(filepath.Dir(path), ".discussion-rules-*")
 	if err != nil {
 		return err
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	defer workspace.ManagedRemove(tmp)
 	if _, err = f.Write(body); err == nil {
 		err = f.Sync()
 	}
@@ -62,7 +62,7 @@ func writeRulesFile(path string, body []byte) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Rename(tmp, path)
+	return workspace.ManagedRename(tmp, path)
 }
 
 func (a *apiServer) openRules(w http.ResponseWriter, r *http.Request) {

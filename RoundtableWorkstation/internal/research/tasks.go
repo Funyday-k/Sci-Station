@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 type taskInput struct {
@@ -199,7 +201,7 @@ func (s *Service) readWorkspaceTasks() ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("工作区任务文件无效")
 	}
-	return os.ReadFile(path)
+	return workspace.ManagedReadFile(path)
 }
 
 func (s *Service) loadWorkspaceTasks() error {

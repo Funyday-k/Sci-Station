@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 type AnnotationRect struct {
@@ -137,11 +139,11 @@ func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 	}
 	p.dirInfo = info
 	for _, sub := range []string{"records", "pdf"} {
-		if err := os.MkdirAll(filepath.Join(dir, sub), 0700); err != nil {
+		if err := workspace.ManagedMkdirAll(filepath.Join(dir, sub), 0700); err != nil {
 			return nil, err
 		}
 	}
-	entries, err := os.ReadDir(filepath.Join(dir, "records"))
+	entries, err := workspace.ManagedReadDir(filepath.Join(dir, "records"))
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +159,7 @@ func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 		if !libraryIDPattern.MatchString(id) || !ent.Type().IsRegular() {
 			return nil, fmt.Errorf("损坏的文献记录 %q", name)
 		}
-		body, e := os.ReadFile(filepath.Join(dir, "records", name))
+		body, e := workspace.ManagedReadFile(filepath.Join(dir, "records", name))
 		if e != nil {
 			return nil, e
 		}
@@ -300,7 +302,12 @@ func mergePaperAnnotations(disk, before, after json.RawMessage) json.RawMessage 
 }
 
 func (s *PaperLibrary) lockRecords() (*os.File, error) {
-	dir, err := os.Open(filepath.Join(s.dir, "records"))
+	root, err := workspace.ManagedOpenDirectory(filepath.Join(s.dir, "records"))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	dir, err := root.Open(".")
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +331,7 @@ func (s *PaperLibrary) currentRecord(id string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("无效的文献记录 %s.json", id)
 	}
-	data, err := os.ReadFile(path)
+	data, err := workspace.ManagedReadFile(path)
 	if err != nil {
 		return nil, err
 	}

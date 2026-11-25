@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strings"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 // DiscoveryCandidate retains source metadata separately from editable library fields.
@@ -244,7 +245,7 @@ func (s *Service) ImportDiscoveryCandidate(ctx context.Context, project string, 
 			}
 			warning = "arXiv PDF 暂不可用，已保存来源链接"
 		} else {
-			defer os.Remove(temp)
+			defer workspace.ManagedRemove(temp)
 		}
 	}
 	if err := ctx.Err(); err != nil {

@@ -14,11 +14,12 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const maxPaperPDF int64 = 256 << 20
@@ -143,13 +144,13 @@ func (s *PaperLibrary) stagePDF(ctx context.Context, reader io.Reader) (temp, di
 	if err != nil || string(prefix) != "%PDF-" {
 		return "", "", fmt.Errorf("%w：请选择有效 PDF", errInvalidPaper)
 	}
-	f, err := os.CreateTemp(filepath.Join(s.dir, "pdf"), ".import-*")
+	f, err := workspace.ManagedCreateTemp(filepath.Join(s.dir, "pdf"), ".import-*")
 	if err != nil {
 		return "", "", err
 	}
 	defer func() {
 		if err != nil {
-			os.Remove(f.Name())
+			workspace.ManagedRemove(f.Name())
 		}
 	}()
 	h := sha256.New()
@@ -383,13 +384,13 @@ func (s *PaperLibrary) saveImportLocked(p *Paper, tempFile, digest string, colle
 		return s.saveWithRecordLock(*p)
 	}
 	dest := filepath.Join(s.dir, "pdf", p.ID+".pdf")
-	if err := os.Rename(tempFile, dest); err != nil {
+	if err := workspace.ManagedRename(tempFile, dest); err != nil {
 		return err
 	}
 	p.HasPDF = true
 	p.FileSHA256 = digest
 	if err := s.saveWithRecordLock(*p); err != nil {
-		os.Remove(dest)
+		workspace.ManagedRemove(dest)
 		return err
 	}
 	return nil

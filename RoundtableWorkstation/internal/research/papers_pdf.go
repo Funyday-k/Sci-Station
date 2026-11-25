@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 var markdownConversions = make(chan struct{}, 2)
@@ -95,7 +97,7 @@ func (s *PaperLibrary) attachPDF(w http.ResponseWriter, r *http.Request, p Paper
 		paperError(w, err)
 		return
 	}
-	defer os.Remove(tmp)
+	defer workspace.ManagedRemove(tmp)
 	s.mu.Lock()
 	current, ok := s.records[p.ID]
 	if !ok {
@@ -139,7 +141,7 @@ func (s *PaperLibrary) paperPDF(w http.ResponseWriter, r *http.Request, p Paper)
 		paperError(w, err)
 		return
 	}
-	f, err := os.Open(file)
+	f, err := workspace.ManagedOpenFile(file, os.O_RDONLY, 0)
 	if err != nil {
 		paperError(w, err)
 		return

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 var ErrMaterialTooLarge = errors.New("material exceeds 12 MiB")
@@ -67,20 +69,20 @@ func (e *Engine) StoreMaterial(name string, src io.Reader) (Material, error) {
 	contentType = strings.TrimSpace(strings.Split(contentType, ";")[0])
 	m := Material{ID: newMaterialID(), Name: name, MIME: contentType, Size: int64(len(data)), ReadStatus: MaterialReadOriginal}
 	root := filepath.Join(e.dir, "materials")
-	if err := os.MkdirAll(root, 0700); err != nil {
+	if err := workspace.ManagedMkdirAll(root, 0700); err != nil {
 		return Material{}, err
 	}
 	dir := filepath.Join(root, m.ID)
-	if err := os.Mkdir(dir, 0700); err != nil {
+	if err := workspace.ManagedMkdir(dir, 0700); err != nil {
 		return Material{}, err
 	}
 	ok := false
 	defer func() {
 		if !ok {
-			_ = os.RemoveAll(dir)
+			_ = workspace.ManagedRemoveAll(dir)
 		}
 	}()
-	if err := os.WriteFile(filepath.Join(dir, "original"), data, 0600); err != nil {
+	if err := workspace.ManagedAtomicWrite(filepath.Join(dir, "original"), data); err != nil {
 		return Material{}, err
 	}
 	if isNativeMaterialType(contentType, name) {
@@ -106,7 +108,7 @@ func (e *Engine) StoreMaterial(name string, src io.Reader) (Material, error) {
 	if err != nil {
 		return Material{}, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "metadata.json"), meta, 0600); err != nil {
+	if err := workspace.ManagedAtomicWrite(filepath.Join(dir, "metadata.json"), meta); err != nil {
 		return Material{}, err
 	}
 	ok = true
@@ -117,7 +119,7 @@ func (e *Engine) FindMaterial(id string) (Material, error) {
 	if !validMaterialID(id) {
 		return Material{}, os.ErrNotExist
 	}
-	b, err := os.ReadFile(filepath.Join(e.dir, "materials", id, "metadata.json"))
+	b, err := workspace.ManagedReadFile(filepath.Join(e.dir, "materials", id, "metadata.json"))
 	if err != nil {
 		return Material{}, err
 	}
@@ -135,7 +137,7 @@ func (e *Engine) OpenMaterial(id string) (*os.File, error) {
 	if _, err := e.FindMaterial(id); err != nil {
 		return nil, err
 	}
-	return os.Open(filepath.Join(e.dir, "materials", id, "original"))
+	return workspace.ManagedOpenFile(filepath.Join(e.dir, "materials", id, "original"), os.O_RDONLY, 0)
 }
 
 func materialName(name string) string {

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 type labPreset struct {
@@ -36,7 +38,7 @@ var builtInLabPresets = []labPreset{
 var labPresetMu sync.Mutex
 
 func listPersonalLabPresets(file string) ([]labPreset, error) {
-	b, e := os.ReadFile(file)
+	b, e := workspace.ManagedReadFile(file)
 	if errors.Is(e, os.ErrNotExist) {
 		return []labPreset{}, nil
 	}

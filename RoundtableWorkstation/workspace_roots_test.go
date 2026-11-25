@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"scistation.local/desktop/internal/research"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"scistation.local/desktop/internal/research"
 )
 
 func TestRootSelectionRequiresExplicitCompatibleIndependentRoot(t *testing.T) {
@@ -222,5 +223,46 @@ func TestStudioRegistrationUsesActiveRootResearchIdentity(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte(`"keep": true`)) || !bytes.Contains(data, []byte(`"future": "keep"`)) {
 		t.Fatalf("registry metadata lost: %s", data)
+	}
+}
+
+func TestWorkspaceAcceptsOnlyOwnedRecordDirectories(t *testing.T) {
+	for _, dir := range []string{"research", "studio", "plugins", "research/records", "studio/materials", "plugins/packages"} {
+		t.Run(dir, func(t *testing.T) {
+			root := t.TempDir()
+			if err := markNewRoot(root); err != nil {
+				t.Fatal(err)
+			}
+			owned := filepath.Join(root, dir)
+			if err := os.MkdirAll(filepath.Dir(owned), 0700); err != nil {
+				t.Fatal(err)
+			}
+			alternate := filepath.Join(filepath.Dir(owned), "other")
+			if err := os.Mkdir(alternate, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("other", owned); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := inspectRoot(root, false); err == nil {
+				t.Fatal("accepted linked private storage")
+			}
+		})
+	}
+	// Keep the entire fixture inside its own tree, including the alias target.
+	parent := t.TempDir()
+	owned := filepath.Join(parent, "owned")
+	if err := os.Mkdir(owned, 0700); err != nil {
+		t.Fatal(err)
+	}
+	registry := desktopRoots{filepath.Join(parent, "alias")}
+	if err := os.Symlink("owned", registry.dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.remember(parent); err == nil {
+		t.Fatal("accepted a linked registry")
+	}
+	if _, err := registry.reserve(parent, 18801); err == nil {
+		t.Fatal("reserved a port through a linked registry")
 	}
 }

@@ -188,7 +188,7 @@ func (s *Service) recoverManagedDirectory(d *projectData) error {
 		if !old.IsDir() {
 			return os.ErrPermission
 		}
-		if err = os.Rename(other, target); err != nil {
+		if err = workspace.ManagedRename(other, target); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -211,7 +211,7 @@ func (s *Service) moveLifecycle(w http.ResponseWriter, d projectData, trash bool
 			jsonFail(w, 409, "目标目录已存在或不可访问")
 			return false
 		}
-		if err := os.Rename(from, to); err != nil {
+		if err := workspace.ManagedRename(from, to); err != nil {
 			jsonFail(w, 500, "无法移动项目目录")
 			return false
 		}
@@ -219,7 +219,7 @@ func (s *Service) moveLifecycle(w http.ResponseWriter, d projectData, trash bool
 		d.Project.ManagedDirectory = true
 		d.Trashed = trash
 		if !s.save(w, d) {
-			_ = os.Rename(to, from)
+			_ = workspace.ManagedRename(to, from)
 			return false
 		}
 		return true

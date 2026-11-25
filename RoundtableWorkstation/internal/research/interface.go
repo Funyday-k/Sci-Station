@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const interfaceSettingsFile = "interface.json"
@@ -27,7 +29,7 @@ func (s *Service) readInterface() (string, map[string]json.RawMessage, error) {
 	if !info.Mode().IsRegular() {
 		return "", nil, errors.New("interface preferences are not a regular file")
 	}
-	body, err := os.ReadFile(path)
+	body, err := workspace.ManagedReadFile(path)
 	if err != nil {
 		return "", nil, err
 	}

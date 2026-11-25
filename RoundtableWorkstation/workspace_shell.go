@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"scistation.local/desktop/internal/research"
+	"scistation.local/desktop/internal/workspace"
 )
 
 type workspaceSurface struct {
@@ -198,7 +199,7 @@ func (a *apiServer) navigationPath() string {
 }
 
 func (a *apiServer) savedNavigation() (map[string]json.RawMessage, error) {
-	data, err := os.ReadFile(a.navigationPath())
+	data, err := workspace.ManagedReadFile(a.navigationPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]json.RawMessage{"version": json.RawMessage("1")}, nil
 	}

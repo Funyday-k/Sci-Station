@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 func paperReply(w http.ResponseWriter, status int, obj any) {
@@ -291,12 +293,12 @@ func (s *PaperLibrary) remove(id string, revision int) error {
 	if _, err = s.currentRecord(id); err != nil {
 		return err
 	}
-	if err := os.Remove(filepath.Join(s.dir, "records", id+".json")); err != nil {
+	if err := workspace.ManagedRemove(filepath.Join(s.dir, "records", id+".json")); err != nil {
 		return err
 	}
 	delete(s.records, id)
 	if p.HasPDF {
-		if err := os.Remove(filepath.Join(s.dir, "pdf", id+".pdf")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := workspace.ManagedRemove(filepath.Join(s.dir, "pdf", id+".pdf")); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
@@ -337,7 +339,7 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request, previe
 			paperError(w, err)
 			return
 		}
-		defer os.Remove(temp)
+		defer workspace.ManagedRemove(temp)
 		input.MetadataSource = ""
 		input.readLocalMetadata(r.Context(), temp, h.Filename)
 		input.SkipLookup = true
@@ -382,7 +384,7 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request, previe
 				}
 				warning = err.Error()
 			} else {
-				defer os.Remove(temp)
+				defer workspace.ManagedRemove(temp)
 			}
 		}
 	}

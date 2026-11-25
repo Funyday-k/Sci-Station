@@ -2,6 +2,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -100,7 +101,11 @@ func backup(source, destination string) error {
 		return errors.New("source must be a Go prototype directory")
 	}
 
-	return publish(destination, []string{root.Name()}, func(stage *os.Root, _ string) error {
+	protected, err := protectedDirectories(root, root.Name())
+	if err != nil {
+		return err
+	}
+	return publish(destination, protected, func(stage *os.Root, _ string) error {
 		if err := stage.Mkdir(payloadName, 0700); err != nil {
 			return err
 		}
@@ -109,9 +114,6 @@ func backup(source, destination string) error {
 			return err
 		}
 		defer payload.Close()
-		if err = checkExternalPaths(root, root.Name()); err != nil {
-			return err
-		}
 		entries, err := scanTree(root, payload, true)
 		if err != nil {
 			return err
@@ -162,7 +164,12 @@ func restore(source, destination string) error {
 		return err
 	}
 	defer payload.Close()
-	return publish(destination, []string{filepath.Dir(payload.Name()), m.Source}, func(stage *os.Root, finalPath string) error {
+	protected, err := protectedDirectories(payload, m.Source)
+	if err != nil {
+		return err
+	}
+	protected = append(protected, filepath.Dir(payload.Name()))
+	return publish(destination, protected, func(stage *os.Root, finalPath string) error {
 		if _, err := scanTree(payload, stage, false); err != nil {
 			return err
 		}
@@ -192,13 +199,10 @@ func openDirectory(path string) (*os.Root, error) {
 	if !absoluteDirectoryName(path) {
 		return nil, errors.New("give an explicit absolute directory path")
 	}
-	// Allow system aliases such as macOS /tmp in ancestors, but not a link in
-	// place of the directory supplied by the user.
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
+	if err := workspace.CheckRootAncestors(path); err != nil {
 		return nil, err
 	}
-	dir, err := os.OpenRoot(parent)
+	dir, err := workspace.ManagedOpenDirectory(filepath.Dir(path))
 	if err != nil {
 		return nil, err
 	}
@@ -232,30 +236,28 @@ func publish(path string, sources []string, work func(*os.Root, string) error) e
 	if !absoluteDirectoryName(path) {
 		return errors.New("give an explicit absolute destination path")
 	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
+	if err := workspace.CheckRootAncestors(path); err != nil {
 		return err
 	}
-	name := filepath.Base(path)
-	finalPath := filepath.Join(parent, name)
-	for _, source := range sources {
-		if within(source, finalPath) || within(finalPath, source) {
-			return errors.New("source and destination must be separate directories")
-		}
-	}
-	dest, err := os.OpenRoot(parent)
+	dest, err := workspace.ManagedOpenDirectory(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
 	defer dest.Close()
+	name := filepath.Base(path)
+	finalPath := filepath.Join(dest.Name(), name)
+	for _, source := range sources {
+		if within(source, finalPath) || within(finalPath, source) {
+			return errors.New("choose a destination separate from the source and linked projects")
+		}
+	}
 	if _, err = dest.Lstat(name); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("destination already exists or cannot be checked")
 	}
-	stagingPath, err := os.MkdirTemp(parent, ".prototype-data-")
-	if err != nil {
+	stageName := ".prototype-data-" + rand.Text()
+	if err := dest.Mkdir(stageName, 0700); err != nil {
 		return err
 	}
-	stageName := filepath.Base(stagingPath)
 	defer dest.RemoveAll(stageName)
 	stage, err := openSubdirectory(dest, stageName)
 	if err != nil {

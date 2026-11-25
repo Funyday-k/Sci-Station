@@ -21,6 +21,7 @@ import (
 	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/plugins"
 	"scistation.local/desktop/internal/research"
+	"scistation.local/desktop/internal/workspace"
 )
 
 func rootRegistry() (desktopRoots, error) {
@@ -143,7 +144,7 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	if create {
 		flags |= os.O_EXCL
 	}
-	guard, err := os.OpenFile(filepath.Join(dir, ".studio-process.lock"), flags, 0600)
+	guard, err := workspace.ManagedOpenFile(filepath.Join(dir, ".studio-process.lock"), flags, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +161,7 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	address := "http://" + listener.Addr().String()
 	if create {
 		if err = markNewRoot(dir); err != nil {
-			_ = os.Remove(filepath.Join(dir, ".studio-process.lock"))
+			_ = workspace.ManagedRemove(filepath.Join(dir, ".studio-process.lock"))
 			return nil, err
 		}
 	}

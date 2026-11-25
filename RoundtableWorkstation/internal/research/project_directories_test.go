@@ -125,3 +125,28 @@ func TestExternalDirectoryGrantIdentityAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProjectUpdateRefusesReplacedRecordsDirectory(t *testing.T) {
+	s := newResearch(t, filepath.Join(t.TempDir(), "research"))
+	p := createResearchProject(t, s, "Before")
+	records, previous := filepath.Join(s.dir, "records"), filepath.Join(s.dir, "previous-records")
+	if err := os.Rename(records, previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("previous-records", records); err != nil {
+		t.Fatal(err)
+	}
+	// An ordinary edit must never update an alias, even one inside this root.
+	callResearch(t, s, "PATCH", "/projects/"+p.ID, map[string]any{"name": "After", "revision": 1}, 500)
+	if err := os.Remove(records); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(previous, records); err != nil {
+		t.Fatal(err)
+	}
+	reopened := newResearch(t, s.dir)
+	saved := decodeResearch[Project](t, callResearch(t, reopened, "GET", "/projects/"+p.ID, nil, 200))
+	if saved.Name != "Before" || saved.Revision != 1 {
+		t.Fatal(saved)
+	}
+}

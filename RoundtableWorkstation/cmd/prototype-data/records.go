@@ -118,26 +118,36 @@ func managedPaths(paths legacyPaths, originalRoot string) map[string]string {
 	return managed
 }
 
-func checkExternalPaths(root *os.Root, originalRoot string) error {
+// Protected destinations include every linked external project. Listing these
+// recorded paths requires no traversal or access to the external folders.
+func protectedDirectories(root *os.Root, originalRoot string) ([]string, error) {
 	paths, err := readPaths(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	managed := managedPaths(paths, originalRoot)
-	check := func(path string) error {
-		if _, ok := managed[path]; !ok && path != "" && within(originalRoot, filepath.Clean(path)) {
+	protected := []string{originalRoot}
+	add := func(path string, owned bool) error {
+		if path == "" || owned {
+			return nil
+		}
+		if !absoluteDirectoryName(path) {
+			return errors.New("cannot identify an external project directory")
+		}
+		if within(originalRoot, path) {
 			return errors.New("an external project is nested inside the application data directory; back it up separately")
 		}
+		protected = append(protected, path)
 		return nil
 	}
 	for _, record := range paths.projects {
-		if record.path != managedPath(originalRoot, record.id) && record.path != "" && within(originalRoot, filepath.Clean(record.path)) {
-			return errors.New("an external project is nested inside the application data directory; back it up separately")
+		if err := add(record.path, record.path == managedPath(originalRoot, record.id)); err != nil {
+			return nil, err
 		}
 	}
 	for _, record := range paths.meetings {
-		if err := check(record.path); err != nil {
-			return err
+		if err := add(record.path, managed[record.path] != ""); err != nil {
+			return nil, err
 		}
 	}
 	for path, body := range paths.registry {
@@ -145,13 +155,13 @@ func checkExternalPaths(root *os.Root, originalRoot string) error {
 			Path string `json:"path"`
 		}
 		if err := json.Unmarshal(body, &grant); err != nil || grant.Path != path {
-			return errors.New("cannot distinguish project registry paths")
+			return nil, errors.New("cannot distinguish project registry paths")
 		}
-		if err := check(path); err != nil {
-			return err
+		if err := add(path, managed[path] != ""); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return protected, nil
 }
 
 func restorePaths(stage *os.Root, m manifest, destination string) error {

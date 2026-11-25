@@ -21,6 +21,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const prefix = "/api/research"
@@ -136,7 +138,7 @@ func New(dir string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = os.MkdirAll(absolute, 0700); err != nil {
+	if err = workspace.ManagedMkdirAll(absolute, 0700); err != nil {
 		return nil, err
 	}
 	absolute, err = filepath.EvalSymlinks(absolute)
@@ -145,11 +147,11 @@ func New(dir string) (*Service, error) {
 	}
 	s := &Service{dir: absolute, mux: http.NewServeMux(), projects: map[string]projectData{}}
 	for _, name := range []string{"records", "workspaces", "blobs", "trash"} {
-		if err = os.MkdirAll(filepath.Join(s.dir, name), 0700); err != nil {
+		if err = workspace.ManagedMkdirAll(filepath.Join(s.dir, name), 0700); err != nil {
 			return nil, err
 		}
 	}
-	entries, err := os.ReadDir(filepath.Join(s.dir, "records"))
+	entries, err := workspace.ManagedReadDir(filepath.Join(s.dir, "records"))
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +164,7 @@ func New(dir string) (*Service, error) {
 		if !validID(id) || !e.Type().IsRegular() {
 			return nil, fmt.Errorf("无效的科研项目文件 %q", name)
 		}
-		b, err := os.ReadFile(s.recordPath(id))
+		b, err := workspace.ManagedReadFile(s.recordPath(id))
 		if err != nil {
 			return nil, err
 		}
@@ -242,7 +244,7 @@ func (s *Service) commit(d projectData) error {
 	if err == nil && !info.Mode().IsRegular() {
 		return fmt.Errorf("invalid project record: %s", d.Project.ID)
 	}
-	disk, err := os.ReadFile(path)
+	disk, err := workspace.ManagedReadFile(path)
 	if err != nil && (exists || !errors.Is(err, os.ErrNotExist)) {
 		return err
 	}
@@ -270,33 +272,8 @@ func (s *Service) commit(d projectData) error {
 
 var errProjectRecordChanged = errors.New("project record changed on disk")
 
-func atomicWrite(path string, b []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".write-")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp)
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = os.Rename(tmp, path); err != nil {
-		return err
-	}
-	if dir, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = dir.Sync()
-		_ = dir.Close()
-	}
-	return nil
-}
-func makeID() string { var b [16]byte; rand.Read(b[:]); return hex.EncodeToString(b[:]) }
+func atomicWrite(path string, b []byte) error { return workspace.ManagedAtomicWrite(path, b) }
+func makeID() string                          { var b [16]byte; rand.Read(b[:]); return hex.EncodeToString(b[:]) }
 func validID(id string) bool {
 	if len(id) != 32 {
 		return false
@@ -435,7 +412,7 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 	if managed {
 		p.ManagedDirectory = true
 		p.Path = s.managedDirectory(p.ID, false)
-		if err := os.Mkdir(p.Path, 0700); err != nil {
+		if err := workspace.ManagedMkdir(p.Path, 0700); err != nil {
 			jsonFail(w, 500, "无法建立项目文件夹")
 			return
 		}
@@ -462,7 +439,7 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 	d := newProjectData(p)
 	if !s.save(w, d) {
 		if managed {
-			_ = os.Remove(p.Path)
+			_ = workspace.ManagedRemove(p.Path)
 		}
 		return
 	}

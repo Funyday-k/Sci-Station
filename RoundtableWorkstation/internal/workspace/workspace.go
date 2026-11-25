@@ -154,6 +154,9 @@ func openProject(project string) (*os.Root, string, error) {
 // Lstat-ing an absolute project and then OpenRoot-ing it would leave a race in
 // which an ancestor could be replaced by a symlink between those operations.
 func openDirectoryNoLinks(absolute string) (*os.Root, error) {
+	return openDirectory(absolute, 0)
+}
+func openDirectory(absolute string, createMode fs.FileMode) (*os.Root, error) {
 	current, err := os.OpenRoot(string(filepath.Separator))
 	if err != nil {
 		return nil, err
@@ -163,9 +166,14 @@ func openDirectoryNoLinks(absolute string) (*os.Root, error) {
 			continue
 		}
 		pinned, err := current.OpenFile(part, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+		if errors.Is(err, fs.ErrNotExist) && createMode != 0 {
+			if err = current.Mkdir(part, createMode); err == nil || errors.Is(err, fs.ErrExist) {
+				pinned, err = current.OpenFile(part, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+			}
+		}
 		if err != nil {
 			current.Close()
-			return nil, invalid("project directory changed or contains a symbolic link: %v", err)
+			return nil, fmt.Errorf("%w: invalid directory %q: %w", ErrInvalid, part, err)
 		}
 		pinnedInfo, pinErr := pinned.Stat()
 		next, openErr := current.OpenRoot(part)

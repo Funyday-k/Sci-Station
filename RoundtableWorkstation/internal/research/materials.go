@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 const maxMaterialSize = 256 << 20
@@ -84,7 +86,7 @@ func (s *Service) materials(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(d.Materials, id)
 		if s.save(w, d) {
-			_ = os.Remove(s.blobPath(id))
+			_ = workspace.ManagedRemove(s.blobPath(id))
 			w.WriteHeader(204)
 		}
 		return
@@ -128,12 +130,12 @@ func (s *Service) uploadMaterial(w http.ResponseWriter, r *http.Request, pid str
 	}
 	m.MediaType = http.DetectContentType(sample)
 	// Material bytes remain private until the durable metadata record is published.
-	tmp, err := os.CreateTemp(filepath.Join(s.dir, "blobs"), ".upload-")
+	tmp, err := workspace.ManagedCreateTemp(filepath.Join(s.dir, "blobs"), ".upload-")
 	if err != nil {
 		jsonFail(w, 500, "无法保存附件")
 		return
 	}
-	defer os.Remove(tmp.Name())
+	defer workspace.ManagedRemove(tmp.Name())
 	m.Size, err = io.Copy(tmp, io.LimitReader(source, maxMaterialSize+1))
 	if err == nil && m.Size <= maxMaterialSize {
 		err = tmp.Sync()
@@ -167,14 +169,14 @@ func (s *Service) uploadMaterial(w http.ResponseWriter, r *http.Request, pid str
 		return
 	}
 	path := s.blobPath(m.ID)
-	if err = os.Rename(tmp.Name(), path); err != nil {
+	if err = workspace.ManagedRename(tmp.Name(), path); err != nil {
 		jsonFail(w, 500, "无法提交附件")
 		return
 	}
 	d.Materials = maps.Clone(d.Materials)
 	d.Materials[m.ID] = m
 	if !s.save(w, d) {
-		_ = os.Remove(path)
+		_ = workspace.ManagedRemove(path)
 		return
 	}
 	jsonReply(w, 201, m)
@@ -198,7 +200,7 @@ func (s *Service) materialContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := s.blobPath(id)
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := workspace.ManagedOpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	s.mu.RUnlock()
 	if err != nil {
 		jsonFail(w, 404, "材料文件不可用")

@@ -6,14 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"scistation.local/desktop/internal/workspace"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 // Newly selected roots require an explicit workstation format marker.
@@ -32,10 +34,10 @@ func inspectRoot(path string, create bool) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	if err := independentRoot(path); err != nil {
+	if err := workspace.CheckRootAncestors(path); err != nil {
 		return "", false, err
 	}
-	entries, err := os.ReadDir(path)
+	entries, err := workspace.ManagedReadDir(path)
 	if err != nil {
 		return "", false, err
 	}
@@ -58,7 +60,7 @@ func inspectRoot(path string, create bool) (string, bool, error) {
 		if !entry.Type().IsRegular() {
 			return "", false, errors.New("工作区标记无效")
 		}
-		data, err := os.ReadFile(filepath.Join(path, rootMarker))
+		data, err := workspace.ManagedReadFile(filepath.Join(path, rootMarker))
 		if err != nil {
 			return "", false, err
 		}
@@ -104,31 +106,8 @@ func inspectRoot(path string, create bool) (string, bool, error) {
 	return path, false, nil
 }
 
-// Find the nearest existing ancestor when a CLI choice still needs creation.
-func independentRoot(path string) error {
-	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
-		actual, err := filepath.EvalSymlinks(parent)
-		if err == nil {
-			for current := actual; ; current = filepath.Dir(current) {
-				for _, marker := range []string{rootMarker, ".sci-station"} {
-					if _, err := os.Lstat(filepath.Join(current, marker)); !os.IsNotExist(err) {
-						return errors.New("请选择独立的工作区目录")
-					}
-				}
-				if filepath.Dir(current) == current {
-					break
-				}
-			}
-			return nil
-		}
-		if !os.IsNotExist(err) || parent == filepath.Dir(parent) {
-			return err
-		}
-	}
-}
-
 func markNewRoot(dir string) error {
-	f, err := os.OpenFile(filepath.Join(dir, rootMarker), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	f, err := workspace.ManagedOpenFile(filepath.Join(dir, rootMarker), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
@@ -139,7 +118,7 @@ func markNewRoot(dir string) error {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(filepath.Join(dir, rootMarker))
+		_ = workspace.ManagedRemove(filepath.Join(dir, rootMarker))
 	}
 	return err
 }
@@ -150,10 +129,10 @@ func markNewRoot(dir string) error {
 type desktopRoots struct{ dir string }
 
 func (r desktopRoots) reserve(path string, requested int) (int, error) {
-	if err := os.MkdirAll(r.dir, 0700); err != nil {
+	if err := workspace.ManagedMkdirAll(r.dir, 0700); err != nil {
 		return 0, err
 	}
-	lock, err := os.OpenFile(filepath.Join(r.dir, ".ports.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := workspace.ManagedOpenFile(filepath.Join(r.dir, ".ports.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return 0, err
 	}
@@ -163,7 +142,7 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 	}
 	key := fmt.Sprintf("%x\n", sha256.Sum256([]byte(path)))
 	if requested == 0 {
-		entries, err := os.ReadDir(r.dir)
+		entries, err := workspace.ManagedReadDir(r.dir)
 		if err != nil {
 			return 0, err
 		}
@@ -176,7 +155,7 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 			if err != nil || p < 1 || p > 65535 {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(r.dir, e.Name()))
+			data, err := workspace.ManagedReadFile(filepath.Join(r.dir, e.Name()))
 			if err != nil {
 				return 0, err
 			}
@@ -198,7 +177,7 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 			}
 		}
 		file := filepath.Join(r.dir, fmt.Sprintf("port-%d", port))
-		occupied, err := os.ReadFile(file)
+		occupied, err := workspace.ManagedReadFile(file)
 		if err == nil {
 			if string(occupied) == key {
 				return port, nil
@@ -211,6 +190,18 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 		if !os.IsNotExist(err) {
 			return 0, err
 		}
+		if requested == 0 {
+			// A prototype or unrelated application may already own the default
+			// address. Reserve a fresh origin only if it is currently usable.
+			probe, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+			if errors.Is(err, syscall.EADDRINUSE) {
+				continue
+			}
+			if err != nil {
+				return 0, err
+			}
+			defer probe.Close()
+		}
 		if err := atomicFile(file, []byte(key)); err != nil {
 			return 0, err
 		}
@@ -220,8 +211,8 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 }
 
 func (r desktopRoots) last() (string, error) {
-	data, err := os.ReadFile(filepath.Join(r.dir, "last-workspace.json"))
-	if os.IsNotExist(err) {
+	data, err := workspace.ManagedReadFile(filepath.Join(r.dir, "last-workspace.json"))
+	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
@@ -234,7 +225,7 @@ func (r desktopRoots) last() (string, error) {
 	return path, nil
 }
 func (r desktopRoots) remember(path string) error {
-	if err := os.MkdirAll(r.dir, 0700); err != nil {
+	if err := workspace.ManagedMkdirAll(r.dir, 0700); err != nil {
 		return err
 	}
 	body, err := json.Marshal(path)
@@ -260,13 +251,13 @@ func (r desktopRoots) initial(explicit string) (rootChoice, error) {
 	if err != nil {
 		return rootChoice{}, err
 	}
-	if err = independentRoot(explicit); err != nil {
+	if err = workspace.CheckRootAncestors(explicit); err != nil {
 		return rootChoice{}, err
 	}
-	if err := os.MkdirAll(explicit, 0700); err != nil {
+	if err := workspace.ManagedMkdirAll(explicit, 0700); err != nil {
 		return rootChoice{}, err
 	}
-	entries, err := os.ReadDir(explicit)
+	entries, err := workspace.ManagedReadDir(explicit)
 	if err != nil {
 		return rootChoice{}, err
 	}

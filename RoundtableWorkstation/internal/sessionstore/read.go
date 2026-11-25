@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"scistation.local/desktop/internal/workspace"
 )
 
 var validID = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -30,7 +32,7 @@ func UnreadableFile(dir, id, reason string) *Unreadable {
 }
 
 func IDs(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
+	entries, err := workspace.ManagedReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +57,7 @@ func Read(dir, id string, target any) error {
 	if !info.Mode().IsRegular() {
 		return UnreadableFile(dir, id, "存档位置应为普通文件。")
 	}
-	data, err := os.ReadFile(path)
+	data, err := workspace.ManagedReadFile(path)
 	if err != nil {
 		return err
 	}
