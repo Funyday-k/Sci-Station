@@ -7,6 +7,54 @@ const base = path.join(__dirname, "../static");
 const script = fs.readFileSync(path.join(base, "science-tools.js"), "utf8");
 const html = fs.readFileSync(path.join(base, "science-tools.html"), "utf8");
 
+test("system calendar reads only on explicit actions, filters sources and synchronizes the current project", async () => {
+  class Control {
+    value = "";
+    children = [];
+    reportValidity() { return Boolean(this.value); }
+    replaceChildren(...children) { this.children = children; }
+    add(option) { this.children.push(option); }
+    get selectedOptions() { return this.children.filter(option => option.selected); }
+  }
+  const controls = Object.fromEntries(Array.from(html.matchAll(/id="([^"]+)"/g), match => [match[1], new Control()]));
+  const nativeCalls = [];
+  const fetch = async (url, options) => {
+    const route = url.replace("/api/research/", "");
+    if (route === "projects") return Response.json([{id: "fixture", name: "Research"}]);
+    if (route === "projects/fixture/tasks") return Response.json([]);
+    const body = JSON.parse(options.body);
+    nativeCalls.push({route, body});
+    if (route === "tools/reminder-sync") return Response.json({updated: 1, conflicts: 1});
+    assert.equal(route, "tools/schedule");
+    return Response.json({eventsError: "Calendar denied", items: [
+      {kind: "reminder", title: "Read article", start: "2026-11-24T00:00:00+08:00", calendar: "Papers", calendarId: "papers"},
+      {kind: "reminder", title: "Submit results", start: "2026-11-25T14:00:00+08:00", hasTime: true, calendar: "Tasks", calendarId: "tasks"}
+    ]});
+  };
+  vm.runInNewContext(script, {
+    document: {getElementById: id => controls[id], querySelectorAll: () => [], createElement: () => new Control()},
+    window: {addEventListener() {}},
+    Option: class { constructor(text, value, _, selected) { Object.assign(this, {text, value, selected}); } },
+    location: {search: "?tab=calendar&project=fixture&date=2026-11-25"}, URLSearchParams, fetch
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(nativeCalls.length, 0);
+  await controls["calendar-connect"].onclick();
+  assert.deepEqual(nativeCalls[0].body, {reference: "2026-11-25", prompt: true});
+  assert.equal(controls.status.textContent, "Calendar denied");
+  assert.match(controls.eventList.children[0].textContent, /^2026-11-24 · Read article/);
+  assert.match(controls.eventList.children[1].textContent, /^2026-11-25 14:00 · Submit results/);
+  controls["calendar-source"].children[1].selected = true;
+  controls["calendar-source"].onchange();
+  assert.deepEqual(controls.eventList.children.map(row => row.textContent), ["2026-11-25 14:00 · Submit results · Tasks"]);
+  await controls.events.onclick();
+  assert.equal(nativeCalls[1].body.prompt, false);
+  assert.equal(controls.eventList.children.length, 1);
+  await controls["reminder-sync"].onclick();
+  assert.deepEqual(nativeCalls[2].body, {reference: "2026-11-25", project: "fixture"});
+  assert.match(controls.status.textContent, /已同步 1 项，保留 1 项/);
+});
+
 test("switching papers discards stale conversion; a reviewed edit updates the original note with its revision", async () => {
   const controls = {};
   class Control {

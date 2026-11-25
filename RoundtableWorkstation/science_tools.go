@@ -9,10 +9,16 @@ import (
 )
 
 type calendarItem struct {
-	Title    string `json:"title"`
-	Start    string `json:"start"`
-	End      string `json:"end"`
-	Calendar string `json:"calendar"`
+	ID         string `json:"id,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Title      string `json:"title"`
+	Start      string `json:"start"`
+	End        string `json:"end,omitempty"`
+	Calendar   string `json:"calendar"`
+	CalendarID string `json:"calendarId,omitempty"`
+	HasTime    bool   `json:"hasTime,omitempty"`
+	Marker     string `json:"marker,omitempty"`
+	Notes      string `json:"notes,omitempty"`
 }
 
 var scientificHTTP = &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
@@ -27,46 +33,8 @@ func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 	switch route {
 	case "discover", "feedback", "archive-discovery", "select-discovery":
 		a.serveDiscovery(lab, w, r, route)
-	case "events", "reminder":
-		if r.Method != "POST" {
-			reject(w, 405, "请从科研工具发起")
-			return
-		}
-		if !a.desktop {
-			reject(w, 409, "请在 Sci-Station 桌面应用连接系统日历或提醒事项")
-			return
-		}
-		if route == "events" {
-			events, err := systemCalendarEvents()
-			if err != nil {
-				reject(w, 409, err.Error())
-				return
-			}
-			reply(w, 200, events)
-		} else {
-			var input struct {
-				Project string `json:"project"`
-				Task    string `json:"task"`
-			}
-			if !jsonBody(w, r, &input) {
-				return
-			}
-			task, exists := lab.Task(input.Project, input.Task)
-			if !exists {
-				reject(w, 404, "项目任务不存在")
-				return
-			}
-			due := task.DueDate
-			if task.DueTime != "" {
-				due += "T" + task.DueTime
-			}
-			id, err := publishReminder(task.ProjectID+"/"+task.ID, task.Title, task.Description, due)
-			if err != nil {
-				reject(w, 409, err.Error())
-				return
-			}
-			reply(w, 200, map[string]string{"id": id})
-		}
+	case "events", "schedule", "reminder", "reminder-sync", "reminder-settings":
+		a.serveCalendarTools(lab, w, r, route)
 	case "mineru/credential":
 		a.minerCredential(w, r)
 	case "mineru/start", "mineru/status", "mineru/result":

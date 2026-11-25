@@ -29,6 +29,7 @@ var assets embed.FS
 
 type apiServer struct {
 	navigation      workspaceNavigation
+	calendar        calendarBridge
 	workspaceDir    string
 	chooseWorkspace func(bool)
 	revealWorkspace func() error

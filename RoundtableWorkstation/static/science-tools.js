@@ -8,6 +8,8 @@
     projectLoad = 0,
     tasks = [],
     reminderBusy = false,
+    scheduleItems = [],
+    scheduleRequest = 0,
     discovery,
     conversionSequence = 0,
     result = null,
@@ -123,6 +125,34 @@
       return;
     }
     for (const [id, label] of list) el.add(new Option(label, id));
+  }
+
+  const scheduleSource = item => item.kind + ":" + (item.calendarId || item.calendar);
+  const selectedSources = () => new Set(Array.from($("calendar-source").selectedOptions, option => option.value));
+  function showSchedule() {
+    const sources = selectedSources();
+    const rows = scheduleItems.filter(item => !sources.size || sources.has(scheduleSource(item)));
+    $("eventList").replaceChildren(...(rows.length ? rows.map(item => {
+      const date = item.kind === "reminder" && !item.hasTime ? item.start.slice(0, 10) : item.start.slice(0, 16).replace("T", " ");
+      return make("p", [date, item.title, item.calendar || (item.kind === "reminder" ? "提醒事项" : "日历")].join(" · "));
+    }) : [make("p", "这个范围内没有日历事件或未完成提醒。")]));
+  }
+
+  async function readSchedule(prompt) {
+    const date = $("calendar-date");
+    if (!date.reportValidity()) return;
+    const sequence = ++scheduleRequest;
+    const reference = date.value;
+    tell("正在读取系统日历与提醒事项…");
+    const result = await req("tools/schedule", {reference, prompt});
+    if (sequence !== scheduleRequest || reference !== date.value) return;
+    scheduleItems = result.items;
+    const source = $("calendar-source");
+    const prior = selectedSources();
+    const sources = new Map(scheduleItems.map(item => [scheduleSource(item), item.calendar || (item.kind === "reminder" ? "提醒事项" : "日历")]));
+    source.replaceChildren(...Array.from(sources, ([id, label]) => new Option(label, id, false, prior.has(id))));
+    showSchedule();
+    tell([result.eventsError, result.remindersError].filter(Boolean).join(" ") || "已读取 " + scheduleItems.length + " 项");
   }
 
   function nav() {
@@ -268,11 +298,24 @@
       source.saved.set(target, saved);
       tell("已保存至项目笔记");
     });
-    $("events").onclick = () => busy($("events"), async () => {
-      tell("正在读取系统日历…");
-      const events = await req("tools/events", {});
-      $("eventList").replaceChildren(...events.map(e => make("p", e.start.slice(0, 16).replace("T", " ") + " · " + e.title + " · " + e.calendar)));
-      tell(events.length ? "已读取 " + events.length + " 项" : "未来 30 天没有日历事件");
+    $("events").onclick = () => busy($("events"), () => readSchedule(false));
+    $("calendar-connect").onclick = () => busy($("calendar-connect"), () => readSchedule(true));
+    $("calendar-date").onchange = () => {
+      scheduleItems = [];
+      $("calendar-source").replaceChildren();
+      $("eventList").replaceChildren(make("p", "刷新以读取所选月份。"));
+      tell("");
+    };
+    $("calendar-source").onchange = showSchedule;
+    $("reminder-sync").onclick = () => busy($("reminder-sync"), async () => {
+      const date = $("calendar-date");
+      if (!date.reportValidity()) return;
+      const generation = projectLoad;
+      const result = await req("tools/reminder-sync", {reference: date.value, project});
+      if (generation === projectLoad) {
+        await loadProject();
+        tell("已同步 " + result.updated + " 项" + (result.conflicts ? "，保留 " + result.conflicts + " 项修改或冲突" : ""));
+      }
     });
     $("task").onchange = updateReminderAction;
     $("reminder").onclick = async () => {
@@ -296,6 +339,11 @@
   async function init() {
     $(tab).hidden = false;
     $("heading").textContent = views[tab];
+    if (tab === "calendar") {
+      const today = new Date();
+      const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      $("calendar-date").value = /^\d{4}-\d{2}-\d{2}$/.test(qs.get("date") || "") ? qs.get("date") : localDate;
+    }
     nav();
     initActions();
     if (tab === "convert") {

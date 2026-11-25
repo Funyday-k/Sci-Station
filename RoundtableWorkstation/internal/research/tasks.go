@@ -45,7 +45,7 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	for _, key := range strings.Fields("id revision createdAt updatedAt projectId projectIds title description status kind priority tags startDate dueDate dueTime completedAt paperId relatedPaperIds externalSource externalIdentifier evidence") {
+	for _, key := range strings.Fields("id revision createdAt updatedAt projectId projectIds title description status kind priority tags startDate dueDate dueTime completedAt paperId relatedPaperIds externalSource externalIdentifier appleReminderId reminderRevision evidence") {
 		delete(fields, key)
 	}
 	*t = Task(record)
@@ -233,20 +233,30 @@ func (s *Service) taskCollectionLocked(owner string) taskCollection {
 }
 
 func (s *Service) saveTasks(w http.ResponseWriter, owner string, collection taskCollection) bool {
+	if err := s.commitTasks(owner, collection); err != nil {
+		if errors.Is(err, errProjectRecordChanged) {
+			jsonFail(w, 409, "任务文件已更改，请重新打开工作区")
+		} else {
+			jsonFail(w, 500, "无法保存科研任务")
+		}
+		return false
+	}
+	return true
+}
+
+func (s *Service) commitTasks(owner string, collection taskCollection) error {
 	if owner != "" {
 		project := s.projects[owner]
 		project.Tasks, project.TaskKeys = collection.Tasks, collection.TaskKeys
-		return s.save(w, project)
+		return s.commit(project)
 	}
 	old := s.workspaceTasks
 	disk, err := s.readWorkspaceTasks()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		jsonFail(w, 500, "无法读取科研任务")
-		return false
+		return err
 	}
 	if !bytes.Equal(old.disk, disk) {
-		jsonFail(w, 409, "任务文件已更改，请重新打开工作区")
-		return false
+		return errProjectRecordChanged
 	}
 	record := old
 	record.taskCollection = collection
@@ -261,12 +271,11 @@ func (s *Service) saveTasks(w http.ResponseWriter, owner string, collection task
 		err = atomicWrite(s.workspaceTaskPath(), data)
 	}
 	if err != nil {
-		jsonFail(w, 500, "无法保存科研任务")
-		return false
+		return err
 	}
 	record.disk = data
 	s.workspaceTasks = record
-	return true
+	return nil
 }
 
 func uniqueTaskValues(raw []string, limit int, valid func(string) bool) ([]string, bool) {
@@ -448,8 +457,15 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var created *Task
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		publisher := s.newTaskReminder
+		s.mu.Unlock()
+		if created != nil {
+			s.replyNewTask(w, pid, *created, publisher)
+		}
+	}()
 	if project, ok := s.projects[pid]; pid != "" && !found(w, ok && !project.Archived) {
 		return
 	}
@@ -489,8 +505,7 @@ func (s *Service) tasks(w http.ResponseWriter, r *http.Request) {
 			d.TaskKeys[in.IdempotencyKey] = t.ID
 		}
 		if s.saveTasks(w, pid, d) {
-			view, _ := s.taskInScope(t, pid)
-			jsonReply(w, 201, view)
+			created = &t
 		}
 		return
 	}

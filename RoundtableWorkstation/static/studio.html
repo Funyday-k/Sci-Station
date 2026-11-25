@@ -20,6 +20,7 @@
     <script src="/static/input-limit.js" defer></script>
     <script src="/static/composer-input.js" defer></script>
     <script src="/static/plugin-market.js" defer></script>
+    <script src="/static/calendar-preferences.js" defer></script>
     <script src="/static/settings-nav.js" defer></script>
     <script src="/static/provider-profiles.js" defer></script>
     <link rel="stylesheet" href="/static/meeting-room.css" />
@@ -474,6 +475,7 @@
                 <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
                 <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
                 <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" data-en="Appearance" tabindex="-1">外观</button>
+                <button id="settings-tab-calendar" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-calendar" data-settings-page="calendar" data-en="Calendar and reminders" tabindex="-1">日历与提醒</button>
                 <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
               </nav>
               <div class="settings-content">
@@ -659,6 +661,15 @@
                     </div>
                   </section>
                 </form>
+                <section id="settings-panel-calendar" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-calendar" hidden>
+                  <h2 class="settings-panel-title" data-en="Calendar and reminders">日历与提醒</h2>
+                  <div class="settings-card">
+                    <label><input type="checkbox" id="sync-new-apple-reminders" disabled> <span data-en="Sync new tasks to Apple Reminders">将新任务自动同步到 Apple 提醒事项</span></label>
+                    <p class="quiet" data-en="Automatic sync requires existing macOS permission. You can connect Apple Calendar and Reminders from the system calendar page.">自动同步使用已有的 macOS 授权。在系统日历页面连接 Apple 日历与提醒事项。</p>
+                    <p id="calendar-preference-status" class="quiet" role="status"></p>
+                    <a class="button secondary" href="/tools?tab=calendar" data-en="Open system calendar">打开系统日历</a>
+                  </div>
+                </section>
                 <section id="settings-panel-modules" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-modules" hidden>
                   <h2 class="settings-panel-title" data-en="Workspace modules">工作区模块</h2>
                   <div class="module-settings-scope">

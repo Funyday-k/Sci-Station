@@ -890,13 +890,13 @@
         body.relatedPaperIds = selectedPaperIDs;
       }
       if (t) body.revision = t.revision;
-      await request(E.taskPath(t?.id, routeProject), {
+      const saved = await request(E.taskPath(t?.id, routeProject), {
         method: t ? "PATCH" : "POST",
         body
       });
       done(token);
       await refresh();
-      toast("任务已保存");
+      toast(saved?.reminderSyncWarning ? "任务已保存。提醒事项未同步：" + saved.reminderSyncWarning : "任务已保存");
     });
   }
 

@@ -80,15 +80,21 @@
       <section id="calendar" hidden>
         <div class="panel">
           <div class="bar">
-            <h2>未来 30 天的日历</h2><button id="events">读取 Apple 日历</button>
+            <h2>Apple 日历与未完成提醒</h2>
           </div>
+          <div class="line">
+            <label for="calendar-date">查看月份</label><input type="date" id="calendar-date" required>
+            <button id="calendar-connect">连接 Apple 日历与提醒事项</button><button id="events">刷新</button>
+          </div>
+          <label for="calendar-source">日历或提醒事项列表（留空显示全部）</label><select id="calendar-source" multiple size="4"></select>
           <div id="eventList">
-            <p>点击后从这台 Mac 的日历中读取事件。</p>
+            <p>连接后可查看所选月份的日历事件和有截止日期的未完成提醒。</p>
           </div>
         </div>
         <div class="panel">
           <h2>Apple 提醒事项</h2><label for="task">待处理任务</label>
           <div class="line"><select id="task"></select><button id="reminder" disabled>发布或更新</button></div>
+          <div class="line"><button id="reminder-sync">同步已关联的本地任务</button></div>
         </div>
       </section>
     </main>

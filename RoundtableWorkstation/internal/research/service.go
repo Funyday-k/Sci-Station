@@ -89,6 +89,8 @@ type Task struct {
 	RelatedPaperIDs    []string   `json:"relatedPaperIds"`
 	ExternalSource     string     `json:"externalSource,omitempty"`
 	ExternalIdentifier string     `json:"externalIdentifier,omitempty"`
+	AppleReminderID    string     `json:"appleReminderId,omitempty"`
+	ReminderRevision   int        `json:"reminderRevision,omitempty"`
 	Evidence           []Evidence `json:"evidence,omitempty"`
 	extra              map[string]json.RawMessage
 }
@@ -119,13 +121,14 @@ type projectData struct {
 // Published project snapshots are immutable. Each mutation copies only its own map
 // and installs the new snapshot after the single on-disk replacement succeeds.
 type Service struct {
-	dir            string
-	mux            *http.ServeMux
-	papers         *PaperLibrary
-	mu             sync.RWMutex
-	projects       map[string]projectData
-	workspaceTasks workspaceTaskData
-	pathValidator  func(string) bool
+	dir             string
+	mux             *http.ServeMux
+	papers          *PaperLibrary
+	mu              sync.RWMutex
+	projects        map[string]projectData
+	workspaceTasks  workspaceTaskData
+	pathValidator   func(string) bool
+	newTaskReminder func(Task) (string, error)
 }
 
 func New(dir string) (*Service, error) {

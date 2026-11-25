@@ -131,7 +131,7 @@
   }
 
   function toolsPage(tab) {
-    return navigation.route("/tools", {tab, project: state.project?.id});
+    return navigation.route("/tools", {tab, project: state.project?.id, date: tab === "calendar" && state.calendar ? localDate(state.month) : null});
   }
 
   function viewURL(view, id = state.project?.id) {
