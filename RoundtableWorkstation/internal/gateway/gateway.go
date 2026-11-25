@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"scistation.local/desktop/internal/credentials"
 	"slices"
 	"strconv"
 	"strings"
@@ -226,6 +227,9 @@ func (g *Gateway) Generate(ctx context.Context, id, effort, rules, prompt, sessi
 // A supplied observer receives real provider output-text deltas only. An empty
 // string retracts prior deltas if their stream is abandoned.
 func (g *Gateway) GenerateWithImages(ctx context.Context, id, effort, rules, prompt, session string, images []InputImage, observer ...func(string)) (string, error) {
+	if credentials.ContainsSecret(prompt) || credentials.ContainsSecret(rules) {
+		return "", credentials.ErrSecretInPrompt
+	}
 	messages := []message{}
 	if rules != "" {
 		messages = append(messages, message{Role: "system", Content: rules})

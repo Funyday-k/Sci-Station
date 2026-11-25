@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
+
+	"scistation.local/desktop/internal/credentials"
 )
 
 type LabSettings struct {
@@ -45,14 +47,13 @@ var (
 	ErrLabSettingsConflict = errors.New("项目实验室设置已改变，请重新加载")
 	ErrLabSkillUntrusted   = errors.New("技能已停用、内容已改变或尚未明确受信任")
 	labSkillID             = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$`)
-	labSkillSecret         = regexp.MustCompile(`(?i)sk-[a-z0-9_-]{16,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[0-9A-Z]{16}|eyJ[a-z0-9_-]{12,}\.[a-z0-9_-]{12,}\.[a-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|Bearer[ \t]+[a-z0-9._~-]{16,}`)
 )
 
 func ParseLabSkill(markdown string) (LabSkillText, error) {
 	if len(markdown) > 64<<10 || !utf8.ValidString(markdown) || strings.ContainsRune(markdown, 0) {
 		return LabSkillText{}, errors.New("技能文件必须为不超过 64 KiB 的 UTF-8 Markdown")
 	}
-	if labSkillSecret.MatchString(markdown) {
+	if credentials.ContainsSecret(markdown) {
 		return LabSkillText{}, errors.New("技能内容疑似包含凭据或私钥，无法导入")
 	}
 	text := strings.ReplaceAll(strings.TrimPrefix(markdown, "\uFEFF"), "\r\n", "\n")

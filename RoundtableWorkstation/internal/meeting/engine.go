@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"scistation.local/desktop/internal/credentials"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +28,9 @@ var ErrConflict = errors.New("session conflict")
 const maxInputCharacters = 12000
 
 func ValidateTopic(topic string) error {
+	if credentials.ContainsSecret(topic) {
+		return credentials.ErrSecretInPrompt
+	}
 	if strings.TrimSpace(topic) == "" {
 		return errors.New("请输入会议议题")
 	}
@@ -716,6 +720,9 @@ type RoundOptions struct {
 
 // StartRound snapshots the selected plan and effective permissions.
 func (e *Engine) StartRound(id, note, target string, expectedRound int, options RoundOptions) (*Session, error) {
+	if credentials.ContainsSecret(note) {
+		return nil, credentials.ErrSecretInPrompt
+	}
 	if utf8.RuneCountInString(note) > maxInputCharacters {
 		return nil, fmt.Errorf("本轮消息最多 %d 个字符", maxInputCharacters)
 	}
