@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"html"
@@ -73,10 +72,10 @@ func runDesktop(explicit string, port int) error {
 		go h.refreshMenu()
 		if current != nil && current.api != nil {
 			if script := current.api.cliEditWindowScript(current.address); script != "" {
-				h.window.ExecJS(script)
+				evaluateWorkstationScript(h.window, current.address, script)
 			}
 			if script := current.api.desktopCredentialSessionScript(current.address); script != "" {
-				h.window.ExecJS(script)
+				evaluateWorkstationScript(h.window, current.address, script)
 			}
 		}
 	})
@@ -235,7 +234,7 @@ func (h *desktopHost) menu(language string) {
 		if create {
 			command = "createWorkspace"
 		}
-		h.window.ExecJS(fmt.Sprintf("window.SciStationNav?.command(%q)", command))
+		h.menuCommand(command)
 	}
 	ws.Add(copy("toolbarCreateWorkspace") + "…").OnClick(func(*application.Context) { choose(true) })
 	ws.Add(copy("toolbarOpenWorkspace") + "…").SetAccelerator("CmdOrCtrl+O").OnClick(func(*application.Context) { choose(false) })
@@ -248,7 +247,7 @@ func (h *desktopHost) menu(language string) {
 				item.SetAccelerator(row.key)
 			}
 			item.OnClick(func(*application.Context) {
-				h.window.ExecJS(fmt.Sprintf("window.SciStationNav?.command(%q)", row.command))
+				h.menuCommand(row.command)
 				h.window.Show().Focus()
 			})
 		}
