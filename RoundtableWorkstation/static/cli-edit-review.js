@@ -17,7 +17,7 @@
       meetingId: session.id, projectId: session.project_id || "",
       meeting: session.title || session.topic || session.id,
       project: projectName || session.project_id || "",
-      round: session.rounds?.at(-1)?.number || 0, closed: session.status === "closed"
+      round: session.rounds?.length || 0, closed: session.status === "closed", discussing: session.status === "running"
     };
   }
 
@@ -44,7 +44,7 @@
   }
 
   function canAccept(run, scope) {
-    return Boolean(pendingDecision(run, scope)) && !scope.closed && scope.round === run.meetingRound &&
+    return Boolean(pendingDecision(run, scope)) && !scope.closed && !scope.discussing && scope.round === run.meetingRound &&
       Array.isArray(run.pending.changes) && run.pending.changes.length > 0 &&
       run.pending.changes.every(change => typeof change?.path === "string" && change.path.length &&
         typeof change.diff === "string" && change.diff.trim().length);
@@ -164,7 +164,7 @@
       el("scope").textContent = scope ? [projectLabel || "全局圆桌", scope.meeting, scope.round ? "第 " + scope.round + " 轮" : "首轮开始前"].join(" · ") : "";
       el("open").textContent = run?.status === "pending" && !error ? "CLI 编辑待审核" : "CLI 文件编辑";
       el("start").hidden = !scope?.projectId || active || scope.closed;
-      el("submit").disabled = Boolean(writing || error || !envelope || !el("provider").value);
+      el("submit").disabled = Boolean(writing || error || !envelope || scope?.discussing || !el("provider").value);
       el("run").hidden = !run;
       const provider = providers.find(provider => provider.id === run?.provider);
       el("run-title").textContent = run ? (error ? "上次读取 · " : "") + (provider?.label || run.provider) + " · " + stateLabels[run.status] : "";
@@ -181,6 +181,7 @@
       else if (error) message = error;
       else if (!envelope) message = "正在读取 CLI 状态…";
       else if (run?.status === "pending" && !canAccept(run, scope)) message = "当前轮次或文件差异无法核对，请拒绝请求或取消任务。";
+      else if (scope?.discussing && !active) message = "当前讨论轮次进行中，结束后可发起编辑请求。";
       else if (!run && scope.closed) message = "这场会议已结束。";
       else if (!run && !providers.some(provider => provider.available)) message = "当前没有可逐项审核文件修改的 CLI。";
       else if (!run) message = "当前没有待审核的 CLI 请求。";
@@ -209,7 +210,10 @@
         if (ticket !== sequence) return;
         envelope = unpack(data, scope);
         error = "";
-        if (payload?.action === "start") el("start").reset();
+        if (payload?.action === "start") {
+          el("prompt").value = "";
+          el("paths").value = "";
+        }
       } catch (failure) {
         if (ticket !== sequence) return;
         error = "未能确认当前状态。请刷新后核对。 " + failure.message;
@@ -234,7 +238,7 @@
 
     el("start").onsubmit = event => {
       event.preventDefault();
-      if (activeStates.has(envelope?.run?.status) || !scope?.projectId || scope.closed || error || writing) return;
+      if (activeStates.has(envelope?.run?.status) || !scope?.projectId || scope.closed || scope.discussing || error || writing) return;
       const provider = envelope?.providers.find(provider => provider.id === el("provider").value && provider.available);
       const paths = el("paths").value.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
       const prompt = el("prompt").value.trim();

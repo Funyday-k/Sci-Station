@@ -6,7 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const helpers = require("../static/cli-edit-review.js");
 
-const session = {id:"m", project_id:"p", topic:"Native edits", rounds:[{number:3}], status:"ready"};
+const session = {id:"m", project_id:"p", topic:"Native edits", rounds:[{number:1},{number:2},{number:3}], status:"ready"};
 const providers = [{id:"codex",label:"Codex CLI",available:true},{id:"cursor",label:"Cursor CLI",available:false,reason:"No per-file approval"}];
 const run = {id:"run-1", projectId:"p",meetingId:"m",meetingRound:3,provider:"codex",status:"pending",threadId:"thread",turnId:"turn",
   prompt:"Edit the fixture title", paths:["notes.md"], pending:{requestId:"wire-4",itemId:"item",threadId:"thread",turnId:"turn",
@@ -58,6 +58,7 @@ test("project, round, CLI request identities and every file diff must match befo
   assert.ok(helpers.canAccept(run,scope));
   assert.ok(!helpers.canAccept(run,{...scope,round:4}));
   assert.ok(!helpers.canAccept(run,{...scope,closed:true}));
+  assert.ok(!helpers.canAccept(run,{...scope,discussing:true}));
   assert.equal(helpers.pendingDecision({...run,projectId:"other"},scope),null);
   assert.equal(helpers.pendingDecision({...run,turnId:"new-turn"},scope),null);
   assert.ok(!helpers.canAccept({...run,pending:{...run.pending,changes:[{path:"notes.md",diff:""}]}},scope));

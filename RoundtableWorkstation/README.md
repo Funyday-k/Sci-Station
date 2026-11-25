@@ -81,3 +81,5 @@ Node 可加载 Playwright 时，可从仓库根目录运行 `node RoundtableWork
 项目关系、引用位置和 AI 实验室中的图谱预览均从当前研究根目录的来源记录生成。确认加入后，AI 实验室会把图谱预览写入对应项目的未发送圆桌草稿。题名近似的候选会单独标注，默认路径查询跳过这些候选。
 
 点击查询 INSPIRE 会向该服务发送所选论文的公开标识符。图谱可同时查看至多六个种子。每次成功查询保存一个版本为 1 的研究根目录缓存 `inspire-graph-<identity-sha256>.json`，包含论文标识、下载时间、至多 25 条参考文献和 25 篇引用论文。离线读取会标记缓存来源，跳过损坏或不受支持的缓存，下一次成功查询可重建对应文件。删除这些缓存可移除下载的图谱数据。笔记、论文记录、PDF 和会议记录保存在各自的来源目录。
+
+在 `RoundtableWorkstation` 目录运行 `go test -race -tags 'nogui cli_browser_smoke' -run '^TestCLIEditReviewBrowser$' .`，可用 Playwright 和本机 Chromium 检查圆桌的 CLI 文件审批。测试用独立的模拟 CLI 进程通过标准输入输出申请修改临时项目文件，核对允许、拒绝、取消、断线及重开后的结果。
