@@ -6,7 +6,9 @@
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/png" href="/static/roundtable-mark.png" />
     <title>科研圆桌 · Sci-Station</title>
+    <script defer src="/static/interface-language.js"></script>
     <script defer src="/static/workspace-nav.js"></script>
+    <script defer src="/static/research-modules.js"></script>
   <script src="/static/appearance.js"></script>
     <link rel="stylesheet" href="/static/studio.css" />
     <link rel="stylesheet" href="/static/children-panel.css" />
@@ -17,6 +19,7 @@
     <link rel="stylesheet" href="/static/session-recovery.css" />
     <link rel="stylesheet" href="/static/plugin-market.css" />
     <link rel="stylesheet" href="/static/settings-nav.css" />
+    <link rel="stylesheet" href="/static/research-modules.css" />
     <script src="/static/ui-icons.js" defer></script>
     <script src="/static/projects.js" defer></script>
     <script src="/static/agenda.js" defer></script>
@@ -480,18 +483,19 @@
         <section id="settings-view" class="page settings-page" hidden>
           <div class="page-scroll">
             <div class="settings-layout">
-              <nav class="settings-nav" aria-label="设置分类" role="tablist" aria-orientation="vertical">
-                <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models">模型来源</button>
-                <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" tabindex="-1">本机工具</button>
-                <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" tabindex="-1">协作权限</button>
-                <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" tabindex="-1">外观</button>
-                <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" tabindex="-1">插件市场</button>
+              <nav class="settings-nav" aria-label="设置分类" data-en-aria-label="Settings categories" role="tablist" aria-orientation="vertical">
+                <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-en="Workspace modules" tabindex="-1">工作区模块</button>
+                <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models" data-en="Model sources">模型来源</button>
+                <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
+                <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
+                <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" data-en="Appearance" tabindex="-1">外观</button>
+                <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
               </nav>
               <div class="settings-content">
                 <form id="settings-form" class="settings-form" novalidate>
                   <section id="settings-panel-models" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-models">
 <section class="settings-section" aria-labelledby="model-source-heading">
-                <h2 id="model-source-heading">模型来源</h2>
+                <h2 id="model-source-heading" data-en="Model sources">模型来源</h2>
                 <div class="settings-card">
                   <div class="model-source-row">
                     <span class="client-logo" aria-hidden="true">
@@ -535,7 +539,7 @@
                   </section>
                   <section id="settings-panel-collaboration" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-collaboration" hidden>
 <section class="settings-section" aria-labelledby="collaboration-heading">
-                <h2 id="collaboration-heading">协作</h2>
+                <h2 id="collaboration-heading" data-en="Collaboration">协作</h2>
                 <div class="settings-card settings-options">
                   <div class="setting-row">
                     <label for="setting-allow-edits">允许模型修改项目文件</label>
@@ -564,8 +568,21 @@
                     </div>
                   </section>
                   <section id="settings-panel-appearance" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
+                    <section class="settings-section" aria-labelledby="interface-language-heading">
+                      <h2 id="interface-language-heading" data-en="Interface language">界面语言</h2>
+                      <div class="settings-card">
+                        <label class="sr-only" for="interface-language" data-en="Interface language">界面语言</label>
+                        <select id="interface-language" disabled aria-describedby="interface-language-help">
+                          <option value="system" data-en="Follow system">跟随系统</option>
+                          <option value="zh-Hans">简体中文</option>
+                          <option value="en">English</option>
+                        </select>
+                        <p id="interface-language-help" class="quiet" data-en="Applies to navigation and workspace modules. Some work screens still use Chinese.">适用于导航和工作区模块。部分功能界面仍使用中文。</p>
+                        <p id="interface-language-status" class="quiet" role="status"></p>
+                      </div>
+                    </section>
                     <section class="settings-section" aria-labelledby="appearance-heading">
-                      <h2 id="appearance-heading">外观</h2>
+                      <h2 id="appearance-heading" data-en="Appearance">外观</h2>
                       <div class="settings-card settings-options">
                         <div class="setting-row">
                           <label for="setting-appearance">明暗模式</label>
@@ -629,8 +646,28 @@
                     </div>
                   </section>
                 </form>
+                <section id="settings-panel-modules" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-modules" hidden>
+                  <h2 class="settings-panel-title" data-en="Workspace modules">工作区模块</h2>
+                  <div class="module-settings-scope">
+                    <label for="module-settings-project" data-en="Scope">范围</label>
+                    <select id="module-settings-project" disabled><option data-en="Workspace defaults" value="">工作区默认</option></select>
+                    <button id="module-settings-reset" class="button secondary small" type="button" data-en="Reset workspace defaults" disabled>恢复工作区默认</button>
+                    <button id="module-settings-reload" class="button secondary small" type="button" data-en="Reload">重新读取</button>
+                  </div>
+                  <p id="module-settings-status" class="quiet" role="status"></p>
+                  <div id="module-settings-list" class="settings-card"></div>
+                  <dialog id="module-settings-confirm" aria-labelledby="module-settings-confirm-message">
+                    <form method="dialog">
+                      <p id="module-settings-confirm-message"></p>
+                      <div class="module-settings-confirm-actions">
+                        <button class="button secondary" value="cancel" data-en="Cancel" autofocus>取消</button>
+                        <button class="button primary" value="confirm" data-en="Confirm">确认</button>
+                      </div>
+                    </form>
+                  </dialog>
+                </section>
                 <section id="settings-panel-plugins" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-plugins" hidden>
-                  <h2 class="settings-panel-title">插件市场</h2>
+                  <h2 class="settings-panel-title" data-en="Plugin marketplace">插件市场</h2>
             <div class="plugin-market">
               <div class="plugin-market-main">
                 <p class="plugin-market-intro">启用的插件指引用于所有项目接下来的讨论轮次和新报告。插件工具须在会议中手动运行。</p>

@@ -168,6 +168,8 @@ func New(dir string) (*Service, error) {
 	s.registerNotes()
 	s.registerTasks()
 	s.registerMaterials()
+	s.registerModules()
+	s.registerInterface()
 	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/files", s.files)
 	s.mux.HandleFunc("PATCH "+prefix+"/projects/{project}/files", s.files)
 	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/graph", s.graph)
