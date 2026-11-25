@@ -288,6 +288,10 @@ func (s *PaperLibrary) saveWithRecordLock(p Paper) error {
 	return nil
 }
 func paperListClean(values []string, maxCount, maxLen int) ([]string, error) {
+	return cleanPaperItems(values, maxCount, maxLen, false)
+}
+
+func cleanPaperItems(values []string, maxCount, maxLen int, allowRepeats bool) ([]string, error) {
 	result := []string{}
 	seen := map[string]bool{}
 	if len(values) > maxCount {
@@ -298,7 +302,7 @@ func paperListClean(values []string, maxCount, maxLen int) ([]string, error) {
 		if utf8.RuneCountInString(v) > maxLen {
 			return nil, errInvalidPaper
 		}
-		if v != "" && !seen[v] {
+		if v != "" && (allowRepeats || !seen[v]) {
 			seen[v] = true
 			result = append(result, v)
 		}
@@ -362,11 +366,15 @@ func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) erro
 	for _, v := range []struct {
 		list        *[]string
 		count, size int
-	}{{&m.Authors, 10000, 512}, {&m.Tags, 256, 128}, {&m.ProjectIDs, 512, 256}, {&m.CoreProjectIDs, 512, 256}, {&m.References, 4096, 512}} {
+	}{{&m.Authors, 10000, 512}, {&m.Tags, 256, 128}, {&m.ProjectIDs, 512, 256}, {&m.CoreProjectIDs, 512, 256}} {
 		*v.list, err = paperListClean(*v.list, v.count, v.size)
 		if err != nil {
 			return err
 		}
+	}
+	m.References, err = cleanPaperItems(m.References, 4096, 512, true)
+	if err != nil {
+		return err
 	}
 	for _, id := range m.CoreProjectIDs {
 		if !paperContains(m.ProjectIDs, id) {

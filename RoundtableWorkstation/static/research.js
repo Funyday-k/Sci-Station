@@ -62,7 +62,10 @@
       edges: []
     },
     view: "overview",
-    graphFocus: "",
+    graphResult: null,
+    graphQuery: null,
+    graphError: "",
+    graphPending: false,
     query: "",
     taskFilter: "open",
     taskKind: "",
@@ -488,76 +491,48 @@
     $("main").setAttribute("aria-busy", "false");
   }
 
-  function shortLabel(s, n) {
-    const a = Array.from(s);
-    return a.length > n ? a.slice(0, n).join("") + "…" : s;
+  function graphView() {
+    const graphUI = window.SciResearchGraph;
+    return graphUI.graphView({
+      graph: state.graph,
+      result: state.graphResult || state.graph,
+      project: state.project,
+      query: state.graphQuery || graphUI.defaultQuery,
+      error: state.graphError,
+      pending: state.graphPending
+    }, {esc, button, heading, panel, empty, link, route: navigation.route});
   }
 
-  function graphView() {
-    const {
-      nodes = [], edges = []
-    } = state.graph, keys = new Map(nodes.map(n => [n.id, n])), kindTitle = {
-      note: "笔记",
-      paper: "论文",
-      task: "任务",
-      reference: "外部引文"
-    };
-    const graphBtn = id => {
-      const n = keys.get(id);
-      return n ? button(n.label, "graph-open", {
-        id: n.id,
-        kind: "bare"
-      }) : esc(id)
-    };
-    let out = heading("知识关联", state.project.name, button("新增关系", "new-relation", {
-      glyph: "plus",
-      kind: "button primary"
-    }));
-    if (edges.length) {
-      const anchor = nodes.find(n => n.id === state.graphFocus) || keys.get(edges[0].source);
-      const connected = [...new Set(edges.filter(e => e.source === anchor.id || e.target === anchor.id).map(e => e
-        .source === anchor.id ? e.target : e.source))].slice(0, 10);
-      const height = Math.max(160, connected.length * 43 + 30),
-        svg = '<svg class="network" viewBox="0 0 680 ' + height + '" role="img" aria-label="当前条目与相邻条目的关联">' + connected.map(
-          (id, i) => {
-            const y = 30 + i * 43;
-            return '<path d="M218 ' + height / 2 + ' C312 ' + height / 2 + ' 313 ' + y + ' 388 ' + y + '"/>'
-          }).join("") + '<g><rect x="20" y="' + (height / 2 - 17) + '" width="198" height="34" rx="8"/><text x="32" y="' + (
-          height / 2 + 5) + '">' + esc(shortLabel(anchor.label, 14)) + '</text></g>' + connected.map((id, i) => {
-          const y = 30 + i * 43,
-            n = keys.get(id);
-          return '<g><rect x="388" y="' + (y - 15) + '" width="260" height="30" rx="7"/><text x="400" y="' + (y + 5) +
-            '">' + esc(shortLabel(n?.label || id, 20)) + '</text></g>'
-        }).join("") + '</svg>';
-      out += panel("关系图", '<div class="graph-picker"><label>查看条目 <select id="graph-focus">' + nodes.map(n =>
-        '<option value="' + esc(n.id) + '" ' + (n.id === anchor.id ? 'selected' : '') + '>' + esc(n.label) + '</option>'
-        ).join("") + '</select></label></div>' + svg);
+  let graphQueryNumber = 0;
+  async function applyGraphQuery(query) {
+    const project = state.project?.id;
+    const currentLoad = navEpoch;
+    const currentQuery = ++graphQueryNumber;
+    const isCurrent = () => currentLoad === navEpoch && currentQuery === graphQueryNumber &&
+      state.view === "graph" && state.project?.id === project;
+    state.graphQuery = query;
+    state.graphPending = true;
+    state.graphError = "";
+    render();
+    try {
+      if (query.target && !query.focus) throw new Error("请选择路径起点。");
+      const path = window.SciResearchGraph.queryPath(projectPath("graph", project), query);
+      const result = await request(path);
+      if (isCurrent()) state.graphResult = result;
+    } catch (err) {
+      if (isCurrent()) {
+        state.graphError = err.message;
+        state.graphResult = null;
+      }
+    } finally {
+      if (isCurrent()) {
+        state.graphPending = false;
+        render();
+        $("graph-query")?.querySelector("button[type=submit]")?.focus();
+      }
     }
-    out += panel("引用关系 · " + edges.length, edges.length ? edges.map(e => '<div class="relation">' + graphBtn(e.source) +
-      '<span class="tag">' + esc(({
-        wikilink: "双链",
-        reference: "引用",
-        cites: "引用",
-        reading: "阅读",
-        supports: "支持",
-        contradicts: "矛盾",
-        extends: "扩展",
-        related: "相关",
-        evidence: "证据",
-        paper: "关联论文",
-        source: "来源"
-      })[e.kind] || e.kind) + '</span>' + graphBtn(e.target) + (e.id ? button("移除", "remove-relation", {
-        id: e.id,
-        kind: "bare danger"
-      }) : "") + '</div>').join("") : empty("尚无关联", "在笔记中使用 [[笔记标题]]，或关联一篇论文。"));
-    out += panel("项目条目 · " + nodes.length, nodes.length ? list(nodes.map(n => row(({
-        paper: "book",
-        note: "file",
-        task: "agenda"
-      })[n.kind] || "file", n.label, "", rowAction("graph-open", n.id), kindTitle[n.kind] || n.kind))) : empty(
-      "暂无可关联的条目"));
-    return out;
   }
+
   async function load(projectId, view, {
     historyMode = "replace"
   } = {}) {
@@ -572,9 +547,16 @@
       const allProjects = projects || [];
       const nextProject = allProjects.find(p => p.id === projectId) || null;
       if (projectId && !nextProject) throw new Error("这个项目已归档或不存在。请从项目列表重新选择。");
-      const suffixes = ["notes", "tasks", "materials", "graph"];
+      const suffixes = ["notes", "tasks", "materials"];
+      let graphError = "";
+      const graph = {nodes: [], edges: []};
+      const graphLoad = nextProject && targetView === "graph" ?
+        request("projects/" + enc(nextProject.id) + "/graph").catch(err => {
+          graphError = err.message;
+          return graph;
+        }) : graph;
       const values = nextProject ?
-        await Promise.all(suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k))) :
+        await Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad]) :
         [[], ["overview", "tasks"].includes(targetView) ? await request("tasks") : [], [], {nodes: [], edges: []}];
       if (token !== navEpoch) return;
       // Publish the complete snapshot together. Until this point the visible
@@ -586,6 +568,10 @@
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
       state.meetings = nextProject ? rooms.filter(m => m.project === nextProject.path) : rooms;
       [state.notes, state.tasks, state.materials, state.graph] = values;
+      state.graphResult = null;
+      state.graphQuery = null;
+      state.graphError = graphError;
+      state.graphPending = false;
       if (historyMode !== "none") history[historyMode + "State"](null, "", viewURL(state.view));
     } catch (err) {
       if (token !== navEpoch) return;
@@ -799,12 +785,30 @@
           1);
         render();
       } else if (action === "reload") await route();
-      else if (action === "graph-open") {
-        const n = (state.graph.nodes || []).find(n => n.id === id);
+      else if (action === "graph-rebuild") {
+        const query = state.graphQuery;
+        const project = state.project?.id;
+        await refresh();
+        if (query && !state.graphError && state.project?.id === project && state.view === "graph") {
+          const ids = new Set(state.graph.nodes.map(node => node.id));
+          if ((!query.focus || ids.has(query.focus)) && (!query.target || ids.has(query.target))) await applyGraphQuery(query);
+        }
+      } else if (action === "graph-occurrence") {
+        const edge = (state.graphResult || state.graph).edges.find(edge => edge.occurrences?.some(item => item.id === id));
+        const occurrence = edge?.occurrences.find(item => item.id === id);
+        if (occurrence?.source === "wikilink") {
+          if (E.openWikiNote) await E.openWikiNote(edge.source, {line: occurrence.line, column: occurrence.column,
+            revision: occurrence.sourceRevision, text: occurrence.quote});
+          else await E.formAction("read-note", edge.source);
+        }
+      } else if (action === "graph-open") {
+        const n = state.graphResult?.nodes.find(n => n.id === id) || state.graph.nodes.find(n => n.id === id);
         if (!n) return;
         const raw = n.id.replace(/^(?:note|paper|task)[:/]/, "");
         if (n.kind === "reference") dialog("外部引文", empty(n.label, "此标识符尚未关联到库内论文。", button("导入文献", "new-paper")));
         else if (n.kind === "paper") location.href = reader(raw);
+        else if (n.kind === "meeting") location.href = studio(n.id.slice("meeting:".length));
+        else if (n.kind === "missing") dialog("来源已移除", empty("此条目当前不可用"));
         else await E.formAction(n.kind === "task" ? "edit-task" : "read-note", raw);
       } else if (action === "toggle-task") {
         const t = state.tasks.find(t => t.id === id);
@@ -833,10 +837,13 @@
       state.taskTag = ev.target.value;
       render();
       $("task-tag").focus();
-    } else if (ev.target.id === "graph-focus") {
-      state.graphFocus = ev.target.value;
-      render();
     }
+  });
+  document.addEventListener("submit", ev => {
+    if (ev.target.id !== "graph-query") return;
+    ev.preventDefault();
+    const data = new FormData(ev.target);
+    void applyGraphQuery(Object.fromEntries(data));
   });
   document.addEventListener("input", ev => {
     if (ev.target.id === "paper-query" && !ev.isComposing) {

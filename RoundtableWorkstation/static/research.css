@@ -1153,43 +1153,98 @@ dialog::backdrop {
   }
 }
 
-.network {
-  display: block;
-  width: 100%;
-  max-height: 440px;
-  margin: 5px auto 14px;
-  overflow: visible
+.graph-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 14px 16px;
+  color: var(--soft)
 }
 
-.network path {
+.graph-picker label {
+  display: grid;
+  gap: 4px;
+  max-width: min(100%, 19rem)
+}
+
+.graph-picker select {
+  min-width: 0;
+  width: 100%;
+  color: var(--ink);
+  background: var(--surface)
+}
+
+.graph-diagram {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 16px
+}
+
+.graph-diagram path {
   fill: none;
   stroke: var(--line);
   stroke-width: 2
 }
 
-.network rect {
+.graph-diagram rect {
   fill: var(--tint);
   stroke: var(--line)
 }
 
-.network text {
+.graph-diagram text {
   fill: var(--ink);
-  font-family: inherit;
-  font-size: 12px
+  font: 13px system-ui, sans-serif
 }
 
-.graph-picker {
-  margin: 14px 16px;
-  color: var(--soft)
+.graph-path, .graph-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  margin: 12px 16px 16px;
+  padding-inline-start: 24px
 }
 
-.graph-picker select {
-  padding: 4px;
-  max-width: 70%;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 4px
+.graph-layers > li > span {
+  color: var(--muted)
+}
+
+.graph-layers ul, .graph-entries {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none
+}
+
+.graph-entries > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 16px
+}
+
+.graph-edge + .graph-edge {
+  border-top: 1px solid var(--line)
+}
+
+.graph-status, .graph-occurrences {
+  margin: 4px 16px 12px
+}
+
+.graph-occurrences li + li {
+  margin-top: 8px
+}
+
+.graph-occurrences blockquote {
+  margin: 3px 0;
+  padding-inline-start: 8px;
+  border-inline-start: 2px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere
+}
+
+.graph-source-status {
+  margin-inline-start: 8px;
+  color: var(--muted)
 }
 
 .project-choice {

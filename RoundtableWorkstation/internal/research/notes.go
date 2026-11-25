@@ -5,7 +5,6 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -270,102 +269,4 @@ func (s *Service) markdown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="note.md"`)
 	_, _ = fmt.Fprint(w, n.Body)
-}
-
-type graphNode struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Kind  string `json:"kind"`
-}
-type graphEdge struct {
-	ID       string `json:"id,omitempty"`
-	Revision int    `json:"revision,omitempty"`
-	Label    string `json:"label,omitempty"`
-	Source   string `json:"source"`
-	Target   string `json:"target"`
-	Kind     string `json:"kind"`
-}
-
-func (s *Service) graph(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	d, ok := s.loadProject(w, r.PathValue("project"))
-	var tasks map[string]Task
-	if ok {
-		tasks = s.visibleTasksLocked(d.Project.ID)
-	}
-	s.mu.RUnlock()
-	if !ok {
-		return
-	}
-	nodes, edges := s.derivedGraph(d, tasks)
-	for _, rel := range d.Relations {
-		for _, id := range []string{rel.Source, rel.Target} {
-			if _, ok := nodes[id]; !ok {
-				nodes[id] = graphNode{id, id, "missing"}
-			}
-		}
-		edges[graphEdge{ID: rel.ID, Revision: rel.Revision, Label: rel.Label, Source: rel.Source, Target: rel.Target, Kind: rel.Kind}] = true
-	}
-	ns := valuesBy(nodes, func(a, b graphNode) bool { return a.ID < b.ID })
-	es := make([]graphEdge, 0, len(edges))
-	for e := range edges {
-		es = append(es, e)
-	}
-	sort.Slice(es, func(i, j int) bool {
-		a, b := es[i], es[j]
-		if a.Source != b.Source {
-			return a.Source < b.Source
-		}
-		if a.Target != b.Target {
-			return a.Target < b.Target
-		}
-		return a.Kind < b.Kind
-	})
-	jsonReply(w, 200, map[string]any{"nodes": ns, "edges": es})
-}
-
-func (s *Service) derivedGraph(d projectData, tasks map[string]Task) (map[string]graphNode, map[graphEdge]bool) {
-	nodes := map[string]graphNode{}
-	edges := map[graphEdge]bool{}
-	titles := map[string]string{}
-	library := paperGraph(filterPapers(s.papers.all(), d.Project.ID, "", ""))
-	for _, p := range library.Nodes {
-		nodes[p.ID] = graphNode{p.ID, p.Title, p.Kind}
-	}
-	for _, e := range library.Edges {
-		edges[graphEdge{Source: e.Source, Target: e.Target, Kind: e.Kind}] = true
-	}
-	for _, n := range d.Notes {
-		nodes[n.ID] = graphNode{n.ID, n.Title, "note"}
-		titles[strings.ToLower(n.Title)] = n.ID
-	}
-	addPaper := func(from, pid, rel string) {
-		if pid == "" {
-			return
-		}
-		paper, ok := s.papers.Snapshot(pid)
-		if !ok {
-			return
-		}
-		nodes[pid] = graphNode{pid, paper.Title, "paper"}
-		edges[graphEdge{Source: from, Target: pid, Kind: rel}] = true
-	}
-	for _, n := range d.Notes {
-		for title := range referencedTitles(n.Body) {
-			if target, ok := titles[title]; ok {
-				edges[graphEdge{Source: n.ID, Target: target, Kind: "wikilink"}] = true
-			}
-		}
-		addPaper(n.ID, n.PaperID, "paper")
-		for _, e := range n.Evidence {
-			addPaper(n.ID, e.PaperID, "evidence")
-		}
-	}
-	for _, t := range tasks {
-		nodes[t.ID] = graphNode{t.ID, t.Title, "task"}
-		for _, id := range t.RelatedPaperIDs {
-			addPaper(t.ID, id, "reading")
-		}
-	}
-	return nodes, edges
 }

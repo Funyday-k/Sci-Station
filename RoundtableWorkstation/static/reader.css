@@ -517,7 +517,8 @@ dialog .actions {
   }
 }
 
-#sourceNotice {
+#sourceNotice,
+#graphCitation {
   padding:8px 26px;
   background:#f5df9a;
   color:#3d3118;

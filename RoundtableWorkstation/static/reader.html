@@ -16,6 +16,7 @@
 </header>
 <section class="titlebar"><div><h1 id="title">论文阅读</h1><p id="byline"></p></div><span class="spacer"></span><button id="handoff" class="primary" disabled>选段入会</button></section>
 <div id="sourceNotice" role="status" hidden></div>
+<div id="graphCitation" role="status" hidden></div>
 <div class="layout">
  <main class="viewer">
    <div class="toolbar" aria-label="阅读工具">
@@ -35,5 +36,6 @@
  </aside>
 </div>
 <dialog id="handoffDialog"><form method="dialog"><div class="panel-title"><h2>带选段进入圆桌</h2><button type="button" id="cancelHandoff" aria-label="关闭">×</button></div><blockquote id="handoffQuote"></blockquote><label for="projectSelect">科研项目</label><select id="projectSelect" required></select><label for="sessionSelect">目标会议</label><select id="sessionSelect"><option value="">新建圆桌</option></select><div class="actions"><button id="submitHandoff" type="button" class="primary">进入圆桌</button></div></form></dialog>
+<script src="/static/reader-graph-source.js" defer></script>
 <script src="/static/reader.js" defer></script>
 </body></html>

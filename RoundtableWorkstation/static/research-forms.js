@@ -190,8 +190,8 @@
       ?.abstract)) +
       (edit ? '<div class="split">' + field("评分（0–5）", input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
         field("优先级（0–5）", input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' + field(
-          "BibTeX 引用键", input("citekey", p.citekey)) + field("引用的论文", input("references", p.references?.join(", "),
-          'placeholder="论文 ID、DOI、arXiv 编号或 citekey，用逗号分隔"')) : "") +
+          "BibTeX 引用键", input("citekey", p.citekey)) + field("参考文献", area("references", p.references?.join("\n"),
+          'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) : "") +
       '</details>' + attachProjectBoxes(p, !edit) + (edit ? "" : '<ul data-import-results aria-live="polite"></ul>') + formFooter(edit ? "保存更改" : "导入文献", edit ? "paper:" + p.id : "") +
       '</form>', {
         wide: true
@@ -328,7 +328,7 @@
           citekey: value(f, "citekey"),
           rating: Number(value(f, "rating")),
           priority: Number(value(f, "priority")),
-          references: split(value(f, "references"))
+          references: f.elements.references.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
         });
       } else {
         payload = importPayload(f, items[0], false);
@@ -611,7 +611,7 @@
   }
 
   function relationForm() {
-    const choices = (state.graph.nodes || []).map(n => [n.id, n.label]);
+    const choices = (state.graph.nodes || []).filter(n => n.kind !== "missing").map(n => [n.id, n.label]);
     if (choices.length < 2) {
       dialog("新增知识关系", empty("需要两个项目条目", "请先添加论文、笔记或任务。"));
       return;

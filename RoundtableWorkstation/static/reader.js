@@ -550,6 +550,7 @@
       savedNote = paper.notes || '';
       noteRevision = paper.revision;
       by('notes').value = savedNote;
+      window.SciReaderGraphSource?.open(paper, inputs, by, showTab);
       annotations = paper.annotations || [];
       renderAnn();
       const hasStaleSource =
