@@ -13,6 +13,12 @@ App releases and persisted/protocol formats serve different compatibility contra
 | Knowledge architecture | Existing knowledge records retain their own formats; the proposed KnowledgeAtom format is not yet assigned a version | Assign only after [RFC-0001](rfcs/RFC-0001-knowledge-architecture.md) is accepted; do not imply the proposal is implemented |
 | Plugin / Skill / Prompt / workspace template | Each manifest or template's own version | Advance when that component changes; record changed behavior and compatibility, independent of app releases |
 
+## Roundtable workstation reviewed writes
+
+A project record can contain a `reviews` object keyed by the operation ID. A version 1 entry stores the destination and its revision, the proposed text, published meeting output, PDF locators and the decision. Older project records open with an empty queue. An unknown review version remains readable for inspection and cannot be accepted or rejected by this version. The application records the accepted result ID and the resulting note or task in the same atomic replacement. A retry of a completed decision returns that receipt, including when a researcher subsequently changes the result.
+
+Use a separate destination and a verified copy of the full research root and meeting store before moving between workstation versions. To roll back, reopen the last known-good copy with the version that created it. This preserves the new root's review history, historical passage locations and decision receipts for reopening with its matching version. An older workstation must not edit a root containing review records it cannot preserve.
+
 ## Preparing a release
 
 1. Update `VERSION`, both Xcode marketing-version settings, and Chinese/English README version headers. These are checked mirrors, not competing sources of truth.

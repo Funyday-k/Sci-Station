@@ -177,7 +177,7 @@ func TestSciStationPaperMeetingAndReviewedWriteback(t *testing.T) {
 	excerpt = append(excerpt, []byte("\n\n"+quote)...)
 	material := scienceWorkflowDecode[meeting.Material](t, upload("/api/studio/materials", "paper-excerpt.txt", excerpt, nil))
 	// The explicit test seat avoids a live Magpie account or catalog connection.
-	created := scienceWorkflowDecode[meeting.Session](t, do(req("POST", "/api/studio/sessions", map[string]any{"topic": "Review the limitation", "project": a.Path, "seats": []string{"codex"}, "material_ids": []string{material.ID}}), 201))
+	created := scienceWorkflowDecode[meeting.Session](t, do(req("POST", "/api/studio/sessions", map[string]any{"topic": "Review the limitation", "project_id": a.ID, "seats": []string{"codex"}, "material_ids": []string{material.ID}}), 201))
 	sessURL := "/api/studio/sessions/" + created.ID
 	do(req("POST", sessURL+"/run", map[string]any{"target": "codex", "expected_round": 0, "allow_edits": false}), 202)
 	var session meeting.Session
@@ -197,13 +197,40 @@ func TestSciStationPaperMeetingAndReviewedWriteback(t *testing.T) {
 		t.Fatal("session wrote an unreviewed note")
 	}
 	method := scienceWorkflowDecode[research.Note](t, do(req("POST", notes, map[string]string{"title": "Methods", "body": "Project assumptions."}), 201))
-	noteInput := map[string]any{"title": "Reviewed result", "body": verdict + " [[Methods]]", "sourceMeetingId": session.ID, "sourceTurnId": "R1-T1", "idempotencyKey": session.ID + "/R1-T1/note", "evidence": []research.Evidence{{PaperID: paper.ID, Page: 1, Quote: quote, SourceHash: paper.FileSHA256, MeetingID: session.ID, TurnID: "R1-T1"}}}
-	note := scienceWorkflowDecode[research.Note](t, do(req("POST", notes, noteInput), 201))
-	retry := scienceWorkflowDecode[research.Note](t, do(req("POST", notes, noteInput), 200))
-	if retry.ID != note.ID || len(note.Evidence) != 1 {
-		t.Fatal("duplicate writeback")
+	reviewPath := sessURL + "/research-reviews"
+	submit := func(operation, action, title, body string) research.MeetingReview {
+		proposal := map[string]any{"projectRevision": a.Revision, "turnId": "round-1-codex", "action": action, "title": title, "body": body}
+		return scienceWorkflowDecode[research.MeetingReview](t, do(req("POST", reviewPath, map[string]any{"decision": "propose", "operationId": operation, "projectId": a.ID, "proposal": proposal}), 201))
 	}
-	task := scienceWorkflowDecode[research.Task](t, do(req("POST", base+"/tasks", map[string]string{"title": "Recheck the mass range", "paperId": paper.ID, "idempotencyKey": session.ID + "/R1-T1/task"}), 201))
+	decide := func(v research.MeetingReview, decision string, status int) research.MeetingReview {
+		return scienceWorkflowDecode[research.MeetingReview](t, do(req("POST", reviewPath, map[string]any{"decision": decision, "operationId": v.ID, "projectId": v.ProjectID, "revision": v.Revision}), status))
+	}
+	rejected := submit(strings.Repeat("1", 32), "create-note", "Discarded", "First draft")
+	decide(rejected, "reject", 200)
+	if len(scienceWorkflowDecode[[]research.Note](t, do(req("GET", notes, nil), 200))) != 1 {
+		t.Fatal("rejection changed notes")
+	}
+	proposal := submit(strings.Repeat("2", 32), "create-note", "Reviewed result", verdict+" [[Methods]]")
+	if err := engine.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	api, engine = start()
+	history := scienceWorkflowDecode[[]research.MeetingReview](t, do(req("GET", base+"/reviews", nil), 200))
+	if len(history) != 2 || history[0].Status != "pending" || history[0].Body != proposal.Body || history[1].Status != "rejected" {
+		t.Fatal("review queue was not restored", history)
+	}
+	committed := decide(proposal, "accept", 200)
+	retry := decide(proposal, "accept", 200)
+	note := scienceWorkflowDecode[research.Note](t, do(req("GET", notes+"/"+committed.ResultID, nil), 200))
+	if retry.ResultID != note.ID || len(note.Evidence) != 1 || note.Evidence[0].Quote != quote || !strings.Contains(note.Body, "fingerprint="+paper.FileSHA256) || !strings.Contains(note.Body, "#round-1-codex") {
+		t.Fatal("duplicate writeback or missing source link", note)
+	}
+	taskProposal := submit(strings.Repeat("3", 32), "create-task", "Recheck the mass range", "Recheck conditions")
+	taskDone := decide(taskProposal, "accept", 200)
+	task := scienceWorkflowDecode[research.Task](t, do(req("GET", base+"/tasks/"+taskDone.ResultID, nil), 200))
+	if len(task.Evidence) != 1 || task.Evidence[0].SourceHash != paper.FileSHA256 {
+		t.Fatal("task source missing")
+	}
 	if err := engine.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}

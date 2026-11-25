@@ -8,6 +8,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Project meetings and AI Lab now stage notes and tasks for review. Decisions and PDF citations survive reopening, and repeated confirmations return the original result.
+
 - Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Required CI builds and verifies the signed Apple Silicon candidate and exercises native shutdown.
 
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.

@@ -1,6 +1,7 @@
 package research
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -33,6 +34,38 @@ func (s *Service) registerNotes() {
 	s.mux.HandleFunc("GET "+base+"/{note}/links", s.noteLinks)
 	s.mux.HandleFunc("GET "+base+"/{note}/backlinks", s.backlinks)
 	s.mux.HandleFunc("GET "+base+"/{note}/markdown", s.markdown)
+}
+
+// Only the reviewed-write transaction may attach meeting provenance. Manual
+// edits may retain or remove existing citations, including legacy records.
+func introducesMeetingSource(in noteInput, current Note) bool {
+	if in.SourceMeetingID != nil && *in.SourceMeetingID != "" && *in.SourceMeetingID != current.SourceMeetingID {
+		return true
+	}
+	if in.SourceTurnID != nil && *in.SourceTurnID != "" && *in.SourceTurnID != current.SourceTurnID {
+		return true
+	}
+	if in.Evidence == nil {
+		return false
+	}
+	old := map[string]int{}
+	for _, e := range current.Evidence {
+		if e.MeetingID != "" || e.TurnID != "" {
+			b, _ := json.Marshal(e)
+			old[string(b)]++
+		}
+	}
+	for _, e := range *in.Evidence {
+		if e.MeetingID != "" || e.TurnID != "" {
+			b, _ := json.Marshal(e)
+			key := string(b)
+			if old[key] == 0 {
+				return true
+			}
+			old[key]--
+		}
+	}
+	return false
 }
 func (s *Service) validateSources(in noteInput) error {
 	if in.PaperID != nil && *in.PaperID != "" {
@@ -193,6 +226,10 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 			jsonReply(w, 200, n)
 			return
 		}
+	}
+	if introducesMeetingSource(in, d.Notes[id]) {
+		jsonFail(w, 403, "请通过会议审核保存来源")
+		return
 	}
 	if err := s.validateSources(in); err != nil {
 		jsonFail(w, 409, err.Error())

@@ -78,25 +78,32 @@ test('reviewing is read-only until confirmation; notes honor revision and meetin
   }
   class Option extends Node {constructor(label,value){super('option',label);this.value=value;}}
   const body=new Node('body'),toolbar=new Node('div'),map=new Map(),writes=[];
-  const project={id:ref.projectId,name:'Study',path:'/tmp/one'},session={id:'s018',title:'研究会',project_id:project.id,project:project.path,agenda:[{id:'a1',title:'检查公式'}],materials:[],
+  const project={id:ref.projectId,name:'Study',path:'/tmp/one',revision:7},session={id:'s018',title:'研究会',project_id:project.id,project:project.path,agenda:[{id:'a1',title:'检查公式'}],materials:[],
     rounds:[{number:3,turns:[{seat:'a',model:'A',status:'done',text:'结论'}]}]};
   const existing={id:'note01',title:'已有笔记',body:'以前的内容',revision:4,evidence:[]};
+  const reviews=new Map();
   const fetch=async(url,opt)=>{
     let out;
     if(opt.method==='GET') {
       if(url==='/api/research/projects')out=[project];
       else if(url.endsWith('/notes/note01'))out=existing;
       else if(url.endsWith('/notes'))out=[existing];
-    } else {
-      const payload=JSON.parse(opt.body);
-      writes.push({url,method:opt.method,payload});
-      out={...payload,id:'created'};
+      else if(url.endsWith('/reviews?meeting=s018'))out=[...reviews.values()];
+    } else if(url==='/api/studio/sessions/s018/research-reviews'){
+      const payload=JSON.parse(opt.body); writes.push(payload);
+      if(payload.decision==='propose') {
+        out={...payload.proposal,projectId:payload.projectId,id:payload.operationId,status:'pending',revision:1,sourceText:'Recorded statement',evidence:[]};
+      } else {
+        assert.equal(payload.revision,1);
+        out={...reviews.get(payload.operationId),status:payload.decision==='accept'?'accepted':'rejected',revision:2};
+      }
+      reviews.set(out.id,out);
     }
     if(!out)throw new Error('unhandled '+url);
     return {ok:true,json:async()=>out};
   };
   const localStorage={setItem:(k,v)=>map.set(k,v),getItem:k=>map.get(k),removeItem:k=>map.delete(k)};
-  const ctx=vm.createContext({window:{},URL,URLSearchParams,FormData,Blob,Event,Option,fetch,localStorage,
+  const ctx=vm.createContext({window:{},URL,URLSearchParams,FormData,Blob,Event,Option,fetch,localStorage,crypto:require('node:crypto'),
     location:new URL('http://localhost/studio?project='+project.id),history:{replaceState(){}},
     document:{body,createElement:t=>new Node(t),getElementById:id=>id==='chat-toolbar'?toolbar:null}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../static/science-meeting.js'),'utf8'),ctx);
@@ -105,12 +112,16 @@ test('reviewing is read-only until confirmation; notes honor revision and meetin
   await open();const dialog=body.children[0], [out,target]=dialog.all('select'), findButton=text=>dialog.all('button').find(b=>b.textContent===text);
   assert.equal(writes.length,0);await findButton('取消').fire('click');assert.equal(writes.length,0);
   await open();target.value='note01';await target.fire('change');
-  await findButton('确认写入').fire('click');
-  assert.equal(writes.length,1);assert.equal(writes[0].method,'PATCH');assert.equal(writes[0].payload.revision,4);
-  assert.match(writes[0].payload.body,/以前的内容\n\n结论/);
-  assert.match(writes[0].payload.body,/#round-3-a/);
-  dialog.close();await open();out.value='agenda-a1';await out.fire('change');target.value='@task';await target.fire('change');
-  await findButton('确认写入').fire('click');
-  assert.match(writes[1].url,/\/tasks$/);assert.equal(writes[1].payload.idempotencyKey,'meeting:s018:agenda-a1');
-  assert.equal(writes[1].payload.title,'检查公式');
+  await findButton('提交审核').fire('click');
+  assert.equal(writes.length,1);assert.equal(writes[0].decision,'propose');
+  assert.deepEqual(writes[0].proposal,{action:'append-note',projectRevision:7,destinationRevision:4,destinationId:'note01',
+    turnId:'round-3-a',title:'已有笔记',body:'结论'});
+  const pending=writes[0].operationId;
+  dialog.close();map.clear();await open();await findButton('拒绝写入').fire('click');
+  assert.equal(writes[1].operationId,pending);assert.equal(writes[1].decision,'reject');
+  out.value='agenda-a1';await out.fire('change');target.value='@task';await target.fire('change');
+  await findButton('提交审核').fire('click');await findButton('确认写入').fire('click');
+  assert.equal(writes[2].proposal.action,'create-task');assert.equal(writes[2].proposal.title,'检查公式');
+  assert.notEqual(writes[2].operationId,pending);assert.equal(writes[3].operationId,writes[2].operationId);
+  assert.equal(writes[3].decision,'accept');assert.equal(writes[3].proposal,undefined);
 });

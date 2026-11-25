@@ -102,6 +102,7 @@ type Material struct {
 
 type projectData struct {
 	Trashed   bool                     `json:"trashed,omitempty"`
+	Reviews   map[string]MeetingReview `json:"reviews,omitempty"`
 	Project   Project                  `json:"project"`
 	Archived  bool                     `json:"archived,omitempty"`
 	Notes     map[string]Note          `json:"notes"`
@@ -184,6 +185,7 @@ func New(dir string) (*Service, error) {
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/restore", s.restoreProject)
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/trash", s.trashProject)
 	s.mux.HandleFunc("POST "+prefix+"/projects/{project}/directory", s.changeDirectory)
+	s.registerReviews()
 	s.registerNotes()
 	s.mux.HandleFunc("GET "+prefix+"/dashboard/projects", s.dashboardProjects)
 	s.registerTasks()

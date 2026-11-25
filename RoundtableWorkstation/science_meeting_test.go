@@ -99,7 +99,7 @@ func TestScientificMeetingEvidenceToReviewedNote(t *testing.T) {
 	var mat meeting.Material
 	upload("/api/studio/materials", "source.txt", frozen, nil, &mat)
 	var s meeting.Session
-	js("POST", "/api/studio/sessions", map[string]any{"project": project.Path, "topic": "Compare sources", "seats": []string{"codex"}, "material_ids": []string{mat.ID}}, &s)
+	js("POST", "/api/studio/sessions", map[string]any{"project_id": project.ID, "topic": "Compare sources", "seats": []string{"codex"}, "material_ids": []string{mat.ID}}, &s)
 	if len(s.Materials) != 1 || s.Materials[0].Excerpt != frozen || s.Project != project.Path {
 		t.Fatalf("bad frozen evidence: %#v", s.Materials)
 	}
@@ -109,13 +109,19 @@ func TestScientificMeetingEvidenceToReviewedNote(t *testing.T) {
 	if len(notes) != 0 {
 		t.Fatal("opening meeting modified notes")
 	}
-	reviewed := map[string]any{"title": "Reviewed", "body": quote, "idempotencyKey": "meeting:" + s.ID + ":report", "sourceMeetingId": s.ID, "sourceTurnId": "report",
-		"evidence": []map[string]any{{"paperId": paper.ID, "page": 1, "quote": quote, "meetingId": s.ID, "sourceHash": paper.FileSHA256}}}
-	var first, second research.Note
-	js("POST", route, reviewed, &first)
-	js("POST", route, reviewed, &second)
+	// A selected passage alone cannot impersonate an approved report. No
+	// meeting output exists yet, and direct notes cannot mint its provenance.
+	data, _ := json.Marshal(map[string]any{"title": "Unreviewed", "body": quote, "sourceMeetingId": s.ID, "sourceTurnId": "report"})
+	req := httptest.NewRequest("POST", "http://127.0.0.1:8765"+route, bytes.NewReader(data))
+	req.Header.Set("X-Roundtable", "1")
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	api.ServeHTTP(res, req)
+	if res.Code != 403 || !strings.Contains(res.Body.String(), "审核") {
+		t.Fatalf("unreviewed write: %d %s", res.Code, res.Body.String())
+	}
 	js("GET", route, nil, &notes)
-	if first.ID != second.ID || len(notes) != 1 || len(notes[0].Evidence) != 1 || !strings.Contains(notes[0].Body, quote) {
-		t.Fatal("reviewed write did not commit exactly once")
+	if len(notes) != 0 {
+		t.Fatal("review bypass created a record")
 	}
 }

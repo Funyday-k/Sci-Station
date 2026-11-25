@@ -428,6 +428,10 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[1]
+	if len(parts) == 3 && parts[2] == "research-reviews" {
+		a.meetingReviews(w, r, id)
+		return
+	}
 	if len(parts) == 3 && parts[2] == "plugin-action" {
 		a.pluginAction(w, r, id)
 		return

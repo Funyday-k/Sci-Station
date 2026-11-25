@@ -93,7 +93,7 @@ func TestReviewedWritesIdempotentAndIsolated(t *testing.T) {
 	s := newResearch(t, t.TempDir())
 	project := createResearchProject(t, s, "Review")
 	base := "/projects/" + project.ID + "/notes"
-	body := []byte(`{"title":"Discussion","body":"Reviewed result","idempotencyKey":"meeting/one/report","sourceMeetingId":"one"}`)
+	body := []byte(`{"title":"Discussion","body":"Reviewed result","idempotencyKey":"meeting/one/report","tags":["discussion"]}`)
 	codes := make(chan int, 12)
 	var wg sync.WaitGroup
 	for range 12 {
