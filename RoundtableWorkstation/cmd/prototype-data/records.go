@@ -160,6 +160,17 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		return err
 	}
 	managed := managedPaths(paths, m.Source)
+	projectByPath := make(map[string]string)
+	for _, project := range paths.projects {
+		if project.path == "" {
+			continue
+		}
+		if _, duplicate := projectByPath[project.path]; duplicate {
+			projectByPath[project.path] = ""
+		} else {
+			projectByPath[project.path] = project.id
+		}
+	}
 	relocate := func(path string) string {
 		if id, ok := managed[path]; ok {
 			return managedPath(destination, id)
@@ -178,6 +189,7 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		newPath := ""
 		if record.path == managedPath(m.Source, record.id) {
 			newPath = managedPath(destination, record.id)
+			project["managedDirectory"] = json.RawMessage("true")
 		} else {
 			delete(project, "managedDirectory")
 		}
@@ -192,7 +204,11 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 	}
 	for _, record := range paths.meetings {
 		newPath := relocate(record.path)
-		if newPath == record.path {
+		projectID := managed[record.path]
+		if projectID == "" {
+			projectID = projectByPath[record.path]
+		}
+		if newPath == record.path && projectID == "" {
 			continue
 		}
 		var document map[string]json.RawMessage
@@ -200,6 +216,9 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 			return err
 		}
 		document["project"], _ = json.Marshal(newPath)
+		if projectID != "" {
+			document["project_id"], _ = json.Marshal(projectID)
+		}
 		if err := writeJSON(stage, record.file, document); err != nil {
 			return err
 		}
@@ -302,7 +321,7 @@ func validateRecords(root *os.Root, m manifest) error {
 		case filepath.Dir(path) == "studio" && strings.HasSuffix(path, ".json"):
 			id, _ := directJSON("studio", path)
 			if validID(id) {
-				if err := validateMeeting(root, m.Entries, path, id); err != nil {
+				if err := validateMeeting(root, m.Entries, path, id, projects); err != nil {
 					return err
 				}
 			}
@@ -341,13 +360,19 @@ func validatePaper(root *os.Root, entries map[string]treeEntry, path string, pro
 	return nil
 }
 
-func validateMeeting(root *os.Root, entries map[string]treeEntry, path, id string) error {
-	var s meeting.Session
+func validateMeeting(root *os.Root, entries map[string]treeEntry, path, id string, projects map[string]bool) error {
+	var s struct {
+		meeting.Session
+		ProjectID string `json:"project_id"`
+	}
 	if err := readJSON(root, path, &s); err != nil {
 		return err
 	}
 	if s.ID != id {
 		return fmt.Errorf("invalid meeting record %q", path)
+	}
+	if s.ProjectID != "" && !projects[s.ProjectID] {
+		return fmt.Errorf("%q refers to missing project %q", path, s.ProjectID)
 	}
 	for _, item := range s.Materials {
 		if !validID(item.ID) {

@@ -150,6 +150,15 @@ func TestRecoveryReopensIsolatedData(t *testing.T) {
 		t.Fatal("local executable override was replayed or unknown settings were lost")
 	}
 
+	for id, owner := range map[string]string{meetingID: projectID, externalMeetingID: externalProjectID} {
+		var binding struct {
+			ProjectID string `json:"project_id"`
+		}
+		if err := json.Unmarshal([]byte(getFile(t, destination, "studio/"+id+".json")), &binding); err != nil || binding.ProjectID != owner {
+			t.Fatalf("restored meeting lost its project reference: %+v %v", binding, err)
+		}
+	}
+
 	// Reopen with the application's actual stores. No provider or user folder
 	// participates. The recovered session handler exercises its startup repair.
 	lab, err := research.New(filepath.Join(destination, "research"))
