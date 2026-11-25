@@ -955,6 +955,16 @@ dialog::backdrop {
   min-height: 3.25rem;
 }
 
+[data-wiki-conflict] textarea {
+  min-height: 6rem;
+}
+
+.note-preview .wiki-reference {
+  display: inline;
+  padding: 0;
+  vertical-align: baseline;
+}
+
 .wiki-frontmatter pre,
 .wiki-occurrence pre {
   overflow-wrap: anywhere;

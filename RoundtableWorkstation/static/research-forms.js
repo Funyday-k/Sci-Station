@@ -457,9 +457,10 @@
     dialog(moving ? "移动 Wiki 页面" : n ? "编辑 Wiki 页面" : "新建 Wiki 页面",
       '<form class="note-edit"><fieldset class="wiki-fields">' +
       (moving ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' + namespace :
-        field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace +
+        '<div class="split">' + field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace + '</div>' +
         field("别名", area("aliases", n?.aliases?.join("\n"), 'aria-label="别名" rows="2" placeholder="每行一个。可用目录/名称指定完整路径。"')) +
-        field("关联论文", paperSelect(n?.paperId)) + field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) +
+        '<div class="split">' + field("关联论文", paperSelect(n?.paperId)) +
+        field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div>' +
         '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
         field("内容", area("body", n?.body, 'aria-label="内容" id="note-body" placeholder="支持 Markdown、数学公式和 [[concept:页面|显示文字]]"')) +
         '<div id="draft-preview" class="note-preview" hidden></div>') +
@@ -533,6 +534,7 @@
       useRevision();
       host.textContent = "已采用查看到的修订。保存时将应用当前草稿。";
     };
+    host.querySelector("summary").focus();
   }
 
   function evidenceURL(e) {
@@ -573,7 +575,7 @@
     selectedWikiNote = n;
     const {frontmatter, body} = splitWikiBody(n.body);
     const noteURL = E.wikiURL(n.id, owner);
-    dialog(n.title, '<p class="form-help">' + esc(wikiPath(n)) + '</p><div class="actions">' +
+    dialog(n.title, (n.namespace ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' : "") + '<div class="actions">' +
       button("编辑页面", "edit-note", {id: n.id, kind: "button primary", glyph: "file"}) +
       button("移动页面", "move-note", {id: n.id}) +
       button("归档页面", "confirm-delete", {id: "note:" + n.id, kind: "button"}) +

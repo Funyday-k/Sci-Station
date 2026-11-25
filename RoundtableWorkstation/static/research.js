@@ -657,7 +657,7 @@
         if (Object.hasOwn(links, key)) {
           const a = document.createElement("button");
           a.type = "button";
-          a.className = "bare";
+          a.className = "bare wiki-reference";
           a.dataset.action = "read-note";
           a.dataset.id = links[key];
           a.textContent = match[2]?.trim() || key;
