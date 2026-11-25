@@ -3,6 +3,7 @@ package research
 import (
 	"bytes"
 	"context"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -201,12 +202,25 @@ func TestProjectGraphEvidenceAnchorsAndMissingPDF(t *testing.T) {
 	path := "/projects/" + project.ID
 	start, end := 0, len("Evidence sample")
 	note := decodeResearch[Note](t, callResearch(t, s, "POST", path+"/notes", map[string]any{
-		"title": "Reviewed passage", "evidence": []Evidence{
-			{PaperID: paper.ID, Page: 1, Quote: "Evidence sample", SourceHash: paper.FileSHA256, MeetingID: "discussion", TurnID: "round-1-analyst", SelectionStart: &start, SelectionEnd: &end},
-			{PaperID: paper.ID, Page: 2, Quote: "also considered"},
-			{MeetingID: "discussion", TurnID: "turn-5", Quote: "another discussion"},
+		"title": "Recorded passages", "evidence": []Evidence{
+			{PaperID: paper.ID, Page: 1, Quote: "Evidence sample", SourceHash: paper.FileSHA256, SelectionStart: &start, SelectionEnd: &end},
+			{PaperID: paper.ID, Page: 2, Quote: "Evidence sample"},
 		},
 	}, 201))
+	// Simulate already committed meeting evidence, including a legacy
+	// meeting-only locator. The manual API must never mint this provenance.
+	note.Evidence[0].MeetingID, note.Evidence[0].TurnID = "discussion", "round-1-analyst"
+	note.Evidence = append(note.Evidence, Evidence{MeetingID: "discussion", TurnID: "turn-5", Quote: "another discussion"})
+	s.mu.Lock()
+	record := s.projects[project.ID]
+	record.Notes = maps.Clone(record.Notes)
+	record.Notes[note.ID] = note
+	err = s.commit(record)
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s = newResearch(t, s.dir)
 	read := func() graphResult {
 		return decodeResearch[graphResult](t, callResearch(t, s, "GET", path+"/graph", nil, 200))
 	}

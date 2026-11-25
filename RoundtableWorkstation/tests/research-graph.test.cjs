@@ -57,6 +57,7 @@ function mount() {
   const b = {nodes:[{id:"note-B",kind:"note",label:"Lensing note"}], edges:[]};
   const entries = new Map([
     ["/api/research/projects", projects], ["/api/research/papers", []], ["/api/studio/sessions", {sessions:[]}],
+    ["/api/research/papers/organization", {revision:0, collections:{}, tags:{}}],
     ["/api/research/projects/A/graph", a], ["/api/research/projects/B/graph", b]
   ]);
   for (const p of projects) {
@@ -83,7 +84,11 @@ function mount() {
     constructor(form) {this.fields = form?.fields || {};}
     [Symbol.iterator]() {return Object.entries(this.fields)[Symbol.iterator]();}
   }
-  vm.runInNewContext(staticFile("research.js"),{window,document,location,history,fetch,URL,URLSearchParams,FormData,setTimeout,clearTimeout});
+  const sandbox = vm.createContext({window,document,location,history,fetch,URL,URLSearchParams,FormData,setTimeout,clearTimeout,
+    localStorage:{getItem:()=>null}});
+  for (const script of ["research.js", "research-forms.js", "research-library.js"]) {
+    vm.runInContext(staticFile(script), sandbox);
+  }
   return {ui:window.SciResearch,elements,calls,listeners,resolveQuery:data=>resolveQuery(Response.json(data)),
     rejectQuery:error=>rejectQuery(error)};
 }
