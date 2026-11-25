@@ -223,7 +223,8 @@
         (projectID ? button("论文 Wiki", "open-paper-wiki", {id: paper.id, kind: "bare"}) : "");
       return '<tr><td>' + selectionCheckbox(paper) + '</td>' + cells + '<td><div class="library-table-actions">' + actions + '</div></td></tr>';
     });
-    return '<div class="library-table-scroll"><table class="library-table" aria-label="文献表格"><thead><tr>' +
+    return '<div class="library-table-scroll" tabindex="0" role="region" aria-label="文献表格滚动区域">' +
+      '<table class="library-table" aria-label="文献表格"><thead><tr>' +
       '<th scope="col">选择</th>' + headings.join("") + '<th scope="col">操作</th></tr></thead><tbody>' + contents.join("") + '</tbody></table></div>';
   }
 
