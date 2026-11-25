@@ -105,21 +105,6 @@ func selectedFile(dir, path string) (workspace.File, error) {
 	return f, nil
 }
 func (m *Manager) Start(scope Scope, provider, executable string, adapter Adapter, guard Guard) (*Run, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return nil, errors.New("工作区正在关闭")
-	}
-	if old := m.runs[scope.MeetingID]; old != nil {
-		select {
-		case <-old.done:
-		default:
-			return nil, errors.New("此会议已有运行中的 CLI 编辑")
-		}
-	}
-	if m.runs == nil {
-		m.runs = map[string]*Run{}
-	}
 	if err := guard(scope); err != nil {
 		return nil, err
 	}
@@ -136,6 +121,21 @@ func (m *Manager) Start(scope Scope, provider, executable string, adapter Adapte
 	}
 	if len(versions) == 0 || len(versions) > 24 {
 		return nil, errors.New("请选择 1–24 个项目文本文件")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil, errors.New("工作区正在关闭")
+	}
+	if old := m.runs[scope.MeetingID]; old != nil {
+		select {
+		case <-old.done:
+		default:
+			return nil, errors.New("此会议已有运行中的 CLI 编辑")
+		}
+	}
+	if m.runs == nil {
+		m.runs = map[string]*Run{}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	r := &Run{scope: scope, cancel: cancel, check: guard, seen: map[string]bool{}, versions: versions, done: make(chan struct{}), state: State{Prompt: scope.Prompt, ID: key(), ProjectID: scope.ProjectID, MeetingID: scope.MeetingID, MeetingRound: scope.MeetingRound, Provider: provider, Paths: slices.Clone(scope.Paths), Status: "starting"}}
@@ -250,18 +250,16 @@ func (r *Run) checkPaths(changes []Change) error {
 	return nil
 }
 func (r *Run) Approval(ctx context.Context, req Request) (bool, error) {
+	if err := r.check(r.scope); err != nil {
+		return false, err
+	}
+	if err := r.checkPaths(req.Changes); err != nil {
+		return false, err
+	}
 	r.mu.Lock()
 	if req.RequestID == "" || req.ItemID == "" || req.ThreadID != r.state.ThreadID || req.TurnID != r.state.TurnID || r.state.Status != "running" || r.seen[req.RequestID] {
 		r.mu.Unlock()
 		return false, errors.New("CLI 审核与运行中的回合不匹配")
-	}
-	if err := r.check(r.scope); err != nil {
-		r.mu.Unlock()
-		return false, err
-	}
-	if err := r.checkPaths(req.Changes); err != nil {
-		r.mu.Unlock()
-		return false, err
 	}
 	r.seen[req.RequestID] = true
 	response := make(chan bool, 1)
@@ -288,27 +286,34 @@ func (r *Run) Approval(ctx context.Context, req Request) (bool, error) {
 	}
 }
 func (r *Run) Decide(thread, turn, item, id string, accept bool) error {
+	stale := errors.New("CLI 审批已失效或与当前回合不匹配")
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	p := r.state.Pending
-	if r.state.Status != "pending" || p == nil || p.RequestID != id || p.ItemID != item || p.ThreadID != thread || p.TurnID != turn {
-		return errors.New("CLI 审批已失效或与当前回合不匹配")
+	r.mu.Unlock()
+	if p == nil || p.RequestID != id || p.ItemID != item || p.ThreadID != thread || p.TurnID != turn {
+		return stale
 	}
+	// Scope and file reads can block on an external directory. Do not hold
+	// the run mutex: a root switch or process exit must still cancel the CLI.
+	var err error
 	if accept {
-		err := r.check(r.scope)
-		if err == nil {
+		if err = r.check(r.scope); err == nil {
 			err = r.checkPaths(p.Changes)
 		}
-		if err != nil {
-			r.state.Pending = nil
-			r.state.Status = "cancelled"
-			r.state.Detail = err.Error()
-			r.reply = nil
-			r.cancel()
-			return err
-		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.state.Pending != p || r.state.Status != "pending" {
+		return stale
 	}
 	r.state.Pending = nil
+	if err != nil {
+		r.state.Status = "cancelled"
+		r.state.Detail = err.Error()
+		r.reply = nil
+		r.cancel()
+		return err
+	}
 	r.state.Status = "responded"
 	if accept {
 		r.state.Detail = "已选择本次允许，等待 CLI 的文件结果"

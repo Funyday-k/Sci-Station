@@ -2,6 +2,7 @@ package cliedit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -112,4 +113,30 @@ func TestMCPOverridesUseOnlyDisabledRegistrationNames(t *testing.T) {
 			t.Fatal("ambiguous list accepted")
 		}
 	}
+}
+
+func TestReviewGracefullyStopsWhenNativeRequestIsWithdrawn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	ch := make(chan packet, 3)
+	var sent strings.Builder
+	c := conn{ctx: ctx, out: json.NewEncoder(&sent), messages: ch}
+	toJSON := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+	base := map[string]any{"threadId": "t", "turnId": "u", "item": map[string]any{"id": "i", "type": "fileChange", "status": "inProgress", "changes": []any{map[string]any{"path": "n.md", "kind": map[string]string{"type": "add"}, "diff": "+s"}}}}
+	ch <- packet{Method: "item/started", Params: toJSON(base)}
+	ch <- packet{Method: "item/fileChange/requestApproval", ID: toJSON("3"), Params: toJSON(map[string]string{"threadId": "t", "turnId": "u", "itemId": "i"})}
+	ch <- packet{Method: "serverRequest/resolved", Params: toJSON(map[string]string{"threadId": "t", "requestId": "3"})}
+	err := c.reviewEvents(Scope{Paths: []string{"n.md"}}, blockedSink{}, "t", "u")
+	if err == nil || sent.Len() != 0 {
+		t.Fatal("answered withdrawn request", err, sent.String())
+	}
+}
+
+type blockedSink struct{}
+
+func (blockedSink) Running(string, string) error { return nil }
+func (blockedSink) Result(string)                {}
+func (blockedSink) Approval(ctx context.Context, _ Request) (bool, error) {
+	<-ctx.Done()
+	return false, ctx.Err()
 }
