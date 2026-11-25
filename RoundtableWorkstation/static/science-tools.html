@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/roundtable-mark.png">
+  <title>科研工具 · Sci-Station</title>
+  <link rel="stylesheet" href="/static/science-tools.css">
+  <script defer src="/static/science-tools.js"></script>
+</head>
+
+<body>
+  <div class="frame">
+    <aside><a class="brand" href="/research"><img src="/static/roundtable-mark.png" alt="">Sci-Station</a><a id="home" href="/research">← 科研工作台</a>
+      <nav aria-label="科研工具"><a href="?tab=discover" data-tab="discover">文献发现</a><a href="?tab=convert" data-tab="convert">PDF 转换</a><a href="?tab=calendar" data-tab="calendar">系统日历与提醒</a></nav>
+    </aside>
+    <main>
+      <header><span>科研工具</span><label>当前项目 <select id="project"></select></label></header>
+      <h1 id="heading"></h1>
+      <p id="status" role="status"></p>
+      <section id="discover" hidden>
+        <form id="search"><label for="expr">arXiv 检索式</label>
+          <div class="line"><input id="expr" placeholder="关键词，或 cat:astro-ph.CO AND all:evaporation" required maxlength="350"><button class="primary">搜索最新论文</button></div>
+        </form>
+        <div class="bar">
+          <h2>检索结果</h2><select id="filter" aria-label="结果筛选">
+            <option value="all">未隐藏</option>
+            <option value="saved">已收藏</option>
+            <option value="hidden">已隐藏</option>
+          </select>
+        </div>
+        <div id="articles"></div>
+      </section>
+      <section id="convert" hidden>
+        <div class="panel"><label for="paper">文献库中的 PDF</label><select id="paper"></select>
+          <div class="bar">
+            <h2>本地文本</h2><button id="local">提取为 Markdown</button>
+          </div>
+          <p>按页提取可选择的原文，保留页码。扫描件可使用下方的 MinerU 转换。</p>
+        </div>
+        <details class="panel">
+          <summary>MinerU 公式、表格和扫描件转换</summary>
+          <p>开始转换会将所选 PDF 上传到 MinerU。Token 仅在本次页面使用。</p><label for="token">MinerU API Token</label><input type="password" id="token" autocomplete="off"><label for="batch">转换任务编号</label><input id="batch" placeholder="开始后自动填写，也可以恢复已有任务">
+          <div class="line"><button id="remote">上传并转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
+        </details>
+        <div id="result" class="panel" hidden><label for="markdown">转换结果，可在保存前编辑</label><textarea id="markdown" rows="15"></textarea>
+          <div class="line"><button id="download">下载 Markdown</button><button id="saveNote" class="primary">存为项目笔记</button></div>
+        </div>
+      </section>
+      <section id="calendar" hidden>
+        <div class="panel">
+          <div class="bar">
+            <h2>未来 30 天的日历</h2><button id="events">读取 Apple 日历</button>
+          </div>
+          <div id="eventList">
+            <p>点击后从这台 Mac 的日历中读取事件。</p>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>发布到 Apple 提醒事项</h2><label for="task">项目任务</label>
+          <div class="line"><select id="task"></select><button id="reminder">发布任务</button></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+
+</html>

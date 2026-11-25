@@ -1,0 +1,77 @@
+:root {
+  --reading-increase: 0px;
+  --reading-size: calc(15px + var(--reading-increase));
+  --reading-small: calc(14px + var(--reading-increase));
+}
+
+:root[data-text-size="large"] {
+  --reading-increase: 2px;
+}
+
+:root[data-text-size="extra-large"] {
+  --reading-increase: 4px;
+}
+
+.reading-preview {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: var(--reading-size);
+  line-height: 1.5;
+}
+
+#setting-text-size {
+  flex: 0 0 auto;
+}
+
+#room-chat .message-body,
+#meeting-board :is(.board-prose, .board-agenda-title, .board-agenda-link, .board-point-summary),
+#meeting-board .board-header > .board-prose,
+#chat-board-status .board-status .board-prose,
+.meeting-report-content,
+.app-shell textarea,
+.app-shell .turn-body,
+.app-shell .user-message p {
+  font-size: var(--reading-size);
+}
+
+#room-chat .message-header strong,
+#participants-panel .seat-identity strong,
+.chosen-identity strong,
+.model-option strong,
+#meeting-board :is(.board-material-name, .board-point-seat, .board-empty),
+#meeting-board .board-material-card .board-prose,
+#meeting-agenda :is(.ag-title, .ag-source p),
+.app-shell .turn-model strong,
+.app-shell .user-message > strong {
+  font-size: var(--reading-small);
+}
+
+#room-chat .message-body code,
+.app-shell .turn-body code {
+  font-size: calc(13px + var(--reading-increase));
+}
+
+#room-chat .message-body :is(h4, h5, h6),
+.app-shell .turn-body :is(h3, h4, h5, h6) {
+  font-size: calc(16px + var(--reading-increase));
+}
+
+#meeting-board .board-section-title {
+  font-size: calc(18px + var(--reading-increase));
+}
+
+#meeting-board .board-title {
+  font-size: calc(clamp(26px, 4.8cqi, 44px) + var(--reading-increase));
+}
+
+.meeting-report-content h3 {
+  font-size: calc(1.4rem + var(--reading-increase));
+}
+
+.meeting-report-content h4 {
+  font-size: calc(1.18rem + var(--reading-increase));
+}
+
+.meeting-report-content :is(h5, h6) {
+  font-size: var(--reading-size);
+}

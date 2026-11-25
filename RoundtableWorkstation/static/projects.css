@@ -1,0 +1,273 @@
+.project-rail-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.project-rail-group + .project-rail-group {
+  margin-top: 4px;
+}
+
+.project-rail-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.project-rail-trigger {
+  display: flex;
+  align-items: center;
+  min-height: 31px;
+  min-width: 0;
+  flex: 1;
+  gap: 5px;
+  padding: 3px 3px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+}
+
+.project-rail-trigger:hover {
+  background: var(--accent-soft);
+}
+
+.project-rail-header.current-project {
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+
+.project-rail-chevron[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.project-rail-chevron.icon-button {
+  width: 17px;
+  height: 26px;
+  padding: 3px;
+  color: var(--text);
+}
+
+.project-rail-folder {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--text);
+}
+
+.project-rail-chevron.icon-button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.project-rail-folder svg {
+  width: 17px;
+  height: 17px;
+}
+
+.project-rail-name {
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-rail-new svg,
+.project-rail-rules svg {
+  width: 15px;
+  height: 15px;
+}
+
+.project-rail-sessions {
+  margin-left: 18px;
+}
+
+.project-rail-sessions .history-item {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+#draft-project-message {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.draft-project-options,
+.draft-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.draft-project-options:not(:empty) {
+  margin-bottom: 12px;
+}
+
+.project-management[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.project-management-wide {
+  width: 560px;
+}
+
+.project-management .project-dialog-heading,
+.project-management .project-dialog-actions {
+  flex: 0 0 auto;
+}
+
+.project-management-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.project-management-body > .quiet {
+  margin: 0 0 10px;
+}
+
+.project-management-status {
+  margin: 10px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.project-management-status:empty {
+  display: none;
+}
+
+.project-management-field > label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.project-management-path-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.project-management-path-controls > input {
+  min-width: 0;
+  min-height: 32px;
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--editor);
+}
+
+.project-import-candidates {
+  display: grid;
+  gap: 4px;
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1px 4px 1px 1px;
+  margin-bottom: 13px;
+}
+
+.project-import-candidate,
+.project-import-rule {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 5px 7px;
+  border-radius: 6px;
+}
+
+.project-import-candidate:hover,
+.project-import-rule:hover {
+  background: var(--accent-soft);
+}
+
+.project-import-candidate > input,
+.project-import-rule > input {
+  margin-top: 4px;
+  accent-color: var(--accent);
+}
+
+.project-import-meta > strong {
+  font-weight: 550;
+  margin-right: 8px;
+  overflow-wrap: anywhere;
+}
+
+.project-import-source,
+.project-import-path {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.project-import-path {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.project-import-group {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.project-import-group > h3 {
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-import-group > .quiet {
+  margin: 5px 0;
+}
+
+.project-import-group > .project-import-path {
+  margin-bottom: 4px;
+}
+
+.project-rule-details {
+  overflow: hidden;
+}
+
+.project-active-rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+
+.project-active-rule .project-rule-details {
+  padding: 5px 0;
+}
+
+.project-rule-details > summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.project-rule-details > .project-import-source {
+  margin-top: 4px;
+  display: block;
+}
+
+.project-rule-text {
+  background: var(--editor);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  max-height: 230px;
+  padding: 8px;
+  margin: 5px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.6 ui-monospace, Menlo, monospace;
+}

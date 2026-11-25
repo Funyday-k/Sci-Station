@@ -1,0 +1,7081 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sci-Station · 本机 API",
+    "version": "1.0.0",
+    "description": "Sci-Station 本地圆桌服务。科研工作区入口为 /api/research/。"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:{port}",
+      "description": "仅当前 Mac；按实际圆桌监听端口设置。",
+      "variables": {
+        "port": {
+          "default": "18765",
+          "description": "圆桌服务端口，不是设置中的 magpie_port。"
+        }
+      }
+    },
+    {
+      "url": "http://localhost:{port}",
+      "description": "同一 loopback 服务的 localhost 别名。",
+      "variables": {
+        "port": {
+          "default": "18765"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "本机服务"
+    },
+    {
+      "name": "设置"
+    },
+    {
+      "name": "诊断"
+    },
+    {
+      "name": "项目"
+    },
+    {
+      "name": "执行"
+    },
+    {
+      "name": "文件"
+    },
+    {
+      "name": "导出"
+    }
+  ],
+  "paths": {
+    "/api/studio/cli-health": {
+      "get": {
+        "operationId": "getCLIHealth",
+        "summary": "检查已安装独立 CLI 的版本",
+        "tags": [
+          "诊断"
+        ],
+        "description": "只列初次安装探测时已核实的入口，再用短时版本命令检查能否启动。整个请求检查预算 18 秒，单条命令预算 5 秒。命令不执行安装、登录或模型请求。登录和模型能力不属于此检查。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CLIHealth"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/api/studio/clients": {
+      "get": {
+        "operationId": "getClients",
+        "tags": [
+          "诊断"
+        ],
+        "summary": "只读探测主流 CLI 的本机安装状态",
+        "description": "每次 GET 重新探测，不运行任何 CLI、Shell、安装器、版本或登录命令，不读取账户文件、不联网、不调用模型。搜索继承的 PATH、常见安装目录及有限的版本管理器路径；Codex/Cursor 使用已保存的自定义 CLI 路径。必要时仅检查安装布局、少量 package.json 名称或启动脚本以识别同名程序。非 Codex 的桌面 App 可执行文件不作为独立 CLI 安装证据。搜索不覆盖整个用户目录、Shell 别名或函数；not_found 不保证机器上完全没有安装。只有 Codex/Cursor 支持圆桌席位。主动验证两席版本和登录请 POST /api/studio/diagnostics；本路径没有 POST 或安装操作。",
+        "responses": {
+          "200": {
+            "description": "本次只读安装探测清单。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInventory"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "description": "只允许 GET；通过通用请求检查后，响应含 Allow: GET。",
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string",
+                  "const": "GET"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/diagnostics": {
+      "get": {
+        "operationId": "getDiagnostics",
+        "tags": [
+          "诊断"
+        ],
+        "summary": "读取诊断缓存，不主动检测",
+        "description": "只读本次服务进程内的最后结果；空缓存返回三个 unchecked 来源，checked_at 为空串。配置变化会令相关旧结果成为 unchecked。GET 不运行命令、不访问网关、不发送模型请求。",
+        "responses": {
+          "200": {
+            "description": "缓存诊断快照；没有启动命令、请求网关或调用模型。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "post": {
+        "operationId": "runDiagnostics",
+        "tags": [
+          "诊断"
+        ],
+        "summary": "主动预检网关与官方 CLI，可检查未保存设置",
+        "description": "同步预检：只读本机 Magpie /api/hello 与 /v1/models，运行官方 CLI --version、Codex login status、Cursor status --format json；不会执行登录、退出、推理或保存设置。Codex 使用 Magpie 时也检查网关且不依赖本机 Codex 登录。单条 CLI 命令最多 5 秒，总上下文期限 18 秒；超时通常在来源状态内返回。仅一个 POST 可同时运行。target=codex 且使用 magpie 时也更新 magpie 来源；其余未选来源保留各自缓存。原始命令输出、密钥和登录令牌不返回。 网关的 models_count 是有效全目录 ID 的去重总数，models 只含 Codex 候选；所选模型缺失时网关 warning、经网关运行的 Codex error，不自动切换直连。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticRequest"
+              },
+              "examples": {
+                "all": {
+                  "summary": "检测已保存的全部连接",
+                  "value": {}
+                },
+                "preview": {
+                  "summary": "不保存设置，预检 Codex 的 Magpie 路径",
+                  "value": {
+                    "target": "codex",
+                    "codex_transport": "magpie",
+                    "magpie_port": 3425,
+                    "models": {
+                      "codex": "gpt-6.2-sol"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "主动预检完成。连接、安装或登录检查失败也在 sources 内以 warning/error 报告；不代表推理已验证。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON 无效、未知字段、目标或覆盖设置无效，或请求超过 64 KiB。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "408": {
+            "description": "请求已取消且仍可响应；不覆盖上次诊断缓存。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "同一服务已有主动连接检测运行；等待完成后重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/discussion-presets": {
+      "get": {
+        "operationId": "getDiscussionPresets",
+        "summary": "只读列出讨论预设及其真实阶段规则",
+        "tags": [
+          "设置"
+        ],
+        "description": "返回 work、review、prioritize、forum。work 只有 work 阶段，其余各含 proposal/challenge/synthesis；instructions 来自 internal/deliberation/policy.go 中生成时实际使用的共享规则、场景与阶段指令。读取不调用模型、不执行 CLI、不保存设置。四预设及阶段为项目设计取舍，尚未评测本项目讨论质量。",
+        "responses": {
+          "200": {
+            "description": "四个预设与其阶段规则。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscussionPresets"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/api/studio/magpie-agent": {
+      "get": {
+        "operationId": "getMagpieAgentStatus",
+        "summary": "读取 Magpie 中的圆桌 Agent 状态",
+        "tags": [
+          "设置"
+        ],
+        "description": "读取本机安装和插件登记。已启用时用 Agent 的帮助命令验证 Magpie 能否加载它。连接配置可用时附 model 与 port。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagpieAgentStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "post": {
+        "operationId": "manageMagpieAgent",
+        "summary": "注册圆桌 Agent 或打开 Magpie",
+        "tags": [
+          "设置"
+        ],
+        "description": "注册须由已签名的桌面应用发起，由 Magpie 的插件安装流程登记内置 Agent。注册后在 Magpie 的 Agents 页面选择模型并连接；200 仍须查看 registered、connected 和 detail。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagpieAgentAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagpieAgentStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "502": {
+            "$ref": "#/components/responses/Gateway"
+          }
+        }
+      }
+    },
+    "/api/studio/models": {
+      "get": {
+        "operationId": "getStudioModels",
+        "summary": "读取本机 Magpie 模型目录",
+        "tags": [
+          "诊断"
+        ],
+        "description": "列出可参与圆桌的聊天模型与路由组，标识直接使用 Magpie 模型 ID。读取当前连接，不发起推理。成功的空目录返回 200；连接或目录错误返回 502。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDirectory"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "502": {
+            "$ref": "#/components/responses/Gateway"
+          }
+        }
+      }
+    },
+    "/api/studio/open-rules": {
+      "post": {
+        "operationId": "openStudioDiscussionRules",
+        "summary": "在桌面打开讨论规则文件",
+        "tags": [
+          "设置"
+        ],
+        "description": "将当前生效的规则写成只读 Markdown，并用 macOS 的默认文本编辑器打开。提交 {}。若文件已生成但无法打开，响应可同时含 path 与 error。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "应用数据目录中的 discussion-rules.md 绝对路径。"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "description": "需要已连接原生选择器的桌面实例，或 macOS 打开命令失败。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "501": {
+            "description": "当前平台不支持打开桌面规则文件。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/pick-project": {
+      "post": {
+        "operationId": "pickProject",
+        "summary": "打开 Mac App 文件夹选择器",
+        "tags": [
+          "项目"
+        ],
+        "description": "需要已连接原生选择器的桌面应用。选择器不可用返回 409。不会创建会话或请求模型；取消选择的返回取决于原生选择器。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "请求体不被读取；建议仍传空 JSON 对象 {}。Content-Type 与 X-Roundtable 请求头始终必需。"
+        }
+      }
+    },
+    "/api/studio/plugins": {
+      "get": {
+        "operationId": "getStudioPlugins",
+        "summary": "查看插件来源与市场状态",
+        "tags": [
+          "设置"
+        ],
+        "description": "返回订阅来源、可用插件和已安装插件。",
+        "responses": {
+          "200": {
+            "description": "插件市场视图。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginMarketView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      },
+      "post": {
+        "operationId": "manageStudioPlugins",
+        "summary": "管理插件来源与安装状态",
+        "tags": [
+          "设置"
+        ],
+        "description": "按 action 执行 subscribe、refresh、unsubscribe、install、enable、disable 或 uninstall。install 请求必须明确提交 grants；成功返回插件市场 View。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginManagementRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的插件市场视图。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginMarketView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/studio/plugins/save-output": {
+      "post": {
+        "operationId": "saveStudioPluginOutput",
+        "summary": "通过系统保存窗口保存插件输出",
+        "tags": [
+          "设置"
+        ],
+        "description": "filename 仅作为建议文件名；保存路径只能由用户在系统对话框中选择。用户取消返回 saved:false。无可用桌面保存窗口返回 browser_download:true，调用者使用标准浏览器下载。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSaveOutputRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "系统保存结果或浏览器下载回退指示。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PluginSaveOutputResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PluginBrowserDownloadFallback"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/studio/projects": {
+      "get": {
+        "operationId": "getStudioProjects",
+        "summary": "列出已登记项目",
+        "tags": [
+          "项目"
+        ],
+        "description": "读取圆桌的项目登记和每个项目已导入规则的数量。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Projects"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "post": {
+        "operationId": "registerStudioProject",
+        "summary": "登记本机项目文件夹",
+        "tags": [
+          "项目"
+        ],
+        "description": "验证本机文件夹并登记绝对路径，可再次提交同一目录。返回完整项目列表。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "项目文件夹的绝对路径。"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Projects"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/api/studio/projects/import": {
+      "get": {
+        "operationId": "getProjectImportCandidates",
+        "summary": "发现可导入的本机项目",
+        "tags": [
+          "项目"
+        ],
+        "description": "从圆桌、Codex、Claude Code、Cursor CLI 和 Cursor 桌面工作区的已知记录查找可验证的本机项目目录。返回候选及来源。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCandidates"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "post": {
+        "operationId": "importStudioProjects",
+        "summary": "预览或保存选定的项目规则",
+        "tags": [
+          "项目"
+        ],
+        "description": "preview 接收路径并返回所识别规则的内容与摘要。apply 接收选中的项目及预览时的规则摘要，追加或更新已导入规则，并返回登记列表。项目文件保持原样；规则已变动返回 409。每个规则上限 32 KiB，每个项目已保存规则上限 24 个文件、64 KiB 上下文。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Projects"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProjectPreviews"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/projects/rules": {
+      "get": {
+        "operationId": "getStudioProjectRules",
+        "summary": "读取已登记项目的导入规则",
+        "tags": [
+          "项目"
+        ],
+        "description": "path 必须是项目列表返回的已登记绝对路径。返回当前启用的规则副本；原规则文件无需仍然存在。",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "description": "项目登记绝对路径。",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目与当前启用规则。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRulesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "post": {
+        "operationId": "disableStudioProjectRule",
+        "summary": "停用已导入规则版本",
+        "tags": [
+          "项目"
+        ],
+        "description": "提交已导入规则的 path 与 digest 以停用该版本；重复停用幂等。若同路径已被替换为另一版本，返回 409。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRuleDisableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的项目规则列表。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRulesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions": {
+      "get": {
+        "operationId": "listStudioSessions",
+        "summary": "列出项目圆桌",
+        "tags": [
+          "项目"
+        ],
+        "description": "返回可读取会话摘要和 unreadable_sessions 坏档列表。坏档逐条隔离，不阻塞其他会话；列表级存档访问/锁/写入错误返回 500。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadableSessionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createStudioSession",
+        "summary": "创建项目圆桌，暂不运行",
+        "tags": [
+          "项目"
+        ],
+        "description": "验证项目目录与 Magpie 型号并保存会话。使用 members 模式时异步请求首席拟议程。201 表示会话已保存，草拟状态和结果从会话读取。兼容 seats 省略或为空时使用 codex 与 cursor 的旧请求。 四种既有讨论预设均可接收 continuous 配置；创建仅保存 configured 状态，不会运行首轮。",
+        "responses": {
+          "201": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSession"
+              },
+              "examples": {
+                "configured": {
+                  "summary": "使用 Magpie 型号的新圆桌",
+                  "value": {
+                    "topic": "讨论当前方案",
+                    "project": "/absolute/path/to/project",
+                    "members": [
+                      {
+                        "model": "provider/model",
+                        "effort": "auto"
+                      }
+                    ],
+                    "preset": "review"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "getStudioSession",
+        "summary": "读取完整状态与行动记录",
+        "tags": [
+          "项目"
+        ],
+        "description": "轮询此接口观察异步运行。记录包含私有子代理任务／结果、完整写入意图、文件内容快照及本机路径；分享前自行检查。发现中断时标记失败，不自动重放。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "会话快照的实体标签，可在下一次轮询的 If-None-Match 请求头中原样回传。",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "description": "会话存档损坏或无法解析。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "unreadable_session": {
+                      "$ref": "#/components/schemas/UnreadableSession"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "unreadable_session"
+                  ]
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "会话未变化；本响应无内容。",
+            "headers": {
+              "ETag": {
+                "description": "当前会话快照的实体标签。",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        },
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "description": "上次响应的 ETag；匹配时返回 304，避免传输未变化的会话。",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/studio/sessions/{id}/agenda": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "post": {
+        "operationId": "changeStudioAgenda",
+        "summary": "更新议程或重试首席草拟",
+        "tags": [
+          "执行"
+        ],
+        "description": "提交当前 agenda_version 为 expected_version。add 提供 title，kind 可选；select、complete、reopen 提供 item_id。select 可带 kind 调整开放事项的类型。草拟失败后可用 draft 重试。已经在草拟或已经完成时，重复 draft 返回当前会话；普通更新遇到正在草拟、运行新轮或版本变化会产生 409。GET 会话可读取 agenda_draft_status 和议程内容。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgendaChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "议程已更新，返回完整会话。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "首席草拟请求的会话快照。查看 agenda_draft_status 区分刚接受、已在草拟或已完成。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/cancel": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "post": {
+        "operationId": "cancelStudioRound",
+        "summary": "停止当前请求并暂停持续批次",
+        "tags": [
+          "执行"
+        ],
+        "description": "幂等停止当前请求。持续推进正在运行时会暂停该批次，保留配置与已保存检查点；不会关闭会议或回滚已写入文件。GET 会话查看状态，再以 POST run 明确提交 continuous 对象开始新批次。",
+        "responses": {
+          "202": {
+            "description": "请求已接受；响应为快照，需 GET 轮询最终状态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "请求体不被读取；建议仍传空 JSON 对象 {}。Content-Type 与 X-Roundtable 请求头始终必需。"
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/export.md": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "exportStudioMarkdown",
+        "summary": "导出公开发言与文件差异",
+        "tags": [
+          "导出"
+        ],
+        "description": "Markdown 包含议题、绝对项目路径、状态、各轮公开发言和已应用差异；不作为项目备份。分享前检查私人内容。",
+        "responses": {
+          "200": {
+            "description": "Markdown 下载。",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=meeting-{id}.md"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/file": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "readProjectFile",
+        "summary": "读取文件和版本",
+        "tags": [
+          "文件"
+        ],
+        "description": "文件须为允许的 UTF-8 文本且至多 2 MiB。若父目录存在但目标文件不存在，返回 200、text 空串、version=missing；不自动创建目录。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FilePath"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "writeProjectFile",
+        "summary": "按版本真实写入项目文件",
+        "tags": [
+          "文件"
+        ],
+        "description": "这是实际磁盘写入，不是建议或暂存。先 GET 获取 version，再完整替换；新文件须 version=missing 且父目录已存在。版本变化返回 409；成功保留原换行及现有权限。允许用户在模型运行中显式保存，模型后续写入仍须版本检查。allow_edits 只约束模型写入。不会执行脚本、构建、删除文件或创建目录。外部编辑器不遵守服务锁，最终校验与替换之间的极短窗口不具备跨程序绝对原子比较保证。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/files": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectFiles",
+        "summary": "列出允许的项目文本文件",
+        "tags": [
+          "文件"
+        ],
+        "description": "排序的相对路径。最多 10000 可编辑文件／50000 遍历项；超限拒绝。隐藏文件、符号链接、依赖／构建树、凭据名称、二进制、不支持类型及大于 2 MiB 的文件被排除。目录不是完整项目文件树。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "files"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/members": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "getStudioSessionMembers",
+        "summary": "查看会议当前席位配置",
+        "tags": [
+          "执行"
+        ],
+        "description": "按原席位顺序返回实际使用的模型和思考强度。兼容旧会话的应用默认配置和已保存的单席覆盖。无需请求模型目录或启动推理。",
+        "responses": {
+          "200": {
+            "description": "当前席位配置。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Member"
+                      }
+                    }
+                  },
+                  "required": [
+                    "members"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "description": "会话存档不可读。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadableSessionError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "changeStudioSessionMember",
+        "summary": "更换一个席位的模型或思考强度",
+        "tags": [
+          "执行"
+        ],
+        "description": "从当前模型目录校验型号和思考强度。使用该席位的 version 作为 expected_version，省略的版本按 0 传。席位 ID、排序和既有轮次保存原状。后续轮次使用新配置；更换型号时，新型号使用独立的网关对话并接收共享公开记录，调整同一型号的思考强度时复用原网关对话。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberChange"
+              },
+              "example": {
+                "seat_id": "member-1",
+                "model": "provider/model",
+                "effort": "auto",
+                "expected_version": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的完整会话。相同的已保存配置可幂等重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "description": "对应席位已经更新、会议正在运行或起草、会议已关闭或已进入报告阶段。返回当前会话供核对。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "$ref": "#/components/schemas/Session"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "session"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "会话存档不可读。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadableSessionError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "无法读取本机 Magpie 模型目录。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/plugin-action": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "post": {
+        "operationId": "runStudioPluginAction",
+        "summary": "在会话上下文中运行插件动作",
+        "tags": [
+          "执行"
+        ],
+        "description": "提交插件与动作的版本及 SHA-256 标识。可选 from_round/to_round 只限定公开发言范围。响应提供 Markdown 或纯文本及建议文件名。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "插件动作文本结果。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginActionResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/report": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "post": {
+        "operationId": "manageStudioReport",
+        "summary": "完成会话并生成报告，或重试报告阶段",
+        "tags": [
+          "执行"
+        ],
+        "description": "action=finish 结束会话并生成报告；action=retry 重试指定报告 attempt。需提供当前 expected_round 与 agenda_version；retry 还需提供正整数 attempt。生成中返回 202；重复 finish 或同代 retry 已终结时返回 200。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "finish",
+                      "retry"
+                    ]
+                  },
+                  "expected_round": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "agenda_version": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "attempt": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "retry 必需；报告失败时的 attempt 编号。"
+                  }
+                },
+                "required": [
+                  "action",
+                  "expected_round",
+                  "agenda_version"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "action": {
+                          "const": "retry"
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "attempt"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已终结或幂等操作；返回完整会话快照。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "报告工作已接受；轮询会话状态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/report.md": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "exportStudioReport",
+        "summary": "导出会话最终报告",
+        "tags": [
+          "导出"
+        ],
+        "description": "下载报告 Markdown；报告尚未完成或不可用时返回 409。",
+        "responses": {
+          "200": {
+            "description": "Markdown 下载。",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=report-{id}.md"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/review": {
+      "get": {
+        "operationId": "getRevisionReview",
+        "summary": "审阅会话内一条精确匹配的已保存修订",
+        "tags": [
+          "文件"
+        ],
+        "description": "只在指定会话的主 agent Changes 和用户 UserChanges 实际修改记录中精确匹配 path、before、after；不采纳仅操作日志中的写入意图，不读取工作区，不接受任意差异文本。规范化所选历史 diff，返回该次新增/删除行数。即使同路径有很多后续修改也不自动选择较新版本。按需规范化和有界缓存，不随会话轮询重算全部历史。字符/字词指标由界面后台 Worker 另算：非空白 Unicode 字素簇、中文 Intl.Segmenter word-like 片段；比较每次修订的连续改变片段，包含文档源码语法。超预算不伪报估计。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionID"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "该会话已保存 Change.path 的原值；不是读取任意工作区文件的路径。 必须提供且只能出现一次，三项须精确匹配同一条实际修改记录。"
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "同一 Change.before 的原值，通常为修改前 SHA-256 或 missing。 必须提供且只能出现一次，三项须精确匹配同一条实际修改记录。"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "同一 Change.after 的原值，通常为修改后 SHA-256。 必须提供且只能出现一次，三项须精确匹配同一条实际修改记录。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "所选实际修订的规范化差异和行级增删。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "必需参数缺失、为空、重复，或查询串格式无效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "未找到该会话，或该会话中没有三项完全匹配的实际修订。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "只允许 GET；通过通用请求检查后，响应含 Allow: GET。",
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string",
+                  "const": "GET"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "保存的历史差异无法规范化；不会以当前文件或最新修订替代。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "已保存会话记录无法读取；不同于记录不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/run": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "post": {
+        "operationId": "runStudioRound",
+        "summary": "启动手动单轮或持续推进批次",
+        "tags": [
+          "执行"
+        ],
+        "description": "expected_round 必须等于当前 rounds.length；可选 agenda_version 须等于当前议程版本。省略 preset 时沿用会话预设及当前议程：实施事项使用 work，旧模板讨论事项使用自身预设与阶段，其他讨论使用会话只读预设（work 会话默认 review）。无预设、无议程的旧记录按 work/work。收束默认由首席执行，HTTP 202 表示已接受。 首席仍在草拟初始议程时返回 409。 可选 continuous 对象会明确启动一个新的自动批次；省略或 null 始终只运行手动单轮。目标完成后批次状态为 completed，但会议仍为 ready，须另行使用 report finish 才结束会议。target 若指定唯一席位 ID、模型标识或名称，自动轮次固定由该席执行；省略时沿用所选预设的席位规则。 material_ids 可选，用于向本轮席位提供指定的已上传材料；首次选择也会将材料关联到会话；省略兼容既有调用。AI 看板提议只在本席公开 say 成功且该轮完成后，按公开发言内容写入看板并记录来源席位与轮次。",
+        "responses": {
+          "202": {
+            "description": "请求已接受；响应为快照，需 GET 轮询最终状态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              },
+              "examples": {
+                "agenda": {
+                  "summary": "启动当前议程对应的一轮",
+                  "value": {
+                    "expected_round": 1,
+                    "agenda_version": 2
+                  }
+                },
+                "challenge": {
+                  "summary": "明确指定质疑阶段",
+                  "value": {
+                    "expected_round": 1,
+                    "preset": "review",
+                    "phase": "challenge"
+                  }
+                },
+                "continuous": {
+                  "summary": "启动一批持续推进",
+                  "value": {
+                    "expected_round": 0,
+                    "continuous": {
+                      "goal": "完成并核对部署说明",
+                      "criteria": "文档覆盖部署步骤和回滚条件",
+                      "max_rounds": 12,
+                      "summary_every": 4
+                    }
+                  }
+                },
+                "namedContinuous": {
+                  "summary": "持续推进时固定由指定席位执行",
+                  "value": {
+                    "expected_round": 3,
+                    "target": "member-2",
+                    "continuous": {
+                      "goal": "完成并核对部署说明"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/title": {
+      "post": {
+        "operationId": "generateSessionTitle",
+        "tags": [
+          "项目"
+        ],
+        "summary": "复用或由首席模型生成会话短标题",
+        "description": "必须提交 {}。已保存标题直接返回，否则使用首席模型请求短标题并保存，原始 topic 保持不变。标题生成不启动工作轮次或读取项目文件。读取会话或列表不会生成标题。未能生成标题返回 502，可从桌面会话菜单重试。请求最长 30 秒，受单次模型调用超时及请求取消约束。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionID"
+          },
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已保存的显示短标题；后续调用复用。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTitle"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求须为单个空 JSON 对象 {}；缺少请求体、null、未知字段、多个 JSON 或过长请求均无效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "未找到该会话。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "只支持 POST；通过通用请求保护后，响应含 Allow: POST。",
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string",
+                  "const": "POST"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "圆桌正在关闭，请稍后重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "首席模型 未能成功返回并保存标题；可从会话菜单显式重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "summary": "读取设置与 CLI 可用性",
+        "tags": [
+          "设置"
+        ],
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "post": {
+        "operationId": "updateSettings",
+        "summary": "部分更新并持久保存设置",
+        "tags": [
+          "设置"
+        ],
+        "description": "不会登录、安装 CLI 或发送模型请求。生效中的轮次保留开始时设置快照。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "读取本机服务标识",
+        "tags": [
+          "本机服务"
+        ],
+        "description": "不发送模型请求；desktop 字段描述应用技术栈，不表示当前必为嵌入窗口模式。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "const": "sci-station"
+                    },
+                    "version": {
+                      "const": 2
+                    },
+                    "desktop": {
+                      "const": "wails-v3"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version",
+                    "desktop"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/api/studio/materials": {
+      "post": {
+        "operationId": "uploadStudioMaterial",
+        "summary": "上传会议材料",
+        "tags": [
+          "项目"
+        ],
+        "description": "上传后返回材料元数据；每次必须且只能以 multipart/form-data 的 file 字段提交一个文件，单件上限 12 MiB。请求仍须 X-Roundtable: 1；若带 Origin，须与当前 localhost/127.0.0.1 服务 Host 精确同源。上传不会自动加入会话，须在创建会话或启动轮次时通过 material_ids 关联。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "单件不超过 12 MiB。"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "上传成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Material"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "description": "单件附件超过 12 MiB。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "500": {
+              "$ref": "#/components/responses/Internal"
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/materials/{id}/save": {
+      "post": {
+        "operationId": "saveStudioMaterial",
+        "summary": "通过系统保存窗口保存会议材料原件",
+        "tags": [
+          "项目"
+        ],
+        "description": "桌面圆桌使用此接口保存原始字节。请求只接受空对象，保存位置由用户在系统保存窗口中选择。取消返回 saved:false。浏览器或没有系统保存窗口时返回 browser_download:true，可用 GET 下载原件。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已保存、已取消或可使用浏览器下载。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "saved": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "saved"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "browser_download": {
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "browser_download"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/studio/materials/{id}": {
+      "get": {
+        "operationId": "downloadStudioMaterial",
+        "summary": "下载会议材料或预览栅格图片",
+        "tags": [
+          "项目"
+        ],
+        "description": "下载原始附件。HEAD 与 GET 相同但不返回响应正文。仅当 preview=1 且内容识别为 GIF、JPEG、PNG 或 WebP 时，以 inline 图片响应；其他内容仍作为 application/octet-stream 附件下载。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "preview",
+            "in": "query",
+            "required": false,
+            "description": "设为 1 请求栅格图片内联预览。",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "原始文件下载或支持的栅格图片预览。",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      },
+      "head": {
+        "operationId": "headStudioMaterial",
+        "summary": "检查会议材料下载响应",
+        "tags": [
+          "项目"
+        ],
+        "description": "只返回与 GET 相同的状态和响应头，不返回文件内容。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件存在。",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/board": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "post": {
+        "operationId": "editStudioBoard",
+        "summary": "保存主持人对议题板的编辑",
+        "tags": [
+          "执行"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "description": "对标题、模块、议题或指定观点及材料的批注分别提交当前版本。新增笔记使用稳定的 module_id ，可省略版本号。未提交的字段保留。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "rename_board",
+                      "add_note",
+                      "revise_module",
+                      "edit_agenda",
+                      "annotate_point",
+                      "annotate_material"
+                    ]
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+                  },
+                  "module_id": {
+                    "type": "string"
+                  },
+                  "item_id": {
+                    "type": "string"
+                  },
+                  "point_id": {
+                    "type": "string"
+                  },
+                  "material_id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "material_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "op": {
+                          "const": "add_note"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "module_id",
+                        "title",
+                        "body"
+                      ]
+                    },
+                    "else": {
+                      "required": [
+                        "expected_version"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "200": {
+            "description": "返回已保存的会话。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "内容已变化或会议已关闭。版本冲突时返回当前会话。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "$ref": "#/components/schemas/Session"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/sessions/{id}/board-presence": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SessionID"
+        }
+      ],
+      "get": {
+        "operationId": "getStudioBoardPresence",
+        "summary": "获取正在编辑议题板的席位光标",
+        "description": "返回本机服务当前的编辑预览。传上次收到的 seq，可等候此会话的新变化，最多约 4 秒。正式正文和来源保存在会话 board 中。",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "当前可见的临时候选快照。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "seq": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "cursors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "seat": {
+                            "type": "string"
+                          },
+                          "round": {
+                            "type": "integer"
+                          },
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "rename_board",
+                              "revise_module",
+                              "add_note"
+                            ]
+                          },
+                          "target_id": {
+                            "type": "string"
+                          },
+                          "field": {
+                            "type": "string",
+                            "enum": [
+                              "title",
+                              "body"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "offset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Unicode 码点偏移。"
+                          },
+                          "complete": {
+                            "type": "boolean",
+                            "description": "候选字段字符串已闭合，仍待发言提交。"
+                          },
+                          "base_version": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "title": {
+                            "type": "string",
+                            "description": "新增笔记且已收到完整标题时返回。"
+                          }
+                        },
+                        "required": [
+                          "seat",
+                          "round",
+                          "seq",
+                          "op",
+                          "target_id",
+                          "field",
+                          "text",
+                          "offset",
+                          "complete",
+                          "base_version"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "session_id",
+                    "seq",
+                    "cursors"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "可展示的错误说明；HTTP 状态码决定是否重试。"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Seat": {
+        "type": "string",
+        "pattern": "^(codex|cursor|member-[1-9][0-9]*)$",
+        "description": "会话内席位 ID。旧会话使用 codex 或 cursor；配置模型的会话使用 member-1 等 ID。"
+      },
+      "Version": {
+        "type": "string",
+        "pattern": "^(missing|[a-fA-F0-9]{64})$",
+        "description": "读取所得 SHA-256 内容版本；不存在的新文件为 missing。写入必须原样传回；这不是文件修改时间。"
+      },
+      "CLIInfo": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string",
+            "description": "发现的可执行文件绝对路径，或空值。"
+          },
+          "version": {
+            "type": "string",
+            "description": "可选；当前发现流程不启动客户端读取版本。"
+          }
+        },
+        "required": [
+          "available",
+          "path"
+        ]
+      },
+      "SeatMap": {
+        "type": "object",
+        "properties": {
+          "codex": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "$ref": "#/components/schemas/SeatMap",
+            "description": "早期固定席位的模型设置。桌面新圆桌按成员保存各席型号。"
+          },
+          "child_models": {
+            "$ref": "#/components/schemas/SeatMap",
+            "description": "早期固定席位的子代理型号设置。新圆桌子代理继承该席的型号与思考档位。"
+          },
+          "cli_paths": {
+            "$ref": "#/components/schemas/SeatMap",
+            "description": "早期固定席位的自定义 CLI 路径，安装和兼容诊断仍可读取。"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 1800,
+            "default": 180,
+            "description": "每次模型步骤调用的超时秒数，并非整轮总超时。"
+          },
+          "max_children": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 1,
+            "description": "每席每轮最多创建的私有只读子代理总数；不是并发数。"
+          },
+          "max_steps": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 40,
+            "default": 10,
+            "description": "每个父／子代理的协议调用步骤上限。"
+          },
+          "allow_edits": {
+            "type": "boolean",
+            "default": true,
+            "description": "控制 work 预设模型父代理写入；其他讨论预设的有效轮次值强制 false。用户的显式 POST file 不受此开关控制。"
+          },
+          "magpie_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "default": 3425,
+            "description": "本机 Magpie 默认端口与旧诊断的端口。已注册的圆桌 Agent 读取 Magpie 管理的连接端口。"
+          },
+          "appearance": {
+            "type": "string",
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ],
+            "default": "system"
+          },
+          "codex_transport": {
+            "type": "string",
+            "enum": [
+              "magpie",
+              "direct"
+            ],
+            "description": "早期 Codex CLI 接入配置，保留给兼容诊断接口。",
+            "default": "magpie"
+          },
+          "color_theme": {
+            "type": "string",
+            "enum": [
+              "iris",
+              "teal",
+              "amber",
+              "blue"
+            ],
+            "description": "界面配色，独立于 appearance 的浅色、深色或随系统设置。"
+          },
+          "text_size": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "large",
+              "extra-large"
+            ],
+            "default": "standard",
+            "description": "正文字号档位，独立于明暗模式和配色。"
+          }
+        },
+        "required": [
+          "models",
+          "child_models",
+          "cli_paths",
+          "timeout",
+          "max_children",
+          "max_steps",
+          "allow_edits",
+          "magpie_port",
+          "appearance",
+          "codex_transport",
+          "color_theme",
+          "text_size"
+        ]
+      },
+      "SettingsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Settings"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "cli_status": {
+                "type": "object",
+                "properties": {
+                  "codex": {
+                    "$ref": "#/components/schemas/CLIInfo"
+                  },
+                  "cursor": {
+                    "$ref": "#/components/schemas/CLIInfo"
+                  }
+                },
+                "required": [
+                  "codex",
+                  "cursor"
+                ]
+              }
+            },
+            "required": [
+              "cli_status"
+            ]
+          }
+        ]
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "$ref": "#/components/schemas/SeatMap",
+            "description": "早期固定席位的模型设置。桌面新圆桌按成员保存各席型号。"
+          },
+          "child_models": {
+            "$ref": "#/components/schemas/SeatMap",
+            "description": "早期固定席位的子代理型号设置。新圆桌子代理继承该席的型号与思考档位。"
+          },
+          "cli_paths": {
+            "$ref": "#/components/schemas/SeatMap",
+            "description": "早期固定席位的自定义 CLI 路径，安装和兼容诊断仍可读取。"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 1800,
+            "default": 180,
+            "description": "每次模型步骤调用的超时秒数，并非整轮总超时。"
+          },
+          "max_children": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 1,
+            "description": "每席每轮最多创建的私有只读子代理总数；不是并发数。"
+          },
+          "max_steps": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 40,
+            "default": 10,
+            "description": "每个父／子代理的协议调用步骤上限。"
+          },
+          "allow_edits": {
+            "type": "boolean",
+            "default": true,
+            "description": "控制 work 预设模型父代理写入；其他讨论预设的有效轮次值强制 false。用户的显式 POST file 不受此开关控制。"
+          },
+          "magpie_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "default": 3425,
+            "description": "本机 Magpie 默认端口与旧诊断的端口。已注册的圆桌 Agent 读取 Magpie 管理的连接端口。"
+          },
+          "appearance": {
+            "type": "string",
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ],
+            "default": "system"
+          },
+          "cli_status": {
+            "type": "object",
+            "description": "忽略此字段；仅响应中的 cli_status 有效。"
+          },
+          "codex_transport": {
+            "type": "string",
+            "enum": [
+              "magpie",
+              "direct"
+            ],
+            "description": "早期 Codex CLI 接入配置，保留给兼容诊断接口。",
+            "default": "magpie"
+          },
+          "color_theme": {
+            "type": "string",
+            "enum": [
+              "iris",
+              "teal",
+              "amber",
+              "blue"
+            ],
+            "description": "界面配色，独立于 appearance 的浅色、深色或随系统设置。"
+          },
+          "text_size": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "large",
+              "extra-large"
+            ],
+            "default": "standard",
+            "description": "正文字号档位，独立于明暗模式和配色。"
+          }
+        },
+        "description": "部分更新；省略项保持现值，席位映射按键合并。所有顶级值不可为 null；cli_status 可提交但会被忽略。模型标识最多 160 字节且不可含空白或 NUL；空模型会导致运行验证失败。自定义 CLI 路径须是已存在可执行文件的绝对路径，程序名需匹配席位。",
+        "additionalProperties": false
+      },
+      "File": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目内相对路径，使用 / 分隔。"
+          },
+          "text": {
+            "type": "string",
+            "description": "完整 UTF-8 内容；保留原始换行。"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": [
+          "path",
+          "text",
+          "version"
+        ]
+      },
+      "Change": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "before": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "after": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "diff": {
+            "type": "string",
+            "description": "统一差异文本；before/after 为内容版本，不是原文。"
+          }
+        },
+        "required": [
+          "path",
+          "before",
+          "after",
+          "diff"
+        ]
+      },
+      "Child": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "子代理在已有动作响应中转达的 CLI 名称。缺省表示未提供名称。"
+          },
+          "nickname": {
+            "type": "string",
+            "description": "存档中的子代理 CLI 昵称。"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "存档中的子代理 CLI 显示名称。"
+          },
+          "task": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "error"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effort": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "task",
+          "model",
+          "status",
+          "text",
+          "error"
+        ]
+      },
+      "Turn": {
+        "type": "object",
+        "properties": {
+          "seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "model": {
+            "type": "string",
+            "description": "发起本轮该席请求时冻结的型号。显示历史发言时使用此值。"
+          },
+          "model_label": {
+            "type": "string",
+            "description": "本轮冻结的模型显示名；旧发言可省略。"
+          },
+          "model_source": {
+            "type": "string",
+            "description": "本轮冻结的来源；旧发言可省略。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "error"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "仅最终 say 是公开发言；行动步骤不拼成正文。"
+          },
+          "error": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Child"
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            }
+          },
+          "reads": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/File"
+            }
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "proposed_agenda_updates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgendaProposal"
+            },
+            "maxItems": 3,
+            "description": "每席在当前轮提出、尚未收轮提交的议程变更。"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscussionPoint"
+            },
+            "description": "该公开发言明确提出的新观点；不表示其他席的态度。"
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Position"
+            },
+            "description": "该席对本轮可见观点的明确立场；沉默不代表赞成。"
+          }
+        },
+        "required": [
+          "seat",
+          "model",
+          "status",
+          "text",
+          "error",
+          "children",
+          "changes",
+          "reads"
+        ]
+      },
+      "Round": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "note": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Seat"
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "点名本场席位。通常省略时运行所有席位，收束默认只运行首席。"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Turn"
+            }
+          },
+          "settings": {
+            "$ref": "#/components/schemas/RoundSettings"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPresetID"
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "本轮冻结的预设，可选以兼容旧存档；旧记录缺少或为空时按项目协作解释。"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPhaseID"
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "本轮冻结的阶段，可选以兼容旧存档；新轮记录规范化后的有效阶段。"
+          },
+          "agenda_item_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "proposed_followups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgendaInput"
+            },
+            "maxItems": 3,
+            "description": "成功收束持久化前的暂存建议。可用待办随会话 agenda 返回。"
+          },
+          "project_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRuleReference"
+            },
+            "description": "新轮次固定使用的项目规则版本快照；无规则时为空数组，兼容旧轮次可省略。"
+          },
+          "auto": {
+            "type": "boolean",
+            "description": "true 表示持续推进器自动创建的轮次；手动轮次或旧存档可省略。"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/ContinuousCheckpoint",
+            "description": "该轮持久化的滚动摘要快照；旧轮次或非摘要轮可省略。"
+          },
+          "plugin_guidance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoundPluginGuidance"
+            },
+            "description": "本轮开始时保存的讨论阶段插件指导版本快照；所有启用的指导合计至多 8 KiB；旧轮次可省略。"
+          },
+          "material_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "description": "本轮启动时选择并提供给席位的材料 ID；旧轮次可省略。"
+          }
+        },
+        "required": [
+          "number",
+          "note",
+          "target",
+          "created_at",
+          "turns",
+          "settings"
+        ]
+      },
+      "RoundSettings": {
+        "type": "object",
+        "properties": {
+          "model_epochs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "按席位 ID 冻结的模型代次。未换过模型的席位省略。"
+          },
+          "catalog_model_ids": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "按席位 ID 标记本轮使用完整目录 ID 的配置。"
+          },
+          "models": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "按会话席位 ID 映射型号。"
+          },
+          "child_models": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "按会话席位 ID 映射型号。"
+          },
+          "cli_paths": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SeatMap"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "早期会话的路径快照。使用模型配置的新会话返回 null。"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 1800,
+            "default": 180,
+            "description": "每一次父／子代理 CLI 调用的超时秒数，并非整轮总超时。"
+          },
+          "max_children": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 1,
+            "description": "每席每轮最多创建的私有只读子代理总数；不是并发数。"
+          },
+          "max_steps": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 40,
+            "default": 10,
+            "description": "每个父／子代理的协议调用步骤上限。"
+          },
+          "allow_edits": {
+            "type": "boolean",
+            "default": true,
+            "description": "控制 work 预设模型父代理写入；其他讨论预设的有效轮次值强制 false。用户的显式 POST file 不受此开关控制。"
+          },
+          "codex_transport": {
+            "type": "string",
+            "enum": [
+              "magpie",
+              "direct"
+            ],
+            "description": "保留的早期 Codex 路径配置；新模型圆桌使用 magpie。",
+            "default": "magpie"
+          },
+          "magpie_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "本轮设置快照中的端口。已注册的网关连接使用 Magpie 管理的配置。"
+          },
+          "efforts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "本轮开始时冻结的席位模型与执行限制。旧记录可省略部分连接字段。",
+        "required": [
+          "models",
+          "child_models",
+          "cli_paths",
+          "timeout",
+          "max_children",
+          "max_steps",
+          "allow_edits"
+        ]
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "description": "created、round_started、seat_started、read、write_intent、write、write_failed、child_started、child_read、child_done、child_error、seat_done、seat_error、action_error、cancel_requested、round_finished、recovered、write_outcome_unknown、user_write_intent、user_write、user_write_failed 等；可扩展。"
+          },
+          "seat": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "round": {
+            "type": "integer"
+          },
+          "child_id": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "seat",
+          "detail",
+          "at"
+        ]
+      },
+      "Operation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "seat": {
+            "type": "string"
+          },
+          "round": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "expected_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "text": {
+            "type": "string",
+            "description": "拟写入的完整内容。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "applied",
+              "error",
+              "unknown"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "change": {
+            "$ref": "#/components/schemas/Change"
+          }
+        },
+        "required": [
+          "id",
+          "seat",
+          "round",
+          "path",
+          "expected_version",
+          "text",
+          "status"
+        ]
+      },
+      "UserChange": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "change": {
+            "$ref": "#/components/schemas/Change"
+          }
+        },
+        "required": [
+          "at",
+          "change"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "首席模型生成并保存的显示短标题。可省略；原始 topic 保持原样。",
+            "maxLength": 48
+          },
+          "project": {
+            "type": "string",
+            "description": "所选项目的绝对路径；会写入本机记录与导出文件。"
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "running",
+              "partial",
+              "closed"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rounds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Round"
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "cancel_requested": {
+            "type": "boolean"
+          },
+          "user_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserChange"
+            }
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Operation"
+            }
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "description": "当前模型席位配置，按初始席位顺序保存。旧式固定席位会话可省略；完整实际配置可通过 GET members 读取。"
+          },
+          "seat_overrides": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "description": "旧式固定席位会话中，主持人改过的席位配置按席位 ID 保存。"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPresetID"
+              },
+              {
+                "const": ""
+              }
+            ]
+          },
+          "agenda": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgendaItem"
+            },
+            "maxItems": 96
+          },
+          "active_agenda_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "agenda_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "agenda_draft_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "drafting",
+              "ready",
+              "failed"
+            ],
+            "description": "首席草拟状态。会话仍在草拟时禁止启动轮次。失败时可重试或直接开始讨论。旧会话可省略。"
+          },
+          "agenda_draft_error": {
+            "type": "string",
+            "description": "首席草拟失败或中断时的说明。"
+          },
+          "report": {
+            "$ref": "#/components/schemas/Report"
+          },
+          "continuous": {
+            "$ref": "#/components/schemas/ContinuousState",
+            "description": "旧会话可省略；仅配置或启动过持续推进时返回。"
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            },
+            "description": "本会话已关联材料；旧存档可省略。"
+          },
+          "board": {
+            "$ref": "#/components/schemas/MeetingBoard",
+            "description": "共享看板；材料模块和便笺可引用本会话的材料。"
+          }
+        },
+        "required": [
+          "id",
+          "topic",
+          "project",
+          "seats",
+          "status",
+          "created_at",
+          "updated_at",
+          "rounds",
+          "events",
+          "cancel_requested",
+          "user_changes",
+          "operations",
+          "preset",
+          "agenda_version",
+          "materials",
+          "board"
+        ]
+      },
+      "SessionSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "首席模型生成并保存的显示短标题。可省略；原始 topic 保持原样。",
+            "maxLength": 48
+          },
+          "project": {
+            "type": "string"
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "running",
+              "partial",
+              "closed"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "round_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            }
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPresetID"
+              },
+              {
+                "const": ""
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "topic",
+          "project",
+          "seats",
+          "status",
+          "created_at",
+          "updated_at",
+          "round_count",
+          "preset"
+        ]
+      },
+      "CreateSession": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "非空；最多 12000 个 Unicode codepoints。",
+            "maxLength": 12000,
+            "minLength": 1
+          },
+          "project": {
+            "type": "string",
+            "description": "必须显式选择的绝对目录；不可是根目录、整个用户目录或其祖先，且路径各级不可是符号链接。"
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "cursor"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 0,
+            "maxItems": 2,
+            "default": [
+              "codex",
+              "cursor"
+            ]
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberSelection"
+            },
+            "minItems": 1
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPresetID"
+              },
+              {
+                "const": ""
+              }
+            ]
+          },
+          "agenda": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240,
+                  "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+                },
+                {
+                  "$ref": "#/components/schemas/AgendaInput"
+                }
+              ]
+            },
+            "maxItems": 24
+          },
+          "continuous": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContinuousConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选持续推进配置；须使用 members 创建方式。只配置模式，不在创建时启动模型。"
+          },
+          "material_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "maxItems": 12,
+            "description": "可选，关联已上传的材料；每个请求最多 12 个 ID，重复项会折叠。创建时绑定到会话；运行时绑定到会话并仅作为本轮材料优先提供。省略保持旧请求行为。"
+          }
+        },
+        "required": [
+          "topic",
+          "project"
+        ],
+        "additionalProperties": false,
+        "description": "桌面创建提交 members，由 Magpie 目录校验型号和思考档位。按顺序分配席位，首项为首席。可用 agenda 提交既定事项作为首席草拟上下文，未提交时首席按议题拟议程。提交 members 时须省略 seats 或提供空列表；早期固定席位的请求不能指定非空 agenda 或 preset。 continuous 仅能与 members 配置席位模式一起提交；只预配置状态，不自动发起首轮。",
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "members"
+              ]
+            },
+            "then": {
+              "properties": {
+                "seats": {
+                  "maxItems": 0
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "preset": {
+                  "const": ""
+                },
+                "agenda": {
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "continuous": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "continuous"
+              ]
+            },
+            "then": {
+              "required": [
+                "members"
+              ],
+              "properties": {
+                "seats": {
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RunRequest": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "本轮追加指令，最多 12000 个 Unicode codepoints。",
+            "maxLength": 12000
+          },
+          "target": {
+            "type": "string",
+            "description": "本场席位 ID、唯一对应的模型标识或显示名称。省略时按预设选择席位；持续推进批次若显式指定 target，自动轮次固定使用该席位。"
+          },
+          "expected_round": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "当前 rounds.length；新会话为 0。过期值返回 409。"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPresetID"
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "省略或为空时取会话或当前议程指定的默认预设。"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscussionPhaseID"
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "省略可沿用预设模板的当前议程阶段，其他情况按有效预设决定。"
+          },
+          "agenda_version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "可选，需等于当前 agenda_version。过期值返回 409。"
+          },
+          "allow_edits": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "false 强制本轮只读；true 仍受全局设置和 work 预设限制。省略或 null 沿用旧默认。实际生效值回显于 rounds[].settings.allow_edits。"
+          },
+          "continuous": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContinuousConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "提供对象即明确启动一批持续推进；省略或 null 只运行本次手动单轮，不自动续跑。若与上批目标和验收条件相同则沿用滚动检查点；新批次仍受该配置 max_rounds 限制。"
+          },
+          "material_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "maxItems": 12,
+            "description": "可选，关联已上传的材料；每个请求最多 12 个 ID，重复项会折叠。创建时绑定到会话；运行时绑定到会话并仅作为本轮材料优先提供。省略保持旧请求行为。"
+          }
+        },
+        "required": [
+          "expected_round"
+        ],
+        "additionalProperties": false,
+        "description": "启动时保存议程焦点和有效预设。allow_edits=false 强制只读；true 仍受全局设置和 work 预设约束。 四种既有讨论预设都可启用持续推进。省略或 null 的 continuous 始终为手动单轮。",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "preset": {
+                  "const": "work"
+                }
+              },
+              "required": [
+                "preset"
+              ]
+            },
+            "then": {
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "",
+                    "work"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "review",
+                    "prioritize",
+                    "forum"
+                  ]
+                }
+              },
+              "required": [
+                "preset"
+              ]
+            },
+            "then": {
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "",
+                    "proposal",
+                    "challenge",
+                    "synthesis"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "WriteRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "description": "完整替换内容，最多 2 MiB UTF-8 字节。"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": [
+          "path",
+          "text",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "CLIAction": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "read"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "path"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "write"
+              },
+              "path": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "path",
+              "text"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "delegate"
+              },
+              "task": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "task"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "say"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "followups": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgendaInput"
+                },
+                "description": "收束父席可提出后续讨论或实施事项；成功轮次保存去重后的至多三项。"
+              },
+              "agenda_updates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgendaUpdateInput"
+                },
+                "description": "公开发言可以提议增加或修改事项。每席最多保存三项有效提案，成功收轮后按顺序应用。"
+              }
+            },
+            "required": [
+              "action",
+              "text"
+            ]
+          }
+        ],
+        "description": "内部模型输出协议，仅用于说明执行边界；不是可直接 POST 的 HTTP 端点。父代理可 read/write/delegate/say；子代理只可 read/say。"
+      },
+      "DiagnosticRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "必需提供单个 JSON 对象，上限 64 KiB。省略覆盖字段时使用已保存设置。任一覆盖字段为非 null（包括空映射）时 preview=true；不保存设置。target 的 null/空串等同 all。",
+        "properties": {
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "all",
+              "magpie",
+              "codex",
+              "cursor",
+              "",
+              null
+            ],
+            "default": "all",
+            "description": "检测目标。Codex 使用 magpie 路径时，target=codex 也检查 Magpie。"
+          },
+          "magpie_port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "本次预检覆盖的本机网关端口。null 使用已保存设置。"
+          },
+          "codex_transport": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "magpie",
+              "direct",
+              null
+            ],
+            "description": "本次预检的 Codex 请求路径。null 使用已保存设置。"
+          },
+          "models": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "codex": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 160,
+                "pattern": "^[^ \\r\\n\\t\\u0000]*$",
+                "description": "主模型标识，至多 160 个 UTF-8 字节；禁止空格、CR、LF、Tab、NUL。null 等同空串。"
+              },
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 160,
+                "pattern": "^[^ \\r\\n\\t\\u0000]*$",
+                "description": "主模型标识，至多 160 个 UTF-8 字节；禁止空格、CR、LF、Tab、NUL。null 等同空串。"
+              }
+            },
+            "additionalProperties": false,
+            "description": "只覆盖给出的席位；null 不覆盖。空对象也会令 preview=true。"
+          },
+          "cli_paths": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "codex": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 4096,
+                "pattern": "^(?:|/(?:.*/)?codex)$",
+                "description": "至多 4096 个 UTF-8 字节的官方程序绝对路径；空串或 null 自动发现。"
+              },
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 4096,
+                "pattern": "^(?:|/(?:.*/)?(?:agent|cursor-agent))$",
+                "description": "至多 4096 个 UTF-8 字节的官方程序绝对路径；空串或 null 自动发现。"
+              }
+            },
+            "additionalProperties": false,
+            "description": "只覆盖给出的席位；null 不覆盖。只检查绝对路径和官方程序名，不要求程序已安装；未发现程序记入来源状态。"
+          }
+        }
+      },
+      "DiagnosticSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "title",
+          "detail"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "unchecked",
+              "ready",
+              "warning",
+              "error"
+            ],
+            "description": "预检状态；ready 只表示所述项目通过，未验证推理、实时额度、CLI 模型可用性或工具兼容性。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "该来源上次主动检测的 UTC 时间；未检测时省略。设置改变后可保留旧时间，但 state=unchecked。"
+          },
+          "version": {
+            "type": "string",
+            "description": "已识别的官方 CLI 或 Magpie 版本；无法核实时省略。"
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "magpie",
+              "direct"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "description": "所选主模型；Magpie 使用 codex/ 前缀的目录 ID。"
+          },
+          "login_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "logged_in",
+              "not_logged_in"
+            ]
+          },
+          "auth_method": {
+            "type": "string",
+            "enum": [
+              "chatgpt",
+              "account",
+              "api_key"
+            ],
+            "description": "仅返回登录类型，不含凭据。无法核实时省略。"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "models_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "有效网关目录 ID 的去重总数，包含其他来源及路由分组；不是 models 候选数。为零时省略。"
+          },
+          "models": {
+            "type": "array",
+            "maxItems": 10000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "仅 Codex 型号候选：网关中符合 codex/单个模型标识 格式的完整 ID；不包括其他来源或路由分组。无候选时省略，长度可小于 models_count。"
+          },
+          "model_available": {
+            "type": "boolean",
+            "description": "所选 Codex 模型是否在有效网关目录中。缺失时 Magpie 来源为 warning，走该网关路径的 Codex 为 error；网关在线不代表所选模型可用。未验证推理。"
+          }
+        }
+      },
+      "DiagnosticResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checked_at",
+          "sources",
+          "preview"
+        ],
+        "properties": {
+          "checked_at": {
+            "type": "string",
+            "anyOf": [
+              {
+                "const": ""
+              },
+              {
+                "format": "date-time"
+              }
+            ],
+            "description": "上次 POST 主动检测的 UTC 时间；从未检测时为空串。未选来源有各自的旧时间。"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "magpie",
+              "codex",
+              "cursor"
+            ],
+            "properties": {
+              "magpie": {
+                "$ref": "#/components/schemas/DiagnosticSource"
+              },
+              "codex": {
+                "$ref": "#/components/schemas/DiagnosticSource"
+              },
+              "cursor": {
+                "$ref": "#/components/schemas/DiagnosticSource"
+              }
+            }
+          },
+          "preview": {
+            "type": "boolean",
+            "description": "上次 POST 是否提供非 null 的预检覆盖字段。GET 不重置；初始值 false。预检没有保存设置。"
+          }
+        },
+        "description": "本次服务运行期间保留的内存快照，重启不保留。GET 将相关配置已变化的来源标为 unchecked。部分检测保留未选来源的缓存。"
+      },
+      "CLIClient": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "installed",
+          "command",
+          "seat",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "客户端稳定标识。目前为 codex、cursor、claude、gemini、copilot、opencode、qwen、aider、kimi、pi、amp、droid。"
+          },
+          "name": {
+            "type": "string",
+            "description": "客户端显示名称。"
+          },
+          "installed": {
+            "type": "boolean",
+            "description": "只有 state=installed 时为 true；not_found 或 unverified 均为 false。不代表已登录、版本已核实或模型可用。"
+          },
+          "path": {
+            "type": "string",
+            "description": "找到的可执行入口路径。not_found 时通常省略；unverified 可返回待核实候选路径。"
+          },
+          "command": {
+            "type": "string",
+            "description": "客户端首选命令名；Cursor 为 agent，亦搜索 cursor-agent。"
+          },
+          "seat": {
+            "type": "boolean",
+            "description": "早期固定席位标志，只有 Codex 与 Cursor 为 true。桌面新圆桌席位从 Magpie 目录选择。"
+          },
+          "install_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "官方安装说明链接；API 不会自动打开链接或安装。"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "installed",
+              "not_found",
+              "unverified"
+            ],
+            "description": "installed=已找到可执行程序并通过必要身份检查；not_found=当前范围未找到；unverified=同名候选身份未核实。"
+          }
+        }
+      },
+      "ClientInventory": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clients",
+          "checked_at"
+        ],
+        "properties": {
+          "clients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CLIClient"
+            }
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "本次只读探测的 UTC 时间，每次 GET 更新。"
+          }
+        },
+        "description": "本机 CLI 安装清单，不是诊断缓存，不证明登录状态。"
+      },
+      "Review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "diff",
+          "added",
+          "removed"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "完全匹配的已保存修改路径。"
+          },
+          "diff": {
+            "type": "string",
+            "description": "将该次保存差异规范化后的 unified diff；不读取当前工作区，也不替换为较新修订。无内容变化时为空串。"
+          },
+          "added": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "该次修订新增行数；不是字符或字词数。"
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "该次修订删除行数；不是字符或字词数。"
+          }
+        },
+        "description": "以所选 Change.before → Change.after 为基数的真实修订，不累计其他历史。界面按需在后台 Worker 计算文档字符／字词指标，独立于本响应。"
+      },
+      "SessionTitle": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "已保存或本次成功由首席模型生成的短标题。",
+            "minLength": 1,
+            "maxLength": 48
+          }
+        }
+      },
+      "DiscussionPresetID": {
+        "type": "string",
+        "enum": [
+          "work",
+          "review",
+          "prioritize",
+          "forum"
+        ],
+        "description": "项目协作／方案评审／优先级排序／多方权衡。只有 work 允许在编辑开关与版本检查通过后写项目文件。"
+      },
+      "DiscussionPhaseID": {
+        "type": "string",
+        "enum": [
+          "work",
+          "proposal",
+          "challenge",
+          "synthesis"
+        ],
+        "description": "work 预设仅 work；其他预设支持 proposal、challenge、synthesis。"
+      },
+      "DiscussionPhase": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "instructions"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DiscussionPhaseID"
+          },
+          "label": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "policy.go 维护并实际使用的完整共享规则、场景与阶段指令，不是独立于执行的说明副本。"
+          }
+        }
+      },
+      "DiscussionPreset": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "phases"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DiscussionPresetID"
+          },
+          "label": {
+            "type": "string"
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscussionPhase"
+            }
+          }
+        }
+      },
+      "DiscussionPresets": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "presets"
+        ],
+        "properties": {
+          "presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscussionPreset"
+            }
+          }
+        },
+        "description": "只读返回 work、review、prioritize、forum 及其有效阶段，不保存设置、不调用模型。"
+      },
+      "DirectoryModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "efforts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "含 auto 和 Magpie 公布的可选程度。auto 省略模型推理参数。"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "source",
+          "endpoints",
+          "efforts"
+        ],
+        "additionalProperties": false
+      },
+      "ModelDirectory": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryModel"
+            }
+          },
+          "default_model": {
+            "type": "string",
+            "description": "Magpie 为圆桌连接的模型 ID，仅在当前模型目录中可见时返回。否则为空字符串。"
+          }
+        },
+        "required": [
+          "models",
+          "default_model"
+        ],
+        "additionalProperties": false
+      },
+      "CLIHealthEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "installed",
+          "command",
+          "seat",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "客户端稳定标识。目前为 codex、cursor、claude、gemini、copilot、opencode、qwen、aider、kimi、pi、amp、droid。"
+          },
+          "name": {
+            "type": "string",
+            "description": "客户端显示名称。"
+          },
+          "installed": {
+            "const": true,
+            "description": "仅返回初次探测时确认已安装的条目。"
+          },
+          "path": {
+            "type": "string",
+            "description": "探测到的入口路径。"
+          },
+          "command": {
+            "type": "string",
+            "description": "客户端首选命令名；Cursor 为 agent，亦搜索 cursor-agent。"
+          },
+          "seat": {
+            "type": "boolean",
+            "description": "早期固定席位标志，只有 Codex 与 Cursor 为 true。桌面新圆桌席位从 Magpie 目录选择。"
+          },
+          "install_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "官方安装说明链接；API 不会自动打开链接或安装。"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "check_failed",
+              "unverified"
+            ],
+            "description": "ready 为版本命令返回且版本可识别；check_failed 为运行失败、超时或输出无法识别；unverified 为执行时未能复核入口或跳过已知不安全的版本检查。"
+          },
+          "version": {
+            "type": "string",
+            "description": "可识别的版本号，仅 ready 时出现。"
+          }
+        }
+      },
+      "CLIHealth": {
+        "type": "object",
+        "properties": {
+          "clients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CLIHealthEntry"
+            }
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "clients",
+          "checked_at"
+        ],
+        "additionalProperties": false
+      },
+      "MagpieAgentStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "const": "roundtable"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "registered": {
+            "type": "boolean",
+            "description": "Magpie CLI 能加载已启用的圆桌 Agent 并返回其帮助。"
+          },
+          "connected": {
+            "type": "boolean",
+            "description": "Magpie 写入的连接配置有效；未通过真实推理来验证。"
+          },
+          "can_install": {
+            "type": "boolean"
+          },
+          "can_open": {
+            "type": "boolean"
+          },
+          "restart_required": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "installed",
+          "enabled",
+          "registered",
+          "connected",
+          "can_install",
+          "can_open",
+          "restart_required",
+          "detail"
+        ],
+        "additionalProperties": false
+      },
+      "MagpieAgentAction": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "",
+              "install",
+              "open"
+            ],
+            "description": "省略、空串或 install 为注册内置插件；open 打开 Magpie App。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目文件夹的绝对路径。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rule_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "rule_count"
+        ],
+        "additionalProperties": false
+      },
+      "Projects": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            }
+          }
+        },
+        "required": [
+          "projects"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectCandidate": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目文件夹的绝对路径。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "sources"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectCandidates": {
+        "type": "object",
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectCandidate"
+            }
+          }
+        },
+        "required": [
+          "candidates"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectRuleReference": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "识别到的项目内规则文件相对路径。"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "预览时文件字节的 SHA-256。"
+          }
+        },
+        "required": [
+          "path",
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectRulePreview": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "识别到的项目内规则文件相对路径。"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "预览时文件字节的 SHA-256。"
+          },
+          "source": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "imported": {
+            "type": "boolean",
+            "description": "应用已保存相同相对路径及摘要的规则。"
+          }
+        },
+        "required": [
+          "path",
+          "digest",
+          "source",
+          "text",
+          "imported"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectPreview": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目文件夹的绝对路径。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRulePreview"
+            },
+            "maxItems": 64
+          },
+          "omitted": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "因预览范围达到上限而未返回的已识别规则数。"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "rules",
+          "omitted"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectPreviews": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectPreview"
+            }
+          }
+        },
+        "required": [
+          "projects"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectImportSelection": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目文件夹的绝对路径。"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRuleReference"
+            },
+            "maxItems": 24
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectImport": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "preview"
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "项目文件夹的绝对路径。"
+                },
+                "minItems": 1,
+                "maxItems": 12
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProjectImportSelection"
+                }
+              }
+            },
+            "required": [
+              "action",
+              "paths"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "apply"
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "项目文件夹的绝对路径。"
+                }
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProjectImportSelection"
+                },
+                "minItems": 1,
+                "maxItems": 12
+              }
+            },
+            "required": [
+              "action",
+              "selections"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "此席位配置版本。省略时按 0；实际保存新配置时递增。"
+          },
+          "model_epoch": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "此席位更换型号的代次；同一型号调整思考强度时沿用该代次。初始代次 0 省略。"
+          },
+          "previous_model": {
+            "type": "string",
+            "description": "最近一次更换所接续的型号；初始配置可省略。"
+          },
+          "switched_after_round": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "最近一次更换时已存在的轮数；首轮前更换时省略。"
+          }
+        },
+        "required": [
+          "id",
+          "model",
+          "label",
+          "source",
+          "effort"
+        ],
+        "additionalProperties": false
+      },
+      "MemberChange": {
+        "type": "object",
+        "properties": {
+          "seat_id": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "description": "GET /api/studio/models 返回的当前型号 ID。"
+          },
+          "effort": {
+            "type": "string",
+            "minLength": 1,
+            "description": "该型号公布的思考档位，auto 也须显式传入。"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "该席位的当前版本。响应未返回 version 时传 0。"
+          }
+        },
+        "required": [
+          "seat_id",
+          "model",
+          "effort",
+          "expected_version"
+        ],
+        "additionalProperties": false
+      },
+      "MemberSelection": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effort": {
+            "type": "string",
+            "description": "必须由当前模型公布。省略或空字符串按 auto。"
+          },
+          "id": {
+            "type": "string",
+            "description": "如提供，应用仍按顺序分配 ID。"
+          },
+          "label": {
+            "type": "string",
+            "description": "应用采用 Magpie 的名称。"
+          },
+          "source": {
+            "type": "string",
+            "description": "应用采用 Magpie 的来源。"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "additionalProperties": false
+      },
+      "AgendaInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "discussion",
+                  "implementation"
+                ]
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "省略或为空时，创建或手动添加按会话预设决定类型。"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "AgendaItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "implementation"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "host",
+              "template",
+              "synthesis",
+              "chair",
+              "discussion"
+            ]
+          },
+          "source_round": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "讨论中生成事项的轮次。首席生成初始议程时可省略。"
+          },
+          "source_seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "source_model": {
+            "type": "string",
+            "description": "写入此议程来源的模型 ID；旧记录可省略。"
+          },
+          "source_model_label": {
+            "type": "string",
+            "description": "议程来源使用的历史模型显示名。"
+          },
+          "source_model_source": {
+            "type": "string",
+            "description": "议程来源使用的历史模型来源。"
+          },
+          "preset": {
+            "$ref": "#/components/schemas/DiscussionPresetID"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/DiscussionPhaseID"
+          },
+          "reason": {
+            "type": "string",
+            "description": "提议新增事项的公开原因。"
+          },
+          "revisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgendaRevision"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgendaCandidate"
+            },
+            "description": "同轮未胜出的有效修订提案；旧存档或无候选时省略。"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+          },
+          "edited_by": {
+            "type": "string",
+            "description": "最近修改议题标题的席位；user 表示主持人。原始来源保留在 source_seat。"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "AgendaChange": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "select",
+              "complete",
+              "reopen",
+              "draft",
+              "adopt_candidate",
+              "dismiss_candidate"
+            ]
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "item_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "discussion",
+                  "implementation"
+                ]
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "add 未指定类型时使用会话预设的默认类型。select 可附类型以改变未完成事项的讨论或实施意向。"
+          },
+          "candidate_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "待采用或忽略的 agenda item 候选 ID。"
+          }
+        },
+        "required": [
+          "action",
+          "expected_version"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "add"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "title"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "select",
+                    "complete",
+                    "reopen"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "item_id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "adopt_candidate",
+                    "dismiss_candidate"
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "required": [
+                "item_id",
+                "candidate_id"
+              ]
+            }
+          }
+        ]
+      },
+      "AgendaRevision": {
+        "type": "object",
+        "properties": {
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "previous_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+          },
+          "previous_kind": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "implementation"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "round",
+          "seat",
+          "previous_title",
+          "previous_kind",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "AgendaProposal": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "add",
+              "revise"
+            ]
+          },
+          "item_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "implementation"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320,
+            "description": "合并空白后的公开理由。"
+          },
+          "previous_title": {
+            "type": "string",
+            "description": "修订时由圆桌保存的原事项标题。"
+          },
+          "previous_kind": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "implementation"
+            ],
+            "description": "修订时由圆桌保存的原事项类型。"
+          }
+        },
+        "required": [
+          "op",
+          "title",
+          "reason",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "revise"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "item_id"
+              ]
+            }
+          }
+        ]
+      },
+      "AgendaUpdateInput": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "add",
+              "revise"
+            ]
+          },
+          "item_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "应用合并连续空白后检查长度，须为 1–240 个 Unicode 字符。"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "discussion",
+                  "implementation"
+                ]
+              },
+              {
+                "const": ""
+              }
+            ],
+            "description": "新增时省略或留空取会话预设的默认类型；修订时省略或留空沿用原事项类型。"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320,
+            "description": "合并空白后的公开理由。"
+          }
+        },
+        "required": [
+          "op",
+          "title",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "revise"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "item_id"
+              ]
+            }
+          }
+        ]
+      },
+      "UnreadableSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "path": {
+            "type": "string",
+            "description": "无法读取的会话存档绝对路径。"
+          },
+          "reason": {
+            "type": "string",
+            "description": "简短中文原因。"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "Report": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "drafting",
+              "reviewing",
+              "revising",
+              "ready",
+              "failed"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "review_mode": {
+            "type": "string",
+            "enum": [
+              "peer",
+              "same_model",
+              "self"
+            ]
+          },
+          "author_seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "author_model": {
+            "type": "string"
+          },
+          "reviewer_seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "reviewer_model": {
+            "type": "string"
+          },
+          "review_notes": {
+            "type": "string"
+          },
+          "source_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "纳入报告的公开发言数。"
+          },
+          "has_draft": {
+            "type": "boolean"
+          },
+          "coverage": {
+            "type": "string",
+            "description": "仅在输入材料经节选时出现，说明报告覆盖范围。完整来源投影最多 64 KiB；长发言取首尾摘录，观点与依据按同一预算节选。"
+          },
+          "draft_text": {
+            "type": "string",
+            "description": "报告阶段的中间材料草稿，用于阶段恢复；不是最终报告，界面以 markdown 展示报告。定稿后可省略。"
+          },
+          "plugin_guidance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReportPluginGuidance"
+            },
+            "description": "本次报告阶段保存的报告插件指导版本快照；所有启用的指导合计至多 8 KiB；旧报告可省略。"
+          }
+        },
+        "required": [
+          "status",
+          "attempt",
+          "markdown",
+          "error",
+          "review_mode",
+          "author_seat",
+          "author_model",
+          "reviewer_seat",
+          "reviewer_model",
+          "review_notes",
+          "source_count",
+          "has_draft"
+        ],
+        "additionalProperties": false,
+        "description": "关闭会话后的总结报告；旧会话可省略。"
+      },
+      "ProjectRule": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目内规则文件相对路径。"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "所选已导入版本的 SHA-256。"
+          },
+          "source": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "digest",
+          "source",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectRulesResponse": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/ProjectSummary"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRule"
+            }
+          }
+        },
+        "required": [
+          "project",
+          "rules"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectRuleDisableRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "项目登记绝对路径，须与项目列表返回值一致。"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ProjectRuleReference"
+          }
+        },
+        "required": [
+          "path",
+          "rule"
+        ],
+        "additionalProperties": false
+      },
+      "UnreadableSessionError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "unreadable_session": {
+            "$ref": "#/components/schemas/UnreadableSession"
+          }
+        },
+        "required": [
+          "error",
+          "unreadable_session"
+        ]
+      },
+      "UnreadableSessionsResponse": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionSummary"
+            }
+          },
+          "unreadable_sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnreadableSession"
+            },
+            "description": "坏档列表；逐条隔离，不阻塞可读会话。无坏档时为空数组。"
+          }
+        },
+        "required": [
+          "sessions",
+          "unreadable_sessions"
+        ]
+      },
+      "DiscussionPoint": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "圆桌为该观点分配的会话内稳定 ID。"
+          },
+          "text": {
+            "type": "string",
+            "description": "公开发言中逐字引用的观点。"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "Position": {
+        "type": "object",
+        "properties": {
+          "point_id": {
+            "type": "string",
+            "description": "本场先前公开发言中可见观点的 ID。"
+          },
+          "stance": {
+            "type": "string",
+            "enum": [
+              "support",
+              "oppose",
+              "qualified",
+              "undecided"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "与同一席公开发言中逐字一致的依据。"
+          }
+        },
+        "required": [
+          "point_id",
+          "stance",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "AgendaCandidate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "implementation"
+            ]
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "previous_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "previous_kind": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "implementation"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "round",
+          "seat",
+          "reason",
+          "previous_title",
+          "previous_kind"
+        ],
+        "additionalProperties": false,
+        "description": "同轮竞争修订中未胜出的有效提案；主持人可显式采用或忽略。"
+      },
+      "ContinuousConfig": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "maxLength": 12000,
+            "description": "持续推进目标；省略或空白时使用会话议题。最多 12000 个 Unicode codepoints。"
+          },
+          "criteria": {
+            "type": "string",
+            "maxLength": 12000,
+            "description": "验收条件；可选，最多 12000 个 Unicode codepoints。"
+          },
+          "max_rounds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60
+              },
+              {
+                "const": 0
+              }
+            ],
+            "default": 12,
+            "description": "本批次最多自动运行轮数。省略或 0 时为 12。"
+          },
+          "summary_every": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 12
+              },
+              {
+                "const": 0
+              }
+            ],
+            "default": 4,
+            "description": "每隔几轮整理一次可追溯的滚动摘要。省略或 0 时为 4。"
+          }
+        },
+        "additionalProperties": false,
+        "description": "四种现有讨论预设均可使用此可选功能；不是新的讨论预设。"
+      },
+      "ContinuousConfigSnapshot": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "criteria": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "max_rounds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60
+          },
+          "summary_every": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 12
+          }
+        },
+        "required": [
+          "goal",
+          "max_rounds",
+          "summary_every"
+        ],
+        "additionalProperties": false
+      },
+      "ContinuousEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "公开发言或可检查文件的来源标识。"
+          },
+          "quote": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "可在对应来源原文中核对的引文。"
+          }
+        },
+        "required": [
+          "id",
+          "quote"
+        ],
+        "additionalProperties": false
+      },
+      "ContinuousItem": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "description": "有来源支持的简明检查点。"
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seat": {
+            "$ref": "#/components/schemas/Seat"
+          },
+          "model": {
+            "type": "string",
+            "description": "被引用的公开发言当时使用的模型。旧检查点可省略。"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "description": "对应公开发言中的逐字依据。"
+          },
+          "quote_id": {
+            "type": "string",
+            "description": "引用依据的可选标识。"
+          }
+        },
+        "required": [
+          "text",
+          "round",
+          "seat",
+          "quote"
+        ],
+        "additionalProperties": false
+      },
+      "ContinuousCheckpoint": {
+        "type": "object",
+        "properties": {
+          "through_round": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "摘要覆盖至的轮次。"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContinuousItem"
+            },
+            "minItems": 1,
+            "maxItems": 24
+          }
+        },
+        "required": [
+          "through_round",
+          "items"
+        ],
+        "additionalProperties": false,
+        "description": "有引文支持的滚动摘要；新摘要失败时保留此前有效检查点。请求材料上限 64 KiB，输出上限 32 KiB；最多 24 项，每项正文不超过 600 个 Unicode codepoints，引文不超过 240。"
+      },
+      "ContinuousState": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/ContinuousConfigSnapshot"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "configured",
+              "active",
+              "paused",
+              "completed"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "round",
+              "review",
+              "summary"
+            ],
+            "description": "当前批次阶段；paused 或 completed 时省略。"
+          },
+          "start_round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "target": {
+            "$ref": "#/components/schemas/Seat",
+            "description": "用户指定目标时固定的席位 ID；否则省略。"
+          },
+          "settled_round": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "next": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContinuousEvidence"
+            }
+          },
+          "stalled": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "连续无进展的轮数。"
+          },
+          "last_result": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "用于识别重复回合结果的摘要值。"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/ContinuousCheckpoint"
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "最近显式手动单轮启动后为 true；之前的持续推进配置和检查点可继续保留。"
+          }
+        },
+        "required": [
+          "config",
+          "status"
+        ],
+        "additionalProperties": false,
+        "description": "会话的持续推进配置与状态。目标完成只结束自动批次，不会自动结束会议。"
+      },
+      "PluginGrant": {
+        "type": "string",
+        "enum": [
+          "round.guidance",
+          "report.guidance",
+          "code.execute",
+          "meeting.public_turns",
+          "meeting.report"
+        ]
+      },
+      "PluginCatalogEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "description": "市场记录字段可随 source 不同而扩展。"
+      },
+      "PluginMarketView": {
+        "type": "object",
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PluginCatalogEntry"
+            }
+          },
+          "available": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PluginCatalogEntry"
+            }
+          },
+          "installed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstalledPlugin"
+            }
+          }
+        },
+        "required": [
+          "sources",
+          "available",
+          "installed"
+        ],
+        "additionalProperties": true
+      },
+      "PluginGuidance": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RoundPluginGuidance"
+          },
+          {
+            "$ref": "#/components/schemas/ReportPluginGuidance"
+          }
+        ],
+        "description": "阶段快照中仅包含对应阶段的 guidance 正文。"
+      },
+      "PluginActionResult": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "text"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "native_save": {
+            "type": "boolean",
+            "description": "true 表示调用者应把内容提交给系统保存窗口；false 表示可走标准浏览器下载。"
+          }
+        },
+        "required": [
+          "format",
+          "text",
+          "filename",
+          "native_save"
+        ],
+        "additionalProperties": false
+      },
+      "PluginActionRequest": {
+        "type": "object",
+        "properties": {
+          "plugin_id": {
+            "type": "string"
+          },
+          "action_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "from_round": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "可选；若提供，仅选择该轮及其后的公开发言。"
+          },
+          "to_round": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "可选；若提供，仅选择不晚于该轮的公开发言。"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "action_id",
+          "version",
+          "source_id",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "description": "提交插件动作及已核对的插件来源、版本和 SHA-256 标识。可选 from_round/to_round 只限定 meeting.public_turns 的公开发言，不适用于插件报告或其他权限数据。"
+      },
+      "PluginManagementRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "subscribe"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "action",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "refresh"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "source_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "unsubscribe"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "source_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "install"
+              },
+              "source_id": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              },
+              "grants": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PluginGrant"
+                },
+                "uniqueItems": true
+              },
+              "version": {
+                "type": "string",
+                "description": "可选；提供时，要求与当前来源目录中的插件版本完全匹配。"
+              }
+            },
+            "required": [
+              "action",
+              "source_id",
+              "id",
+              "sha256",
+              "grants"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "enable"
+              },
+              "id": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              }
+            },
+            "required": [
+              "action",
+              "id",
+              "source_id",
+              "version",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "disable"
+              },
+              "id": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              }
+            },
+            "required": [
+              "action",
+              "id",
+              "source_id",
+              "version",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "uninstall"
+              },
+              "id": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              }
+            },
+            "required": [
+              "action",
+              "id",
+              "source_id",
+              "version",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "订阅、刷新或移除来源；安装时明确选择权限；也可管理已安装插件。"
+      },
+      "RoundPluginGuidance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "round_guidance": {
+            "type": "string",
+            "minLength": 1,
+            "description": "用于本轮讨论的指导正文。"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "round_guidance"
+        ],
+        "additionalProperties": false
+      },
+      "ReportPluginGuidance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "report_guidance": {
+            "type": "string",
+            "minLength": 1,
+            "description": "用于本次报告的指导正文。"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "report_guidance"
+        ],
+        "additionalProperties": false
+      },
+      "InstalledPlugin": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "source_name",
+          "sha256"
+        ],
+        "additionalProperties": true,
+        "description": "已安装插件记录；source_name 与 sha256 用于核对当前安装来源和包摘要。"
+      },
+      "PluginSaveOutputRequest": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "建议的文件名，不是路径；最终路径只来自用户在系统对话框中的选择。"
+          },
+          "text": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "text"
+            ]
+          }
+        },
+        "required": [
+          "filename",
+          "text",
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "PluginSaveOutputResult": {
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean",
+            "description": "true 已保存；false 表示用户取消系统保存对话框。"
+          }
+        },
+        "required": [
+          "saved"
+        ],
+        "additionalProperties": false
+      },
+      "PluginBrowserDownloadFallback": {
+        "type": "object",
+        "properties": {
+          "browser_download": {
+            "const": true
+          }
+        },
+        "required": [
+          "browser_download"
+        ],
+        "additionalProperties": false,
+        "description": "无可用系统保存窗口；调用者应改用标准浏览器下载。"
+      },
+      "Material": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "受限长度的可检索文本摘录；不代表原文件已完整阅读。"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read_status": {
+            "type": "string",
+            "enum": [
+              "text",
+              "failed",
+              "original_only",
+              "no_extractable_text"
+            ],
+            "description": "旧记录或无此字段时按未报告处理。"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mime",
+          "excerpt",
+          "size"
+        ]
+      },
+      "MeetingBoard": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "published"
+            ],
+            "description": "empty 时对话为主，modules 为空。published 时按 modules 数组返回的次序绘制主页。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "source_seat": {
+            "type": "string"
+          },
+          "source_round": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string",
+            "description": "写入当前会议标题的模型 ID。主持人编辑和部分旧存档可省略。"
+          },
+          "model_label": {
+            "type": "string",
+            "description": "标题署名使用的历史模型显示名。"
+          },
+          "model_source": {
+            "type": "string",
+            "description": "标题署名使用的历史模型来源。"
+          },
+          "modules": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/BoardModule"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+          },
+          "point_annotations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "source_seat": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+                }
+              },
+              "required": [
+                "body"
+              ]
+            }
+          },
+          "material_annotations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "source_seat": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+                }
+              },
+              "required": [
+                "body"
+              ]
+            }
+          },
+          "recent_changes": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string"
+                },
+                "target_id": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                },
+                "source_seat": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "title",
+          "modules",
+          "state"
+        ],
+        "description": "首席随议程从预设模块中选取所需内容并排列。已发布的板支持主持人编辑与经确认的发言更新。"
+      },
+      "BoardModule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agenda",
+              "materials",
+              "positions",
+              "note"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 800
+          },
+          "material_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "uniqueItems": true,
+            "maxItems": 8
+          },
+          "source_seat": {
+            "type": "string"
+          },
+          "source_round": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string",
+            "description": "写入此板块版本的模型 ID。主持人编辑和部分旧存档可省略。"
+          },
+          "model_label": {
+            "type": "string",
+            "description": "板块署名使用的历史模型显示名。"
+          },
+          "model_source": {
+            "type": "string",
+            "description": "板块署名使用的历史模型来源。"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "此编辑项的当前版本。早期记录省略该字段时使用 0。"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title"
+        ]
+      }
+    },
+    "parameters": {
+      "Roundtable": {
+        "name": "X-Roundtable",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "const": "1"
+        },
+        "description": "本机防跨站标记，非身份凭据。所有 POST 必须携带；不能代替 Host/Origin 检查。"
+      },
+      "Origin": {
+        "name": "Origin",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "若提供，必须精确等于 http:// 加当前 Host（含端口）。无 Origin 的本机程序客户端也可调用；Sec-Fetch-Site: cross-site 始终拒绝。"
+      },
+      "SessionID": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "description": "对应模式创建的本机会话 ID；studio 和 classic 存档独立。"
+      },
+      "FilePath": {
+        "name": "path",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "所选项目内相对文件路径，使用 /；不可绝对路径、..、隐藏组件、反斜杠、符号链接、依赖／构建目录或被排除的凭据名称。"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "参数、JSON、设置或项目文件输入不合法；Studio 常规单对象 JSON 上限 4 MiB，diagnostics 上限 64 KiB。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Host 不是当前端口的 127.0.0.1/localhost，或 POST 缺少规定标记、来源不符、Content-Type 不合法或跨站。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "会话或接口不存在。部分不可读项目路径在 studio 返回 400。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "会话轮号过期、已有工作或诊断运行、文件版本冲突，或本机文件夹选择器不可用。刷新会话／重新读文件后再决定，勿盲目重放写入。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "方法不支持。仅公开 GET 与 POST；其他方法通常返回 405，部分路径／方法组合返回 404。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooLarge": {
+        "description": "classic JSON 请求体为空或超过 100000 字节。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Gateway": {
+        "description": "Classic 无法连接本机 Magpie，或其目录／上游响应失败。诊断来源检查失败通常在 HTTP 200 的 sources 中报告。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Internal": {
+        "description": "classic 本地存档或内部处理失败。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

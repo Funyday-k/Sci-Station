@@ -1,0 +1,33 @@
+.session-recovery {
+  flex: 0 0 auto;
+  max-height: 34vh;
+  overflow: auto;
+  padding: 8px 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.session-recovery summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.session-recovery p,
+.session-recovery ul {
+  margin: 8px 0 0;
+}
+
+.session-recovery ul {
+  padding: 0;
+  list-style: none;
+}
+
+.session-recovery li + li {
+  margin-top: 12px;
+}
+
+.session-recovery li > * {
+  display: block;
+}

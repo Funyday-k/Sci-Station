@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>论文阅读 · Sci-Station</title>
+<link rel="icon" href="/static/roundtable-mark.png"><link rel="stylesheet" href="/static/reader.css">
+</head>
+<body>
+<header class="reader-header">
+  <a class="brand" id="home" href="/research" title="返回科研工作区"><img src="/static/roundtable-mark.png" alt=""><span>Sci-Station</span></a>
+  <span class="breadcrumb">文献阅读</span><span class="spacer"></span><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden>导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener">打开 PDF 原件 ↗</a>
+</header>
+<section class="titlebar"><div><h1 id="title">论文阅读</h1><p id="byline"></p></div><span class="spacer"></span><button id="handoff" class="primary" disabled>选段入会</button></section>
+<div id="sourceNotice" role="status" hidden></div>
+<div class="layout">
+ <main class="viewer">
+   <div class="toolbar" aria-label="阅读工具">
+     <button id="prev" title="上一页" aria-label="上一页">‹</button><label class="page-input" for="pageNo">第 <input id="pageNo" type="number" min="1" value="1"> 页</label><span id="count"></span><button id="next" title="下一页" aria-label="下一页">›</button>
+     <span class="divider"></span><button id="smaller" title="缩小" aria-label="缩小">−</button><button id="fit" title="适合宽度">适宽</button><button id="larger" title="放大" aria-label="放大">＋</button>
+     <span class="spacer"></span><button id="regionButton" aria-pressed="false" title="框选图表或公式并附上便签">区域批注</button><button id="findButton" aria-expanded="false">查找</button>
+   </div>
+   <div id="findBar" hidden><form id="searchForm"><input id="findTerm" type="search" placeholder="查找全文" maxlength="240" aria-label="查找全文"><button type="submit">查找</button><button type="button" id="closeFind" aria-label="关闭查找">关闭</button></form><div id="findResults"></div></div>
+   <div class="viewport" id="viewport"><div id="pageSurface" class="page-surface" hidden><img id="pageImage" alt=""><div id="highlights" class="overlay"></div><div id="textLayer" class="text-layer" aria-label="本页可选取文字"></div></div><div id="empty" class="empty" role="status">正在打开论文…</div></div>
+   <div class="foot"><span id="pageStatus" role="status"></span><span class="spacer"></span><button id="ocr" hidden>识别此页文字</button><button id="addHighlight" disabled>添加高亮</button></div>
+ </main>
+ <aside>
+   <div role="tablist" class="tabs"><button id="annTab" type="button" role="tab" aria-selected="true" aria-controls="annotPanel">批注</button><button id="notesTab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel">论文笔记</button></div>
+   <section id="annotPanel" role="tabpanel" aria-labelledby="annTab"><div class="panel-title"><h2>我的批注</h2><span id="annotationCount"></span></div><button id="reloadAnnotations" type="button" hidden>读取最新批注</button><div id="annotations"></div><div id="selectionBox" hidden><h3>当前选段</h3><blockquote id="selectedText"></blockquote><label for="comment">附注</label><textarea id="comment" rows="3" placeholder="为这段原文留下一条批注"></textarea><div class="actions"><select id="kind" aria-label="批注类型"><option value="highlight">高亮</option><option value="underline">下划线</option><option value="note">便签</option></select><button id="saveSelection" class="primary">保存批注</button><button id="clearSelection">取消</button></div></div></section>
+   <section id="notesPanel" role="tabpanel" aria-labelledby="notesTab" hidden><div class="panel-title"><h2>论文笔记</h2><button id="saveNotes" class="primary" disabled>保存</button></div><label class="sr" for="notes">论文笔记</label><textarea id="notes" rows="17" placeholder="记录想法、结果和待核对的问题。"></textarea><p id="notesStatus" role="status" class="muted"></p><button id="reloadNote" hidden>重新读取已保存的版本</button></section>
+   <div id="message" role="status" aria-live="polite"></div>
+ </aside>
+</div>
+<dialog id="handoffDialog"><form method="dialog"><div class="panel-title"><h2>带选段进入圆桌</h2><button type="button" id="cancelHandoff" aria-label="关闭">×</button></div><blockquote id="handoffQuote"></blockquote><label for="projectSelect">科研项目</label><select id="projectSelect" required></select><label for="sessionSelect">目标会议</label><select id="sessionSelect"><option value="">新建圆桌</option></select><div class="actions"><button id="submitHandoff" type="button" class="primary">进入圆桌</button></div></form></dialog>
+<script src="/static/reader.js" defer></script>
+</body></html>

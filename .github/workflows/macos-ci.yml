@@ -152,10 +152,29 @@ jobs:
       - name: Test installation, first launch, and overwrite upgrade
         run: Tools/scripts/test-release-install.sh "$RUNNER_TEMP/SciStationDerivedData/Build/Products/Release/Sci-Station.app"
 
+  workstation:
+    name: Roundtable workstation tests and macOS build
+    runs-on: macos-26
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: RoundtableWorkstation
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: RoundtableWorkstation/go.mod
+          cache-dependency-path: RoundtableWorkstation/go.sum
+      - run: go test -race -tags nogui ./...
+      - run: node --test tests/*.test.cjs
+      - run: go vet -tags nogui ./...
+      - run: make app APP_OUTPUT="$RUNNER_TEMP/Sci-Station.app"
+      - run: codesign --verify --deep --strict "$RUNNER_TEMP/Sci-Station.app"
+
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [repository-hygiene, traceability, swift-style, core-tests, python-tests, app-build]
+    needs: [repository-hygiene, traceability, swift-style, core-tests, python-tests, app-build, workstation]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

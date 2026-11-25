@@ -1,0 +1,87 @@
+#meeting-agenda {
+  min-width: 0;
+  margin-bottom: .8rem;
+  color: var(--text);
+}
+.ag-header, .ag-item, .ag-editor {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+.ag-header {
+  padding: .35rem .4rem;
+}
+.ag-label {
+  font-size: 1rem;
+  color: var(--ink);
+}
+.ag-progress, .ag-state, .ag-source summary {
+  color: var(--text);
+  font-size: .88rem;
+}
+.ag-progress { margin-right: auto; }
+.ag-link, .ag-title {
+  appearance: none;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font: inherit;
+}
+.ag-link {
+  color: var(--accent);
+  padding: .18rem .3rem;
+  white-space: nowrap;
+  font-size: .92rem;
+}
+.ag-link:hover:not(:disabled), .ag-title:hover:not(:disabled) { text-decoration: underline; }
+.ag-list {
+  margin: 0;
+  padding: 0;
+  max-height: 12rem;
+  overflow-y: auto;
+  list-style: none;
+}
+.ag-row { border-top: 1px solid var(--line); }
+.ag-current { background: var(--accent-soft); }
+.ag-item { padding: .23rem .4rem; }
+.ag-mark { flex: 0 0 1rem; text-align: center; }
+.ag-current .ag-mark { color: var(--accent); }
+.ag-done .ag-mark { color: var(--success); }
+.ag-title {
+  flex: 1;
+  padding: .15rem 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--ink);
+}
+.ag-title:disabled { opacity: 1; }
+.ag-done .ag-title { color: var(--text); }
+.ag-state { flex-shrink: 0; }
+.ag-source { margin: 0 .4rem .3rem 2.05rem; }
+.ag-source summary { cursor: pointer; }
+.ag-source p { margin: .4rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ag-candidate {
+  margin: .45rem 0;
+  padding: .45rem .55rem;
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+}
+.ag-candidate .ag-link { margin-right: .35rem; }
+.ag-editor { margin: .45rem .4rem; }
+.ag-editor input, .ag-editor select {
+  min-width: 0;
+  padding: .3rem .45rem;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+}
+.ag-editor input { flex: 1; }
+.ag-message:not(:empty) { padding: .2rem .4rem; color: var(--danger); }
+@media (max-width: 540px) {
+  .ag-item { flex-wrap: wrap; column-gap: .3rem; }
+  .ag-item .ag-title { min-width: 7rem; }
+}

@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/png" href="/static/roundtable-mark.png" />
+    <title>科研圆桌 · Sci-Station</title>
+    <script src="/static/appearance.js"></script>
+    <link rel="stylesheet" href="/static/studio.css" />
+    <link rel="stylesheet" href="/static/children-panel.css" />
+    <link rel="stylesheet" href="/static/studio-setup.css" />
+    <link rel="stylesheet" href="/static/projects.css" />
+    <link rel="stylesheet" href="/static/agenda.css" />
+    <link rel="stylesheet" href="/static/report-ui.css" />
+    <link rel="stylesheet" href="/static/session-recovery.css" />
+    <link rel="stylesheet" href="/static/plugin-market.css" />
+    <link rel="stylesheet" href="/static/settings-nav.css" />
+    <script src="/static/ui-icons.js" defer></script>
+    <script src="/static/projects.js" defer></script>
+    <script src="/static/agenda.js" defer></script>
+    <script src="/static/seating-plan.js" defer></script>
+    <script src="/static/continuous-ui.js" defer></script>
+    <script src="/static/studio-setup.js" defer></script>
+    <script src="/static/session-recovery.js" defer></script>
+    <script src="/static/report-ui.js" defer></script>
+    <script src="/static/input-limit.js" defer></script>
+    <script src="/static/composer-input.js" defer></script>
+    <script src="/static/plugin-market.js" defer></script>
+    <script src="/static/settings-nav.js" defer></script>
+    <link rel="stylesheet" href="/static/meeting-room.css" />
+    <link rel="stylesheet" href="/static/member-editor.css" />
+    <link rel="stylesheet" href="/static/meeting-actions.css" />
+    <link rel="stylesheet" href="/static/seat-mention.css" />
+    <link rel="stylesheet" href="/static/composer-commands.css" />
+    <link rel="stylesheet" href="/static/meeting-materials.css" />
+    <script src="/static/meeting-actions.js" defer></script>
+    <script src="/static/seat-mention.js" defer></script>
+    <script src="/static/composer-commands.js" defer></script>
+    <script src="/static/meeting-materials.js" defer></script>
+    <link rel="stylesheet" href="/static/meeting-board.css" />
+    <link rel="stylesheet" href="/static/board-ink.css" />
+    <link rel="stylesheet" href="/static/board-edit.css" />
+    <link rel="stylesheet" href="/static/board-cursors.css" />
+    <link rel="stylesheet" href="/static/workspace-layout.css" />
+    <link rel="stylesheet" href="/static/color-themes.css" />
+    <link rel="stylesheet" href="/static/reading-type.css" />
+    <script src="/static/board-edit.js" defer></script>
+    <script src="/static/board-cursors.js" defer></script>
+    <script src="/static/meeting-board.js" defer></script>
+    <script src="/static/board-presence.js" defer></script>
+    <script src="/static/member-editor.js" defer></script>
+    <link rel="stylesheet" href="/static/science-meeting.css" />
+    <script src="/static/science-meeting.js" defer></script>
+    <script src="/static/lab-handoff.js" defer></script>
+    <script src="/static/studio.js" defer></script>
+    <script src="/static/children-panel.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" id="sidebar" aria-label="项目与圆桌">
+        <a class="brand" href="/research" title="返回科研工作台">
+          <img class="roundtable-mark" src="/static/roundtable-mark.png" alt="" width="32" height="32" />
+          <span>Sci-Station</span>
+        </a>
+        <button id="new-session" class="button secondary new-button">
+          <svg class="ui-icon" data-ui-icon="plus" width="16" height="16" aria-hidden="true"></svg>新建圆桌
+        </button>
+        <div class="history-label">
+          <h2>项目</h2>
+        </div>
+        <nav id="history" class="history" aria-label="已保存的圆桌">
+          <p class="quiet">正在读取…</p>
+        </nav>
+        <details id="session-recovery" class="session-recovery" hidden>
+          <summary>存档恢复</summary>
+          <p>复制下方路径到 Finder 的「前往文件夹」可定位原始存档。建议先保留备份，再检查存档内容。</p>
+          <ul></ul>
+        </details>
+        <div class="sidebar-bottom">
+          <button class="sidebar-settings view-tab" data-view="settings">
+            <svg class="ui-icon" data-ui-icon="settings" width="17" height="17" aria-hidden="true"></svg>设置
+          </button>
+        </div>
+      </aside>
+      <button
+        id="sidebar-scrim"
+        class="scrim"
+        aria-label="关闭项目栏"
+        tabindex="-1"
+      ></button>
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-start">
+            <button
+              id="toggle-sidebar"
+              class="icon-button"
+              aria-label="切换项目栏"
+              aria-controls="sidebar"
+              aria-expanded="true"
+            ></button>
+          </div>
+          <div class="room-heading">
+            <h1 id="view-title" class="view-title">新建圆桌</h1>
+            <span id="meeting-mode-status" class="mode-status" hidden><span class="sr-only">讨论模式：</span><span id="meeting-mode-label"></span><span aria-hidden="true"> · </span><span class="sr-only">，文件权限：</span><span id="meeting-mode-access"></span></span>
+          </div>
+          <div id="chat-toolbar" class="heading-actions" hidden>
+            <span id="session-status" class="session-status" hidden></span>
+            <button id="room-chat-toggle" class="icon-button rail-toggle" type="button" aria-controls="room-chat" aria-expanded="false" aria-label="会议对话" title="会议对话"><svg class="ui-icon" data-ui-icon="chat" width="17" height="17" aria-hidden="true"></svg></button>
+            <div id="meeting-actions" class="meeting-actions">
+              <button id="meeting-actions-toggle" class="icon-button" type="button" aria-label="会议操作" aria-controls="meeting-actions-panel" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+              <div id="meeting-actions-panel" aria-label="会议操作" hidden>
+                <div id="round-settings" class="meeting-menu-settings">
+                  <label class="meeting-menu-field" for="run-preset"><span>讨论模式</span>
+                    <select id="run-preset">
+                      <option value="work">项目协作</option><option value="review">方案评审</option>
+                      <option value="prioritize">优先级排序</option><option value="forum">多方权衡</option>
+                    </select></label>
+                  <label id="run-phase-field" class="meeting-menu-field" for="run-phase" hidden><span>当前阶段</span><select id="run-phase"></select></label>
+                  <label class="meeting-menu-field" for="run-access"><span>文件权限</span><select id="run-access">
+                    <option value="read">只读</option><option value="write">可写</option>
+                  </select></label>
+                  <div id="run-continuous" class="continuous-panel meeting-continuous-settings" data-continuous-prefix="run">
+                <label class="continuous-toggle" for="run-continuous-enabled"><input id="run-continuous-enabled" type="checkbox" aria-controls="run-continuous-options" />持续推进</label>
+                <div id="run-continuous-options" class="continuous-options" hidden>
+                  <details><summary>参数</summary><div class="continuous-fields">
+                    <label>推进目标<input id="run-continuous-goal" type="text" placeholder="默认使用会议议题" /></label>
+                    <label>验收条件（可选）<textarea id="run-continuous-criteria" rows="2" placeholder="达到什么结果后停止"></textarea></label>
+                    <label>最多轮数<input id="run-continuous-max-rounds" type="number" min="1" max="60" step="1" value="12" required /></label>
+                    <label>每几轮摘要<input id="run-continuous-summary-every" type="number" min="2" max="12" step="1" value="4" required /></label>
+                  </div></details>
+                </div>
+                    </div>
+                </div>
+                <div class="meeting-menu-commands">
+                  <button id="files-toggle" type="button" data-meeting-command aria-controls="files-view" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h7l2 3h7v13H4z"/><path d="M8 12h8m-8 4h5"/></svg>文件改动 <span id="change-count" aria-hidden="true"></span></button>
+                  <button id="plugin-tools-open" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="plugin-tools-dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 5v8l-8 5-8-5V8zM4 8l8 5 8-5m-8 5v8"/></svg>插件工具</button>
+                  <a id="export-session" data-meeting-command download hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>导出记录</a>
+                  <button id="meeting-report" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="meeting-report-dialog" hidden>完成会议</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button id="back-to-table" class="button secondary small" hidden>
+            返回圆桌
+          </button>
+          <span id="connection-status" class="connection-status sr-only"
+            >本机服务</span
+          >
+        </header>
+        <div id="notice" class="notice" role="alert" hidden>
+          <span id="notice-text"></span
+          ><button id="retry-connect" class="text-button">重新连接</button
+          ><button
+            id="dismiss-notice"
+            class="icon-button"
+            aria-label="关闭提示"
+          ></button>
+        </div>
+        <section id="table-view" class="page table-page">
+          <div id="setup-scroll" class="page-scroll">
+              <div id="stage-layout" class="stage-layout is-new">
+                <div id="draft-project-required" class="setup-panel" hidden>
+                  <h2 id="draft-project-message" tabindex="-1">选择要创建圆桌的项目</h2>
+                  <div id="draft-project-options" class="draft-project-options"></div>
+                  <div class="draft-project-actions">
+                    <button id="draft-add-project" type="button" class="button secondary">添加项目</button>
+                    <button id="draft-import-project" type="button" class="button secondary">导入项目配置</button>
+                    <button id="draft-retry-projects" type="button" class="button secondary" hidden>重新读取</button>
+                  </div>
+                </div>
+                <form id="create-form" class="setup-panel" hidden>
+                  <section id="create-composer" class="setup-section">
+                    <label for="new-topic">会议议题</label>
+                    <div id="create-materials"></div>
+                    <div class="composer-surface">
+                      <div class="mention-field">
+                        <textarea id="new-topic" data-enter-submit="create-submit" rows="2" aria-describedby="new-topic-limit new-topic-mention-status" placeholder="这次圆桌要解决什么问题？输入 @ 可指定首席起草议程。" required></textarea>
+                        <div id="new-topic-mention-list" hidden></div>
+                      </div>
+                      <span id="new-topic-mention-status" class="composer-recipient" role="status"></span>
+                      <small id="new-topic-limit" class="input-limit" hidden></small>
+                      <div class="composer-bottom">
+                        <button id="create-commands" type="button" aria-label="议题工具" title="议题工具"></button>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="setup-section" aria-labelledby="member-title">
+                    <div class="setup-section-heading">
+                      <h2 id="member-title">参会成员</h2>
+                      <div class="member-actions">
+                        <button type="button" class="button secondary small" id="member-picker" aria-controls="member-directory" aria-expanded="false"><svg class="ui-icon" data-ui-icon="plus" width="14" height="14" aria-hidden="true"></svg>添加型号</button>
+                      </div>
+                    </div>
+                    <div id="member-directory" hidden>
+                      <div class="directory-tools">
+                        <input type="search" id="member-search" placeholder="搜索型号或来源" aria-label="搜索型号或来源" autocomplete="off" spellcheck="false"/>
+                        <select id="member-source" aria-label="筛选来源"><option value="">所有来源</option></select>
+                      </div>
+                      <div id="member-options" aria-label="可用型号"></div>
+                    </div>
+                    <div class="seating-workspace" id="seating-workspace">
+                      <div id="seating-plan" class="seating-plan">
+                        <div class="seating-scroll" id="seating-scroll">
+                          <svg id="seating-room" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="圆桌席位图"></svg>
+                        </div>
+                        <div id="seating-pan" class="seating-pan" hidden>
+                          <button id="seating-left" type="button" aria-label="查看左侧席位" title="查看左侧席位"><svg class="ui-icon" data-ui-icon="chevronLeft" width="14" height="14" aria-hidden="true"></svg></button>
+                          <button id="seating-right" type="button" aria-label="查看右侧席位" title="查看右侧席位"><svg class="ui-icon" data-ui-icon="chevronRight" width="14" height="14" aria-hidden="true"></svg></button>
+                        </div>
+                      </div>
+                      <div id="chosen-members"></div>
+                    </div>
+                    <div class="catalog-status"><span id="member-status" role="status"></span><button type="button" class="text-button" id="retry-members" hidden>重新读取</button></div>
+                  </section>
+                  <fieldset class="setup-section preset-section" aria-describedby="create-project-access">
+                    <legend>讨论预设</legend>
+                    <div id="preset-options"></div>
+                    <div class="setup-access" aria-live="polite">
+                      <strong>项目文件权限</strong>
+                      <small id="create-project-access" class="discussion-access" role="status"></small>
+                    </div>
+                    <div id="create-continuous" class="continuous-panel" data-continuous-prefix="create">
+                      <label class="continuous-toggle" for="create-continuous-enabled"><input id="create-continuous-enabled" type="checkbox" aria-controls="create-continuous-options" />配置持续推进</label>
+                      <p class="continuous-setup-hint">创建后请先核对议程，再点击「开始持续推进」。</p>
+                      <div id="create-continuous-options" class="continuous-options" hidden>
+                        <details><summary>参数</summary><div class="continuous-fields">
+                          <label>推进目标<input id="create-continuous-goal" type="text" placeholder="默认使用会议议题" /></label>
+                          <label>验收条件（可选）<textarea id="create-continuous-criteria" rows="2" placeholder="达到什么结果后停止"></textarea></label>
+                          <label>最多轮数<input id="create-continuous-max-rounds" type="number" min="1" max="60" step="1" value="12" required /></label>
+                          <label>每几轮摘要<input id="create-continuous-summary-every" type="number" min="2" max="12" step="1" value="4" required /></label>
+                        </div></details>
+                      </div>
+                    </div>
+                  </fieldset>
+                  <div class="setup-footer"><button id="create-submit" class="button primary" type="submit" disabled>创建圆桌</button></div>
+                </form>
+              </div>
+          </div>
+          <section id="board-workspace" class="board-workspace" aria-label="会议工作区" hidden>
+            <div class="room-context" id="chat-header" hidden>
+              <div class="room-context-bar">
+                <button type="button" class="context-trigger" id="participants-toggle" aria-expanded="false" aria-controls="participants-panel"><span id="member-orbit" class="context-avatars" aria-hidden="true"></span><span id="seats-label">席位</span></button>
+                <button type="button" class="context-trigger agenda-trigger" id="agenda-toggle" aria-controls="agenda-drawer" aria-expanded="false"><svg class="ui-icon" data-ui-icon="agenda" width="16" height="16" aria-hidden="true"></svg><span>议程</span><span class="context-count" id="agenda-summary"></span></button>
+                <button id="progress-toggle" class="context-trigger progress-trigger" type="button" aria-controls="progress-drawer" aria-expanded="false" hidden>推进记录</button>
+                <span class="context-state" id="table-center-state"></span>
+                <button type="button" class="context-trigger viewpoints-trigger" id="opinions-toggle" aria-controls="meeting-opinions" aria-expanded="false"><svg class="ui-icon" data-ui-icon="chat" width="16" height="16" aria-hidden="true"></svg><span>讨论观点</span><span class="context-count" id="opinions-toggle-count">0</span></button>
+              </div>
+              <section aria-label="圆桌席位" class="context-drawer" id="participants-panel" hidden>
+                <div id="member-seats" class="compact-seats"></div>
+              </section>
+              <section aria-label="会议议程" class="context-drawer" id="agenda-drawer" hidden><div id="meeting-agenda"></div></section>
+              <section aria-label="持续推进记录" class="context-drawer" id="progress-drawer" hidden>
+                <div class="continuous-status" id="run-continuous-status" role="status" hidden></div>
+                <details class="continuous-checkpoint" id="run-continuous-checkpoint" hidden><summary></summary><ul></ul></details>
+              </section>
+            </div>
+            <article id="meeting-board" tabindex="-1" aria-label="共享议题板" hidden></article>
+            <section id="room-chat" class="conversation-pane room-chat" aria-label="会议对话" hidden>
+            <header class="rail-heading">
+              <h2>会议对话</h2>
+              <button id="rail-to-board" class="text-button" type="button">返回议题板</button>
+            </header>
+            <div class="page-scroll" id="table-scroll" tabindex="-1">
+              <div class="session-content" id="session-content" hidden>
+                <div id="chat-board-status"></div>
+                <div id="activity-bar" hidden></div>
+                <div id="rounds" class="rounds" aria-label="圆桌消息"></div>
+                <p id="no-rounds" class="empty-record">
+                  点击“开始”，让参与者回应。
+                </p>
+              </div>
+            </div>
+            <button
+              id="latest-message"
+              class="latest-message button secondary small"
+              hidden
+            >
+              查看最新消息 ↓
+            </button>
+            <form id="run-form" class="composer" hidden>
+              <div id="run-materials"></div>
+              <div class="composer-surface">
+                <div id="run-mention" class="mention-field">
+                  <label class="sr-only" for="run-note">发言内容</label>
+                  <textarea id="run-note" data-enter-submit="run-submit" rows="2" aria-describedby="run-note-limit run-hint run-mention-status" placeholder="发送消息，输入 @ 点名席位…"></textarea>
+                  <div id="run-mention-list" hidden></div>
+                </div>
+                <span id="run-mention-status" class="composer-recipient" role="status"></span>
+                <small id="run-note-limit" class="input-limit" hidden></small>
+                <div class="composer-bottom">
+                  <button id="run-commands" type="button" aria-label="消息工具" title="消息工具"></button>
+                  <span id="run-hint" class="sr-only"></span>
+                  <div class="composer-actions">
+                    <button id="run-continuous-pause" class="button secondary small" type="button" hidden>暂停持续推进</button>
+                    <button
+                      id="cancel-run"
+                      class="button secondary"
+                      type="button"
+                      hidden
+                    >
+                      停止</button
+                    ><button id="run-submit" class="button primary" type="submit">
+                      开始
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </form>
+            </section>
+          </section>
+          <button id="opinions-scrim" type="button" tabindex="-1" aria-label="关闭讨论观点" hidden></button>
+          <aside id="meeting-opinions" class="meeting-opinions" aria-labelledby="opinions-title" hidden>
+            <div class="meeting-opinions-header">
+              <h2 id="opinions-title" class="meeting-opinions-heading">讨论观点 <span id="meeting-opinions-count" class="meeting-opinions-count"></span></h2>
+              <button id="opinions-close" type="button" class="meeting-opinions-close icon-button" aria-label="关闭讨论观点"><svg class="ui-icon" data-ui-icon="close" width="16" height="16" aria-hidden="true"></svg></button>
+            </div>
+            <div class="meeting-opinions-scroll"><div id="meeting-opinions-list"></div>
+              <p id="meeting-opinions-empty" class="quiet" hidden>暂无已公开的观点。</p>
+            </div>
+          </aside>
+          <section
+            id="files-view"
+            class="files-page"
+            role="region"
+            aria-label="文件改动面板"
+            hidden
+          >
+            <div class="review-heading">
+              <h2>文件改动</h2>
+              <div>
+                <button id="refresh-files" class="button secondary small">
+                  刷新</button
+                ><button
+                  id="close-changes"
+                  class="icon-button"
+                  aria-label="关闭改动面板"
+                >
+                  <svg class="ui-icon" data-ui-icon="close" width="16" height="16" aria-hidden="true"></svg>
+                </button>
+              </div>
+            </div>
+            <div id="files-empty" class="empty-page">
+              先选择或建立一场圆桌，再查看项目文件与改动。
+            </div>
+            <div id="file-workspace" class="file-workspace" hidden>
+              <aside class="file-sidebar">
+                <div class="file-sidebar-title">改动的文件</div>
+                <div id="changes-list" class="changes-list"></div>
+                <details class="project-files-disclosure">
+                  <summary>项目文件</summary>
+                  <input
+                    id="file-filter"
+                    class="file-filter"
+                    type="search"
+                    placeholder="筛选文件…"
+                    aria-label="筛选项目文件"
+                  />
+                  <form id="new-file-form" class="new-file-form">
+                    <label for="new-file-path">新建文本文件</label>
+                    <div>
+                      <input
+                        id="new-file-path"
+                        placeholder="notes/task.md"
+                        aria-label="新文件相对路径"
+                        autocomplete="off"
+                        spellcheck="false"
+                        required
+                      /><button class="button secondary small" type="submit">
+                        新建
+                      </button>
+                    </div>
+                  </form>
+                  <nav
+                    id="file-list"
+                    class="file-list"
+                    aria-label="项目文件"
+                  ></nav>
+                </details>
+              </aside>
+              <div class="editor-pane">
+                <div class="editor-toolbar">
+                  <div>
+                    <strong id="file-path">选择一个文件</strong
+                    ><span id="file-dirty" hidden>有未保存修改</span>
+                  </div>
+                  <div class="editor-actions">
+                    <button
+                      id="edit-diff"
+                      class="button secondary small"
+                      hidden
+                    >
+                      编辑此文件
+                    </button>
+                    <button
+                      id="copy-file"
+                      class="button secondary small"
+                      disabled
+                    >
+                      复制草稿</button
+                    ><button
+                      id="reload-file"
+                      class="button secondary small"
+                      disabled
+                    >
+                      重新载入</button
+                    ><button
+                      id="save-file"
+                      class="button primary small"
+                      disabled
+                    >
+                      保存文件
+                    </button>
+                  </div>
+                </div>
+                <div
+                  id="file-change-notice"
+                  class="file-change-notice"
+                  role="status"
+                  hidden
+                >
+                  <span id="file-change-text"></span>
+                </div>
+                <p id="editor-empty" class="editor-empty">
+                  从左侧选择文件查看内容，或查看本场记录的改动。
+                </p>
+                <textarea
+                  id="file-editor"
+                  class="file-editor"
+                  aria-label="文件内容"
+                  spellcheck="false"
+                  hidden
+                ></textarea>
+                <div id="diff-pane" class="diff-pane" hidden>
+                  <div class="diff-heading">
+                    <h2 id="diff-title">文件改动</h2>
+                    <button id="close-diff" class="text-button">
+                      返回文件
+                    </button>
+                  </div>
+                  <div class="review-controls">
+                    <label class="sr-only" for="review-revision"
+                      >选择文件修订</label
+                    ><select id="review-revision"></select
+                    ><label class="sr-only" for="review-unit">统计单位</label
+                    ><select
+                      id="review-unit"
+                      aria-label="增删统计单位（按文档源文件）"
+                      title="按文档源文件统计增删"
+                      hidden
+                    >
+                      <option value="lines">行</option>
+                      <option
+                        value="characters"
+                        title="排除空白的可见字符，按文档源文件"
+                      >
+                        字
+                      </option>
+                      <option value="words" title="按中英文分词，按文档源文件">
+                        词
+                      </option></select
+                    ><span id="review-stats" role="status">核对中…</span
+                    ><button
+                      id="retry-review"
+                      type="button"
+                      class="button secondary small"
+                      hidden
+                    >
+                      重试
+                    </button>
+                  </div>
+                  <p id="review-note" class="review-note" hidden></p>
+                  <pre id="diff-content"></pre>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section id="settings-view" class="page settings-page" hidden>
+          <div class="page-scroll">
+            <div class="settings-layout">
+              <nav class="settings-nav" aria-label="设置分类" role="tablist" aria-orientation="vertical">
+                <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models">模型来源</button>
+                <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" tabindex="-1">本机工具</button>
+                <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" tabindex="-1">协作权限</button>
+                <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" tabindex="-1">外观</button>
+                <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" tabindex="-1">插件市场</button>
+              </nav>
+              <div class="settings-content">
+                <form id="settings-form" class="settings-form" novalidate>
+                  <section id="settings-panel-models" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-models">
+<section class="settings-section" aria-labelledby="model-source-heading">
+                <h2 id="model-source-heading">模型来源</h2>
+                <div class="settings-card">
+                  <div class="model-source-row">
+                    <span class="client-logo" aria-hidden="true">
+                      <img src="/static/magpie-avatar.svg" alt="" width="24" height="24" />
+                    </span>
+                    <div class="model-source-name">
+                      <strong>Magpie</strong>
+                      <span id="magpie-connection" class="settings-status" role="status">正在连接…</span>
+                    </div>
+                    <button id="open-magpie" type="button" class="button secondary small" disabled>
+                      打开 Magpie
+                    </button>
+                  </div>
+                  <p id="magpie-connection-detail" class="settings-note" hidden></p>
+                  <details id="magpie-models" class="magpie-models" hidden>
+                    <summary>模型目录 <span id="magpie-model-count"></span></summary>
+                    <ul id="magpie-model-list"></ul>
+                  </details>
+                  <div class="model-agent-row">
+                    <div class="model-source-name">
+                      <strong>圆桌 Agent</strong>
+                      <span id="magpie-agent-status" class="settings-status" role="status">正在读取…</span>
+                    </div>
+                    <button id="register-magpie-agent" type="button" class="button secondary small" hidden>
+                      注册
+                    </button>
+                  </div>
+                  <p id="magpie-agent-detail" class="settings-note" hidden></p>
+                  <p class="settings-note">在 Magpie 的 Agents 页面为 Sci-Station 选择模型。本机网关按应用标识记录请求，无需填写 API 密钥。</p>
+                </div>
+              </section>
+                  </section>
+                  <section id="settings-panel-tools" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-tools" hidden>
+<section class="settings-section" aria-labelledby="clients-heading">
+                <h2 id="clients-heading">本机工具</h2>
+                <div class="settings-card">
+                  <p id="clients-state" class="settings-note" role="status">正在检查…</p>
+                  <ul id="clients-list" class="clients-list"></ul>
+                </div>
+              </section>
+                  </section>
+                  <section id="settings-panel-collaboration" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-collaboration" hidden>
+<section class="settings-section" aria-labelledby="collaboration-heading">
+                <h2 id="collaboration-heading">协作</h2>
+                <div class="settings-card settings-options">
+                  <div class="setting-row">
+                    <label for="setting-allow-edits">允许模型修改项目文件</label>
+                    <input id="setting-allow-edits" type="checkbox" role="switch" />
+                  </div>
+                  <div class="setting-row">
+                    <label for="setting-max-children">每席工具代理上限</label>
+                    <input id="setting-max-children" type="number" min="0" max="5" required />
+                  </div>
+                  <div class="setting-row">
+                    <label for="setting-max-steps">工作步骤上限</label>
+                    <input id="setting-max-steps" type="number" min="2" max="40" required />
+                  </div>
+                  <div class="setting-row">
+                    <label for="setting-timeout">单次模型调用超时（秒）</label>
+                    <input id="setting-timeout" type="number" min="10" max="1800" required />
+                  </div>
+                </div>
+              </section>
+                    <div class="settings-rules">
+                      <button id="open-rules-file" type="button" class="button secondary">讨论规则文件</button>
+                    </div>
+                    <div class="settings-footer">
+                      <span class="settings-save-state quiet" role="status"></span>
+                      <button id="save-settings" type="submit" class="button primary" disabled>保存设置</button>
+                    </div>
+                  </section>
+                  <section id="settings-panel-appearance" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
+                    <section class="settings-section" aria-labelledby="appearance-heading">
+                      <h2 id="appearance-heading">外观</h2>
+                      <div class="settings-card settings-options">
+                        <div class="setting-row">
+                          <label for="setting-appearance">明暗模式</label>
+                          <select id="setting-appearance">
+                            <option value="system">随系统</option>
+                            <option value="light">浅色</option>
+                            <option value="dark">深色</option>
+                          </select>
+                        </div>
+                        <div class="setting-row">
+                          <div>
+                            <label for="setting-text-size">字号</label>
+                            <p class="reading-preview" id="text-size-preview">正文与对话预览</p>
+                          </div>
+                          <select id="setting-text-size" aria-describedby="text-size-preview">
+                            <option value="standard">标准</option>
+                            <option value="large">大</option>
+                            <option value="extra-large">特大</option>
+                          </select>
+                        </div>
+                        <div class="theme-settings">
+                          <fieldset>
+                            <legend>配色主题</legend>
+                            <div class="theme-choices">
+                              <label class="theme-choice">
+                                <input class="sr-only" type="radio" name="color_theme" value="iris" checked />
+                                <span class="theme-choice-content">
+                                  <span class="theme-swatch" data-color-theme="iris" aria-hidden="true"></span>
+                                  <span>鸢尾紫</span>
+                                </span>
+                              </label>
+                              <label class="theme-choice">
+                                <input class="sr-only" type="radio" name="color_theme" value="teal" />
+                                <span class="theme-choice-content">
+                                  <span class="theme-swatch" data-color-theme="teal" aria-hidden="true"></span>
+                                  <span>松石青</span>
+                                </span>
+                              </label>
+                              <label class="theme-choice">
+                                <input class="sr-only" type="radio" name="color_theme" value="amber" />
+                                <span class="theme-choice-content">
+                                  <span class="theme-swatch" data-color-theme="amber" aria-hidden="true"></span>
+                                  <span>暖琥珀</span>
+                                </span>
+                              </label>
+                              <label class="theme-choice">
+                                <input class="sr-only" type="radio" name="color_theme" value="blue" />
+                                <span class="theme-choice-content">
+                                  <span class="theme-swatch" data-color-theme="blue" aria-hidden="true"></span>
+                                  <span>海蓝</span>
+                                </span>
+                              </label>
+                            </div>
+                          </fieldset>
+                        </div>
+                      </div>
+                    </section>
+                    <div class="settings-footer">
+                      <span class="settings-save-state quiet" role="status"></span>
+                      <button id="save-settings-appearance" type="submit" class="button primary" disabled>保存设置</button>
+                    </div>
+                  </section>
+                </form>
+                <section id="settings-panel-plugins" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-plugins" hidden>
+                  <h2 class="settings-panel-title">插件市场</h2>
+            <div class="plugin-market">
+              <div class="plugin-market-main">
+                <p class="plugin-market-intro">启用的插件指引用于所有项目接下来的讨论轮次和新报告。插件工具须在会议中手动运行。</p>
+                <div class="plugin-market-tabs" role="group" aria-label="插件列表">
+                  <button id="plugin-tab-discover" class="button secondary" type="button" aria-pressed="true">发现插件</button>
+                  <button id="plugin-tab-installed" class="button secondary" type="button" aria-pressed="false">已安装</button>
+                </div>
+                <div class="plugin-market-filters">
+                  <label class="sr-only" for="plugin-search">搜索插件</label>
+                  <input id="plugin-search" type="search" placeholder="搜索插件、作者或用途" autocomplete="off" />
+                  <label class="sr-only" for="plugin-source-filter">筛选插件目录</label>
+                  <select id="plugin-source-filter"><option value="">所有目录</option></select>
+                </div>
+                <div class="plugin-market-status">
+                  <p id="plugin-market-status" role="status"></p>
+                  <button id="plugin-market-retry" class="button secondary small" type="button" hidden>重新读取</button>
+                </div>
+                <div id="plugin-market-results"></div>
+              </div>
+              <section class="plugin-source-panel" aria-labelledby="plugin-source-title">
+                <h2 id="plugin-source-title">插件目录</h2>
+                <form id="plugin-source-form">
+                  <label for="plugin-source-url">订阅目录地址</label>
+                  <input id="plugin-source-url" type="url" placeholder="https://example.com/catalog.json" required autocomplete="off" spellcheck="false" />
+                  <button id="plugin-source-add" class="button secondary small" type="submit">订阅</button>
+                </form>
+                <p id="plugin-source-status" class="plugin-source-status" role="status"></p>
+                <ul id="plugin-source-list" class="plugin-source-list"></ul>
+              </section>
+            </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div
+      id="history-menu"
+      class="history-menu"
+      role="menu"
+      aria-label="会话操作"
+      tabindex="-1"
+      hidden
+    >
+      <div class="menu-project-context" role="note">
+        <span>项目路径</span>
+        <div id="menu-project-path" class="menu-project-path"></div>
+      </div>
+      <button id="menu-view-project" type="button" role="menuitem">
+        查看完整路径…</button
+      ><button id="menu-copy-project" type="button" role="menuitem">
+        复制项目路径
+      </button>
+      <div
+        id="title-menu-separator"
+        role="separator"
+        class="menu-separator"
+      ></div>
+      <button id="menu-regenerate-title" type="button" role="menuitem">
+        重试命名
+      </button>
+    </div>
+    <dialog
+      id="project-dialog"
+      class="project-dialog"
+      aria-labelledby="project-dialog-title"
+    >
+      <div class="project-dialog-heading">
+        <h2 id="project-dialog-title">项目路径</h2>
+        <button
+          id="close-project-dialog"
+          type="button"
+          class="icon-button"
+          aria-label="关闭项目路径"
+        >
+          <svg class="ui-icon" data-ui-icon="close" width="16" height="16" aria-hidden="true"></svg>
+        </button>
+      </div>
+      <label for="project-dialog-path" class="sr-only"
+        >项目文件夹的完整路径</label
+      ><textarea
+        id="project-dialog-path"
+        rows="3"
+        readonly
+        spellcheck="false"
+      ></textarea>
+      <p id="project-copy-status" role="status"></p>
+      <div class="project-dialog-actions">
+        <button id="copy-project-dialog" type="button" class="button primary">
+          复制路径</button
+        ><button
+          id="done-project-dialog"
+          type="button"
+          class="button secondary"
+        >
+          完成
+        </button>
+      </div>
+    </dialog>
+    <dialog id="meeting-report-dialog" class="meeting-report-dialog" aria-labelledby="meeting-report-title">
+      <div class="meeting-report-frame">
+        <header class="meeting-report-header">
+          <h2 id="meeting-report-title">会议报告</h2>
+          <button id="meeting-report-close" class="button secondary small" type="button">关闭</button>
+        </header>
+        <div id="meeting-report-scroll" class="meeting-report-scroll">
+          <div id="meeting-report-confirmation">
+            <p>完成会议后，会话进入只读状态。参会席将根据已公开的讨论生成和复核报告。</p>
+            <p id="meeting-report-unsent" class="quiet" hidden>输入框还有未发送的消息或材料。</p>
+          </div>
+          <p id="meeting-report-status" class="meeting-report-status" role="status" hidden></p>
+          <p id="meeting-report-meta" class="meeting-report-meta" hidden></p>
+          <p id="meeting-report-error" class="meeting-report-error" role="alert" hidden></p>
+          <article id="meeting-report-content" class="meeting-report-content" aria-label="报告正文" hidden></article>
+          <details id="meeting-report-review" class="meeting-report-review" hidden>
+            <summary>复核说明</summary>
+            <p id="meeting-report-review-notes"></p>
+          </details>
+        </div>
+        <footer class="meeting-report-footer">
+          <button id="meeting-report-confirm" class="button primary" type="button">完成会议并生成报告</button>
+          <button id="meeting-report-retry" class="button primary" type="button" hidden>重新生成</button>
+          <a id="meeting-report-download" class="button secondary" download hidden>下载 Markdown</a>
+        </footer>
+      </div>
+    </dialog>
+    <dialog id="plugin-confirm-dialog" class="plugin-dialog" aria-labelledby="plugin-confirm-title">
+      <form id="plugin-confirm-form" class="plugin-dialog-frame">
+        <header class="plugin-dialog-header">
+          <h2 id="plugin-confirm-title"></h2>
+        </header>
+        <div class="plugin-dialog-body">
+          <p id="plugin-confirm-description"></p>
+          <div id="plugin-confirm-permissions"></div>
+          <p id="plugin-confirm-error" class="plugin-error" role="alert" hidden></p>
+        </div>
+        <footer class="plugin-dialog-footer">
+          <button id="plugin-confirm-cancel" class="button secondary" type="button">取消</button>
+          <button id="plugin-confirm-submit" class="button primary" type="submit"></button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="plugin-tools-dialog" class="plugin-dialog plugin-tools-dialog" aria-labelledby="plugin-tools-title">
+      <form id="plugin-tools-form" class="plugin-dialog-frame">
+        <header class="plugin-dialog-header">
+          <h2 id="plugin-tools-title">插件工具</h2>
+          <button id="plugin-tools-close" class="button secondary small" type="button">关闭</button>
+        </header>
+        <div class="plugin-dialog-body">
+          <label id="plugin-tools-action-label" for="plugin-tools-action" hidden>选择工具</label>
+          <select id="plugin-tools-action" aria-describedby="plugin-tools-input" hidden></select>
+          <p id="plugin-tools-input" hidden></p>
+          <fieldset id="plugin-tools-range" class="plugin-tools-range" hidden>
+            <legend>公开轮次范围（可选）</legend>
+            <label for="plugin-tools-from">起始轮次<input id="plugin-tools-from" type="number" min="1" step="1" placeholder="第一轮" /></label>
+            <label for="plugin-tools-to">结束轮次<input id="plugin-tools-to" type="number" min="1" step="1" placeholder="最新公开轮次" /></label>
+          </fieldset>
+          <p id="plugin-tools-status" role="status"></p>
+          <button id="plugin-tools-retry" class="button secondary small" type="button" hidden>重新读取工具</button>
+          <pre id="plugin-tools-result" class="plugin-tools-result" tabindex="0" aria-label="插件输出预览" hidden></pre>
+        </div>
+        <footer class="plugin-dialog-footer">
+          <button id="plugin-tools-run" class="button primary" type="submit" hidden>运行工具</button>
+          <a id="plugin-tools-download" class="button secondary" download hidden>下载结果</a>
+        </footer>
+      </form>
+    </dialog>
+    <div
+      id="history-action-status"
+      class="history-action-status"
+      role="status"
+      hidden
+    ></div>
+  </body>
+</html>

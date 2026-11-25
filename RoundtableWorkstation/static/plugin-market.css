@@ -1,0 +1,334 @@
+.plugin-market-nav {
+  justify-content: flex-start;
+  min-height: 34px;
+  padding-inline: 9px;
+  margin-top: 9px;
+  font-size: 13px;
+}
+
+.plugin-market-nav.selected {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.plugin-market {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, .54fr);
+  align-items: start;
+  gap: 20px;
+  max-width: 1080px;
+  margin-inline: auto;
+}
+
+.plugin-market-main, .plugin-source-panel {
+  min-width: 0;
+}
+
+.plugin-market-intro {
+  margin: 0 0 14px;
+  color: var(--text);
+}
+
+.plugin-market-tabs, .plugin-market-filters, .plugin-card-actions, .plugin-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plugin-market-tabs {
+  margin-bottom: 12px;
+}
+
+.plugin-market-tabs button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.plugin-market input, .plugin-market select, .plugin-dialog select, .plugin-dialog input[type="number"] {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.plugin-market-filters input {
+  flex: 1 1 160px;
+}
+
+.plugin-market-filters select {
+  max-width: min(100%, 220px);
+}
+
+.plugin-market-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-block: 10px;
+}
+
+.plugin-market-status p:empty, .plugin-source-status:empty,
+.plugin-dialog-body p:empty {
+  display: none;
+}
+
+.plugin-market-status p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+#plugin-market-results, .plugin-source-list {
+  display: grid;
+  gap: 10px;
+}
+
+.plugin-card, .plugin-source-panel {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.plugin-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 14px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-card h2, .plugin-source-panel h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.plugin-card p {
+  margin: 7px 0 0;
+}
+
+.plugin-card .plugin-card-meta, .plugin-source-url, .plugin-source-status {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.plugin-card-actions {
+  justify-content: flex-end;
+  max-width: 160px;
+}
+
+.plugin-card-capabilities {
+  margin-top: 8px;
+  color: var(--text);
+}
+
+.plugin-card-capabilities summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.plugin-card-capabilities ul, .plugin-confirm-list {
+  padding-inline-start: 19px;
+  margin-block: 6px 0;
+}
+
+.plugin-card-state {
+  color: var(--text);
+}
+
+.plugin-source-panel {
+  padding: 14px;
+}
+
+.plugin-source-panel form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.plugin-source-panel form > label {
+  grid-column: 1 / -1;
+}
+
+#plugin-source-status {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-source-list {
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+
+.plugin-source-list li {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-source-actions {
+  margin-top: 3px;
+}
+
+.plugin-error {
+  color: var(--danger);
+}
+
+.plugin-dialog {
+  width: min(500px, calc(100vw - 2rem));
+  max-height: calc(100% - 2rem);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 16px 65px #0004;
+}
+
+.plugin-dialog::backdrop {
+  background: #15152155;
+}
+
+.plugin-tools-dialog {
+  width: min(660px, calc(100vw - 2rem));
+}
+
+.plugin-dialog-frame {
+  display: flex;
+  flex-direction: column;
+  max-height: min(86dvh, 52rem);
+}
+
+.plugin-dialog-header, .plugin-dialog-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 16px;
+}
+
+.plugin-dialog-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.plugin-dialog-header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.plugin-dialog-footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+}
+
+.plugin-dialog-footer:not(:has(:not([hidden]))) {
+  display: none;
+}
+
+.plugin-dialog-body {
+  min-height: 0;
+  display: grid;
+  gap: 9px;
+  padding: 12px 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.plugin-dialog-body h3, .plugin-dialog-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-dialog-body h3 {
+  margin-top: 9px;
+  font-size: 13px;
+}
+
+.plugin-confirm-check {
+  display: flex;
+  align-items: start;
+  gap: 7px;
+  margin: 7px 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-confirm-check input {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.plugin-tools-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.plugin-tools-range label {
+  flex: 1 1 110px;
+}
+
+.plugin-tools-range input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.plugin-tools-result {
+  margin: 0;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--editor);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .plugin-market {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 450px) {
+  .plugin-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .plugin-card-actions {
+    max-width: none;
+    justify-content: flex-start;
+  }
+  .topbar #chat-toolbar #plugin-tools-open {
+    padding-inline: 5px;
+  }
+}
+
+#plugin-confirm-description, .round-plugin-guidance p {
+  white-space: pre-wrap;
+}
+
+.round-plugin-guidance li + li {
+  margin-top: 8px;
+}
+
+.round-plugin-guidance p {
+  margin: 2px 0 0;
+  color: var(--text);
+}

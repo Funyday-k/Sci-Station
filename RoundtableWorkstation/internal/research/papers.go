@@ -1,0 +1,401 @@
+package research
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+type AnnotationRect struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+type PaperAnnotation struct {
+	ID           string           `json:"id"`
+	Page         int              `json:"page"`
+	Kind         string           `json:"kind"`
+	SelectedText string           `json:"selected_text"`
+	Note         string           `json:"note"`
+	Color        string           `json:"color"`
+	Rects        []AnnotationRect `json:"rects"`
+	CreatedAt    time.Time        `json:"created_at"`
+}
+type PaperMetadata struct {
+	Title          string   `json:"title"`
+	Authors        []string `json:"authors"`
+	Year           int      `json:"year"`
+	DOI            string   `json:"doi"`
+	Arxiv          string   `json:"arxiv"`
+	URL            string   `json:"url"`
+	Abstract       string   `json:"abstract"`
+	Tags           []string `json:"tags"`
+	ProjectIDs     []string `json:"project_ids"`
+	CoreProjectIDs []string `json:"core_project_ids"`
+	Citekey        string   `json:"citekey"`
+	Status         string   `json:"status"`
+	Notes          string   `json:"notes"`
+	References     []string `json:"references"`
+	Rating         int      `json:"rating"`
+	Priority       int      `json:"priority"`
+}
+type Paper struct {
+	PaperMetadata
+	ID          string            `json:"id"`
+	HasPDF      bool              `json:"has_pdf"`
+	FileSHA256  string            `json:"file_sha256"`
+	Revision    int               `json:"revision"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	Annotations []PaperAnnotation `json:"annotations"`
+}
+type PaperLibrary struct {
+	dir        string
+	mu         sync.RWMutex
+	records    map[string]Paper
+	hasProject func(string) bool
+}
+
+var errPaperConflict = errors.New("论文已被修改，请重新打开后再保存")
+var errPaperExists = errors.New("已登记相同标识符或引用键")
+var errInvalidPaper = errors.New("文献信息无效")
+var paperCitekeyPattern = regexp.MustCompile(`^[\p{L}\p{N}_:.+/-]{1,160}$`)
+var libraryIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var arxivPattern = regexp.MustCompile(`(?i)^(?:[0-9]{4}\.[0-9]{4,5}|[a-z][a-z.\-]*/[0-9]{7})(?:v[0-9]+)?$`)
+var doiPattern = regexp.MustCompile(`(?i)^10\.[0-9]{4,9}/[^\s<>"]+$`)
+
+func paperID() string {
+	var id [16]byte
+	// crypto/rand.Read always fills the buffer or terminates the program.
+	rand.Read(id[:])
+	return hex.EncodeToString(id[:])
+}
+func NewPaperLibrary(dir string) (*PaperLibrary, error) {
+	p := &PaperLibrary{dir: dir, records: make(map[string]Paper)}
+	for _, sub := range []string{"records", "pdf"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0700); err != nil {
+			return nil, err
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "records"))
+	if err != nil {
+		return nil, err
+	}
+	for _, ent := range entries {
+		name := ent.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if !libraryIDPattern.MatchString(id) || ent.Type()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("损坏的文献记录 %q", name)
+		}
+		body, e := os.ReadFile(filepath.Join(dir, "records", name))
+		if e != nil {
+			return nil, e
+		}
+		var rec Paper
+		if e = json.Unmarshal(body, &rec); e != nil || rec.ID != id || rec.Revision < 1 {
+			return nil, fmt.Errorf("无法读取文献记录 %s", name)
+		}
+		p.records[id] = rec
+	}
+	return p, nil
+}
+
+// SetProjectValidator is called once during application startup.
+func (s *PaperLibrary) SetProjectValidator(f func(string) bool) { s.hasProject = f }
+func (s *PaperLibrary) Snapshot(id string) (Paper, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.records[id]
+	return clonePaper(p), ok
+}
+func clonePaper(p Paper) Paper {
+	p.Authors = append([]string{}, p.Authors...)
+	p.Tags = append([]string{}, p.Tags...)
+	p.ProjectIDs = append([]string{}, p.ProjectIDs...)
+	p.CoreProjectIDs = append([]string{}, p.CoreProjectIDs...)
+	p.References = append([]string{}, p.References...)
+	p.Annotations = append([]PaperAnnotation{}, p.Annotations...)
+	for i := range p.Annotations {
+		p.Annotations[i].Rects = append([]AnnotationRect{}, p.Annotations[i].Rects...)
+	}
+	return p
+}
+func (s *PaperLibrary) PDFPath(id string) (string, error) {
+	p, ok := s.Snapshot(id)
+	if !ok || !p.HasPDF {
+		return "", os.ErrNotExist
+	}
+	return filepath.Join(s.dir, "pdf", p.ID+".pdf"), nil
+}
+func (s *PaperLibrary) saveLocked(p Paper) error {
+	body, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Join(s.dir, "records"), ".pending-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err = tmp.Write(body); err == nil {
+		err = tmp.Sync()
+	}
+	closeErr := tmp.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if err = os.Rename(tmp.Name(), filepath.Join(s.dir, "records", p.ID+".json")); err != nil {
+		return err
+	}
+	s.records[p.ID] = clonePaper(p)
+	return nil
+}
+func paperListClean(values []string, maxCount, maxLen int) ([]string, error) {
+	result := []string{}
+	seen := map[string]bool{}
+	if len(values) > maxCount {
+		return nil, errInvalidPaper
+	}
+	for _, value := range values {
+		v := strings.TrimSpace(value)
+		if utf8.RuneCountInString(v) > maxLen {
+			return nil, errInvalidPaper
+		}
+		if v != "" && !seen[v] {
+			seen[v] = true
+			result = append(result, v)
+		}
+	}
+	return result, nil
+}
+func paperContains(values []string, key string) bool {
+	for _, v := range values {
+		if v == key {
+			return true
+		}
+	}
+	return false
+}
+func normalizeDOI(v string) string {
+	v = strings.TrimSpace(v)
+	lower := strings.ToLower(v)
+	for _, prefix := range []string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi:"} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(v[len(prefix):])
+		}
+	}
+	return v
+}
+func normalizeArxiv(v string) string {
+	v = strings.TrimSpace(v)
+	lower := strings.ToLower(v)
+	for _, prefix := range []string{"https://arxiv.org/abs/", "https://arxiv.org/pdf/", "http://arxiv.org/abs/", "arxiv:"} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSuffix(strings.TrimSpace(v[len(prefix):]), ".pdf")
+		}
+	}
+	return v
+}
+func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) error {
+	m.Title = strings.TrimSpace(m.Title)
+	m.DOI = normalizeDOI(m.DOI)
+	m.Arxiv = normalizeArxiv(m.Arxiv)
+	m.URL = strings.TrimSpace(m.URL)
+	m.Citekey = strings.TrimSpace(m.Citekey)
+	if m.Title == "" || len(m.Title) > 4096 || len(m.Abstract) > 256*1024 || len(m.Notes) > 2<<20 || len(m.URL) > 4096 || len(m.DOI) > 512 || m.Year < 0 || m.Year > 9999 || m.Rating < 0 || m.Rating > 5 || m.Priority < 0 || m.Priority > 5 {
+		return errInvalidPaper
+	}
+	if m.DOI != "" && !doiPattern.MatchString(m.DOI) || m.Arxiv != "" && !arxivPattern.MatchString(m.Arxiv) || m.Citekey != "" && !paperCitekeyPattern.MatchString(m.Citekey) {
+		return errInvalidPaper
+	}
+	if m.URL != "" && !paperHTTPURL(m.URL) {
+		return fmt.Errorf("%w：链接须为 HTTP(S)", errInvalidPaper)
+	}
+	if m.Status == "" {
+		m.Status = "unread"
+	}
+	if m.Status != "unread" && m.Status != "reading" && m.Status != "read" {
+		return errInvalidPaper
+	}
+	var err error
+	for _, v := range []struct {
+		list        *[]string
+		count, size int
+	}{{&m.Authors, 10000, 512}, {&m.Tags, 256, 128}, {&m.ProjectIDs, 512, 256}, {&m.CoreProjectIDs, 512, 256}, {&m.References, 4096, 512}} {
+		*v.list, err = paperListClean(*v.list, v.count, v.size)
+		if err != nil {
+			return err
+		}
+	}
+	for _, id := range m.CoreProjectIDs {
+		if !paperContains(m.ProjectIDs, id) {
+			m.ProjectIDs = append(m.ProjectIDs, id)
+		}
+	}
+	for _, id := range m.ProjectIDs {
+		if s.hasProject != nil && !paperContains(priorProjectIDs, id) && !s.hasProject(id) {
+			return fmt.Errorf("%w：项目不存在", errInvalidPaper)
+		}
+	}
+	return nil
+}
+func (s *PaperLibrary) all() []Paper {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Paper, 0, len(s.records))
+	for _, p := range s.records {
+		out = append(out, clonePaper(p))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out
+}
+func filterPapers(items []Paper, project, query, status string) []Paper {
+	out := []Paper{}
+	q := strings.ToLower(strings.TrimSpace(query))
+	for _, p := range items {
+		if project != "" && !paperContains(p.ProjectIDs, project) {
+			continue
+		}
+		if status != "" && p.Status != status {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(strings.Join([]string{p.Title, strings.Join(p.Authors, " "), p.DOI, p.Arxiv, p.Abstract, strings.Join(p.Tags, " "), p.Citekey}, " ")), q) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+func changePaper(p *Paper) { p.Revision++; p.UpdatedAt = time.Now().UTC() }
+func samePaper(a, b Paper) bool {
+	return a.DOI != "" && strings.EqualFold(a.DOI, b.DOI) || a.Arxiv != "" && strings.EqualFold(a.Arxiv, b.Arxiv) || a.FileSHA256 != "" && a.FileSHA256 == b.FileSHA256 || a.URL != "" && a.URL == b.URL
+}
+func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, bool, error) {
+	if err := s.validate(&m, nil); err != nil {
+		return Paper{}, false, err
+	}
+	p := Paper{PaperMetadata: m, ID: paperID(), CreatedAt: time.Now().UTC(), HasPDF: tempFile != "", FileSHA256: digest, Annotations: []PaperAnnotation{}}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incoming := p
+	isNew := true
+	for _, other := range s.records {
+		if samePaper(incoming, other) {
+			if !isNew {
+				return Paper{}, false, errPaperExists
+			}
+			isNew = false
+			existing := clonePaper(other)
+			for _, id := range m.ProjectIDs {
+				if !paperContains(existing.ProjectIDs, id) {
+					existing.ProjectIDs = append(existing.ProjectIDs, id)
+				}
+			}
+			for _, id := range m.CoreProjectIDs {
+				if !paperContains(existing.CoreProjectIDs, id) {
+					existing.CoreProjectIDs = append(existing.CoreProjectIDs, id)
+				}
+			}
+			p = existing
+		}
+	}
+	if !isNew && p.HasPDF && digest != "" && p.FileSHA256 != digest {
+		return Paper{}, false, fmt.Errorf("%w：同一文献已有不同 PDF", errPaperExists)
+	}
+	if !isNew && (p.HasPDF || tempFile == "") {
+		old := s.records[p.ID]
+		if len(old.ProjectIDs) == len(p.ProjectIDs) && len(old.CoreProjectIDs) == len(p.CoreProjectIDs) {
+			return clonePaper(old), false, nil
+		}
+	}
+	if p.Citekey == "" {
+		p.Citekey = defaultPaperKey(p, s.records)
+	}
+	for _, other := range s.records {
+		if other.ID != p.ID && strings.EqualFold(other.Citekey, p.Citekey) {
+			return Paper{}, false, errPaperExists
+		}
+	}
+	pdfDest := ""
+	if tempFile != "" && (isNew || !p.HasPDF) {
+		pdfDest = filepath.Join(s.dir, "pdf", p.ID+".pdf")
+		if err := os.Rename(tempFile, pdfDest); err != nil {
+			return Paper{}, false, err
+		}
+		p.HasPDF = true
+		p.FileSHA256 = digest
+	}
+	changePaper(&p)
+	if err := s.saveLocked(p); err != nil {
+		if pdfDest != "" {
+			os.Remove(pdfDest)
+		}
+		return Paper{}, false, err
+	}
+	return clonePaper(p), isNew, nil
+}
+func (s *PaperLibrary) update(id string, revision int, meta PaperMetadata) (Paper, error) {
+	current, exists := s.Snapshot(id)
+	if !exists {
+		return Paper{}, os.ErrNotExist
+	}
+	if current.Revision != revision {
+		return Paper{}, errPaperConflict
+	}
+	// A project may have been archived since this paper was linked to it.
+	// Its retained membership should not block unrelated paper edits.
+	if err := s.validate(&meta, current.ProjectIDs); err != nil {
+		return Paper{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.records[id]
+	if !ok {
+		return Paper{}, os.ErrNotExist
+	}
+	if revision != p.Revision {
+		return Paper{}, errPaperConflict
+	}
+	p.PaperMetadata = meta
+	if p.Citekey == "" {
+		p.Citekey = defaultPaperKey(p, s.records)
+	}
+	for otherID, other := range s.records {
+		if otherID != id && (samePaper(p, other) || strings.EqualFold(p.Citekey, other.Citekey)) {
+			return Paper{}, errPaperExists
+		}
+	}
+	changePaper(&p)
+	err := s.saveLocked(p)
+	return clonePaper(p), err
+}
+func (s *PaperLibrary) SetNotes(id string, revision int, notes string) (Paper, error) {
+	p, ok := s.Snapshot(id)
+	if !ok {
+		return Paper{}, os.ErrNotExist
+	}
+	p.Notes = notes
+	return s.update(id, revision, p.PaperMetadata)
+}

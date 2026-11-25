@@ -1,0 +1,157 @@
+/* The shared frame owns the focus indicator for its text field. */
+.composer-surface {
+  position: relative;
+  cursor: text;
+  min-width: 0;
+  max-width: 960px;
+  margin-inline: auto;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+}
+.composer-surface:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.composer-surface :is(#run-note, #new-topic) {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  max-height: min(13rem, 28vh);
+  margin: 0;
+  padding: 11px 13px 2px;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--reading-size, 15px);
+  line-height: 1.55;
+  caret-color: var(--ink);
+  resize: none;
+  overflow-y: auto;
+  field-sizing: content;
+}
+.composer-surface .composer-bottom {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 8px 7px;
+}
+.composer-surface .composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+.roundtable-commands-button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text, #e6e8ee);
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.roundtable-commands-button:hover,
+.roundtable-commands-button[aria-expanded="true"] {
+  background: var(--accent-soft, #292f40);
+  color: var(--accent, #a9bcff);
+}
+.roundtable-commands-button:disabled {
+  opacity: .48;
+  cursor: default;
+  background: transparent;
+  color: var(--text);
+}
+.composer-surface .composer-actions > .button { min-height: 34px; }
+.composer-surface .input-limit.over-limit {
+  display: block;
+  margin: 0;
+  padding: 2px 12px;
+  white-space: normal;
+}
+.composer-recipient {
+  display: block;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.composer-recipient:not(:empty) { padding: 2px 12px 4px; }
+.roundtable-commands-button:focus-visible,
+.roundtable-commands-item:focus-visible {
+  outline: 2px solid var(--accent, #8aa8ff);
+  outline-offset: 2px;
+}
+.roundtable-commands-button svg { width: 18px; height: 18px; }
+
+.roundtable-commands {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid var(--line, #343740);
+  border-radius: 11px;
+  background: var(--surface, #202229);
+  color: var(--text, #e6e8ee);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 24%);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.roundtable-commands[hidden] { display: none; }
+.roundtable-commands-group {
+  padding: 7px 9px 4px;
+  color: var(--muted, #9298a6);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.roundtable-commands-group:not(:first-child) { margin-top: 3px; border-top: 1px solid var(--line, #343740); }
+.roundtable-commands-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roundtable-commands-item:hover:not(:disabled) { background: var(--accent-soft, #2d3342); color: var(--accent, #a9bcff); }
+.roundtable-commands-item:disabled { opacity: .42; cursor: not-allowed; }
+.roundtable-commands-icon { display: grid; place-items: center; width: 20px; height: 20px; flex: none; color: var(--muted, #a0a5b1); }
+.roundtable-commands-icon svg { width: 17px; height: 17px; }
+.roundtable-commands-label { min-width: 0; }
+.roundtable-commands-empty { padding: 12px 10px; color: var(--muted, #9298a6); }
+
+@media (prefers-reduced-motion: reduce) {
+  .roundtable-commands-button { transition: none; }
+}

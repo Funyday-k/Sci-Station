@@ -8,6 +8,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Added the Roundtable-based Sci-Station desktop preview, with a shared research library, PDF reader and project meetings. Its macOS build and tests are included in the required checks.
+
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
 
 ## [0.2.0] - 2026-10-16
