@@ -180,7 +180,9 @@ func workspaceLocation(raw string) (*url.URL, error) {
 	q := u.Query()
 	for key := range q {
 		switch key {
-		case "project", "view", "session", "paper", "page", "annotation", "fingerprint", "quote", "start", "end", "ocr", "note", "task", "tab":
+		case "project", "view", "session", "paper", "page", "annotation", "fingerprint", "quote",
+			"start", "end", "offset", "ocr", "note", "material", "task", "tab",
+			"citation", "ordinal", "line", "column", "endLine", "revision", "run", "review", "scope":
 		default:
 			q.Del(key)
 		}

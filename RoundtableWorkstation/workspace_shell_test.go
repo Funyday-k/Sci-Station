@@ -138,3 +138,27 @@ func TestWorkspaceResolutionFallsBackBeforeDomainLoads(t *testing.T) {
 	}
 
 }
+
+func TestNavigationRestoresEvidenceLocatorsWithoutReplayingCommands(t *testing.T) {
+	api := openNavigationFixture(t, t.TempDir())
+	record := navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Evidence navigation fixture"}`, 201)
+	var project research.Project
+	if err := json.Unmarshal(record.Body.Bytes(), &project); err != nil {
+		t.Fatal(err)
+	}
+	for i, route := range []string{
+		"/research?view=materials&material=material-a&offset=13&end=25&fingerprint=source",
+		"/research?view=notes&note=note-a&offset=4&end=16&revision=2&line=2&column=1",
+	} {
+		original, err := url.Parse(route + "&project=" + project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := json.Marshal(map[string]any{"event": i + 1, "route": original.String() + "&command=newProject"})
+		navigationRequest(t, api, "POST", "/api/workspace/navigation", string(body), 204)
+		restored, err := url.Parse(navigationRequest(t, api, "GET", "/resume", "", 303).Header().Get("Location"))
+		if err != nil || restored.Path != original.Path || restored.Query().Encode() != original.Query().Encode() {
+			t.Fatalf("restored %v, want %v", restored, original)
+		}
+	}
+}
