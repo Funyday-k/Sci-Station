@@ -87,11 +87,11 @@
       generation++;
       const operation = context();
       ready = false;
-      $("articles").replaceChildren();
+      papers = [];
+      queue = [];
+      applyRun({}, true);
       $("readingQueue").replaceChildren();
-      $("runSource").textContent = "";
-      $("expr").value = "";
-      $("history").replaceChildren();
+      tell("");
       $("submitSearch").disabled = true;
       $("aiModel").value = "";
       $("readingTaskOpen").hidden = true;

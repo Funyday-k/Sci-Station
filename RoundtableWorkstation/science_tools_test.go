@@ -236,7 +236,7 @@ func TestDiscoveryLegacyAndRejectsUnreadableState(t *testing.T) {
 	if err != nil || state.Runs[0].Items[0].Arxiv != "2404.00001v1" || string(state.unknown["custom"]) != `{"keep":true}` {
 		t.Fatalf("rewritten state lost fields: %+v %v", state, err)
 	}
-	for _, invalid := range []string{`{"schema_version":2,"runs":[]}`, `{"schema_version":1}`, `{"runs":[`} {
+	for _, invalid := range []string{`{"schema_version":2,"runs":[]}`, `{"schema_version":null,"runs":[]}`, `{"schema_version":1}`, `{"runs":[`} {
 		write(invalid)
 		lab, err := research.New(filepath.Join(dir, "research"))
 		if err != nil {

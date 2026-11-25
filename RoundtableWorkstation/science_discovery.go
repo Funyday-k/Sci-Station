@@ -96,11 +96,13 @@ func loadDiscovery(path string) (discoveryState, error) {
 	if err = json.Unmarshal(b, &s.unknown); err != nil || s.unknown == nil {
 		return s, errors.New("发现记录需要 JSON 对象")
 	}
+	s.Schema = 0
 	if err = json.Unmarshal(b, &s); err != nil {
 		return s, err
 	}
 	switch {
 	case s.unknown["schema_version"] == nil:
+		s.Schema = discoverySchema
 		var old discoveryRun
 		if err = json.Unmarshal(b, &old); err != nil {
 			return s, err

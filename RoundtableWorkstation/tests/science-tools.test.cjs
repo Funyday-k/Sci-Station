@@ -134,7 +134,9 @@ test("a reopened discovery run restores its filters and can retry a partially co
   const addedTasks = [], imports = [];
   const fetch = async (url, options) => {
     const route = url.replace("/api/research/", "");
-    if (route === "projects") return Response.json([{id: "project", name: "Solar"}]);
+    if (route === "projects") return Response.json([{id: "project", name: "Solar"}, {id: "unavailable", name: "Unavailable"}]);
+    if (route === "tools/discover?project=unavailable") return Response.json({error: "fixture project failed"}, {status: 500});
+    if (route.includes("project=unavailable")) return Response.json([]);
     if (route === "tools/discover?project=project") {
       return Response.json({...history[0], history, items: []});
     }
@@ -161,7 +163,8 @@ test("a reopened discovery run restores its filters and can retry a partially co
   const context = vm.createContext({
     document: {getElementById: id => controls[id], querySelectorAll: () => [], createElement: () => new Control()},
     Option: class {constructor(text, value) {this.value = value;}},
-    location: {search: "?tab=discover&project=project"}, URLSearchParams, fetch
+    location: new URL("http://localhost/tools?tab=discover&project=project"), URL, URLSearchParams, fetch,
+    history: {replaceState() {}}
   });
   vm.runInContext(discoveryScript, context);
   vm.runInContext(script, context);
@@ -197,4 +200,14 @@ test("a reopened discovery run restores its filters and can retry a partially co
   controls.filter.value = "hidden";
   controls.filter.onchange();
   assert.equal(action("取消隐藏").attributes["aria-pressed"], "true");
+
+  controls.project.value = "unavailable";
+  controls.project.onchange();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(controls.status.textContent, "fixture project failed");
+  assert.equal(controls.expr.value, "");
+  assert.equal(controls.categories.value, "");
+  assert.equal(controls.archiveRun.disabled, true);
+  assert.equal(controls.readingTaskOpen.hidden, true);
+  assert.match(controls.articles.children[0].textContent, /运行检索或打开历史记录/);
 });
