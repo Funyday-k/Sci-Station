@@ -39,8 +39,11 @@
         a.href = "/reader?paper=" + encodeURIComponent(p.id) + (project ? "&project=" + encodeURIComponent(project) : "");
         row.append(a);
         if (project) row.append(button("加入阅读待办", withCurrent(operation, async ({target}) => {
-          await readingTask(p, target);
-          if (current(operation)) tell("阅读待办已就绪");
+          const task = await readingTask(p, target);
+          if (current(operation)) {
+            showReadingTask(task, target);
+            tell("阅读待办已就绪");
+          }
         })));
         list.append(row);
       }
@@ -91,6 +94,7 @@
       $("history").replaceChildren();
       $("submitSearch").disabled = true;
       $("aiModel").value = "";
+      $("readingTaskOpen").hidden = true;
       try {
         const [result, library, queueItems] = await Promise.all([
           req(scope("tools/discover", target, run)), req(scope("papers", target)), req(scope("papers/recommendations", target))
@@ -131,7 +135,10 @@
     }
 
     function feedbackState(p) {
-      return feed.feedback?.[key(p)] || feed.feedback?.[p.arxiv] || "";
+      const work = key(p);
+      const state = feed.feedback?.[work] || feed.feedback?.[p.arxiv];
+      if (state || !p.arxiv) return state || "";
+      return Object.entries(feed.feedback || {}).find(([id]) => key({arxiv: id}) === work)?.[1] || "";
     }
 
     function setFeedback(p, state, operation) {
@@ -143,17 +150,29 @@
       });
     }
 
+    function showReadingTask(task, target) {
+      if (!task.id) return;
+      const link = $("readingTaskOpen");
+      link.href = "/research?" + new URLSearchParams({view: "tasks", project: target, task: task.id});
+      link.hidden = false;
+    }
+
     async function select(p, operation, task) {
-      const paper = await req(scope("tools/select-discovery", operation.target), {run: operation.run, key: key(p)});
+      const paper = await req(scope("tools/select-discovery", operation.target), {
+        run: operation.run, key: key(p), fetch_pdf: Boolean(p.arxiv && !p.paper_id)
+      });
+      let createdTask;
       if (task) {
         try {
-          await readingTask(paper, operation.target, p, operation.run);
+          createdTask = await readingTask(paper, operation.target, p, operation.run);
         } catch (error) {
           throw Error("论文已入库。阅读待办创建失败，可重试。 " + error.message);
         }
       }
       if (current(operation)) {
-        tell(task ? "论文已入库，阅读待办已就绪" : "论文已加入文献库");
+        if (createdTask) showReadingTask(createdTask, operation.target);
+        const complete = task ? "论文已入库，阅读待办已就绪" : "论文已加入文献库";
+        tell([complete, paper.import_warning].filter(Boolean).join("。"));
         try {
           const refreshed = await req(scope("papers/recommendations", operation.target));
           if (current(operation)) {

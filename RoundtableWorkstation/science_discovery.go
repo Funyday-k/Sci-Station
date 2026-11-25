@@ -73,10 +73,11 @@ type discoveryView struct {
 }
 
 type discoveryEdit struct {
-	Run   string `json:"run"`
-	Key   string `json:"key"`
-	Arxiv string `json:"arxiv"`
-	State string `json:"state"`
+	Run      string `json:"run"`
+	Key      string `json:"key"`
+	Arxiv    string `json:"arxiv"`
+	State    string `json:"state"`
+	FetchPDF bool   `json:"fetch_pdf"`
 }
 
 var discoveryMu sync.Mutex
@@ -317,6 +318,27 @@ func serveDiscovery(lab *research.Service, dir string, w http.ResponseWriter, r 
 	if r.Method == http.MethodPost && !jsonBody(w, r, &edit) {
 		return
 	}
+	if route == "select-discovery" {
+		discoveryMu.Lock()
+		state, err := loadDiscovery(file)
+		discoveryMu.Unlock()
+		if err != nil {
+			reject(w, 500, "发现记录无法读取")
+			return
+		}
+		candidate, ok := discoverySelected(state, edit)
+		if !ok {
+			reject(w, 404, "推荐论文不在该检索记录中")
+			return
+		}
+		paper, err := lab.ImportDiscoveryCandidate(r.Context(), project, candidate, edit.FetchPDF)
+		if err != nil {
+			reject(w, 409, err.Error())
+			return
+		}
+		reply(w, 200, paper)
+		return
+	}
 	discoveryMu.Lock()
 	defer discoveryMu.Unlock()
 	state, err := loadDiscovery(file)
@@ -360,18 +382,7 @@ func serveDiscovery(lab *research.Service, dir string, w http.ResponseWriter, r 
 		}
 		state.Runs[runIndex].Archived = true
 		saveDiscovery(w, file, state, "")
-	case "select-discovery":
-		candidate, ok := discoverySelected(state, edit)
-		if !ok {
-			reject(w, 404, "推荐论文不在该检索记录中")
-			return
-		}
-		paper, err := lab.ImportDiscoveryCandidate(project, candidate)
-		if err != nil {
-			reject(w, 409, err.Error())
-			return
-		}
-		reply(w, 200, paper)
+
 	}
 }
 

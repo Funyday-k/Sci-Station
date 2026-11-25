@@ -11,8 +11,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"scistation.local/desktop/internal/gateway"
 	"scistation.local/desktop/internal/research"
@@ -291,5 +293,28 @@ func TestDiscoveryAIUsesConfiguredModelAndActualCandidates(t *testing.T) {
 	run, err = buildDiscoveryRun(context.Background(), options, sources, discoveryState{}, deps)
 	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 0 || run.Notice == "" || requests[1] != `all:"solar"` {
 		t.Fatalf("AI failure lost direct search: %+v, %v", run, err)
+	}
+}
+
+func TestDiscoveryRankingUsesRealReferenceSignalsAndDiversifies(t *testing.T) {
+	paper := func(arxiv, title, abstract string) research.DiscoveryCandidate {
+		return research.DiscoveryCandidate{PaperMetadata: research.PaperMetadata{
+			Arxiv: arxiv, Title: title, Abstract: abstract,
+		}}
+	}
+	first := paper("2404.00001", "Solar dark matter evaporation", "Solar dark matter evaporation and capture")
+	repeat := paper("2404.00002", "Solar dark matter evaporation", "Solar dark matter evaporation and capture")
+	distinct := paper("2404.00003", "Dark matter detector calibration", "Neutrino flux and detector calibration")
+	distinct.GraphEvidence = []research.DiscoveryCitation{{PaperID: "fixture-core", Kind: "cites"}}
+	sources := research.DiscoveryContext{
+		Project: research.Project{Name: "Solar dark matter"},
+		Refs:    []research.Paper{{PaperMetadata: first.PaperMetadata}},
+	}
+	now := time.Now().UTC()
+	run := discoveryRun{discoveryOptions: discoveryOptions{Query: "dark matter evaporation", Source: "arxiv", TopK: 3}}
+	ranked := rankDiscovery([]research.DiscoveryCandidate{distinct, first, repeat}, sources, run, discoveryState{}, now)
+	if len(ranked) != 3 || ranked[0].Arxiv != first.Arxiv || ranked[1].Arxiv != distinct.Arxiv ||
+		!slices.Contains(ranked[0].Reasons, "与所选参考论文相关") {
+		t.Fatalf("expected reference-first diversified ranking, got %+v", ranked)
 	}
 }

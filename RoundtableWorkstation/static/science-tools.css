@@ -324,3 +324,8 @@ select:focus-visible {
 #articles .actions {
   flex-wrap: wrap
 }
+
+#readingTaskOpen:not([hidden]) {
+  display: inline-block;
+  margin-bottom: 12px
+}

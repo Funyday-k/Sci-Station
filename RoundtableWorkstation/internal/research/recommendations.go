@@ -1,8 +1,10 @@
 package research
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -183,28 +185,36 @@ func paperContainsCitation(citations []DiscoveryCitation, want DiscoveryCitation
 	return false
 }
 
-// ImportDiscoveryCandidate registers the selected record without fetching a PDF.
-// Existing library papers keep their current metadata and gain only the project link.
-func (s *Service) ImportDiscoveryCandidate(project string, candidate DiscoveryCandidate) (Paper, error) {
+// DiscoveryImport reports a recoverable source download failure alongside a
+// successfully registered library item.
+type DiscoveryImport struct {
+	Paper
+	Warning string `json:"import_warning,omitempty"`
+}
+
+// ImportDiscoveryCandidate keeps existing papers intact. A new arXiv
+// recommendation can attach the exact original PDF or retain its source link
+// when the upstream file is unavailable.
+func (s *Service) ImportDiscoveryCandidate(ctx context.Context, project string, candidate DiscoveryCandidate, fetchPDF bool) (DiscoveryImport, error) {
 	if project != "" && !s.HasActiveProject(project) {
-		return Paper{}, fmt.Errorf("科研项目不存在或已归档")
+		return DiscoveryImport{}, fmt.Errorf("科研项目不存在或已归档")
 	}
 	if candidate.PaperID != "" {
 		for range 3 {
 			paper, ok := s.papers.Snapshot(candidate.PaperID)
 			if !ok {
-				return Paper{}, fmt.Errorf("图谱引用的馆藏论文已移除")
+				return DiscoveryImport{}, fmt.Errorf("图谱引用的馆藏论文已移除")
 			}
 			if project == "" || paperContains(paper.ProjectIDs, project) {
-				return paper, nil
+				return DiscoveryImport{Paper: paper}, nil
 			}
 			paper.ProjectIDs = append(paper.ProjectIDs, project)
 			updated, err := s.papers.update(paper.ID, paper.Revision, paper.PaperMetadata)
 			if !errors.Is(err, errPaperConflict) {
-				return updated, err
+				return DiscoveryImport{Paper: updated}, err
 			}
 		}
-		return Paper{}, errPaperConflict
+		return DiscoveryImport{}, errPaperConflict
 	}
 	metadata := PaperMetadata{
 		Title: candidate.Title, Authors: candidate.Authors, Year: candidate.Year,
@@ -214,6 +224,45 @@ func (s *Service) ImportDiscoveryCandidate(project string, candidate DiscoveryCa
 	if project != "" {
 		metadata.ProjectIDs = []string{project}
 	}
-	paper, _, err := s.papers.create(metadata, "", "")
-	return paper, err
+
+	var temp, digest, warning string
+	if fetchPDF && arxivPattern.MatchString(metadata.Arxiv) && !s.papers.hasDiscoveryPDF(metadata) {
+		var err error
+		temp, digest, err = s.papers.downloadPDF(ctx, "https://arxiv.org/pdf/"+metadata.Arxiv)
+		if err != nil {
+			if !errors.Is(err, errRemotePDF) && !errors.Is(err, errInvalidPaper) {
+				return DiscoveryImport{}, err
+			}
+			warning = "arXiv PDF 暂不可用，已保存来源链接"
+		} else {
+			defer os.Remove(temp)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return DiscoveryImport{}, err
+	}
+	if project != "" && !s.HasActiveProject(project) {
+		return DiscoveryImport{}, fmt.Errorf("科研项目已关闭，请重新选择")
+	}
+	paper, _, err := s.papers.create(metadata, temp, digest)
+	if temp != "" && errors.Is(err, errPaperExists) {
+		// A different version may have been registered concurrently. Preserve the
+		// stored original and only add the selected project link.
+		paper, _, err = s.papers.create(metadata, "", "")
+		if err == nil {
+			warning = "馆藏中已有此文献，已保留原 PDF"
+		}
+	}
+	return DiscoveryImport{Paper: paper, Warning: warning}, err
+}
+
+func (s *PaperLibrary) hasDiscoveryPDF(metadata PaperMetadata) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, paper := range s.records {
+		if paper.HasPDF && samePaper(Paper{PaperMetadata: metadata}, paper) {
+			return true
+		}
+	}
+	return false
 }

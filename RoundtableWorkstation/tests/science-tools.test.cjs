@@ -78,7 +78,7 @@ test("a reopened discovery run restores its filters and can retry a partially co
       return Response.json({...history[0], history, items: []});
     }
     if (route === "tools/discover?project=project&run=old") {
-      return Response.json({...history[1], history, items: [paper], categories: ["hep-ph"], cross_list: false, top_k: 7});
+      return Response.json({...history[1], history, items: [paper], feedback: {"2404.12345v2":"liked"}, categories: ["hep-ph"], cross_list: false, top_k: 7});
     }
     if (["papers?project=project", "papers/recommendations?project=project"].includes(route)) return Response.json([]);
     if (route === "tools/select-discovery?project=project" && options.method === "POST") {
@@ -114,11 +114,14 @@ test("a reopened discovery run restores its filters and can retry a partially co
   assert.equal(controls.articles.children[0].children[2].href, "https://arxiv.org/abs/2404.12345v3");
 
   const action = text => controls.articles.children[0].children.at(-1).children.find(el => el.textContent === text);
+  assert.equal(action("取消相关").attributes["aria-pressed"], "true");
   await action("入库并加入阅读待办").onclick();
   assert.match(controls.status.textContent, /论文已入库。阅读待办创建失败，可重试/);
   await action("入库并加入阅读待办").onclick();
   assert.equal(controls.status.textContent, "论文已入库，阅读待办已就绪");
-  assert.deepEqual(imports, [{run:"old", key:"2404.12345"}, {run:"old", key:"2404.12345"}]);
+  assert.equal(controls.readingTaskOpen.href, "/research?view=tasks&project=project&task=saved-task");
+  assert.equal(controls.readingTaskOpen.hidden, false);
+  assert.deepEqual(imports, [{run:"old", key:"2404.12345", fetch_pdf:true}, {run:"old", key:"2404.12345", fetch_pdf:true}]);
   assert.equal(addedTasks.length, 2);
   assert.deepEqual(addedTasks[0], addedTasks[1]);
   assert.equal(addedTasks[0].idempotencyKey, "reading:stable-id");
