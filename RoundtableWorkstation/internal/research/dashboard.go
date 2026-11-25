@@ -16,11 +16,11 @@ func (s *Service) dashboardProjects(w http.ResponseWriter, _ *http.Request) {
 	projects := make(map[string]dashboardProjectFacts)
 	s.mu.RLock()
 	for id, project := range s.projects {
-		if project.Archived {
+		if project.Archived || project.Trashed {
 			continue
 		}
 		facts := dashboardProjectFacts{ArtifactKinds: []string{}}
-		for _, note := range project.Notes {
+		for _, note := range sortedNotes(project, false) {
 			facts.NoteCount++
 			if dashboardNoteIsGap(note) {
 				facts.GapCount++
@@ -43,6 +43,11 @@ func (s *Service) dashboardProjects(w http.ResponseWriter, _ *http.Request) {
 }
 
 func dashboardNoteIsGap(note Note) bool {
+	for _, part := range strings.Split(note.Namespace, "/") {
+		if strings.EqualFold(part, "gap") || strings.EqualFold(part, "gaps") {
+			return true
+		}
+	}
 	for _, tag := range note.Tags {
 		switch strings.ToLower(strings.TrimSpace(tag)) {
 		case "gap", "research_gap":

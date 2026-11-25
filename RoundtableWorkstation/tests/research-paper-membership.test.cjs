@@ -40,7 +40,6 @@ test("paper editor preserves invisible project and core memberships while updati
   const controls = {
     title: {value: "Original"},
     authors: {value: "de Vries, Ana\nEmi Ng"},
-    references: {value: "Exact title, with a comma\n10.1000/method\n10.1000/method"},
     tags: {value: ""},
     "pinned-active-add": {type: "checkbox", checked: false},
     "order-active-add": {value: ""},
@@ -85,6 +84,7 @@ test("paper editor preserves invisible project and core memberships while updati
   assert.match(rendered, /name="folder-active-core" value="Background"/);
   assert.match(rendered, /<textarea name="references"/);
   controls.title.value = "Revised";
+  controls.references.value = "Exact title, with a comma\n10.1000/method\n10.1000/method";
   controls.tags.value = "nuclear, solar\nreading";
   controls["pinned-active-add"].checked = true;
   controls["order-active-add"].value = "0";

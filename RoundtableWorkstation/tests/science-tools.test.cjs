@@ -164,7 +164,8 @@ test("a reopened discovery run restores its filters and can retry a partially co
     document: {getElementById: id => controls[id], querySelectorAll: () => [], createElement: () => new Control()},
     Option: class {constructor(text, value) {this.value = value;}},
     location: new URL("http://localhost/tools?tab=discover&project=project"), URL, URLSearchParams, fetch,
-    history: {replaceState() {}}
+    history: {replaceState() {}},
+    window: {SciStationNav: {commitURL(url) { context.location = url; }}}
   });
   vm.runInContext(discoveryScript, context);
   vm.runInContext(script, context);
