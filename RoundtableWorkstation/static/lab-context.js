@@ -166,7 +166,7 @@
       if(!file)return;
       try {
         if(!/\.(?:md|markdown)$/i.test(file.name) || file.size>64*1024)throw Error("请选择不超过 64 KiB 的 Markdown 技能文件。");
-        const markdown=new TextDecoder("utf-8",{fatal:true}).decode(await file.arrayBuffer());
+        const markdown=new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(await file.arrayBuffer());
         if(token!==generation)return;
         const data=await req(base+"context/preview","POST",{projectId:project,markdown});
         if(token===generation && $("lab-skill-file").files[0]===file)showSkill(data,markdown);
