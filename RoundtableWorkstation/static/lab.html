@@ -10,7 +10,7 @@
 <div class="grid"><label>模板名称<input id="title" maxlength="72" required></label><label>讨论模式<select id="mode"><option value="review">方案评审</option><option value="forum">多方权衡</option><option value="prioritize">优先级排序</option></select></label><label>席位数<select id="seats"><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>
 <label>工作指引<textarea id="prompt" rows="5" maxlength="6500"></textarea></label>
 <div class="actions"><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden>另存副本</button><button id="delete" type="button" hidden>删除个人模板</button></div></section>
-<section class="card"><h2>本次研究</h2><label>研究问题<textarea id="question" rows="3" maxlength="2500" placeholder="填写本次要研究的问题、约束或期望的产物"></textarea></label>
+<section class="card"><div class="section-head"><h2>本次研究</h2><a id="discovery-link" href="/tools?tab=discover&amp;trigger=lab">文献推荐</a></div><label>研究问题<textarea id="question" rows="3" maxlength="2500" placeholder="填写本次要研究的问题、约束或期望的产物"></textarea></label>
 <fieldset id="local-sources"><legend>项目原文</legend>
 <label>来源<select id="local-record"></select></label>
 <div id="local-search" hidden><label>在论文全文中查找<input id="local-query" type="search" maxlength="240"></label><button type="button" id="local-find">查找页码</button><ul id="local-hits"></ul></div>

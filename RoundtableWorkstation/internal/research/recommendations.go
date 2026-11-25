@@ -15,6 +15,9 @@ type DiscoveryCandidate struct {
 	PaperMetadata
 	PaperID         string              `json:"paper_id,omitempty"`
 	PrimaryCategory string              `json:"primary_category,omitempty"`
+	FirstCategory   bool                `json:"first_category,omitempty"`
+	FeedID          string              `json:"feed_id,omitempty"`
+	SearchQueries   []string            `json:"search_queries,omitempty"`
 	PublishedAt     string              `json:"published_at,omitempty"`
 	Provider        string              `json:"provider,omitempty"`
 	GraphEvidence   []DiscoveryCitation `json:"graph_evidence,omitempty"`
@@ -35,8 +38,10 @@ func (c DiscoveryCandidate) Key() string {
 		return ArxivWorkID(c.Arxiv)
 	case c.DOI != "":
 		return "doi:" + paperRefKey(c.DOI)
-	default:
+	case c.PaperID != "":
 		return "paper:" + c.PaperID
+	default:
+		return "feed:" + c.FeedID
 	}
 }
 
@@ -216,10 +221,14 @@ func (s *Service) ImportDiscoveryCandidate(ctx context.Context, project string, 
 		}
 		return DiscoveryImport{}, errPaperConflict
 	}
+	if candidate.Arxiv == "" && candidate.DOI == "" && candidate.URL == "" {
+		return DiscoveryImport{}, fmt.Errorf("来源缺少可核对的论文标识或链接")
+	}
 	metadata := PaperMetadata{
 		Title: candidate.Title, Authors: candidate.Authors, Year: candidate.Year,
 		DOI: candidate.DOI, Arxiv: candidate.Arxiv, URL: candidate.URL, Abstract: candidate.Abstract,
-		Tags: append(slices.Clone(candidate.Tags), "recommendation"),
+		Tags:       append(slices.Clone(candidate.Tags), "recommendation"),
+		Categories: slices.Clone(candidate.Categories), MetadataSource: candidate.MetadataSource,
 	}
 	if project != "" {
 		metadata.ProjectIDs = []string{project}
@@ -250,7 +259,7 @@ func (s *Service) ImportDiscoveryCandidate(ctx context.Context, project string, 
 		// stored original and only add the selected project link.
 		paper, _, err = s.papers.create(metadata, "", "")
 		if err == nil {
-			warning = "馆藏中已有此文献，已保留原 PDF"
+			warning = "馆藏中已有此文献的另一版本，已保留现有记录"
 		}
 	}
 	return DiscoveryImport{Paper: paper, Warning: warning}, err

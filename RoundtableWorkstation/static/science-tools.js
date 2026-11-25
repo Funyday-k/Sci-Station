@@ -214,7 +214,7 @@
   }
 
   function initActions() {
-    if (tab === "discover") discovery = SciStationDiscovery.create({$, req, make, button, busy, tell});
+    if (tab === "discover") discovery = SciStationDiscovery.create({$, req, make, button, busy, tell, trigger: qs.get("trigger") === "lab" ? "lab" : ""});
     $("project").onchange = () => {
       project = $("project").value;
       const l = new URL(location);

@@ -30,6 +30,7 @@ type discoveryOptions struct {
 	TopK       int      `json:"top_k"`
 	References []string `json:"reference_ids"`
 	AIModel    string   `json:"ai_model,omitempty"`
+	Trigger    string   `json:"trigger,omitempty"`
 }
 
 type discoverySummary struct {
@@ -38,18 +39,21 @@ type discoverySummary struct {
 	Source   string `json:"source"`
 	Updated  string `json:"updated"`
 	Count    int    `json:"count"`
+	FeedName string `json:"feed_name,omitempty"`
 	Archived bool   `json:"archived,omitempty"`
 }
 
 type discoveryRun struct {
 	discoveryOptions
-	ID          string                        `json:"id"`
-	Updated     string                        `json:"updated"`
-	Archived    bool                          `json:"archived,omitempty"`
-	Items       []research.DiscoveryCandidate `json:"items"`
-	AtomQueries []string                      `json:"atom_queries,omitempty"`
-	AIReview    map[string]string             `json:"ai_review,omitempty"`
-	Notice      string                        `json:"notice,omitempty"`
+	ID              string                        `json:"id"`
+	Updated         string                        `json:"updated"`
+	Archived        bool                          `json:"archived,omitempty"`
+	Items           []research.DiscoveryCandidate `json:"items"`
+	AtomQueries     []string                      `json:"atom_queries,omitempty"`
+	AIReview        map[string]string             `json:"ai_review,omitempty"`
+	AIReviewDetails map[string]discoveryReview    `json:"ai_review_details,omitempty"`
+	Notice          string                        `json:"notice,omitempty"`
+	Feed            *discoveryFeedProvenance      `json:"daily_feed_source,omitempty"`
 }
 
 type discoveryFeedback struct {
@@ -63,6 +67,8 @@ type discoveryState struct {
 	Runs           []discoveryRun               `json:"runs"`
 	Feedback       map[string]string            `json:"feedback"`
 	FeedbackPapers map[string]discoveryFeedback `json:"feedback_papers,omitempty"`
+	Defaults       *discoveryDefaults           `json:"defaults,omitempty"`
+	FeedbackEvents []discoveryFeedbackEvent     `json:"feedback_events,omitempty"`
 	unknown        map[string]json.RawMessage
 }
 
@@ -70,6 +76,7 @@ type discoveryView struct {
 	discoveryRun
 	Feedback map[string]string  `json:"feedback"`
 	History  []discoverySummary `json:"history"`
+	Defaults discoveryDefaults  `json:"defaults"`
 }
 
 type discoveryEdit struct {
@@ -116,13 +123,18 @@ func loadDiscovery(path string) (discoveryState, error) {
 	case s.unknown["runs"] == nil || s.Runs == nil:
 		return s, errors.New("发现记录缺少检索历史")
 	}
+	if s.Defaults != nil {
+		if err = s.Defaults.normalize("scope"); err != nil {
+			return s, err
+		}
+	}
 	if s.Feedback == nil {
 		s.Feedback = map[string]string{}
 	}
 	if s.FeedbackPapers == nil {
 		s.FeedbackPapers = map[string]discoveryFeedback{}
 	}
-	for _, key := range []string{"schema_version", "runs", "feedback", "feedback_papers", "query", "items", "updated"} {
+	for _, key := range []string{"schema_version", "runs", "feedback", "feedback_papers", "query", "items", "updated", "defaults", "feedback_events"} {
 		delete(s.unknown, key)
 	}
 	return s, nil
@@ -147,15 +159,29 @@ func (s discoveryState) save(file string) error {
 }
 
 // A saved run remains accessible offline without recomputing its rankings.
+func (s discoveryState) settings() discoveryDefaults {
+	if s.Defaults != nil {
+		return *s.Defaults
+	}
+	return defaultDiscoverySettings()
+}
+
 func (s discoveryState) view(runID string) (discoveryView, bool) {
+	defaults := s.settings()
 	result := discoveryView{
-		discoveryRun: discoveryRun{discoveryOptions: discoveryOptions{Source: "arxiv", CrossList: true, TopK: 24}, Items: []research.DiscoveryCandidate{}},
-		Feedback:     s.Feedback, History: []discoverySummary{},
+		discoveryRun: discoveryRun{discoveryOptions: discoveryOptions{
+			Source: defaults.Source, Categories: defaults.Categories, CrossList: defaults.CrossList, TopK: defaults.TopK,
+		}, Items: []research.DiscoveryCandidate{}},
+		Feedback: s.Feedback, History: []discoverySummary{}, Defaults: defaults,
 	}
 	found := runID == ""
 	for _, run := range s.Runs {
 		if !run.Archived {
-			result.History = append(result.History, discoverySummary{ID: run.ID, Query: run.Query, Source: run.Source, Updated: run.Updated, Count: len(run.Items)})
+			summary := discoverySummary{ID: run.ID, Query: run.Query, Source: run.Source, Updated: run.Updated, Count: len(run.Items)}
+			if run.Feed != nil {
+				summary.FeedName = run.Feed.Name
+			}
+			result.History = append(result.History, summary)
 			if result.ID == "" && (runID == "" || run.ID == runID) {
 				result.discoveryRun = run
 				found = true
@@ -190,21 +216,18 @@ func normalizeDiscoveryOptions(options *discoveryOptions) error {
 	if utf8.RuneCountInString(options.Query) > 350 || options.TopK < 1 || options.TopK > 100 || len(options.Categories) > 24 || len(options.References) > 20 {
 		return errors.New("检索式、分类、参考论文或候选数超出范围")
 	}
-	if options.Source != "arxiv" && options.Source != "graph" {
+	if !validDiscoverySource(options.Source) {
 		return errors.New("文献来源无效")
 	}
-	if options.Source == "graph" && options.AIModel != "" {
-		return errors.New("项目图谱发现为本地检索")
+	if options.Source != "arxiv" && options.AIModel != "" {
+		return errors.New("本地文献发现不使用在线模型")
 	}
-	var categories []string
-	for _, category := range options.Categories {
-		category = strings.ToLower(strings.TrimSpace(category))
-		if len(category) > 32 || !discoveryCategory.MatchString(category) {
-			return errors.New("arXiv 分类代码无效")
-		}
-		if !slices.Contains(categories, category) {
-			categories = append(categories, category)
-		}
+	if options.Trigger != "" && options.Trigger != "lab" {
+		return errors.New("文献检索入口无效")
+	}
+	categories, err := normalizeDiscoveryCategories(options.Categories)
+	if err != nil {
+		return err
 	}
 	options.Categories = categories
 	if options.Source == "arxiv" && options.Query == "" && len(categories) == 0 {
@@ -237,8 +260,10 @@ func arxivDiscoveryQuery(raw string, categories []string) string {
 }
 
 type discoveryDependencies struct {
-	search func(context.Context, string, int) ([]research.DiscoveryCandidate, error)
-	ai     discoveryAI
+	search     func(context.Context, string, int) ([]research.DiscoveryCandidate, error)
+	ai         discoveryAI
+	feed       []research.DiscoveryCandidate
+	feedSource *discoveryFeedProvenance
 }
 
 func (a *apiServer) serveDiscovery(lab *research.Service, w http.ResponseWriter, r *http.Request, route string) {
@@ -264,17 +289,41 @@ func serveDiscovery(lab *research.Service, dir string, w http.ResponseWriter, r 
 	}
 	file := filepath.Join(dir, name)
 
+	if route == "discovery-defaults" {
+		saveDiscoveryDefaults(w, r, file, project)
+		return
+	}
+
 	if route == "discover" && r.Method == http.MethodPost {
-		options := discoveryOptions{CrossList: true}
-		if !jsonBody(w, r, &options) {
+		discoveryMu.Lock()
+		state, err := loadDiscovery(file)
+		discoveryMu.Unlock()
+		if err != nil {
+			reject(w, 500, "发现记录无法读取")
 			return
 		}
+		defaults := state.settings()
+		input := discoveryRequest{discoveryOptions: discoveryOptions{
+			Source: defaults.Source, CrossList: defaults.CrossList, TopK: defaults.TopK, Categories: defaults.Categories,
+		}}
+		if !jsonBody(w, r, &input) {
+			return
+		}
+		options := input.discoveryOptions
 		if err := normalizeDiscoveryOptions(&options); err != nil {
 			reject(w, 400, err.Error())
 			return
 		}
+		if options.TopK > defaults.MaxCandidates {
+			reject(w, 400, "推荐篇数不能超过当前范围的候选上限")
+			return
+		}
 		if options.Source == "graph" && project == "" {
 			reject(w, 400, "请先选择项目以查看核心论文的图谱关系")
+			return
+		}
+		if options.Source != "daily" && input.Feed != nil {
+			reject(w, 400, "每日文献必须从文件入口导入")
 			return
 		}
 		sources, err := lab.DiscoveryContext(project, options.References)
@@ -282,12 +331,13 @@ func serveDiscovery(lab *research.Service, dir string, w http.ResponseWriter, r 
 			reject(w, 400, err.Error())
 			return
 		}
-		discoveryMu.Lock()
-		state, err := loadDiscovery(file)
-		discoveryMu.Unlock()
-		if err != nil {
-			reject(w, 500, "发现记录无法读取")
-			return
+		if options.Source == "daily" {
+			items, provenance, err := readDiscoveryFeed(input.Feed, defaults.MaxCandidates)
+			if err != nil {
+				reject(w, 400, err.Error())
+				return
+			}
+			deps.feed, deps.feedSource = items, provenance
 		}
 		run, err := buildDiscoveryRun(r.Context(), options, sources, state, deps)
 		if err != nil {
@@ -404,12 +454,25 @@ func discoverySelected(state discoveryState, edit discoveryEdit) (research.Disco
 }
 
 func discoverySetFeedback(state *discoveryState, key, feedback string, detail discoveryFeedback) {
+	if current, ok := state.Feedback[key]; ok && current == feedback && state.FeedbackPapers[key].Run == detail.Run {
+		return
+	}
+	previous := false
 	for id := range state.Feedback {
 		if id == key || research.ArxivWorkID(id) == key {
+			previous = true
 			delete(state.Feedback, id)
 			delete(state.FeedbackPapers, id)
 		}
 	}
+	if !previous && feedback == "" {
+		return
+	}
+	updated := detail.Updated
+	if updated == "" {
+		updated = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	state.FeedbackEvents = append(state.FeedbackEvents, discoveryFeedbackEvent{Key: key, State: feedback, Run: detail.Run, Updated: updated})
 	if feedback != "" {
 		state.Feedback[key] = feedback
 		if detail.Run != "" {

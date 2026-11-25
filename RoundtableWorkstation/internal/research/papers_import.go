@@ -237,7 +237,31 @@ func (f paperFeed) metadata() []paperImport {
 	}
 	return out
 }
+
+var arxivQuerySlot = make(chan struct{}, 1)
+var arxivPreviousQuery time.Time // guarded by arxivQuerySlot
+
 func arxivPaperSearch(ctx context.Context, query url.Values) ([]paperImport, error) {
+	// arXiv's legacy API allows one connection and one request every three seconds.
+	select {
+	case arxivQuerySlot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-arxivQuerySlot }()
+	if delay := time.Until(arxivPreviousQuery.Add(3 * time.Second)); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	arxivPreviousQuery = time.Now()
 	res, err := fetchPaperURL(ctx, "https://export.arxiv.org/api/query?"+query.Encode(), "application/atom+xml")
 	if err != nil {
 		return nil, err
@@ -286,6 +310,7 @@ func SearchArxivCandidates(ctx context.Context, expr string, limit int) ([]Disco
 	out := make([]DiscoveryCandidate, 0, len(results))
 	for _, item := range results {
 		candidate := DiscoveryCandidate{PaperMetadata: item.PaperMetadata, Provider: "arXiv", PrimaryCategory: item.PrimaryCategory}
+		candidate.MetadataSource = "arxiv"
 		if !item.PublishedAt.IsZero() {
 			candidate.PublishedAt = item.PublishedAt.Format(time.RFC3339)
 		}

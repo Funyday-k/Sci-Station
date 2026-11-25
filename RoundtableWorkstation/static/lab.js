@@ -54,6 +54,12 @@
   let previousScope=null;
   function projectSelection(commit = false){
     const id=$("project").value,p=projects.find(v=>v.id===id);
+    const discovery = $("discovery-link");
+    if (discovery) {
+      const query = new URLSearchParams({tab: "discover", trigger: "lab"});
+      if (p) query.set("project", p.id);
+      discovery.href = "/tools?" + query;
+    }
     if(previousScope!==null && previousScope!==id) {markSource(null);resetResource();}
     previousScope=id;
     $("session").replaceChildren(new Option("新建圆桌",""));

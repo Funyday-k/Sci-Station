@@ -17,7 +17,13 @@
         <details class="panel"><summary>文献库阅读队列</summary><div id="readingQueue"></div></details>
         <form id="search">
           <label for="source">文献来源</label>
-          <select id="source"><option value="arxiv">arXiv</option><option id="graphSource" value="graph">项目核心论文的图谱关系</option></select>
+          <select id="source">
+            <option value="arxiv">arXiv</option>
+            <option id="graphSource" value="graph">项目核心论文的图谱关系</option>
+            <option value="library">近期馆藏</option>
+            <option value="daily">每日文献文件</option>
+          </select>
+          <label id="dailyFeedField" hidden>JSON 或 JSONL 文献文件 <input type="file" id="dailyFeed" accept=".json,.jsonl,application/json"></label>
           <label for="expr">关键词或 arXiv 检索式</label>
           <input id="expr" placeholder="例如 cat:astro-ph.CO AND all:evaporation" maxlength="350">
           <div class="discovery-controls">
@@ -34,6 +40,17 @@
             <summary>AI 检索与推荐说明</summary>
             <div class="line"><label for="aiModel">Magpie 模型</label><select id="aiModel"><option value="">关闭</option></select>
               <button id="loadModels" type="button">读取模型</button></div>
+          </details>
+          <details class="discovery-options">
+            <summary>当前范围的推荐设置</summary>
+            <div class="discovery-controls">
+              <label>候选上限 <input id="maxCandidates" type="number" min="1" max="500" value="100"></label>
+              <label>近期馆藏回溯天数 <input id="libraryDays" type="number" min="1" max="3650" value="60"></label>
+            </div>
+            <div class="actions">
+              <button id="saveDiscoveryDefaults" type="button">保存当前来源与筛选为默认</button>
+              <button id="useDiscoveryDefaults" type="button">应用已保存的默认设置</button>
+            </div>
           </details>
           <button class="primary" id="submitSearch" disabled>检索</button>
         </form>

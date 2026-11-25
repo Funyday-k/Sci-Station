@@ -283,7 +283,7 @@ func TestDiscoveryAIUsesConfiguredModelAndActualCandidates(t *testing.T) {
 	options := discoveryOptions{Query: "solar", Source: "arxiv", TopK: 3, AIModel: "fixture-model"}
 	sources := research.DiscoveryContext{Project: research.Project{Name: "Research project", Path: "/private/path"}}
 	run, err := buildDiscoveryRun(context.Background(), options, sources, discoveryState{}, deps)
-	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 1 || run.AIReview["2404.00001"] == "" || requests[0] != "ti:evaporation" {
+	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 1 || run.AIReview["2404.00001"] == "" || len(requests) != 2 || requests[0] != `all:"solar"` || requests[1] != "ti:evaporation" {
 		t.Fatalf("AI response did not preserve arXiv evidence: %+v, %v", run, err)
 	}
 	if len(ai.prompts) != 2 || strings.Contains(ai.prompts[0], "/private/path") || !strings.Contains(ai.prompts[1], "An arXiv result") {
@@ -291,7 +291,7 @@ func TestDiscoveryAIUsesConfiguredModelAndActualCandidates(t *testing.T) {
 	}
 	ai.fail = true
 	run, err = buildDiscoveryRun(context.Background(), options, sources, discoveryState{}, deps)
-	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 0 || run.Notice == "" || requests[1] != `all:"solar"` {
+	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 0 || run.Notice == "" || len(requests) != 3 || requests[2] != `all:"solar"` {
 		t.Fatalf("AI failure lost direct search: %+v, %v", run, err)
 	}
 }

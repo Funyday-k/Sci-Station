@@ -24,7 +24,7 @@ func discoveryTokens(text string) discoveryTerms {
 }
 
 func discoveryPaperTerms(p research.PaperMetadata) discoveryTerms {
-	return discoveryTokens(p.Title + " " + p.Abstract + " " + strings.Join(p.Tags, " "))
+	return discoveryTokens(p.Title + " " + p.Abstract + " " + strings.Join(p.Tags, " ") + " " + strings.Join(p.Categories, " "))
 }
 
 func discoverySimilarity(a, b discoveryTerms) float64 {
@@ -59,7 +59,7 @@ func discoveryCategoryMatch(p research.DiscoveryCandidate, selected []string, cr
 	if match(p.PrimaryCategory) {
 		return true
 	}
-	return crossList && slices.ContainsFunc(p.Tags, match)
+	return crossList && (slices.ContainsFunc(p.Categories, match) || slices.ContainsFunc(p.Tags, match))
 }
 
 type discoveryRanked struct {
@@ -114,7 +114,7 @@ func rankDiscovery(items []research.DiscoveryCandidate, sources research.Discove
 		}
 		citation := min(1, float64(len(candidate.GraphEvidence))/2)
 		score := 0.24*keyword + 0.22*seed + 0.15*library + 0.13*context + 0.11*freshness + 0.08*feedback + 0.13*citation
-		if run.Source == "arxiv" && inLibrary[key] {
+		if (run.Source == "arxiv" || run.Source == "daily") && inLibrary[key] {
 			score -= 0.20
 		}
 		if slices.ContainsFunc(candidate.Authors, func(name string) bool { return authors[strings.ToLower(strings.Join(strings.Fields(name), " "))] }) {

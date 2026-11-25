@@ -31,7 +31,7 @@ func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch route {
-	case "discover", "feedback", "archive-discovery", "select-discovery":
+	case "discover", "feedback", "archive-discovery", "select-discovery", "discovery-defaults":
 		a.serveDiscovery(lab, w, r, route)
 	case "events", "schedule", "reminder", "reminder-sync", "reminder-settings":
 		a.serveCalendarTools(lab, w, r, route)

@@ -329,3 +329,7 @@ select:focus-visible {
   display: inline-block;
   margin-bottom: 12px
 }
+
+#dailyFeedField[hidden] {
+  display: none
+}

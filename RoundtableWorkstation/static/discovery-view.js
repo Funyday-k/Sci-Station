@@ -3,7 +3,7 @@
   function key(paper) {
     if (paper.arxiv) return paper.arxiv.toLowerCase().replace(/v\d+$/, "");
     if (paper.doi) return "doi:" + paper.doi.toLowerCase();
-    return "paper:" + paper.paper_id;
+    return paper.paper_id ? "paper:" + paper.paper_id : "feed:" + paper.feed_id;
   }
 
   function scope(route, project, run = "") {
@@ -13,11 +13,13 @@
     return route + (query.size ? "?" + query : "");
   }
 
-  function create({$, req, make, button, busy, tell}) {
+  const sourceLabels = {arxiv: "arXiv", graph: "项目图谱", library: "近期馆藏", daily: "每日文献文件"};
+
+  function create({$, req, make, button, busy, tell, trigger = ""}) {
     let project = "", generation = 0, ready = false;
     let feed = {}, papers = [], queue = [];
     const current = operation => operation.generation === generation;
-    const context = () => ({target: project, generation, run: feed.id});
+    const context = () => ({target: project, generation, run: feed.id, source: feed.source, feedSource: feed.daily_feed_source});
 
     function withCurrent(operation, handler) {
       return async () => {
@@ -38,7 +40,7 @@
         const a = make("a", p.title);
         a.href = "/reader?paper=" + encodeURIComponent(p.id) + (project ? "&project=" + encodeURIComponent(project) : "");
         row.append(a);
-        if (project) row.append(button("加入阅读待办", withCurrent(operation, async ({target}) => {
+        row.append(button("加入阅读待办", withCurrent(operation, async ({target}) => {
           const task = await readingTask(p, target);
           if (current(operation)) {
             showReadingTask(task, target);
@@ -60,23 +62,40 @@
       }
     }
 
+    function showSourceFields() {
+      const source = $("source").value;
+      $("aiSettings").hidden = source !== "arxiv";
+      $("dailyFeedField").hidden = source !== "daily";
+    }
+
+    function applyDefaults(defaults = {}) {
+      $("source").value = defaults.source || "arxiv";
+      $("categories").value = (defaults.categories || []).join(", ");
+      $("crossList").checked = defaults.cross_list ?? true;
+      $("topK").value = defaults.top_k || 24;
+      $("maxCandidates").value = defaults.max_daily_candidates || 100;
+      $("libraryDays").value = defaults.library_recent_days || 60;
+      showSourceFields();
+    }
+
+    function categories() {
+      return $("categories").value.split(/[\s,，]+/).filter(Boolean);
+    }
+
     function applyRun(result, resetFilter) {
       feed = result;
       $("expr").value = feed.query || "";
-      $("categories").value = (feed.categories || []).join(", ");
-      $("crossList").checked = feed.cross_list ?? true;
-      $("source").value = feed.source || "arxiv";
-      $("topK").value = feed.top_k || 24;
+      applyDefaults({...feed.defaults, ...feed});
       $("graphSource").disabled = !project;
-      $("aiSettings").hidden = $("source").value !== "arxiv";
       if (resetFilter) $("filter").value = "all";
       options($("history"), [["", "选择检索记录"], ...(feed.history || []).map(run => [
-        run.id, [new Date(run.updated).toLocaleString(), run.query || (run.source === "graph" ? "项目图谱" : "分类检索"), run.count + " 篇"].join(" · ")
+        run.id, [new Date(run.updated).toLocaleString(), run.query || run.feed_name || sourceLabels[run.source] || "分类检索", run.count + " 篇"].join(" · ")
       ])], [feed.id || ""]);
       $("archiveRun").disabled = !feed.id;
       options($("references"), papers.map(p => [p.id, p.title]), feed.reference_ids || []);
       const queries = (feed.atom_queries || []).map(q => "arXiv 检索式 " + q);
-      const source = feed.id ? [feed.source === "graph" ? "项目图谱" : "arXiv", feed.updated ? new Date(feed.updated).toLocaleString() : "", ...queries]
+      const source = feed.id ? [feed.trigger === "lab" ? "AI Lab" : "", sourceLabels[feed.source], feed.daily_feed_source?.name,
+        feed.updated ? new Date(feed.updated).toLocaleString() : "", ...queries]
         .filter(Boolean).join(" · ") : "";
       $("runSource").textContent = [source, feed.notice].filter(Boolean).join("。");
       renderFeed();
@@ -94,6 +113,7 @@
       tell("");
       $("submitSearch").disabled = true;
       $("aiModel").value = "";
+      $("dailyFeed").value = "";
       $("readingTaskOpen").hidden = true;
       try {
         const [result, library, queueItems] = await Promise.all([
@@ -111,7 +131,7 @@
       }
     }
 
-    function readingTask(p, target, candidate, run) {
+    function readingTask(p, target, candidate, run, provenance) {
       const task = {
         title: Array.from("阅读：" + p.title).slice(0, 240).join(""),
         kind: "reading", relatedPaperIds: [p.id], idempotencyKey: "reading:" + p.id
@@ -120,17 +140,22 @@
         task.externalSource = "sci_station_recommendation";
         task.externalIdentifier = (candidate.arxiv ? "arxiv:" : "") + key(candidate);
         task.description = [
-          candidate.arxiv ? "arXiv 来源 https://arxiv.org/abs/" + candidate.arxiv : candidate.doi ? "DOI " + candidate.doi : "",
+          sourceLink(candidate) ? "论文来源 " + sourceLink(candidate) : "",
           "发现记录 " + run,
+          provenance ? "每日文献 " + provenance.name + " · SHA256 " + provenance.sha256 : "",
           ...(candidate.graph_evidence || []).map(edge => [edge.kind, edge.paper_title, edge.relation_id || edge.reference].filter(Boolean).join(" · "))
         ].filter(Boolean).join("\n");
       }
-      return req("projects/" + encodeURIComponent(target) + "/tasks", task);
+      return req(target ? "projects/" + encodeURIComponent(target) + "/tasks" : "tasks", task);
     }
 
     function sourceLink(p) {
       if (p.arxiv) return "https://arxiv.org/abs/" + encodeURIComponent(p.arxiv).replace(/%2F/gi, "/");
       if (p.doi) return "https://doi.org/" + encodeURIComponent(p.doi).replace(/%2F/gi, "/");
+      try {
+        const url = new URL(p.url);
+        if (["https:", "http:"].includes(url.protocol) && !url.username && !url.password) return url.href;
+      } catch {}
       return "";
     }
 
@@ -153,18 +178,21 @@
     function showReadingTask(task, target) {
       if (!task.id) return;
       const link = $("readingTaskOpen");
-      link.href = "/research?" + new URLSearchParams({view: "tasks", project: target, task: task.id});
+      const params = new URLSearchParams({view: "tasks"});
+      if (target) params.set("project", target);
+      params.set("task", task.id);
+      link.href = "/research?" + params;
       link.hidden = false;
     }
 
     async function select(p, operation, task) {
       const paper = await req(scope("tools/select-discovery", operation.target), {
-        run: operation.run, key: key(p), fetch_pdf: Boolean(p.arxiv && !p.paper_id)
+        run: operation.run, key: key(p), fetch_pdf: Boolean((!operation.source || operation.source === "arxiv") && p.arxiv && !p.paper_id)
       });
       let createdTask;
       if (task) {
         try {
-          createdTask = await readingTask(paper, operation.target, p, operation.run);
+          createdTask = await readingTask(paper, operation.target, p, operation.run, operation.feedSource);
         } catch (error) {
           throw Error("论文已入库。阅读待办创建失败，可重试。 " + error.message);
         }
@@ -192,7 +220,8 @@
       const article = make("article", "");
       article.append(make("h3", p.title), make("p", [
         (p.authors || []).join(", "), p.arxiv || p.doi, p.published_at?.slice(0, 10),
-        p.primary_category ? "主分类 " + p.primary_category : "", ...(p.tags || []).filter(t => t !== p.primary_category)
+        p.primary_category ? (p.first_category ? "文件首列分类 " : "主分类 ") + p.primary_category : "",
+        ...new Set([...(p.categories || []), ...(p.tags || [])].filter(t => t !== p.primary_category))
       ].filter(Boolean).join(" · ")));
       const url = sourceLink(p);
       if (url) {
@@ -209,6 +238,11 @@
         article.append(abstract);
       }
       if (p.reasons?.length) article.append(make("p", p.reasons.join(" · ")));
+      if (p.search_queries?.length) {
+        const queries = make("details", "");
+        queries.append(make("summary", "命中检索式"), ...p.search_queries.map(query => make("p", query)));
+        article.append(queries);
+      }
       if (p.graph_evidence?.length) {
         const graph = make("details", "");
         graph.append(make("summary", "图谱依据"));
@@ -222,12 +256,21 @@
       if (review) {
         const detail = make("details", "");
         detail.append(make("summary", "AI 推荐说明 · " + feed.ai_model), make("p", review));
+        const evaluation = feed.ai_review_details?.[key(p)];
+        if (evaluation?.summary) detail.append(make("p", evaluation.summary));
+        if (evaluation) {
+          const scores = Object.entries({relevance: "相关性", novelty: "新颖性", method_soundness: "方法", usefulness: "用途", risk: "风险"})
+            .filter(([metric]) => typeof evaluation[metric] === "number").map(([metric, label]) => label + " " + Math.round(evaluation[metric] * 100) + "%");
+          if (scores.length) detail.append(make("p", scores.join(" · ")));
+        }
         article.append(detail);
       }
       const actions = make("div", "");
       actions.className = "actions";
-      actions.append(button("加入文献库", withCurrent(operation, () => select(p, operation, false))));
-      if (project) actions.append(button("入库并加入阅读待办", withCurrent(operation, () => select(p, operation, true))));
+      if (p.paper_id || url) {
+        actions.append(button("加入文献库", withCurrent(operation, () => select(p, operation, false))));
+        actions.append(button("入库并加入阅读待办", withCurrent(operation, () => select(p, operation, true))));
+      }
       for (const [state, label, undo] of [
         ["saved", "收藏", "取消收藏"], ["liked", "相关", "取消相关"],
         ["disliked", "不相关", "取消不相关"], ["hidden", "隐藏", "取消隐藏"]
@@ -251,7 +294,23 @@
     }
 
     $("filter").onchange = renderFeed;
-    $("source").onchange = () => { $("aiSettings").hidden = $("source").value !== "arxiv"; };
+    $("source").onchange = showSourceFields;
+    $("useDiscoveryDefaults").onclick = () => applyDefaults(feed.defaults);
+    $("saveDiscoveryDefaults").onclick = () => {
+      if (!ready) return;
+      const operation = context();
+      return busy($("saveDiscoveryDefaults"), withCurrent(operation, async () => {
+        const result = await req(scope("tools/discovery-defaults", operation.target), {
+          source: $("source").value, categories: categories(), cross_list: $("crossList").checked,
+          top_k: Number($("topK").value), max_daily_candidates: Number($("maxCandidates").value),
+          library_recent_days: Number($("libraryDays").value)
+        });
+        if (current(operation)) {
+          feed.defaults = result.defaults;
+          tell("已保存当前范围的推荐设置");
+        }
+      }));
+    };
     $("history").onchange = () => {
       const operation = context();
       const selected = $("history").value;
@@ -284,19 +343,29 @@
       const operation = context();
       const payload = {
         source: $("source").value, query: $("expr").value,
-        categories: $("categories").value.split(/[\s,，]+/).filter(Boolean),
+        categories: categories(),
         cross_list: $("crossList").checked, top_k: Number($("topK").value),
         reference_ids: Array.from($("references").selectedOptions || [], option => option.value)
       };
+      if (trigger) payload.trigger = trigger;
       if (payload.source === "arxiv" && $("aiModel").value) {
         if (!confirm("将检索词、项目简介和所选参考论文的摘要片段发送给所选模型。生成的检索式将提交给 arXiv，候选摘要将用于生成阅读说明。继续？")) return;
         payload.ai_model = $("aiModel").value;
-      }
+      } else if (payload.source === "arxiv" && trigger === "lab" &&
+          !confirm("向 arXiv 发送此次检索式与分类？")) return;
       return busy(event.submitter || $("submitSearch"), withCurrent(operation, async () => {
-        tell(payload.source === "graph" ? "正在读取项目图谱…" : "正在查询 arXiv…");
+        if (payload.source === "daily") {
+          const file = $("dailyFeed").files?.[0];
+          if (!file || file.size === 0 || file.size > 2 * 1024 * 1024) throw Error("请选择至多 2 MiB 的 JSON 或 JSONL 文献文件");
+          const decoder = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true});
+          payload.daily_feed = {name: file.name, text: decoder.decode(await file.arrayBuffer())};
+          if (!current(operation)) return;
+        }
+        tell(payload.source === "arxiv" ? "正在查询 arXiv…" : "正在整理本地候选…");
         const result = await req(scope("tools/discover", operation.target), payload);
         if (current(operation)) {
           applyRun(result, true);
+          if (payload.source === "daily") $("dailyFeed").value = "";
           tell("已更新检索结果");
         }
       }));

@@ -415,11 +415,14 @@ func (s *Service) resolveTaskPapers(in *taskInput) bool {
 // Reading-queue retries reuse an existing reading task in the destination
 // project, including a task already completed by the researcher.
 func (s *Service) existingReadingTaskLocked(pid string, candidate Task, key string) (Task, bool) {
-	if pid == "" || candidate.Kind != "reading" || candidate.PaperID == "" || key != "reading:"+candidate.PaperID {
+	if (pid == "" && len(candidate.ProjectIDs) != 0) || candidate.Kind != "reading" || candidate.PaperID == "" || key != "reading:"+candidate.PaperID {
 		return Task{}, false
 	}
 	var oldest Task
 	for _, task := range s.visibleTasksLocked(pid) {
+		if pid == "" && len(task.ProjectIDs) != 0 {
+			continue
+		}
 		if task.Kind == "reading" && slices.Contains(task.RelatedPaperIDs, candidate.PaperID) &&
 			(oldest.ID == "" || task.CreatedAt < oldest.CreatedAt || task.CreatedAt == oldest.CreatedAt && task.ID < oldest.ID) {
 			oldest = task
