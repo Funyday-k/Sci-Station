@@ -999,6 +999,8 @@
       void saveNote();
     else if (command === 'save' && !by('annotPanel').hidden && selection)
       void saveAnnotation();
+    else if (command === 'inspector')
+      by(by('notesPanel').hidden ? 'annTab' : 'notesTab').focus();
     else if (command === 'bibtex' && !by('bib').hidden)
       by('bib').click();
     else if ((command === 'externalPDF' || command === 'reveal') && paper?.has_pdf) {

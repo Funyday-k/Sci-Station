@@ -27,7 +27,7 @@ class Element extends EventTarget {
   getContext() { return {measureText: word => ({width: word.length * 8})}; }
   showModal() { this.open = true; }
   close() { this.open = false; }
-  focus() {}
+  focus() { this.focused = true; }
 }
 
 async function mount(suffix = "", options = {}) {
@@ -210,4 +210,16 @@ test("a source verification failure never submits the handoff", async () => {
   assert.equal(getDestination(), undefined);
   assert.equal(memory.size, 0);
   assert.match(get("message").textContent, /quote mismatch/);
+});
+
+
+test("Inspector command focuses the reader's active sidebar tab", async () => {
+  const {get,browser} = await mount();
+  get("annTab").onclick();
+  const inspect = () => new CustomEvent("scistation:command", {detail:"inspector",cancelable:true});
+  assert.equal(browser.dispatchEvent(inspect()), false);
+  assert.equal(get("annTab").focused, true);
+  get("notesTab").onclick();
+  assert.equal(browser.dispatchEvent(inspect()), false);
+  assert.equal(get("notesTab").focused, true);
 });
