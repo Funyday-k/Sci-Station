@@ -1,4 +1,10 @@
 {{define "head"}}
+<link rel="stylesheet" href="/static/research-vendor/katex.min.css">
+<link rel="stylesheet" href="/static/scientific-markdown.css">
+<script defer src="/static/research-vendor/marked.min.js"></script>
+<script defer src="/static/research-vendor/dompurify.min.js"></script>
+<script defer src="/static/research-vendor/katex.min.js"></script>
+<script defer src="/static/scientific-markdown.js"></script>
 <link rel="stylesheet" href="/static/studio.css" />
     <link rel="stylesheet" href="/static/children-panel.css" />
     <link rel="stylesheet" href="/static/studio-setup.css" />
@@ -811,6 +817,7 @@
         <footer class="meeting-report-footer">
           <button id="meeting-report-confirm" class="button primary" type="button">完成会议并生成报告</button>
           <button id="meeting-report-retry" class="button primary" type="button" hidden>重新生成</button>
+          <button id="meeting-report-copy" class="button secondary" type="button" hidden>复制原文</button>
           <a id="meeting-report-download" class="button secondary" download hidden>下载 Markdown</a>
         </footer>
       </div>

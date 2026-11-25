@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const E = window.SciResearch;
-  const {state, $, enc, esc, request, projectPath, dialog, empty, button, bytes, math} = E;
+  const {state, $, enc, esc, request, projectPath, dialog, empty, button, bytes} = E;
   const actionPath = "/api/research/tools/project-material";
   const groups = new Map([["code", "代码"], ["data", "数据"], ["figures", "图表"], ["outputs", "输出"]]);
   const nativeActions = new Map([
@@ -74,43 +74,21 @@
   }
 
   function markdownPreview(host, item, text) {
-    if (!window.marked || !window.DOMPurify) {
-      host.textContent = text;
-      return;
-    }
-    const template = document.createElement("template");
-    template.innerHTML = window.DOMPurify.sanitize(window.marked.parse(text), {
-      SANITIZE_NAMED_PROPS: true,
-      ALLOW_DATA_ATTR: false,
-      FORBID_TAGS: ["style", "iframe", "object", "form", "input", "textarea", "button", "svg", "video", "audio", "source", "link"],
-      FORBID_ATTR: ["style", "srcset", "action", "formaction", "ping"]
-    });
     const base = "https://project-material.invalid/" + item.path.split("/").map(enc).join("/");
-    for (const image of template.content.querySelectorAll("img")) {
-      let resolved;
-      try {
-        resolved = new URL(image.getAttribute("src") || "", base);
-        const path = decodeURIComponent(resolved.pathname.slice(1));
-        if (resolved.origin === "https://project-material.invalid" &&
-            snapshot.files.some(file => file.path === path && file.kind === "image")) {
-          image.src = previewURL(snapshot.project, path);
-          image.loading = "lazy";
-          continue;
-        }
-      } catch {}
-      image.replaceWith(document.createTextNode(image.alt || "未找到项目图片"));
-    }
-    for (const link of template.content.querySelectorAll("a")) {
-      if (/^https?:\/\//i.test(link.getAttribute("href") || "")) {
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-      } else {
-        link.removeAttribute("href");
-      }
-    }
     host.className = "markdown-body";
-    host.replaceChildren(template.content);
-    math(host);
+    window.SciMarkdown.render(host, text, {
+      breaks:false,
+      allowHTML:true,
+      resolveImage(raw) {
+        try {
+          const resolved = new URL(raw, base);
+          const path = decodeURIComponent(resolved.pathname.slice(1));
+          if (resolved.origin === "https://project-material.invalid" &&
+              snapshot.files.some(file => file.path === path && file.kind === "image"))
+            return previewURL(snapshot.project, path);
+        } catch {}
+      },
+    });
   }
 
   async function preview(item, message = "") {

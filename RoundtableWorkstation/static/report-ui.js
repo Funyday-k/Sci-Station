@@ -98,7 +98,7 @@
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const parent = node.parentElement;
-        if (parent.closest("a, button, code, pre") || (!report && !parent.closest(".message-body")))
+        if (parent.closest("a, button, code, pre, .katex") || (!report && !parent.closest(".message-body")))
           return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
       },
@@ -236,7 +236,7 @@
     return lines.join(" ｜ ");
   }
 
-  function mount({ markdown, fileChanges, openRevision, write, reveal, hasUnsentNote }) {
+  function mount({ fileChanges, openRevision, write, reveal, hasUnsentNote }) {
     const toolbar = $("meeting-report");
     const dialog = $("meeting-report-dialog");
     const title = $("meeting-report-title");
@@ -439,6 +439,8 @@
       retry.disabled = busy;
       const available = Boolean(report?.markdown && !activeReportStatuses.has(report.status));
       download.hidden = !available;
+      const copy = $("meeting-report-copy");
+      copy.hidden = !available;
       download.textContent = report?.status === "failed" ? "下载草稿" : "下载 Markdown";
       if (available) download.href = `/api/studio/sessions/${encodeURIComponent(session.id)}/report.md`;
       status.hidden = !closed;
@@ -456,10 +458,14 @@
       const bodyKey = JSON.stringify([session.id, available ? report.markdown : ""]);
       if (bodyKey !== reportBodyKey) {
         reportBodyKey = bodyKey;
-        content.innerHTML = available ? markdown(report.markdown, { report: true }) : "";
         if (available) {
+          window.SciMarkdown.render(content, report.markdown, {headingShift:2});
+          window.SciMarkdown.bindCopy(copy, report.markdown);
           foldCitationAppendix(content);
           linkSources(content, session, navigate, fileChanges(session));
+        } else {
+          content.replaceChildren();
+          copy.onclick = null;
         }
         $("meeting-report-scroll").scrollTop = 0;
       }

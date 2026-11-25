@@ -693,45 +693,23 @@
     });
   }
 
-  function markdown(source, links = {}) {
-    if (!window.marked || !window.DOMPurify) return '<pre>' + esc(source) + '</pre>';
-    // Work only on text nodes for wikilinks; generated elements cannot inherit raw HTML from note titles.
-    const template = document.createElement("template");
-    template.innerHTML = DOMPurify.sanitize(marked.parse(source || ""), {
-      SANITIZE_NAMED_PROPS: true,
-      FORBID_TAGS: ["style", "iframe", "object", "form", "input", "textarea", "button", "svg", "math", "video", "audio",
-        "source"
-      ],
-      FORBID_ATTR: ["style", "srcset", "action", "formaction", "data-id", "data-action", "data-project", "data-view"]
+  function renderWikiMarkdown(host, source, links = {}) {
+    window.SciMarkdown.render(host, source, {
+      breaks:false,
+      allowHTML:true,
+      resolveImage(raw) {
+        let filename = raw;
+        try { filename = decodeURIComponent(raw); } catch {}
+        const material = state.materials.find(m => m.name === filename && /^image\/(jpeg|png|gif|webp)$/i.test(m.mediaType || ""));
+        if (material && state.project)
+          return "/api/research/" + projectPath("materials/" + enc(material.id) + "/content");
+      },
     });
-    for (const img of template.content.querySelectorAll("img")) {
-      const raw = img.getAttribute("src") || "";
-      let filename = raw;
-      try {
-        filename = decodeURIComponent(raw);
-      } catch {}
-      const m = state.materials.find(m => m.name === filename && /^image\/(jpeg|png|gif|webp)$/i.test(m.mediaType || ""));
-      if (m && state.project) {
-        img.src = "/api/research/" + projectPath("materials/" + enc(m.id) + "/content");
-        img.loading = "lazy";
-      } else {
-        img.replaceWith(document.createTextNode(img.alt || "未找到项目图片"));
-      }
-    }
-    for (const a of template.content.querySelectorAll("a")) {
-      const raw = a.getAttribute("href") || "";
-      if (!/^https?:\/\//i.test(raw)) {
-        a.removeAttribute("href");
-      } else {
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-      }
-    }
-    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     for (const node of nodes) {
-      if (node.parentElement?.closest("code,pre,a")) continue;
+      if (node.parentElement?.closest("code,pre,a,.katex")) continue;
       const str = node.textContent,
         re = /\[\[([^\[\]\n|#]+)(?:#[^\[\]|]*)?(?:\|([^\[\]]*))?\]\]/g;
       let match, pos = 0;
@@ -757,33 +735,6 @@
         node.replaceWith(frag);
       }
     }
-    const host = document.createElement("div");
-    host.append(template.content);
-    return host.innerHTML;
-  }
-
-  function math(el) {
-    if (window.renderMathInElement) window.renderMathInElement(el, {
-      delimiters: [{
-        left: "$$",
-        right: "$$",
-        display: true
-      }, {
-        left: "\\[",
-        right: "\\]",
-        display: true
-      }, {
-        left: "\\(",
-        right: "\\)",
-        display: false
-      }, {
-        left: "$",
-        right: "$",
-        display: false
-      }],
-      throwOnError: false,
-      trust: false
-    });
   }
 
   function search() {
@@ -850,8 +801,7 @@
     taskPriorityLabels,
     taskOnDate,
     toolsPage,
-    markdown,
-    math,
+    renderWikiMarkdown,
     bytes,
     search,
     start: route

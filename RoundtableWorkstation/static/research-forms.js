@@ -20,8 +20,7 @@
     toast,
     reader,
     statusLabel,
-    markdown,
-    math,
+    renderWikiMarkdown,
     bytes
   } = E;
   const copy = (zh, en) => E.text?.(zh, en) ?? zh;
@@ -517,8 +516,7 @@
       $("wiki-format-tools").hidden = open;
       $("preview-toggle").textContent = open ? "返回编辑" : "预览";
       if (open) {
-        preview.innerHTML = markdown(splitWikiBody($("note-body").value).body);
-        math(preview);
+        renderWikiMarkdown(preview, splitWikiBody($("note-body").value).body);
       }
     };
     f = bindForm(async (form, token) => {
@@ -681,14 +679,14 @@
       noteOccurrence(n, locator) + (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
         '<div id="wiki-metadata" aria-live="polite"></div><details><summary>原始 YAML</summary><pre>' +
         esc(frontmatter) + '</pre></details></details>' : "") +
-      '<article class="note-preview" id="note-preview">' + markdown(body) + '</article><p class="form-help" id="wiki-link-status" role="status"></p>' +
+      '<article class="note-preview" id="note-preview"></article><p class="form-help" id="wiki-link-status" role="status"></p>' +
       ((n.evidence || []).length ? '<div class="subheading">论文证据</div>' + n.evidence.map(e => '<p>' + (e.paperId ? link(
         (state.papers.find(p => p.id === e.paperId)?.title || "查看论文") + (e.page ? " · 第 " + e.page + " 页" : ""),
         evidenceURL(e), "bare") : "") + (e.meetingId ? link("来源会议",
         "/studio?project=" + enc(owner) + "&session=" + enc(e.meetingId), "bare") : "") +
         '</p><blockquote>' + esc(e.quote) + '</blockquote>').join("") : "") + '<div id="backlinks"></div>', {wide: true});
     const preview = $("note-preview"), backlinks = $("backlinks"), status = $("wiki-link-status");
-    math(preview);
+    renderWikiMarkdown(preview, body);
     const revision = "?revision=" + enc(n.revision);
     if (frontmatter) showWikiMetadata(base + "/frontmatter" + revision, $("wiki-metadata"));
     const [links, refs] = await Promise.allSettled([
@@ -696,8 +694,7 @@
     ]);
     if (token !== wikiRequest || state.project?.id !== owner || !preview.isConnected) return;
     if (links.status === "fulfilled") {
-      preview.innerHTML = markdown(body, links.value);
-      math(preview);
+      renderWikiMarkdown(preview, body, links.value);
     } else status.textContent = "页面链接读取失败：" + links.reason.message;
     if (refs.status === "fulfilled") {
       if (refs.value?.length) backlinks.innerHTML = '<div class="subheading">链接到此页面</div>' +

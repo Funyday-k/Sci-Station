@@ -247,9 +247,15 @@
       $("lab-open").href="/studio?"+new URLSearchParams(project.global?{session:room.id}:{project:project.id,session:room.id});
       const turns=[];
       for(const round of rounds) for(const turn of round.turns||[]) {
-        const heading=document.createElement("h3"), body=document.createElement("p");
+        const heading=document.createElement("h3");
         heading.textContent="第 "+round.number+" 轮 · "+(turn.model_label||turn.model||turn.seat)+" · "+(states[turn.status]||turn.status);
-        body.textContent=turn.error||turn.text||""; turns.push(heading,body);
+        const body=document.createElement(turn.error ? "p" : "div");
+        if(turn.error) body.textContent=turn.error;
+        else if(turn.text) {
+          window.SciMarkdown.render(body,turn.text,{headingShift:3,cache:turn.status!=="running"});
+          heading.append(window.SciMarkdown.copyButton(turn.text));
+        }
+        turns.push(heading,body);
       }
       $("lab-turns").replaceChildren(...turns);
     }

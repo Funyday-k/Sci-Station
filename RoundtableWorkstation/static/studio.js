@@ -1230,93 +1230,6 @@
     $("table-center-state").textContent = activeSeats.length ? activeSeats.join("、") + " 正在工作" :
       session.status === "closed" ? "会议已结束" : drafting ? "会前准备中" : running ? "正在准备工作" : round ? "等待你的下一步" : "等待开始";
   }
-  function inline(text) {
-    return escape(text)
-      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-      .replace(
-        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-      );
-  }
-  function markdown(text, { report = false } = {}) {
-    let html = "",
-      paragraph = [],
-      code = null,
-      list = "";
-    const flush = () => {
-      if (paragraph.length) {
-        html += `<p>${inline(paragraph.join("\n"))}</p>`;
-        paragraph = [];
-      }
-    };
-    const close = () => {
-      if (list) {
-        html += `</${list}>`;
-        list = "";
-      }
-    };
-    for (const line of String(text || "").split("\n")) {
-      if (/^\s*```/.test(line)) {
-        flush();
-        close();
-        if (code === null) code = [];
-        else {
-          html += `<pre><code>${escape(code.join("\n"))}</code></pre>`;
-          code = null;
-        }
-        continue;
-      }
-      if (code !== null) {
-        code.push(line);
-        continue;
-      }
-      if (!line.trim()) {
-        flush();
-        close();
-        continue;
-      }
-      const heading = line.match(/^(#{1,6})\s+(.+)$/);
-      if (heading) {
-        flush();
-        close();
-        const level = report ? Math.min(6, heading[1].length + 2) : 4;
-        html += `<h${level}>${inline(heading[2])}</h${level}>`;
-        continue;
-      }
-      if (report && /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-        flush();
-        close();
-        html += "<hr>";
-        continue;
-      }
-      if (report && line.startsWith("> ")) {
-        flush();
-        close();
-        html += `<blockquote>${inline(line.slice(2))}</blockquote>`;
-        continue;
-      }
-      const item = line.match(/^\s*(?:([-*+])|\d+[.)])\s+(.+)$/);
-      if (item) {
-        flush();
-        const type = item[1] ? "ul" : "ol";
-        if (list !== type) {
-          close();
-          list = type;
-          html += `<${type}>`;
-        }
-        html += `<li>${inline(item[2])}</li>`;
-        continue;
-      }
-      close();
-      paragraph.push(line);
-    }
-    flush();
-    close();
-    if (code !== null)
-      html += `<pre><code>${escape(code.join("\n"))}</code></pre>`;
-    return html;
-  }
   function modelChanges(session) {
     const changes = [];
     for (const round of session?.rounds || [])
@@ -1399,13 +1312,18 @@
     if (Number.isNaN(date.getTime())) return "";
     return `<time class="message-time" datetime="${escape(value)}" title="${escape(date.toLocaleString("zh-CN"))}">${escape(date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }))}</time>`;
   }
+  function renderMessageBody(article, source, cache) {
+    window.SciMarkdown.render(article.querySelector(".message-body"), source, {headingShift:3, cache});
+    article.querySelector(".message-header").append(window.SciMarkdown.copyButton(source));
+  }
   function hostMessage(text, at, target = "", round = 0, automatic = false) {
     const article = document.createElement("article");
     article.className = "message host-message";
     if (round) article.id = `round-${round}-host`;
     const recipient = target && (round ? sourceIdentity(target, state.session, round).label : seatName(target));
     const label = automatic ? "持续推进 · 下一轮任务" : recipient ? `→ ${recipient}` : "";
-    article.innerHTML = `<span class="message-avatar" aria-hidden="true">${icon(automatic ? "refresh" : "person")}</span><div class="message-content"><header class="message-header">${label ? `<strong>${escape(label)}</strong>` : ""}${messageTime(at)}</header><div class="message-body">${markdown(text)}</div></div>`;
+    article.innerHTML = `<span class="message-avatar" aria-hidden="true">${icon(automatic ? "refresh" : "person")}</span><div class="message-content"><header class="message-header">${label ? `<strong>${escape(label)}</strong>` : ""}${messageTime(at)}</header><div class="message-body"></div></div>`;
+    renderMessageBody(article, text, true);
     return article;
   }
   function renderRounds() {
@@ -1521,7 +1439,8 @@
             : turn.status === "error"
               ? "未完成"
               : "";
-        article.innerHTML = `${memberAvatar(speaker)}<div class="message-content"><header class="message-header"><strong>${escape(speaker.label)}${showModel ? ` · ${escape(speaker.model)}` : ""}</strong>${messageTime(turn.finished_at || turn.started_at)}${progress ? `<span class="message-status ${turn.status === "error" ? "error" : ""}">${progress}</span>` : ""}</header>${turn.text ? `<div class="message-body">${markdown(turn.text)}</div>` : turn.status === "error" ? "" : `<div class="message-body"><p class="message-placeholder">${turn.status === "pending" ? "等待回应…" : turn.status === "running" ? "正在处理任务…" : "没有返回发言。"}</p></div>`}</div>`;
+        article.innerHTML = `${memberAvatar(speaker)}<div class="message-content"><header class="message-header"><strong>${escape(speaker.label)}${showModel ? ` · ${escape(speaker.model)}` : ""}</strong>${messageTime(turn.finished_at || turn.started_at)}${progress ? `<span class="message-status ${turn.status === "error" ? "error" : ""}">${progress}</span>` : ""}</header>${turn.text ? `<div class="message-body"></div>` : turn.status === "error" ? "" : `<div class="message-body"><p class="message-placeholder">${turn.status === "pending" ? "等待回应…" : turn.status === "running" ? "正在处理任务…" : "没有返回发言。"}</p></div>`}</div>`;
+        if (turn.text) renderMessageBody(article, turn.text, turn.status !== "running");
         const events = (session.events || []).filter(
           (event) =>
             event.seat === turn.seat &&
@@ -3197,7 +3116,6 @@
     if (failure) showError(failure.reason);
   }
   const reportUI = window.RoundtableReport.mount({
-    markdown,
     fileChanges: session => closedFileCatalog(session).cited,
     openRevision: change => openChanges(change, $("meeting-report")),
     hasUnsentNote: () => Boolean($("run-note").value.trim() || runMaterials.items().length),
