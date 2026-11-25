@@ -66,24 +66,34 @@ func recordedReviewSource(s *meeting.Session, key string) (research.ReviewSource
 		if !isPaper {
 			continue
 		}
-		var loc struct {
-			ProjectID      string `json:"projectId"`
-			PaperID        string `json:"paperId"`
-			Page           int    `json:"page"`
-			Fingerprint    string `json:"fingerprint"`
-			AnnotationID   string `json:"annotationId"`
-			SelectionStart *int   `json:"selectionStart"`
-			SelectionEnd   *int   `json:"selectionEnd"`
-			OCR            bool   `json:"ocr"`
+		evidence, err := recordedPaperEvidence(text, s.ProjectID)
+		if err != nil {
+			return source, err
 		}
-		meta, quote, ok := strings.Cut(text, "\n\n")
-		if !ok || json.Unmarshal([]byte(meta), &loc) != nil || loc.ProjectID != s.ProjectID || loc.Page < 1 || loc.PaperID == "" || loc.Fingerprint == "" || strings.TrimSpace(quote) == "" {
-			return source, errors.New("会议中存在不完整或不属于此项目的论文证据")
-		}
-		source.Evidence = append(source.Evidence, research.Evidence{PaperID: loc.PaperID, Page: loc.Page, SourceHash: loc.Fingerprint, Quote: quote, MeetingID: s.ID, TurnID: key, AnnotationID: loc.AnnotationID, SelectionStart: loc.SelectionStart, SelectionEnd: loc.SelectionEnd, OCR: loc.OCR})
+		evidence.MeetingID, evidence.TurnID = s.ID, key
+		source.Evidence = append(source.Evidence, evidence)
 		seen[m.Excerpt] = true
 	}
 	return source, nil
+}
+
+func recordedPaperEvidence(text, project string) (research.Evidence, error) {
+	var loc struct {
+		ProjectID      string `json:"projectId"`
+		PaperID        string `json:"paperId"`
+		Page           int    `json:"page"`
+		Fingerprint    string `json:"fingerprint"`
+		AnnotationID   string `json:"annotationId"`
+		SelectionStart *int   `json:"selectionStart"`
+		SelectionEnd   *int   `json:"selectionEnd"`
+		OCR            bool   `json:"ocr"`
+	}
+	meta, quote, ok := strings.Cut(text, "\n\n")
+	if !ok || json.Unmarshal([]byte(meta), &loc) != nil || loc.ProjectID != project || loc.Page < 1 || loc.PaperID == "" || loc.Fingerprint == "" || strings.TrimSpace(quote) == "" {
+		return research.Evidence{}, errors.New("会议中存在不完整或不属于此项目的论文证据")
+	}
+	return research.Evidence{PaperID: loc.PaperID, Page: loc.Page, SourceHash: loc.Fingerprint, Quote: quote,
+		AnnotationID: loc.AnnotationID, SelectionStart: loc.SelectionStart, SelectionEnd: loc.SelectionEnd, OCR: loc.OCR}, nil
 }
 
 func recordedProjectEvidence(text, project string) (research.Evidence, error) {
@@ -129,7 +139,7 @@ func (a *apiServer) meetingReviews(w http.ResponseWriter, r *http.Request, id st
 			reject(w, 403, "此会议没有绑定科研项目")
 			return
 		}
-		lab.ServeMeetingReview(w, r, s.ProjectID, s.ID, command, func(key string) (research.ReviewSource, error) { return recordedReviewSource(s, key) })
+		lab.ServeMeetingReview(w, r, s.ProjectID, s.ID, command, func(key string) (research.ReviewSource, error) { return labReviewSource(s, key) })
 	})
 	if err != nil {
 		fail(w, err)

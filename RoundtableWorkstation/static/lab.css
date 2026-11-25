@@ -12,3 +12,13 @@
 #lab-mcp-settings{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:12px}
 #lab-mcp-settings label{display:flex;align-items:center;gap:6px;margin:0}
 #lab-mcp-enabled{width:auto}
+.lab-evidence-inspection[open] > summary { margin-bottom: 10px; }
+.lab-evidence-inspection ol { padding-inline-start: 24px; }
+.lab-evidence-inspection li + li { margin-top: 10px; }
+.lab-evidence-inspection li p { margin: 4px 0; }
+.lab-evidence-inspection li small { display: block; }
+.lab-evidence-refs { display: flex; flex-wrap: wrap; gap: 8px; }
+.lab-evidence-source { margin-top: 14px; padding-inline-start: 12px; border-inline-start: 2px solid currentColor; }
+.lab-evidence-source h5 { margin: 0; font-size: .9rem; }
+.lab-evidence-source code { display: block; overflow-wrap: anywhere; }
+.lab-evidence-warning { font-weight: 650; }

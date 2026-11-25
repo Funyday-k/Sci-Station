@@ -87,11 +87,70 @@ func (s *Session) materialReferences(ids []string) []Material {
 
 type promptMaterial struct {
 	ID               string `json:"id"`
+	CitationID       string `json:"citation_id,omitempty"`
 	Name             string `json:"name"`
 	MIME             string `json:"mime"`
 	ReadStatus       string `json:"read_status"`
 	Excerpt          string `json:"excerpt,omitempty"`
 	ExcerptShortened bool   `json:"excerpt_shortened,omitempty"`
+}
+
+// Source citation labels follow attachment insertion order. A follow-up can
+// put a new attachment first in the prompt without renumbering prior sources.
+func (s *Session) citationLabels() map[string]string {
+	labels := make(map[string]string, len(s.Materials))
+	for i, material := range s.Materials {
+		labels[material.ID] = fmt.Sprintf("S%d", i+1)
+	}
+	return labels
+}
+
+func (s *Session) promptMaterials(ids []string) []promptMaterial {
+	input := materialPromptContext(s.materialReferences(ids))
+	if len(s.Seats) == 1 && s.ProjectID != "" {
+		labels := s.citationLabels()
+		for i := range input {
+			input[i].CitationID = labels[input[i].ID]
+		}
+	}
+	return input
+}
+
+type CitationMaterial struct {
+	Material
+	CitationID       string
+	ExcerptShortened bool
+}
+
+// CitationMaterials replays the round's material ordering and text budget.
+// An attachment added by a later turn was never available to this output.
+func (s *Session) CitationMaterials(round int) []CitationMaterial {
+	materialIDs := []string(nil)
+	for _, r := range s.Rounds {
+		if r.Number == round {
+			materialIDs = r.MaterialIDs
+			break
+		}
+	}
+	snapshot := *s
+	snapshot.Materials = nil
+	for _, material := range s.Materials {
+		if material.AddedRound <= round {
+			snapshot.Materials = append(snapshot.Materials, material)
+		}
+	}
+	status := make(map[string]promptMaterial, len(snapshot.Materials))
+	for _, material := range materialPromptContext(snapshot.materialReferences(materialIDs)) {
+		status[material.ID] = material
+	}
+	labels := s.citationLabels()
+	refs := make([]CitationMaterial, 0, len(snapshot.Materials))
+	for _, material := range snapshot.Materials {
+		prompt := status[material.ID]
+		refs = append(refs, CitationMaterial{Material: material, CitationID: labels[material.ID],
+			ExcerptShortened: prompt.ExcerptShortened})
+	}
+	return refs
 }
 
 func materialPromptContext(materials []Material) []promptMaterial {

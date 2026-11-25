@@ -18,8 +18,9 @@ import (
 // ReviewSource is resolved from a published meeting record by the desktop host.
 // It is never decoded from a proposed write or a decision supplied by a seat.
 type ReviewSource struct {
-	Text     string     `json:"text"`
-	Evidence []Evidence `json:"evidence"`
+	Text           string                           `json:"text"`
+	Evidence       []Evidence                       `json:"evidence"`
+	SelectEvidence func(string) ([]Evidence, error) `json:"-"`
 }
 
 type ReviewProposal struct {
@@ -304,6 +305,13 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 		if err != nil {
 			jsonFail(w, 409, err.Error())
 			return
+		}
+		if source.SelectEvidence != nil {
+			source.Evidence, err = source.SelectEvidence(v.Body)
+			if err != nil {
+				jsonFail(w, 422, err.Error())
+				return
+			}
 		}
 		if propose {
 			v.SourceHash = reviewSourceHash(source)

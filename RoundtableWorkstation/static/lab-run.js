@@ -266,6 +266,9 @@
           heading.append(window.SciMarkdown.copyButton(turn.text));
         }
         turns.push(heading,body);
+        if (!project.global && room.status !== "running" && turn.status === "done" && !turn.error && turn.text?.trim()) {
+          turns.push(window.SciLabEvidence.inspection({room: room.id, project: project.id, output: "round-"+round.number+"-"+turn.seat, req}));
+        }
       }
       $("lab-turns").replaceChildren(...turns);
     }

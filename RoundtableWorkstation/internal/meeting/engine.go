@@ -1579,7 +1579,7 @@ private:
 		data["plugin_guidance"] = r.PluginGuidance
 	}
 	if len(s.Materials) > 0 {
-		data["materials"] = materialPromptContext(s.materialReferences(r.MaterialIDs))
+		data["materials"] = s.promptMaterials(r.MaterialIDs)
 	}
 	if s.Continuous.active() {
 		data["continuous_goal"] = s.Continuous.Config.Goal
