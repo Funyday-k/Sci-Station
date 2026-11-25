@@ -61,7 +61,7 @@ func TestInspireAndArxivImportShareAnOwnedRecord(t *testing.T) {
 	providerFixture(t, func(req *http.Request) (*http.Response, error) {
 		requests = append(requests, req.URL.Host)
 		if req.URL.Host == "inspirehep.net" && req.URL.Path == "/api/literature/2811054" {
-			return providerResponse(req, `{"metadata":{"control_number":2811054,"titles":[{"title":"Sample Solar Paper"}],"abstracts":[{"value":"A sample &amp; a result."}],"authors":[{"full_name":"Jane Li"}],"arxiv_eprints":[{"value":"2404.12345v2","categories":["hep-ph"]}],"dois":[{"value":"10.1000/Solar"}],"publication_info":[{"year":2024}],"inspire_categories":[{"term":"Phenomenology"}]}}`)
+			return providerResponse(req, `{"metadata":{"control_number":2811054,"titles":[{"title":"Sample Solar Paper"}],"abstracts":[{"value":"A sample &amp; a result."}],"authors":[{"full_name":"Jane Li"}],"arxiv_eprints":[{"value":"2404.12345v2","categories":["hep-ph"]}],"dois":[{"value":"10.1000/Solar"}],"publication_info":[{"year":2024,"journal_title":"Fixture Physics","journal_volume":"D12","journal_issue":3,"page_start":5,"page_end":19}],"inspire_categories":[{"term":"Phenomenology"}]}}`)
 		}
 		t.Fatalf("unexpected provider request %s", req.URL)
 		return nil, nil
@@ -73,7 +73,8 @@ func TestInspireAndArxivImportShareAnOwnedRecord(t *testing.T) {
 	metadata := decodeResearch[paperImportPreview](t, res.Body.Bytes())
 	if res.Code != http.StatusOK || metadata.MetadataSource != "INSPIRE" || metadata.PDFURL != "https://arxiv.org/pdf/2404.12345v2" ||
 		metadata.Arxiv != "2404.12345v2" || metadata.DOI != "10.1000/solar" || metadata.Abstract != "A sample & a result." ||
-		strings.Join(metadata.Tags, ",") != "Phenomenology,hep-ph" || len(lib.all()) != 0 {
+		strings.Join(metadata.Categories, ",") != "hep-ph,Phenomenology" || metadata.PublicationTitle != "Fixture Physics" ||
+		metadata.Volume != "D12" || metadata.Issue != "3" || metadata.Pages != "5-19" || len(lib.all()) != 0 {
 		t.Fatalf("preview=%+v response=%s", metadata, res.Body)
 	}
 	res = testPaperRequest(t, lib, "POST", "", payload)
@@ -208,7 +209,7 @@ func TestPaperImportRetryFillsProviderDataWithoutOverwritingEdits(t *testing.T) 
 		if offline {
 			return nil, errors.New("provider fixture unavailable")
 		}
-		return providerResponse(req, `{"message":{"DOI":"10.1000/example","title":["Catalogue Title"],"author":[{"family":"Zhang"}],"issued":{"date-parts":[[2025]]}}}`)
+		return providerResponse(req, `{"message":{"DOI":"10.1000/example","title":["Catalogue Title"],"author":[{"family":"Zhang"}],"issued":{"date-parts":[[2025]]},"type":"journal-article","container-title":["Cosmology Journal"],"publisher":"Fixture Press","volume":"42","issue":"7","page":"13--18","subject":["Astronomy"]}}`)
 	})
 	lib := testPaperLib(t)
 	const request = `{"identifier":"doi:10.1000/example"}`
@@ -225,8 +226,15 @@ func TestPaperImportRetryFillsProviderDataWithoutOverwritingEdits(t *testing.T) 
 	res = testPaperRequest(t, lib, "POST", "", request)
 	got := decodeResearch[Paper](t, res.Body.Bytes())
 	if res.Code != http.StatusOK || got.ID != p.ID || got.MetadataSource != "Crossref" || got.Year != 2025 ||
-		len(got.Authors) != 1 || got.Title != "My title" || got.Notes != "Reading notes" || got.Revision != 3 {
+		len(got.Authors) != 1 || len(got.Categories) != 1 || got.ItemType != "journal-article" ||
+		got.PublicationTitle != "Cosmology Journal" || got.Publisher != "Fixture Press" || got.Volume != "42" ||
+		got.Issue != "7" || got.Pages != "13--18" || got.Title != "My title" || got.Notes != "Reading notes" || got.Revision != 3 {
 		t.Fatalf("recovered paper: %d %+v", res.Code, got)
+	}
+	res = testPaperRequest(t, lib, "GET", "/"+p.ID+"/bibtex", "")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "journal = {Cosmology Journal}") ||
+		!strings.Contains(res.Body.String(), "title = {My title}") {
+		t.Fatalf("bibliography from recovered metadata: %d %s", res.Code, res.Body)
 	}
 }
 

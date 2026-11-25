@@ -45,15 +45,22 @@ type crossrefDate struct {
 
 type crossrefRecord struct {
 	Message struct {
-		Title    []string                               `json:"title"`
-		Author   []struct{ Given, Family, Name string } `json:"author"`
-		Print    crossrefDate                           `json:"published-print"`
-		Online   crossrefDate                           `json:"published-online"`
-		Issued   crossrefDate                           `json:"issued"`
-		Created  crossrefDate                           `json:"created"`
-		DOI      string                                 `json:"DOI"`
-		Abstract string                                 `json:"abstract"`
-		Links    []struct {
+		ContainerTitle []string                               `json:"container-title"`
+		Publisher      string                                 `json:"publisher"`
+		Volume         string                                 `json:"volume"`
+		Issue          string                                 `json:"issue"`
+		Pages          string                                 `json:"page"`
+		ItemType       string                                 `json:"type"`
+		Categories     []string                               `json:"subject"`
+		Title          []string                               `json:"title"`
+		Author         []struct{ Given, Family, Name string } `json:"author"`
+		Print          crossrefDate                           `json:"published-print"`
+		Online         crossrefDate                           `json:"published-online"`
+		Issued         crossrefDate                           `json:"issued"`
+		Created        crossrefDate                           `json:"created"`
+		DOI            string                                 `json:"DOI"`
+		Abstract       string                                 `json:"abstract"`
+		Links          []struct {
 			URL  string `json:"URL"`
 			Type string `json:"content-type"`
 		} `json:"link"`
@@ -74,7 +81,11 @@ func lookupCrossref(ctx context.Context, doi string) (PaperMetadata, error) {
 	if (resolved != "" && resolved != doi) || len(m.Title) == 0 || strings.TrimSpace(m.Title[0]) == "" {
 		return PaperMetadata{}, errors.New("Crossref record did not identify the requested paper")
 	}
-	result := PaperMetadata{Title: m.Title[0], DOI: doi, Abstract: cleanProviderAbstract(m.Abstract)}
+	result := PaperMetadata{
+		Title: m.Title[0], DOI: doi, Abstract: cleanProviderAbstract(m.Abstract),
+		PublicationTitle: firstPaperValue(m.ContainerTitle...), Publisher: m.Publisher,
+		Volume: m.Volume, Issue: m.Issue, Pages: m.Pages, ItemType: m.ItemType, Categories: m.Categories,
+	}
 	for _, a := range m.Author {
 		name := strings.TrimSpace(a.Given + " " + a.Family)
 		if name == "" {
@@ -120,7 +131,15 @@ type inspireRecord struct {
 		Categories   []struct{ Term string } `json:"inspire_categories"`
 		Documents    []struct{ URL string }  `json:"documents"`
 		EarliestDate string                  `json:"earliest_date"`
-		Publication  []struct{ Year int }    `json:"publication_info"`
+		Publication  []struct {
+			Year    int
+			Journal string          `json:"journal_title"`
+			Volume  json.RawMessage `json:"journal_volume"`
+			Issue   json.RawMessage `json:"journal_issue"`
+			Article json.RawMessage `json:"artid"`
+			Start   json.RawMessage `json:"page_start"`
+			End     json.RawMessage `json:"page_end"`
+		} `json:"publication_info"`
 	} `json:"metadata"`
 }
 
@@ -133,15 +152,36 @@ func lookupInspire(ctx context.Context, id string) (PaperMetadata, error) {
 	if (m.ID != 0 && strconv.Itoa(m.ID) != id) || len(m.Titles) == 0 || strings.TrimSpace(m.Titles[0].Title) == "" {
 		return PaperMetadata{}, errors.New("INSPIRE record did not identify the requested paper")
 	}
-	result := PaperMetadata{Title: m.Titles[0].Title, InspireID: id}
+	result := PaperMetadata{Title: m.Titles[0].Title, InspireID: id, ItemType: "preprint"}
 	for _, author := range m.Authors {
 		result.Authors = append(result.Authors, author.Name)
 	}
 	if len(m.Abstracts) > 0 {
 		result.Abstract = cleanProviderAbstract(m.Abstracts[0].Value)
 	}
-	if len(m.Publication) > 0 {
-		result.Year = m.Publication[0].Year
+	for _, publication := range m.Publication {
+		if result.Year == 0 {
+			result.Year = publication.Year
+		}
+		if strings.TrimSpace(publication.Journal) == "" {
+			continue
+		}
+		if publication.Year > 0 {
+			result.Year = publication.Year
+		}
+		result.PublicationTitle = publication.Journal
+		result.ItemType = "journal-article"
+		result.Volume = providerLabel(publication.Volume)
+		result.Issue = providerLabel(publication.Issue)
+		result.Pages = providerLabel(publication.Article)
+		if result.Pages == "" {
+			start, end := providerLabel(publication.Start), providerLabel(publication.End)
+			result.Pages = firstPaperValue(start, end)
+			if start != "" && end != "" && start != end {
+				result.Pages = start + "-" + end
+			}
+		}
+		break
 	}
 	if result.Year == 0 && len(m.EarliestDate) >= 4 {
 		result.Year, _ = strconv.Atoi(m.EarliestDate[:4])
@@ -152,16 +192,16 @@ func lookupInspire(ctx context.Context, id string) (PaperMetadata, error) {
 			break
 		}
 	}
-	for _, category := range m.Categories {
-		result.Tags = append(result.Tags, category.Term)
-	}
 	for _, eprint := range m.ArxivIDs {
 		if normalized := normalizeArxiv(eprint.Value); arxivPattern.MatchString(normalized) {
 			result.Arxiv = normalized
-			result.Tags = append(result.Tags, eprint.Categories...)
+			result.Categories = eprint.Categories
 			result.PDFURL = "https://arxiv.org/pdf/" + normalized
 			break
 		}
+	}
+	for _, category := range m.Categories {
+		result.Categories = append(result.Categories, category.Term)
 	}
 	if result.PDFURL == "" {
 		for _, doc := range m.Documents {
@@ -172,6 +212,18 @@ func lookupInspire(ctx context.Context, id string) (PaperMetadata, error) {
 		}
 	}
 	return result, nil
+}
+
+func providerLabel(raw json.RawMessage) string {
+	var label string
+	if err := json.Unmarshal(raw, &label); err == nil {
+		return strings.TrimSpace(label)
+	}
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number.String()
+	}
+	return ""
 }
 
 func lookupArxiv(ctx context.Context, id string) (PaperMetadata, error) {
@@ -282,20 +334,40 @@ func (p *paperImport) mergeProviderMetadata(m PaperMetadata) {
 	if len(p.References) == 0 {
 		p.References = m.References
 	}
-	for _, tag := range m.Tags {
-		if !paperContains(p.Tags, tag) {
-			p.Tags = append(p.Tags, tag)
+	mergeProviderBibliography(&p.PaperMetadata, m)
+}
+
+// Keep imported bibliography alongside researcher-supplied tags and retain
+// the researcher's values when a provider is queried again.
+func mergeProviderBibliography(p *PaperMetadata, learned PaperMetadata) bool {
+	changed := false
+	for _, field := range []struct {
+		destination *string
+		source      string
+	}{
+		{&p.PublicationTitle, learned.PublicationTitle}, {&p.Publisher, learned.Publisher},
+		{&p.Volume, learned.Volume}, {&p.Issue, learned.Issue}, {&p.Pages, learned.Pages},
+		{&p.ItemType, learned.ItemType},
+	} {
+		if *field.destination == "" && field.source != "" {
+			*field.destination = field.source
+			changed = true
 		}
 	}
+	if len(p.Categories) == 0 && len(learned.Categories) > 0 {
+		p.Categories = learned.Categories
+		changed = true
+	}
+	return changed
 }
 
 // A successful retry can fill the fields of an offline entry. Keep any title
 // or metadata the researcher added in the meantime.
 func recoverPaperMetadata(p *Paper, learned PaperMetadata) bool {
-	if p.MetadataSource != "" || learned.MetadataSource == "" || learned.MetadataSource == "PDF" {
+	if (p.MetadataSource != "" && p.MetadataSource != "PDF") || learned.MetadataSource == "" || learned.MetadataSource == "PDF" {
 		return false
 	}
-	var changed bool
+	changed := mergeProviderBibliography(&p.PaperMetadata, learned)
 	switch p.Title {
 	case p.DOI, "arXiv " + p.Arxiv, "INSPIRE " + p.InspireID, p.URL:
 		if learned.Title != "" && p.Title != learned.Title {

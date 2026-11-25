@@ -206,7 +206,10 @@ func (f paperFeed) metadata() []paperImport {
 		if !arxivPattern.MatchString(id) || strings.TrimSpace(e.Title) == "" {
 			continue
 		}
-		m := paperImport{PaperMetadata: PaperMetadata{Title: strings.Join(strings.Fields(e.Title), " "), Abstract: strings.Join(strings.Fields(e.Summary), " "), DOI: normalizeDOI(e.DOI), Arxiv: id, URL: "https://arxiv.org/abs/" + id}}
+		m := paperImport{PaperMetadata: PaperMetadata{
+			Title: strings.Join(strings.Fields(e.Title), " "), Abstract: strings.Join(strings.Fields(e.Summary), " "),
+			DOI: normalizeDOI(e.DOI), Arxiv: id, URL: "https://arxiv.org/abs/" + id, ItemType: "preprint",
+		}}
 		m.PrimaryCategory = strings.TrimSpace(e.Primary.Term)
 		m.PublishedAt = e.Published
 		// arXiv feed tags preserve the primary category first, followed by cross-lists.
@@ -214,6 +217,7 @@ func (f paperFeed) metadata() []paperImport {
 			term := strings.TrimSpace(category.Term)
 			if term != "" && !paperContains(m.Tags, term) {
 				m.Tags = append(m.Tags, term)
+				m.Categories = append(m.Categories, term)
 			}
 		}
 		if !e.Published.IsZero() {
