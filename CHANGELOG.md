@@ -8,6 +8,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- AI Lab can run and continue a single-seat research session, review selections from project PDFs, notes and text materials, stop a run, and reopen its evidence and transcript offline.
+
 - Navigate between research, papers, AI Lab and Roundtable in one workstation shell. Reopen the last route in its research root and follow project, paper and meeting links through the same navigation.
 
 - Project meetings and AI Lab now stage notes and tasks for review. Decisions and PDF citations survive reopening, and repeated confirmations return the original result.

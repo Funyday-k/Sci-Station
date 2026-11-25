@@ -19,3 +19,30 @@ test("a preset only enters the selected project and stays an unsent draft",async
  await receive({id:"p1",path:"/tmp/p"},"s1",{id:"s1",project_id:"p1",project:"/tmp/previous"},box,null);
  assert.equal(stored,null);
 });
+test("project text selections retain the PDF page, digest and Unicode location",()=>{
+ const {selectedCitation,ownsRun}=require("../static/lab-run.js");
+ const input={kind:"paper",id:"paper-original",text:"😀  选段 α. ",page:4,offset:8,hash:"e".repeat(64)};
+ const c=selectedCitation(input,2,10);
+ assert.deepEqual(c,{kind:"paper",id:input.id,page:4,hash:input.hash,quote:"选段 α.",offset:11});
+ assert.throws(()=>selectedCitation(input,2,4));
+ assert.ok(ownsRun({project_id:"p1",seats:["seat-1"]},{id:"p1"}));
+ assert.ok(!ownsRun({project_id:"p2",seats:["seat-1"]},{id:"p1"}));
+});
+test("a reviewed multi-seat draft attaches each selected source once",async()=>{
+ const m={id:"m1",name:"Evidence page 2",excerpt:"Recorded evidence"};
+ const data={...setup,materials:[m]};
+ let stored=JSON.stringify(data);
+ global.sessionStorage={getItem:()=>stored,removeItem:()=>{stored=null;}};
+ const box={value:"",dispatchEvent(){},focus(){}};
+ let attachmentRows=[m];
+ const controller={busy:()=>false,failed:()=>false,ready:()=>attachmentRows,set:rows=>{attachmentRows=rows;}};
+ await receive({id:"p1"},"",null,box,null,controller);
+ assert.deepEqual(attachmentRows,[m]);assert.equal(stored,null);
+});
+test("global runs use an explicit scope and never match a legacy directory session",()=>{
+ const {ownsRun}=require("../static/lab-run.js");
+ assert.doesNotThrow(()=>compose({...setup,projectId:"",scope:"global"}));
+ assert.throws(()=>compose({...setup,projectId:""}));
+ assert.ok(ownsRun({project:"",seats:["seat-1"]},{id:"",global:true}));
+ assert.ok(!ownsRun({project:"/fixture/legacy",seats:["seat-1"]},{id:"",global:true}));
+});

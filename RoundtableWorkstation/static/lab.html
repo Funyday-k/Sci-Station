@@ -1,22 +1,37 @@
 {{define "head"}}
 <link rel="stylesheet" href="/static/lab.css">
-  <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab.js"></script>
+  <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-run.js"></script><script defer src="/static/lab.js"></script>
 {{end}}
 {{define "content"}}
 <div class="shell"><aside>
 <h2>科研工作流</h2><nav id="presets" aria-label="工作流模板"></nav><button type="button" class="new" id="new">＋ 新建个人模板</button></aside>
-<main><header><div><h1>AI 实验室</h1></div><label>当前项目<select id="project"></select></label></header>
+<main><header><div><h1>AI 实验室</h1></div><label>工作范围<select id="project"></select></label></header>
 <section class="card"><div class="section-head"><h2 id="editor-title">工作流模板</h2><span id="kind"></span></div>
 <div class="grid"><label>模板名称<input id="title" maxlength="72" required></label><label>讨论模式<select id="mode"><option value="review">方案评审</option><option value="forum">多方权衡</option><option value="prioritize">优先级排序</option></select></label><label>席位数<select id="seats"><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>
 <label>工作指引<textarea id="prompt" rows="5" maxlength="6500"></textarea></label>
 <div class="actions"><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden>另存副本</button><button id="delete" type="button" hidden>删除个人模板</button></div></section>
 <section class="card"><h2>本次研究</h2><label>研究问题<textarea id="question" rows="3" maxlength="2500" placeholder="填写本次要研究的问题、约束或期望的产物"></textarea></label>
+<fieldset id="local-sources"><legend>项目原文</legend>
+<label>来源<select id="local-record"></select></label>
+<div id="local-search" hidden><label>在论文全文中查找<input id="local-query" type="search" maxlength="240"></label><button type="button" id="local-find">查找页码</button><ul id="local-hits"></ul></div>
+<label id="local-page-label">PDF 页码<input id="local-page" type="number" value="1" min="1" step="1"></label>
+<button type="button" id="local-preview">预览正文</button>
+<div id="local-window" hidden><label>选中要引用的正文（每段最多 1,000 字）<textarea id="local-text" rows="6" readonly></textarea></label>
+<div class="actions"><button type="button" id="local-prev">上一段</button><button type="button" id="local-next">下一段</button><button type="button" id="local-add">加入选段</button></div></div>
+<ul id="local-list" aria-label="本次选用的项目原文"></ul>
+</fieldset>
 <details id="mcp"><summary>引入公共 MCP 资源</summary><p>连接后可以预览服务公开的文本，再选择要带入会议的摘录。</p><label>公开 HTTPS 服务地址<input id="endpoint" type="url" placeholder="https://…/mcp" autocomplete="off"></label>
 <div class="actions"><button type="button" id="list">列出资源</button></div><div id="resource-panel" hidden><label>可读资源<select id="resources"></select></label><button type="button" id="read">预览原文</button></div>
 <div id="preview-panel" hidden><label>原文预览<textarea id="resource-text" rows="5" readonly></textarea></label><p>在上框选中至多 2,000 字，再加入本次会议。</p><button type="button" id="select-excerpt">加入选段</button></div></details>
 <div id="source" hidden><h3>本次选段</h3><p id="source-title"></p><blockquote id="excerpt"></blockquote><button type="button" id="remove">移除选段</button></div>
+<div class="run-controls"><label>单席运行模型<select id="lab-model"></select></label><label>思考程度<select id="lab-effort"></select></label>
+<button type="button" id="lab-models">读取模型目录</button><button type="button" id="lab-start" class="primary">开始单席工作流</button></div>
 <label>交给圆桌<select id="session"><option value="">新建圆桌</option></select></label><p class="hint" id="roster-hint">在圆桌中复核席位和草稿后开始。</p>
 <button type="button" class="primary" id="handoff">打开会议草稿 →</button></section>
+<section class="card"><h2>单席会话记录</h2><label>已保存的会话<select id="lab-history"></select></label>
+<div id="lab-result" hidden><p id="lab-run-state" role="status"></p><details id="lab-citations" hidden><summary>会话引用的原文</summary><div id="lab-citation-items"></div></details><div id="lab-turns"></div>
+<div id="lab-followup" hidden><label>继续此会话<textarea id="lab-reply" rows="2" maxlength="2500"></textarea></label><button type="button" id="lab-resume">发送追问</button></div>
+<div class="actions"><button type="button" id="lab-stop">停止运行</button><a id="lab-open">查看完整记录与写入审批 →</a></div></div></section>
 <p id="status" role="status" aria-live="polite"></p>
 </main></div>
 {{end}}

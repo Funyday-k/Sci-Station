@@ -36,62 +36,74 @@ func (s *PaperLibrary) VerifyPDFEvidence(ctx context.Context, e Evidence) error 
 // The caller supplies a paper already resolved in this library. This also
 // allows an approval to retain its read lock while checking the source bytes.
 func (s *PaperLibrary) verifyPDFEvidence(ctx context.Context, e Evidence, p Paper) error {
-	if p.ID != e.PaperID || !libraryIDPattern.MatchString(e.PaperID) || e.Page < 1 || e.Page > 1000000 ||
-		strings.TrimSpace(e.Quote) == "" || len(e.Quote) > 128<<10 || !validPDFSelectionRange(e.SelectionStart, e.SelectionEnd) {
+	if strings.TrimSpace(e.Quote) == "" || len(e.Quote) > 128<<10 || !validPDFSelectionRange(e.SelectionStart, e.SelectionEnd) {
 		return fmt.Errorf("%w：PDF 摘录位置无效", errInvalidPaper)
 	}
-	if !p.HasPDF || len(e.SourceHash) != sha256.Size*2 || e.SourceHash != p.FileSHA256 {
-		return fmt.Errorf("%w：来源 PDF 指纹不同", errPaperConflict)
-	}
-	select {
-	case pageWorkers <- struct{}{}:
-		defer func() { <-pageWorkers }()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	root, err := os.OpenRoot(s.dir)
+	text, err := s.verifiedPageText(ctx, p, e)
 	if err != nil {
 		return err
-	}
-	defer root.Close()
-	f, err := root.OpenFile(filepath.Join("pdf", p.ID+".pdf"), os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maxPaperPDF {
-		return fmt.Errorf("%w：来源 PDF 不可读取", errInvalidPaper)
-	}
-	// Parse exactly the bytes that were hashed, even when an external process
-	// replaces the path during verification.
-	pdf := make([]byte, info.Size())
-	if _, err := io.ReadFull(f, pdf); err != nil {
-		return err
-	}
-	var extra [1]byte
-	n, readErr := f.Read(extra[:])
-	if readErr != nil && readErr != io.EOF {
-		return readErr
-	}
-	digest := sha256.Sum256(pdf)
-	if n != 0 || hex.EncodeToString(digest[:]) != e.SourceHash {
-		return fmt.Errorf("%w：来源 PDF 指纹不同", errPaperConflict)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	text, err := readPDFEvidenceText(ctx, pdf, e)
-	if err != nil {
-		return fmt.Errorf("无法核对 PDF 摘录：%w", err)
 	}
 	if !matchesPDFQuote(text, e) {
 		return fmt.Errorf("%w：指定位置的文字与摘录不同", errPaperConflict)
 	}
 	return ctx.Err()
+}
+
+// Parse the same bytes used to establish the source fingerprint for readers,
+// AI Lab previews and approval-time replay.
+func (s *PaperLibrary) verifiedPageText(ctx context.Context, p Paper, e Evidence) (string, error) {
+	if p.ID != e.PaperID || !libraryIDPattern.MatchString(e.PaperID) || e.Page < 1 || e.Page > 1000000 {
+		return "", fmt.Errorf("%w：PDF 摘录位置无效", errInvalidPaper)
+	}
+	if !p.HasPDF || len(e.SourceHash) != sha256.Size*2 || e.SourceHash != p.FileSHA256 {
+		return "", fmt.Errorf("%w：来源 PDF 指纹不同", errPaperConflict)
+	}
+	select {
+	case pageWorkers <- struct{}{}:
+		defer func() { <-pageWorkers }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	root, err := os.OpenRoot(s.dir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	f, err := root.OpenFile(filepath.Join("pdf", p.ID+".pdf"), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maxPaperPDF {
+		return "", fmt.Errorf("%w：来源 PDF 不可读取", errInvalidPaper)
+	}
+	// Parse exactly the bytes that were hashed, even when an external process
+	// replaces the path during verification.
+	pdf := make([]byte, info.Size())
+	if _, err := io.ReadFull(f, pdf); err != nil {
+		return "", err
+	}
+	var extra [1]byte
+	n, readErr := f.Read(extra[:])
+	if readErr != nil && readErr != io.EOF {
+		return "", readErr
+	}
+	digest := sha256.Sum256(pdf)
+	if n != 0 || hex.EncodeToString(digest[:]) != e.SourceHash {
+		return "", fmt.Errorf("%w：来源 PDF 指纹不同", errPaperConflict)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	text, err := readPDFEvidenceText(ctx, pdf, e)
+	if err != nil {
+		return "", fmt.Errorf("无法核对 PDF 摘录：%w", err)
+	}
+	return text, ctx.Err()
 }
 
 func matchesPDFQuote(text string, e Evidence) bool {

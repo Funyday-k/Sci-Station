@@ -14,6 +14,7 @@
     if(!res.ok)throw Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
     return x;
   }
+  const runs = window.SciLabRun.mount({req, tell, form:() => ({...form(), workflow:current?.id || "", question:$("question").value.trim(), resource:source})});
   function form(){
     return {title:$("title").value.trim(),mode:$("mode").value,seats:Number($("seats").value),prompt:$("prompt").value.trim()};
   }
@@ -22,7 +23,7 @@
   function canLeave(){return !dirtyTemplate()||confirm("放弃尚未保存的模板更改？");}
   let handingOff = false;
   window.addEventListener("beforeunload", event => {
-    if (!handingOff && (dirtyTemplate() || $("question").value.trim() || source)) {
+    if (!handingOff && (dirtyTemplate() || $("question").value.trim() || source || runs.hasDraft())) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -50,14 +51,19 @@
     const result=await req(api+"presets"+(edit?"/"+encodeURIComponent(current.id):""),edit?"PUT":"POST",x);
     await refresh(result.id);tell("个人模板已保存。");
   }
+  let previousScope=null;
   function projectSelection(commit = false){
     const id=$("project").value,p=projects.find(v=>v.id===id);
+    if(previousScope!==null && previousScope!==id) {markSource(null);resetResource();}
+    previousScope=id;
     $("session").replaceChildren(new Option("新建圆桌",""));
     if(p)for(const s of sessions){if(s.project_id===p.id&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
     const url=new URL(location.href);
-    if(id)url.searchParams.set("project",id);else url.searchParams.delete("project");
+    if(p)url.searchParams.set("project",id);else url.searchParams.delete("project");
+    if(id==="@global")url.searchParams.set("scope","global");else url.searchParams.delete("scope");
     if (commit) window.SciStationNav.commitURL(url,"push");
     $("handoff").disabled=!p;
+    runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
     hint();
   }
   window.addEventListener("popstate",()=>{
@@ -65,9 +71,11 @@
     if (projects.some(p=>p.id===project) || !project) { $("project").value=project; projectSelection(); }
   });
   function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
-  function openDraft(){
+  async function openDraft(){
     const x={...form(),projectId:$("project").value,sessionId:$("session").value,question:$("question").value.trim(),resource:source};
     handoff.compose(x);
+    x.materials = await runs.prepareHandoff(current?.id || "", x.projectId);
+    if ($("project").value !== x.projectId || $("session").value !== x.sessionId) return;
     sessionStorage.setItem(handoff.key,JSON.stringify(x));
     const q=new URLSearchParams({project:x.projectId});if(x.sessionId)q.set("session",x.sessionId);
     handingOff = true;
@@ -107,9 +115,10 @@
   (async()=>{
     const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh()]);
     projects=list;sessions=Array.isArray(rooms)?rooms:rooms.sessions||[];
-    $("project").replaceChildren(new Option("选择项目",""), ...projects.map(p=>new Option(p.name,p.id)));
+    $("project").replaceChildren(new Option("选择作用范围",""),new Option("全局会话","@global"), ...projects.map(p=>new Option(p.name,p.id)));
     const initial=new URLSearchParams(location.search).get("project");
     if(projects.some(p=>p.id===initial))$("project").value=initial;
-    projectSelection();if(!projects.length)tell("可先编辑模板。创建科研项目后，即可将工作流带入圆桌。");
+    else if(new URLSearchParams(location.search).get("scope")==="global")$("project").value="@global";
+    projectSelection();if(!projects.length)tell("可先编辑模板。可在全局会话中研究问答，或创建项目后引用项目原文。");
   })().catch(e=>tell(e.message));
 })();

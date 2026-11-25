@@ -4,7 +4,8 @@
   const count = text => Array.from(text).length;
   const validID = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
   function compose(data) {
-    if (!data || !validID(data.projectId) || (data.sessionId && !validID(data.sessionId)) ||
+    const global = data?.scope === "global" && data.projectId === "" && !data.sessionId;
+    if (!data || (!global && !validID(data.projectId)) || (data.sessionId && !validID(data.sessionId)) ||
         !["review","forum","prioritize"].includes(data.mode) || !Number.isInteger(data.seats) ||
         data.seats < 1 || data.seats > 4 || typeof data.prompt !== "string" ||
         !data.prompt.trim() || count(data.prompt) > 6500 || typeof data.title !== "string" ||
@@ -21,7 +22,7 @@
     if(count(text)>12000) throw Error("会议草稿超过 12,000 字，请缩短研究问题或摘录。");
     return text;
   }
-  async function receive(project,linked,session,box,configure) {
+  async function receive(project,linked,session,box,configure,materials) {
     let data;
     try { data=JSON.parse(sessionStorage.getItem(key)||"null"); } catch { return; }
     if (!data || !project || data.projectId!==project.id || (data.sessionId||"")!==(linked||"")) return;
@@ -31,6 +32,16 @@
     const next=prior.endsWith(text)?prior:[prior,text].filter(Boolean).join("\n\n");
     if (count(next)>12000) throw Error("合并后会超过会议草稿长度上限。请先整理当前草稿，再重试。");
     if (configure && !linked) await configure(data.mode,data.seats);
+    if (data.materials?.length) {
+      if (!materials || materials.busy() || materials.failed()) throw Error("会议附件正在处理，请稍后重试。");
+      const rows = materials.ready().slice();
+      for (const item of data.materials) {
+        if (!validID(item.id)) throw Error("工作流原文附件无效。");
+        if (!rows.some(row => row.id === item.id)) rows.push(item);
+      }
+      if (rows.length > 12) throw Error("会议附件已满，请先整理附件。");
+      materials.set(rows);
+    }
     box.value=next;
     box.dispatchEvent(new Event("input",{bubbles:true}));
     sessionStorage.removeItem(key);
