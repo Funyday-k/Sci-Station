@@ -40,6 +40,8 @@ type apiServer struct {
 	pickMu        sync.RWMutex
 	pick          func() (string, error)
 	projectAccess sync.Once
+
+	materialActions *projectMaterialActions
 }
 
 func (a *apiServer) setPicker(p func() (string, error)) {
@@ -146,6 +148,8 @@ func (a *apiServer) serve(port int) http.Handler {
 			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3"})
 		case strings.HasPrefix(path, "/api/research/lab/"):
 			a.serveAILab(w, r)
+		case path == projectMaterialActionPath:
+			a.serveProjectMaterial(w, r)
 		case strings.HasPrefix(path, "/api/research/tools/"):
 			a.serveScienceTools(w, r)
 		case strings.HasPrefix(path, "/api/research/") && a.research != nil:

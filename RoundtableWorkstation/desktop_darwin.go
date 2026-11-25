@@ -57,6 +57,7 @@ func runDesktop(address string, host *apiServer, shutdown func()) error {
 	// completion callback must be free to run on that same thread.
 	var pickerMu sync.Mutex
 	if host != nil {
+		configureMaterialDesktop(host, app, window, &pickerMu)
 		host.setPicker(func() (string, error) {
 			pickerMu.Lock()
 			defer pickerMu.Unlock()

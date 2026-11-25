@@ -492,12 +492,12 @@
         '</div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
         "可以创建带截止日期的项目任务。"));
     } else if (state.view === "materials") {
-      out = heading("研究材料", state.project.name, button("打开项目目录", "project-files", {
+      out = heading("研究材料", state.project.name, button("浏览项目目录", "linked-materials", {
         glyph: "folder"
       }) + button("添加文件", "new-material", {
         glyph: "import",
         kind: "button primary"
-      })) + panel("项目文件 · " + state.materials.length, state.materials.length ? list(state.materials.slice().sort(byRecent)
+      })) + panel("已添加的文件 · " + state.materials.length, state.materials.length ? list(state.materials.slice().sort(byRecent)
           .map(m => row("file", m.name, bytes(m.size) + " · " + fmtDate(m.updatedAt), rowAction("read-material", m.id)))
           ) : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。"));
     } else if (state.view === "graph") out = graphView();

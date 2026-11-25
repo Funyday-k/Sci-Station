@@ -950,6 +950,9 @@
     }
     if (action === "new-relation") return relationForm();
     if (action === "remove-relation") return removeRelation(id);
+    if (["linked-materials", "preview-linked-material", "material-native"].includes(action)) {
+      return E.linkedMaterialsAction(action, id);
+    }
     if (action === "project-files") return browseFiles();
     if (action === "open-project-file" || action === "new-project-file") return editFile(action === "new-project-file" ?
       "" : id);
