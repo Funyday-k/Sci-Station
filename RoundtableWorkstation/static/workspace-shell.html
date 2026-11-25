@@ -10,8 +10,12 @@
   <script defer src="/static/interface-language.js"></script>
   <script defer src="/static/research-modules.js"></script>
   <script defer src="/static/workspace-nav.js"></script>
+  <script defer src="/static/lab-run.js"></script>
+  <script defer src="/static/shell-navigation.js"></script>
+  <script defer src="/static/context-rail.js"></script>
   {{template "head" .}}
   <link rel="stylesheet" href="/static/workspace-nav.css">
+  <link rel="stylesheet" href="/static/context-rail.css">
 </head>
 <body data-workspace-surface="{{.Surface}}">
   <div class="workspace-bar">
@@ -22,11 +26,39 @@
     </div>
     <nav data-workspace-nav aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation"></nav>
     <a data-project-back hidden href="/research">返回当前项目</a>
+    <div class="shell-rail-controls">
+      <button id="shell-inspect" type="button" aria-controls="context-rail" aria-pressed="false" data-en="Inspector">检查器</button>
+      <button id="shell-assist" type="button" aria-controls="context-rail" aria-pressed="false">AI</button>
+    </div>
     {{if .Desktop}}<details class="workspace-roots">
       <summary data-l10n-text="toolbarWorkspace">工作区</summary>
       <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
     </details>{{end}}
   </div>
-  {{template "content" .}}
+  <div class="workspace-region">{{template "content" .}}</div>
+  <div id="shell-divider" role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度" tabindex="0" hidden></div>
+  <section id="context-rail" aria-labelledby="rail-title" hidden>
+    <h2 id="rail-title"></h2>
+    <p id="rail-context"></p>
+    <div id="rail-inspect"></div>
+    <div id="rail-ai" hidden>
+      <div id="rail-actions"></div>
+      <blockquote id="rail-excerpt" hidden></blockquote>
+      <label for="rail-prompt" data-en="Message">消息</label>
+      <textarea id="rail-prompt" rows="3"></textarea>
+      <div class="rail-tools">
+        <select id="rail-model" aria-label="模型"></select>
+        <select id="rail-effort" aria-label="思考强度"></select>
+        <button id="rail-send" type="button" data-en="Send">发送</button>
+      </div>
+      <div id="rail-transcript"></div>
+      <div class="rail-tools">
+        <button id="rail-stop" type="button" hidden data-en="Stop">停止</button>
+        <button id="rail-new" type="button" hidden data-en="New conversation">新会话</button>
+        <a id="rail-lab" href="/lab" data-en="Open in AI Lab">在 AI 实验室中打开</a>
+      </div>
+    </div>
+    <p id="rail-status" role="status"></p>
+  </section>
 </body>
 </html>

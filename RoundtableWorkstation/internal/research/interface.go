@@ -59,6 +59,8 @@ func (s *Service) OnInterfaceLanguageChanged(listener func()) {
 }
 
 func (s *Service) registerInterface() {
+	s.mux.HandleFunc("GET "+prefix+"/interface/layout", s.shellLayout)
+	s.mux.HandleFunc("PATCH "+prefix+"/interface/layout", s.shellLayout)
 	s.mux.HandleFunc("GET "+prefix+"/interface", s.getInterface)
 	s.mux.HandleFunc("PATCH "+prefix+"/interface", s.changeInterface)
 }

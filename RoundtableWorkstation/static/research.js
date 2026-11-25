@@ -321,7 +321,7 @@
       return index < 0 ? pins.length : index;
     };
     modules.innerHTML = state.project ? tabs.filter(tab=>navigation.enabled(state.modules,navigation.viewModules[tab.key]))
-      .sort((left,right)=>rank(left)-rank(right)).map(tab=>'<a href="' + esc(tab.href) + '"' +
+      .sort((left,right)=>rank(left)-rank(right)).map(tab=>'<a data-tab-key="'+esc(tab.key)+'" href="' + esc(tab.href) + '"' +
         (tab.local ? ' data-view="'+tab.key+'"' : "") +
         (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
         '>' + esc(tab.name) + '</a>').join("") : "";
@@ -329,6 +329,8 @@
         'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '"><span class="project-dot" style="--project-color:' + colors[i % colors.length] + '"></span><span>' + esc(p
       .name) + '</span></a>').join("");
+    window.SciShellLayout?.decorateProject(modules,$("projectnav"),state.project?.id);
+    window.SciContextRail?.update();
     const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
     $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
       esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
@@ -804,6 +806,7 @@
     renderWikiMarkdown,
     bytes,
     search,
+    updateNav,
     start: route
   };
   window.SciResearch = E;

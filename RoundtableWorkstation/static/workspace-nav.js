@@ -64,7 +64,8 @@
     const nav = document.querySelector("[data-workspace-nav]");
     if (!nav) return;
     const url = currentURL();
-    const links = destinations(url).filter(item=>!globalModules || enabled(globalModules,globalSections[item.key]));
+    const visible = destinations(url).filter(item=>!globalModules || enabled(globalModules,globalSections[item.key]));
+    const links=window.SciShellLayout?.top(visible) || visible;
     const project = url.searchParams.get("project");
     const signature = JSON.stringify([links,project]);
     if (nav.dataset.signature !== signature) {
@@ -82,6 +83,8 @@
       back.href = research("overview",project);
       back.textContent = local("projectSpaceBackToProjects","返回当前项目","Back to project");
     }
+    window.SciShellLayout?.decorateTop(nav);
+    window.SciContextRail?.update();
     remember();
   }
   function commitURL(value, mode = "replace") {

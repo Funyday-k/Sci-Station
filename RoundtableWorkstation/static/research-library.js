@@ -434,7 +434,7 @@
 
   const paperCommands = new Set(["reader", "externalPDF", "preview", "reveal", "copyCitation", "copyBibtex", "bibtex", "deletePaper", "inspector"]);
   window.addEventListener("scistation:command", event => {
-    if (!paperCommands.has(event.detail) || event.defaultPrevented) return;
+    if (!paperCommands.has(event.detail) || event.defaultPrevented || (event.detail==="inspector" && state.view!=="papers")) return;
     event.preventDefault();
     paperCommand(event.detail).catch(error => toast(error.message));
   });
@@ -544,7 +544,7 @@
     return otherActions(action, id);
   };
 
-  E.library = {lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
+  E.library = {selectedPapers:()=>selection(visiblePapers),lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
     filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection, bulkPatch, renderPaperTable};
   E.start();
 })();

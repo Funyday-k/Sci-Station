@@ -10,6 +10,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.
+
 - Review a project CLI’s proposed file changes in its meeting, forward a one-time decision, cancel the run, and check its reported outcome.
 - Import a paper's Markdown source or adopt a verified PDFKit or MinerU conversion. AI Lab can find and cite its sections and lines, reopen a reviewed quote, and display evidence-linked comparison rows or candidate research tasks.
 

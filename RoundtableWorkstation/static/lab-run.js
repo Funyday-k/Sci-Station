@@ -18,6 +18,17 @@
     return project.global ? !session.project_id && !session.project : session.project_id === project.id;
   }
 
+  function createSingle(req, project, topic, member, preset, materials) {
+    return req(studio+"sessions","POST",{project_id:project.id,scope:project.global?"global":"",topic,
+      members:[member],preset,material_ids:materials.map(m=>m.id),start_agenda_draft:false});
+  }
+  function advance(req, room, note, materials=[]) {
+    const body={expected_round:room.rounds?.length || 0, allow_edits:false};
+    if(note)body.note=note;
+    if(materials.length)body.material_ids=materials.map(m=>m.id);
+    return req(studio+"sessions/"+encodeURIComponent(room.id)+"/run","POST",body);
+  }
+
   function mount({req,tell,form,skillForRun}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
@@ -268,13 +279,12 @@
       const materials=await prepare(data.workflow,pid);
       if(token!==generation) return;
       // Creating the session records a recoverable ID before the first model call.
-      const room=await req(studio+"sessions","POST",{project_id:pid, scope, topic, members:[member],preset:data.mode,
-        material_ids:materials.map(m=>m.id),start_agenda_draft:false});
+      const room=await createSingle(req,project,topic,member,data.mode,materials);
       if(token!==generation) return;
       consumeSelection(used);
       recentRooms.set(room.id,room);history=[room,...history]; lookAt(room.id); displayHistory(); renderRun(room);
       try {
-        const result=await req(sessionURL(room.id)+"/run","POST",{expected_round:0,allow_edits:false});
+        const result=await advance(req,room,"");
         if(token===generation && active===room.id) {renderRun(result); schedule(room.id);}
       } catch(error) {
         throw Error("会话已保存，可在圆桌中重试。"+error.message);
@@ -359,7 +369,7 @@
       const used=selected.slice();
       const materials=await prepare("",pid);
       if(token!==generation || id!==active) return;
-      const next=await req(sessionURL(id)+"/run","POST",{note,expected_round:room.rounds.length,allow_edits:false,material_ids:materials.map(m=>m.id)});
+      const next=await advance(req,room,note,materials);
       if(token===generation && id===active) {
         consumeSelection(used);
         if($("lab-reply").value.trim()===note) $("lab-reply").value="";
@@ -399,7 +409,7 @@
     bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay);
     return {selectProject, hasDraft:()=>selected.length>0 || !!$("lab-reply").value.trim(), prepareHandoff:(_,pid)=>selected.length?prepare("",pid):Promise.resolve([])};
   }
-  const api={mount, selectedCitation, ownsRun};
+  const api={mount, selectedCitation, ownsRun, createSingle, advance};
   if(typeof module==="object" && module.exports) module.exports=api;
   else window.SciLabRun=api;
 })();

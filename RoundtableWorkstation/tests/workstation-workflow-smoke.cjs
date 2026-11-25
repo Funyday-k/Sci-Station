@@ -632,3 +632,5 @@ if (require.main === module) main().catch(error => {
   console.error(error);
   process.exitCode = 1;
 });
+
+module.exports = {listen, closeServer, localGateway, fixtureHome, launch, sourcePDF};
