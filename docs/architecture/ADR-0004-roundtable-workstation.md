@@ -16,6 +16,12 @@ Use one macOS executable, native window lifecycle, navigation model, workspace a
 
 Start fresh by default. Leave existing Swift Research Roots and the Go prototype data intact. Before switching production builds, save a restorable copy of prototype application data, account for external research directories separately, and verify restoration against an isolated copy. Any future import needs an explicit source and destination and validation before publishing the result.
 
+### AI editing and CLI approval
+
+The maintainer clarified the editing boundary on 2026-11-25. The selected local CLI owns AI file-edit capabilities, applies its configured permission policy and performs any permitted edit. The workstation presents an approval request emitted by that CLI, including the affected project and the change information the CLI supplied. A user decision goes back to the originating live request. A disconnected, cancelled or replaced session cannot consume a decision from an earlier session. A provider that offers text generation alone can participate in a discussion. A user can explicitly save a reviewed research note or task through its domain repository.
+
+The OS directory grant establishes which project the app can open. This decision assigns ownership of AI edits and their approval messages. The release review still evaluates macOS sandbox entitlements and external CLI interoperability.
+
 ## Alternatives
 
 Embedding the Swift client would duplicate project routing, authority over files and shutdown ownership. Keeping independent research and meeting screens with browser-only handoffs would preserve their divergent state. Port the affected workflows onto the existing Go services in independently testable slices.
