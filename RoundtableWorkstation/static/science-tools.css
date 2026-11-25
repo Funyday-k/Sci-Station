@@ -278,3 +278,49 @@ select:focus-visible {
 @supports not (color:light-dark(black,white)){ :root{--paper:#fcfcfd;--side:#f4f4f7;--text:#242530;--muted:#666a76;--line:#dedfe5;--accent:#584a9c;--tint:#ece9f6;} }
 
 #crossList { width: auto; }
+
+.discovery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center
+}
+
+.discovery-controls label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center
+}
+
+.discovery-controls input {
+  width: auto;
+  max-width: 100%
+}
+
+.discovery-controls input[type=number] {
+  width: 6em
+}
+
+.discovery-options,
+#submitSearch {
+  margin-top: 12px
+}
+
+#references,
+#history {
+  max-width: 100%
+}
+
+#references {
+  width: min(38em, 100%)
+}
+
+#runSource,
+#articles {
+  overflow-wrap: anywhere
+}
+
+#articles .actions {
+  flex-wrap: wrap
+}

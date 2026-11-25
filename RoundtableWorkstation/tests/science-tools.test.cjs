@@ -52,66 +52,85 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   assert.deepEqual(changes[1],{route:"projects/project/notes/N",method:"PATCH",body:{revision:1,body:"reviewed B"}});
 });
 
-const ranking = require("../static/discovery-ranking.js");
-test("arXiv ranking uses the project, category boundary, cross-lists, feedback and diversity", () => {
-  const one = {arxiv:"2401.00001v1", title:"Solar evaporation", tags:["hep-ph","hep-ex"]};
-  const duplicate = {...one, arxiv:"2401.00001v2"};
-  const neighbor = {...one, arxiv:"2401.00002"};
-  const different = {arxiv:"2401.00003", title:"Detector calibration", tags:["hep-ex"]};
-  const feed = {items:[different, one, duplicate, neighbor]};
-  const options = {category:"HEP-EX", crossList:true, filter:"all", papers:[], project:{description:"solar evaporation"}};
-  const rank = (changes = {}) => ranking.candidates(feed, {...options, ...changes}).map(p => p.arxiv);
-  assert.deepEqual(rank(), [one.arxiv, different.arxiv, neighbor.arxiv]);
-  assert.deepEqual(rank({crossList:false}), [different.arxiv]);
-  assert.deepEqual(rank({project:{description:"detector calibration"}})[0], different.arxiv);
-  feed.feedback = {"2401.00001":"hidden", "2401.00003v1":"saved"};
-  assert.deepEqual(rank({filter:"saved"}), [different.arxiv]);
-  assert.deepEqual(rank({filter:"hidden"}), [one.arxiv]);
-  assert.deepEqual(rank({category:"astro-ph.HE"}), []);
-});
+const discoveryScript = fs.readFileSync(path.join(base, "discovery-view.js"), "utf8");
 
-test("adding a candidate twice reuses the library ID and a project-scoped reading task key", async () => {
+test("a reopened discovery run restores its filters and can retry a partially completed reading task", async () => {
   const controls = {};
   class Control {
-    children = []; value = ""; checked = true;
-    replaceChildren(...nodes) {this.children = nodes;}
-    add(option) {this.children.push(option);}
-    append(...nodes) {this.children.push(...nodes);}
+    children = []; value = ""; checked = true; attributes = {};
+    replaceChildren(...nodes) { this.children = nodes; }
+    add(option) { this.children.push(option); }
+    append(...nodes) { this.children.push(...nodes); }
+    setAttribute(key, value) { this.attributes[key] = value; }
   }
   for (const match of html.matchAll(/id="([^"]+)"/g)) controls[match[1]] = new Control();
   controls.filter.value = "all";
-  const p = {arxiv:"2404.12345v3", title:"Capture", tags:["hep-ph"]};
-  const addedTasks = [];
-  const imports = [];
-  const project = "project";
+  const paper = {arxiv: "2404.12345v3", title: "Capture", tags: ["hep-ph"], primary_category: "hep-ph"};
+  const history = [
+    {id: "new", query: "evaporation", updated: "2026-10-21T10:00:00Z", count: 0, source: "arxiv"},
+    {id: "old", query: "capture", updated: "2026-10-20T10:00:00Z", count: 1, source: "arxiv"}
+  ];
+  const addedTasks = [], imports = [];
   const fetch = async (url, options) => {
     const route = url.replace("/api/research/", "");
-    if (route === "projects") return Response.json([{id:project, name:"Solar"}]);
-    if (route === "tools/discover?project=project") return Response.json({items:[p]});
-    if (["papers?project=project","papers/recommendations?project=project"].includes(route)) return Response.json([]);
-    if (route === "papers" && options.method === "POST") {
+    if (route === "projects") return Response.json([{id: "project", name: "Solar"}]);
+    if (route === "tools/discover?project=project") {
+      return Response.json({...history[0], history, items: []});
+    }
+    if (route === "tools/discover?project=project&run=old") {
+      return Response.json({...history[1], history, items: [paper], categories: ["hep-ph"], cross_list: false, top_k: 7});
+    }
+    if (["papers?project=project", "papers/recommendations?project=project"].includes(route)) return Response.json([]);
+    if (route === "tools/select-discovery?project=project" && options.method === "POST") {
       imports.push(JSON.parse(options.body));
-      return Response.json({id:"stable-id", title:p.title});
+      return Response.json({id: "stable-id", title: paper.title});
     }
     if (route === "projects/project/tasks" && options.method === "POST") {
       addedTasks.push(JSON.parse(options.body));
-      return Response.json({id:"saved-task"});
+      if (addedTasks.length === 1) return Response.json({error: "fixture failure"}, {status: 500});
+      return Response.json({id: "saved-task"});
     }
-    throw Error("Unexpected route "+route);
+    if (route === "tools/feedback?project=project" && options.method === "POST") {
+      const {run, key, state} = JSON.parse(options.body);
+      assert.equal(run, "old");
+      return Response.json({feedback: {[key]: state}});
+    }
+    throw Error("Unexpected route " + route);
   };
-  vm.runInNewContext(script, {
-    document: {getElementById:id=>controls[id], querySelectorAll:()=>[], createElement:()=>new Control()},
-    Option:class{constructor(text,value){this.value=value;}},
-    location:{search:"?tab=discover&project=project"},URLSearchParams,fetch,SciStationDiscovery:ranking
+  const context = vm.createContext({
+    document: {getElementById: id => controls[id], querySelectorAll: () => [], createElement: () => new Control()},
+    Option: class {constructor(text, value) {this.value = value;}},
+    location: {search: "?tab=discover&project=project"}, URLSearchParams, fetch
   });
-  await new Promise(resolve=>setImmediate(resolve));
-  for (let i=0; i<2; i++) {
-    const actions = controls.articles.children[0].children.at(-1);
-    await actions.children.find(el=>el.textContent==="入库并加入阅读待办").onclick();
-  }
-  assert.deepEqual(imports.map(p=>p.project_ids),[[project],[project]]);
-  assert.equal(addedTasks.length,2);
-  assert.deepEqual(addedTasks[0],addedTasks[1]);
+  vm.runInContext(discoveryScript, context);
+  vm.runInContext(script, context);
+  await new Promise(resolve => setImmediate(resolve));
+  controls.history.value = "old";
+  await controls.history.onchange();
+  assert.equal(controls.expr.value, "capture");
+  assert.equal(controls.categories.value, "hep-ph");
+  assert.equal(controls.crossList.checked, false);
+  assert.equal(controls.topK.value, 7);
+  assert.equal(controls.articles.children[0].children[2].href, "https://arxiv.org/abs/2404.12345v3");
+
+  const action = text => controls.articles.children[0].children.at(-1).children.find(el => el.textContent === text);
+  await action("入库并加入阅读待办").onclick();
+  assert.match(controls.status.textContent, /论文已入库。阅读待办创建失败，可重试/);
+  await action("入库并加入阅读待办").onclick();
+  assert.equal(controls.status.textContent, "论文已入库，阅读待办已就绪");
+  assert.deepEqual(imports, [{run:"old", key:"2404.12345"}, {run:"old", key:"2404.12345"}]);
+  assert.equal(addedTasks.length, 2);
+  assert.deepEqual(addedTasks[0], addedTasks[1]);
   assert.equal(addedTasks[0].idempotencyKey, "reading:stable-id");
-  assert.equal(addedTasks[0].paperId, "stable-id");
+  assert.equal(addedTasks[0].kind, "reading");
+  assert.deepEqual(addedTasks[0].relatedPaperIds, ["stable-id"]);
+  assert.match(addedTasks[0].description, /2404\.12345v3/);
+  controls.filter.value = "saved";
+  controls.filter.onchange();
+  assert.equal(controls.articles.children[0].children[0].textContent, "Capture");
+  await action("隐藏").onclick();
+  assert.match(controls.articles.children[0].textContent, /当前没有/);
+  controls.filter.value = "hidden";
+  controls.filter.onchange();
+  assert.equal(action("取消隐藏").attributes["aria-pressed"], "true");
 });

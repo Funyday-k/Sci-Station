@@ -8,10 +8,7 @@
     projectLoad = 0,
     tasks = [],
     reminderBusy = false,
-    discovery = {
-      items: [],
-      feedback: {}
-    },
+    discovery,
     conversionSequence = 0,
     result = null;
   const views = {
@@ -98,29 +95,12 @@
     }
     globalThis.SciStationNav?.update();
   }
-  function scoped(route, target = project) {
-    return target ? route + "?project=" + encodeURIComponent(target) : route;
-  }
-
   async function loadProject() {
     const target = project, generation = ++projectLoad;
     nav();
     $("reminder").disabled = true;
     if (tab === "discover") {
-      discovery = {items: [], feedback: {}};
-      papers = [];
-      $("articles").replaceChildren();
-      $("readingQueue").replaceChildren();
-      $("expr").value = "";
-      const [feed, library, queue] = await Promise.all([
-        req(scoped("tools/discover", target)), req(scoped("papers", target)), req(scoped("papers/recommendations", target))
-      ]);
-      if (generation !== projectLoad) return;
-      discovery = feed;
-      papers = library;
-      $("expr").value = discovery.query || "";
-      showQueue(queue);
-      showFeed();
+      await discovery.load(target);
     } else if (tab === "calendar") {
       tasks = [];
       choices($("task"), [], "正在读取任务…");
@@ -134,84 +114,6 @@
 
   function updateReminderAction() {
     $("reminder").disabled = reminderBusy || !tasks.some(t => t.id === $("task").value);
-  }
-
-  async function readingTask(p, target) {
-    await req("projects/" + encodeURIComponent(target) + "/tasks", {
-      title: Array.from("阅读：" + p.title).slice(0, 240).join(""),
-      paperId: p.id, idempotencyKey: "reading:" + p.id
-    });
-  }
-
-  function showQueue(queue) {
-    const list = $("readingQueue");
-    list.replaceChildren();
-    const target = project;
-    for (const p of queue) {
-      const row = make("article", "");
-      const a = make("a", p.title);
-      a.href = "/reader?paper=" + encodeURIComponent(p.id) + (target ? "&project=" + encodeURIComponent(target) : "");
-      row.append(a);
-      if (target) row.append(button("加入阅读待办", async () => {
-        await readingTask(p, target);
-        if (project === target) tell("阅读待办已就绪");
-      }));
-      list.append(row);
-    }
-    if (!queue.length) list.append(make("p", "暂无待阅读的馆藏论文。"));
-  }
-
-  function importCandidate(p, target) {
-    return req("papers", {
-      title: p.title, authors: p.authors || [], abstract: p.abstract || "", arxiv: p.arxiv,
-      doi: p.doi || "", url: p.url, year: p.year || 0, tags: p.tags || [],
-      project_ids: target ? [target] : []
-    });
-  }
-
-  function showFeed() {
-    const list = $("articles");
-    list.replaceChildren();
-    const mode = $("filter").value;
-    const target = project;
-    const candidates = SciStationDiscovery.candidates(discovery, {
-      category: $("categories").value, crossList: $("crossList").checked, filter: mode,
-      project: projects.find(p => p.id === target), papers
-    });
-    for (const p of candidates) {
-      const status = SciStationDiscovery.feedbackState(discovery.feedback || {}, p.arxiv);
-      const art = make("article", ""),
-        h = make("h3", p.title);
-      art.append(h, make("div", [(p.authors || []).join(", "), p.arxiv, ...(p.tags || [])].filter(Boolean).join(" · ")));
-      const more = make("details", "");
-      more.append(make("summary", "摘要"), make("p", p.abstract || "暂无摘要"));
-      art.append(more);
-      const actions = make("div", "");
-      actions.className = "actions";
-      actions.append(button("加入文献库", async () => {
-          await importCandidate(p, target);
-          if (project === target) { await loadProject(); tell("论文已加入文献库"); }
-        }),
-        button(status === "saved" ? "取消收藏" : "收藏", () => feedback(p, status === "saved" ? "" : "saved", target)),
-        button(status === "hidden" ? "取消隐藏" : "隐藏", () => feedback(p, status === "hidden" ? "" : "hidden", target)));
-      if (target) actions.append(button("入库并加入阅读待办", async () => {
-        const paper = await importCandidate(p, target);
-        await readingTask(paper, target);
-        if (project === target) { await loadProject(); tell("论文已入库，阅读待办已就绪"); }
-      }));
-      art.append(actions);
-      list.append(art);
-    }
-    if (!list.children.length) list.append(make("p", "当前没有符合筛选条件的论文。"));
-  }
-  async function feedback(p, state, target) {
-    const updated = await req(scoped("tools/feedback", target), {
-      arxiv: p.arxiv,
-      state
-    });
-    if (project !== target) return;
-    discovery = updated;
-    showFeed();
   }
 
   function renderResult(md, paper, sequence) {
@@ -241,24 +143,7 @@
   }
 
   function initActions() {
-    $("filter").onchange = showFeed;
-    $("categories").oninput = showFeed;
-    $("crossList").onchange = showFeed;
-    $("search").onsubmit = e => {
-      e.preventDefault();
-      const b = e.submitter;
-      busy(b, async () => {
-        tell("正在查询 arXiv…");
-        const target = project;
-        const updated = await req(scoped("tools/discover", target), {
-          query: $("expr").value
-        });
-        if (project !== target) return;
-        discovery = updated;
-        showFeed();
-        tell("已更新检索结果");
-      });
-    };
+    if (tab === "discover") discovery = SciStationDiscovery.create({$, req, make, button, busy, tell});
     $("project").onchange = () => {
       project = $("project").value;
       const l = new URL(location);

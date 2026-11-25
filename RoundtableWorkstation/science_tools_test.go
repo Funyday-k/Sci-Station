@@ -5,13 +5,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"scistation.local/desktop/internal/gateway"
 	"scistation.local/desktop/internal/research"
 )
 
@@ -117,4 +120,176 @@ func TestDiscoveryFeedbackIsProjectScopedAndVersionIndependent(t *testing.T) {
 		t.Fatal(removed)
 	}
 	request("POST", "tools/feedback?project=unknown", `{"arxiv":"2402.00001","state":"saved"}`, 404)
+}
+
+func TestDiscoveryHistoryCategoryBoundaryAndRecoverableSelection(t *testing.T) {
+	dir := t.TempDir()
+	lab, err := research.New(filepath.Join(dir, "research"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	arxiv := func(id, title, primary string, tags ...string) research.DiscoveryCandidate {
+		return research.DiscoveryCandidate{Provider: "arXiv", PrimaryCategory: primary, PaperMetadata: research.PaperMetadata{
+			Arxiv: id, Title: title, URL: "https://arxiv.org/abs/" + id, Tags: tags,
+		}}
+	}
+	primary := arxiv("2404.00010v3", "Solar evaporation", "astro-ph.HE", "astro-ph.HE")
+	cross := arxiv("2404.00020v1", "Secondary", "hep-ph", "hep-ph", "astro-ph.HE")
+	duplicate := arxiv("2404.00010v1", "Earlier version", "astro-ph.HE", "astro-ph.HE")
+	missingPrimary := arxiv("2404.00030v2", "Unknown primary field", "", "astro-ph.HE")
+	deps := discoveryDependencies{search: func(_ context.Context, query string, limit int) ([]research.DiscoveryCandidate, error) {
+		switch query {
+		case `(all:"solar") AND (cat:astro-ph.HE)`:
+			if limit != 24 {
+				t.Fatalf("limit = %d", limit)
+			}
+			return []research.DiscoveryCandidate{primary, cross, duplicate, missingPrimary}, nil
+		case `all:"graphs"`:
+			return []research.DiscoveryCandidate{cross}, nil
+		default:
+			return nil, fmt.Errorf("provider unavailable")
+		}
+	}}
+	call := func(method, route, params, body string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, "/api/research/tools/"+route+params, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		serveDiscovery(lab, dir, w, r, route, deps)
+		if w.Code != status {
+			t.Fatalf("%s %s: %d %s", method, r.URL, w.Code, w.Body.String())
+		}
+		return w
+	}
+	projectReq := httptest.NewRequest("POST", "/api/research/projects", strings.NewReader(`{"name":"Sun"}`))
+	projectReq.Header.Set("Content-Type", "application/json")
+	projectResp := httptest.NewRecorder()
+	lab.ServeHTTP(projectResp, projectReq)
+	if projectResp.Code != 201 {
+		t.Fatal(projectResp.Body.String())
+	}
+	project := scienceWorkflowDecode[research.Project](t, projectResp.Body.Bytes())
+	scope := "?project=" + project.ID
+	firstBody := `{"query":"solar","categories":["ASTRO-PH.HE"],"cross_list":false,"top_k":4}`
+	first := scienceWorkflowDecode[discoveryView](t, call("POST", "discover", scope, firstBody, 200).Body.Bytes())
+	if len(first.Items) != 1 || first.Items[0].Arxiv != primary.Arxiv || first.Items[0].URL != primary.URL || len(first.AtomQueries) != 1 {
+		t.Fatalf("unexpected classification and source: %+v", first)
+	}
+	again := scienceWorkflowDecode[discoveryView](t, call("POST", "discover", scope, firstBody, 200).Body.Bytes())
+	if again.ID != first.ID || len(again.History) != 1 {
+		t.Fatalf("unchanged run repeated: %+v", again.History)
+	}
+	call("POST", "feedback", scope, fmt.Sprintf(`{"run":%q,"key":"2404.00010","state":"liked"}`, first.ID), 200)
+	second := scienceWorkflowDecode[discoveryView](t, call("POST", "discover", scope, `{"query":"graphs"}`, 200).Body.Bytes())
+	if second.ID == first.ID || len(second.History) != 2 || second.Feedback["2404.00010"] != "liked" {
+		t.Fatalf("history or feedback lost: %+v", second)
+	}
+	call("POST", "discover", scope, `{"query":"offline"}`, 502)
+	lab, err = research.New(filepath.Join(dir, "research"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := scienceWorkflowDecode[discoveryView](t, call("GET", "discover", scope, "", 200).Body.Bytes())
+	history := scienceWorkflowDecode[discoveryView](t, call("GET", "discover", scope+"&run="+first.ID, "", 200).Body.Bytes())
+	if latest.ID != second.ID || len(latest.History) != 2 || history.ID != first.ID || history.CrossList || history.Feedback["2404.00010"] != "liked" {
+		t.Fatalf("failed request or relaunch changed state: latest=%+v history=%+v", latest, history)
+	}
+	call("GET", "discover", "?run="+first.ID, "", 404)
+	selection := fmt.Sprintf(`{"run":%q,"key":"2404.00010"}`, first.ID)
+	one := scienceWorkflowDecode[research.Paper](t, call("POST", "select-discovery", scope, selection, 200).Body.Bytes())
+	two := scienceWorkflowDecode[research.Paper](t, call("POST", "select-discovery", scope, selection, 200).Body.Bytes())
+	if one.ID == "" || two.ID != one.ID || two.Revision != one.Revision || two.Arxiv != primary.Arxiv || len(two.ProjectIDs) != 1 || two.ProjectIDs[0] != project.ID {
+		t.Fatalf("selection did not preserve source and scope: %+v %+v", one, two)
+	}
+	call("POST", "select-discovery", "", selection, 404)
+	call("POST", "archive-discovery", scope, fmt.Sprintf(`{"run":%q}`, first.ID), 200)
+	call("GET", "discover", scope+"&run="+first.ID, "", 404)
+	state, err := loadDiscovery(filepath.Join(dir, "discovery."+project.ID+".json"))
+	if err != nil || len(state.Runs) != 2 || !state.Runs[1].Archived || state.FeedbackPapers["2404.00010"].Run != first.ID {
+		t.Fatalf("archive discarded source or feedback: %+v %v", state, err)
+	}
+}
+
+func TestDiscoveryLegacyAndRejectsUnreadableState(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "discovery.json")
+	write := func(raw string) {
+		t.Helper()
+		if err := os.WriteFile(file, []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"query":"legacy","updated":"2026-05-01T08:00:00Z","items":[{"arxiv":"2404.00001v1","title":"Example"}],"feedback":{"2404.00001v1":"saved"},"custom":{"keep":true}}`)
+	state, err := loadDiscovery(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, _ := state.view("")
+	if view.ID != "legacy" || view.Feedback["2404.00001v1"] != "saved" || len(view.Items) != 1 {
+		t.Fatalf("legacy state lost: %+v", view)
+	}
+	if err := state.save(file); err != nil {
+		t.Fatal(err)
+	}
+	state, err = loadDiscovery(file)
+	if err != nil || state.Runs[0].Items[0].Arxiv != "2404.00001v1" || string(state.unknown["custom"]) != `{"keep":true}` {
+		t.Fatalf("rewritten state lost fields: %+v %v", state, err)
+	}
+	for _, invalid := range []string{`{"schema_version":2,"runs":[]}`, `{"schema_version":1}`, `{"runs":[`} {
+		write(invalid)
+		lab, err := research.New(filepath.Join(dir, "research"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest("POST", "/api/research/tools/feedback", strings.NewReader(`{"arxiv":"2404.00001v1","state":"hidden"}`))
+		w := httptest.NewRecorder()
+		serveDiscovery(lab, dir, w, r, "feedback", discoveryDependencies{})
+		saved, err := os.ReadFile(file)
+		if w.Code != 500 || err != nil || string(saved) != invalid {
+			t.Fatalf("damaged or newer state overwritten: code %d: %s (%v)", w.Code, saved, err)
+		}
+	}
+}
+
+type discoveryAIStub struct {
+	prompts []string
+	fail    bool
+}
+
+func (a *discoveryAIStub) Catalog(context.Context) (gateway.Catalog, error) {
+	return gateway.Catalog{Models: []gateway.Model{{ID: "fixture-model"}}}, nil
+}
+
+func (a *discoveryAIStub) Generate(_ context.Context, id, effort, rules, prompt, session string) (string, error) {
+	a.prompts = append(a.prompts, prompt)
+	if a.fail {
+		return "", fmt.Errorf("provider unavailable")
+	}
+	if len(a.prompts) == 1 {
+		return `{"query":"ti:evaporation"}`, nil
+	}
+	return `{"2404.00001":"Reads from the supplied arXiv metadata","2404.00002":"Not in the feed"}`, nil
+}
+
+func TestDiscoveryAIUsesConfiguredModelAndActualCandidates(t *testing.T) {
+	paper := research.DiscoveryCandidate{PaperMetadata: research.PaperMetadata{Arxiv: "2404.00001v2", Title: "An arXiv result"}}
+	ai := &discoveryAIStub{}
+	var requests []string
+	deps := discoveryDependencies{ai: ai, search: func(_ context.Context, q string, _ int) ([]research.DiscoveryCandidate, error) {
+		requests = append(requests, q)
+		return []research.DiscoveryCandidate{paper}, nil
+	}}
+	options := discoveryOptions{Query: "solar", Source: "arxiv", TopK: 3, AIModel: "fixture-model"}
+	sources := research.DiscoveryContext{Project: research.Project{Name: "Research project", Path: "/private/path"}}
+	run, err := buildDiscoveryRun(context.Background(), options, sources, discoveryState{}, deps)
+	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 1 || run.AIReview["2404.00001"] == "" || requests[0] != "ti:evaporation" {
+		t.Fatalf("AI response did not preserve arXiv evidence: %+v, %v", run, err)
+	}
+	if len(ai.prompts) != 2 || strings.Contains(ai.prompts[0], "/private/path") || !strings.Contains(ai.prompts[1], "An arXiv result") {
+		t.Fatalf("unexpected prompts: %v", ai.prompts)
+	}
+	ai.fail = true
+	run, err = buildDiscoveryRun(context.Background(), options, sources, discoveryState{}, deps)
+	if err != nil || len(run.Items) != 1 || len(run.AIReview) != 0 || run.Notice == "" || requests[1] != `all:"solar"` {
+		t.Fatalf("AI failure lost direct search: %+v, %v", run, err)
+	}
 }

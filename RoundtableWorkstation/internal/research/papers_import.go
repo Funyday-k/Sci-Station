@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,10 +25,12 @@ const maxPaperPDF int64 = 256 << 20
 
 type paperImport struct {
 	PaperMetadata
-	Identifier    string `json:"identifier,omitempty"`
-	FetchPDF      bool   `json:"fetch_pdf"`
-	AllowLinkOnly bool   `json:"allow_link_only"`
-	SkipLookup    bool   `json:"skip_metadata_lookup"`
+	Identifier      string    `json:"identifier,omitempty"`
+	FetchPDF        bool      `json:"fetch_pdf"`
+	AllowLinkOnly   bool      `json:"allow_link_only"`
+	SkipLookup      bool      `json:"skip_metadata_lookup"`
+	PrimaryCategory string    `json:"-"`
+	PublishedAt     time.Time `json:"-"`
 }
 
 func paperHTTPURL(raw string) bool {
@@ -177,6 +180,7 @@ type arxivCategory struct {
 }
 
 type paperFeed struct {
+	XMLName xml.Name `xml:"feed"`
 	Entries []struct {
 		ID        string    `xml:"id"`
 		Title     string    `xml:"title"`
@@ -186,7 +190,7 @@ type paperFeed struct {
 			Name string `xml:"name"`
 		} `xml:"author"`
 		DOI        string          `xml:"doi"`
-		Primary    arxivCategory   `xml:"primary_category"`
+		Primary    arxivCategory   `xml:"http://arxiv.org/schemas/atom primary_category"`
 		Categories []arxivCategory `xml:"category"`
 		Links      []struct {
 			Href string `xml:"href,attr"`
@@ -199,10 +203,12 @@ func (f paperFeed) metadata() []paperImport {
 	out := []paperImport{}
 	for _, e := range f.Entries {
 		id := normalizeArxiv(e.ID)
-		if !arxivPattern.MatchString(id) {
+		if !arxivPattern.MatchString(id) || strings.TrimSpace(e.Title) == "" {
 			continue
 		}
-		m := paperImport{PaperMetadata: PaperMetadata{Title: strings.Join(strings.Fields(e.Title), " "), Abstract: strings.Join(strings.Fields(e.Summary), " "), DOI: e.DOI, Arxiv: id, URL: "https://arxiv.org/abs/" + id}}
+		m := paperImport{PaperMetadata: PaperMetadata{Title: strings.Join(strings.Fields(e.Title), " "), Abstract: strings.Join(strings.Fields(e.Summary), " "), DOI: normalizeDOI(e.DOI), Arxiv: id, URL: "https://arxiv.org/abs/" + id}}
+		m.PrimaryCategory = strings.TrimSpace(e.Primary.Term)
+		m.PublishedAt = e.Published
 		// arXiv feed tags preserve the primary category first, followed by cross-lists.
 		for _, category := range append([]arxivCategory{e.Primary}, e.Categories...) {
 			term := strings.TrimSpace(category.Term)
@@ -237,27 +243,49 @@ func arxivPaperSearch(ctx context.Context, query url.Values) ([]paperImport, err
 	if err = xml.NewDecoder(io.LimitReader(res.Body, 3<<20)).Decode(&f); err != nil {
 		return nil, err
 	}
+	for _, entry := range f.Entries {
+		if strings.Contains(entry.ID, "/api/errors#") {
+			return nil, errors.New("arXiv 拒绝了检索式")
+		}
+	}
 	return f.metadata(), nil
 }
 
 // SearchArxiv searches the Atom feed with the caller's arXiv query expression.
 func SearchArxiv(ctx context.Context, expr string) ([]PaperMetadata, error) {
+	candidates, err := SearchArxivCandidates(ctx, expr, 24)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PaperMetadata, 0, len(candidates))
+	for _, item := range candidates {
+		out = append(out, item.PaperMetadata)
+	}
+	return out, nil
+}
+
+// SearchArxivCandidates retains the provider's explicit primary category and publication date.
+func SearchArxivCandidates(ctx context.Context, expr string, limit int) ([]DiscoveryCandidate, error) {
 	expr = strings.TrimSpace(expr)
-	if expr == "" || len(expr) > 2048 {
+	if expr == "" || len(expr) > 2048 || limit < 1 || limit > 100 {
 		return nil, fmt.Errorf("%w：请输入有效的 arXiv 查询", errInvalidPaper)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	results, err := arxivPaperSearch(ctx, url.Values{
-		"search_query": {expr}, "start": {"0"}, "max_results": {"24"},
+		"search_query": {expr}, "start": {"0"}, "max_results": {strconv.Itoa(limit)},
 		"sortBy": {"submittedDate"}, "sortOrder": {"descending"},
 	})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]PaperMetadata, 0, len(results))
+	out := make([]DiscoveryCandidate, 0, len(results))
 	for _, item := range results {
-		out = append(out, item.PaperMetadata)
+		candidate := DiscoveryCandidate{PaperMetadata: item.PaperMetadata, Provider: "arXiv", PrimaryCategory: item.PrimaryCategory}
+		if !item.PublishedAt.IsZero() {
+			candidate.PublishedAt = item.PublishedAt.Format(time.RFC3339)
+		}
+		out = append(out, candidate)
 	}
 	return out, nil
 }

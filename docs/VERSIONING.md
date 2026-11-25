@@ -22,3 +22,9 @@ App releases and persisted/protocol formats serve different compatibility contra
 5. Merge the release preparation PR into `main`, then create a new immutable tag on that reviewed commit. A tag alone must not bypass tests or signing gates.
 
 `0.x` releases are Developer Previews. Document breaking user workflows and data changes even before `1.0.0`; do not assume preview users can discard their Research Roots. Preserve unknown fields where supported, make backups/recovery explicit, reject incompatible input clearly, and test supported older data. The older `0.1.0` download is not retroactively signed or notarized by adding a release workflow.
+
+## Workstation discovery records
+
+The workstation stores search history and feedback in `discovery.json` (whole library) and `discovery.<project-id>.json` (one project) alongside settings in the active workspace. Schema 1 stores dated run snapshots, their original candidate metadata and ranking, and feedback keyed by bibliographic work. Archiving removes a run from the history view and preserves its snapshot on disk. The app loads the prototype's unversioned latest query and feedback in place on an explicitly opened workstation copy. It does not scan old Swift Research Roots or another workspace for discovery records.
+
+A successful mutation atomically replaces the scoped file. Reads reject malformed JSON and unsupported schema versions and leave the file intact. Unrecognized top-level fields are preserved. For recovery, close the app and restore the affected file from the last verified copy of that workspace. Library and task records are stored separately. An interrupted candidate selection can be retried with its original scope, run ID and candidate key.
