@@ -64,10 +64,13 @@
     let providerSignature = "";
     let proposalSignature = "";
 
+    function nativeSession() {
+      return typeof window.sciStationCLIEditSession === "string" && window.sciStationCLIEditSession.length > 0;
+    }
     function schedule() {
       clearTimeout(timer);
       // GET can observe a CLI response. Only an explicit button may send one.
-      if (!scope?.projectId || document.hidden || writing || fetching) return;
+      if (!nativeSession() || !scope?.projectId || document.hidden || writing || fetching) return;
       if (activeStates.has(envelope?.run?.status)) timer = setTimeout(refresh, error ? 3500 : 1200);
     }
 
@@ -163,7 +166,7 @@
       const projectLabel = scope?.project && scope.project !== scope.projectId ? scope.project + " (" + scope.projectId + ")" : scope?.project;
       el("scope").textContent = scope ? [projectLabel || "全局圆桌", scope.meeting, scope.round ? "第 " + scope.round + " 轮" : "首轮开始前"].join(" · ") : "";
       el("open").textContent = run?.status === "pending" && !error ? "CLI 编辑待审核" : "CLI 文件编辑";
-      el("start").hidden = !scope?.projectId || active || scope.closed;
+      el("start").hidden = !nativeSession() || !scope?.projectId || active || scope.closed;
       el("submit").disabled = Boolean(writing || error || !envelope || scope?.discussing || !el("provider").value);
       el("run").hidden = !run;
       const provider = providers.find(provider => provider.id === run?.provider);
@@ -174,9 +177,10 @@
       showProposal(run);
       el("cancel").hidden = !active;
       el("cancel").disabled = Boolean(writing || error);
-      el("refresh").disabled = !scope?.projectId || fetching || writing;
+      el("refresh").disabled = !nativeSession() || !scope?.projectId || fetching || writing;
       let message = "";
-      if (!scope?.projectId) message = "请在关联项目的圆桌中编辑项目文件。";
+      if (!nativeSession()) message = "请在 Sci-Station 桌面窗口中发起或审核 CLI 文件编辑。";
+      else if (!scope?.projectId) message = "请在关联项目的圆桌中编辑项目文件。";
       else if (writing) message = "正在发送，等待 CLI 服务确认…";
       else if (error) message = error;
       else if (!envelope) message = "正在读取 CLI 状态…";
@@ -189,7 +193,7 @@
     }
 
     async function request(payload) {
-      if (!scope?.projectId) return;
+      if (!nativeSession() || !scope?.projectId) return;
       const ticket = ++sequence;
       clearTimeout(timer);
       const endpoint = "/api/studio/sessions/" + encodeURIComponent(scope.meetingId) + "/cli-edits";
@@ -197,7 +201,7 @@
       else fetching = true;
       render();
       try {
-        const options = {method:"GET", cache:"no-store", headers:{Accept:"application/json"}};
+        const options = {method:"GET", cache:"no-store", headers:{Accept:"application/json","X-Sci-Station-CLI-Session":window.sciStationCLIEditSession}};
         if (payload) {
           options.method = "POST";
           options.headers["Content-Type"] = "application/json";
@@ -258,6 +262,16 @@
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) clearTimeout(timer);
       else if (dialog.open || activeStates.has(envelope?.run?.status)) refresh();
+    });
+    window.addEventListener("scistation:cli-edit-session", () => {
+      // Revalidate the current window's authorization. Never replay an in-flight command.
+      sequence++;
+      clearTimeout(timer);
+      writing = fetching = false;
+      envelope = null;
+      error = "";
+      render();
+      refresh();
     });
     window.addEventListener("pageshow", event => { if (event.persisted) refresh(); });
     return {setSession};

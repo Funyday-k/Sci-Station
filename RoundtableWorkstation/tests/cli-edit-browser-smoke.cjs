@@ -10,6 +10,10 @@ async function exercise(origin,project,meeting,file,phase) {
   const browser=await chromium.launch({headless:true,executablePath:process.env.SCI_STATION_SMOKE_CHROME});
   try {
     const page=await browser.newPage({viewport:{width:1280,height:820},locale:"zh-CN"});
+    const proofScript=require("node:fs").readFileSync(0,"utf8");
+    // Only the isolated test browser receives the normal window script.
+    // Run after navigation like Wails, after listeners are installed.
+    await page.addInitScript({content:"window.addEventListener('load',()=>{"+proofScript+"});"});
     page.setDefaultTimeout(8000);
     const writes=[],errors=[];
     page.on("pageerror",error=>errors.push(error.message));

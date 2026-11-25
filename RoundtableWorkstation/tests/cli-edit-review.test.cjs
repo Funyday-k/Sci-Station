@@ -15,7 +15,7 @@ const staticFile = name => readFileSync(path.join(__dirname, "../static", name),
 const tick = () => new Promise(done => setImmediate(done));
 const copy = value => JSON.parse(JSON.stringify(value));
 
-function mount(handler) {
+function mount(handler, proof="fixture-proof") {
   const elements = new Map();
   const callbacks = {};
   const calls = [];
@@ -38,8 +38,9 @@ function mount(handler) {
     getElementById:id=>{assert.ok(elements.has(id),id);return elements.get(id);},
     addEventListener:(name,fn)=>{callbacks[name]=fn;}
   };
-  const window = {addEventListener:(name,fn)=>{callbacks[name]=fn;}};
+  const window = {sciStationCLIEditSession:proof,addEventListener:(name,fn)=>{callbacks[name]=fn;}};
   const fetch = async (url,options) => {
+    assert.equal(options.headers["X-Sci-Station-CLI-Session"],window.sciStationCLIEditSession);
     const payload=options.body && JSON.parse(options.body);
     calls.push({url, method:options.method, payload});
     const envelope=await handler(options.method,payload);
@@ -49,7 +50,7 @@ function mount(handler) {
     window,document,fetch,Option:class{constructor(text,value){this.textContent=text;this.value=value;}},
     setTimeout:()=>1,clearTimeout(){}
   });
-  return {ui:window.SciCLIEdit,get,calls,callbacks};
+  return {ui:window.SciCLIEdit,get,calls,callbacks,window};
 }
 
 test("project, round, CLI request identities and every file diff must match before acceptance", () => {
@@ -141,4 +142,20 @@ test("closing the dialog leaves a task running and cancel sends only this run id
   ui.setSession({...session,id:"global",project_id:""});await tick();
   assert.equal(get("start").hidden,true);
   assert.match(get("status").textContent,/关联项目/);
+});
+
+test("browser sessions can read the meeting but require a native window to review CLI files", async () => {
+  const {ui,get,calls,callbacks,window}=mount(()=>({providers,run}),"");
+  ui.setSession(session,"Project");get("open").onclick();await tick();
+  assert.equal(calls.length,0);
+  assert.equal(get("start").hidden,true);
+  assert.match(get("status").textContent,/桌面窗口/);
+  window.sciStationCLIEditSession="fixture-proof";
+  callbacks["scistation:cli-edit-session"]();await tick();
+  assert.deepEqual(calls.map(c=>c.method),["GET"]);
+  assert.equal(get("accept").disabled,false);
+  window.sciStationCLIEditSession="";
+  callbacks["scistation:cli-edit-session"]();await tick();
+  assert.equal(get("proposal").hidden,true);
+  assert.equal(get("accept").disabled,true);
 });

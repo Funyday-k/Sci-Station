@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"scistation.local/desktop/internal/cliedit"
@@ -58,7 +59,7 @@ func TestCLIEditReviewBrowser(t *testing.T) {
 			t.Fatal(err)
 		}
 		engine.SetProjectAccess(lab.WithProjectDirectory)
-		api := &apiServer{prefs: prefs, meetings: engine, research: lab, workspaceDir: root}
+		api := &apiServer{desktop: true, prefs: prefs, meetings: engine, research: lab, workspaceDir: root}
 		api.cliEdits.lookup = func(_ context.Context, id string) cliEditProvider {
 			if id == "codex" {
 				return cliEditProvider{ID: id, Label: "Mock Codex CLI", Available: true, path: cli, run: cliedit.RunCodex}
@@ -92,6 +93,7 @@ func TestCLIEditReviewBrowser(t *testing.T) {
 		})
 		server.Start()
 		cmd := exec.Command("node", "tests/cli-edit-browser-smoke.cjs", "http://127.0.0.1:"+strconv.Itoa(port), projectID, sessionID, file, phase)
+		cmd.Stdin = strings.NewReader(api.cliEditWindowScript("http://127.0.0.1:" + strconv.Itoa(port)))
 		out, err := cmd.CombinedOutput()
 		server.Close()
 		api.cliEdits.jobs.Close(context.Background())
