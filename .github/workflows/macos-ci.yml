@@ -179,11 +179,72 @@ jobs:
         run: python3 tests/macos-close-smoke.py "$RUNNER_TEMP/Sci-Station.app"
       - name: Review a paper excerpt and reopen its source in WKWebView
         run: node tests/workstation-workflow-smoke.cjs --native "$RUNNER_TEMP/Sci-Station.app"
+      - name: Package the tested workstation candidate
+        id: workstation-candidate
+        env:
+          SCI_STATION_RELEASE_BUILD_DIR: ${{ runner.temp }}/workstation-packages
+        run: ../Tools/scripts/package-release.sh --workstation --app "$RUNNER_TEMP/Sci-Station.app"
+      - name: Package the lower-build-number rollback fixture from this checkout
+        id: workstation-prior
+        env:
+          SCI_STATION_RELEASE_BUILD_DIR: ${{ runner.temp }}/workstation-packages
+          SCI_STATION_BUILD_NUMBER: "1"
+        run: ../Tools/scripts/package-release.sh --workstation
+      - name: Upload the non-release candidate and checksums
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workstation-candidate-containers
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            ${{ steps.workstation-candidate.outputs.zip_path }}
+            ${{ steps.workstation-candidate.outputs.dmg_path }}
+            ${{ steps.workstation-candidate.outputs.zip_checksum_path }}
+            ${{ steps.workstation-candidate.outputs.dmg_checksum_path }}
+      - name: Upload the signed rollback fixture and checksums
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workstation-prior-fixture-containers
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            ${{ steps.workstation-prior.outputs.zip_path }}
+            ${{ steps.workstation-prior.outputs.dmg_path }}
+            ${{ steps.workstation-prior.outputs.zip_checksum_path }}
+            ${{ steps.workstation-prior.outputs.dmg_checksum_path }}
+
+  workstation-minimum-macos:
+    name: Workstation install, upgrade, and rollback on macOS 15
+    needs: workstation
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: workstation-candidate-containers
+          path: ${{ runner.temp }}/workstation-candidate
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: workstation-prior-fixture-containers
+          path: ${{ runner.temp }}/workstation-prior
+      - name: Exercise the downloaded ZIP and DMG on Apple Silicon
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          [[ "$(sw_vers -productVersion)" == 15.* && "$(uname -m)" == arm64 ]]
+          for extension in zip dmg; do
+            previous=("$RUNNER_TEMP/workstation-prior/"*."$extension")
+            candidate=("$RUNNER_TEMP/workstation-candidate/"*."$extension")
+            [[ "${#previous[@]}" -eq 1 && -f "${previous[0]}" && "${#candidate[@]}" -eq 1 && -f "${candidate[0]}" ]]
+            Tools/scripts/test-release-install.sh --workstation "${previous[0]}" "${candidate[0]}"
+          done
 
   required-ci:
     name: Required CI
     if: ${{ always() }}
-    needs: [repository-hygiene, traceability, swift-style, core-tests, python-tests, app-build, workstation]
+    needs: [repository-hygiene, traceability, swift-style, core-tests, python-tests, app-build, workstation, workstation-minimum-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

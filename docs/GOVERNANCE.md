@@ -21,6 +21,7 @@ The [macOS CI workflow](../.github/workflows/macos-ci.yml) has no path filters. 
 | Python sidecar tests | Full `AgentRuntime/tests` suite |
 | Apple Silicon Release build and smoke test | Unsigned app build, bundled runtime, installation and UI checks |
 | Roundtable workstation tests and macOS build | Go race and vet, frontend and native bridge tests, ad-hoc signed arm64 bundle, deployment target, and native shutdown/relaunch smoke |
+| Workstation install, upgrade, and rollback on macOS 15 | Verified ZIP, DMG and SHA-256 from the same PR checkout. A lower signed build supplies the rollback fixture. Installed processes use a temporary Applications directory and a disposable research root. |
 
 CI cannot judge whether an Issue's acceptance criteria are actually met; that remains part of review. A linked Issue reference is syntactically checked; the maintainer verifies that it exists and is relevant. Local RFC/ADR paths and backlog anchors are checked against the checkout. Proposed RFCs are design artifacts, not permission to silently ship a new architecture.
 

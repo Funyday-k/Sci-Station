@@ -1,29 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+MODE=swift
+if [[ "${1:-}" == --workstation ]]; then
+  MODE=workstation
+  shift
+fi
 if [[ $# -ne 1 ]]; then
-  echo "usage: $0 /path/to/Sci-Station.app|Sci-Station.dmg|Sci-Station.zip" >&2
+  echo "usage: $0 [--workstation] /path/to/Sci-Station.app|Sci-Station.dmg|Sci-Station.zip" >&2
   exit 2
 fi
 
 ARTIFACT_PATH="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT_DIR/Tools/scripts/macos-release-artifacts.sh"
 EXPECTED_BUNDLE_ID="${SCI_STATION_BUNDLE_ID:-Lingyu-Xia.Sci-Station}"
 EXPECTED_VERSION="${SCI_STATION_VERSION:-}"
 EXPECTED_BUILD_NUMBER="${SCI_STATION_BUILD_NUMBER:-}"
-MOUNT_DIR=""
-MOUNT_DEVICE=""
-EXTRACT_DIR=""
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sci-station-release.XXXXXX")"
 
 cleanup() {
-  if [[ -n "$MOUNT_DEVICE" ]]; then
-    hdiutil detach "$MOUNT_DEVICE" -quiet >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$MOUNT_DIR" ]]; then
-    rm -rf "$MOUNT_DIR"
-  fi
-  if [[ -n "$EXTRACT_DIR" ]]; then
-    rm -rf "$EXTRACT_DIR"
+  if close_release_app; then
+    rm -rf "$TEST_ROOT"
   fi
   return 0
 }
@@ -52,6 +50,14 @@ verify_adhoc_signature() {
   if [[ "$details" != *"runtime"* ]]; then
     echo "Artifact signature does not enable hardened runtime: $path" >&2
     exit 1
+  fi
+}
+
+record_gatekeeper_result() {
+  if spctl --assess --type execute --verbose=4 "$1"; then
+    echo "Gatekeeper accepted this local artifact."
+  else
+    echo "Gatekeeper did not trust the certificate-free artifact; this is expected for downloaded releases."
   fi
 }
 
@@ -89,37 +95,24 @@ verify_app() {
   # Certificate-free releases are intentionally not notarized. Record the
   # platform trust result for diagnostics, but rejection is expected for a
   # quarantined download and must not invalidate bundle-integrity checks.
-  if spctl --assess --type execute --verbose=4 "$app_path"; then
-    echo "Gatekeeper accepted this local artifact."
-  else
-    echo "Gatekeeper did not trust the certificate-free artifact; this is expected for downloaded releases."
-  fi
+  record_gatekeeper_result "$app_path"
   "$ROOT_DIR/Tools/scripts/smoke-test-sidecar-runtime.sh" "$app_path"
 }
 
-case "$ARTIFACT_PATH" in
-  *.app)
-    verify_app "$ARTIFACT_PATH"
-    ;;
-  *.dmg)
-    hdiutil verify "$ARTIFACT_PATH"
-    MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sci-station-release.XXXXXX")"
-    attach_output="$(hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT_DIR" "$ARTIFACT_PATH")"
-    MOUNT_DEVICE="$(printf '%s\n' "$attach_output" | awk '/^\/dev\// { print $1; exit }')"
-    [[ -n "$MOUNT_DEVICE" && -d "$MOUNT_DIR/Sci-Station.app" ]] || { echo "The release DMG does not contain the expected Sci-Station.app." >&2; exit 1; }
-    verify_app "$MOUNT_DIR/Sci-Station.app"
-    ;;
-  *.zip)
-    EXTRACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sci-station-release-zip.XXXXXX")"
-    /usr/bin/ditto -x -k "$ARTIFACT_PATH" "$EXTRACT_DIR"
-    [[ -d "$EXTRACT_DIR/Sci-Station.app" ]] || { echo "The release ZIP does not contain the expected Sci-Station.app." >&2; exit 1; }
-    verify_app "$EXTRACT_DIR/Sci-Station.app"
-    ;;
-  *)
-    echo "Unsupported release artifact: $ARTIFACT_PATH" >&2
-    exit 2
-    ;;
-esac
+if [[ "$MODE" == workstation && ( "$ARTIFACT_PATH" == *.dmg || "$ARTIFACT_PATH" == *.zip ) ]]; then
+  verify_release_checksum "$ARTIFACT_PATH"
+fi
+if [[ "$ARTIFACT_PATH" == *.dmg ]]; then
+  /usr/bin/hdiutil verify "$ARTIFACT_PATH"
+fi
+open_release_app "$ARTIFACT_PATH" "$TEST_ROOT"
+if [[ "$MODE" == workstation ]]; then
+  "$ROOT_DIR/RoundtableWorkstation/packaging/macos/verify.sh" "$RELEASE_SOURCE_APP"
+  record_gatekeeper_result "$RELEASE_SOURCE_APP"
+else
+  verify_app "$RELEASE_SOURCE_APP"
+fi
+close_release_app
 
 echo "Certificate-free release verification passed: $ARTIFACT_PATH"
 exit 0

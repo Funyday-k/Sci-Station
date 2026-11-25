@@ -1,71 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
+MODE=swift
+if [[ "${1:-}" == --workstation ]]; then
+  MODE=workstation
+  shift
+fi
+if [[ ( "$MODE" == swift && $# -ne 1 ) || ( "$MODE" == workstation && $# -ne 2 ) ]]; then
   echo "usage: $0 /path/to/Sci-Station.app|Sci-Station.dmg|Sci-Station.zip" >&2
+  echo "       $0 --workstation /path/to/previous.zip|.dmg /path/to/candidate.zip|.dmg" >&2
   exit 2
 fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-ARTIFACT_PATH="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
+source "$ROOT_DIR/Tools/scripts/macos-release-artifacts.sh"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sci-station-install.XXXXXX")"
+TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
 APPLICATIONS_DIR="$TEST_ROOT/Applications"
 INSTALLED_APP="$APPLICATIONS_DIR/Sci-Station.app"
-MOUNT_DIR=""
-MOUNT_DEVICE=""
-EXTRACT_DIR=""
 
 cleanup() {
-  if [[ -n "$MOUNT_DEVICE" ]]; then
-    hdiutil detach "$MOUNT_DEVICE" -quiet >/dev/null 2>&1 || true
+  if close_release_app; then
+    rm -rf "$TEST_ROOT"
   fi
-  if [[ -n "$EXTRACT_DIR" ]]; then
-    rm -rf "$EXTRACT_DIR"
-  fi
-  rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
 
-case "$ARTIFACT_PATH" in
-  *.app)
-    SOURCE_APP="$ARTIFACT_PATH"
-    ;;
-  *.dmg)
-    MOUNT_DIR="$TEST_ROOT/mount"
-    mkdir -p "$MOUNT_DIR"
-    ATTACH_OUTPUT="$(hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT_DIR" "$ARTIFACT_PATH")"
-    MOUNT_DEVICE="$(printf '%s\n' "$ATTACH_OUTPUT" | awk '/^\/dev\// { print $1; exit }')"
-    SOURCE_APP="$MOUNT_DIR/Sci-Station.app"
-    if [[ -z "$MOUNT_DEVICE" ]]; then
-      echo "Unable to identify the mounted device for $ARTIFACT_PATH" >&2
-      exit 1
-    fi
-    ;;
-  *.zip)
-    EXTRACT_DIR="$TEST_ROOT/extracted"
-    mkdir -p "$EXTRACT_DIR"
-    /usr/bin/ditto -x -k "$ARTIFACT_PATH" "$EXTRACT_DIR"
-    SOURCE_APP="$EXTRACT_DIR/Sci-Station.app"
-    ;;
-  *)
-    echo "Unsupported release artifact: $ARTIFACT_PATH" >&2
-    exit 2
-    ;;
-esac
-
-SOURCE_INFO_PLIST="$SOURCE_APP/Contents/Info.plist"
-if [[ ! -f "$SOURCE_INFO_PLIST" ]]; then
-  echo "Release artifact does not contain Sci-Station.app." >&2
-  exit 1
-fi
-SOURCE_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$SOURCE_INFO_PLIST")"
-SOURCE_EXECUTABLE="$SOURCE_APP/Contents/MacOS/$SOURCE_EXECUTABLE_NAME"
-if [[ ! -x "$SOURCE_EXECUTABLE" ]]; then
-  echo "Release artifact contains no executable app binary." >&2
-  exit 1
-fi
-
 mkdir -p "$APPLICATIONS_DIR"
+select_source_app() {
+  SOURCE_APP="$1"
+  SOURCE_INFO_PLIST="$SOURCE_APP/Contents/Info.plist"
+  if [[ ! -f "$SOURCE_INFO_PLIST" ]]; then
+    echo "Release artifact does not contain the expected Info.plist." >&2
+    exit 1
+  fi
+  SOURCE_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$SOURCE_INFO_PLIST")"
+  SOURCE_EXECUTABLE="$SOURCE_APP/Contents/MacOS/$SOURCE_EXECUTABLE_NAME"
+  if [[ ! -x "$SOURCE_EXECUTABLE" ]]; then
+    echo "Release artifact contains no executable app binary." >&2
+    exit 1
+  fi
+}
 
 install_app() {
   local staged_app="$APPLICATIONS_DIR/.Sci-Station.installing.app"
@@ -97,10 +72,65 @@ verify_installed_copy() {
   # seal. Mirror signature verification only when the source bundle itself
   # passes the strict check. Developer ID artifacts are verified separately by
   # verify-release.sh before this installation exercise runs.
-  if codesign --verify --deep --strict "$SOURCE_APP" >/dev/null 2>&1; then
+  if [[ "$MODE" == workstation ]] || codesign --verify --deep --strict "$SOURCE_APP" >/dev/null 2>&1; then
     codesign --verify --deep --strict --verbose=2 "$INSTALLED_APP"
   fi
 }
+
+stage_workstation_archive() {
+  local input="$1" stage="$2" artifact
+  artifact="$(cd "$(dirname "$input")" && pwd -P)/$(basename "$input")"
+  if [[ "$artifact" != *.zip && "$artifact" != *.dmg ]]; then
+    printf 'Workstation install validation requires a ZIP or DMG and its SHA-256 sidecar.\n' >&2
+    exit 2
+  fi
+  SCI_STATION_BUILD_NUMBER="" "$ROOT_DIR/Tools/scripts/verify-release.sh" --workstation "$artifact"
+  open_release_app "$artifact" "$stage/container"
+  /usr/bin/ditto "$RELEASE_SOURCE_APP" "$stage/Sci-Station.app"
+  close_release_app
+}
+
+if [[ "$MODE" == workstation ]]; then
+  previous="$TEST_ROOT/previous"
+  candidate="$TEST_ROOT/candidate"
+  stage_workstation_archive "$1" "$previous"
+  stage_workstation_archive "$2" "$candidate"
+  previous_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$previous/Sci-Station.app/Contents/Info.plist")"
+  candidate_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$candidate/Sci-Station.app/Contents/Info.plist")"
+  if ! python3 -c 'import sys; sys.exit(int(sys.argv[2]) <= int(sys.argv[1]))' "$previous_build" "$candidate_build"; then
+    printf 'The candidate build must advance from %s to a greater number (got %s).\n' "$previous_build" "$candidate_build" >&2
+    exit 1
+  fi
+  smoke="$ROOT_DIR/RoundtableWorkstation/tests/package-install-smoke.py"
+  select_source_app "$previous/Sci-Station.app"
+  install_app
+  verify_installed_copy
+  python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" initial
+  /usr/bin/ditto "$TEST_ROOT/research-root" "$TEST_ROOT/pre-upgrade-backup"
+
+  stale_marker="$INSTALLED_APP/Contents/Resources/.sci-station-stale-install-marker"
+  printf 'stale installation fixture\n' >"$stale_marker"
+  select_source_app "$candidate/Sci-Station.app"
+  install_app
+  [[ ! -e "$stale_marker" ]] || { printf 'Upgrade left a stale bundle file.\n' >&2; exit 1; }
+  verify_installed_copy
+  python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" upgraded
+
+  # Restore the known-good snapshot into a sibling fixture. Keep the upgraded
+  # fixture intact and exercise the previous bundle again at the install path.
+  /usr/bin/ditto "$TEST_ROOT/pre-upgrade-backup" "$TEST_ROOT/restored-root"
+  select_source_app "$previous/Sci-Station.app"
+  install_app
+  verify_installed_copy
+  python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" rollback
+  printf 'Workstation candidate install, overwrite upgrade, and rollback passed (%s → %s → %s).\n' \
+    "$previous_build" "$candidate_build" "$previous_build"
+  exit 0
+fi
+
+ARTIFACT_PATH="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
+open_release_app "$ARTIFACT_PATH" "$TEST_ROOT"
+select_source_app "$RELEASE_SOURCE_APP"
 
 echo "==> Installing into an isolated Applications directory..."
 install_app

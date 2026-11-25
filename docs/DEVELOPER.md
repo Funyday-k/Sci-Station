@@ -290,6 +290,24 @@ make -C RoundtableWorkstation run
 
 Swift 构建的 App Sandbox 允许用户所选文件、应用范围书签、下载目录、出站网络和日历访问，sidecar 使用继承权限。工作台候选包沿用 `com.funyday.scistation.desktop`，启用 hardened runtime，签名当前没有 entitlements。它通过本机回环地址提供 UI，由应用记录和检查用户批准的科研目录，日历与提醒事项通过 EventKit 请求系统授权。切换前需验收所选目录的授权、拒绝和撤销，新包的 Keychain 及 EventKit 权限在首次安装与覆盖升级后的行为，以及候选包是否需要额外的系统隔离。现有 Swift 书签与本机权限按 [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) 保留在原应用环境，工作台用独立目录完成验证。
 
+#### 工作台候选包的安装与回滚验收
+
+从仓库根目录生成两套已签名的 ZIP、DMG 和 SHA-256。脚本每次创建新的输出目录并打印产物路径。以下示例用同一份源码生成构建号分别为 1 和 2 的夹具，正式版本及发布标签由各自的发布流程决定。
+
+```bash
+SCI_STATION_BUILD_NUMBER=1 Tools/scripts/package-release.sh --workstation
+SCI_STATION_BUILD_NUMBER=2 Tools/scripts/package-release.sh --workstation
+Tools/scripts/verify-release.sh --workstation path/to/candidate.dmg
+Tools/scripts/test-release-install.sh --workstation path/to/previous.dmg path/to/candidate.dmg
+Tools/scripts/test-release-install.sh --workstation path/to/previous.zip path/to/candidate.zip
+```
+
+验证器使用同目录 `.sha256`，再检查镜像结构、应用资源、版本、arm64、最低部署目标以及 ad-hoc hardened-runtime 签名。`--app path/to/Sci-Station.app` 可将同一 checkout 已经签名和验收的候选包封装成两种格式。打包会返回现有 release job 使用的四个产物路径，正式发布的标签、GitHub provenance 和发布门禁继续由 `Public Release` 负责，生产宿主切换遵循 RFC-0002 验收。
+
+安装测试将两个归档解包到临时目录。低构建号写入一条工作区任务后退出，候选包覆盖安装，验证旧任务和新写入，然后恢复升级前的数据快照到另一临时目录并重开低构建号。测试同时核对安装文件、残留文件、端口和进程锁。macOS CI 在独立 Apple Silicon macOS 15 runner 下载当前 workflow 的同一批非发布归档，运行两种容器的同一测试。两套包采用同一源码的不同构建号，因此跨版本数据迁移和历史安装包仍需各自验收。
+
+签名与运行证据分开记录。无窗口安装测试验证已签名程序、研究根和回滚流程。正式切换前还需验收 Finder 首次打开、真实目录授权、Keychain 和 EventKit。应用的目录授权和 macOS App Sandbox 属于不同层。AI 项目文件编辑由选定 CLI 使用自己的权限与沙箱完成，工作台转交该 CLI 的原生审批；CLI 兼容性和系统权限仍需按 [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) 在真实环境验证。
+
 #### 工作台端到端检查
 
 在登录图形会话的 Mac 上，可从仓库根目录用以下命令验证当前候选应用。两项测试都使用临时研究根。第一项测原样签名包的系统退出，并在独立测试副本触发原生窗口动作。服务收尾预算为 8 秒，测试允许总退出时间 10 秒。第二项使用真实 PDFKit、两个接本机测试网关的席位和独立重签的 WKWebView 测试副本，验证拒绝、确认、重试、重开及原页定位。

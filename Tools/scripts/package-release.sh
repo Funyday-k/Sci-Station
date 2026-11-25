@@ -6,6 +6,15 @@ PROJECT="Sci-Station.xcodeproj"
 SCHEME="Sci-Station"
 CONFIG="Release"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+if [[ "${1:-}" == --workstation ]]; then
+  shift
+  exec "$ROOT_DIR/RoundtableWorkstation/packaging/macos/package.sh" "$@"
+fi
+if [[ $# -ne 0 ]]; then
+  echo "usage: $0 [--workstation]" >&2
+  exit 2
+fi
+source "$ROOT_DIR/Tools/scripts/macos-release-artifacts.sh"
 BUILD_DIR="${SCI_STATION_RELEASE_BUILD_DIR:-$ROOT_DIR/.tmp/release-package}"
 ARCHIVE_PATH="$BUILD_DIR/Sci-Station.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
@@ -68,44 +77,23 @@ SCI_STATION_BUILD_NUMBER="$BUILD_NUMBER" \
   Tools/scripts/verify-release.sh "$APP_PATH"
 
 echo "==> Creating final ZIP..."
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+release_zip "$APP_PATH" "$ZIP_PATH"
 SCI_STATION_VERSION="$VERSION" \
 SCI_STATION_BUILD_NUMBER="$BUILD_NUMBER" \
   Tools/scripts/verify-release.sh "$ZIP_PATH"
 Tools/scripts/test-release-install.sh "$ZIP_PATH"
 
 echo "==> Creating final DMG..."
-mkdir -p "$DMG_ROOT"
-/usr/bin/ditto "$APP_PATH" "$DMG_ROOT/Sci-Station.app"
-ln -s /Applications "$DMG_ROOT/Applications"
-hdiutil create \
-  -volname "Sci-Station" \
-  -srcfolder "$DMG_ROOT" \
-  -ov \
-  -format UDZO \
-  "$DMG_PATH"
-hdiutil verify "$DMG_PATH"
+release_dmg "$APP_PATH" "$DMG_PATH" "$DMG_ROOT"
 
 SCI_STATION_VERSION="$VERSION" \
 SCI_STATION_BUILD_NUMBER="$BUILD_NUMBER" \
   Tools/scripts/verify-release.sh "$DMG_PATH"
 Tools/scripts/test-release-install.sh "$DMG_PATH"
 
-(
-  cd "$BUILD_DIR"
-  shasum -a 256 "$(basename "$ZIP_PATH")" >"$(basename "$ZIP_PATH").sha256"
-  shasum -a 256 "$(basename "$DMG_PATH")" >"$(basename "$DMG_PATH").sha256"
-)
-
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  {
-    echo "app_path=$APP_PATH"
-    echo "zip_path=$ZIP_PATH"
-    echo "dmg_path=$DMG_PATH"
-    echo "zip_checksum_path=$ZIP_PATH.sha256"
-    echo "dmg_checksum_path=$DMG_PATH.sha256"
-  } >>"$GITHUB_OUTPUT"
-fi
+release_checksum "$ZIP_PATH" >"$ZIP_PATH.sha256"
+release_checksum "$DMG_PATH" >"$DMG_PATH.sha256"
+write_release_outputs "$APP_PATH" "$ZIP_PATH" "$DMG_PATH"
 
 echo
 echo "App: $APP_PATH"
