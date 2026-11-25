@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"regexp"
+	"sort"
 	"strings"
 )
 
 type noteInput struct {
 	Title           *string     `json:"title"`
+	Namespace       *string     `json:"namespace"`
+	Aliases         *[]string   `json:"aliases"`
 	Body            *string     `json:"body"`
 	Tags            *[]string   `json:"tags"`
 	PaperID         *string     `json:"paperId"`
@@ -28,6 +30,8 @@ func (s *Service) registerNotes() {
 	for _, m := range []string{"GET", "PATCH", "DELETE"} {
 		s.mux.HandleFunc(m+" "+base+"/{note}", s.notes)
 	}
+	s.mux.HandleFunc("POST "+base+"/{note}/restore", s.restoreNote)
+	s.mux.HandleFunc("GET "+base+"/{note}/links", s.noteLinks)
 	s.mux.HandleFunc("GET "+base+"/{note}/backlinks", s.backlinks)
 	s.mux.HandleFunc("GET "+base+"/{note}/markdown", s.markdown)
 }
@@ -71,6 +75,30 @@ func updateNote(n *Note, in noteInput) bool {
 	if in.Title != nil {
 		n.Title = strings.TrimSpace(*in.Title)
 	}
+	if in.Namespace != nil {
+		n.Namespace = strings.TrimSpace(*in.Namespace)
+		if n.Namespace != "" && !validWikiPath(n.Namespace) {
+			return false
+		}
+	}
+	if in.Aliases != nil {
+		if len(*in.Aliases) > 80 {
+			return false
+		}
+		n.Aliases = nil
+		seen := map[string]bool{}
+		for _, alias := range *in.Aliases {
+			alias = strings.TrimSpace(alias)
+			if !validWikiPath(alias) {
+				return false
+			}
+			key := strings.ToLower(alias)
+			if !seen[key] {
+				n.Aliases = append(n.Aliases, alias)
+				seen[key] = true
+			}
+		}
+	}
 	if in.Body != nil {
 		n.Body = *in.Body
 	}
@@ -105,16 +133,14 @@ func updateNote(n *Note, in noteInput) bool {
 	}
 	return true
 }
-func noteTaken(d projectData, n Note) bool {
-	for _, other := range d.Notes {
-		if other.ID != n.ID && strings.EqualFold(other.Title, n.Title) {
-			return true
+func sortedNotes(d projectData, archived bool) []Note {
+	notes := map[string]Note{}
+	for id, note := range d.Notes {
+		if note.Archived == archived {
+			notes[id] = note
 		}
 	}
-	return false
-}
-func sortedNotes(d projectData) []Note {
-	return valuesBy(d.Notes, func(a, b Note) bool {
+	return valuesBy(notes, func(a, b Note) bool {
 		if a.UpdatedAt == b.UpdatedAt {
 			return a.ID < b.ID
 		}
@@ -131,12 +157,13 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
+		archived := r.URL.Query().Get("archived") == "1"
 		if id == "" {
-			jsonReply(w, 200, sortedNotes(d))
+			jsonReply(w, 200, sortedNotes(d, archived))
 			return
 		}
 		n, ok := d.Notes[id]
-		if found(w, ok) {
+		if found(w, ok && n.Archived == archived) {
 			jsonReply(w, 200, n)
 		}
 		return
@@ -160,7 +187,7 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 	if in.IdempotencyKey != "" && r.Method == "POST" {
 		if existing, ok := d.NoteKeys[in.IdempotencyKey]; ok {
 			n, exists := d.Notes[existing]
-			if !exists {
+			if !exists || n.Archived {
 				jsonFail(w, 410, "该结果曾经写入，之后已被移除")
 				return
 			}
@@ -176,11 +203,11 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		n := Note{Entity: fresh(), ProjectID: pid, Tags: []string{}, Evidence: []Evidence{}}
 		if !updateNote(&n, in) {
-			jsonFail(w, 400, "笔记标题、内容或标签无效")
+			jsonFail(w, 400, "笔记的标题、目录、别名、内容或标签无效")
 			return
 		}
-		if noteTaken(d, n) {
-			jsonFail(w, 409, "项目中已有同名笔记")
+		if wikiNameTaken(d, n) {
+			jsonFail(w, 409, "此页面路径或别名已在项目中使用")
 			return
 		}
 		d.Notes[n.ID] = n
@@ -194,14 +221,16 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, ok := d.Notes[id]
-	if !found(w, ok) {
+	if !found(w, ok && !n.Archived) {
 		return
 	}
 	if r.Method == "DELETE" {
 		if !revisionOK(w, n.Revision, queryRevision(r.URL.Query())) {
 			return
 		}
-		delete(d.Notes, id)
+		n.Archived = true
+		n.bump()
+		d.Notes[id] = n
 		if s.save(w, d) {
 			w.WriteHeader(204)
 		}
@@ -210,12 +239,14 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 	if !revisionOK(w, n.Revision, in.Revision) {
 		return
 	}
+	previous := n
 	if !updateNote(&n, in) {
-		jsonFail(w, 400, "笔记标题、内容或标签无效")
+		jsonFail(w, 400, "笔记的标题、目录、别名、内容或标签无效")
 		return
 	}
-	if noteTaken(d, n) {
-		jsonFail(w, 409, "项目中已有同名笔记")
+	retainMovedWikiPaths(&n, previous)
+	if wikiNameTaken(d, n) {
+		jsonFail(w, 409, "此页面路径或别名已在项目中使用")
 		return
 	}
 	n.bump()
@@ -225,7 +256,32 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var wikiLink = regexp.MustCompile(`\[\[([^\[\]\n|#]+)(?:#[^\[\]|]*)?(?:\|[^\[\]]*)?\]\]`)
+func (s *Service) restoreNote(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int `json:"revision"`
+	}
+	if !payload(w, r, &in) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.loadProject(w, r.PathValue("project"))
+	if !ok {
+		return
+	}
+	id := r.PathValue("note")
+	n, ok := d.Notes[id]
+	if !found(w, ok && n.Archived) || !revisionOK(w, n.Revision, in.Revision) {
+		return
+	}
+	n.Archived = false
+	n.bump()
+	d.Notes = maps.Clone(d.Notes)
+	d.Notes[id] = n
+	if s.save(w, d) {
+		jsonReply(w, 200, n)
+	}
+}
 
 func referencedTitles(body string) map[string]bool {
 	out := map[string]bool{}
@@ -244,13 +300,23 @@ func (s *Service) backlinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, ok := d.Notes[r.PathValue("note")]
-	if !found(w, ok) {
+	if !found(w, ok && !n.Archived) {
 		return
 	}
+	if r.URL.Query().Has("revision") && !revisionOK(w, n.Revision, queryRevision(r.URL.Query())) {
+		return
+	}
+	index := wikiLinkIndex(d)
 	out := []Note{}
-	for _, other := range sortedNotes(d) {
-		if referencedTitles(other.Body)[strings.ToLower(n.Title)] {
-			out = append(out, other)
+	for _, other := range sortedNotes(d, false) {
+		if other.ID == n.ID {
+			continue
+		}
+		for _, link := range wikiLinks(other.Body) {
+			if index.resolve(link.Target) == n.ID {
+				out = append(out, other)
+				break
+			}
 		}
 	}
 	jsonReply(w, 200, out)
@@ -263,7 +329,7 @@ func (s *Service) markdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, ok := d.Notes[r.PathValue("note")]
-	if !found(w, ok) {
+	if !found(w, ok && n.Archived == (r.URL.Query().Get("archived") == "1")) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")

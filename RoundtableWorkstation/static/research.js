@@ -14,7 +14,7 @@
     overview: "项目概览",
     projects: "项目",
     papers: "共享文献",
-    notes: "知识笔记",
+    notes: "项目 Wiki",
     tasks: "任务与日历",
     materials: "研究材料",
     graph: "知识关联",
@@ -76,7 +76,7 @@
     loadError: ""
   };
   let navEpoch = 0,
-    toastTimer, modalCleanup = null;
+    toastTimer, modalCleanup = null, modalCanDismiss = null;
   const apiRoot = "/api/research/";
   async function request(path, options = {}) {
     const init = {
@@ -98,7 +98,9 @@
         const j = await res.json();
         msg = j.error || j.message;
       } catch {}
-      throw new Error(msg || "操作失败（" + res.status + "）");
+      const error = new Error(msg || "操作失败（" + res.status + "）");
+      error.status = res.status;
+      throw error;
     }
     if (res.status === 204) return null;
     const text = await res.text();
@@ -127,6 +129,10 @@
     return navigation.research(view, id);
   }
 
+  function wikiURL(note, project = state.project?.id) {
+    return navigation.route("/research", {view: "notes", project, note});
+  }
+
   function toast(msg) {
     const el = $("toast");
     el.textContent = msg;
@@ -137,10 +143,12 @@
 
   function dialog(title, html, {
     wide = false,
-    cleanup = null
+    cleanup = null,
+    canDismiss = null
   } = {}) {
     if (modalCleanup) modalCleanup();
     modalCleanup = cleanup;
+    modalCanDismiss = canDismiss;
     $("dialog-title").textContent = title;
     $("dialog-content").innerHTML = html;
     $("modal").classList.toggle("wide", wide);
@@ -148,11 +156,17 @@
   }
 
   function close() {
+    if (modalCanDismiss && !modalCanDismiss()) return false;
     if ($("modal").open) $("modal").close();
+    return true;
   }
+  $("modal").addEventListener("cancel", ev => {
+    if (modalCanDismiss && !modalCanDismiss()) ev.preventDefault();
+  });
   $("modal").addEventListener("close", () => {
     if (modalCleanup) modalCleanup();
     modalCleanup = null;
+    modalCanDismiss = null;
     $("dialog-content").replaceChildren();
   });
 
@@ -348,7 +362,7 @@
   }
 
   function noteRows(notes) {
-    return list(notes.map(n => row("file", n.title, [n.tags?.join(" · "), fmtDate(n.updatedAt)].filter(Boolean).join(" · "),
+    return list(notes.map(n => row("file", n.title, [n.namespace, n.tags?.join(" · "), fmtDate(n.updatedAt)].filter(Boolean).join(" · "),
       rowAction("read-note", n.id))));
   }
 
@@ -444,11 +458,11 @@
       "button primary", "chat")) + panel("项目会议", state.meetings.length ? meetingRows(state.meetings) : empty("暂无项目会议",
       "进入圆桌后可以创建讨论。"));
     else if (!state.project && state.view !== "tasks") out = projectNeeded();
-    else if (state.view === "notes") out = heading("知识笔记", state.project.name, button("写笔记", "new-note", {
+    else if (state.view === "notes") out = heading("项目 Wiki", state.project.name, button("已归档页面", "archived-notes") + button("新建页面", "new-note", {
       glyph: "plus",
       kind: "button primary"
-    })) + panel("项目笔记 · " + state.notes.length, state.notes.length ? noteRows(state.notes.slice().sort(byRecent)) : empty(
-      "暂无项目笔记", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
+    })) + panel("页面 · " + state.notes.length, state.notes.length ? noteRows(state.notes.slice().sort(byRecent)) : empty(
+      "暂无 Wiki 页面", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
     else if (state.view === "tasks") {
       const tags = [...new Set(state.tasks.flatMap(t => t.tags || []))].sort((a, b) => a.localeCompare(b));
       const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
@@ -594,7 +608,7 @@
     });
   }
 
-  function markdown(source) {
+  function markdown(source, links = {}) {
     if (!window.marked || !window.DOMPurify) return '<pre>' + esc(source) + '</pre>';
     // Work only on text nodes for wikilinks; generated elements cannot inherit raw HTML from note titles.
     const template = document.createElement("template");
@@ -634,18 +648,19 @@
     for (const node of nodes) {
       if (node.parentElement?.closest("code,pre,a")) continue;
       const str = node.textContent,
-        re = /\[\[([^\]\n]{1,160})\]\]/g;
+        re = /\[\[([^\[\]\n|#]+)(?:#[^\[\]|]*)?(?:\|([^\[\]]*))?\]\]/g;
       let match, pos = 0;
       const frag = document.createDocumentFragment();
       while ((match = re.exec(str))) {
         frag.append(str.slice(pos, match.index));
-        const ref = state.notes.find(n => n.title === match[1]);
-        if (ref) {
+        const key = match[1].trim();
+        if (Object.hasOwn(links, key)) {
           const a = document.createElement("button");
+          a.type = "button";
           a.className = "bare";
           a.dataset.action = "read-note";
-          a.dataset.id = ref.id;
-          a.textContent = match[1];
+          a.dataset.id = links[key];
+          a.textContent = match[2]?.trim() || key;
           frag.append(a);
         } else {
           frag.append(match[0]);
@@ -742,6 +757,7 @@
     close,
     toast,
     reader,
+    wikiURL,
     statusLabel,
     taskPriorityLabels,
     taskOnDate,
@@ -757,7 +773,7 @@
     if (!target || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
     if (target.hasAttribute("data-project")) {
       ev.preventDefault();
-      close();
+      if (!close()) return;
       $("shell").classList.remove("mobile-open");
       await load(target.dataset.project, "overview", {
         historyMode: "push"
@@ -877,9 +893,16 @@
         (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
       await E.formAction?.("edit-task", task);
     }
+    const note = u.searchParams.get("note");
+    if (note && state.view === "notes" && state.project?.id === project) {
+      try { await E.openWikiNote(note); } catch (error) { toast(error.message); }
+    }
   }
   window.addEventListener("popstate", () => {
-    close();
+    if (!close()) {
+      history.pushState(null, "", viewURL(state.view));
+      return;
+    }
     route();
   });
   window.addEventListener("pageshow", ev => {

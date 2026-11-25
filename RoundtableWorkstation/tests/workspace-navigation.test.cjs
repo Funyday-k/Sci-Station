@@ -89,3 +89,17 @@ test("global tasks act on the owning project and reload the global calendar", as
   assert.deepEqual(JSON.parse(writes[0].init.body),{revision:3,status:"done"});
   assert.equal(ui.state.project,null);
 });
+
+test("a Wiki page link resolves in its named project after the project loads", async () => {
+  const {ui} = mountResearch("/research?view=notes&project=A&note=page-1");
+  const opened = [];
+  ui.openWikiNote = id => opened.push([ui.state.project.id, id]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(opened, [["A", "page-1"]]);
+  assert.equal(ui.wikiURL("page-1"), "/research?view=notes&project=A&note=page-1");
+
+  const missing = mountResearch("/research?view=notes&project=missing&note=page-1");
+  missing.ui.openWikiNote = id => opened.push(["unexpected", id]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(opened, [["A", "page-1"]]);
+});

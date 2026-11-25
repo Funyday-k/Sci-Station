@@ -1,6 +1,7 @@
 package research
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -51,6 +52,10 @@ type Note struct {
 	Entity
 	ProjectID       string     `json:"projectId"`
 	Title           string     `json:"title"`
+	Namespace       string     `json:"namespace,omitempty"`
+	Aliases         []string   `json:"aliases,omitempty"`
+	PreviousPaths   []string   `json:"previousPaths,omitempty"`
+	Archived        bool       `json:"archived,omitempty"`
 	Body            string     `json:"body"`
 	Tags            []string   `json:"tags"`
 	PaperID         string     `json:"paperId,omitempty"`
@@ -98,6 +103,7 @@ type projectData struct {
 	NoteKeys  map[string]string        `json:"noteKeys"`
 	TaskKeys  map[string]string        `json:"taskKeys"`
 	Relations map[string]GraphRelation `json:"relations,omitempty"`
+	disk      json.RawMessage
 }
 
 // Published project snapshots are immutable. Each mutation copies only its own map
@@ -150,6 +156,7 @@ func New(dir string) (*Service, error) {
 		if err = json.Unmarshal(b, &d); err != nil || d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil || d.Tasks == nil || d.Materials == nil || d.NoteKeys == nil || d.TaskKeys == nil {
 			return nil, fmt.Errorf("科研项目文件无法读取 %q", name)
 		}
+		d.disk = b
 		s.projects[id] = d
 	}
 	s.papers, err = NewPaperLibrary(filepath.Join(s.dir, "library"))
@@ -204,16 +211,39 @@ func (s *Service) HasActiveProject(id string) bool {
 }
 func (s *Service) recordPath(id string) string { return filepath.Join(s.dir, "records", id+".json") }
 func (s *Service) commit(d projectData) error {
+	path := s.recordPath(d.Project.ID)
+	old, exists := s.projects[d.Project.ID]
+	info, err := os.Lstat(path)
+	if err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("invalid project record: %s", d.Project.ID)
+	}
+	disk, err := os.ReadFile(path)
+	if err != nil && (exists || !errors.Is(err, os.ErrNotExist)) {
+		return err
+	}
+	if (exists && !bytes.Equal(old.disk, disk)) || (!exists && err == nil) {
+		return errProjectRecordChanged
+	}
 	b, err := json.Marshal(d)
 	if err != nil {
 		return err
 	}
-	if err = atomicWrite(s.recordPath(d.Project.ID), b); err != nil {
+	if exists {
+		before, err := json.Marshal(old)
+		if err != nil {
+			return err
+		}
+		b = mergeRecordFields(disk, before, b)
+	}
+	if err = atomicWrite(path, b); err != nil {
 		return err
 	}
+	d.disk = b
 	s.projects[d.Project.ID] = d
 	return nil
 }
+
+var errProjectRecordChanged = errors.New("project record changed on disk")
 
 func atomicWrite(path string, b []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".write-")
@@ -312,6 +342,10 @@ func (s *Service) loadProject(w http.ResponseWriter, id string) (projectData, bo
 }
 func (s *Service) save(w http.ResponseWriter, d projectData) bool {
 	if err := s.commit(d); err != nil {
+		if errors.Is(err, errProjectRecordChanged) {
+			jsonFail(w, 409, "项目文件在应用之外已改变，请重新打开科研工作区")
+			return false
+		}
 		jsonFail(w, 500, "无法保存科研数据")
 		return false
 	}

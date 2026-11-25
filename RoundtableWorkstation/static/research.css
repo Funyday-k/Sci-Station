@@ -944,6 +944,23 @@ dialog::backdrop {
   font-family: ui-monospace, monospace
 }
 
+.wiki-fields {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.wiki-fields textarea[name="aliases"] {
+  min-height: 3.25rem;
+}
+
+.wiki-frontmatter pre,
+.wiki-occurrence pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .file-preview {
   width: 100%;
   height: min(53vh, 560px);

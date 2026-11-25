@@ -424,76 +424,196 @@
     });
   }
 
-  function noteForm(n = null) {
-    const base = projectPath("notes" + (n ? "/" + enc(n.id) : ""));
-    dialog(n ? "编辑笔记" : "新建笔记", '<form class="note-edit">' + field("标题", input("title", n?.title,
-        'required maxlength="240" autofocus')) + field("关联论文", paperSelect(n?.paperId)) + field("标签", input("tags", n
-        ?.tags?.join(", "), 'placeholder="用逗号分隔"')) +
-      '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
-      field("内容", area("body", n?.body, 'id="note-body" placeholder="支持 Markdown、数学公式和 [[笔记标题]]"')) +
-      '<div id="draft-preview" class="note-preview" hidden></div>' + formFooter("保存笔记", n ? "note:" + n.id : "") +
-      '</form>', {
-        wide: true
+  function wikiPath(n) {
+    return [n.namespace, n.title].filter(Boolean).join("/");
+  }
+
+  function splitWikiBody(source) {
+    const lines = String(source || "").split(/\r\n|\r|\n/);
+    if (lines[0]?.replace(/^\uFEFF/, "") === "---") {
+      const last = lines.findIndex((line, index) => index > 0 && /^(---|\.\.\.)[ \t]*$/.test(line));
+      if (last > 0) return {frontmatter: lines.slice(1, last).join("\n"), body: lines.slice(last + 1).join("\n")};
+    }
+    return {frontmatter: "", body: source};
+  }
+
+  function noteForm(n = null, moving = false) {
+    const base = projectPath("notes" + (n ? "/" + enc(n.id) : ""), n?.projectId);
+    const namespace = field("目录", input("namespace", n?.namespace,
+      'maxlength="500" placeholder="例如：concept 或 methods/statistics"'));
+    let f, current = n, saved = false, original;
+    const snapshot = () => JSON.stringify([...new FormData(f).entries()]);
+    const dirty = () => f && !saved && !f.dataset.pending && snapshot() !== original;
+    const beforeUnload = event => {
+      if (!dirty()) return;
+      event.preventDefault();
+      event.returnValue = true;
+    };
+    const command = event => {
+      if (event.detail !== "save") return;
+      event.preventDefault();
+      f.requestSubmit();
+    };
+    dialog(moving ? "移动 Wiki 页面" : n ? "编辑 Wiki 页面" : "新建 Wiki 页面",
+      '<form class="note-edit"><fieldset class="wiki-fields">' +
+      (moving ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' + namespace :
+        field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace +
+        field("别名", area("aliases", n?.aliases?.join("\n"), 'aria-label="别名" rows="2" placeholder="每行一个。可用目录/名称指定完整路径。"')) +
+        field("关联论文", paperSelect(n?.paperId)) + field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) +
+        '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
+        field("内容", area("body", n?.body, 'aria-label="内容" id="note-body" placeholder="支持 Markdown、数学公式和 [[concept:页面|显示文字]]"')) +
+        '<div id="draft-preview" class="note-preview" hidden></div>') +
+      '</fieldset><div data-wiki-conflict hidden></div>' + formFooter(moving ? "移动页面" : "保存页面") + '</form>', {
+        wide: !moving,
+        canDismiss: () => !f?.dataset.pending && (!dirty() || window.confirm("放弃当前尚未保存的 Wiki 草稿？")),
+        cleanup: () => {
+          window.removeEventListener("beforeunload", beforeUnload);
+          window.removeEventListener("scistation:command", command);
+        }
       });
-    $("preview-toggle").onclick = () => {
-      const preview = $("draft-preview"),
-        edit = $("note-body").parentElement;
+    if (!moving) $("preview-toggle").onclick = () => {
+      const preview = $("draft-preview"), edit = $("note-body").parentElement;
       const open = preview.hidden;
       preview.hidden = !open;
       edit.hidden = open;
       $("preview-toggle").textContent = open ? "返回编辑" : "预览";
       if (open) {
-        preview.innerHTML = markdown($("note-body").value);
+        preview.innerHTML = markdown(splitWikiBody($("note-body").value).body);
         math(preview);
       }
     };
-    bindForm(async (f, token) => {
-      const body = {
-        title: value(f, "title"),
-        body: f.elements.body.value,
-        tags: split(value(f, "tags")),
-        paperId: value(f, "paperId")
-      };
-      if (n) body.revision = n.revision;
-      await request(base, {
-        method: n ? "PATCH" : "POST",
-        body
+    f = bindForm(async (form, token) => {
+      const body = {namespace: value(form, "namespace")};
+      if (!moving) Object.assign(body, {
+        title: value(form, "title"),
+        body: form.elements.body.value,
+        tags: split(value(form, "tags")),
+        aliases: value(form, "aliases").split(/\r?\n/).map(s => s.trim()).filter(Boolean),
+        paperId: value(form, "paperId")
       });
+      if (current) body.revision = current.revision;
+      const controls = form.querySelector("fieldset");
+      const conflict = form.querySelector("[data-wiki-conflict]");
+      controls.disabled = true;
+      conflict.hidden = true;
+      try {
+        await request(base, {method: current ? "PATCH" : "POST", body});
+        saved = true;
+      } catch (err) {
+        if (err.status === 409 && current) {
+          try {
+            const latest = await request(base);
+            if (latest.revision !== current.revision) {
+              showNoteConflict(conflict, latest, () => { current = latest; });
+            }
+          } catch { /* The save error still explains the conflict. */ }
+        }
+        throw err;
+      } finally {
+        controls.disabled = false;
+      }
+      delete form.dataset.pending;
       done(token);
       await refresh();
-      toast("笔记已保存");
+      toast(moving ? "页面已移动" : "页面已保存");
     });
+    original = snapshot();
+    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("scistation:command", command);
   }
-  async function readNote(n) {
-    const base = projectPath("notes/" + enc(n.id));
-    dialog(n.title, '<div class="actions">' + button("编辑笔记", "edit-note", {
-        id: n.id,
-        kind: "button primary",
-        glyph: "file"
-      }) + link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") + (n.sourceMeetingId ? link(
-          "来源会议", "/studio?project=" + enc(state.project.id) + "&session=" + enc(n.sourceMeetingId), "button", "chat") :
-        "") + (n.paperId ? link("关联论文", reader(n.paperId), "button", "book") : "") +
-      '</div><article class="note-preview" id="note-preview">' + markdown(n.body) + '</article>' +
-      ((n.evidence || []).length ? '<div class="subheading">论文证据</div>' + n.evidence.map(e => '<p>' + (e.paperId ? link(
-          (state.papers.find(p => p.id === e.paperId)?.title || "查看论文") + (e.page ? " · 第 " + e.page + " 页" : ""),
-          reader(e.paperId) + (e.page ? "&page=" + enc(e.page) : ""), "bare") : "") + (e.meetingId ? link("来源会议",
-          "/studio?project=" + enc(state.project.id) + "&session=" + enc(e.meetingId), "bare") : "") +
-        '</p><blockquote>' + esc(e.quote) + '</blockquote>').join("") : "") + '<div id="backlinks"></div>', {
-        wide: true
-      });
-    math($("note-preview"));
-    const el = $("backlinks");
-    try {
-      const refs = await request(base + "/backlinks");
-      if (!el.isConnected) return;
-      if (refs?.length) el.innerHTML = '<div class="subheading">链接到这篇笔记</div>' + refs.map(r => button(r.title,
-        "read-note", {
-          id: r.id,
-          kind: "bare"
-        })).join("");
-    } catch (err) {
-      if (el.isConnected) el.textContent = "反向链接读取失败：" + err.message;
+
+  function showNoteConflict(host, latest, useRevision) {
+    host.hidden = false;
+    host.innerHTML = '<details open><summary>对照已保存版本（修订 ' + esc(latest.revision) + '）</summary>' +
+      '<p>' + esc(wikiPath(latest)) + '</p><p>别名：' + esc(latest.aliases?.join(" · ") || "无") +
+      '　标签：' + esc(latest.tags?.join(" · ") || "无") + '</p>' +
+      field("已保存正文", area("savedBody", latest.body, 'aria-label="已保存正文" readonly')) + '</details>' +
+      '<button class="button" type="button">保留草稿并使用此修订</button>';
+    host.querySelector("button").onclick = () => {
+      useRevision();
+      host.textContent = "已采用查看到的修订。保存时将应用当前草稿。";
+    };
+  }
+
+  function evidenceURL(e) {
+    const href = new URL(reader(e.paperId), location.href);
+    for (const [name, value] of Object.entries({
+      page: e.page, fingerprint: e.sourceHash, quote: e.quote,
+      start: e.selectionStart, end: e.selectionEnd, ocr: e.ocr ? "1" : "", annotation: e.annotationId
+    })) {
+      if (value !== undefined && value !== null && value !== "" && value !== false) href.searchParams.set(name, value);
     }
+    return href.pathname + href.search + href.hash;
+  }
+
+  function noteOccurrence(n, locator) {
+    if (!locator?.line) return "";
+    if (locator.revision && locator.revision !== n.revision) {
+      return '<p class="form-help" role="status">页面已在图谱读取后更新。刷新图谱后可重新定位原文。</p>';
+    }
+    const excerpt = n.body.split(/\r\n|\r|\n/)[locator.line - 1];
+    if (excerpt === undefined) return "";
+    const glyphs = Array.from(excerpt), start = Math.max(0, locator.column - 1 || 0);
+    const count = Array.from(locator.text || "").length;
+    const at = glyphs.slice(start, start + count).join("");
+    const source = count && at === locator.text ? esc(glyphs.slice(0, start).join("")) + '<mark>' + esc(at) + '</mark>' +
+      esc(glyphs.slice(start + count).join("")) : esc(excerpt);
+    return '<section class="wiki-occurrence" aria-label="引用所在原文"><p class="form-help">第 ' + esc(locator.line) +
+      ' 行 · 第 ' + esc(start + 1) + ' 列</p><pre>' + source + '</pre></section>';
+  }
+
+  let wikiRequest = 0, selectedWikiNote = null;
+  E.openWikiNote = async function (id, locator) {
+    const owner = state.project?.id;
+    if (!owner || !id) return;
+    const token = ++wikiRequest;
+    const base = projectPath("notes/" + enc(id), owner);
+    const n = await request(base);
+    if (token !== wikiRequest || state.project?.id !== owner) return;
+    selectedWikiNote = n;
+    const {frontmatter, body} = splitWikiBody(n.body);
+    const noteURL = E.wikiURL(n.id, owner);
+    dialog(n.title, '<p class="form-help">' + esc(wikiPath(n)) + '</p><div class="actions">' +
+      button("编辑页面", "edit-note", {id: n.id, kind: "button primary", glyph: "file"}) +
+      button("移动页面", "move-note", {id: n.id}) +
+      button("归档页面", "confirm-delete", {id: "note:" + n.id, kind: "button"}) +
+      link("页面链接", noteURL, "button") +
+      link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") +
+      (n.sourceMeetingId ? link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button", "chat") : "") +
+      (n.paperId ? link("关联论文", reader(n.paperId), "button", "book") : "") + '</div>' +
+      noteOccurrence(n, locator) + (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary><pre>' +
+        esc(frontmatter) + '</pre></details>' : "") +
+      '<article class="note-preview" id="note-preview">' + markdown(body) + '</article><p class="form-help" id="wiki-link-status" role="status"></p>' +
+      ((n.evidence || []).length ? '<div class="subheading">论文证据</div>' + n.evidence.map(e => '<p>' + (e.paperId ? link(
+        (state.papers.find(p => p.id === e.paperId)?.title || "查看论文") + (e.page ? " · 第 " + e.page + " 页" : ""),
+        evidenceURL(e), "bare") : "") + (e.meetingId ? link("来源会议",
+        "/studio?project=" + enc(owner) + "&session=" + enc(e.meetingId), "bare") : "") +
+        '</p><blockquote>' + esc(e.quote) + '</blockquote>').join("") : "") + '<div id="backlinks"></div>', {wide: true});
+    const preview = $("note-preview"), backlinks = $("backlinks"), status = $("wiki-link-status");
+    math(preview);
+    const revision = "?revision=" + enc(n.revision);
+    const [links, refs] = await Promise.allSettled([
+      request(base + "/links" + revision), request(base + "/backlinks" + revision)
+    ]);
+    if (token !== wikiRequest || state.project?.id !== owner || !preview.isConnected) return;
+    if (links.status === "fulfilled") {
+      preview.innerHTML = markdown(body, links.value);
+      math(preview);
+    } else status.textContent = "页面链接读取失败：" + links.reason.message;
+    if (refs.status === "fulfilled") {
+      if (refs.value?.length) backlinks.innerHTML = '<div class="subheading">链接到此页面</div>' +
+        refs.value.map(ref => button(wikiPath(ref), "read-note", {id: ref.id, kind: "bare"})).join("");
+    } else backlinks.textContent = "反向链接读取失败：" + refs.reason.message;
+  };
+
+  async function archivedNotes() {
+    const owner = state.project.id;
+    const notes = await request(projectPath("notes", owner) + "?archived=1");
+    if (state.project?.id !== owner) return;
+    dialog("已归档 Wiki 页面", notes.length ? notes.map(n => '<div class="row"><span class="row-main">' +
+      esc(wikiPath(n)) + '</span>' + link("导出 Markdown", "/api/research/" + projectPath("notes/" + enc(n.id) + "/markdown", owner) +
+        "?archived=1", "button") + button("恢复", "restore-note", {id: n.id + ":" + n.revision}) + '</div>').join("") :
+      empty("暂无已归档页面"));
   }
 
   function taskEvidence(t) {
@@ -720,7 +840,7 @@
     const map = {
       project: ["项目", state.projects],
       paper: ["文献", state.papers],
-      note: ["笔记", state.notes],
+      note: ["页面", selectedWikiNote?.id === key ? [selectedWikiNote] : state.notes],
       task: ["任务", state.tasks],
       material: ["材料", state.materials]
     };
@@ -732,10 +852,10 @@
       task: "tasks",
       material: "materials"
     })[kind] + "/" + enc(key), obj.projectId);
-    const verb = kind === "project" ? "归档" : "删除";
+    const verb = (kind === "project" || kind === "note") ? "归档" : "删除";
     const sharedTaskNotice = kind === "task" && obj.projectIds?.length > 1 ? "这会从所有关联项目中删除同一条任务。" : "";
     dialog(verb + label, '<form><p>确认' + verb + '“' + esc(obj.title || obj.name) + '”？' + (kind === "project" ?
-      "项目将从工作台隐藏；保留本地文件夹。" : sharedTaskNotice) + '</p>' + formFooter("确认" + verb) + '</form>');
+      "项目将从工作台隐藏；保留本地文件夹。" : kind === "note" ? "可从已归档页面恢复。" : sharedTaskNotice) + '</p>' + formFooter("确认" + verb) + '</form>');
     bindForm(async (_, token) => {
       await request(path + "?revision=" + enc(obj.revision), {
         method: "DELETE"
@@ -784,9 +904,22 @@
     }
     const look = (arr) => arr.find(x => x.id === id);
     if (action === "new-note") return noteForm();
-    if (action === "read-note" || action === "edit-note") {
-      const n = look(state.notes);
-      if (n) return action === "read-note" ? readNote(n) : noteForm(n);
+    if (action === "read-note") return E.openWikiNote(id);
+    if (action === "edit-note" || action === "move-note") {
+      const n = selectedWikiNote?.id === id && selectedWikiNote.projectId === state.project.id ?
+        selectedWikiNote : look(state.notes);
+      if (n) return noteForm(n, action === "move-note");
+    }
+    if (action === "archived-notes") return archivedNotes();
+    if (action === "restore-note") {
+      const [note, revision] = id.split(":");
+      await request(projectPath("notes/" + enc(note) + "/restore"), {
+        method: "POST", body: {revision: Number(revision)}
+      });
+      close();
+      await refresh();
+      toast("页面已恢复");
+      return;
     }
     if (action === "new-relation") return relationForm();
     if (action === "remove-relation") return removeRelation(id);

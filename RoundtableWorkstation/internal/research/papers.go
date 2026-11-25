@@ -189,7 +189,7 @@ func decodePaperRecord(id string, data []byte) (Paper, error) {
 
 // Merge changes to known JSON fields into the on-disk object. An unchanged
 // value retains its original representation, including any newer nested fields.
-func mergePaperFields(disk, before, after json.RawMessage) json.RawMessage {
+func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	if bytes.Equal(before, after) {
 		return disk
 	}
@@ -206,7 +206,7 @@ func mergePaperFields(disk, before, after json.RawMessage) json.RawMessage {
 	}
 	for key, value := range next {
 		if prior, exists := old[key]; exists && original[key] != nil {
-			original[key] = mergePaperFields(original[key], prior, value)
+			original[key] = mergeRecordFields(original[key], prior, value)
 		} else if !exists || !bytes.Equal(prior, value) {
 			original[key] = value
 		}
@@ -278,7 +278,7 @@ func (s *PaperLibrary) saveWithRecordLock(p Paper) error {
 		if err != nil {
 			return err
 		}
-		body = mergePaperFields(disk, before, body)
+		body = mergeRecordFields(disk, before, body)
 	}
 	if err = atomicWrite(filepath.Join(s.dir, "records", p.ID+".json"), body); err != nil {
 		return err
