@@ -5,25 +5,50 @@
   const paperID = inputs.get('paper') || '';
   const projectID = inputs.get('project') || '';
   const apiRoot = '/api/research/papers/' + encodeURIComponent(paperID);
-  const stateKey = 'sci-station.reader.' + paperID;
   let paper, annotations = [], selection = null, currentPage = 1, pageCount = 0;
   let pageData = null, requestNumber = 0, searchNumber = 0, zoom = 1, found = null;
   let projects = [], sessions = [], savedNote = '', noteRevision = 0, editingNote = false;
-  let nativeAvailable = false, editingAnnotation = null;
+  let nativeAvailable = false, editingAnnotation = null, savingNote = false;
+  let trackedPosition = false, pendingPosition = null, writingPosition = false, positionTimer;
+  let searchResults = [], searchedTerm = '', focusedResult = -1;
   const recognized = new Map();
-  const localState = () => {
+
+  function scrollExtent() {
+    const viewport = by('viewport');
+    return Math.max(0, viewport.scrollHeight - viewport.clientHeight) || 0;
+  }
+  function rememberPosition(immediate = false) {
+    if (!trackedPosition || !pageData || !paper.file_sha256)
+      return;
+    const extent = scrollExtent();
+    pendingPosition = {
+      sourceHash: paper.file_sha256,
+      page: currentPage,
+      zoom,
+      scroll: extent ? Math.min(1, Math.max(0, by('viewport').scrollTop / extent)) : 0
+    };
+    clearTimeout(positionTimer);
+    if (immediate)
+      void flushPosition();
+    else
+      positionTimer = setTimeout(flushPosition, 140);
+  }
+  async function flushPosition() {
+    if (!pendingPosition || writingPosition)
+      return;
+    const position = pendingPosition;
+    pendingPosition = null;
+    writingPosition = true;
     try {
-      return JSON.parse(localStorage.getItem(stateKey) || '{}') || {};
-    } catch {
-      return {};
+      await fetchJSON(apiRoot + '/reading-position', 'POST', position, {keepalive:true});
+    } catch (e) {
+      if (!pendingPosition)
+        message('未保存阅读位置。' + errorText(e));
+    } finally {
+      writingPosition = false;
+      void flushPosition();
     }
-  };
-  const persist = () => {
-    try {
-      localStorage.setItem(stateKey, JSON.stringify({page: currentPage, zoom}));
-    } catch {
-    }
-  };
+  }
   const message = text => {
     by('message').textContent = text;
   };
@@ -44,8 +69,8 @@
     });
     return el;
   };
-  async function fetchJSON(path, method = 'GET', payload) {
-    const options = {method, cache: 'no-store', headers: method === 'GET' ? {} : {'X-Roundtable': '1'}};
+  async function fetchJSON(path, method = 'GET', payload, extra = {}) {
+    const options = {...extra, method, cache: 'no-store', headers: method === 'GET' ? {} : {'X-Roundtable': '1'}};
     if (payload !== undefined) {
       options.headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(payload);
@@ -142,7 +167,15 @@
     by('addHighlight').disabled = true;
     by('comment').value = '';
   }
+  function hasAnnotationDraft() {
+    return Boolean(selection && (by('comment').value !== (selection.note || '') ||
+        by('kind').value !== (selection.kind || 'highlight')));
+  }
   function activateSelected(value, editing = false, revision = 0) {
+    if (hasAnnotationDraft()) {
+      message('先保存或取消当前批注草稿。');
+      return false;
+    }
     selection = value;
     editingAnnotation = editing ? {id:value.id, revision} : null;
     by('selectedText').textContent = value.selected_text || '第 ' + value.page + ' 页 · 已选原文区域';
@@ -152,6 +185,8 @@
     by('comment').value = value.note || '';
     by('kind').value = value.kind || 'highlight';
     by('saveSelection').textContent = editing ? '保存修改' : '保存批注';
+    by('selectionPage').textContent = '第 ' + value.page + ' 页';
+    return true;
   }
   function collectSelection() {
     const s = window.getSelection();
@@ -204,22 +239,30 @@
         (r.endContainer.nodeType === 3 && parts[parts.length - 1].contains(r.endContainer) ?
              r.endOffset :
              last.text.length);
-    const quote = pageData.text.slice(start, end).trim() || text;
-    if (selection && !editingAnnotation && selection.page === currentPage &&
-        selection.selected_text === quote)
+    const sourceText = pageData.text.slice(start, end);
+    const quote = sourceText.trim();
+    if (!quote)
       return;
-    activateSelected(
-        {page: currentPage, selected_text: quote, rects, kind: 'highlight', color: '#edc947', note: ''});
+    const selectionStart = start + sourceText.length - sourceText.trimStart().length;
+    const selectionEnd = selectionStart + quote.length;
+    if (selection && !editingAnnotation && selection.page === currentPage &&
+        selection.selectionStart === selectionStart && selection.selectionEnd === selectionEnd)
+      return;
+    activateSelected({
+      page: currentPage, selected_text: quote, selectionStart, selectionEnd, ocr: Boolean(pageData.ocr),
+      rects, kind: 'highlight', color: '#edc947', note: ''
+    });
   }
-  async function goPage(number, preserve = false) {
+  async function goPage(number, {restore = false, track = true, scroll = 0, ocr = false} = {}) {
     if (!nativeAvailable || !Number.isFinite(number))
       return;
     const page = Math.max(1, Math.min(pageCount, Math.trunc(number)));
     setRegionMode(false);
     currentPage = page;
     const ticket = ++requestNumber;
-    if (!preserve)
+    if (!hasAnnotationDraft())
       resetSelection();
+    trackedPosition = track;
     pageData = null;
     by('pageStatus').textContent = '正在读取第 ' + page + ' 页…';
     updatePageControls();
@@ -228,7 +271,9 @@
     by('pageImage').removeAttribute('src');
     by('pageSurface').hidden = true;
     try {
-      const data = recognized.get(page) || await fetchJSON(apiRoot + '/pages/' + page);
+      const data = recognized.get(page) || await fetchJSON(apiRoot + '/pages/' + page + (ocr ? '/ocr' : ''));
+      if (ocr)
+        recognized.set(page, data);
       if (ticket !== requestNumber)
         return;
       const image = new Image();
@@ -257,26 +302,75 @@
       by('pageSurface').hidden = false;
       applyZoom();
       paintMarks();
-      by('viewport').scrollTop = 0;
-      if (found && found.page === page) {
-        const target = data.words.find(w => w.start < found.end && w.end > found.start);
-        if (target)
-          by('viewport').scrollTop = Math.max(0, target.box.y * by('pageSurface').clientHeight - 110);
-      }
+      by('viewport').scrollTop = scroll * scrollExtent();
+      if (found && found.page === page)
+        focusWord(found);
+
       by('ocr').hidden = Boolean(data.words.length) || Boolean(data.ocr);
       by('pageStatus').textContent = data.ocr ? '第 ' + page + ' 页 · 本地识别文本，请对照原页' :
           data.words.length                   ? '第 ' + page + ' 页 · 拖选文字可批注或送入圆桌' :
                                                 '第 ' + page + ' 页 · 此页没有可选择的文本层';
       const u = new URL(location.href);
       u.searchParams.set('page', String(page));
-      history.replaceState(null, '', u);
-      persist();
+      if (!restore) {
+        for (const param of ['annotation', 'fingerprint', 'quote', 'start', 'end', 'ocr'])
+          u.searchParams.delete(param);
+      }
+      if (window.SciStationNav)
+        window.SciStationNav.commitURL(u, 'replace');
+      else
+        history.replaceState(null, '', u);
+      if (!restore)
+        rememberPosition(true);
     } catch (err) {
       if (ticket !== requestNumber)
         return;
       by('pageStatus').textContent = '';
       displayEmpty(errorText(err), true);
     }
+  }
+  function scrollToBox(box) {
+    if (box)
+      by('viewport').scrollTop = Math.max(0, box.y * by('pageSurface').clientHeight - 100);
+  }
+  function focusWord(range) {
+    const word = pageData?.words.find(w => w.start < range.end && w.end > range.start);
+    if (word)
+      scrollToBox(word.box);
+    return Boolean(word);
+  }
+  function sourceNotice(text) {
+    by('sourceNotice').textContent = text;
+    by('sourceNotice').hidden = false;
+  }
+  function quoteRange(quote, start, end, annotation) {
+    if (start != null || end != null) {
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+          start < 0 || end <= start || end > pageData.text.length || pageData.text.slice(start, end) !== quote)
+        return null;
+      return {start, end};
+    }
+    let at = pageData.text.indexOf(quote);
+    if (at < 0)
+      return null;
+    if (pageData.text.indexOf(quote, at + 1) < 0)
+      return {start:at, end:at + quote.length};
+
+    // Older marks have geometry but no exact character range. Locate a
+    // repeated quote only when the saved mark favors one displayed occurrence.
+    const box = annotation?.rects?.[0];
+    if (!box)
+      return null;
+    const matches = [];
+    while (at >= 0) {
+      const end = at + quote.length;
+      const b = pageData.words.find(w => w.start < end && w.end > at)?.box;
+      if (b && b.x < box.x + box.width && b.x + b.width > box.x &&
+          b.y < box.y + box.height && b.y + b.height > box.y)
+        matches.push({start:at, end});
+      at = pageData.text.indexOf(quote, at + 1);
+    }
+    return matches.length === 1 ? matches[0] : null;
   }
   function showTab(notes) {
     by('annTab').setAttribute('aria-selected', String(!notes));
@@ -301,14 +395,17 @@
       const actions = node('div', null, 'ann-actions');
       actions.append(button('第 ' + a.page + ' 页', async () => {
         await goPage(a.page);
-        const b = a.rects?.[0];
-        if (b)
-          by('viewport').scrollTop = Math.max(0, b.y * by('pageSurface').clientHeight - 80);
+        if (currentPage === a.page)
+          scrollToBox(a.rects?.[0]);
       }, 'where'));
       actions.append(button('编辑', async () => {
+        if (hasAnnotationDraft()) {
+          message('先保存或取消当前批注草稿。');
+          return;
+        }
         await goPage(a.page);
-        activateSelected(a, true, observedRevision);
-        by('comment').focus();
+        if (currentPage === a.page && activateSelected(a, true, observedRevision))
+          by('comment').focus();
       }));
       if (a.selected_text)
         actions.append(button('入会', () => openHandoff(a)));
@@ -325,7 +422,7 @@
           annotationConflict();
           return;
         }
-        if (selection?.id === a.id)
+        if (selection?.id === a.id && !hasAnnotationDraft())
           resetSelection();
         await refreshRevision();
       });
@@ -342,64 +439,82 @@
   }
   function annotationConflict() {
     by('reloadAnnotations').hidden=false;
-    message('批注已有更新。当前草稿仍在，可复制后读取最新批注。');
+    message('批注已有更新。读取最新批注时会保留当前草稿。');
   }
-  async function refreshRevision() {
-    const updated = await fetchJSON(apiRoot);
-    // Local edits retain their original baseline so a concurrent remote edit
-    // will trigger a conflict instead of overwriting newer saved notes.
-    if ((updated.notes || '') === savedNote)
+  function applyPaperSnapshot(updated, {replaceNote = false} = {}) {
+    if (updated.revision < paper.revision)
+      updated = paper;
+    const updatedNotes = updated.notes || '';
+    // Advance the base of an unrelated draft only if its saved content is unchanged.
+    if (updatedNotes === savedNote)
       noteRevision = updated.revision;
-    if (!editingNote) {
-      savedNote = updated.notes || '';
+    if (!editingNote || replaceNote) {
+      savedNote = updatedNotes;
       by('notes').value = savedNote;
       noteRevision = updated.revision;
     }
+    const latestAnnotations = updated.annotations || [];
+    if (editingAnnotation) {
+      const latest = latestAnnotations.find(a => a.id === editingAnnotation.id);
+      if (latest && JSON.stringify(latest) === JSON.stringify(selection))
+        editingAnnotation.revision = updated.revision;
+    }
     paper = updated;
-    annotations = updated.annotations || [];
+    annotations = latestAnnotations;
     renderAnn();
     paintMarks();
+  }
+  async function refreshRevision() {
+    applyPaperSnapshot(await fetchJSON(apiRoot));
     by('reloadAnnotations').hidden = true;
   }
   async function saveAnnotation() {
-    if (!selection)
+    if (!selection || by('saveSelection').disabled)
       return;
-    const edit = editingAnnotation;
+    const saving = selection, edit = editingAnnotation;
     const payload = {
       page: selection.page,
       kind: by('kind').value,
       selected_text: selection.selected_text,
       note: by('comment').value.trim(),
       color: selection.color || '#edc947',
-      rects: selection.rects
+      rects: selection.rects,
+      selectionStart: selection.selectionStart,
+      selectionEnd: selection.selectionEnd,
+      ocr: selection.ocr
     };
-    by('saveSelection').disabled = true;
+    for (const id of ['saveSelection', 'comment', 'kind'])
+      by(id).disabled = true;
     try {
       await fetchJSON(
           apiRoot + '/annotations' + (edit ? '/' + encodeURIComponent(edit.id) + '?revision=' + edit.revision : ''), edit ? 'PUT' : 'POST',
           payload);
-      resetSelection();
-      window.getSelection()?.removeAllRanges();
+      if (selection === saving) {
+        resetSelection();
+        window.getSelection()?.removeAllRanges();
+      }
       await refreshRevision();
       message('已保存批注。');
     } catch (e) {
       if(e.status===409) annotationConflict();
       else message(errorText(e));
     } finally {
-      by('saveSelection').disabled = false;
+      for (const id of ['saveSelection', 'comment', 'kind'])
+        by(id).disabled = false;
     }
   }
   async function saveNote() {
-    if (!paper || !editingNote)
+    if (!paper || !editingNote || savingNote)
       return;
     const draft = by('notes').value;
+    savingNote = true;
     by('saveNotes').disabled = true;
     try {
       const fresh = await fetchJSON(apiRoot, 'PUT', {revision: noteRevision, notes: draft});
-      paper = fresh;
       savedNote = draft;
       noteRevision = fresh.revision;
       editingNote = by('notes').value !== draft;
+      applyPaperSnapshot(fresh);
       by('notesStatus').textContent = editingNote ? '有未保存的更改' : '已保存';
       by('reloadNote').hidden = true;
     } catch (e) {
@@ -408,6 +523,7 @@
           errorText(e);
       by('reloadNote').hidden = e.status !== 409;
     } finally {
+      savingNote = false;
       by('saveNotes').disabled = !editingNote;
     }
   }
@@ -415,7 +531,7 @@
     const p = projects.find(x => x.id === by('projectSelect').value), el = by('sessionSelect');
     el.replaceChildren(new Option('新建圆桌', ''));
     if (p)
-      sessions.filter(s => s.project === p.path && s.status !== 'closed')
+      sessions.filter(s => s.project_id === p.id && s.status !== 'closed')
           .forEach(s => el.append(new Option(s.title || s.topic || '已有圆桌', s.id)));
     by('submitHandoff').disabled = !p;
   }
@@ -429,10 +545,10 @@
     }
     const result =
         await Promise.all([fetchJSON('/api/research/projects'), fetchJSON('/api/studio/sessions')]);
-    projects = result[0];
+    projects = result[0].filter(p => paper.project_ids?.includes(p.id));
     sessions = Array.isArray(result[1]) ? result[1] : result[1].sessions || [];
     if (!projects.length) {
-      message('先在科研工作区创建一个项目，再选择入会。');
+      message('请先在文献库中将论文加入一个科研项目。');
       return;
     }
     handoffSelection = a;
@@ -446,8 +562,20 @@
     updateMeetings();
     by('handoffDialog').showModal();
   }
-  function submitHandoff() {
-    if (!handoffSelection || !by('projectSelect').value)
+  function verifyExcerpt(source) {
+    return fetchJSON(apiRoot + '/verify-evidence', 'POST', {
+      page: source.page,
+      quote: source.quote,
+      sourceHash: source.fingerprint,
+      annotationId: source.annotationId,
+      selectionStart: source.selectionStart,
+      selectionEnd: source.selectionEnd,
+      ocr: source.ocr
+    });
+  }
+  async function submitHandoff() {
+    const submit = by('submitHandoff');
+    if (!handoffSelection || !by('projectSelect').value || submit.disabled)
       return;
     const projectId = by('projectSelect').value, sessionId = by('sessionSelect').value;
     const payload = {
@@ -458,20 +586,29 @@
       quote: handoffSelection.selected_text,
       fingerprint: paper.file_sha256 || '',
       annotationId: handoffSelection.id || '',
+      selectionStart: handoffSelection.selectionStart,
+      selectionEnd: handoffSelection.selectionEnd,
+      ocr: handoffSelection.ocr || undefined,
       sessionId
     };
+    const dialog = by('handoffDialog');
+    submit.disabled = true;
     try {
+      await verifyExcerpt(payload);
+      if (!dialog.open || by('projectSelect').value !== projectId || by('sessionSelect').value !== sessionId)
+        return;
       sessionStorage.setItem('sci-station.paper-handoff', JSON.stringify(payload));
-    } catch {
-      message('无法暂存会议选段。请检查应用存储权限。');
-      by('handoffDialog').close();
-      return;
+      const path = new URL('/studio', location.origin);
+      path.searchParams.set('project', projectId);
+      if (sessionId)
+        path.searchParams.set('session', sessionId);
+      location.assign(path);
+    } catch (e) {
+      dialog.close();
+      message(errorText(e));
+    } finally {
+      submit.disabled = !by('projectSelect').value;
     }
-    const path = new URL('/studio', location.origin);
-    path.searchParams.set('project', projectId);
-    if (sessionId)
-      path.searchParams.set('session', sessionId);
-    location.assign(path);
   }
   function showFind(open) {
     by('findBar').hidden = !open;
@@ -485,8 +622,8 @@
       paintMarks();
     }
   }
-  async function findText(e) {
-    e.preventDefault();
+  async function findText(e, direction = 1) {
+    e?.preventDefault();
     const query = by('findTerm').value.trim();
     if (!query)
       return;
@@ -517,19 +654,96 @@
         }
       }
       data.items.sort((a, b) => a.page - b.page || a.start - b.start);
+      searchResults = data.items;
+      searchedTerm = query;
+      focusedResult = -1;
       host.replaceChildren(node(
           'p',
           data.items.length ? (data.limited ? '显示前 120 处匹配' : '共 ' + data.items.length + ' 处匹配') :
                               '未找到匹配文字',
           'muted'));
-      data.items.forEach(hit => host.append(button('第 ' + hit.page + ' 页 · ' + hit.text, () => {
-        found = hit;
-        return goPage(hit.page);
-      })));
+      data.items.forEach((hit, i) => host.append(button('第 ' + hit.page + ' 页 · ' + hit.text,
+          () => focusResult(i))));
+      if (data.items.length)
+        await focusResult(direction === 1 ? 0 : data.items.length - 1);
+      else {
+        found = null;
+        paintMarks();
+      }
     } catch (err) {
       if (n === searchNumber)
         host.textContent = errorText(err);
     }
+  }
+  function focusResult(index) {
+    focusedResult = index;
+    found = searchResults[index];
+    return goPage(found.page);
+  }
+  function advanceFind(direction) {
+    if (by('findBar').hidden)
+      showFind(true);
+    if (!by('findTerm').value.trim())
+      return;
+    if (by('findTerm').value.trim() !== searchedTerm || !searchResults.length)
+      return findText(null, direction);
+    const offset = focusedResult < 0 && direction === -1 ? 0 : focusedResult;
+    return focusResult((offset + direction + searchResults.length) % searchResults.length);
+  }
+  async function restoreReaderPosition() {
+    const fingerprint = inputs.get('fingerprint');
+    const annotationId = inputs.get('annotation');
+    const quoteParam = inputs.get('quote');
+    const isCitation = Boolean(fingerprint || annotationId || quoteParam);
+    const annot = annotations.find(a => a.id === annotationId);
+    const saved = paper.reading_position?.sourceHash === paper.file_sha256 ? paper.reading_position : null;
+    zoom = Math.max(.55, Math.min(3, Number(saved?.zoom) || 1));
+    const requested = Number(inputs.get('page')) || annot?.page || saved?.page || 1;
+    const sourceAnn = annot?.page === requested && (!quoteParam || quoteParam === annot.selected_text) ? annot : null;
+    const source = {
+      page: requested,
+      quote: quoteParam || sourceAnn?.selected_text,
+      annotationId,
+      fingerprint,
+      selectionStart: inputs.has('start') ? Number(inputs.get('start')) : sourceAnn?.selectionStart,
+      selectionEnd: inputs.has('end') ? Number(inputs.get('end')) : sourceAnn?.selectionEnd,
+      ocr: inputs.get('ocr') === '1' || (!quoteParam && sourceAnn?.ocr)
+    };
+    if (fingerprint && fingerprint !== paper.file_sha256) {
+      sourceNotice('当前 PDF 与摘录保存的原件指纹不同。');
+      await goPage(1, {restore:true, track:false});
+      return;
+    }
+    if (source.quote && (fingerprint || quoteParam)) {
+      try {
+        await verifyExcerpt(source);
+      } catch (e) {
+        sourceNotice('无法核对保存的 PDF 摘录。' + errorText(e));
+        await goPage(e.status === 409 ? 1 : requested, {restore:true, track:false});
+        return;
+      }
+    }
+    await goPage(requested, {
+      restore:true,
+      track:!isCitation,
+      scroll:!isCitation && saved?.page === requested ? Number(saved.scroll) || 0 : 0,
+      ocr:Boolean(source.ocr)
+    });
+    if (!isCitation || !pageData || currentPage !== requested)
+      return;
+    if (source.quote) {
+      const range = quoteRange(source.quote, source.selectionStart, source.selectionEnd, sourceAnn);
+      if (range && focusWord(range)) {
+        found = {page:requested, ...range};
+        paintMarks();
+      } else {
+        sourceNotice('已打开原页，但无法定位所保存的选段。');
+      }
+    } else if (sourceAnn) {
+      scrollToBox(sourceAnn.rects?.[0]);
+    }
+    if (sourceAnn)
+      document.getElementById('annotation-' + sourceAnn.id)?.scrollIntoView({block:'nearest'});
   }
   async function initialize() {
     updatePageControls();
@@ -553,14 +767,9 @@
       window.SciReaderGraphSource?.open(paper, inputs, by, showTab);
       annotations = paper.annotations || [];
       renderAnn();
-      const hasStaleSource =
-          Boolean(inputs.get('fingerprint') && paper.file_sha256 !== inputs.get('fingerprint'));
-      if (hasStaleSource) {
-        by('sourceNotice').textContent =
-            '当前 PDF 与会议保存的原件指纹不同。请重新核对原文，旧摘录可在会议记录中查看。';
-        by('sourceNotice').hidden = false;
-      }
       if (!paper.has_pdf) {
+        if (inputs.has('fingerprint'))
+          sourceNotice('此论文当前缺少摘录所引用的 PDF 原件。');
         displayEmpty('此条文献暂未附有本地 PDF。');
         const controls = node('div', null, 'actions');
         const file = node('input');
@@ -618,18 +827,7 @@
       const info = await fetchJSON(apiRoot + '/pages');
       pageCount = info.pages;
       nativeAvailable = true;
-      const saved = localState();
-      zoom = Math.max(.55, Math.min(3, Number(saved.zoom) || 1));
-      const ann = !hasStaleSource && annotations.find(a => a.id === inputs.get('annotation'));
-      const requested =
-          hasStaleSource ? 1 : (Number(inputs.get('page')) || ann?.page || Number(saved.page) || 1);
-      await goPage(requested);
-      if (ann) {
-        const b = ann.rects?.[0];
-        if (b)
-          by('viewport').scrollTop = Math.max(0, b.y * by('pageSurface').clientHeight - 80);
-        document.getElementById('annotation-' + ann.id)?.scrollIntoView({block: 'nearest'});
-      }
+      await restoreReaderPosition();
     } catch (err) {
       displayEmpty(errorText(err), Boolean(paper?.has_pdf));
     }
@@ -640,17 +838,20 @@
   by('larger').onclick = () => {
     zoom = Math.min(3, zoom + .2);
     applyZoom();
-    persist();
+    trackedPosition = true;
+    rememberPosition(true);
   };
   by('smaller').onclick = () => {
     zoom = Math.max(.55, zoom - .2);
     applyZoom();
-    persist();
+    trackedPosition = true;
+    rememberPosition(true);
   };
   by('fit').onclick = () => {
     zoom = 1;
     applyZoom();
-    persist();
+    trackedPosition = true;
+    rememberPosition(true);
   };
   by('findButton').onclick = () => showFind(by('findBar').hidden);
   by('closeFind').onclick = () => showFind(false);
@@ -659,24 +860,21 @@
   by('notesTab').onclick = () => showTab(true);
   by('notes').oninput = () => {
     editingNote = by('notes').value !== savedNote;
-    by('saveNotes').disabled = !editingNote;
+    by('saveNotes').disabled = !editingNote || savingNote;
     by('notesStatus').textContent = editingNote ? '有未保存的更改' : '';
   };
   by('reloadAnnotations').onclick = async () => {
     try {
       await refreshRevision();
-      resetSelection();
       message('已读取最新批注。');
-    } catch(err) {message(errorText(err));}
+    } catch (err) {
+      message(errorText(err));
+    }
   };
   by('saveNotes').onclick = saveNote;
   by('reloadNote').onclick = async () => {
     try {
-      const p = await fetchJSON(apiRoot);
-      paper = p;
-      noteRevision = p.revision;
-      savedNote = p.notes || '';
-      by('notes').value = savedNote;
+      applyPaperSnapshot(await fetchJSON(apiRoot), {replaceNote:true});
       editingNote = false;
       by('saveNotes').disabled = true;
       by('notesStatus').textContent = '已读取保存版本。';
@@ -737,8 +935,8 @@
     if (rect.width < .002 || rect.height < .002)
       return;
     showTab(false);
-    activateSelected({page: currentPage, selected_text: '', kind: 'note', rects: [rect], note: ''});
-    by('comment').focus();
+    if (activateSelected({page: currentPage, selected_text: '', kind: 'note', rects: [rect], note: ''}))
+      by('comment').focus();
   });
   by('pageSurface').addEventListener('pointercancel', () => setRegionMode(false));
 
@@ -777,21 +975,38 @@
   by('cancelHandoff').onclick = () => by('handoffDialog').close();
   by('submitHandoff').onclick = submitHandoff;
   window.addEventListener('resize', applyZoom);
+  const viewport = by('viewport');
+  viewport.addEventListener('scroll', () => rememberPosition());
+  for (const event of ['wheel', 'pointerdown', 'keydown'])
+    viewport.addEventListener(event, () => trackedPosition = true);
+  window.addEventListener('pagehide', flushPosition);
   window.addEventListener('beforeunload', e => {
-    if (editingNote) {
+    void flushPosition();
+    if (editingNote || hasAnnotationDraft()) {
       e.preventDefault();
       e.returnValue = '';
     }
   });
-  window.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && nativeAvailable) {
-      e.preventDefault();
+  window.addEventListener('scistation:command', e => {
+    const command = e.detail;
+    if (command === 'find' && nativeAvailable)
       showFind(true);
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !by('notesPanel').hidden) {
-      e.preventDefault();
-      saveNote();
-    }
+    else if (command === 'findNext' && nativeAvailable)
+      void advanceFind(1);
+    else if (command === 'findPrevious' && nativeAvailable)
+      void advanceFind(-1);
+    else if (command === 'save' && !by('notesPanel').hidden && !by('saveNotes').disabled)
+      void saveNote();
+    else if (command === 'save' && !by('annotPanel').hidden && selection)
+      void saveAnnotation();
+    else if (command === 'bibtex' && !by('bib').hidden)
+      by('bib').click();
+    else if ((command === 'externalPDF' || command === 'reveal') && paper?.has_pdf) {
+      const action = command === 'reveal' ? 'reveal' : 'open';
+      void fetchJSON(apiRoot + '/native-file', 'POST', {action}).catch(e => message(errorText(e)));
+    } else
+      return;
+    e.preventDefault();
   });
   initialize();
 })();

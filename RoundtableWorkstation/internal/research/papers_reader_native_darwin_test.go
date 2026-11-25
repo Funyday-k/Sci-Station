@@ -4,12 +4,14 @@ package research
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"image/png"
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -151,11 +153,22 @@ func TestReaderRoutesReopenAndLocateEvidence(t *testing.T) {
 	if out.Code != 200 || !strings.Contains(out.Body.String(), `"page":2`) {
 		t.Fatalf("search: %d", out.Code)
 	}
-	out = call("POST", "/annotations", `{"page":2,"kind":"highlight","selected_text":"Evidence","note":"evaluate","rects":[{"x":0.1,"y":0.2,"width":0.2,"height":0.1}]}`)
+	out = call("POST", "/annotations", `{"page":2,"kind":"highlight","selected_text":"Evidence","selectionStart":0,"selectionEnd":8,"note":"evaluate","rects":[{"x":0.1,"y":0.2,"width":0.2,"height":0.1}]}`)
 	if out.Code != 201 {
 		t.Fatalf("save annotation: %d %s", out.Code, out.Body.String())
 	}
 	p, _ := library.Snapshot(record.ID)
+	position := fmt.Sprintf(`{"sourceHash":%q,"page":2,"zoom":1.4,"scroll":0.42}`, record.FileSHA256)
+	if out = call("POST", "/reading-position", position); out.Code != 204 {
+		t.Fatalf("save reading position: %d %s", out.Code, out.Body.String())
+	}
+	withPosition, _ := library.Snapshot(record.ID)
+	if withPosition.Revision != p.Revision || withPosition.UpdatedAt != p.UpdatedAt {
+		t.Fatal("reading position changed the content revision or updated timestamp")
+	}
+	if out = call("POST", "/reading-position", strings.Replace(position, record.FileSHA256, "other", 1)); out.Code != 409 {
+		t.Fatalf("stale reading source was accepted: %d", out.Code)
+	}
 	out = call("PUT", "", fmt.Sprintf(`{"revision":%d,"notes":"study the assumptions"}`, p.Revision))
 	if out.Code != 200 {
 		t.Fatalf("save notes: %d %s", out.Code, out.Body.String())
@@ -169,11 +182,46 @@ func TestReaderRoutesReopenAndLocateEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, _ = library.Snapshot(record.ID)
-	if len(p.Annotations) != 1 || p.Annotations[0].Page != 2 || p.Notes != "study the assumptions" || p.FileSHA256 != record.FileSHA256 {
+	if len(p.Annotations) != 1 || p.Annotations[0].Page != 2 || p.Notes != "study the assumptions" || p.FileSHA256 != record.FileSHA256 ||
+		p.ReadingPosition == nil || p.ReadingPosition.Page != 2 || p.ReadingPosition.Zoom != 1.4 || p.ReadingPosition.Scroll != 0.42 {
 		t.Fatalf("reopened values: %+v", p)
+	}
+	ann := p.Annotations[0]
+	evidence := Evidence{
+		PaperID: p.ID, Page: ann.Page, Quote: ann.SelectedText, SourceHash: p.FileSHA256,
+		AnnotationID: ann.ID, SelectionStart: ann.SelectionStart, SelectionEnd: ann.SelectionEnd,
+	}
+	if ann.SelectionStart == nil || ann.SelectionEnd == nil {
+		t.Fatalf("source range not restored: %+v", ann)
+	}
+	if err := library.VerifyPDFEvidence(context.Background(), evidence); err != nil {
+		t.Fatalf("verify reopened source: %v", err)
+	}
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out = call("POST", "/verify-evidence", string(encoded)); out.Code != 204 {
+		t.Fatalf("verify endpoint: %d %s", out.Code, out.Body.String())
+	}
+	wrongOffset := 1
+	evidence.SelectionStart = &wrongOffset
+	if err := library.VerifyPDFEvidence(context.Background(), evidence); err == nil {
+		t.Fatal("accepted correct quote with wrong offset")
+	}
+	evidence.SelectionStart, evidence.SelectionEnd = nil, nil
+	if err := library.VerifyPDFEvidence(context.Background(), evidence); err != nil {
+		t.Fatalf("verify legacy quote-only evidence: %v", err)
 	}
 	out = call("GET", "/pdf", "")
 	if out.Code != 200 || !bytes.Equal(out.Body.Bytes(), pdf) {
 		t.Fatal("annotating changed the source PDF")
+	}
+	path := filepath.Join(directory, "pdf", record.ID+".pdf")
+	if err := os.WriteFile(path, append(pdf, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := library.VerifyPDFEvidence(context.Background(), evidence); err == nil || !strings.Contains(err.Error(), "PDF 指纹不同") {
+		t.Fatalf("edited file with same extract must fail at digest check: %v", err)
 	}
 }

@@ -26,14 +26,17 @@ type AnnotationRect struct {
 	Height float64 `json:"height"`
 }
 type PaperAnnotation struct {
-	ID           string           `json:"id"`
-	Page         int              `json:"page"`
-	Kind         string           `json:"kind"`
-	SelectedText string           `json:"selected_text"`
-	Note         string           `json:"note"`
-	Color        string           `json:"color"`
-	Rects        []AnnotationRect `json:"rects"`
-	CreatedAt    time.Time        `json:"created_at"`
+	ID             string           `json:"id"`
+	Page           int              `json:"page"`
+	Kind           string           `json:"kind"`
+	SelectedText   string           `json:"selected_text"`
+	Note           string           `json:"note"`
+	Color          string           `json:"color"`
+	Rects          []AnnotationRect `json:"rects"`
+	CreatedAt      time.Time        `json:"created_at"`
+	SelectionStart *int             `json:"selectionStart,omitempty"`
+	SelectionEnd   *int             `json:"selectionEnd,omitempty"`
+	OCR            bool             `json:"ocr,omitempty"`
 }
 
 // A shared paper has one set of reading choices for each project that uses it.
@@ -76,14 +79,15 @@ type PaperMetadata struct {
 }
 type Paper struct {
 	PaperMetadata
-	diskHash    [32]byte
-	ID          string            `json:"id"`
-	HasPDF      bool              `json:"has_pdf"`
-	FileSHA256  string            `json:"file_sha256"`
-	Revision    int               `json:"revision"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	Annotations []PaperAnnotation `json:"annotations"`
+	diskHash        [32]byte
+	ID              string              `json:"id"`
+	HasPDF          bool                `json:"has_pdf"`
+	FileSHA256      string              `json:"file_sha256"`
+	Revision        int                 `json:"revision"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+	Annotations     []PaperAnnotation   `json:"annotations"`
+	ReadingPosition *PDFReadingPosition `json:"reading_position,omitempty"`
 }
 type PaperLibrary struct {
 	dir        string
@@ -167,7 +171,17 @@ func clonePaper(p Paper) Paper {
 	p.References = append([]string{}, p.References...)
 	p.Annotations = append([]PaperAnnotation{}, p.Annotations...)
 	for i := range p.Annotations {
-		p.Annotations[i].Rects = append([]AnnotationRect{}, p.Annotations[i].Rects...)
+		annotation := &p.Annotations[i]
+		annotation.Rects = append([]AnnotationRect{}, annotation.Rects...)
+		if annotation.SelectionStart != nil {
+			annotation.SelectionStart = new(*annotation.SelectionStart)
+		}
+		if annotation.SelectionEnd != nil {
+			annotation.SelectionEnd = new(*annotation.SelectionEnd)
+		}
+	}
+	if p.ReadingPosition != nil {
+		p.ReadingPosition = new(*p.ReadingPosition)
 	}
 	return p
 }
@@ -206,12 +220,53 @@ func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	}
 	for key, value := range next {
 		if prior, exists := old[key]; exists && original[key] != nil {
-			original[key] = mergeRecordFields(original[key], prior, value)
+			if key == "annotations" && !bytes.Equal(prior, value) {
+				original[key] = mergePaperAnnotations(original[key], prior, value)
+			} else {
+				original[key] = mergeRecordFields(original[key], prior, value)
+			}
 		} else if !exists || !bytes.Equal(prior, value) {
 			original[key] = value
 		}
 	}
 	merged, _ := json.Marshal(original) // entries come only from parsed JSON
+	return merged
+}
+
+// Annotation arrays may change order or length. Match by stable ID to
+// preserve extensions on existing annotations when writing another mark.
+func mergePaperAnnotations(disk, before, after json.RawMessage) json.RawMessage {
+	type annotationIdentity struct {
+		ID string `json:"id"`
+	}
+	index := func(data json.RawMessage) (map[string]json.RawMessage, bool) {
+		var entries []json.RawMessage
+		if json.Unmarshal(data, &entries) != nil {
+			return nil, false
+		}
+		byID := make(map[string]json.RawMessage, len(entries))
+		for _, entry := range entries {
+			var identity annotationIdentity
+			if json.Unmarshal(entry, &identity) != nil || identity.ID == "" || byID[identity.ID] != nil {
+				return nil, false
+			}
+			byID[identity.ID] = entry
+		}
+		return byID, true
+	}
+	original, originalOK := index(disk)
+	old, oldOK := index(before)
+	var next []json.RawMessage
+	if !originalOK || !oldOK || json.Unmarshal(after, &next) != nil {
+		return after
+	}
+	for i, entry := range next {
+		var identity annotationIdentity
+		if json.Unmarshal(entry, &identity) == nil && original[identity.ID] != nil && old[identity.ID] != nil {
+			next[i] = mergeRecordFields(original[identity.ID], old[identity.ID], entry)
+		}
+	}
+	merged, _ := json.Marshal(next)
 	return merged
 }
 

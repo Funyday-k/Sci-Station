@@ -40,12 +40,16 @@ type Project struct {
 }
 
 type Evidence struct {
-	PaperID    string `json:"paperId,omitempty"`
-	Page       int    `json:"page,omitempty"`
-	Quote      string `json:"quote"`
-	SourceHash string `json:"sourceHash,omitempty"`
-	MeetingID  string `json:"meetingId,omitempty"`
-	TurnID     string `json:"turnId,omitempty"`
+	PaperID        string `json:"paperId,omitempty"`
+	Page           int    `json:"page,omitempty"`
+	Quote          string `json:"quote"`
+	SourceHash     string `json:"sourceHash,omitempty"`
+	MeetingID      string `json:"meetingId,omitempty"`
+	TurnID         string `json:"turnId,omitempty"`
+	AnnotationID   string `json:"annotationId,omitempty"`
+	SelectionStart *int   `json:"selectionStart,omitempty"`
+	SelectionEnd   *int   `json:"selectionEnd,omitempty"`
+	OCR            bool   `json:"ocr,omitempty"`
 }
 
 type Note struct {

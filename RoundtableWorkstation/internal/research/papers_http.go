@@ -169,6 +169,16 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch chunks[1] {
+	case "verify-evidence":
+		if len(chunks) == 2 {
+			s.verifyPDFEvidenceHTTP(w, r, p)
+			return
+		}
+	case "reading-position":
+		if len(chunks) == 2 {
+			s.updatePDFReadingPositionHTTP(w, r, p.ID)
+			return
+		}
 	case "pages":
 		readerPages(w, r, s, id, chunks[2:])
 		return
@@ -405,6 +415,9 @@ func validAnnotation(a *PaperAnnotation) bool {
 		a.Color = "#ffdd55"
 	}
 	if a.Page <= 0 || a.Page > 1000000 || len(a.Note) > 65536 || len(a.SelectedText) > 131072 || len(a.Rects) > 2048 || len(a.Color) > 40 {
+		return false
+	}
+	if !validPDFSelectionRange(a.SelectionStart, a.SelectionEnd) || (a.SelectionStart != nil || a.OCR) && strings.TrimSpace(a.SelectedText) == "" {
 		return false
 	}
 	if strings.TrimSpace(a.Note) == "" && strings.TrimSpace(a.SelectedText) == "" && len(a.Rects) == 0 {

@@ -171,12 +171,12 @@ static NSData *importMetadata(PDFDocument *doc) {
     });
 }
 
-void *sci_reader_page(const char *path, const char *operation, int page, const char *query, int *length,
-                      int *is_error) {
+void *sci_reader_page(const char *path, const void *pdf, size_t pdf_length, const char *operation,
+                      int page, const char *query, int *length, int *is_error) {
     @autoreleasepool {
         @try {
-            PDFDocument *doc = [[PDFDocument alloc]
-                initWithURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:path]]];
+            PDFDocument *doc = pdf_length ? [[PDFDocument alloc] initWithData:[NSData dataWithBytes:pdf length:pdf_length]]
+                : [[PDFDocument alloc] initWithURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:path]]];
             NSString *op = [NSString stringWithUTF8String:operation];
             NSData *data = nil;
             NSString *issue = nil;
@@ -190,6 +190,8 @@ void *sci_reader_page(const char *path, const char *operation, int page, const c
                 data = findPages(doc, [NSString stringWithUTF8String:query]);
             else if (page < 1 || (NSUInteger)page > doc.pageCount)
                 issue = @"页码超出文档范围。";
+            else if ([op isEqualToString:@"text"])
+                data = jsonData(@{@"text" : [doc pageAtIndex:page - 1].string ?: @""});
             else {
                 PDFPage *p = [doc pageAtIndex:page - 1];
                 CGPDFPageRef pg = p.pageRef;
