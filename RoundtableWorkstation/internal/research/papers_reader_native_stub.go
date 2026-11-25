@@ -75,3 +75,7 @@ func validatePaperPDF(ctx context.Context, path string) error {
 	}
 	return fmt.Errorf("%w：PDF 无法打开或没有可读页面", errInvalidPaper)
 }
+
+func findPDFEvidenceText(pdf []byte, query string) ([]byte, error) {
+	return nil, fmt.Errorf("%w：论文全文检索需要 macOS PDFKit", errPDFReaderUnavailable)
+}

@@ -20,6 +20,15 @@ func TestLabPaperEvidenceUsesCurrentProjectPageAndOriginalDigest(t *testing.T) {
 	}
 	rec := uploadTestPDF(t, s.papers, string(b), fmt.Sprintf(`{"title":"Rotated fixture","project_ids":[%q]}`, p.ID))
 	loc := SourceLocation{Kind: "paper", ID: rec.ID, Page: 2}
+	hits, err := s.FindWorkflowSource(context.Background(), p.ID, loc, "sample")
+	if err != nil || len(hits.Items) != 2 {
+		t.Fatal(hits, err)
+	}
+	for i, hit := range hits.Items {
+		if hit.Page != i+1 || hit.Offset != 9 || !strings.Contains(hit.Text, "Evidence sample") {
+			t.Fatal(hit)
+		}
+	}
 	src, err := s.WorkflowSource(context.Background(), p.ID, loc)
 	if err != nil || !strings.Contains(src.Text, "Evidence sample") || src.Hash != fmt.Sprintf("%x", sha256.Sum256(b)) || src.Page != 2 {
 		t.Fatal(src, err)

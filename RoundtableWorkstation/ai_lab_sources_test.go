@@ -77,6 +77,14 @@ func TestLabSourceReviewAndSingleSeatRun(t *testing.T) {
 	base := "/api/research/lab/sources/"
 	loc := research.SourceLocation{Kind: "note", ID: n.ID, Offset: 2}
 	in := labSourcesRequest{ProjectID: p.ID, Workflow: "gap-planning", Location: loc}
+	search := in
+	search.Query = "DIFFUSION"
+	matches := scienceWorkflowDecode[research.WorkflowMatches](t, call("POST", base+"search", search, 200))
+	if len(matches.Items) != 1 || matches.Items[0].Offset != 2 || !strings.Contains(matches.Items[0].Text, quote) {
+		t.Fatal(matches)
+	}
+	search.ProjectID = q.ID
+	call("POST", base+"search", search, 422)
 	source := scienceWorkflowDecode[research.WorkflowSource](t, call("POST", base+"preview", in, 200))
 	if source.Text != quote || len(source.Hash) != 64 {
 		t.Fatal(source)

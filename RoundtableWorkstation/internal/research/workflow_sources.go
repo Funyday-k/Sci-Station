@@ -102,7 +102,7 @@ func (s *Service) workflowRecord(project string, loc SourceLocation) (string, st
 		if m.Size > maxSize {
 			return "", "", errors.New("请先从大于 4 MiB 的材料中另存所需文本部分")
 		}
-		f, err := os.OpenFile(s.blobPath(m.ID), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		f, err := os.OpenFile(s.blobPath(m.ID), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 		if err != nil {
 			return "", "", errors.New("材料文件不可用")
 		}

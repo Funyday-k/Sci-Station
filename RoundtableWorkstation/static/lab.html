@@ -13,7 +13,8 @@
 <section class="card"><div class="section-head"><h2>本次研究</h2><a id="discovery-link" href="/tools?tab=discover&amp;trigger=lab">文献推荐</a></div><label>研究问题<textarea id="question" rows="3" maxlength="2500" placeholder="填写本次要研究的问题、约束或期望的产物"></textarea></label>
 <fieldset id="local-sources"><legend>项目原文</legend>
 <label>来源<select id="local-record"></select></label>
-<div id="local-search" hidden><label>在论文全文中查找<input id="local-query" type="search" maxlength="240"></label><button type="button" id="local-find">查找页码</button><ul id="local-hits"></ul></div>
+<details id="local-search"><summary>检索项目原文</summary><label>检索范围<select id="local-search-scope"><option value="project">项目内已关联的论文、笔记和文本材料</option><option value="record">当前来源</option></select></label>
+<label>要查找的词句<input id="local-query" type="search" maxlength="240"></label><div class="actions"><button type="button" id="local-find">查找匹配段落</button><button type="button" id="local-search-more" hidden>继续检索后六份</button><button type="button" id="local-search-stop" hidden>停止检索</button></div><ul id="local-hits"></ul></details>
 <label id="local-page-label">PDF 页码<input id="local-page" type="number" value="1" min="1" step="1"></label>
 <button type="button" id="local-preview">预览正文</button>
 <div id="local-window" hidden><label>选中要引用的正文（每段最多 1,000 字）<textarea id="local-text" rows="6" readonly></textarea></label>

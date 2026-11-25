@@ -142,7 +142,11 @@ static NSData *findPages(PDFDocument *doc, NSString *query) {
                 NSString *snippet = [s
                     substringWithRange:[s rangeOfComposedCharacterSequencesForRange:NSMakeRange(
                                                                                         start, end - start)]];
+                NSString *prefix = [[[s substringToIndex:hit.location]
+                    stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"]
+                    stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
                 [items addObject:@{
+                    @"offset" : @([prefix lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4),
                     @"page" : @(i + 1),
                     @"start" : @(hit.location),
                     @"end" : @(NSMaxRange(hit)),

@@ -23,7 +23,7 @@
     let project = null, records = [], preview = null, selected = [], generation = 0;
     let enabledModules=null;
     const recentRooms=new Map();
-    let visibleRoom=null;
+    let visibleRoom=null, searchState=null;
     let history = [], active = "", pollTimer = 0, models = [], previewSequence = 0;
     function bind(id, fn) {
       $(id).addEventListener("click", async () => {
@@ -44,13 +44,12 @@
       $("lab-history").replaceChildren(new Option("选择会话",""),...history.map(s=>new Option(s.title || s.topic.split("\n")[0],s.id)));
       $("lab-history").value=active;
     }
-    function chooseRecord() {
+    function chooseRecord(reset=true) {
       previewSequence++;
-      $("local-hits").replaceChildren();
+      if(reset) resetSearch();
       preview=null;
       $("local-window").hidden=true;
       $("local-page-label").hidden=records[$("local-record").value]?.kind!=="paper";
-      $("local-search").hidden=$("local-page-label").hidden;
     }
     function displaySelected() {
       const rows=selected.map((item,index)=>{
@@ -99,19 +98,64 @@
       preview=data; $("local-text").value=data.text; $("local-window").hidden=false;
       $("local-prev").hidden=!offset; $("local-next").hidden=!data.more;
     }
-    async function findPages() {
-      const record=records[$("local-record").value], query=$("local-query").value.trim(), token=++previewSequence;
-      if(!record || record.kind!=="paper" || !query) throw Error("请输入要查找的词句。");
-      const hits=$("local-hits"); hits.replaceChildren();
-      const data=await req("/api/research/papers/"+encodeURIComponent(record.id)+"/pages/search?"+new URLSearchParams({q:query}));
-      if(token!==previewSequence || $("local-query").value.trim()!==query) return;
-      for (const hit of data.items || []) {
-        const li=document.createElement("li"),button=document.createElement("button");
-        button.type="button";button.textContent="第 "+hit.page+" 页 · "+hit.text;
-        button.onclick=()=>{ $("local-page").value=hit.page; showPreview().catch(e=>tell(e.message)); };
-        li.append(button);hits.append(li);
+    function resetSearch() {
+      searchState?.controller?.abort();
+      searchState=null;
+      $("local-hits").replaceChildren();
+      $("local-search-more").hidden=true;
+      $("local-search-stop").hidden=true;
+    }
+    function addHit(state,record,hit) {
+      const li=document.createElement("li"),button=document.createElement("button");
+      button.type="button";
+      button.textContent=record.label+(hit.page?" · 第 "+hit.page+" 页":"")+" · "+hit.text;
+      button.onclick=()=>{
+        if(searchState!==state) return;
+        $("local-record").value=String(records.indexOf(record));
+        $("local-page").value=String(hit.page || 1);
+        chooseRecord(false);
+        showPreview(Math.max(0,hit.offset-35)).catch(e=>tell(e.message));
+      };
+      li.append(button);$("local-hits").append(li);
+    }
+    async function findSources(more=false) {
+      if(!more) {
+        resetSearch();
+        const query=$("local-query").value.trim();
+        if(!query || !project?.id) throw Error("请选择项目并输入要检索的词句。");
+        const scope=$("local-search-scope").value;
+        const items=scope==="project"?records.slice():[records[$("local-record").value]].filter(Boolean);
+        searchState={query,items,index:0,failed:0,hits:0,limited:false};
       }
-      tell(hits.children.length?"找到 "+hits.children.length+" 个匹配"+(data.limited?"（已达显示上限）":""):"没有找到匹配的原文。");
+      const state=searchState;
+      if(!state || state.controller) return;
+      state.controller=new AbortController();
+      const end=Math.min(state.items.length,state.index+6);
+      $("local-search-more").hidden=true;$("local-search-stop").hidden=false;
+      try {
+        while(state.index<end) {
+          const record=state.items[state.index];
+          const location={kind:record.kind,id:record.id};
+          try {
+            const data=await req(base+"search","POST",{projectId:project.id,query:state.query,location},state.controller.signal);
+            if(searchState!==state || state.controller.signal.aborted) return;
+            for(const hit of data.items || []){addHit(state,record,hit);state.hits++;}
+            state.limited ||= data.limited;
+          } catch(error) {
+            if(searchState!==state || state.controller.signal.aborted) return;
+            state.failed++;
+            const li=document.createElement("li");li.textContent=record.label+" · "+error.message;$("local-hits").append(li);
+          }
+          state.index++;
+        }
+      } finally {
+        if(searchState===state) {
+          state.controller=null;
+          $("local-search-stop").hidden=true;$("local-search-more").hidden=state.index>=state.items.length;
+          tell("已检索 "+state.index+" / "+state.items.length+" 份来源，匹配 "+state.hits+" 处。"+
+            (state.failed?" "+state.failed+" 份未能读取。":"")+(state.limited?" 单份来源最多显示 12 处。":""));
+        }
+      }
     }
     function addSelection() {
       if(!preview || selected.length>=4) throw Error("每次最多选择四段原文。");
@@ -257,7 +301,10 @@
     $("local-page").oninput=chooseRecord;
     $("lab-model").onchange=effortOptions;
     $("lab-history").onchange=()=>openRun($("lab-history").value);
-    bind("local-find",findPages); bind("local-preview",()=>showPreview()); bind("local-add",addSelection);
+    $("local-query").oninput=resetSearch; $("local-search-scope").onchange=resetSearch;
+    bind("local-find",()=>findSources());bind("local-search-more",()=>findSources(true));
+    $("local-search-stop").onclick=()=>searchState?.controller?.abort();
+     bind("local-preview",()=>showPreview()); bind("local-add",addSelection);
     bind("local-prev",()=>showPreview(Math.max(0,(preview?.offset || 0)-4000)));
     bind("local-next",()=>showPreview((preview?.offset || 0)+chars(preview?.text || "").length));
     bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay);

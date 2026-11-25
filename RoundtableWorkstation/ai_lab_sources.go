@@ -19,6 +19,7 @@ type labCitation struct {
 }
 
 type labSourcesRequest struct {
+	Query     string                  `json:"query"`
 	Scope     string                  `json:"scope"`
 	ProjectID string                  `json:"projectId"`
 	Workflow  string                  `json:"workflow"`
@@ -50,7 +51,16 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 		reject(w, 404, "项目不存在或已归档")
 		return
 	}
-	if !requireLabModules(w, lab, in, path == "sources/preview") {
+	if !requireLabModules(w, lab, in, path != "sources/prepare") {
+		return
+	}
+	if path == "sources/search" {
+		results, err := lab.FindWorkflowSource(r.Context(), in.ProjectID, in.Location, in.Query)
+		if err != nil {
+			reject(w, 422, err.Error())
+			return
+		}
+		reply(w, 200, results)
 		return
 	}
 	if path == "sources/preview" {

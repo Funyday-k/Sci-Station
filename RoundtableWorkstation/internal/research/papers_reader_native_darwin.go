@@ -69,3 +69,7 @@ func validatePaperPDF(ctx context.Context, path string) error {
 	}
 	return ctx.Err()
 }
+
+func findPDFEvidenceText(pdf []byte, query string) ([]byte, error) {
+	return readNativePDFPage(nil, pdf, "search", 0, query)
+}

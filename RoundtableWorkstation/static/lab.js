@@ -5,8 +5,8 @@
   const api="/api/research/lab/";
   let presets=[], projects=[], sessions=[], current=null, original=null, preview=null, source=null;
   function tell(text){$("status").textContent=text;}
-  async function req(path,method="GET",data) {
-    const opt={method,cache:"no-store",headers:{"X-Roundtable":"1"}};
+  async function req(path,method="GET",data,signal) {
+    const opt={method,signal,cache:"no-store",headers:{"X-Roundtable":"1"}};
     if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
     const res=await fetch(path,opt);
     if(res.status===204)return;
