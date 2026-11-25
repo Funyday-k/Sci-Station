@@ -1,15 +1,5 @@
-<!doctype html>
-<html lang="zh-CN">
-
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>Sci-Station · 科研工作台</title>
-  <link rel="icon" href="/static/roundtable-mark.png">
-  <script defer src="/static/workspace-nav.js"></script>
-  <script src="/static/appearance.js"></script>
-  <link rel="stylesheet" href="/static/research-vendor/katex.min.css">
+{{define "head"}}
+<link rel="stylesheet" href="/static/research-vendor/katex.min.css">
   <link rel="stylesheet" href="/static/research.css">
   <link rel="stylesheet" href="/static/research-dashboard.css">
   <script defer src="/static/ui-icons.js"></script>
@@ -23,15 +13,11 @@
   <script defer src="/static/research-forms.js"></script>
   <script defer src="/static/research-materials.js"></script>
   <script defer src="/static/research-library.js"></script>
-<link rel="stylesheet" href="/static/workspace-nav.css">
-  </head>
-
-<body>
-  <div id="shell">
+{{end}}
+{{define "content"}}
+<div id="shell">
     <aside id="sidebar" aria-label="工作区导航">
-      <a class="brand" href="/research"><img src="/static/roundtable-mark.png" width="36" height="36"
-          alt=""><span>Sci-Station</span></a>
-      <nav data-workspace-nav aria-label="工作区导航"></nav>
+
       <div class="project-heading"><strong>我的项目</strong><button type="button" id="new-project" class="icon" aria-label="新建项目"
           title="新建项目">＋</button></div>
       <nav id="projectnav" aria-label="科研项目"></nav>
@@ -57,6 +43,4 @@
     </div>
     <div id="dialog-content"></div>
   </dialog>
-</body>
-
-</html>
+{{end}}

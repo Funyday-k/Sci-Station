@@ -1,19 +1,8 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <link rel="icon" type="image/png" href="/static/roundtable-mark.png" />
-    <title>本机 API · Sci-Station</title>
-  <link rel="stylesheet" href="/static/api.css">
-</head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/studio"><img src="/static/roundtable-mark.png" width="28" height="28" alt="" /> Sci-Station</a>
-    <a href="/studio">返回圆桌 <span aria-hidden="true">↗</span></a>
-  </header>
-  <main>
+{{define "head"}}
+<link rel="stylesheet" href="/static/api.css">
+{{end}}
+{{define "content"}}
+<main>
     <div class="intro">
       <h1>Sci-Station 本机接口</h1><p>科研工作区通过 <code>/api/research/projects</code> 访问项目、笔记、任务、材料和图谱。共享文献与 PDF 使用 <code>/api/research/papers</code>。科研工具和 AI 模板分别位于 <code>/api/research/tools/</code>、<code>/api/research/lab/</code>。</p>
       <p class="lead">macOS 桌面应用通过本机接口建立项目圆桌、读取 Magpie 模型和管理议程。以下契约供开发与本机验证使用。</p>
@@ -281,5 +270,4 @@ X-Roundtable: 1
     </section>
     <footer><a href="/openapi.json">查看完整 OpenAPI JSON</a></footer>
   </main>
-</body>
-</html>
+{{end}}

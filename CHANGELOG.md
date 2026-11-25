@@ -8,6 +8,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Navigate between research, papers, AI Lab and Roundtable in one workstation shell. Reopen the last route in its research root and follow project, paper and meeting links through the same navigation.
+
 - Project meetings and AI Lab now stage notes and tasks for review. Decisions and PDF citations survive reopening, and repeated confirmations return the original result.
 - Create unassigned tasks in the workstation even before adding a project. A task can lose its last project membership and keep its ID, calendar entry and reminder identity.
 

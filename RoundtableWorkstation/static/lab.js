@@ -50,17 +50,20 @@
     const result=await req(api+"presets"+(edit?"/"+encodeURIComponent(current.id):""),edit?"PUT":"POST",x);
     await refresh(result.id);tell("个人模板已保存。");
   }
-  function projectSelection(){
+  function projectSelection(commit = false){
     const id=$("project").value,p=projects.find(v=>v.id===id);
     $("session").replaceChildren(new Option("新建圆桌",""));
     if(p)for(const s of sessions){if(s.project_id===p.id&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
     const url=new URL(location.href);
     if(id)url.searchParams.set("project",id);else url.searchParams.delete("project");
-    history.replaceState(null,"",url);
-    window.SciStationNav.update();
+    if (commit) window.SciStationNav.commitURL(url,"push");
     $("handoff").disabled=!p;
     hint();
   }
+  window.addEventListener("popstate",()=>{
+    const project=new URL(location.href).searchParams.get("project") || "";
+    if (projects.some(p=>p.id===project) || !project) { $("project").value=project; projectSelection(); }
+  });
   function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
   function openDraft(){
     const x={...form(),projectId:$("project").value,sessionId:$("session").value,question:$("question").value.trim(),resource:source};
@@ -98,7 +101,7 @@
     const {uri,server,sha256}=preview;markSource({uri,server,sha256,excerpt:snippet});tell("选段已加入本次会议草稿。");
   });
   action("remove",()=>markSource(null));
-  action("handoff",openDraft);$("project").onchange=projectSelection;$("session").onchange=hint;
+  action("handoff",openDraft);$("project").onchange=()=>projectSelection(true);$("session").onchange=hint;
   $("endpoint").oninput=()=>{resetResource();$("resource-panel").hidden=true;};
   $("resources").onchange=resetResource;
   (async()=>{

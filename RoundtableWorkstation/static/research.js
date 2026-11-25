@@ -18,7 +18,8 @@
     tasks: "任务与日历",
     materials: "研究材料",
     graph: "知识关联",
-    meetings: "工作圆桌"
+    meetings: "工作圆桌",
+    code: "代码", data: "数据", experiments: "实验", writing: "写作", theory: "理论笔记"
   };
   const glyphs = {
     overview: "dashboard",
@@ -300,11 +301,23 @@
     navigation.update();
     const modules = $("project-modules");
     modules.hidden = !state.project;
-    modules.innerHTML = state.project ? Object.entries(names).filter(([id]) => id !== "projects").map(([id, name]) =>
-      '<a data-view="' + id + '" href="' + esc(viewURL(id)) + '"' +
-      (id === state.view ? ' aria-current="page"' : '') + '>' + esc(name) + '</a>').join("") +
-      link("文献推荐", toolsPage("discover"), "module") +
-      link("AI 工作流", navigation.route("/lab", {project: state.project.id}), "module") : "";
+    const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
+      ({key,name,href:viewURL(key),local:true}));
+    tabs.push(
+      {key:"calendar",name:"日历",href:navigation.route("/research",{view:"tasks",tab:"calendar",project:state.project?.id})},
+      {key:"recommendations",name:"文献推荐",href:toolsPage("discover")},
+      {key:"lab",name:"AI 工作流",href:navigation.route("/lab",{project:state.project?.id})}
+    );
+    const pins = state.modules?.pinnedOrder || [];
+    const rank = tab => {
+      const index = pins.indexOf(navigation.viewModules[tab.key]);
+      return index < 0 ? pins.length : index;
+    };
+    modules.innerHTML = state.project ? tabs.filter(tab=>navigation.enabled(state.modules,navigation.viewModules[tab.key]))
+      .sort((left,right)=>rank(left)-rank(right)).map(tab=>'<a href="' + esc(tab.href) + '"' +
+        (tab.local ? ' data-view="'+tab.key+'"' : "") +
+        (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
+        '>' + esc(tab.name) + '</a>').join("") : "";
     $("projectnav").innerHTML = state.projects.map((p, i) => '<a class="project-item ' + (p.id === state.project?.id ?
         'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '"><span class="project-dot" style="--project-color:' + colors[i % colors.length] + '"></span><span>' + esc(p
@@ -425,6 +438,9 @@
       return;
     }
     if (state.view === "overview") out = dashboard.markup(state, dashboardUI);
+    else if (["code","data","experiments","writing","theory"].includes(state.view)) {
+      out = heading(names[state.view], state.project?.name) + panel(names[state.view], empty("此模块尚未提供编辑器", "", state.project ? link("查看研究材料",viewURL("materials")) : ""));
+    }
     else if (state.view === "projects") out = projectDirectory();
     else if (state.view === "papers") out = publicLibrary();
     else if (state.view === "meetings") out = heading("工作圆桌", state.project?.name || "模型讨论与研究报告", link("进入圆桌", studio(),
@@ -526,7 +542,7 @@
     historyMode = "replace"
   } = {}) {
     const token = ++navEpoch;
-    const targetView = Object.hasOwn(names, view) ? view : "overview";
+    let targetView = Object.hasOwn(names, view) ? view : "overview";
     state.loadError = "";
     $("main").setAttribute("aria-busy", "true");
     try {
@@ -535,8 +551,17 @@
       ]);
       if (token !== navEpoch) return;
       const allProjects = projects || [];
-      const nextProject = allProjects.find(p => p.id === projectId) || null;
-      if (projectId && !nextProject) throw new Error("这个项目已归档或不存在。请从项目列表重新选择。");
+      let nextProject = allProjects.find(p => p.id === projectId) || null;
+      let fallback = Boolean(projectId && !nextProject);
+      if (fallback) targetView = "projects";
+      const config = await window.SciStationModules?.load(nextProject?.id || "");
+      const calendar = targetView==="tasks" && new URL(location.href).searchParams.get("tab")==="calendar" && historyMode!=="push";
+      const module = targetView==="overview" && !nextProject ? null : navigation.viewModules[calendar?"calendar":targetView] || (targetView==="projects"?"projects":null);
+      if (!navigation.enabled(config,module)) {
+        fallback = true;
+        if(module==="projects") nextProject=null;
+        targetView="overview";
+      }
       const suffixes = ["notes", "tasks", "materials"];
       let graphError = "";
       const graph = {nodes: [], edges: []};
@@ -553,21 +578,29 @@
       if (token !== navEpoch) return;
       // Publish the complete snapshot together. Until this point the visible
       // controls and their actions both belong to the previous project.
+      state.modules = config;
       state.view = targetView;
+      state.calendar = calendar && !fallback;
       state.projects = allProjects;
       state.papers = papers || [];
       state.organization = organization;
       if (state.libraryCollection !== "unfiled" && !Object.hasOwn(organization.collections, state.libraryCollection)) state.libraryCollection = "";
       state.project = nextProject;
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
-      state.meetings = nextProject ? rooms.filter(m => m.project === nextProject.path) : rooms;
+      state.meetings = nextProject ? rooms.filter(m => m.project_id === nextProject.id) : rooms;
       [state.notes, state.tasks, state.materials, state.graph] = values;
       state.graphResult = null;
       state.graphQuery = null;
       state.graphError = graphError;
       state.graphPending = false;
       state.dashboardData = dashboardData;
-      if (historyMode !== "none") history[historyMode + "State"](null, "", viewURL(state.view));
+      const current=new URL(location.href);
+      if (fallback || historyMode==="push" || (historyMode==="replace" &&
+          ((current.searchParams.get("view") || "overview") !== state.view ||
+           (current.searchParams.get("project") || "") !== (nextProject?.id || "")))) {
+        navigation.commitURL(viewURL(state.view),fallback?"replace":historyMode);
+      }
+      if(fallback && projectId && !nextProject) toast("这个项目已归档或不存在，请从项目列表重新选择。");
     } catch (err) {
       if (token !== navEpoch) return;
       state.loadError = err.message;
@@ -754,6 +787,28 @@
     start: route
   };
   window.SciResearch = E;
+  function handleWorkspaceCommand(key) {
+    if(key==="find") {search();return true;}
+    if(!["newProject","importIdentifier","importPDF"].includes(key) || !E.formAction) return false;
+    if($("modal").open) return true;
+    E.formAction(key==="newProject"?"new-project":"new-paper");
+    if(key!=="newProject") {
+      $("dialog-content").querySelector(key==="importPDF"?'[name="pdf"]':'[name="doi"]')?.focus();
+    }
+    return true;
+  }
+  window.addEventListener("scistation:command",event=>{
+    if(handleWorkspaceCommand(event.detail)) event.preventDefault();
+  });
+  window.addEventListener("load",async()=>{
+    const url=new URL(location.href);
+    const key=url.searchParams.get("command");
+    if (!key) return;
+    url.searchParams.delete("command");
+    navigation.commitURL(url,"replace");
+    await load(url.searchParams.get("project"),url.searchParams.get("view") || "overview",{historyMode:"none"});
+    handleWorkspaceCommand(key);
+  });
   document.addEventListener("click", async ev => {
     const target = ev.target.closest?.("button,a");
     if (!target || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
@@ -780,7 +835,9 @@
         render();
       } else if (action === "switch-calendar") {
         state.calendar = !state.calendar;
-        history.replaceState(null, "", viewURL("tasks"));
+        const url = new URL(location.href);
+        if (state.calendar) url.searchParams.set("tab","calendar"); else url.searchParams.delete("tab");
+        navigation.commitURL(url,"push");
         render();
       } else if (action.startsWith("month-")) {
         state.month = new Date(state.month.getFullYear(), state.month.getMonth() + (action === "month-prev" ? -1 : 1),

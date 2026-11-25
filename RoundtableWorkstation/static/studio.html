@@ -1,16 +1,5 @@
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
-    <link rel="icon" type="image/png" href="/static/roundtable-mark.png" />
-    <title>科研圆桌 · Sci-Station</title>
-    <script defer src="/static/interface-language.js"></script>
-    <script defer src="/static/workspace-nav.js"></script>
-    <script defer src="/static/research-modules.js"></script>
-  <script src="/static/appearance.js"></script>
-    <link rel="stylesheet" href="/static/studio.css" />
+{{define "head"}}
+<link rel="stylesheet" href="/static/studio.css" />
     <link rel="stylesheet" href="/static/children-panel.css" />
     <link rel="stylesheet" href="/static/studio-setup.css" />
     <link rel="stylesheet" href="/static/projects.css" />
@@ -59,17 +48,12 @@
     <script src="/static/lab-handoff.js" defer></script>
     <script src="/static/studio.js" defer></script>
     <script src="/static/children-panel.js" defer></script>
-  <link rel="stylesheet" href="/static/workspace-nav.css">
-  </head>
-  <body>
-    <div class="app">
+{{end}}
+{{define "content"}}
+<div class="app">
       <aside class="sidebar" id="sidebar" aria-label="项目与圆桌">
-        <a class="brand" href="/research" title="返回科研工作台">
-          <img class="roundtable-mark" src="/static/roundtable-mark.png" alt="" width="32" height="32" />
-          <span>Sci-Station</span>
-        </a>
-        <nav data-workspace-nav aria-label="工作区导航"></nav>
-        <a data-project-back hidden href="/research">返回当前项目</a>
+
+
         <button id="new-session" class="button secondary new-button">
           <svg class="ui-icon" data-ui-icon="plus" width="16" height="16" aria-hidden="true"></svg>新建圆桌
         </button>
@@ -845,5 +829,4 @@
       role="status"
       hidden
     ></div>
-  </body>
-</html>
+{{end}}

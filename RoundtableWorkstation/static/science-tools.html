@@ -1,21 +1,11 @@
-<!doctype html>
-<html lang="zh-CN">
-
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/static/roundtable-mark.png">
-  <title>科研工具 · Sci-Station</title>
-  <link rel="stylesheet" href="/static/science-tools.css">
-  <script defer src="/static/workspace-nav.js"></script>
+{{define "head"}}
+<link rel="stylesheet" href="/static/science-tools.css">
   <script defer src="/static/discovery-view.js"></script>
   <script defer src="/static/science-tools.js"></script>
-<link rel="stylesheet" href="/static/workspace-nav.css">
-  </head>
-
-<body>
-  <div class="frame">
-    <aside><a class="brand" href="/research"><img src="/static/roundtable-mark.png" alt="">Sci-Station</a><nav data-workspace-nav aria-label="工作区导航"></nav><a data-project-back hidden href="/research">返回当前项目</a>
+{{end}}
+{{define "content"}}
+<div class="frame">
+    <aside>
       <nav aria-label="科研工具"><a href="?tab=discover" data-tab="discover">文献发现</a><a href="?tab=convert" data-tab="convert">PDF 转换</a><a href="?tab=calendar" data-tab="calendar">系统日历与提醒</a></nav>
     </aside>
     <main>
@@ -103,6 +93,4 @@
       </section>
     </main>
   </div>
-</body>
-
-</html>
+{{end}}

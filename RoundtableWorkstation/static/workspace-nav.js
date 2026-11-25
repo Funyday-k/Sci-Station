@@ -1,7 +1,5 @@
 "use strict";
 (() => {
-  // Project IDs only travel to project-scoped destinations. A missing ID is
-  // the shared workspace, including on a fresh launch or a browser Back.
   function route(path, params = {}) {
     const query = new URLSearchParams();
     for (const [name, value] of Object.entries(params)) {
@@ -12,58 +10,181 @@
   function research(view, project) {
     return route("/research", {view: view === "overview" ? "" : view, project});
   }
+  const label = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
   function destinations(url) {
     const project = url.searchParams.get("project");
     const view = url.searchParams.get("view");
-    const active = url.pathname === "/lab" ? "lab"
-      : url.pathname === "/studio" && ["settings", "plugins"].includes(view) ? "settings"
-      : project || url.pathname === "/studio" || view === "projects" ? "projects"
+    const active = url.pathname === "/api-docs" ? "settings"
+      : url.pathname === "/lab" ? "lab"
+      : url.pathname === "/studio" ? (["settings", "plugins"].includes(view) ? "settings" : "roundtable")
+      : project || view === "projects" ? "projects"
       : url.pathname === "/reader" || view === "papers" ? "library"
       : view === "tasks" || url.searchParams.get("tab") === "calendar" ? "calendar"
       : url.pathname === "/tools" ? "library" : "home";
     return [
-      ["home", "首页", research("overview")], ["projects", "项目", research("projects")],
-      ["library", "文献库", research("papers")], ["calendar", "日历与任务", research("tasks")],
-      ["lab", "AI 实验室", route("/lab", {project})], ["settings", "设置", "/studio?view=settings"]
-    ].map(([key, name, href]) => ({key, name, href, active: active === key}));
+      ["home", label("首页","Home"), research("overview")],
+      ["projects", label("项目","Projects"), research("projects")],
+      ["library", label("文献库","Library"), research("papers")],
+      ["calendar", label("日历与任务","Calendar"), route("/research",{view:"tasks",tab:"calendar"})],
+      ["lab", label("AI 实验室","AI Lab"), route("/lab", {project})],
+      ["roundtable", label("圆桌","Roundtable"), route("/studio",{project})],
+      ["settings", label("设置","Settings"), route("/studio",{view:"settings",project})]
+    ].map(([key,name,href]) => ({key,name,href,active:active===key}));
+  }
+  const globalSections={projects:"projects",library:"paper-library",calendar:"calendar",lab:"ai-lab"};
+  const viewModules={overview:"projects",papers:"paper-library",notes:"wiki",tasks:"tasks",calendar:"calendar",materials:"materials",graph:"citation-graph",recommendations:"recommendation",lab:"ai-lab",code:"code",data:"datasets",experiments:"experiments",writing:"writing",theory:"theory-notes"};
+  function enabled(config, id) {
+    return !config || !id || config.modules.some(module=>module.id===id && module.effective);
+  }
+  let globalModules;
+  function currentURL() {
+    return new URL(location.href);
+  }
+  let saved = "";
+  let position = 0;
+  function remember(force = false) {
+    const {pathname,search,hash} = currentURL();
+    const route = pathname + search + hash;
+    if (!force && saved === route) return;
+    saved = route;
+    // The event timestamp orders overlapping deliveries from different pages,
+    // including pages restored from WebKit's back-forward cache.
+    const event = performance.timeOrigin + performance.now();
+    fetch("/api/workspace/navigation", {
+      method:"POST", keepalive:true, headers:{"Content-Type":"application/json","X-Roundtable":"1"},
+      body:JSON.stringify({route,event})
+    }).then(response => {
+      if (!response.ok) throw Error("无法保存工作区位置");
+    }).catch(() => {
+      if (saved === route) saved = "";
+    });
   }
   function update() {
     const nav = document.querySelector("[data-workspace-nav]");
     if (!nav) return;
-    const url = new URL(location.href);
-    const links = destinations(url);
+    const url = currentURL();
+    const links = destinations(url).filter(item=>!globalModules || enabled(globalModules,globalSections[item.key]));
     const project = url.searchParams.get("project");
-    const signature = JSON.stringify([links, project]);
-    if (nav.dataset.signature === signature) return;
-    nav.dataset.signature = signature;
-    nav.replaceChildren(...links.map(({key, name, href, active}) => {
-      const link = document.createElement("a");
-      link.textContent = name;
-      link.href = href;
-      link.dataset.section = key;
-      if (active) link.setAttribute("aria-current", "page");
-      if (key === "settings" && url.pathname === "/studio") {
-        // The meeting editor owns its unsent draft while settings is open.
-        link.addEventListener("click", event => {
-          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-          if (!window.dispatchEvent(new CustomEvent("roundtable:navigate", {cancelable:true, detail:"settings"}))) {
-            event.preventDefault();
-          }
-        });
-      }
-      return link;
-    }));
-    const back = document.querySelector("[data-project-back]");
-    if (back) {
+    const signature = JSON.stringify([links,project]);
+    if (nav.dataset.signature !== signature) {
+      nav.dataset.signature = signature;
+      nav.replaceChildren(...links.map(({key,name,href,active}) => {
+        const link = document.createElement("a");
+        link.textContent = name;
+        link.href = href;
+        link.dataset.section = key;
+        if (active) link.setAttribute("aria-current","page");
+        return link;
+      }));
+      const back = document.querySelector("[data-project-back]");
       back.hidden = !project;
-      back.href = research("overview", project);
+      back.href = research("overview",project);
+      back.textContent = label("返回当前项目","Back to project");
     }
+    remember();
   }
-  const nav = Object.freeze({route, research, destinations, update});
+  function commitURL(value, mode = "replace") {
+    const url = new URL(value, location.href);
+    if (url.origin !== location.origin || !["push","replace"].includes(mode)) throw Error("无效的工作区导航");
+    if (url.href !== location.href) {
+      if (mode === "push") position++;
+      history[mode+"State"]({...history.state, workspacePosition:position},"",url);
+    }
+    update();
+  }
+  function mayDiscard() {
+    return window.dispatchEvent(new Event("beforeunload",{cancelable:true})) ||
+      window.confirm(label("有未保存的更改。继续离开？","Leave with unsaved changes?"));
+  }
+  async function rootAction(action) {
+    if (action!=="reveal" && !mayDiscard()) return;
+    try {
+      const res = await fetch("/api/workspace/"+action,{
+        method:"POST",headers:{"Content-Type":"application/json","X-Roundtable":"1"},body:"{}"
+      });
+      if (!res.ok) {
+        const detail=await res.json().catch(()=>({}));
+        throw Error(detail.error?.message || detail.error || "工作区操作失败");
+      }
+    } catch (error) { window.alert(error.message); }
+  }
+  function command(key) {
+    if (!window.dispatchEvent(new CustomEvent("scistation:command",{detail:key,cancelable:true}))) return true;
+    if (key === "back" || key === "forward") {history[key]();return true;}
+    if (key === "openWorkspace" || key === "createWorkspace" || key === "revealWorkspace") {
+      rootAction({openWorkspace:"open",createWorkspace:"create",revealWorkspace:"reveal"}[key]);return true;
+    }
+    const url=currentURL();
+    if (["settings","roundtable","plugins"].includes(key) && url.pathname === "/studio") {
+      const view={roundtable:"table",settings:"settings",plugins:"plugins"}[key];
+      if (!window.dispatchEvent(new CustomEvent("roundtable:navigate",{detail:view,cancelable:true}))) return true;
+    }
+    let destination=destinations(url).find(link=>link.key===key)?.href;
+    if (key === "plugins") destination=route("/studio",{view:"plugins",project:url.searchParams.get("project")});
+    if (["newProject","importIdentifier","importPDF","find"].includes(key)) {
+      const view=key==="newProject"?"projects":key==="find"?"overview":"papers";
+      destination=route("/research",{view,project:key==="newProject"?null:url.searchParams.get("project"),command:key});
+    }
+    if (!destination) return false;
+    if (new URL(destination,url).href!==url.href) location.assign(destination);
+    return true;
+  }
+  function keyCommand(event) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.isComposing) return "";
+    const key=event.key.toLowerCase();
+    if (key==="g") return event.shiftKey?"findPrevious":"findNext";
+    if (event.shiftKey) return "";
+    return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
+  }
+  const nav=Object.freeze({route,research,destinations,update,commitURL,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
-    window.SciStationNav = nav;
+    window.SciStationNav=nav;
+    position = history.state?.workspacePosition || 0;
+    history.replaceState({...history.state, workspacePosition:position},"");
+    document.querySelector(".workspace-bar").addEventListener("click",event=>{
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target=event.target.closest("[data-command],[data-section],[data-root-action]");
+      if (!target) return;
+      if (target.dataset.rootAction) {
+        target.closest("details").open=false;
+        rootAction(target.dataset.rootAction);
+      } else if (command(target.dataset.command || target.dataset.section)) event.preventDefault();
+    });
+    document.addEventListener("keydown",event=>{
+      if (event.defaultPrevented || event.repeat) return;
+      const key=keyCommand(event);
+      if (key && command(key)) event.preventDefault();
+    });
     update();
-    window.addEventListener("pageshow", update);
+    if(window.SciStationModules) window.SciStationModules.load("").then(config=>{globalModules=config;update();}).catch(()=>{});
+    window.addEventListener("pageshow",event=>{
+      if (event.persisted) { location.reload();return; }
+      update();
+    });
+    let undoingPop = false;
+    window.addEventListener("popstate", event => {
+      const next=event.state?.workspacePosition;
+      if (undoingPop) {
+        undoingPop=false;
+        event.stopImmediatePropagation();
+        return;
+      }
+      if(Number.isInteger(next) && next!==position) {
+        if (!mayDiscard()) {
+          undoingPop=true;
+          event.stopImmediatePropagation();
+          history.go(position-next);
+          return;
+        }
+        position=next;
+      }
+      update();
+    });
+    window.addEventListener("hashchange",update);
+    window.addEventListener("sci:language",update);
+    window.addEventListener("sci:modules",event=>{
+      if (!event.detail.project) {globalModules=event.detail.state;update();}
+    });
   }
 })();

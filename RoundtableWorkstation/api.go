@@ -28,6 +28,7 @@ import (
 var assets embed.FS
 
 type apiServer struct {
+	navigation      workspaceNavigation
 	workspaceDir    string
 	chooseWorkspace func(bool)
 	revealWorkspace func() error
@@ -151,6 +152,8 @@ func (a *apiServer) serve(port int) http.Handler {
 		}
 		path := r.URL.Path
 		switch {
+		case path == "/api/workspace/navigation" || path == "/resume":
+			a.serveNavigation(w, r)
 		case path == "/api/health" && r.Method == "GET":
 			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3", "workspace": rootID(a.workspaceDir)})
 		case path == "/api/workspace" || path == "/api/workspace/open" || path == "/api/workspace/create" || path == "/api/workspace/reveal":
@@ -176,19 +179,10 @@ func (a *apiServer) serve(port int) http.Handler {
 				reject(w, 405, "仅支持读取")
 				return
 			}
+			if a.serveWorkspaceSurface(w, r) {
+				return
+			}
 			switch path {
-			case "/", "/research":
-				path = "/static/research.html"
-			case "/studio":
-				path = "/static/studio.html"
-			case "/lab":
-				path = "/static/lab.html"
-			case "/reader":
-				path = "/static/reader.html"
-			case "/tools":
-				path = "/static/science-tools.html"
-			case "/api-docs":
-				path = "/static/api.html"
 			case "/openapi.json":
 				path = "/static/openapi.json"
 			case "/favicon.ico":

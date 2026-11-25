@@ -190,7 +190,7 @@
       const l = new URL(location);
       if (project) l.searchParams.set("project", project);
       else l.searchParams.delete("project");
-      history.replaceState(null, "", l);
+      window.SciStationNav.commitURL(l,"push");
       loadProject().catch(e => tell(e.message));
     };
     $("paper").onchange = () => {
@@ -308,7 +308,7 @@
     if (tab === "calendar") choicesList.unshift(["", "全部项目"]);
     choices($("project"), choicesList, "未选择项目");
     if (project && !projects.some(p => p.id === project)) throw Error("所选项目不存在或已归档");
-    if (!project && tab === "convert") project = projects[0]?.id || "";
+    if (!project && tab !== "discover") choices($("project"), [["","请选择项目"], ...choicesList], "未选择项目");
     $("project").value = project;
     await loadProject();
     if (tab === "convert") {
@@ -318,5 +318,10 @@
       $("local").disabled = !papers.length;
     }
   }
+  globalThis.addEventListener?.("popstate",()=>{
+    project=new URL(location.href).searchParams.get("project") || "";
+    $("project").value=project;
+    loadProject().catch(e=>tell(e.message));
+  });
   init().catch(e => tell(e.message));
 })();

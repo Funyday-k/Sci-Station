@@ -1,17 +1,10 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>论文阅读 · Sci-Station</title>
-<link rel="icon" href="/static/roundtable-mark.png"><link rel="stylesheet" href="/static/reader.css">
-<link rel="stylesheet" href="/static/workspace-nav.css">
-  <script defer src="/static/workspace-nav.js"></script>
-  </head>
-<body>
+{{define "head"}}
+<link rel="stylesheet" href="/static/reader.css">
+{{end}}
+{{define "content"}}
 <header class="reader-header">
-  <a class="brand" id="home" href="/research" title="返回文献库"><img src="/static/roundtable-mark.png" alt=""><span>Sci-Station</span></a>
-  <details class="workspace-menu"><summary>工作区</summary><nav data-workspace-nav aria-label="工作区导航"></nav></details>
+  <a id="home" href="/research?view=papers">返回文献库</a>
+
   <span class="breadcrumb">文献阅读</span><span class="spacer"></span><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden>导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener">打开 PDF 原件 ↗</a>
 </header>
 <section class="titlebar"><div><h1 id="title">论文阅读</h1><p id="byline"></p></div><span class="spacer"></span><button id="handoff" class="primary" disabled>选段入会</button></section>
@@ -38,4 +31,4 @@
 <dialog id="handoffDialog"><form method="dialog"><div class="panel-title"><h2>带选段进入圆桌</h2><button type="button" id="cancelHandoff" aria-label="关闭">×</button></div><blockquote id="handoffQuote"></blockquote><label for="projectSelect">科研项目</label><select id="projectSelect" required></select><label for="sessionSelect">目标会议</label><select id="sessionSelect"><option value="">新建圆桌</option></select><div class="actions"><button id="submitHandoff" type="button" class="primary">进入圆桌</button></div></form></dialog>
 <script src="/static/reader-graph-source.js" defer></script>
 <script src="/static/reader.js" defer></script>
-</body></html>
+{{end}}

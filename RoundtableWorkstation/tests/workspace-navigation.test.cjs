@@ -10,30 +10,34 @@ const read = name => readFileSync(path.join(__dirname, "../static", name), "utf8
 const origin = "http://127.0.0.1:18765";
 
 test("every desktop surface mounts the same workspace navigation", () => {
-  for (const page of ["research", "reader", "studio", "lab", "science-tools"]) {
+  const shell = read("workspace-shell.html");
+  assert.equal(shell.match(/<nav data-workspace-nav /g).length, 1);
+  assert.match(shell,/src="\/static\/workspace-nav.js"/);
+  assert.match(shell,/{{template "content" ./);
+  for (const page of ["research", "reader", "studio", "lab", "science-tools","api"]) {
     const markup = read(page + ".html");
-    assert.equal(markup.match(/<nav data-workspace-nav /g)?.length, 1, page);
-    assert.match(markup, /src="\/static\/workspace-nav.js"/);
+    assert.match(markup,/{{define "content"}}/,page);
+    assert.doesNotMatch(markup,/<nav data-workspace-nav |<body|<iframe/i,page);
   }
   const links = navigation.destinations(new URL("/reader?paper=astro&project=project-B", origin));
-  assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","settings"]);
+  assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","roundtable","settings"]);
   assert.equal(links.find(l => l.active).key, "projects");
   for (const link of links) {
     const url = new URL(link.href, origin);
-    assert.equal(url.searchParams.get("project"), link.key === "lab" ? "project-B" : null);
+    assert.equal(url.searchParams.get("project"), ["lab","roundtable","settings"].includes(link.key) ? "project-B" : null);
   }
   assert.equal(navigation.destinations(new URL("/studio?view=settings&project=A", origin)).find(l => l.active).key, "settings");
   assert.equal(navigation.destinations(new URL("/reader?paper=astro", origin)).find(l => l.active).key, "library");
 });
 
-function mountResearch(start) {
+function mountResearch(start, sessions=[]) {
   const projects = [{id:"A",name:"Solar",path:"/one"}, {id:"B",name:"Lensing",path:"/two"}];
   const papers = [{id:"p1",title:"Solar paper",project_ids:["A"]},{id:"p2",title:"Lensing paper",project_ids:["B"]}];
   const tasks = projects.map(p => ({id:"task" + p.id, projectId:p.id, title:p.name + " task", revision:3,status:"open"}));
   const responses = new Map([
     ["/api/research/projects", projects], ["/api/research/papers", papers], ["/api/research/tasks", tasks],
     ["/api/research/papers/organization", {revision: 0, collections: {}, tags: {}}],
-    ["/api/studio/sessions", {sessions:[]}],
+    ["/api/studio/sessions", {sessions}],
   ]);
   for (const p of projects) {
     for (const [k,v] of Object.entries({notes:[],tasks:tasks.filter(t => t.projectId === p.id),materials:[],graph:{nodes:[],edges:[]}})) {
@@ -47,7 +51,7 @@ function mountResearch(start) {
   const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
   const location = {href:new URL(start, origin).href,origin};
   const history = {pushState:(_s,_t,url)=>{location.href=new URL(url,origin).href;},replaceState:(_s,_t,url)=>{location.href=new URL(url,origin).href;}};
-  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){}}};
+  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url,mode){history[mode+"State"](null,"",url);}}};
   const fetch = async (url, init) => {
     calls.push({url,init});
     if(init.method==="PATCH" && url==="/api/research/projects/B/tasks/taskB")return Response.json({});
@@ -76,7 +80,9 @@ test("global library deep links stay global; project drilldown restricts the sam
   assert.doesNotMatch(elements.main.innerHTML,/Lensing paper/);
   assert.equal(elements["project-modules"].hidden,false);
   await ui.load("missing","tasks");
-  assert.match(elements.main.innerHTML,/这个项目已归档或不存在/);
+  assert.equal(ui.state.project,null);
+  assert.equal(ui.state.view,"projects");
+  assert.match(elements.toast.textContent,/这个项目已归档或不存在/);
 });
 
 test("global tasks act on the owning project and reload the global calendar", async () => {
@@ -106,4 +112,62 @@ test("a Wiki page link resolves in its named project after the project loads", a
   missing.ui.openWikiNote = id => opened.push(["unexpected", id]);
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(opened, [["A", "page-1"]]);
+});
+
+test("meeting lists follow the stable project across folder changes and path reuse", async () => {
+  const sessions=[
+    {id:"moved",project_id:"A",project:"/old",title:"Moved project"},
+    {id:"archived",project_id:"archived-ID",project:"/one",title:"Reused directory"},
+    {id:"legacy",project:"/one",title:"Unbound legacy meeting"},
+    {id:"other",project_id:"B",project:"/two",title:"Other project"}
+  ];
+  const {ui}=mountResearch("/research?project=A&view=meetings",sessions);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(Array.from(ui.state.meetings,s=>s.id),["moved"]);
+  await ui.load("B","meetings");
+  assert.deepEqual(Array.from(ui.state.meetings,s=>s.id),["other"]);
+});
+
+test("declining to leave a draft leaves the active root and history entry intact", () => {
+  const callbacks = {};
+  const sent = [];
+  const historyMoves=[];
+  let beforeunload=0;
+  const window={
+    addEventListener(event,handler){callbacks[event]=handler;},
+    dispatchEvent(event){
+      if(event.type==="beforeunload"){beforeunload++;return false;}
+      return true;
+    },
+    confirm(){return false;}
+  };
+  const location=new URL("/lab?project=active",origin);
+  const history={
+    state:null,
+    replaceState(state,_,url){this.state=state;if(url)location.href=url;},
+    pushState(state,_,url){this.state=state;location.href=url;},
+    go(delta){historyMoves.push(delta);}
+  };
+  const links={dataset:{},replaceChildren(){}};
+  const document={
+    createElement(){return {dataset:{},setAttribute(){}};},
+    querySelector(selector){if(selector==="[data-workspace-nav]")return links;return {addEventListener(){}};},
+    addEventListener(){}
+  };
+  vm.runInNewContext(read("workspace-nav.js"),{
+    document,window,history,location,URL,URLSearchParams,CustomEvent,Event,
+    performance,fetch:async(path,init)=>{sent.push({path,init});return new Response(null,{status:204});}
+  });
+  window.SciStationNav.command("openWorkspace");
+  assert.equal(sent.some(item=>item.path==="/api/workspace/open"),false);
+  assert.equal(location.search,"?project=active");
+  window.SciStationNav.commitURL("/lab?project=other","push");
+  const savedCount=sent.length;
+  let stopped=0;
+  callbacks.popstate({state:{workspacePosition:0},stopImmediatePropagation(){stopped++;}});
+  assert.deepEqual(historyMoves,[1]);
+  callbacks.popstate({state:{workspacePosition:1},stopImmediatePropagation(){stopped++;}});
+  assert.equal(stopped,2);
+  assert.equal(beforeunload,2);
+  assert.equal(sent.length,savedCount);
 });

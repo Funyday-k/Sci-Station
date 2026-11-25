@@ -254,13 +254,20 @@
   function closeMobileSidebar() {
     if (matchMedia("(max-width: 800px)").matches) sidebar(false);
   }
-  function syncUrl(id, preserveHash = false) {
+  let restoringRoute = true;
+  function syncUrl(id, preserveHash = false, createdProject = "") {
     const url = new URL(location.href);
     url.pathname = "/studio";
     if (id) url.searchParams.set("session", id);
     else url.searchParams.delete("session");
+    const project = id ? createdProject || state.sessions.find(item=>item.id===id)?.project_id || state.session?.project_id :
+      projects.available().find(item=>item.id===state.activeProject && !item.global)?.id;
+    if (project) url.searchParams.set("project",project); else url.searchParams.delete("project");
     if (!preserveHash) url.hash = "";
-    history.replaceState(null, "", url);
+    if (!restoringRoute) {
+      url.searchParams.delete("view");
+      window.SciStationNav.commitURL(url,"replace");
+    }
   }
   function scrollToMessage(target, block = "start") {
     const scroll = $("table-scroll");
@@ -473,12 +480,7 @@
     const viewURL = new URL(location.href);
     if (view === "table") viewURL.searchParams.delete("view");
     else viewURL.searchParams.set("view", view);
-    history.replaceState(
-      null,
-      "",
-      viewURL.pathname + viewURL.search + viewURL.hash,
-    );
-    window.SciStationNav?.update();
+    if (!restoringRoute) window.SciStationNav.commitURL(viewURL,"push");
     $("table-view").hidden = view !== "table";
     syncBoardPresence();
     if (state.session) schedulePoll();
@@ -2000,7 +2002,13 @@
     }, working ? request.delay : 2500);
   }
   async function openSession(id, { preserveHash = false } = {}) {
-    if (state.writing || !canLeaveFile()) return;
+    if (state.writing) return;
+    if (!restoringRoute && state.selected !== id) {
+      const project=state.sessions.find(item=>item.id===id)?.project_id;
+      location.assign(window.SciStationNav.route("/studio",{session:id,project}));
+      return;
+    }
+    if (!canLeaveFile()) return;
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
@@ -2036,7 +2044,6 @@
     resetFiles();
     state.anchor = preserveHash ? location.hash.slice(1) : "";
     syncUrl(id, preserveHash);
-    storageSet("studio.last-session", id);
     clearError();
     renderHistory();
     switchView("table");
@@ -2100,7 +2107,17 @@
     renderHeading();
   }
   function openDraft(project) {
-    if (state.writing || !canLeaveFile()) return;
+    if (state.writing) return;
+    if (!restoringRoute) {
+      const key=project || state.activeProject;
+      const selected=projects.available().find(item=>item.id===key && !item.global);
+      const href=window.SciStationNav.route("/studio",{project:selected?.id});
+      if (new URL(href,location.href).href!==location.href) {
+        location.assign(href);
+        return;
+      }
+    }
+    if (!canLeaveFile()) return;
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
@@ -2114,7 +2131,6 @@
     reportUI.update(null);
     window.ScienceMeeting?.update(null);
     pluginsUI.updateSession(null);
-    storageSet("studio.last-session", "new");
     state.file = null;
     state.filesSession = null;
     state.diff = null;
@@ -2767,8 +2783,7 @@
       setup.complete();
       state.roundsKey = "";
       state.seatKeys = {};
-      syncUrl(session.id);
-      storageSet("studio.last-session", session.id);
+      syncUrl(session.id,false,session.project_id);
       updateSession(session, {animateInitial:true});
       $(hasBoard(session) ? "meeting-board" : "table-scroll").focus({preventScroll:true});
       state.enteredSessions.add(session.id);
@@ -3133,6 +3148,20 @@
     event.preventDefault();
     switchView(["settings", "plugins"].includes(event.detail) ? event.detail : "table");
   });
+  // Re-enter through the same URL resolver as an externally opened session.
+  // A fragment-only jump stays in the live meeting and retains its composer.
+  window.addEventListener("popstate", () => {
+    const url=new URL(location.href);
+    const session=url.searchParams.get("session") || null;
+    const requestedView=url.searchParams.get("view") || "table";
+    const draftProject=state.activeProject==="@global" ? "" : state.activeProject;
+    if (session!==state.selected || (!session && (url.searchParams.get("project") || "")!==draftProject)) {
+      location.reload();
+    } else if (state.view!==requestedView) {
+      restoringRoute=true;
+      try {switchView(requestedView);} finally {restoringRoute=false;}
+    }
+  });
   window.addEventListener("hashchange", scrollAnchor);
   window.addEventListener("beforeunload", (event) => {
     if (dirtyFile() || state.settingsDirty) {
@@ -3159,7 +3188,6 @@
     }
     const entry = new URL(location.href);
     const linked = entry.searchParams.get("session");
-    const last = storageGet("studio.last-session");
     let research = null;
     try {
       research = window.ScienceMeeting?.requestedProject(entry.searchParams.get("project"));
@@ -3168,9 +3196,7 @@
     }
     if (linked) await openSession(linked, { preserveHash: true });
     else if (research) openDraft(research.id);
-    else if (!state.selected && last && state.sessions.some(session => session.id === last))
-      await openSession(last);
-    else if (!state.selected) openDraft();
+    else if (!state.selected) openDraft("@global");
     if (research) {
       try {
         await window.ScienceMeeting.receive(research, linked,
@@ -3183,6 +3209,7 @@
     }
     if (["settings", "files", "plugins"].includes(requestedView))
       switchView(requestedView);
+    restoringRoute=false;
     const failure = results.find(result => result.status === "rejected");
     if (failure) showError(failure.reason);
   }
@@ -3331,7 +3358,7 @@
       state.view = nextView;
       const url = new URL(location.href);
       url.searchParams.set("view", nextView);
-      history.replaceState(null, "", url.pathname + url.search + url.hash);
+      if (!restoringRoute) window.SciStationNav.commitURL(url,"push");
       renderHeading();
     }
     if (event.detail === "plugins") pluginsUI.openMarket();
