@@ -70,7 +70,7 @@ function mount() {
   const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
   const location = {href:base + "/research?project=A&view=graph", origin:base};
   const history = {replaceState:(_s,_t,url)=>{location.href=new URL(url,base).href;}};
-  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){}},SciResearchGraph:graph};
+  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url){history.replaceState(null,"",url);}},SciResearchGraph:graph};
   let resolveQuery, rejectQuery;
   const fetch = async url => {
     calls.push(url);
