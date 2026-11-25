@@ -139,4 +139,36 @@ func TestReviewDecisionTransactions(t *testing.T) {
 	if got := s.projects[pid].Reviews[draft.ID]; got.Status != "pending" {
 		t.Fatal("stale project committed", got)
 	}
+
+	// A newer queue format stays inspectable without executing its actions
+	// or stripping its additional fields during an unrelated project save.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err = json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	row := record["reviews"].(map[string]any)[draft.ID].(map[string]any)
+	row["version"] = 2
+	row["future"] = map[string]any{"preserve": true}
+	raw, err = json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s = newResearch(t, root)
+	expect(decision(draft, "accept"), 409)
+	expect(decision(draft, "reject"), 409)
+	callResearch(t, s, "POST", route, map[string]string{"title": "Separate note"}, 201)
+	raw, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"preserve":true`) {
+		t.Fatal("unknown review fields were discarded")
+	}
 }

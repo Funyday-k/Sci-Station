@@ -22,23 +22,27 @@ type ReviewSource struct {
 	Evidence []Evidence `json:"evidence"`
 }
 
+type ReviewProposal struct {
+	ProjectRevision     int    `json:"projectRevision"`
+	TurnID              string `json:"turnId"`
+	Action              string `json:"action"`
+	DestinationID       string `json:"destinationId,omitempty"`
+	DestinationRevision int    `json:"destinationRevision,omitempty"`
+	Title               string `json:"title"`
+	Body                string `json:"body"`
+}
+
 type MeetingReview struct {
 	Entity
-	Version             int        `json:"version"`
-	ProjectID           string     `json:"projectId"`
-	ProjectRevision     int        `json:"projectRevision"`
-	MeetingID           string     `json:"meetingId"`
-	TurnID              string     `json:"turnId"`
-	Action              string     `json:"action"`
-	DestinationID       string     `json:"destinationId,omitempty"`
-	DestinationRevision int        `json:"destinationRevision,omitempty"`
-	Title               string     `json:"title"`
-	Body                string     `json:"body"`
-	SourceHash          string     `json:"sourceHash"`
-	SourceText          string     `json:"sourceText"`
-	Evidence            []Evidence `json:"evidence"`
-	Status              string     `json:"status"`
-	ResultID            string     `json:"resultId,omitempty"`
+	ReviewProposal
+	Version    int        `json:"version"`
+	ProjectID  string     `json:"projectId"`
+	MeetingID  string     `json:"meetingId"`
+	SourceHash string     `json:"sourceHash"`
+	SourceText string     `json:"sourceText"`
+	Evidence   []Evidence `json:"evidence"`
+	Status     string     `json:"status"`
+	ResultID   string     `json:"resultId,omitempty"`
 }
 
 func reviewSourceHash(source ReviewSource) string {
@@ -81,19 +85,11 @@ func (s *Service) listReviews(w http.ResponseWriter, r *http.Request) {
 }
 
 type ReviewRequest struct {
-	Decision    string `json:"decision"`
-	OperationID string `json:"operationId"`
-	ProjectID   string `json:"projectId"`
-	Revision    int    `json:"revision,omitempty"`
-	Proposal    *struct {
-		TurnID              string `json:"turnId"`
-		Action              string `json:"action"`
-		DestinationID       string `json:"destinationId,omitempty"`
-		DestinationRevision int    `json:"destinationRevision,omitempty"`
-		ProjectRevision     int    `json:"projectRevision"`
-		Title               string `json:"title"`
-		Body                string `json:"body"`
-	} `json:"proposal,omitempty"`
+	Decision    string          `json:"decision"`
+	OperationID string          `json:"operationId"`
+	ProjectID   string          `json:"projectId"`
+	Revision    int             `json:"revision,omitempty"`
+	Proposal    *ReviewProposal `json:"proposal,omitempty"`
 }
 
 func (v MeetingReview) readerLink(e Evidence) string {
@@ -158,6 +154,9 @@ func (s *Service) checkReviewEvidence(ctx context.Context, v MeetingReview) erro
 		p, ok := s.papers.records[e.PaperID]
 		if !ok || !slices.Contains(p.ProjectIDs, v.ProjectID) {
 			return errors.New("引用的论文未关联此项目")
+		}
+		if _, err := s.papers.currentRecord(e.PaperID); err != nil {
+			return errors.New("论文记录已在其他窗口或应用中改变，请重新审核")
 		}
 		if err := s.papers.verifyPDFEvidence(ctx, e, p); err != nil {
 			return err
@@ -242,7 +241,7 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 			return
 		}
 		if exists {
-			if v.TurnID != p.TurnID || v.Body != p.Body || v.Title != p.Title || v.Action != p.Action || v.DestinationID != p.DestinationID || v.DestinationRevision != p.DestinationRevision || v.ProjectRevision != p.ProjectRevision {
+			if v.ReviewProposal != *p {
 				jsonFail(w, 409, "重试操作的内容已改变")
 				return
 			}
@@ -251,7 +250,7 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 		}
 		e := fresh()
 		e.ID = in.OperationID
-		v = MeetingReview{Entity: e, Version: 1, ProjectID: project, MeetingID: meeting, Status: "pending", TurnID: p.TurnID, Title: p.Title, Body: p.Body, Action: p.Action, DestinationID: p.DestinationID, DestinationRevision: p.DestinationRevision, ProjectRevision: p.ProjectRevision}
+		v = MeetingReview{Entity: e, ReviewProposal: *p, Version: 1, ProjectID: project, MeetingID: meeting, Status: "pending"}
 	} else {
 		if (in.Decision != "accept" && in.Decision != "reject") || in.Proposal != nil || in.Revision < 1 {
 			jsonFail(w, 400, "请确认或拒绝已读取的审核版本")
@@ -297,11 +296,19 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 			jsonFail(w, 409, "会议原文或共享证据已改变，请重新审核")
 			return
 		}
-		s.papers.mu.RLock()
-		defer s.papers.mu.RUnlock()
-		if err := s.checkReviewEvidence(r.Context(), v); err != nil {
-			jsonFail(w, 409, err.Error())
-			return
+		if len(v.Evidence) > 0 {
+			s.papers.mu.Lock()
+			defer s.papers.mu.Unlock()
+			records, err := s.papers.lockRecords()
+			if err != nil {
+				jsonFail(w, 500, "无法锁定论文记录")
+				return
+			}
+			defer records.Close()
+			if err := s.checkReviewEvidence(r.Context(), v); err != nil {
+				jsonFail(w, 409, err.Error())
+				return
+			}
 		}
 		if !propose {
 			if err := s.applyMeetingReview(&d, &v); err != nil {

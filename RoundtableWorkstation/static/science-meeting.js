@@ -335,6 +335,7 @@
           try {
             const result=await request(reviewURL(draft),"POST",{projectId:draft.projectId,operationId:row.id,decision,revision:row.revision});
             if(currentDraft!==draft)return;
+            if (draft.operationId===result.id && result.status==="rejected") {draft.operationId=null;rememberDraft();}
             renderReviews(draft,rows.map(x=>x.id===result.id?result:x));
             ui.status.textContent=result.status==="accepted"?"已写入「"+result.title+"」。":"已拒绝写入。";
           } catch(error){if(currentDraft===draft){ui.status.textContent=error.message;accept.disabled=reject.disabled=false;}}

@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -219,6 +220,43 @@ func TestSciStationPaperMeetingAndReviewedWriteback(t *testing.T) {
 	if len(history) != 2 || history[0].Status != "pending" || history[0].Body != proposal.Body || history[1].Status != "rejected" {
 		t.Fatal("review queue was not restored", history)
 	}
+	pdfPath := filepath.Join(dir, "research", "library", "pdf", paper.ID+".pdf")
+	if err := os.WriteFile(pdfPath, scienceWorkflowPDF("Changed original."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	decide(proposal, "accept", 409)
+	if err := os.WriteFile(pdfPath, pdf, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// An external paper metadata edit can revoke the reviewed membership even
+	// while this window is open. Recheck disk state before committing.
+	paperFile := filepath.Join(dir, "research", "library", "records", paper.ID+".json")
+	originalMeta, err := os.ReadFile(paperFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var changed map[string]any
+	if err = json.Unmarshal(originalMeta, &changed); err != nil {
+		t.Fatal(err)
+	}
+	changed["project_ids"] = []string{b.ID}
+	changed["core_project_ids"] = []string{}
+	row, err := json.Marshal(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(paperFile, row, 0600); err != nil {
+		t.Fatal(err)
+	}
+	decide(proposal, "accept", 409)
+	decide(proposal, "accept", 409)
+	if err = os.WriteFile(paperFile, originalMeta, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	api, engine = start()
 	committed := decide(proposal, "accept", 200)
 	retry := decide(proposal, "accept", 200)
 	note := scienceWorkflowDecode[research.Note](t, do(req("GET", notes+"/"+committed.ResultID, nil), 200))
