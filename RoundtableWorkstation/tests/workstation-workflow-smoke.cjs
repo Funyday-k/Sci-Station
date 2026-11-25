@@ -209,7 +209,7 @@ async function webkitDriver(dir) {
     setTimeout(() => location.assign(url), 0);
   }, url);
   const screenshot = async file => writeFile(file, Buffer.from(await send({capture: true}), "base64"));
-  return {ui: domDriver(evaluate, navigate, screenshot), close: () => {}, quit: () => send({quit: true})};
+  return {ui: domDriver(evaluate, navigate, screenshot),native:send, close: () => {}, quit: () => send({quit: true})};
 }
 
 async function buildNativeFixture(bundle, base) {
