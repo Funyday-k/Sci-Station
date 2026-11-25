@@ -10,7 +10,26 @@ Sci-Station 是本地优先的科研桌面工作台。一个应用内包括共�
 
 ## 数据与开发
 
-新版从空工作区开始，使用独立应用目录 `~/Library/Application Support/Sci-Station Desktop`。文献保留原 PDF，科研项目可以关联明确选择的外部目录，会议记录与已审笔记分别存储。备份时先退出应用，再复制整个应用数据目录和自己关联的外部项目文件夹。
+新版首次启动会要求选择或创建一个空工作区。文献保留原 PDF，科研项目可以关联明确选择的外部目录，会议记录与已审笔记分别存储。旧 Go 原型的默认应用数据目录是 `~/Library/Application Support/Sci-Station Desktop`。
+
+### 从 Go 原型备份与恢复
+
+切换之前，退出 Go 原型，等待进程完全结束，并暂停对其数据目录的其他写入。在源码的 `RoundtableWorkstation` 目录运行以下命令。为备份和恢复各选一个全新的绝对路径，确认其父目录已经存在。使用单独的私有备份位置保存科研资料。原型曾以 `-data-dir` 启动时，请把示例中的 `prototype` 改为实际数据路径。
+
+```sh
+prototype="$HOME/Library/Application Support/Sci-Station Desktop"
+backup="/absolute/path/to/private-storage/sci-station-prototype-backup"
+recovery="/absolute/path/to/private-storage/sci-station-recovery-check"
+go run -tags nogui ./cmd/prototype-data backup -source "$prototype" -destination "$backup"
+go run -tags nogui ./cmd/prototype-data verify -source "$backup"
+go run -tags nogui ./cmd/prototype-data restore -source "$backup" -destination "$recovery"
+```
+
+- `backup` 获取原型现有的进程锁，把应用目录中的记录、PDF、附件、项目文件、插件包和设置逐字节复制到 `data/`，使用 `manifest.json` 记录每个文件的大小和 SHA-256。运行时锁文件在重开时重新建立。工具拒绝符号链接、硬链接、挂载的子目录和数据目录内的外部项目。另行备份你明确选择的外部研究文件夹。
+- `verify` 核对清单、共享文献及其 PDF、项目与附件、会议与附件、安装的插件包。历史笔记或任务可以保留已由用户删除的记录引用。备份清单格式为 v1，陌生的清单或插件注册表版本会导致验证失败。完整的备份仍可供人工取回原始文件。
+- `restore` 在临时目录逐字节核验副本，再将托管项目路径指向目标目录，停用外部项目目录授权，并清除恢复副本中的本机 CLI 路径覆盖。原始外部路径仍记录在备份的项目登记、项目记录和会议记录中。Keychain、Magpie 数据、供应商登录与 CLI 登录存储位于备份范围之外。恢复目标在数据和引用通过校验后才发布。原型目录、备份和当前工作区选择均保留。
+- 在隔离副本中核对一篇 PDF、对应的批注或引用、项目文件和会议记录。可用明确的路径启动一次本地服务，例如 `build/bin/sci-station-server serve -data-dir "$recovery" -port 18766`，然后访问 `http://127.0.0.1:18766/research`。恢复的会议可供查阅，外部研究目录应按需重新明确授权。
+- 如果验证或打开失败，继续使用此前的工作区，保留原型目录和备份。修复备份来源的问题，或者对同一备份使用另一处全新路径重试。备份和恢复命令均要求目的地尚不存在。
 
 文献库用 `library/organization.json`（格式版本 1）保存共享集合树和标签颜色，文献记录仅增加可选的 `collection_id` 与书目信息。旧记录直接打开，默认未归类，首次创建集合或设置标签颜色时写入组织文件。重命名集合不会移动文献或 PDF，标签颜色定义与文献上的标签分别保存。无法读取组织记录或版本未知时，应用会保留原文件并报告错误。恢复时先退出应用，再从同一份备份恢复整个文献库目录，确保集合、文献记录和 PDF 一致。
 
