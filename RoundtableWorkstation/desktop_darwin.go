@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -11,10 +13,28 @@ import (
 // runDesktop hosts the loopback application in a real WKWebView. The HTTP
 // server owns application state; Wails owns the native window and dialogs.
 func runDesktop(address string, host *apiServer, shutdown func()) error {
-	app := application.New(application.Options{
+	var app *application.App
+	var closing, drained atomic.Bool
+	app = application.New(application.Options{
 		Name:        "Sci-Station",
 		Description: "A local workspace for research conversations",
 		OnShutdown:  shutdown,
+		ShouldQuit: func() bool {
+			if shutdown == nil || drained.Load() {
+				return true
+			}
+			// Wails runs its shutdown hooks on the AppKit thread. Keep that
+			// thread available until native picker callbacks and HTTP work finish.
+			if closing.CompareAndSwap(false, true) {
+				prepareNativeQuit()
+				go func() {
+					shutdown()
+					drained.Store(true)
+					app.Quit()
+				}()
+			}
+			return false
+		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
@@ -40,6 +60,9 @@ func runDesktop(address string, host *apiServer, shutdown func()) error {
 		host.setPicker(func() (string, error) {
 			pickerMu.Lock()
 			defer pickerMu.Unlock()
+			if closing.Load() {
+				return "", context.Canceled
+			}
 			return app.Dialog.OpenFile().
 				CanChooseDirectories(true).
 				CanChooseFiles(false).
@@ -53,6 +76,9 @@ func runDesktop(address string, host *apiServer, shutdown func()) error {
 		host.setSavePicker(func(filename, _ string) (string, error) {
 			pickerMu.Lock()
 			defer pickerMu.Unlock()
+			if closing.Load() {
+				return "", context.Canceled
+			}
 			// The plugin export endpoint validates its own file extensions.
 			return app.Dialog.SaveFile().AttachToWindow(window).
 				SetFilename(filename).

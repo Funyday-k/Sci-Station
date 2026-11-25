@@ -12,26 +12,75 @@ int main(int argc, char **argv) {
     }
 }
 #else
+static BOOL isSplash(NSWindow *window) {
+    return [window.contentView isKindOfClass:NSClassFromString(@"SciLiquidLaunchView")];
+}
+
+static BOOL isWorkstation(NSWindow *window) {
+    return ![window isKindOfClass:NSPanel.class] && [window standardWindowButton:NSWindowCloseButton] != nil;
+}
+
+// Position only windows in this dedicated test executable. The first screen
+// is the menu-bar display even when another display currently has focus.
+static void placeWindow(NSWindow *window, NSScreen *screen) {
+    if (window.screen == screen) return;
+    NSRect area = screen.visibleFrame;
+    NSRect frame = window.frame;
+    frame.origin = NSMakePoint(NSMidX(area) - NSWidth(frame)/2, NSMidY(area) - NSHeight(frame)/2);
+    [window setFrame:frame display:YES];
+}
+
 static void checkWindow(NSString *gesture, int retries) {
-    NSWindow *window = NSApp.keyWindow;
-    NSButton *close = [window standardWindowButton:NSWindowCloseButton];
-    if (!window.visible || !close || window.alphaValue < 0.999) {
+    BOOL launching = [gesture isEqualToString:@"launch-q"];
+    BOOL picking = [gesture isEqualToString:@"picker-q"];
+    NSArray<NSScreen *> *screens = NSScreen.screens;
+    const char *requested = getenv("SCI_STATION_TEST_DISPLAY");
+    BOOL preferSecondary = !requested || strcmp(requested, "primary") != 0;
+    NSScreen *display = screens.count > 1 && preferSecondary ? screens[1] : screens.firstObject;
+    NSWindow *window = nil;
+    for (NSWindow *candidate in NSApp.windows) {
+        if (!candidate.visible || (!isSplash(candidate) && !isWorkstation(candidate))) continue;
+        if (display) placeWindow(candidate, display);
+        if (launching ? isSplash(candidate) : (isWorkstation(candidate) && candidate.alphaValue >= .999)) {
+            window = candidate;
+        }
+    }
+    if (!launching && window && !window.keyWindow && !window.attachedSheet) {
+        [NSApp activateIgnoringOtherApps:YES];
+        [window makeKeyAndOrderFront:nil];
+        if (!window.keyWindow) window = nil;
+    }
+    NSString *marker = [NSString stringWithUTF8String:getenv("SCI_STATION_TEST_GESTURE_MARKER")];
+    NSFileManager *files = NSFileManager.defaultManager;
+    if (window) {
+        NSString *ready = [marker stringByAppendingString:@".ready"];
+        if (![files fileExistsAtPath:ready]) [files createFileAtPath:ready contents:nil attributes:nil];
+    }
+    if (!window || (picking && !window.attachedSheet) ||
+        ![files fileExistsAtPath:[marker stringByAppendingString:@".go"]]) {
         if (retries == 0) {
-            fprintf(stderr, "No visible main window after the launch animation\n");
+            fprintf(stderr, "No matching window, sheet, or test driver signal for %s\n", gesture.UTF8String);
             exit(3);
         }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
             checkWindow(gesture, retries - 1);
         });
         return;
     }
-    NSString *marker = [NSString stringWithUTF8String:getenv("SCI_STATION_TEST_GESTURE_MARKER")];
     if (![gesture writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:NULL]) {
         fprintf(stderr, "Failed to record the native gesture\n");
         exit(5);
     }
-    fprintf(stderr, "Invoking native gesture: %s\n", gesture.UTF8String);
+    NSUInteger index = [screens indexOfObject:window.screen];
+    if (index == NSNotFound || window.screen != display) {
+        fprintf(stderr, "The test window is not on its selected display\n");
+        exit(6);
+    }
+    fprintf(stderr, "Invoking %s on screen %lu/%lu\n", gesture.UTF8String,
+            (unsigned long)index + 1, (unsigned long)screens.count);
     if ([gesture isEqualToString:@"red"]) {
+        NSButton *close = [window standardWindowButton:NSWindowCloseButton];
+        if (!close.enabled) exit(4);
         [close performClick:nil];
         return;
     }
@@ -49,7 +98,7 @@ __attribute__((constructor)) static void armGesture(void) {
     const char *name = getenv("SCI_STATION_TEST_GESTURE");
     if (name == NULL || getenv("SCI_STATION_TEST_GESTURE_MARKER") == NULL) return;
     dispatch_async(dispatch_get_main_queue(), ^{
-        checkWindow([NSString stringWithUTF8String:name], 200);
+        checkWindow([NSString stringWithUTF8String:name], 900);
     });
 }
 #endif
