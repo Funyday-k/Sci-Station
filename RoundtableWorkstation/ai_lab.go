@@ -58,6 +58,10 @@ func (a *apiServer) serveAILab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/research/lab/")
+	if strings.HasPrefix(path, "replay/") {
+		a.serveLabReplay(w, r, strings.TrimPrefix(path, "replay/"))
+		return
+	}
 	if path == "sources/preview" || path == "sources/prepare" {
 		a.serveLabSources(w, r, path)
 		return

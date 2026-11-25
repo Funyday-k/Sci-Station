@@ -236,6 +236,17 @@
         renderRun(next);schedule(id);
       }
     }
+    async function exportReplay() {
+      const room=visibleRoom;
+      if(!ownsRun(room,project)) throw Error("请先打开要导出的会话。");
+      const scope=project.global?{scope:"global"}:{project:project.id};
+      const url="/api/research/lab/replay/"+encodeURIComponent(room.id)+"?"+new URLSearchParams(scope);
+      const result=await req(url,"POST",{});
+      if(result.browser_download) {
+        const link=document.createElement("a");
+        link.href=url;link.download="sci-station-run-"+room.id+".zip";document.body.append(link);link.click();link.remove();
+      } else if(result.saved) tell("已保存脱敏诊断包。");
+    }
     async function cancel() {
       const id=active, token=generation;
       if(!history.some(s=>s.id===id && ownsRun(s,project))) return;
@@ -249,7 +260,7 @@
     bind("local-find",findPages); bind("local-preview",()=>showPreview()); bind("local-add",addSelection);
     bind("local-prev",()=>showPreview(Math.max(0,(preview?.offset || 0)-4000)));
     bind("local-next",()=>showPreview((preview?.offset || 0)+chars(preview?.text || "").length));
-    bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask);
+    bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay);
     return {selectProject, hasDraft:()=>selected.length>0 || !!$("lab-reply").value.trim(), prepareHandoff:(_,pid)=>selected.length?prepare("",pid):Promise.resolve([])};
   }
   const api={mount, selectedCitation, ownsRun};

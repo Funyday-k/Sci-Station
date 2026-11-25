@@ -130,6 +130,10 @@ func (a *apiServer) saveMaterial(w http.ResponseWriter, r *http.Request, id stri
 	}
 	defer f.Close()
 
+	a.saveLocalDownload(w, r, m.Name, f)
+}
+
+func (a *apiServer) saveLocalDownload(w http.ResponseWriter, r *http.Request, name string, content io.Reader) {
 	pick := a.savePicker()
 	if pick == nil || !strings.Contains(r.UserAgent(), "SciStationDesktop/") {
 		reply(w, http.StatusOK, map[string]bool{"browser_download": true})
@@ -144,7 +148,7 @@ func (a *apiServer) saveMaterial(w http.ResponseWriter, r *http.Request, id stri
 	if ctx.Err() != nil {
 		return
 	}
-	path, err := pick(m.Name, strings.TrimPrefix(filepath.Ext(m.Name), "."))
+	path, err := pick(name, strings.TrimPrefix(filepath.Ext(name), "."))
 	if ctx.Err() != nil {
 		return
 	}
@@ -156,9 +160,9 @@ func (a *apiServer) saveMaterial(w http.ResponseWriter, r *http.Request, id stri
 		reject(w, http.StatusInternalServerError, "无法打开系统保存窗口")
 		return
 	}
-	if err = writeNativeExport(ctx, path, f); err != nil {
+	if err = writeNativeExport(ctx, path, content); err != nil {
 		if ctx.Err() == nil {
-			reject(w, http.StatusInternalServerError, "无法写入会议附件，请检查所选位置后重试")
+			reject(w, http.StatusInternalServerError, "无法写入文件，请检查所选位置后重试")
 		}
 		return
 	}
