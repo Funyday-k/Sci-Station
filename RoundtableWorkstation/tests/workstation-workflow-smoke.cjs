@@ -481,6 +481,20 @@ async function reviewProjectSources(app, ui, fixture) {
   const file = new FormData();
   file.append("file", new Blob(["Context\n" + material]), "source-data.txt");
   const attachment = await app.request(path + "/materials", "POST", file, 201);
+  await ui.navigate(app.origin + "/lab?project=" + project.id);
+  await ui.click("#local-search summary");
+  await ui.set("#local-query", "actual project attachment");
+  await ui.click("#local-find");
+  await ui.visible("#local-search-status", "已核对");
+  await ui.click("#local-hits button", "L1–2");
+  assert.ok((await ui.visible("#local-text")).value.includes(material));
+  await ui.set("#local-rank", "hybrid");
+  await ui.click("#local-rebuild");
+  await ui.visible("#local-search-status", "已重建索引");
+  await ui.click("#local-find");
+  await ui.visible("#local-search-status", "复用");
+  await ui.visible("#local-hits button", material);
+  console.log("PASS AI Lab offline project search, original passage, and hybrid rebuild and reuse");
   const sourcePath = "/api/research/lab/sources/";
   const citations = [];
   for (const [kind, id, offset, quote] of [["note",source.id,2,wiki],["material",attachment.id,8,material]]) {

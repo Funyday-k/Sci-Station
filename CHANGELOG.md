@@ -19,6 +19,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Review proposals to write meeting results to notes or tasks, retry a confirmation and recover decisions after a restart. AI Lab can reopen a single-seat session and export redacted diagnostics.
 - Preview, enable, and trust local Markdown skills for a specific project. Save an optional public MCP resource endpoint, with confirmation before each connection.
 - Inspect each single-seat claim’s citations and reopen verified source excerpts. Formal research templates require cited source text before entering human review.
+- Search the active project’s Markdown papers, notes and text materials offline. Optionally use deterministic local ranking, rebuild an index and open the verified original passage by line.
 - Choose project modules and dashboard widgets, create tasks with optional project and paper associations, and explicitly connect selected Apple calendars and reminders. Literature discovery keeps ranked runs, filters and feedback.
 - Save MinerU tokens and credentials for OpenAI-compatible model profiles in macOS Keychain. The desktop model directory shares these profiles between research workflows.
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.

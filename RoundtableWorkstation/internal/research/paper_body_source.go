@@ -16,6 +16,10 @@ type BodySection struct {
 }
 
 func (s *PaperLibrary) projectMarkdown(project, id string) (string, Paper, error) {
+	return s.projectMarkdownWithin(project, id, maxPaperBody)
+}
+
+func (s *PaperLibrary) projectMarkdownWithin(project, id string, maxBytes int) (string, Paper, error) {
 	if !validID(id) {
 		return "", Paper{}, ErrWorkflowSource
 	}
@@ -29,6 +33,9 @@ func (s *PaperLibrary) projectMarkdown(project, id string) (string, Paper, error
 	}
 	if p.Markdown == nil {
 		return "", p, errors.New("尚无论文 Markdown 正文。请先导入 Markdown 文件或转换已有 PDF")
+	}
+	if p.Markdown.Bytes > maxBytes {
+		return "", p, errRetrievalSourceTooLarge
 	}
 	b, err := s.readBodyLocked(p)
 	if err != nil {

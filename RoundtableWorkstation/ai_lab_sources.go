@@ -24,6 +24,8 @@ type labSourcesRequest struct {
 	Scope     string                  `json:"scope"`
 	ProjectID string                  `json:"projectId"`
 	Workflow  string                  `json:"workflow"`
+	Mode      string                  `json:"mode,omitempty"`
+	Rebuild   bool                    `json:"rebuild,omitempty"`
 	Location  research.SourceLocation `json:"location"`
 	Citations []labCitation           `json:"citations"`
 }
@@ -56,6 +58,17 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 		return
 	}
 	if path == "sources/search" {
+		if in.Mode != "" || in.Rebuild {
+			results, err := lab.FindWorkflowProject(r.Context(), in.ProjectID, in.Query, research.WorkflowRetrievalOptions{
+				Mode: in.Mode, Rebuild: in.Rebuild, Source: in.Location,
+			})
+			if err != nil {
+				reject(w, 422, err.Error())
+				return
+			}
+			reply(w, 200, results)
+			return
+		}
 		results, err := lab.FindWorkflowSource(r.Context(), in.ProjectID, in.Location, in.Query)
 		if err != nil {
 			reject(w, 422, err.Error())

@@ -133,6 +133,7 @@ type Service struct {
 	workspaceTasks  workspaceTaskData
 	pathValidator   func(string) bool
 	newTaskReminder func(Task) (string, error)
+	retrievalWorker chan struct{}
 
 	onInterfaceLanguageChanged func()
 }
@@ -149,7 +150,7 @@ func New(dir string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{dir: absolute, mux: http.NewServeMux(), projects: map[string]projectData{}}
+	s := &Service{dir: absolute, mux: http.NewServeMux(), projects: map[string]projectData{}, retrievalWorker: make(chan struct{}, 1)}
 	for _, name := range []string{"records", "workspaces", "blobs", "trash"} {
 		if err = workspace.ManagedMkdirAll(filepath.Join(s.dir, name), 0700); err != nil {
 			return nil, err

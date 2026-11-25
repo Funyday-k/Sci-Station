@@ -95,13 +95,14 @@
       $("local-record").replaceChildren(...records.map((x,i)=>new Option(x.label,String(i))));
       chooseRecord();
     }
-    async function showPreview(offset=0,line=0) {
+    async function showPreview(offset=0,line=0,expectedHash="") {
       const record=records[$("local-record").value], token=++previewSequence;
       if(!record || !project) throw Error("请先选择项目原文。");
       const page=record.kind==="paper"?Number($("local-page").value):0;
       preview=null; $("local-window").hidden=true;
       const data=await req(base+"preview","POST",{projectId:project.id,line,location:{kind:record.kind,id:record.id,page,offset}});
       if(token!==previewSequence) return;
+      if(expectedHash && data.hash!==expectedHash) throw Error("原文已改变，请重新检索。");
       preview=data;
       const md=data.kind==="paper-markdown";
       $("body-location").hidden=!md;$("body-sections-label").hidden=!md||!data.sections?.length;
@@ -119,19 +120,67 @@
       $("local-hits").replaceChildren();
       $("local-search-more").hidden=true;
       $("local-search-stop").hidden=true;
+      $("local-search-status").hidden=true;
+    }
+    function updateSearchOptions() {
+      resetSearch();
+      const indexed=$("local-search-scope").value==="project";
+      $("local-rank-label").hidden=!indexed;
+      $("local-index-actions").hidden=!indexed || $("local-rank").value!=="hybrid";
     }
     function addHit(state,record,hit) {
       const li=document.createElement("li"),button=document.createElement("button");
       button.type="button";
-      button.textContent=record.label+(hit.page?" · 第 "+hit.page+" 页":"")+" · "+hit.text;
+      const where=hit.page?" · 第 "+hit.page+" 页":hit.line?" · L"+hit.line+(hit.line!==hit.endLine?"–"+hit.endLine:""):"";
+      button.textContent=record.label+where+(hit.heading?" · "+hit.heading:"")+" · "+hit.text;
       button.onclick=()=>{
         if(searchState!==state) return;
-        $("local-record").value=String(records.indexOf(record));
+        let index=records.findIndex(x=>x.kind===record.kind && x.id===record.id);
+        if(index<0) {
+          index=records.push(record)-1;
+          $("local-record").add(new Option(record.label,String(index)));
+        }
+        $("local-record").value=String(index);
         $("local-page").value=String(hit.page || 1);
         chooseRecord(false);
-        showPreview(Math.max(0,hit.offset-35)).catch(e=>tell(e.message));
+        showPreview(hit.hash?hit.offset:Math.max(0,hit.offset-35),0,hit.hash).catch(e=>tell(e.message));
       };
       li.append(button);$("local-hits").append(li);
+    }
+    async function runProjectSearch(query,rebuild=false,selectedOnly=false) {
+      resetSearch();
+      if(!project?.id) throw Error("请选择科研项目。");
+      const record=selectedOnly?records[$("local-record").value]:null;
+      if(selectedOnly && (!record || record.missing || record.kind==="paper")) throw Error("请选择已有正文的论文 Markdown、笔记或文本材料。");
+      const state={controller:new AbortController()};
+      searchState=state;
+      $("local-search-stop").hidden=false;
+      const request={projectId:project.id,query,mode:$("local-rank").value,rebuild};
+      if(record) request.location={kind:record.kind,id:record.id};
+      try {
+        const data=await req(base+"search","POST",request,state.controller.signal);
+        if(searchState!==state || state.controller.signal.aborted) return;
+        const trace=data.trace, output=$("local-search-status");
+        const changed=trace.cacheStatus==="version_changed" || trace.cacheStatus==="invalid";
+        const fallback={query_has_no_vector:"当前词句使用关键词排序。",cache_write_failed:"索引无法保存，已使用关键词排序。"};
+        const indexed=trace.mode==="hybrid";
+        output.textContent=(rebuild?(trace.cacheStatus==="rebuilt"?"已重建索引。":"索引未能保存。"):"显示 "+data.items.length+" 段。")+
+          "已核对 "+trace.verified+" / "+trace.sources+" 份来源。"+
+          (indexed?"向量更新 "+trace.updated+" 份，复用 "+trace.reused+" 份。":"")+
+          (indexed && changed?"已刷新旧版本或损坏的本地索引。":"")+
+          (trace.skipped?"跳过 "+trace.skipped+" 份来源。":"")+
+          (data.limited?"本次结果达到检索上限。":"")+
+          (fallback[trace.fallbackReason] || "");
+        output.hidden=false;
+        for(const hit of data.items){
+          const source=records.find(x=>x.kind===hit.kind && x.id===hit.id) || {kind:hit.kind,id:hit.id,label:hit.title};
+          addHit(state,source,hit);
+        }
+      } catch(error) {
+        if(!state.controller.signal.aborted && searchState===state) throw error;
+      } finally {
+        if(searchState===state) $("local-search-stop").hidden=true;
+      }
     }
     async function findSources(more=false) {
       if(!more) {
@@ -139,7 +188,8 @@
         const query=$("local-query").value.trim();
         if(!query || !project?.id) throw Error("请选择项目并输入要检索的词句。");
         const scope=$("local-search-scope").value;
-        const items=scope==="project"?records.filter(r=>!r.missing):[records[$("local-record").value]].filter(Boolean);
+        if(scope==="project") return runProjectSearch(query);
+        const items=scope==="exact-project"?records.filter(r=>!r.missing):[records[$("local-record").value]].filter(Boolean);
         searchState={query,items,index:0,failed:0,hits:0,limited:false};
       }
       const state=searchState;
@@ -337,8 +387,10 @@
     $("local-page").oninput=chooseRecord;
     $("lab-model").onchange=effortOptions;
     $("lab-history").onchange=()=>openRun($("lab-history").value);
-    $("local-query").oninput=resetSearch; $("local-search-scope").onchange=resetSearch;
+    $("local-query").oninput=resetSearch; $("local-search-scope").onchange=updateSearchOptions;
+    $("local-rank").onchange=updateSearchOptions;
     bind("local-find",()=>findSources());bind("local-search-more",()=>findSources(true));
+    bind("local-rebuild",()=>runProjectSearch("",true));bind("local-rebuild-source",()=>runProjectSearch("",true,true));
     $("local-search-stop").onclick=()=>searchState?.controller?.abort();
      $("body-sections").onchange=()=>{if($("body-sections").value)showPreview(0,Number($("body-sections").value)).catch(e=>tell(e.message));};
     bind("local-preview",()=>showPreview(0,records[$("local-record").value]?.kind==="paper-markdown"?Number($("body-line").value):0)); bind("local-add",addSelection);

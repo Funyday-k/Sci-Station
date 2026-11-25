@@ -85,6 +85,24 @@ func TestLabSourceReviewAndSingleSeatRun(t *testing.T) {
 	}
 	search.ProjectID = q.ID
 	call("POST", base+"search", search, 422)
+	indexed := labSourcesRequest{ProjectID: p.ID, Mode: "hybrid", Query: "fixed temperature"}
+	hits := scienceWorkflowDecode[research.WorkflowRetrieval](t, call("POST", base+"search", indexed, 200))
+	if len(hits.Items) != 1 || hits.Items[0].ID != n.ID || hits.Trace.Mode != "hybrid" || hits.Trace.Verified != 1 {
+		t.Fatal(hits)
+	}
+	found := hits.Items[0]
+	previewed := scienceWorkflowDecode[research.WorkflowSource](t, call("POST", base+"preview",
+		labSourcesRequest{ProjectID: p.ID, Location: found.SourceLocation}, 200))
+	if previewed.Hash != found.Hash || !strings.HasPrefix(previewed.Text, found.Text) {
+		t.Fatal(previewed, found)
+	}
+	select {
+	case <-delivered:
+		t.Fatal("local search or original preview reached the model")
+	default:
+	}
+	indexed.ProjectID, indexed.Scope = "", "global"
+	call("POST", base+"search", indexed, 400)
 	source := scienceWorkflowDecode[research.WorkflowSource](t, call("POST", base+"preview", in, 200))
 	if source.Text != quote || len(source.Hash) != 64 {
 		t.Fatal(source)
