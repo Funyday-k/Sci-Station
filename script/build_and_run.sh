@@ -3,6 +3,7 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bundle="${APP_OUTPUT:-$root_dir/build/Sci-Station.app}"
+case "$bundle" in /*) ;; *) bundle="$PWD/$bundle" ;; esac
 mode="${1:-run}"
 case "$mode" in
     run|debug|--debug|logs|--logs|telemetry|--telemetry|verify|--verify) ;;
