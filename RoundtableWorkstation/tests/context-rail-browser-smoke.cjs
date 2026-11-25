@@ -51,7 +51,7 @@ async function main(binary) {
     await page.locator(".layout > aside").waitFor();
     assert.ok(await page.locator("#context-rail").isHidden());
     await page.locator("#textLayer span").first().waitFor();
-    await page.locator("#pageNo").fill("2");await page.locator("#pageNo").dispatchEvent("change");
+    await page.locator("#pageNo").fill("2");await page.locator("#pageNo").press("Tab");
     await page.waitForFunction(q=>document.querySelector("#textLayer").textContent.includes(q),quote);
     const source=await api("/api/research/papers/"+paper.id+"/pages/2"),start=source.text.indexOf(quote),end=start+quote.length;
     assert.ok(start>=0);
@@ -96,7 +96,7 @@ async function main(binary) {
   }catch(err){
     if(page)console.error("Shell state",await page.evaluate(()=>({
       path:location.pathname,mode:document.body.dataset.railMode,status:document.querySelector("#rail-status")?.textContent,
-      page:document.querySelector("#pageNo")?.value,pageStatus:document.querySelector("#pageStatus")?.textContent,words:document.querySelector("#textLayer")?.textContent.slice(0,120),model:document.querySelector("#rail-model")?.value,modules:document.querySelector("#project-modules")?.textContent
+      selected:window.SciShellReader?.()?.quote,railQuote:document.querySelector("#rail-excerpt")?.textContent,page:document.querySelector("#pageNo")?.value,pageStatus:document.querySelector("#pageStatus")?.textContent,words:document.querySelector("#textLayer")?.textContent.slice(0,120),model:document.querySelector("#rail-model")?.value,modules:document.querySelector("#project-modules")?.textContent
     })).catch(()=>null));
     throw err;
   }finally{

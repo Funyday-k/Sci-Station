@@ -44,7 +44,7 @@
   function rememberDraft(){
     if(key)storage.set(key,node("rail-prompt").value ? JSON.stringify({value:node("rail-prompt").value,context:draftContext || context}):"");
   }
-  function status(message){node("rail-status").textContent=message || "";}
+  function status(message,retry=false){node("rail-status").textContent=message || "";node("rail-retry").hidden=!retry;}
   function button(label,action) {
     const btn=document.createElement("button");btn.type="button";btn.textContent=label;
     btn.onclick=()=>Promise.resolve().then(action).catch(e=>status(e.message));
@@ -174,7 +174,7 @@
       }
       if(!models.length)status(text("模型目录为空，请检查 AI 实验室设置。","No models are available. Check AI Lab settings."));
       drawAI();
-    } catch(err){if(ticket===generation){status(err.message);catalogScope="";}}
+    } catch(err){if(ticket===generation){status(err.message,true);catalogScope="";}}
   }
   function effortOptions() {
     const model=models.find(m=>m.id===node("rail-model").value);
@@ -187,7 +187,10 @@
     try{snapshot=await req("/api/studio/sessions/"+encodeURIComponent(id));}
     catch(error){if(error.status===404 && ticket===generation){roomPointer(context.project,"");room=null;drawAI();return;}throw error;}
     if(ticket!==generation || runLookup!==id)return;
-    if(!window.SciLabRun.ownsRun(snapshot,projectOf(context)))throw Error(text("会话与当前项目不符","Conversation belongs to another project"));
+    if(!window.SciLabRun.ownsRun(snapshot,projectOf(context))){
+      roomPointer(context.project,"");runLookup="";room=null;
+      status(text("已清除不属于当前项目的会话位置。","Cleared a conversation pointer belonging to another project."));drawAI();return;
+    }
     room=snapshot;drawAI();
     clearTimeout(poll);
     if(room.status==="running")poll=setTimeout(()=>readRoom(id,ticket).catch(err=>{if(ticket===generation)status(err.message);}),1000);
@@ -238,6 +241,7 @@
   node("rail-prompt").onkeydown=e=>{if(e.key==="Enter" && (e.metaKey || e.ctrlKey)){e.preventDefault();send();}};
   node("rail-model").onchange=()=>{effortOptions();drawAI();};
   node("rail-send").onclick=send;
+  node("rail-retry").onclick=()=>{catalogScope="";status("");loadScope();};
   node("rail-new").onclick=()=>{clearTimeout(poll);runLookup="";room=null;roomPointer(context.project,"");status("");drawAI();};
   node("rail-stop").onclick=async()=>{
     if(!room || busy)return;
