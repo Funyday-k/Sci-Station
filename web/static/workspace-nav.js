@@ -8,6 +8,7 @@
     return path + (query.size ? "?" + query : "");
   }
   function research(view, project) {
+    if (view === "calendar") return route("/research", {view: "tasks", tab: "calendar", project});
     return route("/research", {view: view === "overview" ? "" : view, project});
   }
   const label = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
@@ -26,7 +27,7 @@
       ["home", local("routeHome","首页","Home"), research("overview")],
       ["projects", local("routeProjects","项目","Projects"), research("projects")],
       ["library", local("routeLibrary","文献库","Library"), research("papers")],
-      ["calendar", local("routeCalendar","日历与任务","Calendar"), route("/research",{view:"tasks",tab:"calendar"})],
+      ["calendar", local("routeCalendar","日历与任务","Calendar"), research("calendar")],
       ["lab", local("routeAILab","AI 实验室","AI Lab"), route("/lab", {project})],
       ["roundtable", local("roundtable","圆桌","Roundtable"), route("/studio",{project})],
       ["settings", local("routeSettings","设置","Settings"), route("/studio",{view:"settings",project})]

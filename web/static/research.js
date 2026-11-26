@@ -150,7 +150,6 @@
   }
 
   function viewURL(view, id = state.project?.id) {
-    if (view === "tasks" && state.calendar) return navigation.route("/research", {view, project: id, calendar: 1});
     return navigation.research(view, id);
   }
 
@@ -348,7 +347,7 @@
     const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
       ({key,name,href:viewURL(key),local:true}));
     tabs.push(
-      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:navigation.route("/research",{view:"tasks",tab:"calendar",project:state.project?.id})},
+      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:viewURL("calendar")},
       {key:"recommendations",name:text("文献推荐", "Recommendations"),href:toolsPage("discover")},
       {key:"lab",name:text("AI 工作流", "AI Workflows"),href:navigation.route("/lab",{project:state.project?.id})}
     );
@@ -412,10 +411,8 @@
         empty("暂无 Wiki 页面", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
   }
 
-  function publicLibrary() {
-    const limited = Boolean(state.project);
-    const projectID = limited ? state.project.id : "";
-    const all = (limited ? scopedPapers() : state.papers).slice().sort((a, b) => {
+  function orderedLibraryPapers(projectID) {
+    return (projectID ? scopedPapers() : state.papers).slice().sort((a, b) => {
       if (projectID) {
         const first = a.project_links?.[projectID], second = b.project_links?.[projectID];
         const pin = Number(Boolean(second?.is_pinned)) - Number(Boolean(first?.is_pinned));
@@ -428,9 +425,23 @@
       }
       return byRecent(a, b) || a.id.localeCompare(b.id);
     });
-    const papers = E.library.filterPapers(all, projectID);
+  }
+
+  function libraryResults(papers, projectID) {
     const filtered = Boolean(state.query.trim() || state.libraryCollection || state.libraryTag);
-    const actions = (papers.length ? E.library.exportButton(papers) : "") +
+    return panel((projectID ? state.project.name : local("routePapers", "论文", "Papers")) + " · " + papers.length,
+        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? text("没有匹配的文献", "No matching papers") : text("还没有收录文献", "The library is empty"),
+          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier."), filtered ? "" : button(text("导入文献", "Import papers"), "new-paper", {
+            glyph: "import"
+          })));
+  }
+
+  function publicLibrary() {
+    const limited = Boolean(state.project);
+    const projectID = state.project?.id || "";
+    const all = orderedLibraryPapers(projectID);
+    const papers = E.library.filterPapers(all, projectID);
+    const actions = '<span id="library-export-action">' + (papers.length ? E.library.exportButton(papers) : "") + '</span>' +
       button(text("管理集合和标签", "Manage collections and tags"), "manage-library") + button(text("导入文献", "Import papers"), "new-paper", {
       glyph: "import",
       kind: "button primary"
@@ -439,11 +450,7 @@
       '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
       '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
       '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) + '</div>' +
-      panel((limited ? state.project.name : local("routePapers", "论文", "Papers")) + " · " + papers.length,
-        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? text("没有匹配的文献", "No matching papers") : text("还没有收录文献", "The library is empty"),
-          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier."), filtered ? "" : button(text("导入文献", "Import papers"), "new-paper", {
-            glyph: "import"
-          })));
+      '<div id="paper-results">' + libraryResults(papers, projectID) + '</div>';
   }
 
   function projectNeeded() {
@@ -682,7 +689,10 @@
       let fallback = Boolean(projectId && !nextProject);
       if (fallback) targetView = "projects";
       const config = await window.SciStationModules?.load(nextProject?.id || "");
-      const calendar = targetView==="tasks" && new URL(location.href).searchParams.get("tab")==="calendar" && historyMode!=="push";
+      const params = new URL(location.href).searchParams;
+      const tab = params.get("tab");
+      const calendar = targetView === "tasks" && historyMode !== "push" &&
+        (tab === "calendar" || (tab === null && params.get("calendar") === "1"));
       const module = targetView==="overview" && !nextProject ? null : navigation.viewModules[calendar?"calendar":targetView] || (targetView==="projects"?"projects":null);
       if (!navigation.enabled(config,module)) {
         fallback = true;
@@ -732,7 +742,7 @@
       if (fallback || historyMode==="push" || (historyMode==="replace" &&
           ((current.searchParams.get("view") || "overview") !== state.view ||
            (current.searchParams.get("project") || "") !== (nextProject?.id || "")))) {
-        navigation.commitURL(viewURL(state.view),fallback?"replace":historyMode);
+        navigation.commitURL(viewURL(state.calendar ? "calendar" : state.view),fallback?"replace":historyMode);
       }
       if(fallback && projectId && !nextProject) toast("这个项目已归档或不存在，请从项目列表重新选择。");
     } catch (err) {
@@ -927,6 +937,7 @@
       } else if (action === "switch-calendar") {
         state.calendar = !state.calendar;
         const url = new URL(location.href);
+        url.searchParams.delete("calendar");
         if (state.calendar) url.searchParams.set("tab","calendar"); else url.searchParams.delete("tab");
         navigation.commitURL(url,"push");
         render();
@@ -1003,15 +1014,18 @@
     if (ev.target.id === "graph-workflow-query") void applyGraphWorkflow(query);
     else void applyGraphQuery(query);
   });
-  document.addEventListener("input", ev => {
-    if (ev.target.id === "paper-query" && !ev.isComposing) {
-      state.query = ev.target.value;
-      render();
-      const next = $("paper-query");
-      next.focus();
-      next.setSelectionRange(next.value.length, next.value.length);
-    }
-  });
+  function filterLibrary(event) {
+    const input = event.target;
+    if (input.id !== "paper-query" || event.isComposing || input.value === state.query) return;
+    state.query = input.value;
+    const projectID = state.project?.id || "";
+    const papers = E.library.filterPapers(orderedLibraryPapers(projectID), projectID);
+    $("paper-results").innerHTML = libraryResults(papers, projectID);
+    $("library-export-action").innerHTML = papers.length ? E.library.exportButton(papers) : "";
+    window.SciContextRail?.update();
+  }
+  document.addEventListener("input", filterLibrary);
+  document.addEventListener("compositionend", filterLibrary);
   $("search-open").onclick = search;
   $("new-project").onclick = () => E.formAction("new-project");
   $("modal-close").onclick = close;
@@ -1029,7 +1043,6 @@
     const project = u.searchParams.get("project");
     const view = u.searchParams.get("view") || "overview";
     const task = u.searchParams.get("task");
-    state.calendar = u.searchParams.get("calendar") === "1";
     await window.SciStationI18n?.ready;
     await load(project, view, {historyMode: "none"});
     if (task && view === "tasks" && !state.loadError && location.href === u.href &&
@@ -1052,7 +1065,7 @@
   }
   window.addEventListener("popstate", () => {
     if (!close()) {
-      history.pushState(null, "", viewURL(state.view));
+      history.pushState(null, "", viewURL(state.calendar ? "calendar" : state.view));
       return;
     }
     route();

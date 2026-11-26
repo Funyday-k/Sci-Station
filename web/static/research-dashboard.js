@@ -226,7 +226,7 @@
     const dashboardNav = (title, view, id = project?.id) => link(title, viewURL(view, id), "bare");
     const reviewURL = r => window.SciStationNav.route("/studio", {project: r.projectId, session: r.meetingId, review: r.id});
     const url = (path, params) => window.SciStationNav.route(path, params);
-    const calendar = url("/research", {view: "tasks", project: project?.id, calendar: "1"});
+    const calendar = viewURL("calendar", project?.id);
     const overview = projectSummaries(project ? [project] : state.projects, state.papers, state.tasks, reviews, facts, now);
     const {today: due, upcoming} = taskWindows(state.tasks, now);
     const stageBadge = summary => summary.stage

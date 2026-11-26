@@ -91,6 +91,36 @@ async function smoke(binary) {
     }
 
     await withServer(binary, data, origin, async () => {
+      await page.goto(origin + "/research");
+      await page.locator(".dashboard-calendar-links a").first().click();
+      await page.locator(".calendar-head").waitFor();
+      assert.equal(new URL(page.url()).searchParams.get("tab"), "calendar");
+      await page.reload();
+      await page.locator(".calendar-head").waitFor();
+
+      const fixturePaper = await page.request.post(origin + "/api/research/papers", {
+        headers: {"X-Roundtable": "1"}, data: {title: "ab星cdef"}
+      });
+      assert.ok(fixturePaper.ok(), await fixturePaper.text());
+      await page.goto(origin + "/research?view=papers");
+      const query = page.locator("#paper-query");
+      await query.fill("abcdef");
+      const input = await query.elementHandle();
+      await query.evaluate(el => el.setSelectionRange(2, 2));
+      await page.keyboard.type("xy");
+      assert.deepEqual(await input.evaluate(el => [el === document.activeElement, el.value, el.selectionStart, el.selectionEnd]),
+        [true, "abxycdef", 4, 4]);
+      await query.evaluate(el => el.setSelectionRange(2, 4));
+      const ime = await page.context().newCDPSession(page);
+      try {
+        await ime.send("Input.imeSetComposition", {text: "星", selectionStart: 1, selectionEnd: 1});
+        await ime.send("Input.insertText", {text: "星"});
+      } finally {
+        await ime.detach();
+      }
+      await page.locator("#paper-results").getByRole("link", {name: "ab星cdef", exact: true}).waitFor();
+      assert.deepEqual(await input.evaluate(el => [el === document.activeElement, el.value, el.selectionStart, el.selectionEnd]),
+        [true, "ab星cdef", 3, 3]);
       await page.goto(tasksURL);
       await page.getByRole("button", {name: "添加任务"}).click();
       await modal.locator('[name="title"]').fill(title);
