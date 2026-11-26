@@ -20,23 +20,30 @@ func TestProjectPaperImportAndLinkedWikiSaveComplete(t *testing.T) {
 	const pairs = 12
 	start := make(chan struct{})
 	results := make(chan *httptest.ResponseRecorder, 2*pairs)
-	send := func(path, body string) {
-		r := httptest.NewRequest("POST", prefix+path, strings.NewReader(body))
+	send := func(method, path, body string) {
+		r := httptest.NewRequest(method, prefix+path, strings.NewReader(body))
 		res := httptest.NewRecorder()
 		<-start
 		s.ServeHTTP(res, r)
 		results <- res
 	}
 	for i := range pairs {
-		go send("/papers", fmt.Sprintf(`{"title":"Imported fixture %d","project_ids":[%q]}`, i, project.ID))
-		go send(base, fmt.Sprintf(`{"title":"Linked Wiki fixture %d","paperId":%q}`, i, source.ID))
+		go send("POST", "/papers", fmt.Sprintf(`{"title":"Imported fixture %d","project_ids":[%q]}`, i, project.ID))
+		if i%2 == 0 {
+			note := decodeResearch[Note](t, callResearch(t, s, "POST", base, map[string]any{
+				"title": fmt.Sprintf("Existing Wiki fixture %d", i), "paperId": source.ID,
+			}, 201))
+			go send("PATCH", base+"/"+note.ID, fmt.Sprintf(`{"revision":%d,"body":"Saved concurrently","paperId":%q}`, note.Revision, source.ID))
+		} else {
+			go send("POST", base, fmt.Sprintf(`{"title":"New Wiki fixture %d","body":"Saved concurrently","paperId":%q}`, i, source.ID))
+		}
 	}
 	close(start)
 	deadline := time.After(4 * time.Second)
 	for i := range 2 * pairs {
 		select {
 		case res := <-results:
-			if res.Code != 201 {
+			if res.Code != 201 && res.Code != 200 {
 				t.Fatalf("request failed: %d %s", res.Code, res.Body)
 			}
 		case <-deadline:
@@ -55,8 +62,8 @@ func TestProjectPaperImportAndLinkedWikiSaveComplete(t *testing.T) {
 		}
 	}
 	for _, n := range notes {
-		if n.PaperID != source.ID || n.ProjectID != project.ID {
-			t.Fatalf("missing Wiki link: %+v", n)
+		if n.PaperID != source.ID || n.ProjectID != project.ID || n.Body != "Saved concurrently" {
+			t.Fatalf("missing Wiki edit or link: %+v", n)
 		}
 	}
 }
