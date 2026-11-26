@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const base = path.join(__dirname, "../static");
 const script = fs.readFileSync(path.join(base, "science-tools.js"), "utf8");
 const html = fs.readFileSync(path.join(base, "science-tools.html"), "utf8");
+const previewScript = fs.readFileSync(path.join(base, "paper-body-preview.js"), "utf8");
 
 test("system calendar reads only on explicit actions, filters sources and synchronizes the current project", async () => {
   class Control {
@@ -60,8 +61,10 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   class Control {
     hidden = true;
     value = "";
-    replaceChildren(){ this.value = ""; }
+    children = [];
+    replaceChildren(...nodes){ this.value = ""; this.children = nodes; }
     add(option){ if (!this.value) this.value = option.value; }
+    append(...nodes){ this.children.push(...nodes); }
   }
   for (const match of html.matchAll(/id="([^"]+)"/g)) controls[match[1]] = new Control();
   const papers = ["A", "B"].map(id => ({id, title: "Paper "+id, has_pdf: true}));
@@ -72,8 +75,11 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
     if (route === "projects") return Response.json([{id:"project", name:"Research"}]);
     if (route === "papers") return Response.json(papers);
     if (route === "projects/project/tasks") return Response.json([]);
-    if (route === "papers/A/markdown") return new Promise(resolve => { finishA=()=>resolve(new Response("old A")); });
-    if (route === "papers/B/markdown") return new Response("text B");
+    const preview = markdown => Response.json({
+      markdown, quality:{engine:"pdfkit",hasAbstract:false,hasDisplayMath:false,missingFigures:0}
+    });
+    if (route === "papers/A/markdown?format=preview") return new Promise(resolve => { finishA=()=>resolve(preview("old A")); });
+    if (route === "papers/B/markdown?format=preview") return preview("text B");
     if (route === "projects/project/notes" && !opt.method) return Response.json([]);
     if (opt.method && route.startsWith("projects/project/notes")) {
       changes.push({route,method: opt.method,body:JSON.parse(opt.body)});
@@ -81,13 +87,15 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
     }
     throw Error("Unexpected route "+route);
   }
-  vm.runInNewContext(script,{
-    document:{getElementById:id=>controls[id],querySelectorAll:()=>[]},
+  const ctx = vm.createContext({
+    document:{getElementById:id=>controls[id],querySelectorAll:()=>[],createElement:()=>new Control()},
     window:{addEventListener(){}},
     Option:class{constructor(text,value){this.value=value;}},
     location:{search:"?tab=convert&project=project"},URLSearchParams,
     fetch,crypto:{randomUUID:()=>"conversion-test"},confirm:()=>true
   });
+  vm.runInContext(previewScript, ctx);
+  vm.runInContext(script, ctx);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(controls.paper.value, "A");
   const first = controls.local.onclick();
@@ -95,6 +103,8 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   assert.equal(controls.result.hidden,true);
   await controls.local.onclick();
   assert.equal(controls.markdown.value, "text B");
+  assert.match(controls.resultQuality.children[0].textContent, /PDFKit 文本提取/);
+  assert.match(controls.resultQuality.children[1].textContent, /对照原始 PDF/);
   await controls.saveNote.onclick();
   controls.markdown.value="reviewed B"; await controls.saveNote.onclick();
   assert.equal(changes[0].body.paperId,"B");
