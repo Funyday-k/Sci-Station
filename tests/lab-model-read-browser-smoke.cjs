@@ -45,10 +45,14 @@ async function main(origin, project, other, log, approved, denied, cancelled) {
     const studio = page.locator("#studio-read-review");
     await verifyRequest(studio);
     assert.deepEqual(calls(), []);
+    const accept = studio.getByRole("button", {name: "允许一次"});
+    const approvalControl = await accept.boundingBox();
+    const contextBar = await page.locator("#chat-header").boundingBox();
+    assert.ok(approvalControl.y + approvalControl.height <= contextBar.y + contextBar.height);
     if (process.env.SCI_STATION_MCP_REVIEW_SCREENSHOT) {
       await page.screenshot({path: process.env.SCI_STATION_MCP_REVIEW_SCREENSHOT});
     }
-    await studio.getByRole("button", {name: "允许一次"}).click();
+    await accept.click();
     await page.getByText("The model received the approved gamma result.").waitFor();
     const approvedCalls = calls();
     assert.equal(approvedCalls.filter(method => method === "tools/call").length, 1);

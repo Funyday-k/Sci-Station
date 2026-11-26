@@ -21,7 +21,7 @@
     return data;
   }
 
-  function appendField(fields, label, value, code = false) {
+  function appendField(fields, label, value, code = false, scrollable = false) {
     if (typeof value !== "string" || !value) return;
     const name = document.createElement("dt");
     name.textContent = label;
@@ -29,6 +29,10 @@
     if (code) {
       const exact = document.createElement("pre");
       exact.textContent = value;
+      if (scrollable) {
+        exact.tabIndex = 0;
+        exact.setAttribute("aria-label", label);
+      }
       item.append(exact);
     } else {
       item.textContent = value;
@@ -52,11 +56,11 @@
     const project = pending.project_label ? pending.project_label + " · " + pending.project_id : pending.project_id;
     appendField(fields, text("项目", "Project"), project);
     appendField(fields, text("科研连接", "Research connector"), pending.connection);
-    appendField(fields, text("目标地址或进程", "Endpoint or process"), pending.destination, true);
+    appendField(fields, text("目标地址或进程", "Endpoint or process"), pending.destination, true, true);
     appendField(fields, text("动作", "Operation"), operations[pending.operation] + " · " + pending.operation);
     appendField(fields, pending.operation === "tools/call"
       ? text("服务端工具", "Server tool") : text("资源 URI", "Resource URI"), pending.resource, true);
-    appendField(fields, text("JSON 参数", "JSON arguments"), pending.arguments_json, true);
+    appendField(fields, text("JSON 参数", "JSON arguments"), pending.arguments_json, true, true);
     return fields;
   }
 
