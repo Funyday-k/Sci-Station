@@ -74,11 +74,11 @@ The shutdown smoke checks the signed app process and uses a separate test driver
 ```sh
 Tools/scripts/package-release.sh --app build/Sci-Station.app
 Tools/scripts/verify-release.sh path/to/Sci-Station.dmg
-Tools/scripts/test-release-install.sh path/to/previous.dmg path/to/candidate.dmg
-Tools/scripts/test-release-install.sh path/to/previous.zip path/to/candidate.zip
+Tools/scripts/test-release-install.sh --native-ui path/to/previous.dmg path/to/candidate.dmg
+Tools/scripts/test-release-install.sh --native-ui path/to/previous.zip path/to/candidate.zip
 ```
 
-Installer smokes require two archives with the same app version and a lower build number on the first. Put their SHA-256 sidecars beside the archives. CI makes the lower build from the same checkout and tests both formats on macOS 15 using disposable application and research directories. This fixture establishes install, overwrite, persistent data reopen and rollback for those builds. Record any specific historical release upgrade test separately.
+Installer smokes require two archives with the same app version and a lower build number on the first. Put their SHA-256 sidecars beside the archives. CI makes the lower build from the same checkout and tests both formats on macOS 15 using disposable application and research directories. The fixture verifies install, overwrite, persistent data reopening and rollback for those builds. The `--native-ui` option adds an independent Xcode test target that launches the exact installed bundle and clicks between Home and Library after the initial install and upgrade. It requires a graphical macOS session. CI always enables it for both archive formats. Record any specific historical release upgrade test separately.
 
 The distribution model uses ad-hoc code signing with hardened runtime. The verifier checks the expected signature, app layout, arm64 and macOS deployment target, plus archive integrity and checksum. Developer ID and Apple notarization are outside the distribution model. GitHub releases provide SHA-256 and build provenance. Downloaders may verify that provenance with `gh attestation verify path/to/Sci-Station.dmg --repo Funyday-k/Sci-Station`. If macOS blocks first launch after download, check the download source and hash before explicitly choosing **Open Anyway** for Sci-Station in **System Settings → Privacy & Security**.
 

@@ -120,6 +120,12 @@ class WorkflowGovernanceTests(unittest.TestCase):
         self.assertIn("verify-release.sh", workflow)
         self.assertIn("actions/attest@", workflow)
 
+    def test_minimum_macos_gates_exercise_the_installed_native_app(self) -> None:
+        for name in ("macos-ci.yml", "release.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text()
+            with self.subTest(workflow=name):
+                self.assertIn("Tools/scripts/test-release-install.sh --native-ui ", workflow)
+
     def test_publish_requires_the_minimum_os_and_provenance_gates(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         publish = workflow.split("  publish:", 1)[1]

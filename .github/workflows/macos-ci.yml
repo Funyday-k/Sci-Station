@@ -134,7 +134,7 @@ jobs:
         with:
           name: workstation-prior-fixture-containers
           path: ${{ runner.temp }}/workstation-prior
-      - name: Exercise the downloaded ZIP and DMG on Apple Silicon
+      - name: Exercise the installed native app from both archives on Apple Silicon
         shell: bash
         run: |
           set -euo pipefail
@@ -145,7 +145,7 @@ jobs:
             previous=("$RUNNER_TEMP/workstation-prior/"*."$extension")
             candidate=("$RUNNER_TEMP/workstation-candidate/"*."$extension")
             [[ "${#previous[@]}" -eq 1 && -f "${previous[0]}" && "${#candidate[@]}" -eq 1 && -f "${candidate[0]}" ]]
-            Tools/scripts/test-release-install.sh "${previous[0]}" "${candidate[0]}"
+            Tools/scripts/test-release-install.sh --native-ui "${previous[0]}" "${candidate[0]}"
           done
 
   required-ci:

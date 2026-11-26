@@ -1,0 +1,90 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		510000000000000000000001 /* InstalledAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppUITests.swift; sourceTree = "<group>"; };
+		510000000000000000000002 /* InstalledAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 510000000000000000000001; };
+		510000000000000000000003 /* InstalledAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstalledAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		510000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (510000000000000000000002);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		510000000000000000000005 /* Root */ = {
+			isa = PBXGroup;
+			children = (510000000000000000000001, 510000000000000000000006);
+			sourceTree = "<group>";
+		};
+		510000000000000000000006 /* Products */ = {
+			isa = PBXGroup;
+			children = (510000000000000000000003);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		510000000000000000000007 /* InstalledAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 510000000000000000000009;
+			buildPhases = (510000000000000000000004);
+			buildRules = ();
+			dependencies = ();
+			name = InstalledAppUITests;
+			productName = InstalledAppUITests;
+			productReference = 510000000000000000000003;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		510000000000000000000008 /* Project */ = {
+			isa = PBXProject;
+			buildConfigurationList = 51000000000000000000000A;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = 510000000000000000000005;
+			productRefGroup = 510000000000000000000006;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (510000000000000000000007);
+		};
+		510000000000000000000009 /* Test settings */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (51000000000000000000000B);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		51000000000000000000000A /* Project settings */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (51000000000000000000000C);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		51000000000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = org.scistation.InstalledAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		51000000000000000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+			};
+			name = Debug;
+		};
+	};
+	rootObject = 510000000000000000000008;
+}

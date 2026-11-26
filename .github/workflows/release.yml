@@ -149,7 +149,7 @@ jobs:
           name: sci-station-release-rollback-fixture
           path: rollback-fixture
 
-      - name: Verify checksums, bundle integrity, installation, upgrade, and rollback
+      - name: Verify checksums, installed native UI, upgrade, and rollback
         shell: bash
         run: |
           set -euo pipefail
@@ -159,7 +159,7 @@ jobs:
             previous=(rollback-fixture/*."$extension")
             candidate=(release-artifacts/*."$extension")
             [[ "${#previous[@]}" -eq 1 && -f "${previous[0]}" && "${#candidate[@]}" -eq 1 && -f "${candidate[0]}" ]]
-            Tools/scripts/test-release-install.sh "${previous[0]}" "${candidate[0]}"
+            Tools/scripts/test-release-install.sh --native-ui "${previous[0]}" "${candidate[0]}"
           done
 
   provenance:

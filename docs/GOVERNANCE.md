@@ -17,7 +17,7 @@ The [macOS CI workflow](../.github/workflows/macos-ci.yml) has no path filters. 
 | Repository hygiene | Tracked artifact checks, documentation links, app version and build number consistency, and governance tool tests. |
 | Change traceability | A PR description links a real Issue, a versioned decision or a backlog item. |
 | Workstation | Go race, coverage and vet, frontend tests, signed arm64 bundle and deployment target, native shutdown and relaunch, PDF-to-Roundtable writeback, and native menu navigation. Go and Node fixtures cover the CLI approval protocol. |
-| Workstation install, upgrade and rollback | Verified ZIP, DMG and SHA-256 from the same checkout on Apple Silicon macOS 15, with a lower-build fixture and a disposable workspace. |
+| Workstation install, upgrade and rollback | Verified ZIP, DMG and SHA-256 from the same checkout on Apple Silicon macOS 15, with a lower-build fixture and a disposable workspace. XCTest launches the installed bundle and verifies visible Home and Library navigation after both the initial install and upgrade. |
 
 Reviewers verify the requirement link and the behavior claimed by each change. For a new runtime or permission boundary, the relevant RFC and ADR must record acceptance before implementation. See [developer verification](DEVELOPER.md) for local checks and the limits of controlled fixtures.
 
@@ -35,6 +35,6 @@ Keep private reporting, secret scanning and push protection enabled. GitHub sett
 
 ## Release controls
 
-The [release workflow](../.github/workflows/release.yml) checks that the tag matches [VERSION](../VERSION), its commit is reachable from `origin/main` and [BUILD_NUMBER](../BUILD_NUMBER) advances from the previous release. It verifies the Go/Wails app, macOS 15 installation and rollback, archives, checksums and GitHub provenance before publication. Artifact signing is ad-hoc with hardened runtime; a downloaded app may require explicit macOS approval on first open. See [packaging and installation](DEVELOPER.md#package-and-install) for verification and first-launch instructions.
+The [release workflow](../.github/workflows/release.yml) checks that the tag matches [VERSION](../VERSION), its commit is reachable from `origin/main` and [BUILD_NUMBER](../BUILD_NUMBER) advances from the previous release. It verifies the Go/Wails app, macOS 15 installation, installed-app navigation and rollback, archives, checksums and GitHub provenance before publication. Artifact signing is ad-hoc with hardened runtime; a downloaded app may require explicit macOS approval on first open. See [packaging and installation](DEVELOPER.md#package-and-install) for verification and first-launch instructions.
 
 Tag-triggered releases publish as Developer Previews. Stable publication is an explicit workflow-dispatch choice after readiness review. Only the attestation job has provenance write permissions and only publication can write release assets. Tags are immutable. The [release history](../CHANGELOG.md) preserves the behavior and limitations of earlier downloads.

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+NATIVE_UI=0
+if [[ "${1:-}" == "--native-ui" ]]; then
+  NATIVE_UI=1
+  shift
+fi
 if [[ $# -ne 2 ]]; then
-  echo "usage: $0 /path/to/previous.zip|.dmg /path/to/candidate.zip|.dmg" >&2
+  echo "usage: $0 [--native-ui] /path/to/previous.zip|.dmg /path/to/candidate.zip|.dmg" >&2
   exit 2
 fi
 
@@ -77,6 +82,14 @@ stage_release_archive() {
   close_release_app
 }
 
+verify_native_navigation() {
+  local phase="$1"
+  if [[ "$NATIVE_UI" == 1 ]]; then
+    python3 "$ROOT_DIR/tests/installed-app-ui/run.py" "$INSTALLED_APP" "$TEST_ROOT" "$phase"
+    verify_installed_copy
+  fi
+}
+
 previous="$TEST_ROOT/previous"
 candidate="$TEST_ROOT/candidate"
 stage_release_archive "$1" "$previous" ""
@@ -91,6 +104,7 @@ smoke="$ROOT_DIR/tests/package-install-smoke.py"
 select_source_app "$previous/Sci-Station.app"
 install_app
 verify_installed_copy
+verify_native_navigation initial
 python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" initial
 /usr/bin/ditto "$TEST_ROOT/research-root" "$TEST_ROOT/pre-upgrade-backup"
 
@@ -101,6 +115,7 @@ install_app
 [[ ! -e "$stale_marker" ]] || { printf 'Upgrade left a stale bundle file.\n' >&2; exit 1; }
 verify_installed_copy
 python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" upgraded
+verify_native_navigation upgraded
 
 # Restore the known-good snapshot into a sibling fixture. Keep the upgraded
 # fixture intact and exercise the previous bundle again at the install path.
