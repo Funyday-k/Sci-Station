@@ -8,6 +8,7 @@
   let library = null;
   let pending = null;
   let busy = false;
+  let loading = false;
 
   async function request(suffix = "", body) {
     const init = {headers: {"X-Roundtable": "1"}, cache: "no-store"};
@@ -45,12 +46,16 @@
   }
 
   async function load() {
+    if (loading) return;
+    loading = true;
     try {
       library = await request();
       render();
       $("prompt-editor").disabled = false;
     } catch (error) {
       $("prompt-status").textContent = error.message;
+    } finally {
+      loading = false;
     }
   }
 

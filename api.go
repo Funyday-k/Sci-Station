@@ -310,6 +310,7 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p := a.prefs.get()
+		p.PromptLibrary = nil // The prompt editor loads its library on demand.
 		status := map[string]cli.Info{"codex": cli.Discover("codex", p.CLIPaths["codex"]), "cursor": cli.Discover("cursor", p.CLIPaths["cursor"])}
 		reply(w, 200, struct {
 			preferences
