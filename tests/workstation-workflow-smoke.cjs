@@ -486,6 +486,7 @@ async function reviewProjectSources(app, ui, fixture) {
   await ui.navigate(app.origin + "/lab?project=" + project.id);
   await eventually(() => ui.evaluate(name => [...document.querySelectorAll("#local-record option")]
     .some(option => option.textContent.includes(name)), attachment.name), "AI Lab loads the project source list");
+  await ui.click("#lab-attach");
   await ui.click("#local-search summary");
   await ui.set("#local-query", "actual project attachment");
   await ui.click("#local-find");
@@ -498,6 +499,7 @@ async function reviewProjectSources(app, ui, fixture) {
   await ui.click("#local-find");
   await ui.visible("#local-search-status", "复用");
   await ui.visible("#local-hits button", material);
+  await ui.click("#lab-materials-dialog footer [data-lab-close]");
   console.log("PASS AI Lab offline project search, original passage, and hybrid rebuild and reuse");
   const sourcePath = "/api/research/lab/sources/";
   const citations = [];

@@ -3,7 +3,19 @@
   const base = "/api/research/lab/sources/";
   const studio = "/api/studio/";
   const chars = text => Array.from(text);
-  const states = {partial:"本轮未完成",error:"未完成",running:"运行中", ready:"就绪", closed:"已结束", done:"完成", failed:"失败", cancelled:"已取消", interrupted:"已中断", pending:"等待", skipped:"已跳过"};
+  const text=(zh,en)=>globalThis.window?.SciStationI18n?.text(zh,en) ?? zh;
+  const states = {partial:["未完成","Incomplete"],error:["失败","Failed"],running:["运行中","Running"],ready:["就绪","Ready"],closed:["已结束","Closed"],done:["完成","Complete"],failed:["失败","Failed"],cancelled:["已取消","Cancelled"],interrupted:["已中断","Interrupted"],pending:["等待","Waiting"],skipped:["已跳过","Skipped"]};
+  const statusText = state => states[state] ? text(...states[state]) : state;
+  const contextMarkers = ["\n\n用户选用的项目技能 · ","\n\n项目图谱资料（供核对）","\n\n外部资源摘录（供核对）"];
+  function messageText(value, initial=false) {
+    const message = value || "";
+    const header = initial && message.startsWith("科研工作流 · ");
+    const marker = "\n\n研究问题\n";
+    const first = header ? message.indexOf(marker) : -1;
+    const body = first >= 0 ? message.slice(first + marker.length) : message;
+    const end = contextMarkers.map(mark=>body.indexOf(mark)).filter(i=>i>=0);
+    return (end.length ? body.slice(0,Math.min(...end)) : body).trim();
+  }
 
   // Textarea selection is in UTF-16 units. Store character offsets for Go.
   function selectedCitation(source, start, end) {
@@ -77,8 +89,8 @@
     return ids.size===1 ? ids.values().next().value : "";
   }
 
-  const threadTitle = room => room.lab_thread?.title || room.title || room.topic?.split("\n")[0] || "单席会话";
-  const threadDetails = room => [states[room.status] || room.status, ...(room.members || []).map(item => item.label || item.model)].filter(Boolean).join(" · ");
+  const threadTitle = room => room.lab_thread?.title || room.title || messageText(room.topic,true).split("\n")[0] || text("研究对话","Research chat");
+  const threadDetails = room => [statusText(room.status), ...(room.members || []).map(item => item.label || item.model)].filter(Boolean).join(" · ");
   function matchingThreads(history, query, showArchived) {
     const term = query.trim().toLowerCase();
     return history.filter(room => (showArchived || !room.lab_thread?.archived_at)
@@ -173,43 +185,86 @@
       unsaved:() => [...saved.values()].some(record => record.text !== record.confirmed)};
   }
 
-  function mount({req,tell,form,skillForRun}) {
+  function mount({req,tell,form,skillForRun,currentResource,consumeResource,setResource}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
     let enabledModules=null;
     const recentRooms=new Map();
-    let visibleRoom=null, searchState=null, renameTarget=null;
-    let history = [], active = "", pollTimer = 0, models = [], previewSequence = 0;
+    let visibleRoom=null, searchState=null, renameTarget=null, painted="", scrollOnOpen=false;
+    let history = [], active = "", pollTimer = 0, models = [], modelFlight=null, previewSequence = 0;
+    let importedMaterials=[];
+    const chatAttachments=new Map();
     const audit = window.SciLabRunAudit.mount({req, scopeQuery});
     const questionDraft = createDraft({req,input:$("question"),status:message=>{$("lab-question-draft-state").textContent=message;}});
     const replyDraft = createDraft({req,input:$("lab-reply"),status:message=>{$("lab-reply-draft-state").textContent=message;}});
     function bind(id, fn) {
       $(id).addEventListener("click", async () => {
         const button=$(id), started=generation;
-        button.disabled=true; tell("");
+        button.dataset.labBusy="1";button.disabled=true; tell("");
         try { await fn(); } catch(error) { if(started===generation) tell(error.message); }
-        finally { button.disabled=false; }
+        finally { delete button.dataset.labBusy;button.disabled=false;updateComposer(); }
       });
     }
     function lookAt(id) {
       if(active!==id) {
+        chatAttachments.set(active,{selected,importedMaterials,resource:currentResource()});
+        const saved=chatAttachments.get(id);
+        selected=saved?.selected || []; importedMaterials=saved?.importedMaterials || [];
+        setResource(saved?.resource || null); displaySelected();
         window.SciStationReadReview?.update($("lab-read-review"), null);
         visibleRoom=null;
+        painted=""; scrollOnOpen=Boolean(id);
         audit.show(null, null);
         $("lab-result").hidden=true;
         void replyDraft.select(null);
       }
       active=id;
+      updateComposer();
       const url = new URL(location.href);
       if((url.searchParams.get("run") || "")===id) return;
       if(id) url.searchParams.set("run",id); else url.searchParams.delete("run");
       window.SciStationNav.commitURL(url,"replace");
     }
+    function updateComposer() {
+      const archived=Boolean(visibleRoom?.lab_thread?.archived_at);
+      const running=visibleRoom?.status==="running";
+      const writable=Boolean(!active || (visibleRoom && !archived && ["ready","partial"].includes(visibleRoom.status)));
+      const enabled=window.SciStationModules.isEnabled(enabledModules,"ai-lab");
+      $("lab-empty").hidden=Boolean(active);
+      $("lab-opening-chat").hidden=!active || Boolean(visibleRoom);
+      $("lab-thread-actions").hidden=!visibleRoom;
+      $("lab-composer").hidden=!writable && !running;
+      $("lab-initial").hidden=Boolean(active) || !writable;
+      $("lab-followup").hidden=!active || !writable;
+      $("lab-question-draft-actions").hidden=Boolean(active);
+      $("lab-reply-draft-actions").hidden=!active;
+      $("lab-start").hidden=Boolean(active) || !writable;
+      $("lab-resume").hidden=!active || !writable;
+      $("lab-stop").hidden=!running || visibleRoom.cancel_requested;
+      $("lab-start").disabled=!enabled || Boolean($("lab-start").dataset.labBusy);
+      $("lab-resume").disabled=!enabled || Boolean($("lab-resume").dataset.labBusy);
+      $("lab-attach").disabled=!writable || !enabled || !project || project.global;
+      $("lab-tools").disabled=!writable || !enabled;
+      $("lab-draft-trigger").disabled=!writable || !project;
+      $("lab-model-trigger").hidden=Boolean(active);
+      $("lab-readonly").hidden=Boolean(!active || !visibleRoom || writable || running);
+      $("lab-readonly").textContent=archived ? text("此对话已归档。","This chat is archived.") : text("此对话已结束。","This conversation is closed.");
+      $("lab-run-state").textContent=visibleRoom ? [threadTitle(visibleRoom),archived ? text("已归档","Archived") : "",statusText(visibleRoom.status)].filter(Boolean).join(" · ") : "";
+      $("lab-run-state").title=$("lab-run-state").textContent;
+    }
     function displayHistory() {
       const rows=matchingThreads(history,$("lab-thread-search").value,$("lab-show-archived").checked);
-      $("lab-history").replaceChildren(new Option("选择会话",""),...rows.map(room => new Option(
-        (room.lab_thread?.archived_at ? "已归档 · " : "") + threadTitle(room),room.id)));
-      $("lab-history").value=rows.some(room=>room.id===active) ? active : "";
+      const focused=document.activeElement?.dataset.labThread;
+      $("lab-history").replaceChildren(...rows.map(room=>{
+        const item=document.createElement("li"), button=document.createElement("button"), title=document.createElement("span"), detail=document.createElement("span");
+        button.type="button";button.dataset.labThread=room.id;button.setAttribute("aria-current",String(room.id===active));
+        title.className="lab-thread-title";title.textContent=threadTitle(room);button.title=title.textContent;
+        detail.className="lab-thread-meta";detail.textContent=(room.lab_thread?.archived_at ? text("已归档 · ","Archived · ") : "")+threadDetails(room);
+        button.append(title,detail);item.append(button);
+        button.onclick=()=>{window.SciShellLayout?.dismissProjectNav();void openRun(room.id);};
+        return item;
+      }));
+      if(focused) $("lab-history").querySelector(`[data-lab-thread="${CSS.escape(focused)}"]`)?.focus();
       $("lab-thread-empty").hidden=rows.length>0;
     }
     function chooseRecord(reset=true) {
@@ -224,17 +279,27 @@
     }
     function displaySelected() {
       const rows=selected.map((item,index)=>{
-        const li=document.createElement("li"), remove=document.createElement("button");
-        li.textContent=item.title+(item.citation.page?" · 第 "+item.citation.page+" 页":"")+" · "+chars(item.citation.quote).slice(0,70).join("");
-        remove.type="button"; remove.textContent="移除"; remove.onclick=()=>{selected.splice(index,1);displaySelected();}; li.append(remove);
+        const li=document.createElement("li"), label=document.createElement("span"), remove=document.createElement("button");
+        label.textContent=item.title+(item.citation.page?" · p. "+item.citation.page:"");label.title=item.citation.quote;
+        remove.type="button"; remove.textContent=text("移除","Remove");remove.setAttribute("aria-label",remove.textContent+" "+item.title);
+        remove.onclick=()=>{selected.splice(index,1);displaySelected();}; li.append(label,remove);
         return li;
       });
+      for(const material of importedMaterials){
+        const li=document.createElement("li"), label=document.createElement("span"), remove=document.createElement("button");
+        label.textContent=material.name;remove.type="button";remove.textContent=text("移除","Remove");
+        remove.onclick=()=>{importedMaterials=importedMaterials.filter(m=>m.id!==material.id);displaySelected();};
+        li.append(label,remove);rows.push(li);
+      }
       $("local-list").replaceChildren(...rows);
+      $("lab-attachments").hidden=!rows.length && !currentResource();
     }
     async function selectProject(next, sessions) {
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
       window.SciStationReadReview?.update($("lab-read-review"), null);
-      project=next; records=[];existingTasks=[]; selected=[]; clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
+      project=next; records=[];existingTasks=[]; selected=[];importedMaterials=[]; clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
+      chatAttachments.clear();
+      painted="";$("lab-thread-actions").open=false;
       audit.show(null, null);
       void questionDraft.select(project);
       void replyDraft.select(null);
@@ -253,6 +318,7 @@
       const config=await window.SciStationModules.load(project.id);
       if(generation!==token) return;
       enabledModules=config;
+      updateComposer();
       const enabled = id=>window.SciStationModules.isEnabled(config,id);
       if(project.global){ $("local-sources").disabled=true; return; }
       $("local-sources").disabled=!enabled("ai-lab");
@@ -262,7 +328,7 @@
       ]);
       if(generation!==token) return;
       existingTasks=tasks;
-      if(visibleRoom && ownsRun(visibleRoom,project))renderRun(visibleRoom);
+      if(visibleRoom && ownsRun(visibleRoom,project)){painted="";renderRun(visibleRoom);}
       records=[
         ...papers.filter(p=>p.has_pdf && enabled("pdf-reader")).map(p=>({kind:"paper",id:p.id,label:"论文 PDF · "+p.title})),
         ...papers.filter(()=>enabled("paper-library")).map(p=>({kind:"paper-markdown",id:p.id,missing:!p.markdown_source,
@@ -423,62 +489,82 @@
       if(selected.some(x=>x.citation.kind===citation.kind && x.citation.id===citation.id && x.citation.page===citation.page && x.citation.offset===citation.offset))
         throw Error("此选段已加入。");
       selected.push({title:preview.title,citation}); displaySelected();
+      tell(text(`已加入 ${selected.length} 段项目原文。`,`${selected.length} project excerpt(s) attached.`));
     }
-    function consumeSelection(used) {
+    function consumeSelection(used, imported) {
       selected=selected.filter(item=>!used.includes(item));
+      importedMaterials=importedMaterials.filter(item=>!imported.includes(item));
       displaySelected();
     }
     async function prepare(workflow,projectId,question="",room=null) {
       if(!project || project.id!==projectId) throw Error("请先选择科研项目。");
-      const token=generation;
+      const token=generation, conversation=active, inherited=importedMaterials.slice();
       const result=await prepareQuestionSources(req,project,workflow,question,selected.map(x=>x.citation),{
         currentPaper:selected.some(x=>["paper","paper-markdown"].includes(x.citation.kind))?"":paperFromRun(room,projectId)
       });
-      if(token!==generation) throw Error("当前项目已改变。");
-      return result;
+      if(token!==generation || conversation!==active) throw Error(text("当前对话已改变。","The active chat changed."));
+      if(!result) return null;
+      const combined=[...new Map([...inherited,...result].map(material=>[material.id,material])).values()];
+      if(combined.length>12) throw Error(text("每次最多加入 12 份材料。","Attach no more than 12 sources at a time."));
+      return combined;
     }
     function effortOptions() {
       const model=models.find(m=>m.id===$("lab-model").value);
       $("lab-effort").replaceChildren(...(model?.efforts || []).map(e=>new Option(e,e)));
       if(model?.efforts.includes("auto")) $("lab-effort").value="auto";
+      showModelLabel();
     }
-    async function loadModels() {
-      $("lab-model-state").textContent = "正在读取模型目录…";
-      try {
+    function showModelLabel() {
+      const model=models.find(m=>m.id===$("lab-model").value);
+      $("lab-model-trigger-text").textContent=model?.label || model?.id || text("模型","Model");
+    }
+    function loadModels() {
+      if(modelFlight) return modelFlight;
+      $("lab-model-state").textContent = text("正在读取模型目录…","Loading models…");
+      modelFlight=(async()=>{
+        const previous=$("lab-model").value;
         const catalog = await req(studio + "models");
         models = catalog.models || [];
         $("lab-model").replaceChildren(...models.map(m => new Option(m.label || m.id, m.id)));
-        if (models.some(m => m.id === catalog.default_model)) $("lab-model").value = catalog.default_model;
+        if (models.some(m=>m.id===previous)) $("lab-model").value=previous;
+        else if (models.some(m => m.id === catalog.default_model)) $("lab-model").value = catalog.default_model;
         effortOptions();
-        if (!models.length) throw Error("模型目录为空，请检查圆桌设置。");
-        $("lab-model-state").textContent = "可用模型 · " + models.length;
-      } catch (error) {
+        if (!models.length) throw Error(text("模型目录为空，请检查 AI 设置。","No models available. Check AI settings."));
+        $("lab-model-state").textContent = text("可用模型 · ","Available models · ") + models.length;
+      })().catch(error=>{
         $("lab-model-state").textContent = error.message;
         throw error;
-      }
+      }).finally(()=>{modelFlight=null;});
+      return modelFlight;
     }
     function sessionURL(id) {return studio+"sessions/"+encodeURIComponent(id);}
     async function start() {
       const data=form(), pid=project?.id, token=generation;
       const draft=questionDraft.capture(), expectedDraft=$("question").value;
-      if(data.seats!==1) throw Error("此模板使用多个席位。请打开会议草稿，或将席位数改为 1。");
+      if(!data.question) throw Error(text("请先填写研究问题。","Enter a research question."));
+      if(data.seats!==1) throw Error(text("无法载入单人对话模板。","Could not load the chat template."));
       if(!project) throw Error("请选择科研项目或全局会话。");
       if(!window.SciStationModules.isEnabled(enabledModules,"ai-lab")) throw Error("AI 实验室模块未启用或仍在加载。");
+      if(!$("lab-model").value) await loadModels();
+      if(token!==generation || active) return;
       const member={model:$("lab-model").value,effort:$("lab-effort").value};
       if(!member.model || !member.effort) throw Error("请先读取模型目录并选择模型。");
       const scope=project.global?"global":"";
       const skill=await skillForRun(pid);
-      if(token!==generation) return;
+      if(token!==generation || active) return;
       const topic=window.ScienceLabHandoff.compose({...data,scope,projectId:pid,skill});
-      const used=selected.slice();
+      const used=selected.slice(), inherited=importedMaterials.slice();
       const materials=await prepare(data.workflow,pid,data.question);
-      if(!materials || token!==generation) return;
+      if(!materials || token!==generation || active) return;
       // Creating the session records a recoverable ID before the first model call.
       const room=await createSingle(req,project,topic,member,data.mode,materials);
       questionDraft.consume(draft, expectedDraft);
+      recentRooms.set(room.id,room);
       if(token!==generation) return;
-      consumeSelection(used);
-      recentRooms.set(room.id,room);history=[room,...history]; lookAt(room.id);
+      history=[room,...history];
+      if(active) {displayHistory();return;}
+      consumeSelection(used,inherited);consumeResource(data.resource);
+      lookAt(room.id);
       void replyDraft.select(project,room.id);
       displayHistory(); renderRun(room);
       try {
@@ -500,47 +586,80 @@
       }
       $("lab-citation-items").replaceChildren(...entries);$("lab-citations").hidden=!entries.length;
     }
+    function userMessage(value, initial=false) {
+      const body=messageText(value,initial);
+      if(!body) return null;
+      const message=document.createElement("p");
+      message.className="lab-turn-user";
+      const origin=body.match(/(?:^|\n)Source Roundtable: (\/studio\?[^\n ]+)\s*$/);
+      if(origin) {
+        const query=new URL(origin[1],location.origin).searchParams;
+        const bound=project.global ? query.get("scope")==="global" && !query.get("project") : query.get("project")===project.id;
+        if(bound && /^[a-f0-9]{32}$/.test(query.get("session") || "")){
+          const link=document.createElement("a");link.href=origin[1];link.textContent=text("打开来源圆桌","Open source Roundtable");
+          message.textContent=body.slice(0,origin.index).trim();message.append(document.createElement("br"),link);
+          return message;
+        }
+      }
+      message.textContent=body;
+      return message;
+    }
     function renderRun(room) {
       if(!ownsRun(room,project) || active!==room.id) return;
       if ((room.lab_thread?.revision || 0) < (visibleRoom?.lab_thread?.revision || 0)) return;
-      visibleRoom=room;displaySources(room);
+      visibleRoom=room;
       if(recentRooms.has(room.id)) recentRooms.set(room.id,room);
       const rounds=room.rounds||[];
       const archived=Boolean(room.lab_thread?.archived_at);
-      $("lab-followup").hidden=archived || !["ready","partial"].includes(room.status);
+      updateComposer();
       $("lab-result").hidden=false;
       window.SciStationReadReview?.update($("lab-read-review"), room);
-      $("lab-run-state").textContent=[threadTitle(room), archived ? "已归档" : "", states[room.status]||room.status].filter(Boolean).join(" · ");
       $("lab-archive-thread").hidden=archived;
       $("lab-restore-thread").hidden=!archived;
-      $("lab-stop").hidden=room.status!=="running" || room.cancel_requested;
       $("lab-retry").hidden=!window.SciLabRunAudit.canRetry(room);
-      $("lab-retry").textContent=rounds.length ? "重试本轮" : "启动已保存的会话";
+      $("lab-retry").textContent=rounds.length ? text("重试本轮","Retry") : text("启动已保存的对话","Start saved chat");
       $("lab-open").href="/studio?"+new URLSearchParams(project.global?{session:room.id}:{project:project.id,session:room.id});
+      if(painted===room.updated_at) return;
+      painted=room.updated_at;
+      displaySources(room);
+      $("lab-no-turns").hidden=Boolean(rounds.length);
+      const timeline=$("lab-timeline");
+      const atEnd=scrollOnOpen || timeline.scrollHeight-timeline.scrollTop-timeline.clientHeight<80;
       const turns=[];
-      for(const round of rounds) for(const turn of round.turns||[]) {
-        const heading=document.createElement("h3");
-        heading.textContent="第 "+round.number+" 轮 · "+(turn.model_label||turn.model||turn.seat)+" · "+(states[turn.status]||turn.status);
-        if(round.lab_run?.retry_of_round) heading.textContent += " · 重试第 "+round.lab_run.retry_of_round+" 轮";
-        const structured=turn.status==="done" && window.SciLabArtifacts?.projectRows(room.topic,turn.text,room.materials||[],round.number,existingTasks,project.id);
-        const body=document.createElement(turn.error ? "p" : "div");
-        if(turn.error) body.textContent=turn.error;
-        else if(turn.text) {
-          window.SciMarkdown.render(body,structured && !structured.error ? structured.narrative : turn.text,{headingShift:3,cache:turn.status!=="running"});
-          heading.append(window.SciMarkdown.copyButton(turn.text));
-        }
-        turns.push(heading,body);
-        if(structured) turns.push(window.SciLabArtifacts.render(structured));
-        if (!project.global && room.status !== "running" && turn.status === "done" && !turn.error && turn.text?.trim()) {
-          turns.push(window.SciLabEvidence.inspection({room: room.id, project: project.id, output: "round-"+round.number+"-"+turn.seat, req}));
+      const first=userMessage(room.topic,true);if(first) turns.push(first);
+      for(const round of rounds) {
+        if(round.note && !round.lab_run?.retry_of_round){const note=userMessage(round.note);if(note) turns.push(note);}
+        for(const turn of round.turns||[]) {
+          const article=document.createElement("article"), heading=document.createElement("h3");
+          article.className="lab-turn-answer";
+          heading.textContent=[turn.model_label||turn.model||turn.seat,turn.status!=="done" ? statusText(turn.status) : ""].filter(Boolean).join(" · ");
+          if(round.lab_run?.retry_of_round) heading.textContent+=text(` · 重试第 ${round.lab_run.retry_of_round} 轮`,` · Retry of turn ${round.lab_run.retry_of_round}`);
+          const structured=turn.status==="done" && window.SciLabArtifacts?.projectRows(room.topic,turn.text,room.materials||[],round.number,existingTasks,project.id);
+          const body=document.createElement(turn.error ? "p" : "div");
+          if(turn.error) body.textContent=turn.error;
+          else if(turn.text) {
+            window.SciMarkdown.render(body,structured && !structured.error ? structured.narrative : turn.text,{headingShift:3,cache:turn.status!=="running"});
+            heading.append(window.SciMarkdown.copyButton(turn.text));
+          }
+          article.append(heading,body);
+          if(structured) article.append(window.SciLabArtifacts.render(structured));
+          if (!project.global && room.status !== "running" && turn.status === "done" && !turn.error && turn.text?.trim()) {
+            article.append(window.SciLabEvidence.inspection({room: room.id, project: project.id, output: "round-"+round.number+"-"+turn.seat, req}));
+          }
+          turns.push(article);
         }
       }
       $("lab-turns").replaceChildren(...turns);
       audit.show(room, project);
+      if(atEnd) requestAnimationFrame(()=>{if(active===room.id)timeline.scrollTop=timeline.scrollHeight;});
+      scrollOnOpen=false;
     }
     function schedule(id) {clearTimeout(pollTimer);pollTimer=setTimeout(()=>openRun(id),1000);}
     async function openRun(id) {
-      clearTimeout(pollTimer); lookAt(id); $("lab-history").value=id;
+      clearTimeout(pollTimer);
+      const changed=active!==id;
+      lookAt(id);
+      if(changed) {$("lab-thread-actions").open=false;displayHistory();}
       if(!id) {$("lab-result").hidden=true;return;}
       const token=generation;
       try {
@@ -549,21 +668,22 @@
         if(!ownsRun(room,project)) {lookAt(""); $("lab-result").hidden=true;throw Error("此会话不属于当前项目。");}
         void replyDraft.select(project,room.id);
         renderRun(room); if(room.status==="running") schedule(id);
-      } catch(error) {if(token===generation && active===id)tell(error.message);}
+      } catch(error) {if(token===generation && active===id){$("lab-opening-chat").hidden=true;tell(error.message);}}
     }
     async function ask() {
       const room=visibleRoom, id=room?.id, pid=project?.id, token=generation;
       const draft=replyDraft.capture(), expectedDraft=$("lab-reply").value;
-      const note=expectedDraft.trim();
+      const note=expectedDraft.trim(), resource=currentResource();
       if(!ownsRun(room,project) || room.lab_thread?.archived_at || id!==active || !["ready","partial"].includes(room.status)) throw Error("请先打开可继续的会话。");
       if(!note) throw Error("请填写追问。");
-      const used=selected.slice();
+      const used=selected.slice(), inherited=importedMaterials.slice();
       const materials=await prepare("",pid,note,room);
       if(!materials || token!==generation || id!==active) return;
-      const next=await advance(req,room,note,materials);
+      const message=window.ScienceLabHandoff.composeFollowup({question:note,projectId:pid,scope:project.global?"global":"",resource});
+      const next=await advance(req,room,message,materials);
       replyDraft.consume(draft, expectedDraft);
       if(token===generation && id===active) {
-        consumeSelection(used);
+        consumeSelection(used,inherited);consumeResource(resource);
         renderRun(next);schedule(id);
       }
     }
@@ -608,12 +728,11 @@
     $("local-record").onchange=()=>{$("local-page").value="1";chooseRecord();};
     $("local-page").oninput=chooseRecord;
     $("lab-model").onchange=effortOptions;
-    $("lab-history").onchange=()=>openRun($("lab-history").value);
     $("local-query").oninput=resetSearch; $("local-search-scope").onchange=updateSearchOptions;
     $("local-rank").onchange=updateSearchOptions;
     $("lab-thread-search").oninput=displayHistory;
     $("lab-show-archived").onchange=displayHistory;
-    bind("lab-new-thread",async()=>{await openRun(""); $("question").focus();});
+    bind("lab-new-thread",async()=>{window.SciShellLayout?.dismissProjectNav();await openRun(""); $("question").focus();});
     bind("lab-rename-thread",async()=>{
       if(!visibleRoom) return;
       renameTarget={room:visibleRoom,owner:project};
@@ -650,9 +769,40 @@
     bind("local-prev",()=>showPreview(Math.max(0,(preview?.offset || 0)-4000)));
     bind("local-next",()=>showPreview((preview?.offset || 0)+chars(preview?.text || "").length));
     bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay); bind("lab-retry",retry);
-    return {selectProject, hasDraft:()=>selected.length>0 || questionDraft.unsaved() || replyDraft.unsaved(), prepareHandoff:(_,pid)=>selected.length?prepare("",pid):Promise.resolve([])};
+    for (const [input,send] of [["question","lab-start"],["lab-reply","lab-resume"]]) $(input).addEventListener("keydown",event=>{
+      if(event.key!=="Enter" || event.shiftKey || event.isComposing || event.keyCode===229) return;
+      event.preventDefault();$(send).click();
+    });
+    function drawLanguage() {
+      $("question").placeholder=text("输入研究问题…","Ask a research question…");
+      $("lab-reply").placeholder=text("继续追问…","Ask a follow-up…");
+      $("lab-thread-search").placeholder=text("搜索对话","Search chats");
+      displayHistory();updateComposer();showModelLabel();
+      if(visibleRoom){painted="";renderRun(visibleRoom);}
+    }
+    drawLanguage();window.addEventListener("sci:language",drawLanguage);
+    async function importTransfer(transfer, message) {
+      if(active || !project || project.id!==transfer.projectId || !window.SciStationModules.isEnabled(enabledModules,"ai-lab")) {
+        throw Error(text("请在同一范围内打开新对话。","Open a new chat in the same scope."));
+      }
+      const owner=project;
+      await questionDraft.select(owner);
+      if(project!==owner || active || $("question").disabled) throw Error(text("尚不能写入当前草稿。","The current draft is unavailable."));
+      const prior=$("question").value;
+      const next=[prior,message].filter(Boolean).join("\n\n");
+      if(chars(next).length>2500) throw Error(text("合并后超过 2,500 字。请缩短转入内容或先整理已有草稿。","The combined draft exceeds 2,500 characters. Shorten the import or edit the existing draft first."));
+      const materials=[...new Map(importedMaterials.concat(transfer.materials).map(item=>[item.id,item])).values()];
+      if(materials.length+selected.length>12) throw Error(text("合并后超过 12 份原文。","The combined draft exceeds 12 attachments."));
+      $("question").value=next;
+      $("question").dispatchEvent(new Event("input",{bubbles:true}));
+      importedMaterials=materials;displaySelected();
+    }
+    return {selectProject,importTransfer,activeRoom:()=>visibleRoom,
+      saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
+      prepareHandoff:pid=>selected.length || importedMaterials.length ? prepare("",pid) : Promise.resolve([]),
+      hasDraft:()=>Boolean(selected.length || importedMaterials.length || questionDraft.unsaved() || replyDraft.unsaved())};
   }
-  const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft, prepareQuestionSources, recordedSource, paperFromRun};
+  const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft, prepareQuestionSources, recordedSource, paperFromRun, messageText};
   if(typeof module==="object" && module.exports) module.exports=api;
   else window.SciLabRun=api;
 })();

@@ -130,22 +130,20 @@ async function smoke(binary) {
       await expect(page.locator("body")).toHaveCSS("background-color", theme.paper);
       await expect(page.locator(".workspace-bar")).toHaveCSS("background-color", theme.surface);
       await expect(page.locator("#workspace-sidebar")).toHaveCSS("background-color", theme.inset);
-      await expect(page.locator(".shell .card").first()).toHaveCSS("background-color", theme.surface);
+      await expect(page.locator(".lab-composer")).toHaveCSS("background-color", theme.surface);
       await expect(page.locator("#question")).toHaveCSS("background-color", theme.surface);
       await assertReadable(page.locator("#question"), theme.text);
       await assertReadable(page.locator('label:has(#question)'), theme.small);
       await page.locator("#project").selectOption(project.id);
-      await page.locator("#lab-run-mode").selectOption("roundtable");
-      await expect(page.locator("#handoff")).toBeEnabled();
-      await expect(page.locator("#handoff")).toHaveCSS("background-color", theme.accent);
-      await assertReadable(page.locator("#handoff"), theme.text);
+      await expect(page.locator("#lab-start")).toBeEnabled();
+      await expect(page.locator("#lab-start")).toHaveCSS("background-color", theme.accent);
+      await assertReadable(page.locator("#lab-start"), theme.text);
 
       const assistant = page.locator("#shell-assist");
       if (await assistant.getAttribute("aria-pressed") !== "true") await assistant.click();
       await expect(page.locator("#context-rail")).toHaveCSS("background-color", theme.inset);
       await assertReadable(page.locator("#rail-prompt"), theme.text);
       if (process.env.SCI_STATION_SMOKE_SCREENSHOTS && theme.mode === "dark") {
-        await page.locator(".section-head", {hasText: "本次研究"}).scrollIntoViewIfNeeded();
         await page.screenshot({path: path.join(process.env.SCI_STATION_SMOKE_SCREENSHOTS, "appearance-lab.png")});
         await page.setViewportSize({width: 900, height: 620});
         await page.goto(origin + "/research?view=tasks");

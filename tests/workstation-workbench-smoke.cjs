@@ -249,13 +249,13 @@ async function run(app, browser, output, {baseline, wideHeight}) {
       }, "appearance stored");
       await navigate("lab");
       await ui.visible("#question");
-      await wait(() => ui.evaluate(() => Boolean(document.querySelector("#presets button"))), "Lab presets loaded");
+      await wait(() => ui.evaluate(() => !document.getElementById("lab-start").disabled), "Lab composer ready");
     }
     const lab = () => ui.evaluate(() => {
       const root = document.documentElement;
       const computed = id => getComputedStyle(document.querySelector(id));
       return {theme:root.dataset.theme,size:root.dataset.textSize,colorTheme:root.dataset.colorTheme,
-        rootBackground:getComputedStyle(root).backgroundColor, cardBackground:computed(".card").backgroundColor,
+        rootBackground:getComputedStyle(root).backgroundColor, cardBackground:computed(".lab-composer").backgroundColor,
         questionSize:parseFloat(computed("#question").fontSize), buttonColor:computed("#lab-start").backgroundColor};
     });
     await resize(1440, wideHeight);

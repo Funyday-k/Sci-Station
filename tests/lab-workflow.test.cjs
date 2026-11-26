@@ -1,6 +1,26 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {compose,receive,key} = require("../web/static/lab-handoff.js");
+
+test("mode transfers are isolated by destination, workspace and project",()=>{
+  const {writeModeTransfer,readModeTransfer,clearModeTransfer,scopeOwnsModeSource}=require("../web/static/lab-handoff.js");
+  const cache=new Map(), previous=global.sessionStorage;
+  global.sessionStorage={getItem:key=>cache.get(key),setItem:(key,value)=>cache.set(key,value),removeItem:key=>cache.delete(key)};
+  try {
+    const draft={workspace:"isolated-root",projectId:"physics",sourceSessionId:"a".repeat(32),context:"Review the existing calibration.",
+      materials:[{id:"b".repeat(32),name:"Original excerpt"}]};
+    writeModeTransfer("single",draft);
+    assert.deepEqual(readModeTransfer("single",draft),draft);
+    assert.equal(readModeTransfer("roundtable",draft),null);
+    assert.equal(readModeTransfer("single",{...draft,projectId:""}),null);
+    assert.equal(readModeTransfer("single",{...draft,workspace:"other-root"}),null);
+    assert.throws(()=>writeModeTransfer("single",{...draft,materials:[{id:"../file",name:"Other file"}]}));
+    assert.ok(scopeOwnsModeSource({project_id:"physics",project:"/fixture/physics"},"physics"));
+    assert.ok(!scopeOwnsModeSource({project:"/fixture/other"},""));
+    clearModeTransfer("single");
+    assert.equal(readModeTransfer("single",draft),null);
+  } finally {global.sessionStorage=previous;}
+});
 const setup = {projectId:"p1",sessionId:"",title:"复核",prompt:"检查近似。",mode:"review",seats:2,question:"验证边界条件。"};
 test("workflows preserve source provenance and Unicode limits",()=>{
  const text=compose({...setup,resource:{server:"https://tools.example/mcp",uri:"urn:paper:one",sha256:"f".repeat(64),excerpt:"原文。"}});

@@ -1,6 +1,15 @@
 const {test} = require("node:test");
 const assert = require("node:assert/strict");
-const {createDraft, draftURL, matchingThreads, threadTitle} = require("../web/static/lab-run.js");
+const {createDraft, draftURL, matchingThreads, threadTitle, messageText} = require("../web/static/lab-run.js");
+
+test("saved template threads show the research question and keep multi-paragraph messages", () => {
+  const question = "How stable is the calibration?\n\nCheck both regimes.";
+  const topic = "科研工作流 · 研究问答\n\nTrusted instruction\n\n研究问题\n" + question +
+    "\n\n外部资源摘录（供核对）\n来源服务：fixture\n\nAttachment fixture";
+  assert.equal(messageText(topic,true),question);
+  assert.equal(threadTitle({topic}),"How stable is the calibration?");
+  assert.equal(messageText("A legacy conversation" ,true),"A legacy conversation");
+});
 
 test("thread search matches title and status without showing archives by default", () => {
   const rooms = [

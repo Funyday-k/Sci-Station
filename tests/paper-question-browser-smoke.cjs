@@ -73,9 +73,6 @@ async function main(binary) {
     };
 
     await page.goto(baseURL+"/lab?"+projectQuery);
-    await page.locator("#presets").getByRole("button", {name:"研究问答"}).click();
-    await page.locator("#lab-models").click();
-    await page.waitForFunction(() => document.querySelector("#lab-model").value);
     await page.locator("#question").fill(question);
     const start = page.locator("#lab-start");
     const declined = await approve(start, false);

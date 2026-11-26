@@ -9,6 +9,7 @@ async function main(origin,project,other,program,script,log){
     const errors=[];page.on("pageerror",e=>errors.push(e.message));
     await page.addInitScript(fs.readFileSync(0,"utf8"));
     await page.goto(origin+"/lab?project="+project);
+    await page.locator("#lab-tools").click();
     await page.locator("#mcp summary").click();
     await page.locator("#connector-transport").selectOption("stdio");
     await page.locator("#connector-id").fill("fixture");
@@ -35,7 +36,10 @@ async function main(origin,project,other,program,script,log){
     await page.locator("#select-excerpt").click();
     assert.equal(await page.locator("#excerpt").textContent(),"source");
     assert.equal(fs.readFileSync(log,"utf8").split("\n").filter(x=>x==="tools/call").length,1);
+    await page.locator("#lab-tools-dialog footer [data-lab-close]").click();
+    assert.equal(await page.locator("#source").isVisible(),true);
     await page.locator("#project").selectOption(other);
+    await page.locator("#lab-tools").click();
     await page.waitForFunction(()=>document.querySelector("#connector-select").options.length===1);
     assert.equal(await page.locator("#source").isVisible(),false);
     assert.equal(await page.locator("#connector-token").inputValue(),"");
