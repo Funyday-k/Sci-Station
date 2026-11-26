@@ -239,14 +239,6 @@ p {
   text-overflow: ellipsis
 }
 
-.project-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
-  background: var(--project-color, var(--accent));
-  flex: none
-}
-
 .sidebar-foot {
   margin-top: auto;
   padding-top: 24px
@@ -1459,4 +1451,73 @@ details>summary {
 .inspire-columns li {
   margin-bottom: 6px;
   overflow-wrap: anywhere;
+}
+
+
+.project-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--project-color) 42%, transparent);
+  flex-shrink: 0;
+}
+
+h1 > .project-badge {
+  vertical-align: 0.1em;
+  margin-inline-end: 8px;
+}
+
+.project-badge img,
+.project-symbols img {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.project-design {
+  display: grid;
+  gap: 7px;
+}
+
+.project-swatches,
+.project-symbols,
+[data-project-preview] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-swatches button,
+.project-symbols button {
+  border: 1px solid #8886;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  padding: 5px;
+}
+
+.project-swatches button {
+  width: 26px;
+  height: 26px;
+  background: var(--project-color);
+  border-radius: 50%;
+}
+
+.project-design button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+[data-project-preview] {
+  padding: 9px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .project-badge img,
+  .project-symbols img {
+    filter: invert(1);
+  }
 }

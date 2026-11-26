@@ -101,7 +101,8 @@
       window.confirm(label("有未保存的更改。继续离开？","Leave with unsaved changes?"));
   }
   async function rootAction(action) {
-    if (action!=="reveal" && !mayDiscard()) return;
+    if (["create","open","rename"].includes(action) && !mayDiscard()) return;
+    if (window.SciWorkspaceSetup && ["create","rename","forget"].includes(action))return window.SciWorkspaceSetup.run(action);
     try {
       const res = await fetch("/api/workspace/"+action,{
         method:"POST",headers:{"Content-Type":"application/json","X-Roundtable":"1"},body:"{}"
@@ -115,8 +116,8 @@
   function command(key) {
     if (!window.dispatchEvent(new CustomEvent("scistation:command",{detail:key,cancelable:true}))) return true;
     if (key === "back" || key === "forward") {history[key]();return true;}
-    if (key === "openWorkspace" || key === "createWorkspace" || key === "revealWorkspace") {
-      rootAction({openWorkspace:"open",createWorkspace:"create",revealWorkspace:"reveal"}[key]);return true;
+    if (key === "openWorkspace" || key === "createWorkspace" || key === "revealWorkspace" || key==="renameWorkspace" || key==="forgetWorkspace") {
+      rootAction({openWorkspace:"open",createWorkspace:"create",revealWorkspace:"reveal",renameWorkspace:"rename",forgetWorkspace:"forget"}[key]);return true;
     }
     const url=currentURL();
     if (["settings","roundtable","plugins"].includes(key) && url.pathname === "/studio") {

@@ -9,6 +9,8 @@
   <script src="/static/appearance.js"></script>
   <script defer src="/static/interface-language.js"></script>
   <script defer src="/static/research-modules.js"></script>
+  <script defer src="/static/workspace-setup.js"></script>
+  <link rel="stylesheet" href="/static/workspace-setup.css">
   <script defer src="/static/workspace-nav.js"></script>
   <script defer src="/static/lab-run.js"></script>
   <script defer src="/static/shell-navigation.js"></script>
@@ -32,7 +34,7 @@
     </div>
     {{if .Desktop}}<details class="workspace-roots">
       <summary data-l10n-text="toolbarWorkspace">工作区</summary>
-      <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
+      <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="rename" data-en="Rename workspace…">重命名工作区…</button><button type="button" data-root-action="forget" data-en="Forget recent workspace">清除最近工作区</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
     </details>{{end}}
   </div>
   <div class="workspace-region">{{template "content" .}}</div>

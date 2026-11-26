@@ -246,6 +246,8 @@ type Summary struct {
 }
 
 type Engine struct {
+	managedRoot         string
+	previousRoots       []string
 	presence            boardPresenceHub
 	projectRuleSnapshot func(string) (ProjectRuleSnapshot, error)
 	projectAccess       func(string, func(string) error) error
@@ -344,6 +346,14 @@ func (e *Engine) load(id string) (*Session, error) {
 	for i := range s.Rounds {
 		if s.Rounds[i].Preset == "" && s.Rounds[i].Phase == "" {
 			s.Rounds[i].Preset, s.Rounds[i].Phase = "work", "work"
+		}
+	}
+	if s.ProjectID != "" && e.managedRoot != "" {
+		for _, previous := range e.previousRoots {
+			if s.Project == filepath.Join(previous, "research", "workspaces", s.ProjectID) {
+				s.Project = filepath.Join(e.managedRoot, "research", "workspaces", s.ProjectID)
+				break
+			}
 		}
 	}
 	ensureBoard(&s)

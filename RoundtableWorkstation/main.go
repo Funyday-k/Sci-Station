@@ -33,7 +33,7 @@ func rootRegistry() (desktopRoots, error) {
 }
 
 // A window may borrow a headless server only for the explicitly selected root.
-func attachedWorkspace(dir string, port int) *workspaceInstance {
+func attachedWorkspace(dir string, port int, scope string) *workspaceInstance {
 	if port == 0 {
 		return nil
 	}
@@ -48,7 +48,7 @@ func attachedWorkspace(dir string, port int) *workspaceInstance {
 		Name, Workspace string
 		Version         int
 	}
-	if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&info) != nil || info.Name != "sci-station" || info.Version != 2 || info.Workspace != rootID(dir) {
+	if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&info) != nil || info.Name != "sci-station" || info.Version != 2 || info.Workspace != scope {
 		return nil
 	}
 	return &workspaceInstance{dir: dir, address: address, close: func() {}}
@@ -102,7 +102,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	instance, err := startWorkspace(dir, bindPort, false, choice.create)
+	binding, err := roots.binding(dir)
+	if err != nil {
+		return err
+	}
+	instance, err := startBoundWorkspace(dir, bindPort, false, choice.create, binding)
 	if err != nil {
 		return err
 	}
@@ -123,12 +127,19 @@ type workspaceInstance struct {
 	api     *apiServer
 	done    <-chan error
 	close   func()
+	freeze  func() bool
 }
 
-func startWorkspace(dir string, port int, desktop bool, create bool) (*workspaceInstance, error) {
+func startWorkspace(dir string, port int, desktop bool, create bool, setup ...rootSetup) (*workspaceInstance, error) {
+	return startBoundWorkspace(dir, port, desktop, create, rootBinding{}, setup...)
+}
+func startBoundWorkspace(dir string, port int, desktop, create bool, binding rootBinding, setup ...rootSetup) (*workspaceInstance, error) {
 	dir, _, err := inspectRoot(dir, create)
 	if err != nil {
 		return nil, err
+	}
+	if binding.ID == "" {
+		binding.ID = rootID(dir)
 	}
 	owned := false
 	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
@@ -160,7 +171,12 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	}()
 	address := "http://" + listener.Addr().String()
 	if create {
-		if err = markNewRoot(dir); err != nil {
+		if len(setup) > 0 {
+			if err := seedNewWorkspace(dir, setup[0]); err != nil {
+				_ = workspace.ManagedRemove(filepath.Join(dir, ".studio-process.lock"))
+				return nil, err
+			}
+		} else if err = markNewRoot(dir); err != nil {
 			_ = workspace.ManagedRemove(filepath.Join(dir, ".studio-process.lock"))
 			return nil, err
 		}
@@ -170,7 +186,7 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 		return nil, e
 	}
 	if desktop {
-		setupProviderProfiles(pref, dir)
+		setupProviderProfiles(pref, dir, binding.ID)
 	}
 	gateway := studioGateway(pref)
 	call := gatewayCall(gateway)
@@ -183,16 +199,17 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 		return nil, e
 	}
 	market, marketErr := plugins.NewStore(filepath.Join(dir, "plugins"))
-	api := &apiServer{desktop: desktop, workspaceDir: dir, prefs: pref, meetings: engine, research: lab, plugins: market, pluginErr: marketErr}
+	api := &apiServer{desktop: desktop, workspaceDir: dir, boundRootID: binding.ID, prefs: pref, meetings: engine, research: lab, plugins: market, pluginErr: marketErr}
 	if api.desktop {
 		lab.SetNewTaskReminder(func(task research.Task) (string, error) { return api.sendReminder(task, true) })
-		store, err := credentials.Open(dir)
+		store, _, err := credentials.WorkspaceStores(binding.ID)
 		if err != nil {
 			log.Print("无法为此数据目录启用 MinerU 钥匙串")
 		} else if store != nil {
 			api.minerCreds = newMinerCredentials(store)
 		}
 	}
+	engine.SetManagedRootHistory(dir, binding.Paths)
 	lab.SetPathValidator(api.approvedResearchPath)
 	if marketErr == nil {
 		engine.SetPluginGuidance(api.pluginGuidance)
@@ -202,9 +219,20 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	}
 	engine.SetProjectRuleSnapshot(api.projectRuleSnapshot)
 	requestContext, cancelRequests := context.WithCancel(context.Background())
+	var access sync.RWMutex
+	frozen := false
+	handler := api.serve(listener.Addr().(*net.TCPAddr).Port)
 	server := &http.Server{
-		BaseContext:       func(net.Listener) context.Context { return requestContext },
-		Handler:           api.serve(listener.Addr().(*net.TCPAddr).Port),
+		BaseContext: func(net.Listener) context.Context { return requestContext },
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			access.RLock()
+			defer access.RUnlock()
+			if frozen {
+				reject(w, 503, "Workspace is reopening")
+				return
+			}
+			handler.ServeHTTP(w, r)
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		MaxHeaderBytes:    32 << 10,
@@ -232,7 +260,17 @@ func startWorkspace(dir string, port int, desktop bool, create bool) (*workspace
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	owned = true
-	return &workspaceInstance{dir: dir, address: address, api: api, done: done, close: shutdown}, nil
+	return &workspaceInstance{dir: dir, address: address, api: api, done: done, close: shutdown, freeze: func() bool {
+		if !access.TryLock() {
+			return false
+		}
+		defer access.Unlock()
+		if engine.Busy() || api.cliEdits.jobs.Busy() {
+			return false
+		}
+		frozen = true
+		return true
+	}}, nil
 }
 
 func main() {

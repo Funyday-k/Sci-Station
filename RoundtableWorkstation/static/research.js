@@ -55,7 +55,11 @@
     get cancelled() { return text("已取消", "Cancelled"); },
     get done() { return text("已完成", "Completed"); },
   };
-  const colors = ["#8170c1", "#4c9188", "#cb835c", "#708abe", "#a1698e"];
+  function projectBadge(project) {
+    const color = /^#[0-9a-f]{6}$/i.test(project.colorHex) ? project.colorHex : "#4F7CAC";
+    const symbol = /^[a-z0-9][a-z0-9.-]{0,79}$/i.test(project.iconName || "") ? project.iconName : "folder";
+    return '<span class="project-badge" style="--project-color:' + color + '"><img alt="" src="/api/workspace/symbol/' + enc(symbol) + '"></span>';
+  }
   const state = {
     projects: [],
     project: null,
@@ -222,13 +226,14 @@
     return '<div class="list">' + rows.join("") + '</div>';
   }
 
-  function heading(title, sub = "", actions = "") {
-    return '<div class="page-head"><div><h1>' + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
+  function heading(title, sub = "", actions = "", project = null) {
+    const badge = project ? projectBadge(project) : "";
+    return '<div class="page-head"><div><h1>' + badge + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
       '</div><div class="head-actions">' + actions + '</div></div>';
   }
 
-  function row(glyph, title, meta, control, tag = "", more = "") {
-    return '<div class="row"><div class="glyph">' + icon(glyph) + '</div><' + control +
+  function row(glyph, title, meta, control, tag = "", more = "", project = null) {
+    return '<div class="row"><div class="glyph">' + (project ? projectBadge(project) : icon(glyph)) + '</div><' + control +
       ' class="row-main"><span class="title">' + esc(title) + '</span>' + (meta ? '<span class="meta">' + esc(meta) +
         '</span>' : '') + '</' + (control.startsWith("a ") ? 'a' : 'button') + '>' + (tag ? '<span class="tag">' + esc(
         tag) + '</span>' : '') + more + '</div>';
@@ -325,9 +330,9 @@
         (tab.local ? ' data-view="'+tab.key+'"' : "") +
         (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
         '>' + esc(tab.name) + '</a>').join("") : "";
-    $("projectnav").innerHTML = state.projects.map((p, i) => '<a class="project-item ' + (p.id === state.project?.id ?
+    $("projectnav").innerHTML = state.projects.map(p => '<a class="project-item ' + (p.id === state.project?.id ?
         'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
-      '"><span class="project-dot" style="--project-color:' + colors[i % colors.length] + '"></span><span>' + esc(p
+      '">' + projectBadge(p) + '<span>' + esc(p
       .name) + '</span></a>').join("");
     window.SciShellLayout?.decorateProject(modules,$("projectnav"),state.project?.id);
     window.SciContextRail?.update();
@@ -344,7 +349,7 @@
   }
 
   function projectRows(projects) {
-    return list(projects.map(p => row("folder", p.name, p.description, 'a href="' + esc(viewURL("overview", p.id)) + '"')));
+    return list(projects.map(p => row("folder", p.name, p.description, 'a href="' + esc(viewURL("overview", p.id)) + '"', "", "", p)));
   }
 
   const dashboard = window.SciStationDashboard;
@@ -779,6 +784,7 @@
     input.focus();
   }
   const E = {
+    projectBadge,
     state,
     text,
     local,

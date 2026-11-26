@@ -338,3 +338,16 @@ func (r *Run) Decide(thread, turn, item, id string, accept bool) error {
 	r.reply = nil
 	return nil
 }
+
+func (m *Manager) Busy() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.runs {
+		select {
+		case <-r.done:
+		default:
+			return true
+		}
+	}
+	return false
+}

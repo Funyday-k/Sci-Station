@@ -51,3 +51,16 @@ func (e *Engine) readProjectFile(s *Session, path string) (workspace.File, error
 	})
 	return file, err
 }
+
+func (e *Engine) SetManagedRootHistory(root string, previous []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.managedRoot = root
+	e.previousRoots = append([]string(nil), previous...)
+}
+
+func (e *Engine) Busy() bool {
+	e.cancelMu.Lock()
+	defer e.cancelMu.Unlock()
+	return len(e.cancels) > 0 || len(e.agendaDraftCancels) > 0 || len(e.reportCancels) > 0 || len(e.titleFlights) > 0
+}

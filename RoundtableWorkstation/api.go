@@ -32,7 +32,11 @@ type apiServer struct {
 	navigation      workspaceNavigation
 	calendar        calendarBridge
 	workspaceDir    string
+	boundRootID     string
 	chooseWorkspace func(bool)
+	createWorkspace func(rootSetup) (bool, error)
+	forgetWorkspace func() error
+	renameWorkspace func(string) error
 	revealWorkspace func() error
 	savePick        func(filename, extension string) (string, error)
 	saveDialog      sync.Mutex
@@ -154,11 +158,13 @@ func (a *apiServer) serve(port int) http.Handler {
 		}
 		path := r.URL.Path
 		switch {
+		case strings.HasPrefix(path, "/api/workspace/symbol/"):
+			serveProjectSymbol(w, r)
 		case path == "/api/workspace/navigation" || path == "/resume":
 			a.serveNavigation(w, r)
 		case path == "/api/health" && r.Method == "GET":
-			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3", "workspace": rootID(a.workspaceDir)})
-		case path == "/api/workspace" || path == "/api/workspace/open" || path == "/api/workspace/create" || path == "/api/workspace/reveal":
+			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3", "workspace": a.rootIdentity()})
+		case path == "/api/workspace" || path == "/api/workspace/open" || path == "/api/workspace/create" || path == "/api/workspace/reveal" || path == "/api/workspace/templates" || path == "/api/workspace/setup" || path == "/api/workspace/forget" || path == "/api/workspace/rename":
 			a.workspaceAPI(w, r)
 		case strings.HasPrefix(path, "/api/research/lab/"):
 			a.serveAILab(w, r)

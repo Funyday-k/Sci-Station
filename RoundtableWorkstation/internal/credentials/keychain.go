@@ -3,6 +3,7 @@ package credentials
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 )
@@ -32,6 +33,9 @@ func OpenProviders(dir string) (func(profileID, endpoint string) Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	return providers(scope)
+}
+func providers(scope string) (func(string, string) Store, error) {
 	if newKeychain(scope) == nil {
 		return nil, nil
 	}
@@ -51,4 +55,16 @@ func accountForDirectory(dir string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("mineru:%x", sha256.Sum256([]byte(canonical))), nil
+}
+
+// WorkspaceStores accepts only an identity resolved by the desktop registry.
+// Existing accounts use the same canonical-path digest as Open and OpenProviders.
+func WorkspaceStores(identity string) (Store, func(string, string) Store, error) {
+	b, err := hex.DecodeString(identity)
+	if err != nil || len(b) != sha256.Size {
+		return nil, nil, fmt.Errorf("invalid workspace identity")
+	}
+	account := "mineru:" + identity
+	profiles, err := providers(account)
+	return newKeychain(account), profiles, err
 }

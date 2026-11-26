@@ -35,6 +35,8 @@ type Entity struct {
 }
 
 type Project struct {
+	ColorHex         string          `json:"colorHex,omitempty"`
+	IconName         string          `json:"iconName,omitempty"`
 	ManagedDirectory bool            `json:"managedDirectory,omitempty"`
 	DirectoryGrant   *DirectoryGrant `json:"directoryGrant,omitempty"`
 	Entity
@@ -389,6 +391,8 @@ func (s *Service) listProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 type projectInput struct {
+	ColorHex    *string `json:"colorHex"`
+	IconName    *string `json:"iconName"`
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
 	Path        *string `json:"path"`
@@ -402,16 +406,16 @@ func updateProject(p *Project, in projectInput) bool {
 	if in.Description != nil {
 		p.Description = *in.Description
 	}
-	return label(p.Name, 200) && len(p.Description) <= 128<<10
+	return label(p.Name, 200) && len(p.Description) <= 128<<10 && updateAppearance(p, in)
 }
 func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 	var in projectInput
 	if !payload(w, r, &in) {
 		return
 	}
-	p := Project{Entity: fresh()}
+	p := newProject()
 	if !updateProject(&p, in) {
-		jsonFail(w, 400, "项目名称或说明无效")
+		jsonFail(w, 400, "项目名称、说明、颜色或图标无效")
 		return
 	}
 	s.mu.Lock()
@@ -492,7 +496,7 @@ func (s *Service) project(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !updateProject(&d.Project, in) {
-		jsonFail(w, 400, "项目名称或说明无效")
+		jsonFail(w, 400, "项目名称、说明、颜色或图标无效")
 		return
 	}
 	d.Project.bump()

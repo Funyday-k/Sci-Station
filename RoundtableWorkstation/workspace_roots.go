@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 
+	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
 )
 
@@ -103,6 +104,9 @@ func inspectRoot(path string, create bool) (string, bool, error) {
 			return "", false, err
 		}
 	}
+	if _, err := readRootDescription(path); err != nil {
+		return "", false, err
+	}
 	return path, false, nil
 }
 
@@ -140,7 +144,11 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return 0, err
 	}
-	key := fmt.Sprintf("%x\n", sha256.Sum256([]byte(path)))
+	binding, err := r.binding(path)
+	if err != nil {
+		return 0, err
+	}
+	key := binding.ID + "\n"
 	if requested == 0 {
 		entries, err := workspace.ManagedReadDir(r.dir)
 		if err != nil {
@@ -219,20 +227,103 @@ func (r desktopRoots) last() (string, error) {
 		return "", err
 	}
 	var path string
-	if json.Unmarshal(data, &path) != nil || !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
+	var identity string
+	if json.Unmarshal(data, &path) != nil {
+		var item struct {
+			Version        int
+			Path, Identity string
+		}
+		if json.Unmarshal(data, &item) != nil || item.Version != 1 {
+			return "", errors.New("上次工作区的位置记录无法读取")
+		}
+		path, identity = item.Path, item.Identity
+	}
+	if !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
 		return "", errors.New("上次工作区的位置记录无法读取")
 	}
-	return path, nil
+	return r.recordedPath(path, identity)
 }
 func (r desktopRoots) remember(path string) error {
-	if err := workspace.ManagedMkdirAll(r.dir, 0700); err != nil {
-		return err
-	}
-	body, err := json.Marshal(path)
+	return r.withRecentLock(func() error { return r.writeRecent(path) })
+}
+func (r desktopRoots) writeRecent(path string) error {
+	binding, err := r.binding(path)
 	if err != nil {
 		return err
 	}
-	return atomicFile(filepath.Join(r.dir, "last-workspace.json"), body)
+	file := filepath.Join(r.dir, "last-workspace.json")
+	data, err := workspace.ManagedReadFile(file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if len(data) > 0 {
+		var legacy string
+		if json.Unmarshal(data, &legacy) == nil {
+			data = nil
+		} else {
+			var known struct{ Version int }
+			if json.Unmarshal(data, &known) != nil || known.Version != 1 {
+				return errors.New("无法覆盖未知最近工作区记录 / Unrecognized recent-workspace record")
+			}
+		}
+	}
+	raw, err := overlayFields(data, map[string]any{"version": 1, "path": path, "identity": binding.ID})
+	if err != nil {
+		return err
+	}
+	return atomicFile(file, raw)
+}
+func (r desktopRoots) afterRename(path string) error {
+	return r.withRecentLock(func() error {
+		recent, err := r.last()
+		if err != nil || recent != path {
+			return err
+		}
+		return r.writeRecent(path)
+	})
+}
+func (r desktopRoots) recentStamp() string {
+	data, err := workspace.ManagedReadFile(filepath.Join(r.dir, "last-workspace.json"))
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+// Serialize recent-root mutations across desktop processes; an older window
+// cannot clear the newer window's remembered selection.
+func (r desktopRoots) withRecentLock(operation func() error) error {
+	if err := workspace.ManagedMkdirAll(r.dir, 0700); err != nil {
+		return err
+	}
+	f, err := workspace.ManagedOpenFile(filepath.Join(r.dir, ".recent.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	return operation()
+}
+func (r desktopRoots) forget(expected string, stamp ...string) error {
+	return r.withRecentLock(func() error {
+		if len(stamp) > 0 && stamp[0] != r.recentStamp() {
+			return errors.New("最近工作区已改变 / Recent workspace changed")
+		}
+		path, err := r.last()
+		if err != nil && expected != "" {
+			return err
+		}
+		if expected != "" && path != expected {
+			return nil
+		}
+		err = workspace.ManagedRemove(filepath.Join(r.dir, "last-workspace.json"))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	})
 }
 
 func rootID(dir string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(dir))) }
@@ -245,6 +336,9 @@ type rootChoice struct {
 func (r desktopRoots) initial(explicit string) (rootChoice, error) {
 	if explicit == "" {
 		path, err := r.last()
+		if err != nil {
+			return rootChoice{}, err
+		}
 		return rootChoice{dir: path}, err
 	}
 	explicit, err := filepath.Abs(explicit)
@@ -272,13 +366,14 @@ type rootSession struct {
 	generation uint64
 	active     *workspaceInstance
 	closed     bool
+	moving     bool
 	draining   sync.WaitGroup
 }
 
 func (s *rootSession) beginFor(expected *apiServer) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || expected != nil && (s.active == nil || s.active.api != expected) {
+	if s.closed || s.moving || expected != nil && (s.active == nil || s.active.api != expected) {
 		return 0
 	}
 	s.generation++
@@ -331,8 +426,12 @@ func (s *rootSession) shutdown() {
 }
 
 func (a *apiServer) workspaceAPI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/workspace/templates" && r.Method == http.MethodGet {
+		reply(w, 200, research.CreationTemplates())
+		return
+	}
 	if r.URL.Path == "/api/workspace" && r.Method == http.MethodGet {
-		reply(w, 200, map[string]any{"id": rootID(a.workspaceDir), "name": filepath.Base(a.workspaceDir), "desktop": a.desktop})
+		reply(w, 200, map[string]any{"id": a.rootIdentity(), "name": a.workspaceDisplay(), "folder": filepath.Base(a.workspaceDir), "desktop": a.desktop})
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -342,7 +441,63 @@ func (a *apiServer) workspaceAPI(w http.ResponseWriter, r *http.Request) {
 	a.pickMu.RLock()
 	choose := a.chooseWorkspace
 	reveal := a.revealWorkspace
+	create, forget, rename := a.createWorkspace, a.forgetWorkspace, a.renameWorkspace
 	a.pickMu.RUnlock()
+	switch r.URL.Path {
+	case "/api/workspace/setup":
+		var d rootSetup
+		if !jsonBody(w, r, &d) {
+			return
+		}
+		if err := d.validate(); err != nil {
+			fail(w, err)
+			return
+		}
+		if create == nil {
+			reject(w, 409, "请在桌面应用中创建工作区")
+			return
+		}
+		changed, err := create(d)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, 200, map[string]bool{"opened": changed})
+		return
+	case "/api/workspace/forget":
+		var b struct{}
+		if !jsonBody(w, r, &b) {
+			return
+		}
+		if forget == nil {
+			reject(w, 409, "请在桌面应用中管理最近工作区")
+			return
+		}
+		if err := forget(); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, 200, map[string]bool{"forgotten": true})
+		return
+	case "/api/workspace/rename":
+		var b struct {
+			Name string `json:"name"`
+		}
+		if !jsonBody(w, r, &b) {
+			return
+		}
+		b.Name = strings.TrimSpace(b.Name)
+		if rename == nil || b.Name == "" || !validWorkspaceName(b.Name) || strings.HasPrefix(b.Name, ".") {
+			reject(w, 400, "请选择有效的工作区文件夹名称")
+			return
+		}
+		if err := rename(b.Name); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, 202, map[string]bool{"renaming": true})
+		return
+	}
 	if r.URL.Path == "/api/workspace/reveal" {
 		if reveal == nil {
 			reject(w, 409, "请在桌面窗口显示工作区")

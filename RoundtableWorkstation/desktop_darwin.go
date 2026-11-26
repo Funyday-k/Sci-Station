@@ -4,13 +4,19 @@ package main
 
 import (
 	"context"
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
+	"errors"
+	"fmt"
 	"html"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+	"scistation.local/desktop/internal/workspace"
 )
 
 type desktopHost struct {
@@ -51,15 +57,21 @@ func runDesktop(explicit string, port int) error {
 		if issue == nil {
 			h.session.active = instance
 			options.URL = instance.address + "/resume"
+			options.Title = "Sci-Station · " + instance.displayName()
 		}
 	}
 	language := resolveInterfaceLanguage(h.session.active.interfaceChoice(), preferredSystemLanguage())
 	if options.URL == "" {
-		message := interfaceText(language, "rootStartupPrompt")
+		message := ""
 		if issue != nil {
-			message = issue.Error() + "。" + message
+			message = issue.Error()
 		}
-		options.HTML = `<!doctype html><html lang="` + language + `"><meta charset="utf-8"><style>body{font:18px system-ui;margin:12%;line-height:1.7;color-scheme:light dark}</style><h1>` + interfaceText(language, "rootOpenTitle") + `</h1><p>` + html.EscapeString(message) + `</p></html>`
+		welcome, err := startWorkspaceWelcome(language, message)
+		if err != nil {
+			return err
+		}
+		h.session.active = welcome
+		options.URL = welcome.address + "/welcome"
 	}
 	h.window = h.app.Window.NewWithOptions(options)
 	if h.session.active != nil {
@@ -70,7 +82,7 @@ func runDesktop(explicit string, port int) error {
 		current := h.session.active
 		h.session.mu.Unlock()
 		go h.refreshMenu()
-		if current != nil && current.api != nil {
+		if current != nil && current.dir != "" && current.api != nil {
 			if script := current.api.cliEditWindowScript(current.address); script != "" {
 				evaluateWorkstationScript(h.window, current.address, script)
 			}
@@ -88,7 +100,7 @@ func runDesktop(explicit string, port int) error {
 	return h.app.Run()
 }
 
-func (h *desktopHost) start(choice rootChoice, port int) (*workspaceInstance, error) {
+func (h *desktopHost) start(choice rootChoice, port int, setup ...rootSetup) (*workspaceInstance, error) {
 	dir, _, err := inspectRoot(choice.dir, choice.create)
 	if err != nil {
 		return nil, err
@@ -98,72 +110,105 @@ func (h *desktopHost) start(choice rootChoice, port int) (*workspaceInstance, er
 	if err != nil {
 		return nil, err
 	}
+	binding, err := h.roots.binding(dir)
+	if err != nil {
+		return nil, err
+	}
 	if borrow {
-		if borrowed := attachedWorkspace(dir, port); borrowed != nil {
+		if borrowed := attachedWorkspace(dir, port, binding.ID); borrowed != nil {
 			return borrowed, nil
 		}
 	}
-	return startWorkspace(dir, port, true, choice.create)
+	return startBoundWorkspace(dir, port, true, choice.create, binding, setup...)
 }
 func (h *desktopHost) choose(create bool, expected *apiServer) {
+	_, err := h.selectWorkspace(create, expected, nil)
+	if err != nil && !h.closing.Load() {
+		h.app.Dialog.Error().AttachToWindow(h.window).SetTitle(interfaceText(h.currentLanguage(), "rootOpenError")).SetMessage(err.Error()).Show()
+	}
+}
+
+func (h *desktopHost) selectWorkspace(create bool, expected *apiServer, setup *rootSetup) (bool, error) {
 	token := h.session.beginFor(expected)
 	if token == 0 {
-		return
+		return false, nil
 	}
 	h.panelMu.Lock()
 	if h.closing.Load() {
 		h.panelMu.Unlock()
-		return
+		return false, nil
 	}
 	panel := h.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(create).AttachToWindow(h.window)
 	language := h.currentLanguage()
 	copy := func(key string) string { return interfaceText(language, key) }
-	if create {
+	if setup != nil && !setup.UseEmptyFolder {
+		message := "请选择新工作区文件夹的存放位置。"
+		if language == "en" {
+			message = "Select the parent folder for the new workspace."
+		}
+		panel.SetTitle(copy("rootCreateTitle")).SetMessage(message).SetButtonText(copy("chooseFolder"))
+	} else if create {
 		panel.SetTitle(copy("rootCreateTitle")).SetMessage(copy("rootCreatePrompt")).SetButtonText(copy("toolbarCreateWorkspace"))
 	} else {
 		panel.SetTitle(copy("rootOpenTitle")).SetMessage(copy("rootOpenPrompt")).SetButtonText(copy("toolbarOpenWorkspace"))
 	}
 	path, err := panel.PromptForSingleSelection()
 	h.panelMu.Unlock()
-	if h.closing.Load() {
-		return
+	if err != nil || path == "" || h.closing.Load() {
+		return false, err
 	}
-	if path == "" && err == nil {
-		return
-	}
-	if err == nil {
-		var dir string
+	var dir string
+	if setup == nil {
 		dir, _, err = inspectRoot(path, create)
-		if err == nil {
-			h.session.mu.Lock()
-			same := h.session.active != nil && h.session.active.dir == dir
-			h.session.mu.Unlock()
-			if same {
-				return
-			}
-			err = h.session.switchTo(token, func() (*workspaceInstance, error) { return h.start(rootChoice{dir: dir, create: create}, 0) }, func(next *workspaceInstance) error {
-				if err := h.roots.remember(next.dir); err != nil {
-					return err
-				}
-				if previous := h.session.active; previous != nil {
-					previous.api.forgetCLIEditWindow()
-				}
-				h.installPickers(next.api)
-				application.InvokeAsync(func() {
-					h.window.SetTitle("Sci-Station · " + filepath.Base(next.dir))
-					h.window.SetURL(next.address + "/resume")
-				})
-				return nil
-			})
-			if err == nil {
-				go h.refreshMenu()
-			}
+		if err != nil {
+			return false, err
+		}
+		h.session.mu.Lock()
+		same := h.session.active != nil && h.session.active.dir == dir
+		h.session.mu.Unlock()
+		if same {
+			return true, nil
 		}
 	}
-	if err != nil {
-		h.app.Dialog.Error().AttachToWindow(h.window).SetTitle(copy("rootOpenError")).SetMessage(err.Error()).Show()
+	opened := false
+	err = h.session.switchTo(token, func() (*workspaceInstance, error) {
+		if setup == nil {
+			return h.start(rootChoice{dir: dir, create: create}, 0)
+		}
+		dir, err := prepareWorkspaceTarget(path, *setup)
+		if err != nil {
+			return nil, err
+		}
+		next, err := h.start(rootChoice{dir: dir, create: true}, 0, *setup)
+		if err != nil && !setup.UseEmptyFolder {
+			// Only remove an empty folder we created. A published or externally
+			// populated folder stays available for a subsequent open.
+			_ = workspace.ManagedRemove(dir)
+		}
+		return next, err
+	}, func(next *workspaceInstance) error {
+		if err := h.roots.remember(next.dir); err != nil {
+			return err
+		}
+		if previous := h.session.active; previous != nil {
+			previous.api.forgetCLIEditWindow()
+		}
+		h.presentRoot(next)
+		opened = true
+		return nil
+	})
+	if opened {
+		go h.refreshMenu()
 	}
+	return opened, err
 }
+
+func (h *desktopHost) presentRoot(next *workspaceInstance) {
+	h.installPickers(next.api)
+	title := "Sci-Station · " + next.displayName()
+	application.InvokeAsync(func() { h.window.SetTitle(title); h.window.SetURL(next.address + "/resume") })
+}
+
 func (h *desktopHost) installPickers(host *apiServer) {
 	if host == nil {
 		return
@@ -174,6 +219,19 @@ func (h *desktopHost) installPickers(host *apiServer) {
 	}
 	configureMaterialDesktop(host, app, window, &h.panelMu)
 	host.pickMu.Lock()
+	host.createWorkspace = func(d rootSetup) (bool, error) { return h.selectWorkspace(true, host, &d) }
+	startupStamp := h.roots.recentStamp()
+	host.forgetWorkspace = func() error {
+		h.session.mu.Lock()
+		defer h.session.mu.Unlock()
+		if h.session.active == nil || h.session.active.api != host {
+			return errors.New("工作区已切换 / Workspace changed")
+		}
+		return h.roots.forget(h.session.active.dir, startupStamp)
+	}
+	if host.workspaceDir != "" {
+		host.renameWorkspace = func(name string) error { return h.rename(host, name) }
+	}
 	host.chooseWorkspace = func(create bool) { h.choose(create, host) }
 	host.revealWorkspace = func() error { return exec.Command("/usr/bin/open", "-R", host.workspaceDir).Run() }
 	host.pickMu.Unlock()
@@ -239,6 +297,12 @@ func (h *desktopHost) menu(language string) {
 	ws.Add(copy("toolbarCreateWorkspace") + "…").OnClick(func(*application.Context) { choose(true) })
 	ws.Add(copy("toolbarOpenWorkspace") + "…").SetAccelerator("CmdOrCtrl+O").OnClick(func(*application.Context) { choose(false) })
 	ws.AddSeparator()
+	rename, forget := "重命名工作区…", "清除最近工作区"
+	if language == "en" {
+		rename, forget = "Rename workspace…", "Forget recent workspace"
+	}
+	ws.Add(rename).OnClick(func(*application.Context) { h.window.ExecJS(`window.SciStationNav?.command("renameWorkspace")`) })
+	ws.Add(forget).OnClick(func(*application.Context) { h.window.ExecJS(`window.SciStationNav?.command("forgetWorkspace")`) })
 	type entry struct{ label, command, key string }
 	add := func(submenu *application.Menu, rows []entry) {
 		for _, row := range rows {
@@ -260,4 +324,91 @@ func (h *desktopHost) menu(language string) {
 	menu.AddRole(application.WindowMenu)
 	app.Menu.Set(menu)
 	h.menuLanguage.Store(language)
+}
+
+func (h *desktopHost) rename(expected *apiServer, name string) error {
+	h.session.mu.Lock()
+	current := h.session.active
+	if h.session.closed || h.session.moving || current == nil || current.api != expected || current.dir == "" {
+		h.session.mu.Unlock()
+		return errors.New("工作区已切换 / Workspace changed")
+	}
+	target := filepath.Join(filepath.Dir(current.dir), name)
+	if target == current.dir {
+		h.session.mu.Unlock()
+		return nil
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+		h.session.mu.Unlock()
+		return errors.New("目标已存在 / Destination already exists")
+	}
+	identity, err := folderIdentity(current.dir)
+	if err != nil {
+		h.session.mu.Unlock()
+		return err
+	}
+	h.session.moving = true
+	h.session.generation++
+	h.session.draining.Add(1)
+	h.session.mu.Unlock()
+	go func() {
+		defer h.session.draining.Done()
+		defer func() { h.session.mu.Lock(); h.session.moving = false; h.session.mu.Unlock() }()
+		// Let the requesting POST release its normal HTTP read lease.
+		deadline := time.Now().Add(2 * time.Second)
+		for !current.freeze() {
+			if time.Now().After(deadline) {
+				h.renameError(errors.New("请等待当前请求或会议结束 / Wait for active requests or meetings to finish"))
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		current.close()
+		dir := current.dir
+		moveErr := h.roots.moveRoot(dir, target, identity)
+		if moveErr == nil {
+			dir = target
+		}
+		next, openErr := h.start(rootChoice{dir: dir}, 0)
+		if openErr != nil && moveErr == nil {
+			moveErr = errors.Join(openErr, h.roots.moveRoot(target, current.dir, identity))
+			next, openErr = h.start(rootChoice{dir: current.dir}, 0)
+		}
+		h.session.mu.Lock()
+		if h.session.closed {
+			h.session.mu.Unlock()
+			if next != nil {
+				next.close()
+			}
+			return
+		}
+		if openErr == nil {
+			h.session.active = next
+			if moveErr == nil {
+				moveErr = h.roots.afterRename(next.dir)
+			}
+			h.presentRoot(next)
+		} else {
+			welcome, werr := startWorkspaceWelcome(h.currentLanguage(), errors.Join(openErr, moveErr).Error())
+			if werr == nil {
+				h.session.active = welcome
+				h.installPickers(welcome.api)
+				application.InvokeAsync(func() {
+					h.window.SetTitle("Sci-Station")
+					h.window.SetURL(welcome.address + "/welcome")
+				})
+			}
+			moveErr = errors.Join(moveErr, openErr, werr)
+		}
+		h.session.mu.Unlock()
+		if moveErr != nil {
+			h.renameError(moveErr)
+		}
+	}()
+	return nil
+}
+func (h *desktopHost) renameError(err error) {
+	if !h.closing.Load() {
+		h.app.Dialog.Error().AttachToWindow(h.window).SetTitle("重命名工作区 / Rename workspace").SetMessage(err.Error()).Show()
+	}
 }

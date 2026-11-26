@@ -270,7 +270,7 @@
       esc(local("homeWidgetGallery", "小组件库", "Widget Gallery")) + '">' +
       '<div class="dashboard-layout-options">' + board.items.filter(i => available.has(i.id)).map(layoutOption).join("") + '</div>' +
       '<button type="button" class="button" data-dashboard-control="reset">' + esc(local("homeResetDefault", "恢复默认布局", "Reset Default")) + '</button></section>' : '<div id="dashboard-layout" hidden></div>';
-    return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit) + gallery +
+    return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit, project) + gallery +
       (visible.length ? '<div class="dashboard-grid">' + visible.map(widget).join("") + '</div>' : ui.empty(local("homeNoEnabledWidgets", "没有显示的组件", "No widgets are enabled."))) + '</div>';
 
     function homeSections() {
@@ -280,7 +280,7 @@
         [isEnabled("paper-library") && summary.core.length + " 篇核心文献", isEnabled("tasks") && summary.activeTasks.length + " 项待办",
           isEnabled("tasks") && summary.next && dateLabel(summary.next)].filter(Boolean).join(" · "),
         'a data-project="' + esc(summary.project.id) + '" href="' + esc(viewURL("overview", summary.project.id)) + '"',
-        summary.stage?.[1] || text("阶段暂不可用", "Stage unavailable"))));
+        summary.stage?.[1] || text("阶段暂不可用", "Stage unavailable"), "", summary.project)));
       return {
         today: limit => groupedMetrics(metric(due.length, text("今日到期或逾期", "due today or overdue")), metric(upcoming.length, text("未来两周", "in the next two weeks")),
           isEnabled("paper-library") && metric(reading.length, text("篇待读", "to read")), isEnabled("ai-lab") && reviews && metric(pending.length, text("项待审核", "for review"))) +

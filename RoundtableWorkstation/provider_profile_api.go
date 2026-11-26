@@ -12,8 +12,8 @@ import (
 	"scistation.local/desktop/internal/gateway"
 )
 
-func setupProviderProfiles(prefs *settingsStore, data string) {
-	keys, err := credentials.OpenProviders(data)
+func setupProviderProfiles(prefs *settingsStore, data, identity string) {
+	_, keys, err := credentials.WorkspaceStores(identity)
 	if err != nil {
 		log.Print("无法为此数据目录启用直接模型钥匙串")
 		return
