@@ -1,6 +1,6 @@
 const {test} = require("node:test");
 const assert = require("node:assert/strict");
-const {createDraft, draftURL, matchingThreads, threadTitle} = require("../static/lab-run.js");
+const {createDraft, draftURL, matchingThreads, threadTitle} = require("../web/static/lab-run.js");
 
 test("thread search matches title and status without showing archives by default", () => {
   const rooms = [

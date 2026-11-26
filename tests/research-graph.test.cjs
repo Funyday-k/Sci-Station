@@ -5,13 +5,13 @@ const {readFileSync} = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const navigation = require("../static/workspace-nav.js");
-const graph = require("../static/research-graph.js");
-const inspire = require("../static/research-inspire-graph.js");
-const source = require("../static/reader-graph-source.js");
+const navigation = require("../web/static/workspace-nav.js");
+const graph = require("../web/static/research-graph.js");
+const inspire = require("../web/static/research-inspire-graph.js");
+const source = require("../web/static/reader-graph-source.js");
 const base = "http://127.0.0.1:18765";
 
-const staticFile = name => readFileSync(path.join(__dirname, "../static", name), "utf8");
+const staticFile = name => readFileSync(path.join(__dirname, "../web/static", name), "utf8");
 const sentence = "A <critical> & reproducible result.";
 const query = href => new URL(href, base).searchParams;
 

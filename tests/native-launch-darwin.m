@@ -1,5 +1,5 @@
 // Exercises the launch layer tree offscreen; no desktop screenshot or screen permission is used.
-#import "../native_launch_darwin.m"
+#import "../internal/desktop/native_launch_darwin.m"
 #import <math.h>
 
 static unsigned int shownID;

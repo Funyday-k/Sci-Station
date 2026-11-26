@@ -231,7 +231,7 @@ def main():
                         "-c", str(DRIVER), "-o", str(driver_obj)], check=True)
         build_env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET=target, CGO_CFLAGS=deployment, CGO_LDFLAGS=deployment)
         subprocess.run(["go", "build", "-tags", "production", "-trimpath", "-ldflags",
-                        f"-linkmode external -extldflags={driver_obj}", "-o", str(test_binary), "."],
+                        f"-linkmode external -extldflags={driver_obj}", "-o", str(test_binary), "./cmd/sci-station"],
                        cwd=ROOT, env=build_env, check=True)
         subprocess.run(["codesign", "--force", "--sign", "-", str(fixture)], check=True)
         for gesture in ("red", "cmd-w", "cmd-q", "launch-q"):

@@ -26,12 +26,14 @@ Open `http://127.0.0.1:18765/research`. Open the macOS app to exercise PDFKit, E
 
 | Area | Entry points | Responsibility |
 | --- | --- | --- |
-| Desktop process and window | [main.go](../main.go), [desktop_darwin.go](../desktop_darwin.go), [workspace_shell.go](../workspace_shell.go) | Wails app and lifecycle, AppKit integration, loopback origins, validated routes and active workspace. |
-| API and frontend | [api.go](../api.go), [static/](../static/) | Serve the workstation API and embedded views. Update shared interface text through the interface catalog. Dispatch menus and views through the same navigation model. |
+| Executable | [cmd/sci-station/](../cmd/sci-station/) | Start the shared host in desktop or headless builds. |
+| Desktop host and API | [internal/desktop/](../internal/desktop/), including [desktop_darwin.go](../internal/desktop/desktop_darwin.go), [workspace_shell.go](../internal/desktop/workspace_shell.go) and [api.go](../internal/desktop/api.go) | Coordinate Wails and AppKit, the active workspace, validated navigation, loopback origins and API routes. |
+| Frontend | [web/static/](../web/static/) | Store the embedded HTML, CSS, JavaScript and assets. The host serves assets at `/static/`. Update shared interface text through the interface catalog. |
 | Research records | [internal/research/](../internal/research/), [internal/workspace/](../internal/workspace/) | Workspace and project identity, domain records, versions, revisions, papers, Wiki, material paths, tasks and reviewed writes. |
 | AI Lab, meetings and reports | [internal/meeting/](../internal/meeting/), [internal/deliberation/](../internal/deliberation/), [internal/sessionstore/](../internal/sessionstore/) | Shared meeting engine supports single-seat runs and multi-seat Roundtable, stable evidence references, turn history and resumable results. |
 | Models, CLI access and credentials | [internal/gateway/](../internal/gateway/), [internal/cliedit/](../internal/cliedit/), [internal/credentials/](../internal/credentials/) | Provider connections, session-specific CLI decisions and macOS Keychain. |
-| Plugins, native packaging and tests | [internal/plugins/](../internal/plugins/), [packaging/macos/](../packaging/macos/), [tests/](../tests/) | Versioned plugin loading, signed arm64 app bundle, frontend behavior and native smoke scenarios. |
+| Plugins | [internal/plugins/](../internal/plugins/) | Load and check versioned plugins. |
+| Packaging and verification | [packaging/macos/](../packaging/macos/), [tests/](../tests/), [Tools/](../Tools/) | Build and verify the signed arm64 bundle, exercise frontend behavior and native workflows, and run repository and release checks. |
 
 ## Work within the domain boundaries
 

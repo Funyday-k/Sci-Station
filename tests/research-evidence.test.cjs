@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const evidence = require("../static/research-evidence.js");
+const evidence = require("../web/static/research-evidence.js");
 
 test("Wiki and material citations keep their owning project and normalized offsets", () => {
   for (const [kind, view, key] of [["note", "notes", "note"], ["material", "materials", "material"]]) {

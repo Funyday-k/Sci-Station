@@ -31,6 +31,7 @@ Local papers, annotations, Wiki, tasks, materials, and local PDF text conversion
 
 ## Contribute
 
+- [`cmd/sci-station`](../cmd/sci-station/) starts the app. [`internal/desktop`](../internal/desktop/) implements the desktop host and API, [`web/static`](../web/static/) contains the embedded frontend, and [`internal/research`](../internal/research/) owns research records.
 - [Developer guide](DEVELOPER.md) for architecture, builds and tests.
 - [Contributing](../CONTRIBUTING.md) and [repository governance](GOVERNANCE.md) for review and release policy.
 - [Changelog](../CHANGELOG.md) for current changes and release history.

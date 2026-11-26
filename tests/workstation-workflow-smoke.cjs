@@ -227,7 +227,7 @@ async function buildNativeFixture(bundle, base) {
     CGO_LDFLAGS: "-mmacosx-version-min=12.0"
   };
   tools(process.env.GO || "go", ["build", "-tags", "production", "-trimpath",
-    "-ldflags", "-linkmode external -extldflags=" + object, "-o", binary, "."], {cwd: root, env});
+    "-ldflags", "-linkmode external -extldflags=" + object, "-o", binary, "./cmd/sci-station"], {cwd: root, env});
   tools("/usr/libexec/PlistBuddy", ["-c", "Set CFBundleIdentifier com.funyday.scistation.workflow-smoke",
     path.join(target, "Contents", "Info.plist")]);
   tools("codesign", ["--force", "--options", "runtime", "--sign", "-", target]);

@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const navigation = require("../static/workspace-nav.js");
+const navigation = require("../web/static/workspace-nav.js");
 
 function researchUI() {
   const nodes = new Map();
@@ -40,7 +40,7 @@ function researchUI() {
     FormData,
     fetch: () => new Promise(() => {}),
   };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../static/research.js"), "utf8"), context);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../web/static/research.js"), "utf8"), context);
   return {
     ui: context.window.SciResearch,
     element,
@@ -159,8 +159,8 @@ test("task editor preserves archived project membership, multiple papers and rev
       };
     }
   });
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../static/research-evidence.js"), "utf8"), context);
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../static/research-forms.js"), "utf8"), context);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../web/static/research-evidence.js"), "utf8"), context);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../web/static/research-forms.js"), "utf8"), context);
   await ui.formAction("edit-task", "task");
   assert.match(dialogHTML, /<blockquote>&lt;excerpt&gt;<\/blockquote>/);
   assert.match(dialogHTML, /name="taskTagNames" value="comma, kept" checked/);

@@ -16,7 +16,7 @@ function loadLibrary(ui, globals = {}) {
     ...globals
   });
   for (const file of ["research-forms.js", "research-library.js"]) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "static", file), "utf8"), ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "web", "static", file), "utf8"), ctx);
   }
 }
 

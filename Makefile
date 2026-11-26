@@ -14,7 +14,7 @@ run: app
 
 headless:
 	mkdir -p build/bin
-	$(GO) build -tags nogui -trimpath -o build/bin/sci-station-server .
+	$(GO) build -tags nogui -trimpath -o build/bin/sci-station-server ./cmd/sci-station
 
 test:
 	$(GO) test -tags nogui ./...

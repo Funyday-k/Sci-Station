@@ -5,8 +5,8 @@ const {readFileSync} = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const navigation = require("../static/workspace-nav.js");
-const read = name => readFileSync(path.join(__dirname, "../static", name), "utf8");
+const navigation = require("../web/static/workspace-nav.js");
+const read = name => readFileSync(path.join(__dirname, "../web/static", name), "utf8");
 const origin = "http://127.0.0.1:18765";
 
 test("every desktop surface mounts the same workspace navigation", () => {

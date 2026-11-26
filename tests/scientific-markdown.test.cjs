@@ -5,7 +5,7 @@ const {tmpdir} = require("node:os");
 const {join} = require("node:path");
 const test = require("node:test");
 
-const assets = join(__dirname, "../static");
+const assets = join(__dirname, "../web/static");
 const dependencies = [
   "research-vendor/marked.min.js",
   "research-vendor/dompurify.min.js",

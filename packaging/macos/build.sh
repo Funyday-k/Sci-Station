@@ -46,7 +46,7 @@ cleanup() {
 trap cleanup EXIT
 CONTENTS="$STAGED_APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
-GOWORK=off GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 "$GO" build -mod=readonly -tags production -trimpath -buildvcs=false -ldflags '-s -w' -o "$CONTENTS/MacOS/sci-station" .
+GOWORK=off GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 "$GO" build -mod=readonly -tags production -trimpath -buildvcs=false -ldflags '-s -w' -o "$CONTENTS/MacOS/sci-station" ./cmd/sci-station
 cp -X packaging/macos/Info.plist "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" \
 	-c "Add :CFBundleVersion string $BUILD_NUMBER" \

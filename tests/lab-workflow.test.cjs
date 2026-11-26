@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {compose,receive,key} = require("../static/lab-handoff.js");
+const {compose,receive,key} = require("../web/static/lab-handoff.js");
 const setup = {projectId:"p1",sessionId:"",title:"复核",prompt:"检查近似。",mode:"review",seats:2,question:"验证边界条件。"};
 test("workflows preserve source provenance and Unicode limits",()=>{
  const text=compose({...setup,resource:{server:"https://tools.example/mcp",uri:"urn:paper:one",sha256:"f".repeat(64),excerpt:"原文。"}});
@@ -20,7 +20,7 @@ test("a preset only enters the selected project and stays an unsent draft",async
  assert.equal(stored,null);
 });
 test("project text selections retain the PDF page, digest and Unicode location",()=>{
- const {selectedCitation,ownsRun}=require("../static/lab-run.js");
+ const {selectedCitation,ownsRun}=require("../web/static/lab-run.js");
  const input={kind:"paper",id:"paper-original",text:"😀  选段 α. ",page:4,offset:8,hash:"e".repeat(64)};
  const c=selectedCitation(input,2,10);
  assert.deepEqual(c,{kind:"paper",id:input.id,page:4,hash:input.hash,quote:"选段 α.",offset:11});
@@ -40,7 +40,7 @@ test("a reviewed multi-seat draft attaches each selected source once",async()=>{
  assert.deepEqual(attachmentRows,[m]);assert.equal(stored,null);
 });
 test("global runs use an explicit scope and never match a legacy directory session",()=>{
- const {ownsRun}=require("../static/lab-run.js");
+ const {ownsRun}=require("../web/static/lab-run.js");
  assert.doesNotThrow(()=>compose({...setup,projectId:"",scope:"global"}));
  assert.throws(()=>compose({...setup,projectId:""}));
  assert.ok(ownsRun({project:"",seats:["seat-1"]},{id:"",global:true}));
@@ -55,7 +55,7 @@ test("a project graph preview keeps its source and cannot enter a different proj
 });
 
 test("a selected project skill contributes hashed guidance only within its own scope",()=>{
-  const {skillMatches,eligible}=require("../static/lab-context.js");
+  const {skillMatches,eligible}=require("../web/static/lab-context.js");
   const skill={name:"convergence-check",description:"Review numerical error",capabilities:["uncertainty"],trusted:true,enabled:true};
   assert.equal(skillMatches(skill,"error uncertainty"),true);
   assert.equal(skillMatches(skill,"literature"),false);
@@ -71,7 +71,7 @@ test("a selected project skill contributes hashed guidance only within its own s
 });
 
 test("MCP confirmation, failure, and a project switch prevent stale or unauthorized previews",async()=>{
-  const {mount}=require("../static/lab-context.js");
+  const {mount}=require("../web/static/lab-context.js");
   const nodes=new Map(), messages=[], calls=[];
   const element=()=>({
     value:"",children:[],replaceChildren(...rows){this.children=rows;this.value=rows[0]?.value||"";},
@@ -108,7 +108,7 @@ test("MCP confirmation, failure, and a project switch prevent stale or unauthori
 });
 
 test("formal workflows identify structured scientific artifacts with turn-visible citations",()=>{
-  const {projectRows}=require("../static/lab-artifacts.js");
+  const {projectRows}=require("../web/static/lab-artifacts.js");
   const topic=compose({...setup,workflow:"gap-planning"});
   assert.equal(topic.split("\n")[1],"工作流 ID：gap-planning");
   const paper={excerpt:'Sci-Station · 项目原文摘录 v1\n'+JSON.stringify({projectId:"p1",kind:"paper-markdown",id:"paper",offset:2,end:10,sha256:"a".repeat(64)})+'\n\nReal text.'};

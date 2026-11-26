@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const modules = require('../static/research-modules.js');
-const language = require('../static/interface-language.js');
+const modules = require('../web/static/research-modules.js');
+const language = require('../web/static/interface-language.js');
 
 test('module consumer checks effective state in the selected scope', () => {
   assert.equal(modules.endpoint(null), '/api/research/modules');
