@@ -117,15 +117,23 @@ func directDiff(path, before, after string) string {
 		newStart = 0
 	}
 	var out strings.Builder
+	out.Grow(len(before) + len(after) + oldCount + newCount + 128)
 	fmt.Fprintf(&out, "--- a/%s\n+++ b/%s\n@@ -%d,%d +%d,%d @@\n", path, path, oldStart, oldCount, newStart, newCount)
 	for _, part := range []struct {
 		mark byte
 		text string
 	}{{'-', before}, {'+', after}} {
-		for pos := 0; pos < len(part.text); {
-			line, next := nextDiffLine(part.text, pos)
-			emitDiffLine(&out, part.mark, line)
-			pos = next
+		if part.text == "" {
+			continue
+		}
+		// Insert a prefix after each interior LF. The standard library writes
+		// contiguous chunks and sizes its allocation once, even for huge hunks.
+		out.WriteByte(part.mark)
+		body, terminated := strings.CutSuffix(part.text, "\n")
+		out.WriteString(strings.ReplaceAll(body, "\n", "\n"+string(part.mark)))
+		out.WriteByte('\n')
+		if !terminated {
+			out.WriteString("\\ No newline at end of file\n")
 		}
 	}
 	return out.String()
@@ -270,7 +278,7 @@ type parsedDiffHunk struct {
 
 // parseDiffHunk uses declared hunk counts, so body lines resembling file headers
 // remain real additions/deletions, and malformed/truncated hunks are not counted.
-func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, error) {
+func parseDiffHunk(patch string, bodyPos int, h diffRange, collectLines bool) (parsedDiffHunk, error) {
 	var result parsedDiffHunk
 	oldUsed, newUsed, oldBytes, newBytes := 0, 0, 0, 0
 	oldBlock, newBlock := 0, 0
@@ -278,6 +286,7 @@ func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, erro
 	seenEdit := false
 	contextRun := 0
 	previous := byte(0)
+	previousHasLF := false
 	finishBlock := func() {
 		if !block {
 			return
@@ -311,20 +320,21 @@ func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, erro
 			if previous == 0 {
 				return result, errors.New("misplaced diff end-of-file marker")
 			}
+			if !previousHasLF {
+				return result, errors.New("invalid end-of-file marker")
+			}
 			if previous == '-' || previous == ' ' {
-				last := len(result.oldParts) - 1
-				if last < 0 || !strings.HasSuffix(result.oldParts[last], "\n") {
-					return result, errors.New("invalid old end-of-file marker")
+				if collectLines {
+					last := len(result.oldParts) - 1
+					result.oldParts[last] = strings.TrimSuffix(result.oldParts[last], "\n")
 				}
-				result.oldParts[last] = strings.TrimSuffix(result.oldParts[last], "\n")
 				oldBytes--
 			}
 			if previous == '+' || previous == ' ' {
-				last := len(result.newParts) - 1
-				if last < 0 || !strings.HasSuffix(result.newParts[last], "\n") {
-					return result, errors.New("invalid new end-of-file marker")
+				if collectLines {
+					last := len(result.newParts) - 1
+					result.newParts[last] = strings.TrimSuffix(result.newParts[last], "\n")
 				}
-				result.newParts[last] = strings.TrimSuffix(result.newParts[last], "\n")
 				newBytes--
 			}
 			previous = 0
@@ -348,14 +358,16 @@ func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, erro
 			if !seenEdit && contextRun > 3 {
 				result.needsNormalize = true
 			}
-			result.oldParts = append(result.oldParts, text)
-			result.newParts = append(result.newParts, text)
+			if collectLines {
+				result.oldParts = append(result.oldParts, text)
+				result.newParts = append(result.newParts, text)
+			}
 			oldUsed++
 			newUsed++
 			oldBytes += len(text)
 			newBytes += len(text)
 		case '-', '+':
-			if !block {
+			if collectLines && !block {
 				if seenEdit && contextRun > 6 {
 					result.needsNormalize = true
 				}
@@ -368,7 +380,9 @@ func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, erro
 				if oldUsed >= h.oldCount {
 					return result, errors.New("diff deletion exceeds declared line count")
 				}
-				result.oldParts = append(result.oldParts, text)
+				if collectLines {
+					result.oldParts = append(result.oldParts, text)
+				}
 				oldUsed++
 				oldBytes += len(text)
 				result.removed++
@@ -376,7 +390,9 @@ func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, erro
 				if newUsed >= h.newCount {
 					return result, errors.New("diff addition exceeds declared line count")
 				}
-				result.newParts = append(result.newParts, text)
+				if collectLines {
+					result.newParts = append(result.newParts, text)
+				}
 				newUsed++
 				newBytes += len(text)
 				result.added++
@@ -390,6 +406,7 @@ func parseDiffHunk(patch string, bodyPos int, h diffRange) (parsedDiffHunk, erro
 			return result, errors.New("historical hunk exceeds the 2 MiB file limit")
 		}
 		previous = mark
+		previousHasLF = strings.HasSuffix(text, "\n")
 		pos = next
 	}
 	finishBlock()
@@ -429,7 +446,7 @@ func NormalizePatch(patch string) (string, error) {
 			pos = next
 			continue
 		}
-		body, err := parseDiffHunk(patch, next, h)
+		body, err := parseDiffHunk(patch, next, h, true)
 		if err != nil {
 			return patch, err
 		}
@@ -480,7 +497,7 @@ func ParseLineTotals(patch string) (added, removed int) {
 			pos = next
 			continue
 		}
-		body, err := parseDiffHunk(patch, next, h)
+		body, err := parseDiffHunk(patch, next, h, false)
 		if err != nil {
 			pos = next
 			continue

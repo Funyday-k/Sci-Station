@@ -196,7 +196,7 @@ func TestNormalizeOverlongContextAndMinimalMoves(t *testing.T) {
 	_, bodyPos = nextDiffLine(move, bodyPos)
 	header, next := nextDiffLine(move, bodyPos)
 	h, _ := parseDiffRange(header)
-	body, err := parseDiffHunk(move, next, h)
+	body, err := parseDiffHunk(move, next, h, true)
 	if err != nil || body.needsNormalize {
 		t.Fatalf("minimal move was unnecessarily scheduled for recomputation: %v", err)
 	}
