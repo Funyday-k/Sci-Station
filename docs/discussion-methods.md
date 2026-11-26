@@ -83,7 +83,7 @@
 
 议程接口另接受 `adopt_candidate` 与 `dismiss_candidate`，需带 `item_id`、`candidate_id` 和当前 `expected_version`；采用生成 revision，忽略只移除候选，版本冲突返回 409。旧客户端仍可传 `allow_edits`，新轮次以只读执行。议题与 `note` 各自最多 12,000 个 Unicode 码点。
 
-报告使用 `POST /api/studio/sessions/{id}/report` 的 `finish` 或 `retry` 操作；`GET /api/studio/sessions/{id}/report.md` 下载报告或带未完成标记的阶段稿。报告状态和 `review_mode` 记录在会话中。长会话 `GET` 支持 `If-None-Match` / `ETag`，未变化返回 304。具体字段和请求示例见 [接口说明](../static/api.html) 与 [OpenAPI 3.1](../static/openapi.json)。
+报告使用 `POST /api/studio/sessions/{id}/report` 的 `finish` 或 `retry` 操作；`GET /api/studio/sessions/{id}/report.md` 下载报告或带未完成标记的阶段稿。报告状态和 `review_mode` 记录在会话中。长会话 `GET` 支持 `If-None-Match` / `ETag`，未变化返回 304。具体字段和请求示例见 [接口说明](../web/static/api.html) 与 [OpenAPI 3.1](../web/static/openapi.json)。
 
 ## 指令如何进入模型请求
 

@@ -31,6 +31,7 @@ make run
 
 ## 参与开发
 
+- [`cmd/sci-station`](cmd/sci-station/) 是应用入口，[`internal/desktop`](internal/desktop/) 承接桌面窗口和 API，[`web/static`](web/static/) 存放嵌入应用的界面文件，[`internal/research`](internal/research/) 管理论文与项目等科研数据。
 - [开发者指南](docs/DEVELOPER.md)介绍代码结构、构建和验证。
 - [贡献指南](CONTRIBUTING.md)和[仓库治理](docs/GOVERNANCE.md)规定评审和发布流程。
 - [变更记录](CHANGELOG.md)记录开发线及历史版本。
