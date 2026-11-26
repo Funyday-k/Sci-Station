@@ -106,13 +106,15 @@
     }
     const res = await fetch(path.startsWith("/api/") ? path : apiRoot + path, init);
     if (!res.ok) {
-      let msg;
+      let msg, code;
       try {
         const j = await res.json();
         msg = j.error || j.message;
+        code = j.code;
       } catch {}
       const error = new Error(msg || "操作失败（" + res.status + "）");
       error.status = res.status;
+      error.code = code;
       throw error;
     }
     if (res.status === 204) return null;
@@ -472,7 +474,7 @@
       button(text("导入文献", "Import papers"), "new-paper", {glyph: "import", kind: "button primary"});
     return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", actions) +
       '<div class="toolbar library-toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
-      '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
+      '" placeholder="' + esc(text("搜索标题、作者、DOI 或链接…", "Search title, author, DOI or link…")) +
       '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) +
       button(local("toolbarLibraryColumns", "表格列", "Table columns"), "library-columns") + '</div>' +
       '<div id="paper-results">' + libraryResults(papers, projectID) + '</div>';
@@ -922,24 +924,17 @@
   function handleWorkspaceCommand(key) {
     if(key==="find") {search();return true;}
     if(!["newProject","importIdentifier","importPDF"].includes(key) || !E.formAction) return false;
-    if($("modal").open) return true;
-    E.formAction(key==="newProject"?"new-project":"new-paper");
-    if(key!=="newProject") {
-      $("dialog-content").querySelector(key==="importPDF"?'[name="pdf"]':'[name="doi"]')?.focus();
+    const field = key === "importPDF" ? "pdf" : "identifiers";
+    if ($("modal").open) {
+      if (key !== "newProject") $("dialog-content").querySelector('[data-paper-intake] [name="' + field + '"]')?.focus();
+      return true;
     }
+    if (key === "newProject") E.formAction("new-project");
+    else E.formAction("new-paper", field);
     return true;
   }
   window.addEventListener("scistation:command",event=>{
     if(handleWorkspaceCommand(event.detail)) event.preventDefault();
-  });
-  window.addEventListener("load",async()=>{
-    const url=new URL(location.href);
-    const key=url.searchParams.get("command");
-    if (!key) return;
-    url.searchParams.delete("command");
-    navigation.commitURL(url,"replace");
-    await load(url.searchParams.get("project"),url.searchParams.get("view") || "overview",{historyMode:"none"});
-    handleWorkspaceCommand(key);
   });
   document.addEventListener("click", async ev => {
     const more = document.querySelectorAll("#main .more-actions[open]")[0];
@@ -1104,8 +1099,14 @@
     const project = u.searchParams.get("project");
     const view = u.searchParams.get("view") || "overview";
     const task = u.searchParams.get("task");
+    const command = u.searchParams.get("command");
+    if (command) {
+      u.searchParams.delete("command");
+      navigation.commitURL(u, "replace");
+    }
     await window.SciStationI18n?.ready;
     await load(project, view, {historyMode: "none"});
+    if (command && !state.loadError && location.href === u.href) handleWorkspaceCommand(command);
     if (task && view === "tasks" && !state.loadError && location.href === u.href &&
         (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
       await E.formAction?.("edit-task", task);

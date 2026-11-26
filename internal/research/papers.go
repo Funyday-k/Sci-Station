@@ -539,7 +539,7 @@ func filterPapers(items []Paper, project, query, status string) []Paper {
 		if q != "" {
 			link := p.ProjectLinks[project]
 			text := strings.Join([]string{p.Title, strings.Join(p.Authors, " "), strconv.Itoa(p.Year), p.DOI,
-				p.Arxiv, p.Citekey, strings.Join(p.Tags, " "), p.PublicationTitle, p.Abstract,
+				p.Arxiv, p.InspireID, p.URL, p.Citekey, strings.Join(p.Tags, " "), p.PublicationTitle, p.Abstract,
 				link.FolderPath, strings.Join(link.UseFor, " ")}, " ")
 			if !strings.Contains(strings.ToLower(text), q) {
 				continue

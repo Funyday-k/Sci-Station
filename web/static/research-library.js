@@ -108,7 +108,7 @@
         if (ancestor !== collection) return false;
       }
       const scope = p.project_links?.[projectID];
-      return [p.title, (p.authors || []).join(" "), p.year || 0, p.doi, p.arxiv, p.citekey,
+      return [p.title, (p.authors || []).join(" "), p.year || 0, p.doi, p.arxiv, p.inspire_id, p.url, p.citekey,
         (p.tags || []).join(" "), p.publication_title, p.abstract, scope?.folder_path, (scope?.use_for || []).join(" ")]
         .join(" ").toLowerCase().includes(query);
     });

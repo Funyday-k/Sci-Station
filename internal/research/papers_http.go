@@ -49,7 +49,14 @@ func paperError(w http.ResponseWriter, err error) {
 		code = 409
 		msg = err.Error()
 	}
-	paperReply(w, code, map[string]string{"error": msg})
+	response := map[string]string{"error": msg}
+	switch {
+	case errors.Is(err, errPaperIdentifier):
+		response["code"] = "invalid_paper_identifier"
+	case errors.Is(err, errInvalidPaperPDF):
+		response["code"] = "invalid_paper_pdf"
+	}
+	paperReply(w, code, response)
 }
 func paperDecode(r io.Reader, into any) error {
 	d := json.NewDecoder(r)

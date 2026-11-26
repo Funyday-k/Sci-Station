@@ -196,45 +196,82 @@
     });
   }
 
-  function paperForm(p = null) {
+  function paperImportError(error) {
+    if (error.code === "invalid_paper_identifier") return copy(
+      "请输入文章网址、PDF 链接、DOI、arXiv 编号或 INSPIRE 链接。",
+      "Enter an article URL, PDF link, DOI, arXiv ID or INSPIRE link.");
+    if (error.code === "invalid_paper_pdf") return copy("请选择有效的 PDF 文件。", "Choose a valid PDF file.");
+    return error.message;
+  }
+
+  function paperImportSources() {
+    return '<div class="paper-import-sources">' +
+      field(local("paperImportLink", "文献链接或标识符", "Paper link or identifier"),
+        area("identifiers", "", 'rows="2" aria-describedby="paper-link-help" placeholder="https://… / DOI / arXiv"')) +
+      '<p class="form-help" id="paper-link-help">' + esc(copy(
+        "可粘贴文章网址、PDF 链接、DOI、arXiv 编号或 INSPIRE 链接。批量导入时每行一个。",
+        "Paste an article URL, PDF link, DOI, arXiv ID or INSPIRE link. For a batch, use one per line.")) + '</p>' +
+      '<div class="paper-import-or" aria-hidden="true">' + esc(copy("或", "or")) + '</div>' +
+      '<div class="file-drop paper-file-source">' +
+      field(local("paperImportFile", "本地 PDF", "Local PDF"),
+        '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple aria-describedby="paper-file-help">') +
+      '<p class="form-help" id="paper-file-help">' + esc(copy("选择或拖入一份或多份 PDF。", "Choose or drop one or more PDFs.")) + '</p>' +
+      '<button type="button" class="bare" data-clear-pdf hidden>' + esc(copy("清除文件选择", "Clear file selection")) + '</button></div>' +
+      '<p class="form-help" data-paper-source-status role="status"></p></div>';
+  }
+
+  function setPaperFiles(form, files) {
+    const input = form.elements.pdf;
+    input.files = files;
+    input.dispatchEvent(new Event("change", {bubbles: true}));
+  }
+
+  function paperForm(p = null, {files = null, focus = "identifiers"} = {}) {
     const edit = Boolean(p);
     const base = edit ? "papers/" + enc(p.id) : "papers";
     const originalValues = new Map();
-    dialog(edit ? copy("编辑文献", "Edit paper") : copy("导入文献", "Import papers"), '<form' + (edit ? ' data-library-paper="' + esc(p.id) + '"' : '') + '>' +
-      (edit ? "" : '<div class="file-drop">' + field(copy("本地 PDF", "Local PDF"),
-          '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple>') +
-        '<p class="form-help">' + esc(copy("所选 PDF 分别导入，共用标签、阅读状态和项目。", "Import PDFs individually with shared tags, reading status, and projects.")) + '</p></div>' +
-        field(copy("按标识符或链接导入", "Add by identifier or link"), area("identifiers", "", 'rows="3" placeholder="每行一个 DOI、arXiv 编号、INSPIRE 链接或网址"'))) +
-      field(copy("题名", "Title"), input("title", p?.title, (edit ? "required " : "") + 'maxlength="1000" placeholder="可从文件名或在线元数据获取"')) +
+    const bibliographicFields = field(copy("题名", "Title"), input("title", p?.title, (edit ? "required " : "") +
+      'maxlength="1000" placeholder="' + esc(copy("可从文件名或在线元数据获取", "Can be filled from the file or online metadata")) + '"')) +
       '<div class="split">' + field("DOI", input("doi", p?.doi, 'placeholder="10.…"')) + field(copy("arXiv 编号", "arXiv ID"), input("arxiv",
         p?.arxiv, 'placeholder="2404.10066"')) + '</div>' +
-      field(copy("原文链接", "Source URL"), input("url", p?.url, 'type="url" placeholder="https://…"')) +
-      (edit ? "" : '<label class="check"><input type="checkbox" name="lookup_metadata" checked>查询在线元数据</label>' +
-        '<label class="check"><input type="checkbox" name="fetch_pdf">同时下载在线 PDF</label>' +
-        '<label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">在线 PDF 无法下载或阅读时仅保存链接</label>' +
-        '<button type="button" class="button" data-import-preview-button>预览文献</button><p data-import-preview role="status"></p>') +
-      '<details ' + (edit ? "open" : "") + '><summary>' + esc(copy("元数据与阅读状态", "Metadata and reading status")) + '</summary>' + field(copy("作者", "Authors"), edit ?
-        area("authors", p.authors?.join("\n"), 'placeholder="每行一位作者"') :
-        input("authors", "", 'placeholder="多位作者用逗号分隔"')) + '<div class="split">' + field(copy("年份", "Year"), input("year", p?.year || "",
-        'type="number" min="1" max="9999"')) + field(copy("阅读状态", "Reading status"), select("status", Object.entries({
-        unread: statusLabel.unread,
-        reading: statusLabel.reading,
-        read: statusLabel.read
+      field(copy("原文链接", "Source URL"), input("url", p?.url, 'type="url" placeholder="https://…"'));
+    const readingFields = field(copy("作者", "Authors"), edit ?
+      area("authors", p.authors?.join("\n"), 'placeholder="' + esc(copy("每行一位作者", "One author per line")) + '"') :
+      input("authors", "", 'placeholder="' + esc(copy("多位作者用逗号分隔", "Separate authors with commas")) + '"')) +
+      '<div class="split">' + field(copy("年份", "Year"), input("year", p?.year || "", 'type="number" min="1" max="9999"')) +
+      field(copy("阅读状态", "Reading status"), select("status", Object.entries({
+        unread: statusLabel.unread, reading: statusLabel.reading, read: statusLabel.read
       }), p?.status || "unread")) + '</div>' +
-      field(copy("标签", "Tags"), edit ? area("tags", p.tags?.join("\n"), 'placeholder="每行一个标签"') :
-        input("tags", "", 'placeholder="用逗号分隔"')) + E.library.collectionField(p) + field(copy("摘要", "Abstract"), area("abstract", p?.abstract)) +
-      (edit ? '<div class="split">' + field(copy("评分（0–5）", "Rating (0–5)"), input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
-        field(copy("优先级（0–5）", "Priority (0–5)"), input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' + field(
-          copy("BibTeX 引用键", "BibTeX citation key"), input("citekey", p.citekey)) + field(copy("参考文献", "References"), area("references", p.references?.join("\n"),
-          'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) : "") +
-      '</details>' + (edit ? E.library.metadataFields(p) : "") + attachProjectBoxes(p, !edit) +
-      (edit ? button(copy("引用文献", "Cite paper"), "show-citation", {id: p.id, kind: "bare"}) + button(local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
-      (edit && p.project_ids?.includes(state.project?.id) ? button(copy("从当前项目移除", "Remove from Current Project"),
-        "confirm-paper-unlink", {id: p.id, kind: "bare danger"}) : "") +
-      formFooter(edit ? copy("保存更改", "Save changes") : copy("导入文献", "Import papers"), edit ? "paper:" + p.id : "") +
-      '</form>', {
-        wide: true
-      });
+      field(copy("标签", "Tags"), edit ? area("tags", p.tags?.join("\n"), 'placeholder="' + esc(copy("每行一个标签", "One tag per line")) + '"') :
+        input("tags", "", 'placeholder="' + esc(copy("用逗号分隔", "Separate tags with commas")) + '"')) +
+      E.library.collectionField(p) + field(copy("摘要", "Abstract"), area("abstract", p?.abstract));
+    const editDetails = () => '<details open><summary>' + esc(copy("元数据与阅读状态", "Metadata and reading status")) + '</summary>' +
+      readingFields + '<div class="split">' + field(copy("评分（0–5）", "Rating (0–5)"), input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
+      field(copy("优先级（0–5）", "Priority (0–5)"), input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' +
+      field(copy("BibTeX 引用键", "BibTeX citation key"), input("citekey", p.citekey)) +
+      field(copy("参考文献", "References"), area("references", p.references?.join("\n"),
+        'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) + '</details>' +
+      E.library.metadataFields(p) + attachProjectBoxes(p, false) +
+      button(copy("引用文献", "Cite paper"), "show-citation", {id: p.id, kind: "bare"}) +
+      button(local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-paper-bibtex", {id: p.id, kind: "bare"}) +
+      (p.project_ids?.includes(state.project?.id) ? button(copy("从当前项目移除", "Remove from Current Project"),
+        "confirm-paper-unlink", {id: p.id, kind: "bare danger"}) : "");
+    const importDetails = () => '<details class="paper-import-settings"><summary>' +
+      esc(local("paperImportOptions", "导入选项", "Import options") + (state.project ? " · " + state.project.name : "")) + '</summary>' +
+      '<label class="check"><input type="checkbox" name="lookup_metadata" checked>' +
+      esc(copy("查询在线元数据", "Look up online metadata")) + '</label>' +
+      '<label class="check"><input type="checkbox" name="fetch_pdf">' +
+      esc(copy("同时下载在线 PDF", "Also download the online PDF")) + '</label>' +
+      '<label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">' +
+      esc(copy("PDF 无法下载或阅读时仅保存链接", "Save the link if the PDF cannot be downloaded or read")) + '</label>' +
+      bibliographicFields + readingFields + attachProjectBoxes(null, true) + '</details>' +
+      '<button type="button" class="button" data-import-preview-button>' + esc(copy("预览文献", "Preview paper")) + '</button>' +
+      '<p data-import-preview role="status"></p><ul data-import-results aria-live="polite"></ul>';
+    const title = local("paperImportTitle", "导入文献", "Import papers");
+    dialog(edit ? copy("编辑文献", "Edit paper") : title,
+      '<form' + (edit ? ' data-library-paper="' + esc(p.id) + '"' : ' data-paper-intake') + '>' +
+      (edit ? bibliographicFields + editDetails() : paperImportSources() + importDetails()) +
+      formFooter(edit ? copy("保存更改", "Save changes") : title, edit ? "paper:" + p.id : "") + '</form>', {wide: true});
     const completed = new Set();
     const outcomes = new Map();
     function changed(f, name) {
@@ -301,17 +338,20 @@
       return [...new Set(values.filter(Boolean))];
     }
 
+    const sourceConflict = () => copy("请清除文件选择或删除链接，再分别导入。", "Clear the file selection or remove the links, then import each source separately.");
+
     function importItems(f) {
       const files = [...(f.elements.pdf?.files || [])];
       const targets = importIdentifiers(f);
-      if (files.length && targets.length) throw Error("请分别提交本地 PDF 和在线标识符。");
+      if (files.length && targets.length) throw Error(sourceConflict());
       return files.length ? files : targets.length ? targets : [null];
     }
 
     function drawImportResults(f, items) {
-      f.querySelector("[data-import-results]").replaceChildren(...items.filter(Boolean).map(item => {
+      const batch = items.some(item => outcomes.has(item)) ? items.filter(Boolean) : [];
+      f.querySelector("[data-import-results]").replaceChildren(...batch.map(item => {
         const entry = document.createElement("li");
-        entry.textContent = (item.name || item) + " · " + (outcomes.get(item) || "等待导入");
+        entry.textContent = (item.name || item) + " · " + (outcomes.get(item) || copy("等待导入", "Waiting to import"));
         return entry;
       }));
     }
@@ -320,7 +360,7 @@
       const body = paperBody(f);
       const file = item && typeof item !== "string";
       if (!item && !body.title && !body.doi && !body.arxiv && !body.url) {
-        throw Error("请选择 PDF，或输入题名、DOI、arXiv 编号或网址。");
+        throw Error(copy("请粘贴文献链接或标识符，或选择本地 PDF。", "Paste a paper link or identifier, or choose a local PDF."));
       }
       if (multiple) {
         for (const key of ["title", "doi", "arxiv", "url", "authors", "year", "abstract"]) delete body[key];
@@ -356,15 +396,15 @@
         try {
           for (const [item, payload] of submissions) {
             if (!f.closest("dialog")?.open || token !== formEpoch) break;
-            outcomes.set(item, "正在导入");
+            outcomes.set(item, copy("正在导入", "Importing"));
             drawImportResults(f, items);
             try {
               const record = await request("papers", {method: "POST", body: payload});
               const warning = [record.import_warning, record.metadata_warning].filter(Boolean).join(" · ");
-              outcomes.set(item, "已入库 · " + record.title + (warning ? " · " + warning : ""));
+              outcomes.set(item, copy("已入库", "Imported") + " · " + record.title + (warning ? " · " + warning : ""));
               completed.add(item);
             } catch (err) {
-              outcomes.set(item, err.message);
+              outcomes.set(item, paperImportError(err));
             }
             drawImportResults(f, items);
           }
@@ -373,9 +413,10 @@
           identifiers.disabled = false;
         }
         const missing = items.length - completed.size;
-        f.querySelector("[data-status]").textContent = "已入库 " + completed.size + " / " + items.length;
+        f.querySelector("[data-status]").textContent = copy("已入库", "Imported") + " " + completed.size + " / " + items.length;
         f.querySelector("[type=submit]").textContent = missing ?
-          (typeof items[0] === "string" ? "重试未成功的标识符" : "重试未成功的文件") : "完成";
+          (typeof items[0] === "string" ? copy("重试未成功的标识符", "Retry failed links") : copy("重试未成功的文件", "Retry failed files")) :
+          copy("完成", "Done");
         await refresh();
         return;
       }
@@ -403,12 +444,17 @@
         }
         record = await E.library.saveMetadata(base, p, body);
       } else {
-        record = await request(base, {method: "POST", body: importPayload(f, items[0], false)});
+        try {
+          record = await request(base, {method: "POST", body: importPayload(f, items[0], false)});
+        } catch (error) {
+          throw Error(paperImportError(error));
+        }
       }
       done(token);
       await refresh();
       const warning = [record?.import_warning, record?.metadata_warning].filter(Boolean).join(" · ");
-      toast(warning ? "文献已导入 · " + warning : edit ? "文献已更新" : "文献已导入");
+      toast(warning ? copy("文献已导入", "Paper imported") + " · " + warning :
+        edit ? copy("文献已更新", "Paper updated") : copy("文献已导入", "Paper imported"));
     });
     if (edit) {
       for (const el of form.elements) {
@@ -418,6 +464,8 @@
       const identifiers = form.elements.namedItem("identifiers");
       const preview = form.querySelector("[data-import-preview]");
       const previewButton = form.querySelector("[data-import-preview-button]");
+      const clearFiles = form.querySelector("[data-clear-pdf]");
+      const sourceStatus = form.querySelector("[data-paper-source-status]");
       let previewEpoch = 0;
       function resetPreview() {
         previewEpoch++;
@@ -433,7 +481,10 @@
         form.elements.fetch_pdf.disabled = files > 0;
         form.elements.namedItem("lookup_metadata").disabled = files > 0;
         form.querySelector("[data-link-fallback]").hidden = files > 0 || !form.elements.fetch_pdf.checked;
-        previewButton.textContent = Math.max(files, targets) > 1 ? "预览首篇文献" : "预览文献";
+        clearFiles.hidden = !files;
+        sourceStatus.textContent = files && targets ? sourceConflict() : "";
+        previewButton.textContent = Math.max(files, targets) > 1 ? copy("预览首篇文献", "Preview first paper") :
+          copy("预览文献", "Preview paper");
       }
       function resetBatch() {
         let items = [];
@@ -447,11 +498,19 @@
           }
         }
         drawImportResults(form, items);
-        form.querySelector("[type=submit]").textContent = "导入文献";
+        form.querySelector("[data-error]").textContent = "";
+        form.querySelector("[data-status]").textContent = "";
+        form.querySelector("[type=submit]").textContent = title;
         resetPreview();
         syncInputs();
       }
       form.elements.pdf.addEventListener("change", resetBatch);
+      clearFiles.addEventListener?.("click", () => {
+        if (form.dataset.pending) return;
+        form.elements.pdf.value = "";
+        resetBatch();
+        form.elements.pdf.focus();
+      });
       identifiers.addEventListener("input", resetBatch);
       form.elements.fetch_pdf.addEventListener("change", syncInputs);
       form.addEventListener("change", resetPreview);
@@ -459,7 +518,7 @@
       previewButton.addEventListener?.("click", async () => {
         if (form.dataset.pending || !form.reportValidity()) return;
         const epoch = ++previewEpoch;
-        preview.textContent = "正在预览…";
+        preview.textContent = copy("正在预览…", "Preparing preview…");
         previewButton.disabled = true;
         try {
           const items = importItems(form);
@@ -468,17 +527,24 @@
           if (epoch !== previewEpoch) return;
           preview.textContent = [
             data.title, data.authors?.join(", "), data.year, data.metadata_source,
-            data.doi, data.arxiv, data.inspire_id && "INSPIRE " + data.inspire_id,
-            data.existing_title && "复用文献库中的《" + data.existing_title + "》",
-            items.length > 1 && "已选 " + items.length + " 篇，预览首篇",
+            data.doi, data.arxiv, data.inspire_id && "INSPIRE " + data.inspire_id, data.url,
+            data.existing_title && copy("复用文献库中的《" + data.existing_title + "》", "Reuse library paper “" + data.existing_title + "”"),
+            items.length > 1 && copy("已选 " + items.length + " 篇，预览首篇", "Preview of the first of " + items.length + " papers"),
             data.metadata_warning
           ].filter(Boolean).join(" · ");
         } catch (err) {
-          if (epoch === previewEpoch) preview.textContent = err.message;
+          if (epoch === previewEpoch) preview.textContent = paperImportError(err);
         } finally {
           previewButton.disabled = false;
         }
       });
+      form.addEventListener("invalid", event => {
+        const settings = event.target.closest(".paper-import-settings");
+        if (settings) settings.open = true;
+      }, true);
+      if (files?.length) setPaperFiles(form, files);
+      else syncInputs();
+      form.elements.namedItem(focus)?.focus?.();
     }
     form.addEventListener("change", event => {
       if (!["project_ids", "core_project_ids"].includes(event.target.name)) return;
@@ -486,6 +552,34 @@
       group.querySelector("fieldset").disabled = !group.querySelector('.project-choice input:checked');
     });
   }
+
+  function paperDropTarget(event) {
+    if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return null;
+    return event.target.closest?.("[data-paper-intake]") ||
+      (state.view === "papers" && !$("modal").open ? event.target.closest?.("#main") : null);
+  }
+
+  document.addEventListener("dragover", event => {
+    const target = paperDropTarget(event);
+    if (!target) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = target.dataset.pending ? "none" : "copy";
+    if (!target.dataset.pending) target.dataset.paperDragging = "";
+  });
+  document.addEventListener("dragleave", event => {
+    const target = event.target.closest?.("[data-paper-dragging]");
+    if (target && !target.contains(event.relatedTarget)) delete target.dataset.paperDragging;
+  });
+  document.addEventListener("drop", event => {
+    const target = paperDropTarget(event);
+    if (!target) return;
+    event.preventDefault();
+    delete target.dataset.paperDragging;
+    const files = event.dataTransfer.files;
+    if (!files.length || target.dataset.pending) return;
+    if (target.matches("[data-paper-intake]")) setPaperFiles(target, files);
+    else paperForm(null, {files, focus: "pdf"});
+  });
 
   function wikiPath(n) {
     return [n.namespace, n.title].filter(Boolean).join("/");
@@ -1324,7 +1418,7 @@
   E.formAction = async function(action, id) {
     if (action === "close-dialog") return close();
     if (action === "new-project" || action === "edit-project") return projectForm(action === "edit-project");
-    if (action === "new-paper") return paperForm();
+    if (action === "new-paper") return paperForm(null, {focus: id === "pdf" ? "pdf" : "identifiers"});
     if (action === "edit-paper") {
       const p = state.papers.find(p => p.id === id);
       if (p) return paperForm(p);

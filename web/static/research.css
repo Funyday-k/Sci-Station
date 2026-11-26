@@ -1646,3 +1646,50 @@ h1 > .project-badge {
 .wiki-page-properties[open] > summary {
   margin-block-end: 12px;
 }
+
+.paper-import-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.paper-import-or::before,
+.paper-import-or::after {
+  content: "";
+  flex: 1;
+  border-block-start: 1px solid var(--line);
+}
+
+.paper-file-source [type="file"]::file-selector-button {
+  cursor: pointer;
+}
+
+[data-paper-dragging] .paper-file-source,
+#main[data-paper-dragging] .page-head [data-action="new-paper"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.paper-import-settings {
+  margin-block: 12px;
+}
+
+.paper-import-settings > summary {
+  cursor: pointer;
+}
+
+.paper-import-settings[open] > summary {
+  margin-block-end: 12px;
+}
+
+[data-paper-intake] [data-import-preview],
+[data-paper-intake] [data-import-results] {
+  overflow-wrap: anywhere;
+}
+
+[data-paper-intake] [data-paper-source-status]:empty,
+[data-paper-intake] [data-import-preview]:empty,
+[data-paper-intake] [data-import-results]:empty {
+  margin: 0;
+}

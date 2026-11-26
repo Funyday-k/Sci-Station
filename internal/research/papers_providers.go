@@ -8,6 +8,7 @@ import (
 	"html"
 	"io"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -307,8 +308,22 @@ func enrichPaper(ctx context.Context, p *paperImport) (string, error) {
 			p.PDFURL = p.URL
 		}
 	}
-	p.Title = firstPaperValue(p.Title, p.URL, p.PDFURL)
+	p.Title = firstPaperValue(p.Title, paperLinkTitle(firstPaperValue(p.URL, p.PDFURL)))
 	return warning, nil
+}
+
+func paperLinkTitle(source string) string {
+	link, err := url.Parse(source)
+	if err != nil {
+		return ""
+	}
+	filename := path.Base(link.Path)
+	if strings.EqualFold(path.Ext(filename), ".pdf") {
+		if title := strings.Join(strings.Fields(strings.TrimSuffix(filename, path.Ext(filename))), " "); title != "" && len(title) <= 1000 {
+			return title
+		}
+	}
+	return link.Hostname()
 }
 
 func firstPaperValue(values ...string) string {
@@ -375,7 +390,7 @@ func recoverPaperMetadata(p *Paper, learned PaperMetadata) bool {
 	}
 	changed := mergeProviderBibliography(&p.PaperMetadata, learned)
 	switch p.Title {
-	case p.DOI, "arXiv " + p.Arxiv, "INSPIRE " + p.InspireID, p.URL:
+	case p.DOI, "arXiv " + p.Arxiv, "INSPIRE " + p.InspireID, p.URL, paperLinkTitle(p.URL):
 		if learned.Title != "" && p.Title != learned.Title {
 			p.Title = learned.Title
 			changed = true
