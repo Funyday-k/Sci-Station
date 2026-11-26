@@ -1,19 +1,17 @@
 # Versioning policy
 
-App releases and persisted/protocol formats serve different compatibility contracts. Equal-looking version strings do not imply that components must advance together.
+Release identifiers, workspace formats and extension contracts advance independently.
 
 | Component | Authoritative source / contract | Change rule |
 | --- | --- | --- |
-| App marketing version | Root [VERSION](../VERSION). Xcode `MARKETING_VERSION` and README version headers mirror it. The workstation candidate build reads it directly. | `MAJOR.MINOR.PATCH`. The release tag is exactly `v` plus this value. |
-| App build number | Xcode `CURRENT_PROJECT_VERSION` supplies both builds during the host transition. Release builds may use a validated override. | Positive integer, greater than the previous stable-format release tag's build number |
-| Python AgentRuntime package | `AgentRuntime/pyproject.toml`; `sci_station_agent.__version__` mirrors it | Independent semantic version; CI checks these two agree without forcing agreement with the app |
-| Sidecar transport | `AgentInitializeParams` in `SidecarProcessSupervisor.swift` and Python server protocol/schema constants | Independent compatibility contract; both peers must agree and handshake tests must cover rejection |
-| Workspace preferences | `WorkspacePreferences.currentSchemaVersion` (currently 5) | Independent integer; update migration/defaulting and old-input tests with a format change |
-| Workstation tasks | The workspace research store's `tasks.json` has version 1. Project-owned tasks stay in their original project record. | Preserve task IDs, original reminder identity, and unknown fields. Back up the research store as a whole. Restore a known-good copy if a malformed file or unsupported version blocks opening the store. |
-| Apple Reminders link | Optional task fields `appleReminderId` and `reminderRevision`. The workspace `interface.json` version 1 stores optional `syncNewAppleReminders`. | Existing tasks open without a link and auto-publishing starts disabled. Links retain the stable task identity and an eligible local revision. |
-| Graph persisted schema | `graphSchemaVersion` in `GraphSchema.swift` (currently 2) | Independent integer; document rebuild/migration and preserve source files |
-| Knowledge architecture | Existing knowledge records retain their own formats; the proposed KnowledgeAtom format is not yet assigned a version | Assign only after [RFC-0001](rfcs/RFC-0001-knowledge-architecture.md) is accepted; do not imply the proposal is implemented |
-| Plugin / Skill / Prompt / workspace template | Each manifest or template's own version | Advance when that component changes; record changed behavior and compatibility, independent of app releases |
+| App marketing version | Root [VERSION](../VERSION) supplies the macOS bundle version. The Chinese and English README headers mirror it. | Numeric `MAJOR.MINOR.PATCH`. A release tag is exactly `v` plus this value. |
+| App build number | Root [BUILD_NUMBER](../BUILD_NUMBER) supplies the bundle build number. | Positive integer, strictly increasing across tagged releases. A local or CI build can use `SCI_STATION_BUILD_NUMBER` for an isolated install fixture. Published builds use the committed value. |
+| Workspace format | `.sci-station-desktop` version 1 identifies an explicitly opened desktop research root. | The host rejects unmarked nonempty directories and unsupported markers before opening records. Commit format changes with supported-input and independent recovery tests. |
+| Navigation | `workspace-navigation.json` version 1 records the latest route and selectors. | A missing, unsupported or corrupt record opens Home or the nearest valid route. Preserve research data outside navigation state. |
+| Research tasks | `tasks.json` version 1 stores unassigned tasks. Project-owned tasks stay in their original project record. | Preserve task IDs, Apple Reminders links, and unknown fields. Restore a verified copy if malformed or unsupported input prevents loading. |
+| Apple Reminders | Optional `appleReminderId` and `reminderRevision` fields link a task. Workspace `interface.json` version 1 stores optional `syncNewAppleReminders`. | Existing tasks open without a link and auto-publishing starts disabled. Preserve original task and eligible revision identity. |
+| Knowledge architecture | Existing notes and graph sources keep their formats. KnowledgeAtom is [proposed](rfcs/RFC-0001-knowledge-architecture.md). | A schema version requires the accepted decision and compatibility tests. |
+| Plugins, research skills and templates | Use each component's declared format. | Advance only the affected component and document supported versions. |
 
 ## AI Lab session metadata and unsent drafts
 
@@ -21,7 +19,9 @@ A single-seat session may include optional `lab_thread` presentation metadata wi
 
 Unsent input lives in version 1 files under the workspace meeting store's `lab-drafts/` directory. Each file is scoped to a project or the explicit global scope, and to a session or a new conversation. It stores only editor text and its revision. Credential-like inputs are rejected. The meeting engine does not load drafts into prompts or diagnostics. Malformed records, unsupported versions and records with unknown fields are retained and cannot be overwritten by an editor save. To recover drafts, close Sci-Station and restore them with the matching meeting store and research root from a verified copy.
 
-## Roundtable workstation reviewed writes
+See [workspaces and recovery](workspaces.md) for existing roots, the prototype backup manifest, collections, reading position, and direct-provider profiles.
+
+## Paper sources and reviewed writes
 
 A shared paper may carry a version 1 `markdown_source` with its body revision, byte count, SHA-256, origin and blob ID. The original UTF-8 file lives under `library/markdown/`. PDFKit and fingerprint-bound MinerU conversions also record the source PDF hash. Older records without this field have no adopted Markdown body. An unknown body version cannot be read or replaced. The service stages a new blob before the revision-checked record update. Failed or stale updates preserve the published body. Preserve both the paper records and their Markdown blobs when backing up or restoring a research root.
 
@@ -33,13 +33,11 @@ Use a separate destination and a verified copy of the full research root and mee
 
 ## Preparing a release
 
-1. Update `VERSION`, both Xcode marketing-version settings, and Chinese/English README version headers. These are checked mirrors, not competing sources of truth.
-2. Set an increasing Xcode build number and update `CHANGELOG.md` with the released changes, PR/Issue links where available, limitations and migration notes.
-3. If the runtime package changes, update its two version fields together. Do not bulk-replace strings in fixtures, protocol schemas or plugin manifests.
-4. Run `python3 Tools/scripts/check-version-consistency.py` and all required CI checks. For the tag, run `python3 Tools/scripts/check-version-consistency.py --tag vX.Y.Z`.
-5. Merge the release preparation PR into `main`, then create a new immutable tag on that reviewed commit. A tag alone must not bypass tests or signing gates.
+1. Update `VERSION`, the Chinese and English README version headers and the `CHANGELOG.md` release entry together. Commit a positive `BUILD_NUMBER` greater than the latest lower release's build number.
+2. Run `python3 Tools/scripts/check-version-consistency.py` and all required CI checks. For a prepared release, also run `python3 Tools/scripts/check-version-consistency.py --tag vX.Y.Z`.
+3. Merge the release preparation PR through protected `main`. Create a new immutable tag on the reviewed commit. [Public Release](../.github/workflows/release.yml) validates the tag, version, build number, artifacts and installation before publication.
 
-`0.x` releases are Developer Previews. Document breaking user workflows and data changes even before `1.0.0`; do not assume preview users can discard their Research Roots. Preserve unknown fields where supported, make backups/recovery explicit, reject incompatible input clearly, and test supported older data. The older `0.1.0` download is not retroactively signed or notarized by adding a release workflow.
+`0.x` releases are Developer Previews. Describe breaking workflows, storage changes, verification and ways to recover even before `1.0.0`. Preserve unknown data where the affected format supports it, and fail explicitly on incompatible input. The [changelog](../CHANGELOG.md) records the status of previously published downloads.
 
 ## Workstation discovery records
 

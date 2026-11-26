@@ -1,384 +1,85 @@
-# 开发者文档：软件架构与功能开发
+# Sci-Station developer guide
 
-本文面向准备阅读、修改或扩展 Sci-Station 的开发者。产品介绍见 [../README.md](../README.md)，用户试用教程见 [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md)。本文是受版本控制的开发约定入口。协作流程见 [CONTRIBUTING](../CONTRIBUTING.md)，远端门禁见 [GOVERNANCE](GOVERNANCE.md)，版本边界见 [VERSIONING](VERSIONING.md)，规划与决策见 [BACKLOG](BACKLOG.md)、[RFC](rfcs/README.md) 和 [ADR](architecture/README.md)。
+Use [CONTRIBUTING](../CONTRIBUTING.md) for change review and [GOVERNANCE](GOVERNANCE.md) for required checks and releases. The [desktop architecture decision](architecture/ADR-0004-roundtable-workstation.md) and [cutover acceptance matrix](rfcs/RFC-0002-roundtable-workstation.md) define the Go/Wails host.
 
-## 总体架构
+## Build and run
 
-Sci-Station 的核心形态是：macOS SwiftUI 应用 + 本地科研根目录 + 领域仓储服务 + 可选 AI 运行时。
-
-```text
-用户操作
-  ↓
-SwiftUI 视图层
-  ↓
-AppViewModel / 应用状态协调层
-  ↓
-领域服务与仓储
-  ↓
-Research Root 本地文件、SQLite、Keychain、可选系统集成
-  ↓
-界面刷新 / 任务记录 / AI 审计日志
-```
-
-设计原则：
-
-- **本地优先**：默认读写用户选择的科研根目录，不把论文、笔记、任务和运行日志放进远端服务。
-- **文件可读**：核心数据尽量使用 Markdown、YAML、BibTeX、PDF、图片、源码和普通数据文件。
-- **领域分层**：论文、项目、任务、图谱、推荐、AI 等能力分别放在独立目录，UI 通过应用状态层组合。
-- **AI 可选且可审计**：LLM 配置、工具权限、运行记录、证据引用和产物输出都有明确边界。
-- **先模型后界面**：新增功能优先明确数据模型、持久化和验证，再接入 SwiftUI 交互。
-
-## 代码目录地图
-
-```text
-Sci-Station/
-├── Sci_StationApp.swift          应用入口、场景和设置窗口
-├── ContentView.swift             根视图入口
-├── App/                          AppViewModel、应用状态、首页数据
-├── UI/                           SwiftUI 页面、组件、Shell、设置、首页、模块视图
-├── Workspace/                    科研根目录、bookmark、创建/修复、偏好设置
-├── Library/                      论文模型、元数据、仓储、搜索、标注
-├── Importer/                     PDF 导入流水线
-├── Import/                       DOI、arXiv、URL 等标识符导入服务
-├── MetadataProviders/            Crossref、arXiv、INSPIRE 等元数据提供者
-├── PDF/                          PDFKit 阅读器、阅读状态、标注支持
-├── Markdown/                     Markdown、frontmatter、wikilink、backlink 支持
-├── Wiki/                         Wiki 页面生成、编辑和索引
-├── Collections/                  论文集合
-├── Tags/                         标签模型与仓储
-├── Tasks/                        待办模型与仓储
-├── Calendar/                     本地日历模型和 Apple Calendar / Reminders 集成
-├── Recommendation/               推荐工作流和推荐结果
-├── Graph/                        论文/项目图谱数据与工作流
-├── LLM/                          LLM provider 配置和调用抽象
-├── Agent/                        AI Lab 模型、工具、权限、日志、runtime bridge
-├── Localization/                 本地化支持
-├── PluginKit/                    插件 manifest 和扩展点基础
-├── Persistence/                  通用持久化支持
-└── Testing/                      UI 测试标识、测试辅助常量
-
-AgentRuntime/                     Python sidecar runtime 与 UI 测试编排器
-Tools/SciStationCoreTestRunner/   SwiftPM 核心验证 runner
-Tools/SciStationUIProbe/          UI 自动化探针
-docs/                            项目文档、截图、开发资料
-```
-
-## 运行时层次
-
-### 1. 应用入口与 Shell
-
-[../Sci-Station/Sci_StationApp.swift](../Sci-Station/Sci_StationApp.swift) 负责 macOS 应用入口、窗口、设置和命令注册。[../Sci-Station/ContentView.swift](../Sci-Station/ContentView.swift) 进入根视图后，主要界面由 `UI/` 下的 Shell、首页、论文库、项目空间、PDF、Wiki、AI 实验室等页面组成。
-
-Shell 相关文件集中在 [../Sci-Station/UI/Shell/](../Sci-Station/UI/Shell/)，负责侧边栏、项目空间 tab、路由持久化、工具栏命令和响应式布局。新增主导航或项目 tab 时，优先检查这里，而不是直接在某个页面里硬编码入口。
-
-### 2. 应用状态协调层
-
-[../Sci-Station/App/AppViewModel.swift](../Sci-Station/App/AppViewModel.swift) 是当前应用状态的主要协调者，负责把 Workspace、Library、Project、Wiki、Tasks、AI Lab 等领域服务组合给 UI 使用。
-
-修改它时要注意：
-
-- 不要把复杂业务逻辑长期堆在 ViewModel 里；能下沉到领域服务或仓储的逻辑应下沉。
-- 很多状态是 `private(set)`，SwiftUI 视图应通过 ViewModel 方法或 binding 入口修改。
-- Core 默认保持 `nonisolated`；只有 UI、状态 store 和协调器按需显式标注 `@MainActor`，跨 actor 调用必须处理 Swift 6 并发检查。
-
-### 3. 领域服务与仓储
-
-每个业务域通常包含三类代码：
-
-- **模型**：描述业务对象，例如论文、任务、图谱节点、推荐结果。
-- **仓储**：负责从科研根目录读写 YAML、Markdown、JSONL、SQLite 或其它文件。
-- **服务**：组织导入、搜索、生成、同步、转换、权限判断等操作。
-
-新增功能时，优先找到最接近的领域目录。例如论文导入改 [../Sci-Station/Import/](../Sci-Station/Import/) 或 [../Sci-Station/Importer/](../Sci-Station/Importer/)，任务和阅读待办改 [../Sci-Station/Tasks/](../Sci-Station/Tasks/)，推荐改 [../Sci-Station/Recommendation/](../Sci-Station/Recommendation/)。只有确认领域层已经表达清楚后，再接 UI。
-
-### 4. 本地科研根目录
-
-科研根目录是产品的数据边界。应用应把用户数据写在用户选择的目录里，而不是写入源码仓库。
-
-典型结构：
-
-```text
-ResearchRoot/
-├── .sci-station/
-├── library/
-│   └── papers/{paper-id}/
-│       ├── paper.pdf
-│       ├── paper.md
-│       ├── meta.yaml
-│       ├── annotations.md
-│       └── figures/
-├── projects/{project-id}/
-│   ├── project.yaml
-│   ├── shared_research.md
-│   ├── wiki/
-│   ├── tasks/
-│   ├── data/
-│   ├── code/
-│   ├── figures/
-│   └── outputs/
-├── wiki/
-├── refs/
-├── settings/
-├── tasks/
-├── imports/
-├── data/
-├── prompts/
-├── scripts/
-├── code/
-├── figures/
-├── outputs/
-├── shared_research.md
-└── researchflow.sqlite
-```
-
-[../Sci-Station/Workspace/](../Sci-Station/Workspace/) 负责创建、打开、修复和恢复科研根目录。新增持久化文件时，应先判断它属于全局 workspace、library paper、project，还是 AI run artifact，避免把数据散落到难以备份的位置。
-
-论文 `meta.yaml` 统一通过基于 Yams 的 codec 解析和输出。写回时必须在 YAML 语义层保留未知字段与嵌套结构；遇到畸形 YAML 应向调用方返回明确错误，禁止用默认内容静默覆盖原文件。
-
-### 5. AI Lab 与 Agent runtime
-
-AI 相关代码分两层：
-
-- Swift 应用内的 [../Sci-Station/Agent/](../Sci-Station/Agent/) 和 [../Sci-Station/LLM/](../Sci-Station/LLM/)：负责生产默认 Swift Loop、配置、权限、工具定义、运行日志、UI 状态和 LLM 调用抽象。
-- Python 的 [../AgentRuntime/](../AgentRuntime/)：负责实验性 sidecar runtime 原型、测试夹具和 UI 测试编排器。不要把 sidecar workflow 写成生产默认能力，除非受版本控制的 RFC 经审阅接受，并由 ADR 明确升级。
-
-AI 能力的边界：
-
-- API Key、token、secret 必须进入 macOS 钥匙串或本机安全配置，不写入仓库和科研根目录的普通文本。
-- 读操作可以自动化，但写操作必须经过权限模型和用户确认。
-- 运行产物、证据引用、工具调用、错误和 debug bundle 要可回看；AI Lab 主界面应能展示 runtime、evidence、writeback、Prompt/MCP 等协作状态。
-- 产品内置 preset 放在 [../.sci-ai/sci-station/](../.sci-ai/sci-station/)，本机桥接配置放在 `.sci-ai/workspace.local/`，不要提交本机 secret。
-- 用户可管理的 Prompt override、Skill toggle 和 MCP server 覆盖配置放在 `.sci-station/agent/profile.json`。该文件属于 Research Root 本地状态；默认初始化为空列表，不写入 API key、token、完整 provider response 或完整运行记录。
-- Prompt override 已进入 Swift Loop 执行链，并在 run metadata / `prompt_snapshot.json` 中记录 id、version、hash 和 surface。
-- Prompt patch review 必须展示 diff、rationale/source、影响范围、rollback hint 和 Apply/Reject；`Restore Default` 表示移除 workspace override，不表示回滚历史 patch tree。
-- Skill resolver 已进入 runtime：只加载 Profile 中明确启用且匹配的 Skill；workspace Skill 默认 untrusted，未显式 trusted 时不读取正文，且 Skill 只能收窄工具范围。Skill Manager 的导入/启用/信任必须有用户确认和 profile 审计路径。
-- Local command MCP 只有在配置显式设置 `is_enabled: true` 时才启动；进程通过 stdio JSON-RPC 连接，不经过 shell。Remote HTTP/SSE MCP 支持实验性 JSON-RPC discovery、ping/liveness、credential reference 解析、失败/backoff 和 crash/credential 状态诊断。发现的工具使用 `mcp__<server>__<tool>` 名称，并始终经过 Agent approval、allowlist 和权限模型。
-- 生产回答不能使用 synthetic/sample evidence。需要证据时必须来自真实 paper、PDF、Markdown、Wiki、Graph artifact 或其它本地来源；测试 fixture 必须清楚标注。
-- 论文阅读写回需要实际正文证据，拟写入文件本身须引用成功读取的来源；引用结构校验不代表科学结论已得到支持。实验性 sidecar 的占位阅读模板不能进入写回批准。PDFKit fallback 的正文不保证公式、图像和表格完整。公开论文验证的范围与限制见 [READ-001](BACKLOG.md#read-001--source-backed-paper-reading-and-reviewed-writeback)。
-- 新的 pending-tool checkpoint 以可选字段保留原始 goal 与实际 tool results。旧记录可读取，但不从聊天转录推定可信证据；旧论文待写入草稿需要重新读取正文后批准。
-- 论文项目关联更新遵循 [ADR-0003](architecture/ADR-0003-paper-project-membership.md)：保留未保存草稿，失败时进行关联级条件补偿；不宣称跨文件 crash atomicity。
-
-## 功能开发流程
-
-### 新增一个用户可见功能
-
-先按贡献流程关联 Issue 或版本化需求；涉及领域、持久化或权限边界时先评审 RFC，再记录 ADR。
-
-1. **确定所属领域**：先判断功能属于论文库、项目空间、Wiki、任务、图谱、推荐、AI，还是 Shell/设置。
-2. **设计数据模型**：新增或扩展模型时，明确字段默认值、迁移策略、序列化格式和兼容旧数据的行为。
-3. **实现仓储或服务**：把文件读写、网络导入、解析、索引、同步等逻辑放到领域层，不要直接写在 SwiftUI view 里。
-4. **接入 AppViewModel**：通过窄方法或明确 binding 暴露给 UI。避免让视图直接修改深层仓储状态。
-5. **构建 UI**：优先复用 `UI/` 下已有组件和设计 token。大页面拆成小 view，保持 body 清晰。
-6. **补验证**：新领域逻辑优先加入 `Tests/SciStationCoreTests` 的 Swift Testing 套件；尚未迁移的旧覆盖继续保留在 `SciStationCoreTestRunner`；Python sidecar 改动必须补 pytest。
-7. **补文档**：用户可见行为更新 README/教程；开发流程、架构或发布约定变化更新本文档。
-
-### 新增一个工作区模块或项目 tab
-
-1. 在领域层准备模块数据和仓储。
-2. 在 Shell 模型中定义 tab 或模块入口。
-3. 在 builder/router 中注册显示名称、图标、路由和可用条件。
-4. 在项目空间页面中接入对应 view。
-5. 更新首页、快速操作或设置页中需要展示的模块状态。
-6. 补手动测试：侧边栏入口、路由恢复、空状态、项目切换、窗口重启。
-
-### 新增一个导入来源
-
-1. 在 `Import/` 或 `MetadataProviders/` 增加 provider 或解析器。
-2. 定义失败降级行为：网络失败、DNS 失败、元数据缺失时，应允许保存 link-only draft 或可恢复状态。
-3. 把外部结果映射到论文元数据模型，不要把 provider 原始格式直接泄漏到 UI。
-4. 在导入 UI 中展示明确的成功、部分成功、失败信息。
-5. 补核心测试：标识符解析、元数据映射、失败降级、重复导入。
-
-### 新增一个 AI 工具或工作流
-
-1. 明确工具是只读还是写入；写入工具必须接权限确认。
-2. 在 `Agent/` 中定义工具 schema、参数验证、错误分类和结果格式。
-3. 如果需要 sidecar 编排，在 `AgentRuntime/` 中补协议和测试夹具。
-4. 工具结果应引用证据位置，例如 paper id、wiki page、file path、section 或 task id。
-5. 运行日志必须能复盘：输入、计划、工具调用、权限状态、输出和错误。
-6. 补 UI 状态：pending、running、needs approval、failed、completed。
-
-### 新增设置项
-
-1. 判断设置属于应用偏好、workspace 设置、project 设置，还是 AI provider 设置。
-2. 敏感值只存 Keychain；普通配置可写入 workspace 的 `settings.yaml` 或对应设置文件。
-3. 设置页要提供当前值、空状态、验证错误和恢复默认入口。
-4. 需要影响运行时的设置，应通过 ViewModel 或服务层统一刷新，不要让多个 view 各自读取文件。
-
-## 验证入口
-
-项目以 Apple Silicon Mac 和 macOS 15 及以上版本为当前兼容基线。常用验证命令从仓库根目录执行：
-
-```bash
-swift test --enable-code-coverage
-Tools/scripts/check-swift-coverage.sh "$(swift test --show-codecov-path)" 14.0
-```
-
-```bash
-swift run SciStationCoreTestRunner
-```
-
-```bash
-xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -configuration Release -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
-```
-
-```bash
-python -m pytest AgentRuntime/tests
-```
-
-```bash
-python3 Tools/scripts/check-docs-hygiene.py
-python3 Tools/scripts/check-version-consistency.py
-python3 Tools/scripts/check-core-runner-architecture.py
-python3 -m unittest discover -s Tools/tests -v
-Tools/scripts/check-repository-hygiene.sh
-```
-
-Swift 风格门禁使用 `Mintfile` 精确锁定 SwiftLint `0.65.0` 和 SwiftFormat `0.62.1`。本地安装并运行与 CI 相同的检查：
-
-```bash
-brew install mint
-mint bootstrap
-SWIFTLINT_BIN="$(mint which realm/SwiftLint@0.65.0 swiftlint)" \
-SWIFTFORMAT_BIN="$(mint which nicklockwood/SwiftFormat@0.62.1 swiftformat)" \
-Tools/scripts/check-swift-style.sh
-```
-
-SwiftLint 的 `.swiftlint-baseline.json` 只记录启用门禁时已经存在的问题；新增违规仍会导致 CI 失败。不要为通过 CI 而刷新 baseline。只有在清理了既有违规并确认 baseline 条目减少时，才可用当前锁定版本执行 `SWIFTLINT_BIN="$(mint which realm/SwiftLint@0.65.0 swiftlint)" Tools/scripts/update-swiftlint-baseline.sh`；该脚本会把绝对文件位置转换为可在本地和 CI 使用的仓库根占位符。SwiftFormat 使用保守的全仓 lint-only 规则集，不会在检查过程中修改源码；需要格式化时应显式对目标文件运行工具并审阅 diff。
-
-CI 将文档卫生、版本一致性、PR 需求追踪、core runner 分域预算、AppViewModel 架构预算、SwiftLint、SwiftFormat、`swift test`、迁移期 legacy runner、完整 Python pytest、unsigned Release build 与构建产物启动烟测都作为必过门禁。`Tools/scripts/check-appviewmodel-architecture.sh` 限制主 facade、单个领域 extension、整个 family 的行数与 app-wide `@Published` 状态数量，并验证六个 focused store 仍在 Core 层；新增领域状态或纯业务决策应进入 store/use case，而不是扩大 facade。Swift Core 行覆盖率最低为 14.0%；legacy runner 会执行完所有匹配检查，逐项输出 `[RUN]`、`[PASS]`、`[FAIL]`，最后汇总并在任一检查失败时返回非零退出码。legacy runner 已按领域拆到 `Tools/SciStationCoreTestRunner/Suites/`，夹具位于 `Support/`，最小入口为 `SciStationCoreTestRunner.swift`。本地可用 `SCI_STATION_CORE_TEST_SUITE=Graph swift run SciStationCoreTestRunner` 或 `SCI_STATION_CORE_TEST_FILTER=graphNodeID swift run SciStationCoreTestRunner` 过滤；没有匹配项会失败，CI 不设置过滤器。领域模型、codec、store、兼容性和安全边界优先使用 Swift Testing 覆盖；用户主路径、窗口尺寸、空态、失败态和重启恢复仍需执行 UI 回归。自动化 UI 测试编排器说明见 [../AgentRuntime/sci_station_agent/uitest/README.md](../AgentRuntime/sci_station_agent/uitest/README.md)。
-
-原生导航门禁使用独立的 `Sci-Station-UI-Smoke` Xcode UI test target。运行 `Tools/scripts/smoke-test-ui-navigation.sh /path/to/Sci-Station.app` 会验证传入应用的路径和进程，在隔离工作区状态下真实点击 Library，并检查页面切换；runner 不重建待测应用。Xcode 的结果包和失败诊断仅保存在本地 `.tmp/ui-smoke-results/`。系统授权窗口遮挡应用时测试应失败；应通过正常系统交互处理提示后重跑，不能降低可点击性或目的页断言。
-
-### 按风险选择最小测试范围
-
-本地开发优先连接 Xcode，先确认 workspace、scheme 和测试列表。`Sci-Station` 应用 scheme 当前没有测试用例；原生导航位于独立的 `Sci-Station-UI-Smoke` scheme，Core 测试仍由 SwiftPM 管理。不要把一个空 test plan 的成功当作测试通过。
-
-| 变更或风险 | 首选验证 | 扩展验证时机 |
-| --- | --- | --- |
-| Core 数据写入、关联补偿、审批与恢复 | 运行对应 Swift Testing suite；断言文件内容、拒绝无写入、恢复证据和失败状态 | 相关测试通过后，在最终集成阶段运行全套 Core 与 legacy 检查 |
-| SwiftUI 布局与导航 | Xcode 增量构建当前 app；检查可见区域、真实按钮点击和目的页替换 | 仅在布局、入口或导航发生变化时复验相关窗口场景 |
-| 测试实例定位 | 同一已构建 app 的原路径、另一安装路径、同路径覆盖后新 PID 三个场景 | 每个场景都核对目标路径与 PID，再执行同一导航断言；定位失败与产品导航失败分别报告 |
-| PDF 与模型工作流 | 固定公开样本；导入/转换、原文证据、审批、写入和重开分别验收 | 模型请求采用有界抽样；修订保留原稿，内容准确性单独人工审核 |
-| 分发产物 | 最终候选版本的一次完整签名、打包、校验和、安装及 macOS 15 验收 | 本地定向用例稳定且准备发布时运行 |
-
-Xcode 的定向测试工具只接收测试标识，不能为每次安装副本传入动态 app 路径和 PID。这类产物测试保留薄的定位/启动入口，复用已经构建的 runner 并使用 `test-without-building`；不要因此重复构建 app、下载 sidecar 或重新打包。开发时可显式设置 `SCI_STATION_UI_SMOKE_XCTESTRUN` 为 Xcode 生成的运行配置；修改测试源码后必须先重新 build-for-testing，不能复用旧 runner。CI 的最终完整门禁继续保留。失败时先归类为编译、测试装配、进程定位、实际交互或持久化问题，只重跑能够验证该原因的最小用例；修复稳定后再提交合并验收。
-
-## 构建、签名与发布
-
-### 本地开发
-
-- Xcode Team：使用本机开发配置；公开发布不依赖个人团队、Developer ID 或 Apple notary 凭据。
-- Bundle ID：`Lingyu-Xia.Sci-Station`。
-- `CODE_SIGN_STYLE`：`Automatic`。
-- macOS 签名身份：Xcode 显示的 **Sign to Run Locally**（`-`）。
-- 不配置 Provisioning Profile。
-
-上述设置用于构建 Swift 参考应用和运行原有回归测试。Codex Run 通过 `script/build_and_run.sh` 打开 Go/Wails 工作台。
-
-### Roundtable 工作台候选应用
-
-从仓库根目录执行以下命令，可构建、验证并打开 [RFC-0002](rfcs/RFC-0002-roundtable-workstation.md) 的独立候选应用。
-
-```bash
-make -C RoundtableWorkstation app
-make -C RoundtableWorkstation verify
-make -C RoundtableWorkstation run
-```
-
-候选应用采用根目录 `VERSION` 和 Xcode build number，可用 `SCI_STATION_BUILD_NUMBER` 注入已验证的构建号。CI 对它执行 Go race tests、前端与原生桥接测试、签名与部署目标校验，并从打包产物运行原生退出与重开烟测。用户数据验收、macOS 15 安装及覆盖升级验证通过后，生产发布切换仍需按 RFC-0002 更新打包、校验和 provenance 流程。当前公开发布入口见下文。
-
-Swift 构建的 App Sandbox 允许用户所选文件、应用范围书签、下载目录、出站网络和日历访问，sidecar 使用继承权限。工作台候选包沿用 `com.funyday.scistation.desktop`，启用 hardened runtime，签名当前没有 entitlements。它通过本机回环地址提供 UI，由应用记录和检查用户批准的科研目录，日历与提醒事项通过 EventKit 请求系统授权。切换前需验收所选目录的授权、拒绝和撤销，新包的 Keychain 及 EventKit 权限在首次安装与覆盖升级后的行为，以及候选包是否需要额外的系统隔离。现有 Swift 书签与本机权限按 [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) 保留在原应用环境，工作台用独立目录完成验证。
-
-#### 工作台候选包的安装与回滚验收
-
-从仓库根目录生成两套已签名的 ZIP、DMG 和 SHA-256。脚本每次创建新的输出目录并打印产物路径。以下示例用同一份源码生成构建号分别为 1 和 2 的夹具，正式版本及发布标签由各自的发布流程决定。
-
-```bash
-SCI_STATION_BUILD_NUMBER=1 Tools/scripts/package-release.sh --workstation
-SCI_STATION_BUILD_NUMBER=2 Tools/scripts/package-release.sh --workstation
-Tools/scripts/verify-release.sh --workstation path/to/candidate.dmg
-Tools/scripts/test-release-install.sh --workstation path/to/previous.dmg path/to/candidate.dmg
-Tools/scripts/test-release-install.sh --workstation path/to/previous.zip path/to/candidate.zip
-```
-
-验证器使用同目录 `.sha256`，再检查镜像结构、应用资源、版本、arm64、最低部署目标以及 ad-hoc hardened-runtime 签名。`--app path/to/Sci-Station.app` 可将同一 checkout 已经签名和验收的候选包封装成两种格式。打包会返回现有 release job 使用的四个产物路径，正式发布的标签、GitHub provenance 和发布门禁继续由 `Public Release` 负责，生产宿主切换遵循 RFC-0002 验收。
-
-安装测试将两个归档解包到临时目录。低构建号写入一条工作区任务后退出，候选包覆盖安装，验证旧任务和新写入，然后恢复升级前的数据快照到另一临时目录并重开低构建号。测试同时核对安装文件、残留文件、端口和进程锁。macOS CI 在独立 Apple Silicon macOS 15 runner 下载当前 workflow 的同一批非发布归档，运行两种容器的同一测试。两套包采用同一源码的不同构建号，因此跨版本数据迁移和历史安装包仍需各自验收。
-
-签名与运行证据分开记录。无窗口安装测试验证已签名程序、研究根和回滚流程。正式切换前还需验收 Finder 首次打开、真实目录授权、Keychain 和 EventKit。应用的目录授权和 macOS App Sandbox 属于不同层。AI 项目文件编辑由选定 CLI 使用自己的权限与沙箱完成，工作台转交该 CLI 的原生审批；CLI 兼容性和系统权限仍需按 [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) 在真实环境验证。
-
-#### 工作台端到端检查
-
-在登录图形会话的 Mac 上，可从仓库根目录用以下命令验证当前候选应用。两项测试都使用临时研究根。第一项测原样签名包的系统退出，并在独立测试副本触发原生窗口动作。服务收尾预算为 8 秒，测试允许总退出时间 10 秒。第二项使用真实 PDFKit、两个接本机测试网关的席位和独立重签的 WKWebView 测试副本，验证拒绝、确认、重试、重开及原页定位。
+Use Apple Silicon, macOS 15 or newer, Go 1.26 and Xcode Command Line Tools. Node.js runs the frontend tests, and Python 3 runs the release and native smoke tooling. Run commands from the repository root. The Go build uses the committed module checksums, and the frontend assets are embedded in the executable.
 
 ```sh
-make app
-python3 RoundtableWorkstation/tests/macos-close-smoke.py build/Sci-Station.app
-SCI_STATION_WORKFLOW_SECONDARY=1 node RoundtableWorkstation/tests/workstation-workflow-smoke.cjs --native build/Sci-Station.app
+make run
+make test
 ```
 
-### 无证书测试包
+`make run` builds and opens the desktop application. `make app` builds it without opening it, and `make verify` checks the resulting bundle. Use the same `APP_OUTPUT` for both if you choose a separate build location. The app reads its version and build number from [VERSION](../VERSION) and [BUILD_NUMBER](../BUILD_NUMBER). Normal development needs no DMG or ZIP.
 
-默认使用 ad-hoc 签名：
+Use a disposable workspace for manual checks. The desktop application accepts an explicit root; its native folder chooser and the Workspace menu also let you create and open roots. Browser-only testing uses the same services through a loopback server. Choose a new or disposable data path.
 
-```bash
-Tools/scripts/package-beta.sh
+```sh
+make headless
+build/bin/sci-station-server serve -port 18765 -data-dir /path/to/test-workspace
 ```
 
-需要完全无签名的本地测试产物时可显式执行：
+Open `http://127.0.0.1:18765/research`. Open the macOS app to exercise PDFKit, EventKit, dialogs, menus and trusted window callbacks.
 
-```bash
-SCI_STATION_SIGNING=unsigned Tools/scripts/package-beta.sh
+## Code map
+
+| Area | Entry points | Responsibility |
+| --- | --- | --- |
+| Desktop process and window | [main.go](../main.go), [desktop_darwin.go](../desktop_darwin.go), [workspace_shell.go](../workspace_shell.go) | Wails app and lifecycle, AppKit integration, loopback origins, validated routes and active workspace. |
+| API and frontend | [api.go](../api.go), [static/](../static/) | Serve the workstation API and embedded views. Update shared interface text through the interface catalog. Dispatch menus and views through the same navigation model. |
+| Research records | [internal/research/](../internal/research/), [internal/workspace/](../internal/workspace/) | Workspace and project identity, domain records, versions, revisions, papers, Wiki, material paths, tasks and reviewed writes. |
+| AI Lab, meetings and reports | [internal/meeting/](../internal/meeting/), [internal/deliberation/](../internal/deliberation/), [internal/sessionstore/](../internal/sessionstore/) | Shared meeting engine supports single-seat runs and multi-seat Roundtable, stable evidence references, turn history and resumable results. |
+| Models, CLI access and credentials | [internal/gateway/](../internal/gateway/), [internal/cliedit/](../internal/cliedit/), [internal/credentials/](../internal/credentials/) | Provider connections, session-specific CLI decisions and macOS Keychain. |
+| Plugins, native packaging and tests | [internal/plugins/](../internal/plugins/), [packaging/macos/](../packaging/macos/), [tests/](../tests/) | Versioned plugin loading, signed arm64 app bundle, frontend behavior and native smoke scenarios. |
+
+## Work within the domain boundaries
+
+- Put persistence and validation in the owning service or repository. The shell coordinates navigation and dispatch, and the frontend presents state. Share one paper and PDF, with per-project state kept as an association. Use test fixtures with conflicting revisions, missing references or partially completed operations when changing state transitions.
+- Route project file actions through the current root, stable project ID, and current directory grant. Recheck grants at the point of use, including on cancellation, revoke, directory replacement or root switch. The hardened runtime is a bundle signing setting. The workspace grant is enforced by the application. Apple Calendar and Reminders have their own OS prompts.
+- Project AI file edits are delegated to a supported local CLI running with its configured permission policy. Sci-Station presents the CLI's proposed action and forwards a one-time decision to the same live request. App-owned reviewed notes and tasks use the domain repository's revision and operation IDs. Cover refusal, cancellation, conflicts, restart and stale approvals when editing those paths.
+- Keep PDF/Markdown evidence addressable by identity and revision. Add providers through the domain and gateway interfaces. Treat synthetic context as test fixtures, and keep provider keys in macOS Keychain. Use [workspaces](workspaces.md) and [versioning](VERSIONING.md) when changing storage or recovery behavior.
+
+## Verify a change
+
+For a new check, test the narrowest owning package first. Use isolated roots and fixtures. Run the repository checks when changing scripts, governance, versions or documentation.
+
+```sh
+Tools/scripts/check-repository-hygiene.sh
+python3 Tools/scripts/check-docs-hygiene.py
+python3 Tools/scripts/check-version-consistency.py
+python3 -m unittest discover -s Tools/tests -v
+go test -race -tags nogui -coverprofile=coverage.out ./...
+Tools/scripts/check-go-coverage.sh coverage.out
+go vet -tags nogui ./...
+node --test tests/*.test.cjs
 ```
 
-完全 unsigned 只用于本地诊断；公开分发固定使用 ad-hoc 签名，以保留 app 和 bundled sidecar 的代码签名结构与 entitlements。
+The coverage check enforces a 74.0% statement coverage floor. On a Mac with a logged-in graphical session, exercise startup, window gestures, trusted callbacks and persistent writes against a freshly built bundle.
 
-### 正式公开发布
-
-Sci-Station 采用 **certificate-free community distribution**。正式公开 DMG/ZIP 不使用 Apple Developer ID，也不提交 Apple notarization。发布入口为：
-
-```bash
-Tools/scripts/package-release.sh
+```sh
+make app verify
+app=build/Sci-Station.app
+python3 tests/macos-close-smoke.py "$app"
+node tests/workstation-workflow-smoke.cjs --native "$app"
+node tests/workstation-native-menu-smoke.cjs "$app"
 ```
 
-`package-release.sh` 会先验证版本号和 build number，再执行 Release archive、stage sidecar、对嵌套 Mach-O 与 app 进行 ad-hoc signing、验证 hardened runtime 与 sandbox/inherit entitlements、执行 sidecar/app/UI 烟测、创建 ZIP/DMG、验证 DMG 完整性、安装/覆盖升级，并生成 SHA-256 文件。
+The shutdown smoke checks the signed app process and uses a separate test driver for window gestures. The workflow smoke exercises native PDF selection, a two-seat discussion, a refusal, confirmed writeback and return to the original passage after reopen, using a local model fixture. The native menu smoke exercises actual menu navigation and revocation of a window capability after switching roots. The Go and Node suites exercise CLI approval protocols with fixtures. To exercise an installed Codex executable against the isolated model fixture, run `SCI_STATION_TEST_CODEX=/path/to/codex node tests/workstation-cli-edit-smoke.cjs --native "$app"`. Name the binary, model or CLI, OS version and test mode in validation reports. Finder approval, Keychain and EventKit prompts require separate observation.
 
-可单独复验现有产物：
+## Package and install
 
-```bash
+[Public Release](../.github/workflows/release.yml) uses the same Go/Wails build. For explicit packaging validation from the repository root:
+
+```sh
+Tools/scripts/package-release.sh --app build/Sci-Station.app
 Tools/scripts/verify-release.sh path/to/Sci-Station.dmg
+Tools/scripts/test-release-install.sh path/to/previous.dmg path/to/candidate.dmg
+Tools/scripts/test-release-install.sh path/to/previous.zip path/to/candidate.zip
 ```
 
-验证器要求 app 与 sidecar 通过严格 ad-hoc signature 检查、保留预期 entitlements、包含 arm64 slice、满足最低 macOS deployment target，并验证 DMG/ZIP 能正确解包或挂载。由于产物没有 Developer ID 和 notarization，`spctl` 对下载产物的拒绝是预期行为：验证器会记录 Gatekeeper 结果，但不会把缺少 Apple 身份信任误判为 bundle 完整性失败。
+Installer smokes require two archives with the same app version and a lower build number on the first. Put their SHA-256 sidecars beside the archives. CI makes the lower build from the same checkout and tests both formats on macOS 15 using disposable application and research directories. This fixture establishes install, overwrite, persistent data reopen and rollback for those builds. Record any specific historical release upgrade test separately.
 
-当前产品阶段为 Developer Preview；tag 触发默认生成 prerelease，正式发布由准备就绪后的 workflow dispatch 显式选择。GitHub 的 `Public Release` workflow 只从 `v*` tag 或显式指定的已有 tag 启动，不需要 Apple 证书、notary key 或任何 release signing secret。
+The distribution model uses ad-hoc code signing with hardened runtime. The verifier checks the expected signature, app layout, arm64 and macOS deployment target, plus archive integrity and checksum. Developer ID and Apple notarization are outside the distribution model. GitHub releases provide SHA-256 and build provenance. Downloaders may verify that provenance with `gh attestation verify path/to/Sci-Station.dmg --repo Funyday-k/Sci-Station`. If macOS blocks first launch after download, check the download source and hash before explicitly choosing **Open Anyway** for Sci-Station in **System Settings → Privacy & Security**.
 
-workflow 会检查 tag 对应提交可从 `origin/main` 到达、版本与根目录 `VERSION` 一致、build number 单调递增，并运行文档、仓库卫生、AppViewModel 架构预算、core runner 结构、SwiftLint/SwiftFormat、Swift Testing、14.0% 覆盖率、legacy runner、Python pytest。通过后才构建 certificate-free release artifacts；macOS 15 runner 会再次验证 SHA-256、bundle integrity、安装、首次启动和覆盖升级。
-
-安装门禁中的覆盖升级使用同一版本包验证 bundle 替换、首次启动与再次导航；它不等同于旧版本科研数据的跨版本迁移验收。
-
-所有 GitHub Actions 均固定到完整 commit SHA，workflow 默认只有 `contents: read`。只有 provenance 任务获得 `id-token: write` 与 `attestations: write`，只有最终 publish 任务获得 `contents: write`。发布 workflow 会为 DMG 和 ZIP 创建 GitHub build provenance。下载者可以验证产物来源：
-
-```bash
-gh attestation verify path/to/Sci-Station.dmg --repo Funyday-k/Sci-Station
-```
-
-无证书分发的信任边界必须对用户透明：发布说明明确标注 **ad-hoc signed / not Apple-notarized**，并提供 SHA-256 和 provenance。首次从互联网下载后，macOS 可能阻止启动；用户应先确认下载来源和哈希，再在 **系统设置 → 隐私与安全性 → 仍要打开（Open Anyway）** 中对该应用做显式批准。官方文档不得建议全局关闭 Gatekeeper。
-
-发布前必须确认版本号与 build number、更新 `CHANGELOG.md`、运行全部 Swift/Python 门禁和主路径回归。发布产物还必须通过 ad-hoc `codesign`、entitlements、arm64、Bundle ID、版本号、DMG 挂载和安装校验。发布产物及 DerivedData 不进入版本控制。
-
-## 文档维护
-
-- `README.md`、`docs/README*.md` 和 `docs/TUTORIAL*.md` 只描述用户可见且已经可用的行为。
-- 本文维护构建与开发技术入口；协作、版本、规划和决策分别维护在 CONTRIBUTING、GOVERNANCE、VERSIONING、BACKLOG、RFC/ADR 中，并互相链接。
-- `docs/development/` 仅用于本地过程记录，已被 Git 忽略，不得作为受版本控制文档的链接目标或唯一信息来源。
-- 用户可见变化同步更新 `CHANGELOG.md`；敏感信息、私人研究内容和本机路径不得写入公开文档。
-
-## 开发约束
-
-- 不提交私人 Research Root、论文 PDF、API key、token、`.env*`、`.mcp.json` 或本机 bridge 配置。
-- 不把打包产物、DMG、zip、DerivedData、`.tmp/` 放入版本控制。
-- 开发与架构资料放在 `docs/`；根目录保留 README、CHANGELOG、标准治理文件（CONTRIBUTING/SECURITY/CODE_OF_CONDUCT）、VERSION 和项目/构建必要文件。
-- 新增 public-facing 功能时，同步考虑中文文案、英文说明、截图和手动测试路径。
-- 保持本地文件格式可读、可恢复、可备份；不要为小功能引入难以审计的隐藏状态。
+See [versioning](VERSIONING.md) for tag and build number rules. Daily builds and published previews use the same application source and separate acceptance steps.

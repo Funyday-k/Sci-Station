@@ -1,11 +1,12 @@
 # ADR-0001: PR-based delivery and required CI
 
 - Status: Accepted for this governance change, implementing the requested review recommendations.
+- The later [ADR-0004](ADR-0004-roundtable-workstation.md#cutover-and-branch-policy) records the end of the transitional branch.
 - Requirement: [GOV-001](../BACKLOG.md#gov-001--repository-governance-and-delivery-gates).
 
 ## Context
 
-Sci-Station has an app, a Python sidecar, persistent user data, security boundaries and downloadable artifacts. Written local checks alone do not prevent unchecked changes from reaching a release branch. A single maintainer also cannot supply an independent approval on their own PR.
+The original Sci-Station delivery model included more than one runtime alongside persistent user data, security boundaries and downloadable artifacts. Written local checks alone do not prevent unchecked changes from reaching a release branch. A single maintainer also cannot supply an independent approval on their own PR.
 
 ## Decision
 

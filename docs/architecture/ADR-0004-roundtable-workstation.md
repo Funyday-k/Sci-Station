@@ -20,7 +20,13 @@ Start fresh by default. Leave existing Swift Research Roots and the Go prototype
 
 The maintainer clarified the editing boundary on 2026-11-25. The selected local CLI owns AI file-edit capabilities, applies its configured permission policy and performs any permitted edit. The workstation presents an approval request emitted by that CLI, including the affected project and the change information the CLI supplied. A user decision goes back to the originating live request. A disconnected, cancelled or replaced session cannot consume a decision from an earlier session. A provider that offers text generation alone can participate in a discussion. A user can explicitly save a reviewed research note or task through its domain repository.
 
-The OS directory grant establishes which project the app can open. This decision assigns ownership of AI edits and their approval messages. The release review still evaluates macOS sandbox entitlements and external CLI interoperability.
+The OS directory grant establishes which project the app can open. This decision assigns ownership of AI edits and their approval messages. The release review checks the chosen signing configuration, directory access and interoperability with supported external CLIs.
+
+### Cutover and branch policy
+
+The maintainer selected the hardened-runtime Go/Wails application with application-enforced workspaces and project directory grants. This distribution does not use the macOS App Sandbox entitlement or legacy security-scoped bookmarks. A native picker records the workspace or external project directory the user chose; each protected operation rechecks the active root, project identity and current grant. File-edit approval remains the responsibility of the selected CLI and its configured permission policy. EventKit and other user-facing macOS prompts retain their own authorization.
+
+Build the application from the repository root. The legacy production client, sidecar and their specific build gates move to history; active implementation and release tooling use the same root Go module. Keep the `Required CI` aggregate, traceability, release integrity and macOS 15 installation checks. The maintainer authorized the cutover and retirement of transitional `dev` after independent review and green `Required CI`; preserve required branch protection on `main`. The [governance policy](../GOVERNANCE.md) describes delivery and remote verification. Local checks, hosted gates, acceptance evidence and tag publication are recorded separately.
 
 ## Alternatives
 
@@ -28,7 +34,7 @@ Embedding the Swift client would duplicate project routing, authority over files
 
 ## Consequences
 
-The new production app will have no legacy Swift compatibility client or Python sidecar. Remove the old production stack only after the acceptance evidence below exists. Preserve the protected branch, unconditional Required CI aggregate and release controls through cutover. The maintainer's architecture decision authorizes implementation work. CI, code review, implementation acceptance and release continue through their own gates.
+The single production executable preserves local research workflows and the desktop identity. Historical applications and data remain subjects of compatibility and recovery records. Each acceptance claim should identify the tests and environments that support it.
 
 ## Validation
 

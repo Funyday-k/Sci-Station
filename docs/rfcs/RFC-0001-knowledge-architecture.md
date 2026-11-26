@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Requirement: [KNOW-001](../BACKLOG.md#know-001--knowledge-architecture-v1).
-- Decision PR: Not yet reviewed. This is a design proposal, not an implementation claim.
+- Detailed design: [review and recovery proposal](knowledge-v1-review-and-recovery.md), preserved from [draft PR #12](https://github.com/Funyday-k/Sci-Station/pull/12). Acceptance is pending.
 
 ## Problem and acceptance criteria
 
@@ -12,11 +12,11 @@ Researchers need claims and relationships that can be traced to paper, PDF or Ma
 
 Introduce a KnowledgeAtom model with identity, kind, content, source locators, provenance and timestamps; model relationships separately. A KnowledgeRepository owns serialization, validation and atomic persistence. KnowledgeStore owns selection and observed domain state. Extraction produces reviewable drafts with evidence and an explicit approval step before writeback. Graph indexing derives projections from accepted records and can rebuild them without destroying source records.
 
-AppViewModel should call narrow use cases rather than accumulate another set of atom/relation/extraction/merge arrays. Reuse existing permission, artifact and provenance mechanisms where their contracts fit.
+The Go host should route knowledge operations to focused repository use cases. Reuse existing permission, artifact and provenance mechanisms where their contracts fit.
 
 ## Alternatives and tradeoffs
 
-Embedding all new state into AppViewModel is quick but deepens coupling. Treating SQLite graph nodes as the only record format simplifies queries but complicates portable evidence and recovery. Extending Markdown frontmatter may preserve readable files but needs a clear identity and concurrent-edit policy. Evaluate these choices before selecting the persistent format.
+Keeping new knowledge state in the desktop shell would couple it to navigation and lifecycle. Treating SQLite graph nodes as the only record format simplifies queries but complicates portable evidence and recovery. Extending Markdown frontmatter may preserve readable files but needs a clear identity and concurrent-edit policy. Evaluate these choices before selecting the persistent format.
 
 ## Compatibility, migration and recovery
 
@@ -32,7 +32,7 @@ Test stable identity, round-trip serialization, unsupported versions, stale/abse
 - Which readable storage format best supports external edits and stable identity?
 - How are conflicting edits and duplicate claims reviewed and merged?
 - Which existing Knowledge artifact behavior remains unchanged, and which requires migration?
-- What minimum AppViewModel/use-case extraction is required before UI integration?
+- Which repository and review operations must be implemented before UI integration?
 
 ## Recommended first slice after workflow validation
 

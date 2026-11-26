@@ -1,80 +1,39 @@
 # Sci-Station
 
 > Current version: 0.2.0
-> Platform: macOS
-> Status: Developer Preview
+> Platform: Apple Silicon Mac, macOS 15 or later
+> Release stage: Developer Preview
 
-Sci-Station is a local-first research workstation for macOS. It brings a paper library, project knowledge, PDF reading, working materials, tasks, calendar views, and optional AI Lab workflows into one app while keeping core data inside a user-selected local Research Root.
+Sci-Station is a local-first research workstation. One Go/Wails desktop app brings together a shared paper library, PDF reading and annotation, project Wiki and materials, tasks and calendars, AI Lab, and a multi-seat Roundtable. Papers, notes, tasks, and meeting history live in a research workspace you choose. You can grant individual projects access to their existing folders.
 
-The primary project README is Chinese-first: [../README.md](../README.md). A hands-on Chinese tutorial is available at [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md).
+[中文](../README.md) · [English tutorial](TUTORIAL.md)
 
-## Overview
+## Get started
 
-Research projects often begin as scattered PDFs, notes, code folders, datasets, figures, tasks, links, and proposal drafts. Sci-Station turns that working mess into a visible, auditable, portable local workspace.
+Install Go 1.26 and Xcode Command Line Tools. From the repository root, build and open the app:
 
-Core principles:
-
-- **Local-first ownership**: papers, notes, project files, tasks, logs, and generated artifacts stay in the user's own folder.
-- **Research-native structure**: the app is organized around papers, projects, citations, materials, figures, outputs, and research records.
-- **Auditable AI assistance**: AI is optional; secrets are stored in macOS Keychain, write actions require permission, and runs leave reviewable logs.
-
-## Current Features
-
-- Research Root creation, opening, repair, and recent workspace restore.
-- Paper import from PDF files, drag and drop, DOI, arXiv, PDF URL, and web links.
-- Paper metadata, BibTeX, tags, reading status, priority, rating, abstract, and identifiers.
-- Paper `meta.yaml` files are parsed and emitted with Yams; updates preserve unknown fields and nested structures semantically, while malformed YAML returns an explicit error and is never silently overwritten.
-- PDF Reader with search, navigation, zoom, notes, linked tasks, citations, links, and file panel.
-- Project overview with brief, core papers, project documents, workflows, and task summary.
-- Markdown Wiki with source, preview, split mode, frontmatter, `[[wikilink]]`, backlinks, tables, code blocks, images, and KaTeX.
-- Materials browser for data, code, figures, scripts, prompts, outputs, Markdown, text, images, PDFs, and Python files.
-- Local todo and calendar views with optional Apple Calendar and Reminders integration.
-- AI Lab V1 with project conversations, plan review, permission dock, run history, hooks, MCP preset display, and audit logs.
-- Public releases use ad-hoc code signing without an Apple Developer ID or notarization, while CI verifies bundle integrity, entitlements, the bundled sidecar, installation behavior, SHA-256 checksums, and GitHub build provenance.
-
-## Version 0.2.0 Status
-
-- The current preview is **0.2.0**.
-- Sci-Station uses certificate-free community distribution. macOS may display an unidentified-developer warning the first time a downloaded release is opened.
-- The project remains actively maintained, and features, UI, and documentation will continue to improve.
-
-## Roadmap
-
-- Deeper AI Lab sidecar runtime integration, tool permissions, evidence references, artifacts, and debug bundles.
-- Paper graph, recommendation workflows, and reading-todo improvements.
-- Workspace templates, module settings, and clearer onboarding.
-- Better DOI/arXiv/web import, PDF-to-Markdown conversion, and metadata enrichment.
-- Broader manual regression coverage and bilingual documentation polish.
-
-## Quick Start
-
-Install a GitHub Release package:
-
-1. Download the DMG and verify the matching SHA-256 checksum or GitHub provenance for that release.
-2. Open the DMG and drag `Sci-Station.app` into `/Applications`.
-3. Because the app is intentionally distributed without Developer ID signing or Apple notarization, macOS may block the first launch. Try opening the app normally, then use **System Settings → Privacy & Security → Open Anyway** for the Sci-Station release you verified. Do not disable Gatekeeper globally.
-4. On first launch, choose `Create Workspace` and select an empty folder as the Research Root.
-5. Import PDFs from Library, or add papers with DOI, arXiv, PDF URL, and web links.
-
-The release app and bundled sidecar are ad-hoc signed to preserve code-signing structure and entitlements. This does not authenticate an Apple Developer identity and does not mean Apple notarized the software. The release workflow publishes SHA-256 files and GitHub build provenance so users can verify the artifact source.
-
-Run from source:
-
-```bash
-open Sci-Station.xcodeproj
+```sh
+make run
 ```
 
-In Xcode, choose the `Sci-Station` scheme, select `My Mac`, then press `Command + R`.
+Use **Workspace → Create Workspace** and select an empty folder. You can reopen it from the same menu. Create a project, import a PDF into the library, and add the paper to the project. Select a passage in the reader to save an annotation or send it to a project Roundtable. After review, save a proposed note or task and follow its citation back to the paper.
 
-## Related Documents
+A source build contains the current Go/Wails development line. [GitHub Releases](https://github.com/Funyday-k/Sci-Station/releases) contains published previews. If you are switching from an older app, follow the [workspace and recovery guide](workspaces.md) to start a new workspace and preserve your original research and backups.
 
-- [../README.md](../README.md): Chinese project overview.
-- [TUTORIAL.md](TUTORIAL.md): English hands-on tutorial.
-- [TUTORIAL.zh-CN.md](TUTORIAL.zh-CN.md): Chinese hands-on tutorial.
-- [DEVELOPER.md](DEVELOPER.md): developer architecture and feature guide.
-- [../.sci-ai/README.md](../.sci-ai/README.md): AI configuration boundary.
-- [../.sci-ai/sci-station/README.md](../.sci-ai/sci-station/README.md): Built-in AI preset notes.
+## What you can do
 
-## Contributing
+- Share a paper and its PDF across projects, with separate project membership, pins, order, and core-paper status. Organize the library with collections and tags, export citations, and reopen reading positions and source passages.
+- Keep project notes, Wiki links, citation graphs and working files together. Grant and revoke access to external project folders from project settings.
+- Link tasks to projects and papers, browse local calendars, and connect Apple Calendar or Reminders when needed. Run literature searches, review recorded candidates, or import a daily recommendation feed.
+- Use either a single run in AI Lab or a multi-seat discussion in Roundtable with source excerpts. Review a proposed note or task before saving it. A supported local CLI can request file-edit approval through Roundtable and carries out the permitted edit itself.
 
-Read [CONTRIBUTING](../CONTRIBUTING.md), the [security policy](../SECURITY.md), the [versioned backlog](BACKLOG.md), the [ADR index](architecture/README.md), and the [versioning policy](VERSIONING.md).
+Local papers, annotations, Wiki, tasks, materials, and local PDF text conversion work offline. Optional model connections use a local Magpie gateway or a configured direct provider. The desktop app can store direct-provider keys and the optional MinerU token in macOS Keychain. Network imports, arXiv discovery and external services connect when invoked. See the [tutorial](TUTORIAL.md) for the research workflow and configuration.
+
+## Contribute
+
+- [Developer guide](DEVELOPER.md) for architecture, builds and tests.
+- [Contributing](../CONTRIBUTING.md) and [repository governance](GOVERNANCE.md) for review and release policy.
+- [Changelog](../CHANGELOG.md) for current changes and release history.
+- [Security policy](../SECURITY.md) for private reporting.
+
+Sci-Station uses the [MIT License](../LICENSE). See [brand assets](brand-assets.md) for third-party artwork provenance.

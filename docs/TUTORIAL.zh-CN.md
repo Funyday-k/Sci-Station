@@ -1,175 +1,38 @@
-# Sci-Station 试用教程
+# Sci-Station 教程
 
-这份教程面向第一次试用 Sci-Station 的用户。默认英文教程见 [TUTORIAL.md](TUTORIAL.md)，项目介绍见 [../README.md](../README.md)。
+[English tutorial](TUTORIAL.md)
 
-## 1. 准备环境
+## 新建工作区和项目
 
-需要：
+在运行 macOS 15 或更新版本的 Apple Silicon Mac 上安装 Go 1.26 和 Xcode Command Line Tools，在仓库根目录运行 `make run`。应用打开后，选择「工作区 → 创建工作区」，指定一个空文件夹，再从「项目 → 新建项目」创建第一个项目。下次启动可以从同一菜单打开原有工作区。
 
-- macOS 14 或更高版本
-- Xcode 15 或更高版本
-- 一个空文件夹作为 Research Root，例如 `~/Documents/SciStationTrial`
+从已发布旧版本或 Go 原型切换之前，请保留原始数据并核验备份。[工作区与恢复指南](workspaces.md)说明两类来源的处理方式。
 
-Research Root 是 Sci-Station 保存论文、Markdown、项目文件、任务、设置和 Agent 日志的地方。不要把源码仓库本身当作 Research Root，也不要在未检查前分享包含私人论文或未公开数据的 Research Root。
+## 导入论文与引用
 
-## 2. 运行 App
+1. 打开「论文库」，点击「导入 PDF」并选择文件。「按标识添加」可查找 DOI、arXiv ID 等受支持的标识。检查待导入条目，按需选择集合。
+2. 打开论文，将它加入项目。同一份论文可加入多个项目，分别设置固定状态、顺序和核心论文标记。
+3. 在 PDF 阅读器选中一段文字。可保存批注，或把选段和来源位置送入圆桌。论文库和阅读器中的「引文」面板支持复制 BibTeX 等格式。
+4. 如果希望 AI 实验室检索论文正文，可显式导入 Markdown 原文，或核对后采用 PDFKit 或 MinerU 转换结果。使用前核对原 PDF 的公式、图和引用位置。
 
-打开 Xcode 工程：
+## 整理科研项目
 
-```bash
-open Sci-Station.xcodeproj
-```
+- 在 **Wiki** 建立相互链接的页面，用「图谱」定位引用并沿关系查看关联笔记和论文。点击在线查询 INSPIRE 时，应用发送选中论文的公开标识，并保存当前范围的查询缓存。
+- 在「材料」中可预览项目管理的文件。关联已有研究目录时，在项目设置中明确选择该目录。如果目录在应用外被替换，应重新授权后再使用预览或编辑器动作。
+- 新建任务并关联项目、论文及到期时间。本地任务可离线显示在日历中。需要读取 Apple 日历或发布提醒事项时，从日历页主动请求相应系统权限。
+- 在文献发现中查询候选，也可导入日更 JSON 或 JSONL 推荐清单。录入的检索记录可稍后离线查阅。
 
-在 Xcode 中：
+## 从论文原文到圆桌与审阅
 
-1. 选择 `Sci-Station` scheme。
-2. 运行目标选择 `My Mac`。
-3. 按 `Command + R`。
+在设置里添加直接模型，或向本机 Magpie 网关注册 Sci-Station Agent 并在 Magpie 中选择模型。直接 HTTPS 服务需提供 API Base URL、模型 ID 和 API Key。本机回环服务可使用 HTTP。直接模型/API 与可选 MinerU 凭据可保存在 macOS 钥匙串中。
 
-如果只想验证核心文件系统和元数据逻辑，可以运行：
+1. 在阅读器选中一段论文原文并送入项目圆桌。添加席位、选择模型与讨论方式。若只需一个席位，可在 AI 实验室查看所选材料。
+2. 围绕选中的原文提问，打开引用定位并核对讨论结论或报告。[讨论方法](discussion-methods.md)说明证据来源和主持方式。
+3. 在圆桌中审阅拟保存的笔记或任务，确认后写入项目。重启后在项目记录打开结果，可沿引用回到论文原文。
+4. 需要直接编辑已授权项目文件时，主动启动受支持的本地 CLI 编辑会话。在圆桌核对请求及可见改动，再允许或拒绝。最初请求审批的 CLI 会收到这次决定并报告执行结果。
 
-```bash
-swift run SciStationCoreTestRunner
-```
+AI 实验室支持导入项目 Markdown 技能。预览、启用并信任指定版本后再用于运行。列出公开 MCP 资源和读取正文各需确认，选入的摘录会保留来源信息。需要鉴权或调用工具的 MCP 服务由所用 CLI 配置。[圆桌插件指南](plugins.md)介绍讨论建议与本地报告工具。
 
-## 3. 创建 Research Root
+## 备份科研资料
 
-1. 首屏点击 `Create Workspace`。
-2. 选择一个空文件夹。
-3. Sci-Station 会创建 `library/`、`projects/`、`wiki/`、`tasks/`、`settings/` 和 `.sci-station/` 等目录。
-4. 重启一次 App，确认 macOS security-scoped bookmark 能自动恢复最近工作区。
-
-如果 Research Root 被移动或删除，App 会清理失效 bookmark，并回到创建/打开工作区状态。
-
-## 4. 导入第一篇论文
-
-进入 Library 后可以从三种方式开始：
-
-- 点击 `Import PDF`。
-- 将 PDF 拖入 Library。
-- 点击 `Add by Identifier`，粘贴 DOI、arXiv、PDF URL 或普通网页链接。
-
-成功导入后，每篇论文会在 `library/papers/` 下生成目录，通常包含：
-
-```text
-paper.pdf
-paper.md
-meta.yaml
-annotations.md
-figures/
-```
-
-可以在 Inspector 中编辑标题、作者、年份、标签、阅读状态、优先级、评分、DOI、arXiv、abstract 和 BibTeX。PDF Reader 中保存的笔记会写入 `annotations.md`。
-
-## 5. 把论文库变成项目
-
-1. 在侧边栏或菜单中点击 `New Project`。
-2. 填写项目名称、描述、图标和颜色。
-3. 打开 Project Overview。
-4. 把 project brief 当作 living proposal 来写。
-5. 标记或关联核心论文，让项目有明确的阅读主线。
-
-Project Overview 会汇总论文数、核心论文、项目文档和未完成任务，并连接 data、code、figures、outputs、wiki 和 shared context。
-
-## 6. 使用 Wiki 写作
-
-打开 Wiki 或项目文档，尝试：
-
-- `Source` 模式编辑 Markdown。
-- `Preview` 模式阅读渲染结果。
-- `Split` 模式边写边看。
-- `Cmd+S` 保存。
-- 使用 `;eq`、`;fig`、`;todo`、`;paper` 等 snippets。
-- 编写 YAML frontmatter 和 `[[wikilink]]`。
-
-Markdown 预览支持 GFM 表格、代码块、图片和 KaTeX 公式。
-
-## 7. 使用 Materials 管理真实工作文件
-
-Materials 用来浏览用户真正会操作的研究文件。默认扫描：
-
-```text
-data/
-code/
-figures/
-outputs/
-scripts/
-prompts/
-shared_research.md
-```
-
-Markdown、Python、文本、图片和 PDF 可以直接预览。其他文件可用 Finder、默认 App、VS Code 或 VSCodium 打开。
-
-Python 文件可以准备 VS Code task，并记录所选 Python 环境。你可以使用系统 Python、workspace `.venv` 或手动选择的虚拟环境。
-
-## 8. 在上下文中阅读 PDF
-
-从 Library 打开论文后，内置 PDF Reader 支持：
-
-- `Cmd+F` 搜索。
-- `Cmd+G` / `Shift+Cmd+G` 查找下一处/上一处。
-- 翻页、缩放和导航。
-- 在 Notes 面板编辑论文笔记。
-- 创建关联当前论文的任务。
-- 从 Citations 面板复制或导出 BibTeX。
-- 打开 DOI、arXiv、INSPIRE、URL 或 PDF URL。
-
-这样阅读动作会和元数据、笔记、任务、引用保持在同一个上下文里。
-
-## 9. 管理任务和日历
-
-Sci-Station 会把本地 todo 保存到 Research Root。Calendar 和 Apple Reminders 联动是可选能力：
-
-- 如果允许 macOS 权限，Dashboard 可以显示 Calendar/Reminders 标题，并把 workspace todo 发布到 Apple Reminders。
-- 如果拒绝权限，本地 todo 仍然可用。
-
-发布后的 todo 会在 `tasks/todos.yaml` 中写入 `external_source`、`external_identifier`、`external_updated_at`、`completed_at` 和 `due_time` 等映射字段。
-
-## 10. 配置可选 AI 功能
-
-核心 App 不依赖 AI。需要测试 AI 时，进入 `Settings -> AI Lab`：
-
-1. 选择 OpenAI-compatible provider。
-2. 填写 Base URL、Model、Temperature 和 Max Tokens。
-3. 在安全输入框中填写 API Key。
-4. 点击 `Save Settings`。
-5. 先用 `Test Connection` 验证连接。
-
-安全边界：
-
-- API Key 保存到 macOS Keychain。
-- workspace settings 不保存明文 API Key。
-- `.sci-ai/sci-station/` 只保存可提交的产品 preset 和模板。
-- `.sci-ai/workspace.local/`、`.claude/`、`.mcp.json` 和 `.env*` 属于本机配置，不应提交或分享。
-- AI/Agent 工作流的写入动作仍需要通过权限层确认。
-- Swift Loop 是 AI Lab 的生产默认 runtime。Sidecar/Auto runtime 仍属于实验性路径，应按诊断或原型能力看待。
-- Prompt override、Skill toggle 和 MCP connector override 存放在 Research Root 的 `.sci-station/agent/profile.json`；该文件不能包含 secret。
-- Prompt patch review 是显式流程：diff preview、rationale/source、影响范围、回滚提示、Apply/Reject 和 Restore Default 是分开的动作。
-- Workspace skill 只导入到 workspace-managed root，默认 untrusted，必须显式 trust 后 runtime 才能读取正文。
-- Local MCP 和实验性 remote HTTP/SSE MCP 都保持工具白名单和审批门禁；remote credential failure、liveness failure、retry/backoff 会显示为状态，不会静默放权。
-- AI Lab collaboration rail 会汇总当前 runtime、evidence 状态、Brief/Wiki/Tasks 等第一类写回目标、Prompt 状态和 MCP 状态。
-- 需要证据的 AI 回答应依赖真实 paper/PDF/Markdown/Wiki/tool evidence。Synthetic/sample evidence 只属于测试，不应作为生产证据。
-
-MinerU PDF 转 Markdown 也需要试用者自己的 API Token。没有 token 时会降级使用本地 PDFKit 提取。
-
-## 11. 分享或审查前检查
-
-分享 checkout 或 Research Root 前建议运行：
-
-```bash
-git status --short
-swift run SciStationCoreTestRunner
-xcodebuild -project Sci-Station.xcodeproj -scheme Sci-Station -destination 'platform=macOS' build
-git grep -n -I -i -E '(api[_ -]?key|secret|token|password|bearer|private[_ -]?key|client[_ -]?secret|refresh[_ -]?token|oauth)'
-```
-
-确认没有真实凭据、本机 research 数据、`.env*`、`.mcp.json`、`.claude/`、`.sci-ai/workspace.local/`、DerivedData、archive、`.app`、`.zip`、`.dSYM` 或 `.xcresult` 混入分享内容。
-
-## 12. 已知试用边界
-
-- 本地源码和 beta 构建不做公证；公开 Release 产物必须通过仓库定义的 Developer ID、notarization、staple 与 Gatekeeper 流程。
-- 网络功能依赖用户配置、用户网络和第三方服务状态。
-- 高质量 PDF 转 Markdown 依赖 MinerU。
-- Apple Reminders 当前以发布和本地映射为主，完整双向同步属于后续工作。
-- Prompt override/patch review、Skill Manager 基础界面、local command MCP 和实验性 remote HTTP/SSE MCP 已有 runtime 覆盖，但 production RAG evidence trace、evaluation harness、复杂 MCP auth/reconnect 审计、run-level Skill snapshot 和 sidecar production runtime 仍是后续工作。
-- MCP server 执行仍受模板、状态展示、工具白名单和权限模型约束。
+复制完整工作区之前先退出应用。将项目记录、论文文件、Markdown 原文和会议历史一起保留，并独立备份已经授予访问权限的外部目录。保留一份受保护的备份，用单独的副本验证重开。[工作区与恢复指南](workspaces.md)说明工作区格式、目录授权、Go 原型备份和还原。
