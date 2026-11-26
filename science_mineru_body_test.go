@@ -7,6 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -43,19 +46,32 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 		t.Fatalf("upload %d %s", w.Code, w.Body.String())
 	}
 	p := scienceWorkflowDecode[research.Paper](t, w.Body.Bytes())
-	const raw = "# Converted\nThe detector counts independent events."
-	var zipData bytes.Buffer
-	z := zip.NewWriter(&zipData)
-	entry, err := z.Create("full.md")
-	if err != nil {
-		t.Fatal(err)
+	const raw = "# Converted\r\nThe detector counts independent events.\r\n\r\n![Detector](images/detector.png)"
+	archive := func(shade uint8) []byte {
+		var zipData bytes.Buffer
+		z := zip.NewWriter(&zipData)
+		entry, err := z.Create("provider/full.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = io.WriteString(entry, raw); err != nil {
+			t.Fatal(err)
+		}
+		entry, err = z.Create("provider/images/detector.png")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raster := image.NewGray(image.Rect(0, 0, 2, 2))
+		raster.SetGray(0, 0, color.Gray{Y: shade})
+		if err = png.Encode(entry, raster); err != nil {
+			t.Fatal(err)
+		}
+		if err = z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return zipData.Bytes()
 	}
-	if _, err = io.WriteString(entry, raw); err != nil {
-		t.Fatal(err)
-	}
-	if err = z.Close(); err != nil {
-		t.Fatal(err)
-	}
+	zipData := archive(50)
 	var dataID string
 	previous := scientificHTTP
 	defer func() { scientificHTTP = previous }()
@@ -85,7 +101,7 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 			if req.Header.Get("Authorization") != "" {
 				t.Fatal("credential sent to result URL")
 			}
-			reply = zipData.Bytes()
+			reply = zipData
 		default:
 			t.Fatalf("unexpected request %s", req.URL)
 		}
@@ -110,11 +126,11 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 		t.Fatal("provider result not bound to the uploaded version")
 	}
 	preview := scienceWorkflowDecode[struct {
-		Bound    bool
-		Markdown string
-		SHA256   string
+		Bound bool
+		research.MinerMarkdown
 	}](t, run("mineru/result", 200))
-	if !preview.Bound || preview.Markdown != raw || preview.SHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(raw))) {
+	if !preview.Bound || preview.Markdown != raw || preview.SHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(raw))) ||
+		preview.AssetsHash == "" || len(preview.Quality.Figures) != 1 || preview.Quality.Figures[0].AssetID == "" {
 		t.Fatal(preview)
 	}
 	in["saveSource"] = true
@@ -122,12 +138,17 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 	in["expectedHash"] = strings.Repeat("0", 64)
 	run("mineru/result", 409)
 	in["expectedHash"] = preview.SHA256
+	run("mineru/result", 409) // An image-bearing source requires the previewed asset hash.
+	in["expectedAssetsHash"] = preview.AssetsHash
+	zipData = archive(70)
+	run("mineru/result", 409) // Same Markdown, different image.
+	zipData = archive(50)
 	bound := dataID
 	dataID = p.ID
 	run("mineru/result", 409)
 	dataID = bound
 	rec := scienceWorkflowDecode[research.Paper](t, run("mineru/result", 200))
-	if rec.Markdown == nil || rec.Markdown.Origin != "mineru" || rec.Markdown.PDFHash != p.FileSHA256 {
+	if rec.Markdown == nil || rec.Markdown.Origin != "mineru" || rec.Markdown.PDFHash != p.FileSHA256 || rec.Markdown.AssetsHash != preview.AssetsHash {
 		t.Fatal(rec)
 	}
 	if _, _, err = lab.ConversionOriginal(context.Background(), p.ID); err != nil {

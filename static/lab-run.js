@@ -239,7 +239,24 @@
         $("body-sections").replaceChildren(new Option("选择章节",""),...(data.sections||[]).map(h=>new Option("L"+h.line+" · "+h.heading,String(h.line))));
       }
       $("local-text").value=data.text; $("local-window").hidden=false;
-      $("local-prev").hidden=!offset; $("local-next").hidden=!data.more;
+      $("local-prev").hidden=!data.offset; $("local-next").hidden=!data.more;
+      window.SciPaperBodyPreview.renderFigures($("body-preview-figures"), data.figures, {
+        paper:data.id, hash:data.hash, select:figure=>locateFigure(figure, data).catch(e=>tell(e.message))
+      });
+    }
+    async function locateFigure(figure, source) {
+      const format = window.SciPaperBodyPreview;
+      let range = format.figureRange(figure, source);
+      if (!range) {
+        const expected = previewSequence + 1;
+        await showPreview(figure.citeStart, 0, source.hash);
+        if (previewSequence !== expected || !preview) return;
+        range = format.figureRange(figure, preview);
+      }
+      if (!range) throw Error("此图片引用超过 1,000 字。请在正文中手动选择所需部分。");
+      const area = $("local-text");
+      area.focus();
+      area.setSelectionRange(...range);
     }
     function resetSearch() {
       searchState?.controller?.abort();

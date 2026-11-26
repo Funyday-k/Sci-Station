@@ -77,9 +77,9 @@ func TestMinerURequestAndMarkdownDecoding(t *testing.T) {
 	if err = z.Close(); err != nil {
 		t.Fatal(err)
 	}
-	md, err := markdownFromZip(buf.Bytes())
-	if err != nil || md != "# Converted paper" {
-		t.Fatal(md, err)
+	output, err := research.ReadMinerMarkdown(buf.Bytes())
+	if err != nil || output.Markdown != "# Converted paper" {
+		t.Fatal(output.Markdown, err)
 	}
 }
 

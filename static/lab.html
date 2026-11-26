@@ -5,6 +5,7 @@
 <script defer src="/static/research-vendor/dompurify.min.js"></script>
 <script defer src="/static/research-vendor/katex.min.js"></script>
 <script defer src="/static/scientific-markdown.js"></script>
+<script defer src="/static/paper-body-preview.js"></script>
 <link rel="stylesheet" href="/static/lab.css">
   <script defer src="/static/research-evidence.js"></script>
   <script defer src="/static/lab-evidence.js"></script>
@@ -32,6 +33,7 @@
 <label>跳到 Markdown 行号<input id="body-line" type="number" value="1" min="1" step="1"></label></div>
 <button type="button" id="local-preview">预览正文</button>
 <div id="local-window" hidden><label id="body-sections-label" hidden>跳到章节<select id="body-sections"></select></label><p id="body-location" hidden></p><label>选中要引用的正文（每段最多 1,000 字）<textarea id="local-text" rows="6" readonly></textarea></label>
+<div id="body-preview-figures" class="paper-body-figures" hidden></div>
 <div class="actions"><button type="button" id="local-prev">上一段</button><button type="button" id="local-next">下一段</button><button type="button" id="local-add">加入选段</button></div></div>
 <ul id="local-list" aria-label="本次选用的项目原文"></ul>
 </fieldset>

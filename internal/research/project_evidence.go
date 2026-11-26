@@ -3,11 +3,11 @@ package research
 import (
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -48,19 +48,20 @@ func (loc ProjectEvidenceLocation) openURL(hash string) string {
 }
 
 type ProjectSourceExcerpt struct {
-	Title    string `json:"title"`
-	Revision int    `json:"revision"`
-	Before   string `json:"before"`
-	Quote    string `json:"quote"`
-	After    string `json:"after"`
-	Line     int    `json:"line"`
-	Column   int    `json:"column"`
+	Title    string       `json:"title"`
+	Revision int          `json:"revision"`
+	Before   string       `json:"before"`
+	Quote    string       `json:"quote"`
+	After    string       `json:"after"`
+	Line     int          `json:"line"`
+	Column   int          `json:"column"`
+	Figures  []BodyFigure `json:"figures,omitempty"`
 }
 
 var errProjectEvidenceChanged = errors.New("引用的项目原文或选段已改变，请重新选择和审核")
 
 // Used by review and by citation navigation, under the owning project lock.
-func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocation, hash string) (ProjectSourceExcerpt, error) {
+func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocation, hash string, preview bool) (ProjectSourceExcerpt, error) {
 	if !loc.valid() || loc.ProjectID != d.Project.ID || len(hash) != sha256.Size*2 {
 		return ProjectSourceExcerpt{}, ErrWorkflowSource
 	}
@@ -75,26 +76,29 @@ func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocati
 	if err != nil || !config.effective(module, loc.ProjectID) {
 		return ProjectSourceExcerpt{}, os.ErrPermission
 	}
-	var text, title string
+	var text, title, sourceHash string
+	var markdownPaper Paper
 	revision := 0
 	if loc.Kind == "paper-markdown" {
-		var p Paper
-		text, p, err = s.papers.projectMarkdown(d.Project.ID, loc.ID)
+		text, markdownPaper, err = s.papers.projectMarkdown(d.Project.ID, loc.ID)
 		if err == nil {
-			title = p.Title
-			revision = p.Markdown.Revision
+			title = markdownPaper.Title
+			revision = markdownPaper.Markdown.Revision
+			sourceHash = markdownPaper.Markdown.SourceHash()
 		}
 	} else {
 		text, title, err = s.workflowRecordLocked(d, SourceLocation{Kind: loc.Kind, ID: loc.ID})
 		revision = d.Notes[loc.ID].Revision
+		sourceHash = hashPaperBytes([]byte(text))
 	}
 	if err != nil {
 		return ProjectSourceExcerpt{}, err
 	}
-	if hash != fmt.Sprintf("%x", sha256.Sum256([]byte(text))) {
+	if hash != sourceHash {
 		return ProjectSourceExcerpt{}, errProjectEvidenceChanged
 	}
-	runes := []rune(normalizeWorkflowText(text))
+	normalized := normalizeWorkflowText(text)
+	runes := []rune(normalized)
 	if loc.End > len(runes) {
 		return ProjectSourceExcerpt{}, errProjectEvidenceChanged
 	}
@@ -109,10 +113,15 @@ func (s *Service) verifiedProjectSource(d projectData, loc ProjectEvidenceLocati
 	if loc.Kind == "material" {
 		revision = d.Materials[loc.ID].Revision
 	}
-	return ProjectSourceExcerpt{
+	out := ProjectSourceExcerpt{
 		Title: title, Revision: revision, Quote: string(runes[loc.Offset:loc.End]), Line: line, Column: loc.Offset - lastNewline,
 		Before: string(runes[max(0, loc.Offset-context):loc.Offset]), After: string(runes[loc.End:min(len(runes), loc.End+context)]),
-	}, nil
+	}
+	if preview && loc.Kind == "paper-markdown" {
+		quality := s.papers.bodyInspection(markdownPaper, normalized, false)
+		out.Figures = nearbyBodyFigures(quality.Figures, loc.Offset, loc.End, line, line+strings.Count(out.Quote, "\n"))
+	}
+	return out, nil
 }
 
 func (s *Service) verifyProjectReviewEvidence(d projectData, evidence Evidence) error {
@@ -121,7 +130,7 @@ func (s *Service) verifyProjectReviewEvidence(d projectData, evidence Evidence) 
 		utf8.RuneCountInString(evidence.Quote) != evidence.Source.End-evidence.Source.Offset {
 		return ErrWorkflowSource
 	}
-	match, err := s.verifiedProjectSource(d, *evidence.Source, evidence.SourceHash)
+	match, err := s.verifiedProjectSource(d, *evidence.Source, evidence.SourceHash, false)
 	if err != nil {
 		return err
 	}
@@ -150,7 +159,7 @@ func (s *Service) projectSourceExcerpt(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 403, "项目目录授权不可用")
 		return
 	}
-	excerpt, err := s.verifiedProjectSource(d, loc, q.Get("fingerprint"))
+	excerpt, err := s.verifiedProjectSource(d, loc, q.Get("fingerprint"), true)
 	switch {
 	case err == nil:
 		jsonReply(w, 200, excerpt)

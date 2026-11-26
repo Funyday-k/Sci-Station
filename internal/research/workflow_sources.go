@@ -31,6 +31,7 @@ type WorkflowSource struct {
 	Line     int           `json:"line,omitempty"`
 	Heading  string        `json:"heading,omitempty"`
 	Sections []BodySection `json:"sections,omitempty"`
+	Figures  []BodyFigure  `json:"figures,omitempty"`
 	SourceLocation
 	Title string `json:"title"`
 	Hash  string `json:"hash"`
@@ -43,15 +44,20 @@ var ErrWorkflowSource = errors.New("来源无效或不属于当前项目")
 const workflowWindow = 4000
 
 func (s *Service) WorkflowSource(ctx context.Context, project string, loc SourceLocation) (WorkflowSource, error) {
-	return s.WorkflowSourceAtLine(ctx, project, loc, 0)
+	return s.workflowSource(ctx, project, loc, 0, false)
 }
 func (s *Service) WorkflowSourceAtLine(ctx context.Context, project string, loc SourceLocation, line int) (WorkflowSource, error) {
+	return s.workflowSource(ctx, project, loc, line, true)
+}
+
+func (s *Service) workflowSource(ctx context.Context, project string, loc SourceLocation, line int, preview bool) (WorkflowSource, error) {
 	var out WorkflowSource
 	if !validID(project) || !validID(loc.ID) || loc.Offset < 0 || (loc.Kind == "paper" && (loc.Page < 1 || loc.Page > 100000)) || (loc.Kind != "paper" && loc.Page != 0) {
 		return out, ErrWorkflowSource
 	}
 	var meta WorkflowSource
 	var text, title, hash string
+	var markdownPaper Paper
 	var err error
 	if loc.Kind == "paper" {
 		if !s.HasActiveProject(project) {
@@ -62,14 +68,13 @@ func (s *Service) WorkflowSourceAtLine(ctx context.Context, project string, loc 
 		if !s.HasActiveProject(project) {
 			return out, ErrWorkflowSource
 		}
-		var p Paper
-		text, p, err = s.workflowMarkdown(project, loc.ID)
+		text, markdownPaper, err = s.workflowMarkdown(project, loc.ID)
 		if err != nil {
 			return out, err
 		}
-		title = p.Title
-		hash = p.Markdown.Hash
-		meta.Revision = p.Markdown.Revision
+		title = markdownPaper.Title
+		hash = markdownPaper.Markdown.SourceHash()
+		meta.Revision = markdownPaper.Markdown.Revision
 	} else {
 		text, title, err = s.workflowRecord(project, loc)
 		hash = fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
@@ -105,6 +110,10 @@ func (s *Service) WorkflowSourceAtLine(ctx context.Context, project string, loc 
 	meta.Title = title
 	meta.Hash = hash
 	meta.Text = string(runes[loc.Offset:end])
+	if preview && loc.Kind == "paper-markdown" {
+		quality := s.papers.bodyInspection(markdownPaper, normalized, false)
+		meta.Figures = nearbyBodyFigures(quality.Figures, loc.Offset, end, meta.Line, meta.Line+strings.Count(meta.Text, "\n"))
+	}
 	meta.More = end < len(runes)
 	return meta, nil
 }

@@ -239,6 +239,14 @@ func (s *PaperLibrary) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.bodyHTTP(w, r, p)
 			return
 		}
+		if len(chunks) == 3 && chunks[2] == "preview" {
+			s.bodyPreviewHTTP(w, r, p)
+			return
+		}
+		if len(chunks) == 5 && chunks[2] == "figures" {
+			s.paperAssetHTTP(w, r, p, chunks[3], chunks[4])
+			return
+		}
 	case "markdown":
 		if len(chunks) == 2 {
 			s.downloadMarkdown(w, r, p)
@@ -303,7 +311,7 @@ func (s *PaperLibrary) remove(id string, revision int) error {
 	}
 	delete(s.records, id)
 	if p.Markdown != nil && validID(p.Markdown.BlobID) {
-		if err := workspace.ManagedRemove(s.bodyPath(id, p.Markdown.BlobID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := s.removeBodyBlob(id, p.Markdown); err != nil {
 			return err
 		}
 	}

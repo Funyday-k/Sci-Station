@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,13 +23,14 @@ const maxPaperBody = 48 << 20
 // Old paper records have no markdown_source. Its absence means no source text
 // has been imported or adopted, independently of PDF, notes and metadata.
 type PaperMarkdown struct {
-	Version  int    `json:"version"`
-	Revision int    `json:"revision"`
-	BlobID   string `json:"blob_id"`
-	Hash     string `json:"sha256"`
-	Origin   string `json:"origin"`
-	PDFHash  string `json:"pdf_sha256,omitempty"`
-	Bytes    int    `json:"bytes"`
+	Version    int    `json:"version"`
+	Revision   int    `json:"revision"`
+	BlobID     string `json:"blob_id"`
+	Hash       string `json:"sha256"`
+	Origin     string `json:"origin"`
+	PDFHash    string `json:"pdf_sha256,omitempty"`
+	Bytes      int    `json:"bytes"`
+	AssetsHash string `json:"assets_sha256,omitempty"`
 }
 
 func (s *PaperLibrary) bodyPath(paperID, id string) string {
@@ -45,12 +46,21 @@ func (m PaperMarkdown) valid() bool {
 		if m.Origin != "pdfkit" && m.Origin != "mineru" {
 			return false
 		}
-		if _, err := hex.DecodeString(m.PDFHash); err != nil || len(m.PDFHash) != 64 {
+		if !validPaperHash(m.PDFHash) {
 			return false
 		}
 	}
-	_, err := hex.DecodeString(m.Hash)
-	return m.Version == 1 && m.Revision > 0 && validID(m.BlobID) && err == nil && len(m.Hash) == 64 && m.Bytes > 0 && m.Bytes <= maxPaperBody
+	return m.Version == 1 && m.Revision > 0 && validID(m.BlobID) && validPaperHash(m.Hash) && m.Bytes > 0 && m.Bytes <= maxPaperBody &&
+		(m.AssetsHash == "" || m.Origin == "mineru" && validPaperHash(m.AssetsHash))
+}
+
+// SourceHash identifies the version that is available to read or cite. Sources
+// without attached images retain their original Markdown-only fingerprint.
+func (m PaperMarkdown) SourceHash() string {
+	if m.AssetsHash == "" {
+		return m.Hash
+	}
+	return hashPaperBytes([]byte("sci-station/paper-markdown/v1/" + m.Hash + "/" + m.AssetsHash))
 }
 
 func realMarkdownBody(data []byte) bool {
@@ -125,23 +135,32 @@ func (s *PaperLibrary) readBodyLocked(p Paper) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(b) != m.Bytes || fmt.Sprintf("%x", sha256.Sum256(b)) != m.Hash {
+	if len(b) != m.Bytes || hashPaperBytes(b) != m.Hash {
 		return nil, fmt.Errorf("%w：Markdown 正文校验失败", errPaperConflict)
 	}
 	return b, nil
 }
 
-func (s *PaperLibrary) storeBody(id string, revision int, data []byte, origin, pdfHash string) (Paper, error) {
+func (s *PaperLibrary) storeBody(id string, revision int, data []byte, origin, pdfHash string, assets paperAssets) (Paper, error) {
 	if !realMarkdownBody(data) {
 		return Paper{}, fmt.Errorf("%w：文件为空、只有元数据/占位内容，或不是有效的 UTF-8 Markdown 正文", errInvalidPaper)
 	}
-	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	hash := hashPaperBytes(data)
+	assetsHash := ""
+	if len(assets.index) != 0 {
+		assetsHash = hashPaperBytes(assets.index)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.records[id]
 	if !ok {
 		return Paper{}, os.ErrNotExist
 	}
+	lock, err := s.lockRecords()
+	if err != nil {
+		return Paper{}, err
+	}
+	defer lock.Close()
 	if _, err := s.currentRecord(id); err != nil {
 		return Paper{}, err
 	}
@@ -152,11 +171,15 @@ func (s *PaperLibrary) storeBody(id string, revision int, data []byte, origin, p
 		if !p.Markdown.valid() {
 			return Paper{}, fmt.Errorf("%w：无法更新未知版本的正文", errInvalidPaper)
 		}
-		if p.Markdown.Hash == hash && p.Markdown.Origin == origin && p.Markdown.PDFHash == pdfHash {
+		if p.Markdown.Hash == hash && p.Markdown.Origin == origin && p.Markdown.PDFHash == pdfHash && p.Markdown.AssetsHash == assetsHash {
 			if _, err := s.readBodyLocked(p); err != nil {
 				return Paper{}, err
 			}
-			return clonePaper(p), nil
+			if assetsHash == "" || s.verifyPaperAssets(p) == nil {
+				return clonePaper(p), nil
+			}
+			// A damaged attachment set can be restored by explicitly saving
+			// the verified conversion at the current library record revision.
 		}
 	}
 	if p.Revision != revision {
@@ -167,21 +190,46 @@ func (s *PaperLibrary) storeBody(id string, revision int, data []byte, origin, p
 	if prior != nil {
 		bodyRev = prior.Revision + 1
 	}
-	m := &PaperMarkdown{Version: 1, Revision: bodyRev, BlobID: makeID(), Hash: hash, Origin: origin, PDFHash: pdfHash, Bytes: len(data)}
-	path := s.bodyPath(p.ID, m.BlobID)
-	if err := workspace.ManagedAtomicWrite(path, data); err != nil {
+	m := &PaperMarkdown{Version: 1, Revision: bodyRev, BlobID: makeID(), Hash: hash, Origin: origin, PDFHash: pdfHash, Bytes: len(data), AssetsHash: assetsHash}
+	if err := workspace.ManagedAtomicWrite(s.bodyPath(p.ID, m.BlobID), data); err != nil {
+		_ = s.removeBodyBlob(p.ID, m)
+		return Paper{}, err
+	}
+	if err := s.storeAssets(p.ID, m.BlobID, assets); err != nil {
+		_ = s.removeBodyBlob(p.ID, m)
 		return Paper{}, err
 	}
 	p.Markdown = m
 	changePaper(&p)
-	if err := s.saveLocked(p); err != nil {
-		_ = workspace.ManagedRemove(path)
+	if err := s.saveWithRecordLock(p); err != nil {
+		// The directory sync can fail after the atomic rename published the
+		// record. Keep both versions when publication cannot be ruled out.
+		disk, readErr := workspace.ManagedReadFile(filepath.Join(s.dir, "records", id+".json"))
+		if readErr == nil {
+			if current, err := decodePaperRecord(id, disk); err == nil {
+				s.records[id] = current
+				if current.Markdown == nil || current.Markdown.BlobID != m.BlobID {
+					_ = s.removeBodyBlob(p.ID, m)
+				}
+			}
+		}
 		return Paper{}, err
 	}
 	if prior != nil {
-		_ = workspace.ManagedRemove(s.bodyPath(p.ID, prior.BlobID))
+		_ = s.removeBodyBlob(p.ID, prior)
 	}
 	return clonePaper(p), nil
+}
+
+func (s *PaperLibrary) removeBodyBlob(id string, m *PaperMarkdown) error {
+	bodyErr := workspace.ManagedRemove(s.bodyPath(id, m.BlobID))
+	if errors.Is(bodyErr, os.ErrNotExist) {
+		bodyErr = nil
+	}
+	if m.AssetsHash != "" {
+		return errors.Join(bodyErr, workspace.ManagedRemoveAll(s.assetPath(id, m.BlobID)))
+	}
+	return bodyErr
 }
 
 func (s *PaperLibrary) convertedMarkdown(ctx context.Context, p Paper) ([]byte, error) {
@@ -213,12 +261,12 @@ func (s *PaperLibrary) convertBody(ctx context.Context, p Paper, revision int) (
 	if err != nil {
 		return Paper{}, err
 	}
-	return s.storeBody(p.ID, revision, body, "pdfkit", p.FileSHA256)
+	return s.storeBody(p.ID, revision, body, "pdfkit", p.FileSHA256, paperAssets{})
 }
 
 // Called only with a completed, authenticated conversion response for the
 // expected paper and original PDF fingerprint.
-func (s *Service) SaveMinerMarkdown(ctx context.Context, id string, revision int, pdfHash string, data []byte) (Paper, error) {
+func (s *Service) SaveMinerMarkdown(ctx context.Context, id string, revision int, pdfHash string, conversion MinerMarkdown) (Paper, error) {
 	p, _, err := s.ConversionOriginal(ctx, id)
 	if err != nil {
 		return Paper{}, err
@@ -226,7 +274,7 @@ func (s *Service) SaveMinerMarkdown(ctx context.Context, id string, revision int
 	if p.FileSHA256 != pdfHash {
 		return Paper{}, errPaperConflict
 	}
-	return s.papers.storeBody(id, revision, data, "mineru", pdfHash)
+	return s.papers.storeBody(id, revision, []byte(conversion.Markdown), "mineru", pdfHash, conversion.assets)
 }
 
 func (s *PaperLibrary) bodyHTTP(w http.ResponseWriter, r *http.Request, p Paper) {
@@ -276,7 +324,7 @@ func (s *PaperLibrary) bodyHTTP(w http.ResponseWriter, r *http.Request, p Paper)
 			var data []byte
 			data, err = io.ReadAll(io.LimitReader(f, maxPaperBody+1))
 			if err == nil {
-				rec, err = s.storeBody(p.ID, revision, data, "import", "")
+				rec, err = s.storeBody(p.ID, revision, data, "import", "", paperAssets{})
 			}
 		} else {
 			var input struct {

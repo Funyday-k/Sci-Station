@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -11,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -88,12 +86,13 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		return
 	}
 	var input struct {
-		Paper        string `json:"paper"`
-		Token        string `json:"token"`
-		Batch        string `json:"batch"`
-		SaveSource   bool   `json:"saveSource"`
-		Revision     int    `json:"revision"`
-		ExpectedHash string `json:"expectedHash"`
+		Paper              string `json:"paper"`
+		Token              string `json:"token"`
+		Batch              string `json:"batch"`
+		SaveSource         bool   `json:"saveSource"`
+		Revision           int    `json:"revision"`
+		ExpectedHash       string `json:"expectedHash"`
+		ExpectedAssetsHash string `json:"expectedAssetsHash"`
 	}
 	if !jsonBody(w, r, &input) {
 		return
@@ -216,18 +215,17 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 			w.Write(read)
 			return
 		}
-		body, e := markdownFromZip(read)
+		output, e := research.ReadMinerMarkdown(read)
 		if e != nil {
 			reject(w, 422, e.Error())
 			return
 		}
-		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(body)))
 		if input.SaveSource {
-			if !bound || input.ExpectedHash != hash || input.Revision < 1 {
-				reject(w, 409, "转换输出无法与当前论文指纹和已预览正文匹配。旧转换稿可下载、核对后导入")
+			if !bound || input.ExpectedHash != output.SHA256 || input.ExpectedAssetsHash != output.AssetsHash || input.Revision < 1 {
+				reject(w, 409, "转换输出无法与当前论文指纹和已预览正文及图片匹配。旧转换稿可下载、核对后导入")
 				return
 			}
-			rec, err := lab.SaveMinerMarkdown(ctx, paper.ID, input.Revision, paper.FileSHA256, []byte(body))
+			rec, err := lab.SaveMinerMarkdown(ctx, paper.ID, input.Revision, paper.FileSHA256, output)
 			if err != nil {
 				reject(w, 409, err.Error())
 				return
@@ -235,35 +233,14 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 			reply(w, 200, rec)
 			return
 		}
-		reply(w, 200, map[string]any{"state": "done", "markdown": body, "sha256": hash, "bound": bound})
+		reply(w, 200, struct {
+			State string `json:"state"`
+			Bound bool   `json:"bound"`
+			research.MinerMarkdown
+		}{"done", bound, output})
 		return
 	}
 	reply(w, 200, map[string]string{"state": "pending"})
-}
-func markdownFromZip(b []byte) (string, error) {
-	z, e := zip.NewReader(bytes.NewReader(b), int64(len(b)))
-	if e != nil {
-		return "", errors.New("转换包损坏")
-	}
-	var candidate *zip.File
-	for _, f := range z.File {
-		if !f.FileInfo().IsDir() && strings.EqualFold(path.Ext(f.Name), ".md") && (candidate == nil || path.Base(f.Name) == "full.md") {
-			candidate = f
-		}
-	}
-	if candidate == nil {
-		return "", errors.New("转换结果没有 Markdown")
-	}
-	f, e := candidate.Open()
-	if e != nil {
-		return "", e
-	}
-	defer f.Close()
-	v, e := io.ReadAll(io.LimitReader(f, (8<<20)+1))
-	if e != nil || len(v) > 8<<20 {
-		return "", errors.New("Markdown 超过 8 MiB 或结果损坏")
-	}
-	return string(v), nil
 }
 
 // Keep the provider data ID the same length as the original library ID while

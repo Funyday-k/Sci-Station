@@ -38,7 +38,7 @@ func (s *Service) CheckWorkflowCitation(ctx context.Context, project string, loc
 		if !found || d.Archived || evidence.Source == nil {
 			return "", "unavailable"
 		}
-		part, err := s.verifiedProjectSource(d, *evidence.Source, evidence.SourceHash)
+		part, err := s.verifiedProjectSource(d, *evidence.Source, evidence.SourceHash, false)
 		if errors.Is(err, errProjectEvidenceChanged) {
 			return "", "stale"
 		}

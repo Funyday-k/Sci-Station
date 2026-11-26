@@ -1,5 +1,12 @@
 {{define "head"}}
 <link rel="stylesheet" href="/static/science-tools.css">
+<link rel="stylesheet" href="/static/research-vendor/katex.min.css">
+<link rel="stylesheet" href="/static/scientific-markdown.css">
+  <script defer src="/static/research-vendor/marked.min.js"></script>
+  <script defer src="/static/research-vendor/dompurify.min.js"></script>
+  <script defer src="/static/research-vendor/katex.min.js"></script>
+  <script defer src="/static/scientific-markdown.js"></script>
+  <script defer src="/static/paper-body-preview.js"></script>
   <script defer src="/static/discovery-view.js"></script>
   <script defer src="/static/science-tools.js"></script>
 {{end}}
@@ -75,9 +82,16 @@
       <section id="convert" hidden>
         <div class="panel"><label for="paper">文献库论文</label><select id="paper"></select>
           <p id="bodyState" role="status"></p>
-          <div class="line"><label for="bodyFile">已获得的论文正文（.md 或 .markdown）</label><input id="bodyFile" type="file" accept=".md,.markdown"><button id="importBody">导入论文正文</button><button id="existingBody" hidden>查看已存 Markdown 正文</button></div>
-          <div id="bodyLocator" hidden><p id="bodyLocatorStatus" role="status"></p><pre id="bodyLocatorText" style="white-space:pre-wrap"></pre></div>
-          <details id="bodyFull" hidden><summary>论文 Markdown 全文</summary><pre id="bodyFullText" style="max-height:32rem;overflow:auto;white-space:pre-wrap"></pre></details>
+          <div class="line"><label for="bodyFile">已获得的论文正文（.md 或 .markdown）</label><input id="bodyFile" type="file" accept=".md,.markdown"><button id="importBody">导入论文正文</button><button id="existingBody" hidden>查看已存正文</button></div>
+          <div id="bodyLocator" hidden><p id="bodyLocatorStatus" role="status"></p><pre id="bodyLocatorText" class="paper-body-excerpt"></pre>
+            <div id="bodyLocatorFigures" class="paper-body-figures" hidden></div></div>
+          <details id="bodyFull" hidden><summary>论文正文预览</summary>
+            <div id="bodyQuality"></div>
+            <div id="bodyFigures" class="paper-body-figures" hidden></div>
+            <p id="bodyPreviewLimit" hidden>排版预览显示开头 120,000 个字符。下方可查看 Markdown 全文。</p>
+            <div id="bodyRendered" class="paper-body-rendered"></div>
+            <details><summary>查看 Markdown 全文</summary><pre id="bodyFullText" class="paper-body-raw"></pre></details>
+          </details>
           <div class="bar">
             <h2>本地文本</h2><button id="local">提取为 Markdown</button>
           </div>
@@ -94,7 +108,10 @@
           <label for="batch">转换任务编号</label><input id="batch" placeholder="开始后自动填写，也可以恢复已有任务">
           <div class="line"><button id="remote">上传并转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
         </details>
-        <div id="result" class="panel" hidden><label for="markdown">转换结果，可在保存前编辑</label><textarea id="markdown" rows="15"></textarea>
+        <div id="result" class="panel" hidden>
+          <div id="resultQuality"></div>
+          <div id="resultFigures" class="paper-body-figures" hidden></div>
+          <label for="markdown">转换结果，可在保存前编辑</label><textarea id="markdown" rows="15"></textarea>
           <div class="line"><button id="download">下载 Markdown</button><button id="saveBody">保存原始转换结果为论文正文</button><button id="saveNote" class="primary">存为项目笔记</button></div>
         </div>
       </section>

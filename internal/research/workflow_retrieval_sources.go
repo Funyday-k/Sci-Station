@@ -82,7 +82,7 @@ func (s *Service) readWorkflowRetrievalSource(project string, loc SourceLocation
 		var p Paper
 		text, p, err = s.papers.projectMarkdownWithin(project, loc.ID, maxBytes)
 		if err == nil {
-			title, hash = p.Title, p.Markdown.Hash
+			title, hash = p.Title, p.Markdown.SourceHash()
 		}
 		return
 	}

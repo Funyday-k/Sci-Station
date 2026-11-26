@@ -132,7 +132,7 @@ func (a *apiServer) serve(port int) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		stylePolicy := "style-src 'self'"
-		if r.URL.Path == "/" || r.URL.Path == "/research" || r.URL.Path == "/reader" || r.URL.Path == "/static/research.html" || r.URL.Path == "/static/reader.html" {
+		if r.URL.Path == "/" || r.URL.Path == "/research" || r.URL.Path == "/reader" || r.URL.Path == "/tools" || r.URL.Path == "/static/research.html" || r.URL.Path == "/static/reader.html" {
 			// KaTeX and the PDF reader position glyphs and marks dynamically.
 			stylePolicy += " 'unsafe-inline'"
 		}

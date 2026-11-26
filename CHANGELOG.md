@@ -18,6 +18,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Rename, search, archive, and reopen single-seat conversations in AI Lab. Save unsent questions and follow-ups to the active research root and recover them without sending a model request.
 - Review supported Codex or Claude Code file-change requests in the desktop meeting. Forward a one-time decision, cancel the run, and check the outcome reported by the CLI that applies the change.
 - Import a paper's Markdown source or adopt a verified PDFKit or MinerU conversion. AI Lab can find and cite its sections and lines, reopen a reviewed quote, and display evidence-linked comparison rows or candidate research tasks.
+- Inspect MinerU figure attachments before saving, view saved paper figures offline, and locate figure captions in AI Lab. The body preview flags missing images and PDFKit extraction limits.
 - Build and launch the combined macOS research workstation with `make run`. Its native window hosts the shared library, PDF reader, project tools, AI Lab, and multi-seat Roundtable.
 - Keep one copy of a paper across projects with independent pins, ordering and core status. Preview imports, resume failed items, organize collections and tags, and export citations from the library or reader.
 - Follow individual references between Wiki pages, tasks and source passages. Preserve reading position, selected-text offsets and the PDF fingerprint when returning from a meeting.

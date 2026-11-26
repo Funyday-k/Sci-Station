@@ -48,3 +48,34 @@
   padding: 0;
   opacity: 0;
 }
+
+.paper-body-figures img,
+.paper-body-rendered img {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: min(40rem, 66vh);
+  object-fit: contain;
+  margin-block: .6rem;
+}
+
+.paper-body-figures ul {
+  padding-inline-start: 1.35em;
+}
+
+.paper-body-figures li {
+  margin-block: .5rem;
+  overflow-wrap: anywhere;
+}
+
+.paper-body-rendered,
+.paper-body-raw {
+  max-block-size: 32rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.paper-body-raw,
+.paper-body-excerpt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

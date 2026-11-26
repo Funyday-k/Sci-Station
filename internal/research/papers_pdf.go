@@ -23,6 +23,14 @@ func (s *PaperLibrary) downloadMarkdown(w http.ResponseWriter, r *http.Request, 
 		paperReply(w, 422, map[string]string{"error": err.Error()})
 		return
 	}
+	if r.URL.Query().Get("format") == "preview" {
+		text := string(body)
+		paperReply(w, http.StatusOK, struct {
+			Markdown string      `json:"markdown"`
+			Quality  BodyQuality `json:"quality"`
+		}{text, inspectPaperBody(normalizeWorkflowText(text), "pdfkit")})
+		return
+	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": p.Citekey + ".md"}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")

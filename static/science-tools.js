@@ -188,7 +188,7 @@
     $("reminder").disabled = reminderBusy || !tasks.some(t => t.id === $("task").value);
   }
 
-  function renderResult(md, paper, sequence, source) {
+  function renderResult(md, paper, sequence, source, quality) {
     if (sequence !== conversionSequence || $("paper").value !== paper.id) return;
     result = {
       paper,original:md,source,
@@ -196,6 +196,8 @@
       saved: new Map()
     };
     $("markdown").value = md;
+    window.SciPaperBodyPreview.quality($("resultQuality"), quality);
+    window.SciPaperBodyPreview.renderFigures($("resultFigures"), quality?.figures);
     $("result").hidden = false;
     $("saveBody").disabled=!source || (source.kind==="mineru" && !source.bound);
     tell("转换完成，可以编辑、导出或保存到项目");
@@ -253,8 +255,8 @@
       const p = selectedPaper(),
         seq = ++conversionSequence;
       tell("正在从原文提取…");
-      const md = await req("papers/" + p.id + "/markdown", undefined, "text");
-      renderResult(md, p, seq,{kind:"pdfkit"});
+      const output = await req("papers/" + p.id + "/markdown?format=preview");
+      renderResult(output.markdown, p, seq, {kind:"pdfkit"}, output.quality);
     });
     $("remote").onclick = () => busy($("remote"), async () => {
       const v = remoteData(),
@@ -275,7 +277,9 @@
       if (seq !== conversionSequence) return;
       if (s.state === "done") {
         const output=await minerReq("result",d);
-        renderResult(output.markdown,p,seq,{kind:"mineru",batch:d.batch,bound:output.bound,hash:output.sha256});
+        renderResult(output.markdown, p, seq, {
+          kind:"mineru", batch:d.batch, bound:output.bound, hash:output.sha256, assetsHash:output.assetsSha256
+        }, output.quality);
       } else tell("MinerU 任务状态：" + s.state);
     });
     $("getZip").onclick = () => busy($("getZip"), async () => {
@@ -292,9 +296,21 @@
     };
     $("existingBody").onclick=()=>busy($("existingBody"),async()=>{
       const p=selectedPaper(),seq=conversionSequence;
-      const body=await req("papers/"+p.id+"/body",undefined,"text");
+      const body=await req("papers/"+p.id+"/body/preview");
       if(seq!==conversionSequence || p.id!==$("paper").value)return;
-      $("bodyFullText").textContent=body;$("bodyFull").hidden=false;$("bodyFull").open=true;
+      const format = window.SciPaperBodyPreview;
+      const figures = body.quality.figures;
+      format.quality($("bodyQuality"), body.quality);
+      format.renderFigures($("bodyFigures"), figures, {paper:p.id, hash:body.hash});
+      const limit = 120000;
+      const cut = body.markdown.codePointAt(limit - 1) > 0xffff ? limit + 1 : limit;
+      $("bodyPreviewLimit").hidden = body.markdown.length <= cut;
+      window.SciMarkdown.render($("bodyRendered"), body.markdown.slice(0, cut), {
+        allowHTML:true, headingShift:1, resolveImage:format.resolveImages(p.id, body.hash, figures)
+      });
+      $("bodyFullText").textContent=body.markdown;
+      $("bodyFull").hidden=false;
+      $("bodyFull").open=true;
     });
     $("importBody").onclick=()=>busy($("importBody"),async()=>{
       const p=selectedPaper(),file=$("bodyFile").files[0];
@@ -307,15 +323,17 @@
     $("saveBody").onclick=()=>busy($("saveBody"),async()=>{
       const r=result,p=selectedPaper();
       if(!r || r.paper.id!==p.id || r.paper.revision!==p.revision)throw Error("请重新预览当前论文的转换结果。");
-      if($("markdown").value!==r.original)throw Error("编辑后的文本可存为项目笔记。要保存转换原文，请重新预览。");
+      if($("markdown").value!==r.original.replace(/\r\n?/g,"\n"))throw Error("编辑后的文本可存为项目笔记。要保存转换原文，请重新预览。");
       if(!allowReplace(p))return;
       const updated=r.source.kind==="pdfkit"?await req("papers/"+p.id+"/body",{action:"convert",revision:p.revision}):
-        await minerReq("result",{...remoteData(),paper:p.id,batch:r.source.batch,saveSource:true,revision:p.revision,expectedHash:r.source.hash});
+        await minerReq("result",{...remoteData(),paper:p.id,batch:r.source.batch,saveSource:true,revision:p.revision,expectedHash:r.source.hash,expectedAssetsHash:r.source.assetsHash});
       savedBody(updated);
     });
-    $("download").onclick = () => saveBlob(new Blob([$("markdown").value], {
-      type: "text/markdown"
-    }), result.paper.title.replace(/[\/\\:]/g, "-") + ".md");
+    $("download").onclick = () => {
+      const edited = $("markdown").value;
+      const markdown = edited === result.original.replace(/\r\n?/g, "\n") ? result.original : edited;
+      saveBlob(new Blob([markdown], {type:"text/markdown"}), result.paper.title.replace(/[\/\\:]/g, "-") + ".md");
+    };
     $("saveNote").onclick = () => busy($("saveNote"), async () => {
       if (!project || !result) throw Error("请先选择一个科研项目和转换结果");
       const source = result,
@@ -418,6 +436,7 @@
           $("bodyLocatorStatus").textContent=hit.title+" · 版本 "+hit.revision+" · 第 "+hit.line+" 行，第 "+hit.column+" 列";
           const mark=document.createElement("mark");mark.textContent=hit.quote;
           $("bodyLocatorText").replaceChildren(document.createTextNode(hit.before),mark,document.createTextNode(hit.after));
+          window.SciPaperBodyPreview.renderFigures($("bodyLocatorFigures"), hit.figures, {paper:qs.get("paper"),hash:qs.get("fingerprint")});
         } catch(error){if(seq===conversionSequence && scope===project)$("bodyLocatorStatus").textContent="无法核对已保存的引文。"+error.message;}
       }
     }
