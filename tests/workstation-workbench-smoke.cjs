@@ -121,8 +121,8 @@ async function run(app, browser, output, baseline) {
     await snapshot("04-library-import-wide");
     await ui.click("#modal-close");
     await ui.click('[data-library-selection="' + paper.id + '"]');
-    try { await wait(() => visible(rail), "selected paper shows the inspector", 1800); }
-    catch { if (await visible("#shell-inspect")) await ui.click("#shell-inspect"); }
+    if (baseline && !await visible(rail)) await ui.click("#shell-inspect");
+    await wait(() => visible(rail), "selected paper shows the inspector");
     await ui.visible("#rail-context", title);
     check("Selected paper has visible object details", await visible(rail));
     await snapshot("05-library-paper-detail-wide");
