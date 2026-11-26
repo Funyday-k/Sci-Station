@@ -10,7 +10,7 @@ const net = require("node:net");
 const {tmpdir} = require("node:os");
 const path = require("node:path");
 const {setTimeout: delay} = require("node:timers/promises");
-const {chromium} = require("playwright");
+const {chromium, expect} = require("playwright/test");
 
 async function freePort() {
   const listener = net.createServer().listen(0, "127.0.0.1");
@@ -86,12 +86,8 @@ async function smoke(binary) {
     }
     async function assertTagColor(row, color, backgroundColor) {
       const chip = row.locator(".task-label").getByText(tagName, {exact: true});
-      await chip.waitFor();
-      const style = await chip.evaluate(el => {
-        const {color, backgroundColor} = getComputedStyle(el);
-        return {color, backgroundColor};
-      });
-      assert.deepEqual(style, {color, backgroundColor});
+      await expect(chip).toHaveCSS("color", color);
+      await expect(chip).toHaveCSS("background-color", backgroundColor);
     }
 
     await withServer(binary, data, origin, async () => {
