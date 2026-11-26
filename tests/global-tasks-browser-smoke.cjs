@@ -122,7 +122,7 @@ async function smoke(binary) {
       assert.deepEqual(await input.evaluate(el => [el === document.activeElement, el.value, el.selectionStart, el.selectionEnd]),
         [true, "ab星cdef", 3, 3]);
       await page.goto(tasksURL);
-      await page.getByRole("button", {name: "添加任务"}).click();
+      await page.getByRole("button", {name: "新建任务"}).click();
       await modal.locator('[name="title"]').fill(title);
       await modal.locator('[name="dueDate"]').fill(new Date().toISOString().slice(0, 10));
       await modal.locator('[name="dueTime"]').fill("14:30");
@@ -145,7 +145,7 @@ async function smoke(binary) {
       assert.equal(associated.id, taskID);
       assert.deepEqual(associated.projectIds, [project.id]);
 
-      await page.goto(`${tasksURL}&project=${project.id}`);
+      await page.getByRole("combobox", {name: "项目", exact: true}).selectOption(project.id);
       await taskRow.click();
       await modal.getByRole("checkbox", {name: projectName}).uncheck();
       const unassigned = await saveTask();
@@ -163,7 +163,17 @@ async function smoke(binary) {
       await calendarTask.waitFor();
       assert.match(await calendarTask.getAttribute("class"), /\bcompleted\b/);
 
+      const scope = page.getByRole("combobox", {name: "项目", exact: true});
+      await scope.selectOption(project.id);
+      await page.waitForURL(url => url.searchParams.get("project") === project.id);
+      await page.getByRole("button", {name: "切换到列表"}).waitFor();
+      assert.equal(await page.getByRole("button", {name: "已完成", exact: true}).getAttribute("aria-pressed"), "true");
+      await calendarTask.waitFor({state: "hidden"});
+      await scope.selectOption("");
+      await calendarTask.waitFor();
+
       await page.goto(tasksURL);
+      await page.locator(".more-actions summary").click();
       await page.getByRole("button", {name: "管理任务标签"}).click();
       await modal.getByRole("textbox", {name: "标签名称"}).fill(tagName);
       await modal.getByLabel("背景色").fill("#123456");
@@ -185,7 +195,7 @@ async function smoke(binary) {
 
       await page.goto(`${tasksURL}&project=${projectID}`);
       for (const name of [projectTaskTitle, unrelatedTitle]) {
-        await page.getByRole("button", {name: "添加任务"}).click();
+        await page.getByRole("button", {name: "新建任务"}).click();
         await modal.locator('[name="title"]').fill(name);
         if (name === projectTaskTitle) await modal.getByRole("checkbox", {name: tagName}).check();
         else await modal.locator('[name="tags"]').fill("existing-style entry, fieldwork");
@@ -216,6 +226,7 @@ async function smoke(binary) {
       await assertTagColor(taskRow, "rgb(171, 205, 239)", "rgb(17, 34, 51)");
       await assertTagColor(projectRow, "rgb(171, 205, 239)", "rgb(17, 34, 51)");
       await page.getByText(unrelatedTitle, {exact: true}).waitFor({state: "hidden"});
+      await page.locator(".more-actions summary").click();
       await page.getByRole("button", {name: "管理任务标签"}).click();
       await modal.getByRole("button", {name: tagName}).click();
       const removed = await saveTag("删除自定义标签");

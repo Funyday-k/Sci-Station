@@ -443,11 +443,19 @@
       if(model?.efforts.includes("auto")) $("lab-effort").value="auto";
     }
     async function loadModels() {
-      const catalog=await req(studio+"models");
-      models=catalog.models||[];
-      $("lab-model").replaceChildren(...models.map(m=>new Option(m.label||m.id,m.id)));
-      if(models.some(m=>m.id===catalog.default_model)) $("lab-model").value=catalog.default_model;
-      effortOptions(); if(!models.length) throw Error("模型目录为空，请检查圆桌设置。");
+      $("lab-model-state").textContent = "正在读取模型目录…";
+      try {
+        const catalog = await req(studio + "models");
+        models = catalog.models || [];
+        $("lab-model").replaceChildren(...models.map(m => new Option(m.label || m.id, m.id)));
+        if (models.some(m => m.id === catalog.default_model)) $("lab-model").value = catalog.default_model;
+        effortOptions();
+        if (!models.length) throw Error("模型目录为空，请检查圆桌设置。");
+        $("lab-model-state").textContent = "可用模型 · " + models.length;
+      } catch (error) {
+        $("lab-model-state").textContent = error.message;
+        throw error;
+      }
     }
     function sessionURL(id) {return studio+"sessions/"+encodeURIComponent(id);}
     async function start() {

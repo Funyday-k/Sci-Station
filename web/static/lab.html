@@ -13,14 +13,29 @@
 {{end}}
 {{define "content"}}
 <div class="shell"><aside>
-<h2>科研工作流</h2><nav id="presets" aria-label="工作流模板"></nav><button type="button" class="new" id="new">＋ 新建个人模板</button></aside>
+<h2>科研工作流</h2><nav id="presets" aria-label="工作流模板"></nav></aside>
 <main><header><div><h1>AI 实验室</h1></div><label>工作范围<select id="project"></select></label></header>
-<section class="card"><div class="section-head"><h2 id="editor-title">工作流模板</h2><span id="kind"></span></div>
+<details class="card lab-template-settings"><summary>模板与席位设置</summary>
+<div class="section-head"><h2 id="editor-title">工作流模板</h2><span id="kind"></span></div>
 <div class="grid"><label>模板名称<input id="title" maxlength="72" required></label><label>讨论模式<select id="mode"><option value="review">方案评审</option><option value="forum">多方权衡</option><option value="prioritize">优先级排序</option></select></label><label>席位数<select id="seats"><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>
 <label>工作指引<textarea id="prompt" rows="5" maxlength="6500"></textarea></label>
-<div class="actions"><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden>另存副本</button><button id="delete" type="button" hidden>删除个人模板</button></div></section>
+<div class="actions"><button id="new" type="button">新建个人模板</button><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden>另存副本</button><button id="delete" type="button" hidden>删除个人模板</button></div></details>
 <section class="card"><div class="section-head"><h2>本次研究</h2><a id="discovery-link" href="/tools?tab=discover&amp;trigger=lab">文献推荐</a></div><label>研究问题<textarea id="question" rows="3" maxlength="2500" placeholder="填写本次要研究的问题、约束或期望的产物"></textarea></label>
 <div class="actions lab-draft-controls"><button type="button" id="lab-save-question-draft">保存草稿</button><button type="button" id="lab-discard-question-draft">清除草稿</button><span id="lab-question-draft-state" class="hint" role="status"></span></div>
+<div class="lab-run-options">
+<label>运行方式<select id="lab-run-mode"><option value="single">单席工作流</option><option value="roundtable">圆桌讨论</option></select></label>
+<div id="lab-single-controls">
+<div class="run-controls"><label>单席运行模型<select id="lab-model" aria-describedby="lab-model-state"></select></label>
+<label>思考程度<select id="lab-effort"></select></label><button type="button" id="lab-models">读取模型目录</button></div>
+<div class="actions"><button type="button" id="lab-start" class="primary">开始单席工作流</button>
+<span id="lab-model-state" class="hint" role="status">尚未读取模型目录</span></div>
+</div>
+<div id="lab-roundtable-controls" hidden>
+<label>交给圆桌<select id="session"><option value="">新建圆桌</option></select></label>
+<div class="actions"><button type="button" class="primary" id="handoff" disabled>打开会议草稿 →</button>
+<span class="hint" id="roster-hint">在圆桌中复核席位和草稿后开始。</span></div>
+</div>
+</div>
 <fieldset id="local-sources"><legend>项目原文</legend>
 <label>来源<select id="local-record"></select></label>
 <details id="local-search"><summary>检索项目原文</summary><label>检索范围<select id="local-search-scope"><option value="project">项目文本 · 论文 Markdown、笔记和文本材料</option><option value="exact-project">逐份查找 · 包括 PDF</option><option value="record">当前来源</option></select></label>
@@ -84,10 +99,7 @@
 <button type="button" id="connector-call">复核并调用一次</button></div></div></fieldset>
 <div id="preview-panel" hidden><label>原文预览<textarea id="resource-text" rows="5" readonly></textarea></label><p>在上框选中至多 2,000 字，再加入本次会议。</p><button type="button" id="select-excerpt">加入选段</button></div></details>
 <div id="source" hidden><h3>本次选段</h3><p id="source-title"></p><blockquote id="excerpt"></blockquote><button type="button" id="remove">移除选段</button></div>
-<div class="run-controls"><label>单席运行模型<select id="lab-model"></select></label><label>思考程度<select id="lab-effort"></select></label>
-<button type="button" id="lab-models">读取模型目录</button><button type="button" id="lab-start" class="primary">开始单席工作流</button></div>
-<label>交给圆桌<select id="session"><option value="">新建圆桌</option></select></label><p class="hint" id="roster-hint">在圆桌中复核席位和草稿后开始。</p>
-<button type="button" class="primary" id="handoff">打开会议草稿 →</button></section>
+</section>
 <section class="card"><div class="section-head"><h2>单席会话记录</h2><button type="button" id="lab-new-thread">新会话</button></div>
 <div class="lab-thread-filters"><label>搜索会话<input id="lab-thread-search" type="search" maxlength="96"></label>
 <label class="lab-archived-toggle"><input type="checkbox" id="lab-show-archived">显示归档</label></div>

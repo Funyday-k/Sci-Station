@@ -423,8 +423,13 @@
     await loadProject();
     if (tab === "convert") {
       papers = await req("papers");
-      choices($("paper"), papers.map(p => [p.id, p.title]), "暂无本地 PDF");
-      if (qs.get("paper") && papers.some(p => p.id === qs.get("paper"))) $("paper").value = qs.get("paper");
+      const target = qs.get("paper");
+      const missing = target && !papers.some(p => p.id === target);
+      const options = papers.map(p => [p.id, p.title]);
+      if (missing) options.unshift(["", "所选文献不可用"]);
+      choices($("paper"), options, "暂无本地 PDF");
+      if (target && !missing) $("paper").value = target;
+      if (missing) tell("所选文献已移除或不可用。请选择另一篇文献。");
       paperBodyStatus();
       if(qs.has("fingerprint") && qs.has("offset") && qs.has("end") && qs.get("paper") && project) {
         $("bodyLocator").hidden=false;

@@ -38,12 +38,22 @@
     }
   });
   window.addEventListener("pageshow", () => { handingOff = false; });
+  function showRunMode() {
+    const roundtable = $("lab-run-mode").value === "roundtable";
+    $("lab-single-controls").hidden = roundtable;
+    $("lab-roundtable-controls").hidden = !roundtable;
+  }
+  function selectTemplateRunMode() {
+    $("lab-run-mode").value = Number($("seats").value) > 1 ? "roundtable" : "single";
+    showRunMode();
+  }
   function select(p) {
     current=p;const x=p||{title:"",mode:"review",seats:1,prompt:""};original=snapshot(x);
     $("title").value=x.title;$("mode").value=x.mode;$("seats").value=String(x.seats);$("prompt").value=x.prompt;
     $("editor-title").textContent=p?.title||"新建个人模板";$("kind").textContent=p?.builtin?"内置模板":"个人模板";
     $("save").textContent=p&&!p.builtin?"保存更改":"保存为个人模板";
     $("fork").hidden=!p||p.builtin;$("delete").hidden=!p||p.builtin;
+    selectTemplateRunMode();
     for(const b of $("presets").children){b.classList.toggle("active",b.dataset.id===p?.id);b.setAttribute("aria-current",b.dataset.id===p?.id?"true":"false");}
   }
   function renderPresets(){
@@ -99,7 +109,11 @@
       projectSelection();
     }
   });
-  function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
+  function hint() {
+    $("roster-hint").textContent = $("handoff").disabled ? "请先选择科研项目。" :
+      $("session").value ? "工作指引会填入下一轮草稿，延用这场会议的席位。" :
+        "在圆桌中复核席位、模型和草稿后开始。";
+  }
   async function openDraft(){
     const x={...form(),workflow:current?.id || "",projectId:$("project").value,sessionId:$("session").value,question:$("question").value.trim(),resource:source};
     x.skill = await projectContext.resolve(x.projectId);
@@ -115,7 +129,7 @@
   function markSource(v){source=v;$("source").hidden=!v;$("excerpt").textContent=v?.excerpt||"";$("source-title").textContent=v?v.server+" · "+v.uri:"";}
   function action(id,fn){$(id).addEventListener("click",async()=>{
     const button=$(id);button.disabled=true;tell("");
-    try{await fn();}catch(e){tell(e.message||"操作未完成");}finally{button.disabled=id==="handoff"&&!$("project").value;}
+    try{await fn();}catch(e){tell(e.message||"操作未完成");}finally{button.disabled=id==="handoff"&&!projects.some(p=>p.id===$("project").value);}
   });}
   action("new",()=>{if(canLeave()){select(null);$("title").focus();}});
   action("save",()=>save(false));action("fork",()=>save(true));
@@ -202,6 +216,8 @@
   });
   action("remove",()=>markSource(null));
   action("handoff",openDraft);$("project").onchange=()=>projectSelection(true);$("session").onchange=hint;
+  $("lab-run-mode").onchange = showRunMode;
+  $("seats").onchange = selectTemplateRunMode;
   $("endpoint").oninput=projectContext.clearResource;
   $("resources").onchange=resetResource;
   (async()=>{

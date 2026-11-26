@@ -132,6 +132,7 @@ async function smoke(binary) {
       await assertReadable(page.locator("#question"), theme.text);
       await assertReadable(page.locator('label:has(#question)'), theme.small);
       await page.locator("#project").selectOption(project.id);
+      await page.locator("#lab-run-mode").selectOption("roundtable");
       await expect(page.locator("#handoff")).toBeEnabled();
       await expect(page.locator("#handoff")).toHaveCSS("background-color", theme.accent);
       await assertReadable(page.locator("#handoff"), theme.text);

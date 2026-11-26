@@ -217,3 +217,15 @@ textarea { resize: vertical; line-height: 1.5; }
 #lab-audit-content ul { padding-inline-start: 22px; }
 #lab-audit-content li + li { margin-top: 6px; }
 #lab-audit-content code { display: block; }
+
+.lab-template-settings[open] > summary {
+  margin-bottom: 14px;
+}
+
+.lab-run-options {
+  margin-block: 16px 18px;
+}
+
+.lab-run-options .run-controls {
+  margin-block: 8px 12px;
+}

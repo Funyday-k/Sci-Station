@@ -1580,3 +1580,79 @@ h1 > .project-badge {
     filter: invert(1);
   }
 }
+
+.more-actions {
+  position: relative;
+}
+
+.more-actions > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.more-actions > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-actions > summary::after {
+  content: "";
+  width: .45em;
+  height: .45em;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: translateY(-.15em) rotate(45deg);
+}
+
+.more-action-items {
+  position: absolute;
+  z-index: 5;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-start: 0;
+  inline-size: max-content;
+  max-inline-size: min(75vw, 270px);
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.more-action-items > span:not([hidden]) {
+  display: grid;
+  gap: inherit;
+}
+
+.more-action-items .button {
+  justify-content: flex-start;
+  border-color: transparent;
+}
+
+.more-action-items .button:hover {
+  border-color: var(--line);
+}
+
+.paper-selection-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-block: 0 14px;
+}
+
+.paper-selection-actions > span {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.wiki-page-properties {
+  margin-block: 8px 14px;
+}
+
+.wiki-page-properties summary {
+  cursor: pointer;
+}
+
+.wiki-page-properties[open] > summary {
+  margin-block-end: 12px;
+}

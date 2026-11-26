@@ -549,9 +549,10 @@
       '<form class="note-edit"><fieldset class="wiki-fields">' +
       (moving ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' + namespace :
         '<div class="split">' + field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace + '</div>' +
+        '<details class="wiki-page-properties"><summary>' + esc(E.local?.("wikiPageProperties", "页面属性", "Page properties") ?? "页面属性") + '</summary>' +
         field("别名", area("aliases", n?.aliases?.join("\n"), 'aria-label="别名" rows="2" placeholder="每行一个。可用目录/名称指定完整路径。"')) +
         '<div class="split">' + field("关联论文", wikiPaperSelect(n)) +
-        field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div>' + wikiPaperNotice(n) +
+        field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div></details>' + wikiPaperNotice(n) +
         '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
         wikiFormatTools() +
         field("内容", area("body", n?.body, 'aria-label="内容" id="note-body" placeholder="支持 Markdown、数学公式和 [[concept:页面|显示文字]]"')) +
