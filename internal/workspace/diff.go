@@ -88,6 +88,11 @@ func disjointLines(a, b string) bool {
 	}
 	if len(a) > len(b) {
 		a, b = b, a
+		firstA = firstB
+	}
+	// A file consisting of one repeated, terminated line needs no hash index.
+	if len(a) > len(firstA) && len(a)%len(firstA) == 0 && strings.Count(a, firstA) == len(a)/len(firstA) {
+		return !strings.HasPrefix(b, firstA) && !strings.Contains(b, "\n"+firstA)
 	}
 	set := map[string]struct{}{}
 	for pos := 0; pos < len(a); {
@@ -486,16 +491,47 @@ func NormalizePatch(patch string) (string, error) {
 	return out.String(), nil
 }
 
+// A complete replacement has two consecutive blocks: every removed line,
+// then every added line. Count these directly without decoding millions of
+// short lines. Context, multiple hunks and EOF markers use the full parser.
+func wholeReplacementCounts(body string, h diffRange) bool {
+	if body == "" || body[len(body)-1] != '\n' {
+		return false
+	}
+	before, after := body, ""
+	if body[0] == '+' {
+		before, after = "", body
+	} else if i := strings.Index(body, "\n+"); i >= 0 {
+		before, after = body[:i+1], body[i+1:]
+	}
+	validBlock := func(text, prefix string, count int) bool {
+		if text == "" {
+			return count == 0
+		}
+		return count > 0 && len(text)-count <= MaxFileBytes &&
+			strings.HasPrefix(text, prefix) && strings.Count(text, "\n") == count &&
+			strings.Count(text, "\n"+prefix) == count-1
+	}
+	return validBlock(before, "-", h.oldCount) && validBlock(after, "+", h.newCount)
+}
+
 // ParseLineTotals counts additions/removals inside complete unified hunks only.
 // Headers, context and EOF markers are excluded. Normalize legacy patches first;
 // this parser does not reinterpret the edit script or run external commands.
 func ParseLineTotals(patch string) (added, removed int) {
+	firstHunk := true
 	for pos := 0; pos < len(patch); {
 		line, next := nextDiffLine(patch, pos)
 		h, ok := parseDiffRange(line)
 		if !ok {
 			pos = next
 			continue
+		}
+		if firstHunk {
+			if wholeReplacementCounts(patch[next:], h) {
+				return h.newCount, h.oldCount
+			}
+			firstHunk = false
 		}
 		body, err := parseDiffHunk(patch, next, h, false)
 		if err != nil {
