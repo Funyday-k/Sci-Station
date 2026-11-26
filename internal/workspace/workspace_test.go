@@ -192,10 +192,27 @@ func TestConcurrentProcessesAllowOneCommit(t *testing.T) {
 	put(t, project, "file.txt", "base\n", 0644)
 	file, _ := Read(project, "file.txt")
 	results := make(chan string, 2)
+	// Instrumented copies of this test binary emit identical metadata. Give
+	// each writer a separate directory and collect both sets of counters.
+	coverageRoot := os.Getenv("GOCOVERDIR")
+	var coverageDirs [2]string
+	if coverageRoot != "" {
+		for i := range coverageDirs {
+			dir, err := os.MkdirTemp(coverageRoot, "writer-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			coverageDirs[i] = dir
+			t.Cleanup(func() { os.RemoveAll(dir) })
+		}
+	}
 	for i := range 2 {
 		go func(index int) {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestProcessWriterHelper$")
 			cmd.Env = append(os.Environ(), "ROUNDTABLE_WORKSPACE_HELPER=1", "ROUNDTABLE_WORKSPACE_PROJECT="+project, "ROUNDTABLE_WORKSPACE_VERSION="+file.Version, fmt.Sprintf("ROUNDTABLE_WORKSPACE_TEXT=process %d\n", index))
+			if coverageDirs[index] != "" {
+				cmd.Env = append(cmd.Env, "GOCOVERDIR="+coverageDirs[index])
+			}
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				results <- "error: " + string(output)
@@ -205,6 +222,20 @@ func TestConcurrentProcessesAllowOneCommit(t *testing.T) {
 		}(i)
 	}
 	got := []string{<-results, <-results}
+	for _, dir := range coverageDirs {
+		if dir == "" {
+			continue
+		}
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range files {
+			if err := os.Rename(filepath.Join(dir, file.Name()), filepath.Join(coverageRoot, file.Name())); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	if (got[0] != "saved" || got[1] != "conflict") && (got[1] != "saved" || got[0] != "conflict") {
 		t.Fatalf("process results: %q", got)
 	}
