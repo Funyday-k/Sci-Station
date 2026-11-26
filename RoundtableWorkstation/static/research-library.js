@@ -412,13 +412,18 @@
     if (command === "copyCitation") return copyText(active.map(citationLine).join("\n"));
     if (command === "copyBibtex") return copyText(bibtexText(ids));
     if (command === "bibtex") return exportBibtex(ids, false);
+    if (command === "preview") {
+      const paper = active.find(item => item.has_pdf);
+      if (!paper) throw Error(text("所选文献没有本地 PDF", "The selected papers have no local PDF."));
+      return request("papers/" + enc(paper.id) + "/native-file", {method: "POST", body: {action: "open"}});
+    }
     if (active.length !== 1) throw Error("此操作只能用于一篇文献");
     const paper = active[0];
     if (command === "inspector") {
       if (!editing) return E.formAction("edit-paper", paper.id);
       return;
     }
-    if (command === "reader" || command === "preview") {
+    if (command === "reader") {
       if (editing) throw Error("请先保存或关闭当前文献的编辑窗口");
       return location.assign(E.reader(paper.id));
     }
@@ -432,8 +437,18 @@
     });
   }
 
+  document.addEventListener("keydown", event => {
+    if (state.view !== "papers" || !selected.size || event.key !== " " || event.isComposing ||
+        event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (document.querySelector("dialog[open]") || event.target.isContentEditable ||
+        event.target.closest?.("input,textarea,select,button,a,summary,[role=button]")) return;
+    event.preventDefault();
+    paperCommand("preview").catch(error => toast(error.message));
+  });
+
   const paperCommands = new Set(["reader", "externalPDF", "preview", "reveal", "copyCitation", "copyBibtex", "bibtex", "deletePaper", "inspector"]);
   window.addEventListener("scistation:command", event => {
+    if (event.detail === "preview" && state.view !== "papers") return;
     if (!paperCommands.has(event.detail) || event.defaultPrevented || (event.detail==="inspector" && state.view!=="papers")) return;
     event.preventDefault();
     paperCommand(event.detail).catch(error => toast(error.message));

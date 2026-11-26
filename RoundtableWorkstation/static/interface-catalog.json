@@ -24,6 +24,7 @@
   "toolbarSave": {"en": "Save", "zh-Hans": "保存"},
   "menuView": {"en": "View", "zh-Hans": "视图"},
   "menuOpenInReader": {"en": "Open in Reader", "zh-Hans": "在阅读器中打开"},
+  "menuPreviewSelectedPDF": {"en": "Preview Selected PDF", "zh-Hans": "预览选中文献的 PDF"},
   "menuOpenExternalPDF": {"en": "Open External PDF", "zh-Hans": "用外部应用打开 PDF"},
   "menuRevealPaperInFinder": {"en": "Reveal Paper in Finder", "zh-Hans": "在 Finder 中显示论文"},
   "menuCopyCitation": {"en": "Copy Citation", "zh-Hans": "复制引用"},
