@@ -7,6 +7,7 @@
   <title>{{.Title}} · Sci-Station</title>
   <link rel="icon" href="/static/roundtable-mark.png">
   <script src="/static/appearance.js"></script>
+  <link rel="stylesheet" href="/static/workspace-theme.css">
   <script defer src="/static/interface-language.js"></script>
   <script defer src="/static/research-modules.js"></script>
   <script defer src="/static/workspace-setup.js"></script>
@@ -32,7 +33,8 @@
     <a data-project-back hidden href="/research">返回当前项目</a>
     <div class="shell-rail-controls">
       <button id="shell-inspect" type="button" aria-controls="context-rail" aria-pressed="false" data-en="Inspector">检查器</button>
-      <button id="shell-assist" type="button" aria-controls="context-rail" aria-pressed="false">AI</button>
+      <button id="shell-assist" type="button" aria-controls="context-rail" aria-pressed="false" data-en="Ask AI">询问 AI</button>
+      <button id="shell-pin" type="button" aria-pressed="false" hidden data-en="Pin panel">固定侧栏</button>
     </div>
     {{if .Desktop}}<details class="workspace-roots">
       <summary data-l10n-text="toolbarWorkspace">工作区</summary>

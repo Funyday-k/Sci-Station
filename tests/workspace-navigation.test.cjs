@@ -102,6 +102,20 @@ test("global tasks act on the owning project and reload the global calendar", as
   assert.equal(ui.state.project,null);
 });
 
+test("canonical and saved calendar routes open the month in the requested project", async () => {
+  for (const route of [navigation.research("calendar", "A"), "/research?view=tasks&project=A&calendar=1"]) {
+    const {ui, elements, listeners} = mountResearch(route);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(ui.state.calendar, true);
+    assert.equal(ui.state.project.id, "A");
+    assert.match(elements.main.innerHTML, /class="calendar-head"/);
+    await listeners.click({target: {closest: () => ({dataset: {action: "switch-calendar"}, hasAttribute: () => false})}});
+    await ui.refresh();
+    assert.equal(ui.state.calendar, false);
+    assert.doesNotMatch(elements.main.innerHTML, /class="calendar-head"/);
+  }
+});
+
 test("a Wiki page link resolves in its named project after the project loads", async () => {
   const {ui} = mountResearch("/research?view=notes&project=A&note=page-1");
   const opened = [];

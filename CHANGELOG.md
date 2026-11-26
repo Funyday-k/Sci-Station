@@ -38,6 +38,9 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Changed
 
+- Library, Wiki, Tasks and AI Lab prioritize import, creation or starting the current workflow. Project modules live in the project header. Compact windows can open the project switcher without reserving a column.
+- Empty inspectors release reading space. Select an item for details, open AI explicitly or pin the panel. AI Lab and the research views share the selected theme, text size and accent.
+
 - Remember each workspace by its folder identity. If a different folder occupies its saved location, Sci-Station returns to the workspace chooser. Re-selecting a moved workspace retains its existing settings and credential scope.
 
 - Sci-Station now builds from one Go/Wails module at the repository root. The single macOS executable retains the launch animation and uses the Roundtable icon.
@@ -45,6 +48,9 @@ Development, validation, versioning, and release conventions are maintained in `
 - Roundtable discussions and continuous runs use read-only project file access. AI-file changes go through a host-initiated CLI session and its review controls. Existing meeting histories retain old edit records.
 
 ### Fixed
+
+- Project paper imports and linked Wiki saves can complete concurrently. Project removal keeps the shared paper. Shared deletion previews affected records, and Wiki pages with a missing paper retain their source and remain editable.
+- Home opens the task calendar directly. Editing a library search term preserves the insertion point and input-method selection.
 
 - When switching workspaces, the previous workspace stays locked until its final meeting, CLI edit and local request writes finish.
 - Close the desktop window during an active meeting or a native folder picker. Pending operations are cancelled, committed records are preserved and the next process can immediately reopen the workspace.

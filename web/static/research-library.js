@@ -158,6 +158,14 @@
       button(count ? local("menuExportBibTeXForSelection", "导出所选 BibTeX", "Export BibTeX for Selection") : local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-library-bibtex");
   }
 
+  function renderSelectionActions(papers) {
+    const active = selection(papers);
+    if (active.length !== 1 || !active[0].has_pdf) return "";
+    const paper = active[0];
+    return '<div class="paper-selection-actions"><span>' + esc(paper.title) + '</span>' +
+      E.link(text("PDF 转换", "PDF conversion"), E.toolsPage("convert", paper.id)) + '</div>';
+  }
+
   const projectNames = ids => (ids || []).map(id => state.projects.find(project => project.id === id)?.name).filter(Boolean).join("、");
   function tableValue(paper, column) {
     switch (column) {
@@ -209,13 +217,12 @@
       const cells = shown.map(key => {
         if (key === "tags") return '<td>' + (paperTags(paper) || "—") + '</td>';
         if (key === "title") {
-          const link = paper.project_links?.[projectID];
-          const details = [paper.citekey, paper.core_project_ids?.includes(projectID) && "核心文献",
-            link?.is_pinned && "已置顶", link?.sort_order != null && ("序号 " + link.sort_order),
-            link?.folder_path && ("文件夹 " + link.folder_path), link?.use_for?.length && ("用途 " + link.use_for.join("、"))]
-            .filter(Boolean).join(" · ");
+          const marks = [
+            paper.core_project_ids?.includes(projectID) && text("核心文献", "Core paper"),
+            paper.project_links?.[projectID]?.is_pinned && text("已置顶", "Pinned")
+          ].filter(Boolean).map(mark => '<span class="tag status-tag">' + esc(mark) + '</span>').join("");
           return '<th scope="row">' + E.link(paper.title, E.reader(paper.id), "library-paper-title") +
-            (details ? '<span class="meta">' + esc(details) + '</span>' : "") + '</th>';
+            (marks ? '<div class="library-paper-marks">' + marks + '</div>' : "") + '</th>';
         }
         return '<td>' + esc(tableValue(paper, key) || "—") + '</td>';
       }).join("");
@@ -236,12 +243,15 @@
     }});
   }
 
-  function libraryPreferencesForm() {
+  function libraryPreferencesForm({columnsOnly = false} = {}) {
     const revision = state.organization.revision;
     const saved = libraryPreferences();
     const ordered = [...new Set([...saved.visible_columns, ...Object.keys(columns)])];
-    dialog("文献库设置", '<form>' + field("默认导入集合", select("default_collection",
-      [["", "未归类"], ...collectionOptions()], saved.default_collection || "")) +
+    const defaultCollection = columnsOnly ? "" : field("默认导入集合", select("default_collection",
+      [["", "未归类"], ...collectionOptions()], saved.default_collection || ""));
+    const bibliography = columnsOnly ? "" : '<p class="form-help">工作区书目保存于 <code>research/library/refs/library.bib</code>。</p>' +
+      '<a class="bare" href="/api/research/papers/bibliography" download="library.bib">下载工作区书目</a>';
+    dialog(columnsOnly ? local("toolbarLibraryColumns", "表格列", "Table columns") : "文献库设置", '<form>' + defaultCollection +
       '<fieldset><legend>显示列与顺序</legend><ol data-library-columns class="library-columns">' +
       ordered.map(key => '<li data-column="' + key + '"><label><input type="checkbox" value="' + key + '"' +
         (saved.visible_columns.includes(key) ? " checked" : "") + '> ' + esc(columns[key]) +
@@ -249,13 +259,14 @@
         '">↑</button><button type="button" class="bare" data-move="1" aria-label="下移' + esc(columns[key]) +
         '">↓</button></div></li>').join("") +
       '</ol><button type="button" class="button" data-reset-columns>恢复默认列</button></fieldset>' +
-      '<p class="form-help">工作区书目保存于 <code>research/library/refs/library.bib</code>。</p>' +
-      '<a class="bare" href="/api/research/papers/bibliography" download="library.bib">下载工作区书目</a>' +
-      formFooter("保存设置") + '</form>', {wide: true});
+      bibliography + formFooter("保存设置") + '</form>', {wide: true});
     const form = bindForm(async (form, token) => {
       const visible = [...form.querySelectorAll("[data-column] input:checked")].map(input => input.value);
       if (!visible.length) throw Error("请至少保留一个文献列");
-      const next = {visible_columns: visible, default_collection: value(form, "default_collection")};
+      const next = {
+        visible_columns: visible,
+        default_collection: columnsOnly ? saved.default_collection || "" : value(form, "default_collection")
+      };
       if (visible.includes(saved.sort_column)) {
         next.sort_column = saved.sort_column;
         next.sort_descending = Boolean(saved.sort_descending);
@@ -428,8 +439,8 @@
       return location.assign(E.reader(paper.id));
     }
     if (command === "deletePaper") {
-      if (editing) throw Error("请在当前文献的编辑窗口中确认删除");
-      return E.formAction("confirm-delete", "paper:" + paper.id);
+      if (editing) throw Error(text("请在当前文献编辑窗口中选择移除方式", "Choose a removal action in the open paper editor."));
+      return state.project ? E.formAction("confirm-paper-unlink", paper.id) : E.formAction("confirm-delete", "paper:" + paper.id);
     }
     if (!paper.has_pdf) throw Error("此文献尚无本地 PDF");
     return request("papers/" + enc(paper.id) + "/native-file", {
@@ -539,6 +550,7 @@
       return manageLibrary();
     }
     if (action === "library-preferences") return libraryPreferencesForm();
+    if (action === "library-columns") return libraryPreferencesForm({columnsOnly: true});
     if (action === "show-citation") return window.SciStationCitations?.open(id);
     if (action === "sort-library-column") {
       const library = libraryPreferences();
@@ -560,6 +572,6 @@
   };
 
   E.library = {visiblePaperIds:()=>visiblePapers.map(p=>p.id), selectedPapers:()=>selection(visiblePapers),lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
-    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection, bulkPatch, renderPaperTable};
+    filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, renderSelectionActions, clearSelection, bulkPatch, renderPaperTable};
   E.start();
 })();

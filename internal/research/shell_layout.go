@@ -11,6 +11,7 @@ import (
 
 type shellLayout struct {
 	Mode              string   `json:"mode"`
+	PanelPinned       bool     `json:"panelPinned"`
 	Width             int      `json:"width"`
 	TreeExpanded      bool     `json:"treeExpanded"`
 	TopOrder          []string `json:"topOrder"`
@@ -20,10 +21,20 @@ type shellLayout struct {
 }
 
 func readShellLayout(fields map[string]json.RawMessage) (shellLayout, error) {
-	state := shellLayout{Mode: "inspector", Width: 360, TreeExpanded: true, TopOrder: []string{}, TabOrder: []string{}, PinnedProjects: []string{}, CollapsedProjects: []string{}}
+	state := shellLayout{Mode: "hidden", Width: 360, TreeExpanded: true, TopOrder: []string{}, TabOrder: []string{}, PinnedProjects: []string{}, CollapsedProjects: []string{}}
 	if raw, ok := fields["shellLayout"]; ok {
-		if json.Unmarshal(raw, &state) != nil || !slices.Contains([]string{"inspector", "ai", "hidden"}, state.Mode) || state.Width < 200 || state.Width > 640 {
+		// Previous releases opened the inspector by default. Only a saved AI
+		// mode is unambiguously a deliberate choice in those layouts.
+		stored := struct {
+			*shellLayout
+			PinPreference *bool `json:"panelPinned"`
+		}{shellLayout: &state}
+		if json.Unmarshal(raw, &stored) != nil || !slices.Contains([]string{"inspector", "ai", "hidden"}, state.Mode) || state.Width < 200 || state.Width > 640 {
 			return state, errors.New("invalid shell layout")
+		}
+		state.PanelPinned = state.Mode == "ai"
+		if stored.PinPreference != nil {
+			state.PanelPinned = *stored.PinPreference
 		}
 	}
 	return state, nil
@@ -31,6 +42,7 @@ func readShellLayout(fields map[string]json.RawMessage) (shellLayout, error) {
 
 type shellLayoutChange struct {
 	Mode         *string   `json:"mode"`
+	PanelPinned  *bool     `json:"panelPinned"`
 	Width        *int      `json:"width"`
 	TreeExpanded *bool     `json:"treeExpanded"`
 	TopOrder     *[]string `json:"topOrder"`
@@ -101,6 +113,12 @@ func (s *Service) shellLayout(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Mode != nil {
 		state.Mode = *in.Mode
+	}
+	if in.PanelPinned != nil {
+		state.PanelPinned = *in.PanelPinned
+	}
+	if state.Mode == "hidden" {
+		state.PanelPinned = false
 	}
 	if in.Width != nil {
 		state.Width = *in.Width

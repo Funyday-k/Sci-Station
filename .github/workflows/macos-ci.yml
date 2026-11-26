@@ -83,6 +83,15 @@ jobs:
         run: python3 tests/macos-close-smoke.py "$RUNNER_TEMP/Sci-Station.app"
       - name: Review a paper excerpt and reopen its source in WKWebView
         run: node tests/workstation-workflow-smoke.cjs --native "$RUNNER_TEMP/Sci-Station.app"
+      - name: Exercise workbench navigation, editing and appearance in WKWebView
+        run: node tests/workstation-workbench-smoke.cjs "$RUNNER_TEMP/Sci-Station.app" "$RUNNER_TEMP/workbench-ui" --short-display
+      - name: Upload workbench views when an interaction fails
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: workbench-interactions
+          path: ${{ runner.temp }}/workbench-ui
+          if-no-files-found: ignore
       - name: Exercise native menu navigation and cross-root access revocation
         run: node tests/workstation-native-menu-smoke.cjs "$RUNNER_TEMP/Sci-Station.app"
       - name: Package the tested desktop build

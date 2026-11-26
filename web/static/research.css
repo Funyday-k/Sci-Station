@@ -1,62 +1,21 @@
+/* Local component aliases for shared workbench roles. */
 :root {
-  --bg: #fbfbfd;
-  --side: #f2f2f6;
-  --surface: #fff;
-  --ink: #22232e;
-  --soft: #5c5f70;
-  --muted: #6e7080;
-  --line: #dfdfe8;
-  --fill: #f3f3f8;
-  --accent: #5047bf;
-  --tint: #eeedfd;
-  --accent2: #383093;
-  --danger: #a52f42;
-  --shadow: 0 6px 30px #24244213;
-  font: 14px/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
-  color-scheme: light;
-  --rad: 14px
-}
-
-:root[data-color-theme=teal] {
-  --accent: #167169;
-  --accent2: #0c5a53;
-  --tint: #e4f3f0
-}
-
-:root[data-color-theme=amber] {
-  --accent: #98631a;
-  --accent2: #774a10;
-  --tint: #fbf0d9
-}
-
-:root[data-color-theme=blue] {
-  --accent: #2768a1;
-  --accent2: #184d7c;
-  --tint: #e5effb
-}
-
-:root[data-theme=dark] {
-  --bg: #1d1d23;
-  --side: #19191f;
-  --surface: #25252d;
-  --ink: #f3f2f7;
-  --soft: #c0becc;
-  --muted: #aca9b9;
-  --line: #3b3b47;
-  --fill: #2d2d39;
-  --accent: #b9b3ff;
-  --accent2: #d5d0ff;
-  --tint: #302e4a;
-  --danger: #ff9cae;
-  color-scheme: dark
-}
-
-:root[data-text-size=large] {
-  font-size: 16px
-}
-
-:root[data-text-size=extra-large] {
-  font-size: 18px
+  --bg: var(--workspace-paper);
+  --paper: var(--workspace-paper);
+  --side: var(--workspace-inset);
+  --surface: var(--workspace-surface);
+  --ink: var(--workspace-ink);
+  --soft: var(--workspace-muted);
+  --muted: var(--workspace-muted);
+  --line: var(--workspace-line);
+  --fill: var(--workspace-inset);
+  --accent: var(--workspace-accent);
+  --tint: var(--workspace-accent-soft);
+  --accent2: var(--workspace-accent);
+  --danger: var(--workspace-danger);
+  --shadow: var(--workspace-shadow);
+  --rad: 14px;
+  font: var(--workspace-text)/1.52 var(--workspace-font);
 }
 
 * {
@@ -226,11 +185,11 @@ p {
   align-items: center;
   justify-content: space-between;
   color: var(--muted);
-  font-size: .82rem
+  font-size: var(--workspace-text-small)
 }
 
-.project-item {
-  font-size: .91rem
+.project-item:not(.active) {
+  color: var(--ink)
 }
 
 .project-item span:last-child {
@@ -270,7 +229,7 @@ p {
   gap: 8px;
   align-items: center;
   color: var(--muted);
-  font-size: .9rem
+  font-size: var(--workspace-text-small)
 }
 
 #crumb strong {
@@ -307,8 +266,10 @@ kbd {
 }
 
 .collapsed #sidebar {
-  visibility: hidden
+  display: none
 }
+
+.collapsed #workarea { grid-column: 2; }
 
 main {
   max-width: 1380px;
@@ -372,7 +333,7 @@ main {
 
 .button {
   background: var(--surface);
-  border: 1px solid var(--line)
+  border: 1px solid var(--workspace-control-line)
 }
 
 .button:hover {
@@ -382,12 +343,8 @@ main {
 
 .button.primary {
   background: var(--accent);
-  color: white;
+  color: var(--workspace-accent-ink);
   border-color: var(--accent)
-}
-
-:root[data-theme=dark] .button.primary {
-  color: #211c39
 }
 
 .button.primary:hover {
@@ -400,7 +357,7 @@ main {
 }
 
 .bare {
-  font-size: .88rem;
+  font-size: var(--workspace-text-small);
   color: var(--accent);
   padding: 5px 7px;
   min-height: 30px
@@ -408,7 +365,7 @@ main {
 
 .chip {
   color: var(--soft);
-  font-size: .88rem;
+  font-size: var(--workspace-text-small);
   padding: 4px 12px;
   min-height: 31px;
   border: 1px solid transparent
@@ -560,9 +517,17 @@ main {
 .meta {
   display: block;
   color: var(--muted);
-  font-size: .85rem;
+  font-size: var(--workspace-text-small);
+  font-weight: 400;
   margin-top: 3px;
   overflow-wrap: anywhere
+}
+
+.row-facts {
+  display: block;
+  color: var(--ink);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
 }
 
 .glyph {
@@ -584,7 +549,14 @@ main {
   border-radius: 5px;
   white-space: nowrap;
   color: var(--soft);
-  font-size: .75rem
+  font-size: var(--workspace-text-small)
+}
+
+.tag.status-tag {
+  color: var(--accent);
+  background: var(--tint);
+  font-size: var(--workspace-text);
+  font-weight: 550;
 }
 
 .empty {
@@ -664,11 +636,12 @@ dialog:has([data-library-paper]) .dialog-head {
 .library-table-scroll { overflow-x: auto; }
 .library-table { width: 100%; border-collapse: collapse; text-align: left; }
 .library-table th, .library-table td { padding: .65rem .75rem; border-bottom: 1px solid var(--line); }
+.library-paper-marks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .library-table tbody tr:last-child > * { border-bottom: 0; }
-.library-table thead th { white-space: nowrap; font-size: .85rem; }
+.library-table thead th { white-space: nowrap; font-size: var(--workspace-text-small); }
 .library-table th[aria-sort="ascending"] .bare::after { content: " ↑"; }
 .library-table th[aria-sort="descending"] .bare::after { content: " ↓"; }
-.library-paper-title { font-weight: 650; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
+.library-paper-title { color: var(--ink); font-weight: 650; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
 .library-paper-title:hover { color: var(--accent); }
 .library-table .paper-tags { max-width: 12rem; }
 .library-table-actions { display: flex; gap: .3rem; white-space: nowrap; }
@@ -677,17 +650,29 @@ dialog:has([data-library-paper]) .dialog-head {
 
 .query,
 .field input,
-.field select,
-.graph-picker select,
+select,
 .graph-picker input,
 .field textarea,
 .query-input {
+  color: var(--ink);
+  font-size: var(--workspace-text);
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--workspace-control-line);
   border-radius: 8px;
   padding: 9px 11px;
-  width: 100%;
   min-width: 0
+}
+
+.query,
+.query-input,
+.field :is(input, select, textarea),
+.graph-picker :is(input, select) {
+  width: 100%
+}
+
+:is(input, textarea)::placeholder {
+  color: var(--muted);
+  opacity: 1
 }
 
 .query {
@@ -745,7 +730,7 @@ dialog::backdrop {
   gap: 5px;
   margin-bottom: 13px;
   color: var(--soft);
-  font-size: .92rem
+  font-size: var(--workspace-text-small)
 }
 
 .field span:first-child {
@@ -763,7 +748,7 @@ dialog::backdrop {
   margin: 0 0 13px;
   border: 0;
   color: var(--soft);
-  font-size: .92rem
+  font-size: var(--workspace-text-small)
 }
 
 .task-picker legend {
@@ -809,7 +794,7 @@ dialog::backdrop {
   border-radius: 5px;
   background: var(--task-label-bg);
   color: var(--task-label-fg);
-  font-size: .75rem;
+  font-size: var(--workspace-text-small);
   text-align: left;
   overflow-wrap: anywhere
 }
@@ -918,7 +903,7 @@ dialog::backdrop {
 .task-check {
   width: 22px;
   height: 22px;
-  border: 1.5px solid var(--line);
+  border: 1.5px solid var(--workspace-control-line);
   color: var(--accent);
   border-radius: 6px;
   flex: none;
@@ -956,7 +941,7 @@ dialog::backdrop {
   padding: 7px;
   text-align: center;
   color: var(--muted);
-  font-size: .82rem;
+  font-size: var(--workspace-text-small);
   border-top: 1px solid var(--line)
 }
 
@@ -994,7 +979,7 @@ dialog::backdrop {
   color: var(--accent);
   padding: 2px 4px;
   margin: 2px 0;
-  font-size: .77rem
+  font-size: var(--workspace-text-small)
 }
 
 .day-task.completed {
@@ -1120,7 +1105,7 @@ dialog::backdrop {
 
 .form-help {
   color: var(--muted);
-  font-size: .84rem;
+  font-size: var(--workspace-text-small);
   margin: 4px 0 10px
 }
 
@@ -1222,21 +1207,19 @@ dialog::backdrop {
   }
 }
 
-@media(max-width:760px) {
+@media(max-width:999px) {
   #shell {
     grid-template-columns: 0 minmax(0, 1fr)
   }
 
-  #sidebar {
-    visibility: hidden
-  }
+  #sidebar { display: none; }
 
   .mobile-open #sidebar {
-    visibility: visible;
+    display: flex;
     position: fixed;
-    inset: 58px auto 0 0;
+    inset: calc(58px + var(--workspace-bar-height)) auto 0 0;
     width: 215px;
-    height: calc(100vh - 58px);
+    max-height: calc(100dvh - 58px - var(--workspace-bar-height));
     z-index: 5;
     box-shadow: var(--shadow)
   }
@@ -1244,7 +1227,9 @@ dialog::backdrop {
   #workarea {
     grid-column: 2
   }
+}
 
+@media(max-width:760px) {
   .columns {
     grid-template-columns: 1fr
   }
@@ -1278,7 +1263,7 @@ dialog::backdrop {
     grid-template-columns: 1fr
   }
 
-  .row .tag {
+  .row .tag:not(.status-tag) {
     display: none
   }
 }
@@ -1596,4 +1581,80 @@ h1 > .project-badge {
   .project-symbols img {
     filter: invert(1);
   }
+}
+
+.more-actions {
+  position: relative;
+}
+
+.more-actions > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.more-actions > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-actions > summary::after {
+  content: "";
+  width: .45em;
+  height: .45em;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: translateY(-.15em) rotate(45deg);
+}
+
+.more-action-items {
+  position: absolute;
+  z-index: 5;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-start: 0;
+  inline-size: max-content;
+  max-inline-size: min(75vw, 270px);
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.more-action-items > span:not([hidden]) {
+  display: grid;
+  gap: inherit;
+}
+
+.more-action-items .button {
+  justify-content: flex-start;
+  border-color: transparent;
+}
+
+.more-action-items .button:hover {
+  border-color: var(--line);
+}
+
+.paper-selection-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-block: 0 14px;
+}
+
+.paper-selection-actions > span {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.wiki-page-properties {
+  margin-block: 8px 14px;
+}
+
+.wiki-page-properties summary {
+  cursor: pointer;
+}
+
+.wiki-page-properties[open] > summary {
+  margin-block-end: 12px;
 }

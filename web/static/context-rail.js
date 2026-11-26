@@ -6,7 +6,7 @@
   const req=layout.request;
   const reader=()=>document.body.dataset.workspaceSurface==="reader";
   const narrow=matchMedia("(max-width:999px)");
-  const recommendations=matchMedia("(max-width:1279px)");
+  let selectedObject=null, requestedMode=null;
   const projectNames=new Map();
   let context, draftContext, key="", generation=0, room=null, busy=false, models=[], poll=0;
   let catalogScope="", moduleEnabled=false, runLookup="";
@@ -19,17 +19,28 @@
     const url=new URL(location.href), params=url.searchParams, project=params.get("project") || "";
     const research=window.SciResearch?.state, data=research?.project?.id===project || !project && !research?.project ? research:null;
     const view=params.get("view") || "overview";
-    const selection=data?.view==="papers" ? window.SciResearch.library?.selectedPapers?.() || [] : [];
+    if(selectedObject?.route!==url.href)selectedObject=null;
+    const selection=view==="papers" && data?.view==="papers" ? window.SciResearch.library?.selectedPapers?.() || [] : [];
     const paper=reader()?window.SciShellReader?.():selection.length===1?selection[0]:null;
-    const note=data?.notes?.find(n=>n.id===params.get("note")), task=data?.tasks?.find(t=>t.id===params.get("task"));
+    const note=data?.notes?.find(n=>n.id===(selectedObject ? selectedObject.note : params.get("note")));
+    const task=data?.tasks?.find(t=>t.id===(selectedObject ? selectedObject.task : params.get("task")));
     const title=(selection.length>1 ? text("已选 "+selection.length+" 篇文献",selection.length+" papers selected") : "") || paper?.title || note?.title || task?.title || document.getElementById("view-title")?.textContent ||
       (data?.project && view==="overview" ? data.project.name : document.title.split(" · ")[0]);
     const noteExcerpt=note ? Array.from((note.body || "").replace(/\r\n?/g,"\n")).slice(0,1000).join("").trim() : "";
     const facts=paper ? [
       [text("作者","Authors"),paper.authors?.join(", ")],[text("年份","Year"),paper.year],["DOI",paper.doi],["arXiv",paper.arxiv],
-      [text("阅读状态","Reading status"),paper.status]
-    ].filter(([,value])=>Boolean(value)) : task ? [[text("状态","Status"),task.status],[text("截止时间","Due"),task.dueDate]].filter(([,value])=>value) : [];
-    return {project,projectName:data?.project?.name || projectNames.get(project) || "",facts, path:url.pathname,view, paper:paper?.id || "",
+      [text("阅读状态","Reading status"),window.SciResearch?.statusLabel[paper.status] || paper.status]
+    ] : task ? [
+      [text("状态","Status"),window.SciResearch.statusLabel[task.status] || task.status],
+      [text("截止时间","Due"),[task.dueDate,task.dueTime].filter(Boolean).join(" ")],
+      [text("标签","Tags"),task.tags?.join(", ")],
+      [text("说明","Description"),task.description]
+    ] : note ? [
+      [text("目录","Folder"),note.namespace],
+      [text("标签","Tags"),note.tags?.join(", ")],
+      [text("别名","Aliases"),note.aliases?.join(", ")]
+    ] : [];
+    return {project,projectName:data?.project?.name || projectNames.get(project) || "",facts:facts.filter(([,value])=>Boolean(value)), path:url.pathname,view, paper:paper?.id || "",
       visiblePaperIds:project && data?.view==="papers" ? window.SciResearch.library?.visiblePaperIds?.() : undefined,
       note:note?.id || "",task:task?.id || "",meeting:params.get("session") || "", title:title || "",
       page:paper?.page || 0, quote:paper?.quote || noteExcerpt, citation:paper?.citation || null};
@@ -55,8 +66,10 @@
   function routeLink(c,id){return window.SciStationNav.route("/research",{project:c.project,view:id});}
   function mode(){
     const state=layout.state;
-    if(!state || narrow.matches || (recommendations.matches && context?.path==="/tools" && new URL(location.href).searchParams.get("tab")==="discover"))return "hidden";
-    return state.mode;
+    if(!state)return "hidden";
+    if(state.panelPinned)return state.mode;
+    if(requestedMode)return requestedMode;
+    return context?.paper || context?.note || context?.task ? "inspector" : "hidden";
   }
   function update() {
     const next=contextOf(), nextKey=draftKey(next);
@@ -68,6 +81,7 @@
     }
     const changedScope=context?.project!==next.project;
     if(nextKey!==key){
+      requestedMode=null;
       rememberDraft(); key=nextKey;draftContext=null;node("rail-prompt").value="";
       try{const old=JSON.parse(storage.get(key));if(old?.context?.project===next.project){node("rail-prompt").value=old.value;draftContext=old.context;}}catch{}
     }
@@ -77,14 +91,20 @@
     const {body}=document, rail=node("context-rail"), divider=node("shell-divider");
     body.dataset.railMode=active;
     rail.hidden=active==="hidden" || nativeInspector;
-    divider.hidden=active==="hidden";
+    divider.hidden=active==="hidden" || narrow.matches;
     const lower=active==="ai"?240:200, upper=active==="ai"?640:560;
     const width=Math.min(upper,Math.max(lower,layout.state?.width || 360));
     body.style.setProperty("--shell-panel-width",width+"px");
     divider.setAttribute("aria-valuemin",String(lower));divider.setAttribute("aria-valuemax",String(upper));divider.setAttribute("aria-valuenow",String(width));
+    node("shell-inspect").setAttribute("aria-controls",reader()?"reader-inspector":"context-rail");
     node("shell-inspect").setAttribute("aria-pressed",String(active==="inspector"));
     node("shell-assist").setAttribute("aria-pressed",String(active==="ai"));
-    node("shell-inspect").disabled=node("shell-assist").disabled=narrow.matches || !layout.state;
+    node("shell-inspect").disabled=node("shell-assist").disabled=!layout.state;
+    node("shell-pin").hidden=active==="hidden";
+    node("shell-pin").setAttribute("aria-pressed",String(Boolean(layout.state?.panelPinned)));
+    for(const detail of document.querySelectorAll("[data-inspect-object]")){
+      detail.setAttribute("aria-pressed",String(active==="inspector" && context[detail.dataset.inspectObject]===detail.dataset.id));
+    }
     node("rail-title").textContent=active==="ai"?"AI":text("检查器","Inspector");
     node("rail-context").textContent=[context.projectName || context.project,context.title,context.page?text("第 "+context.page+" 页","Page "+context.page):""].filter(Boolean).join(" · ");
     node("rail-inspect").hidden=active!=="inspector";
@@ -102,17 +122,25 @@
     if(c.paper) {
       items.push(anchor(text("打开阅读器","Open reader"),window.SciStationNav.route("/reader",{project:c.project,paper:c.paper})));
       items.push(button(text("文献元数据","Paper metadata"),()=>window.SciStationNav.command("inspector")));
-    } else if(c.view==="notes" && c.note) {
+    } else if(c.note) {
+      if(c.quote){
+        const preview=document.createElement("p");
+        preview.className="rail-note-preview";
+        preview.textContent=c.quote.replace(/^---\n[\s\S]*?\n---(?:\n|$)/,"").trim().slice(0,320);
+        if(preview.textContent)items.push(preview);
+      }
       items.push(button(text("打开知识笔记","Open Wiki page"),()=>window.SciResearch.formAction("read-note",c.note)));
     } else if(c.task) {
       items.push(button(text("打开任务","Open task"),()=>window.SciResearch.formAction("edit-task",c.task)));
     }
-    items.push(button(text("询问当前视图","Ask about this view"),()=>layout.save({mode:"ai"})));
-    items.push(button(text("刷新当前视图","Refresh view"),()=>window.SciResearch?.refresh?.() ?? location.reload()));
-    if(c.project)items.push(anchor(text("项目概览","Project overview"),routeLink(c,"overview")));
-    if(c.path==="/research" && (c.view==="projects" || c.project))items.push(button(text("新建项目","New project"),()=>window.SciStationNav.command("newProject")));
-    if(c.view==="tasks")items.push(anchor(text("全部任务","All tasks"),"/research?view=tasks"));
-    if(document.querySelector(".workspace-roots"))items.push(button(text("在 Finder 中显示工作区","Reveal workspace"),()=>window.SciStationNav.command("revealWorkspace")));
+    items.push(button(text("询问当前视图","Ask about this view"),()=>showMode("ai")));
+    if(!c.paper && !c.note && !c.task){
+      items.push(button(text("刷新当前视图","Refresh view"),()=>window.SciResearch?.refresh?.() ?? location.reload()));
+      if(c.project)items.push(anchor(text("项目概览","Project overview"),routeLink(c,"overview")));
+      if(c.path==="/research" && (c.view==="projects" || c.project))items.push(button(text("新建项目","New project"),()=>window.SciStationNav.command("newProject")));
+      if(c.view==="tasks")items.push(anchor(text("全部任务","All tasks"),"/research?view=tasks"));
+      if(document.querySelector(".workspace-roots"))items.push(button(text("在 Finder 中显示工作区","Reveal workspace"),()=>window.SciStationNav.command("revealWorkspace")));
+    }
     node("rail-inspect").replaceChildren(...items);
   }
   function drawAI() {
@@ -244,11 +272,27 @@
     } catch(err){if(ticket===generation)status(err.message);}
     finally{if(ticket===generation){busy=false;drawAI();}}
   }
-  function toggle(mode){
-    if(!layout.state || narrow.matches)return;
-    layout.save({mode:layout.state.mode===mode?"hidden":mode}).catch(()=>{});
+  function showMode(next){
+    if(!layout.state)return;
+    requestedMode=next;
+    if(layout.state.panelPinned){
+      return layout.save({mode:next,panelPinned:next!=="hidden"}).catch(()=>{});
+    }else update();
   }
-  node("shell-inspect").onclick=()=>toggle("inspector");node("shell-assist").onclick=()=>toggle("ai");
+  function toggle(next){showMode(mode()===next ? "hidden" : next);}
+  function selectObject(kind,id,open=false){
+    const deselect=open && mode()==="inspector" && context?.[kind]===id;
+    selectedObject=deselect ? {route:location.href} : {route:location.href,[kind]:id};
+    update();
+    if(open && !deselect && mode()!=="inspector")showMode("inspector");
+  }
+  node("shell-inspect").onclick=()=>toggle("inspector");
+  node("shell-assist").onclick=()=>toggle("ai");
+  node("shell-pin").onclick=()=>{
+    if(!layout.state || mode()==="hidden")return;
+    requestedMode=mode();
+    layout.save({mode:requestedMode,panelPinned:!layout.state.panelPinned}).catch(()=>{});
+  };
   node("rail-prompt").oninput=()=>{if(!draftContext)draftContext={...context};rememberDraft();};
   node("rail-prompt").onkeydown=e=>{if(e.key==="Enter" && (e.metaKey || e.ctrlKey)){e.preventDefault();send();}};
   node("rail-model").onchange=()=>{effortOptions();drawAI();};
@@ -269,16 +313,19 @@
   divider.onpointerup=e=>{if(divider.hasPointerCapture(e.pointerId)){divider.releasePointerCapture(e.pointerId);commitWidth(innerWidth-e.clientX);}};
   divider.onkeydown=e=>{if(!["ArrowLeft","ArrowRight"].includes(e.key))return;e.preventDefault();commitWidth(Number(divider.getAttribute("aria-valuenow"))+(e.key==="ArrowLeft"?16:-16));};
   window.addEventListener("scistation:command",e=>{
-    if(e.detail!=="inspector" || narrow.matches)return;
+    if(e.detail!=="inspector")return;
     if(reader()){
-      if(mode()!=="inspector")layout.save({mode:"inspector"}).then(()=>document.querySelector('.layout>aside [role="tab"][aria-selected="true"]')?.focus()).catch(()=>{});
+      if(mode()!=="inspector"){
+        e.preventDefault();
+        Promise.resolve(showMode("inspector")).then(()=>document.querySelector('#reader-inspector [aria-selected="true"]')?.focus());
+      }
       return;
     }
     if(context?.view==="papers")return;
     e.preventDefault();toggle("inspector");
   });
-  window.SciContextRail={update};
-  narrow.addEventListener("change",update);recommendations.addEventListener("change",update);
+  window.SciContextRail={update,selectObject};
+  narrow.addEventListener("change",update);
   window.addEventListener("sci:shell-layout",update);window.addEventListener("sci:language",update);
   document.addEventListener("DOMContentLoaded",()=>{update();new MutationObserver(update).observe(document.querySelector("title"),{childList:true});});
 })();

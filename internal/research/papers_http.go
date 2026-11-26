@@ -429,11 +429,18 @@ func (s *PaperLibrary) importHTTP(w http.ResponseWriter, r *http.Request, previe
 				return
 			}
 		}
-		if err := s.validate(&input.PaperMetadata, nil); err != nil {
+		if err := validatePaperMetadata(&input.PaperMetadata); err != nil {
 			paperError(w, err)
 			return
 		}
 		existing, err := s.findImport(input.PaperMetadata, digest)
+		if err != nil {
+			paperError(w, err)
+			return
+		}
+		releaseProjects := s.holdProjects()
+		err = s.validateProjects(input.ProjectIDs, existing.ProjectIDs)
+		releaseProjects()
 		if err != nil {
 			paperError(w, err)
 			return

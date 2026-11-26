@@ -192,9 +192,12 @@ func New(dir string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.papers.SetProjectValidator(s.projectExists)
+	s.papers.projectReadLock = s.mu.RLocker()
+	s.papers.SetProjectValidator(s.activeProjectLocked)
 	s.mux.Handle(prefix+"/papers", s.papers)
 	s.mux.Handle(prefix+"/papers/", s.papers)
+	s.mux.HandleFunc("GET "+prefix+"/papers/{paper}/removal", s.paperRemoval)
+	s.mux.HandleFunc("DELETE "+prefix+"/papers/{paper}/removal", s.paperRemoval)
 	s.mux.HandleFunc("GET "+prefix+"/paper-wiki-status", s.paperWikiStatus)
 	s.mux.HandleFunc("GET "+prefix+"/projects", s.listProjects)
 	s.mux.HandleFunc("POST "+prefix+"/projects", s.createProject)
@@ -233,20 +236,16 @@ func (s *Service) SetPathValidator(allowed func(string) bool) {
 	s.pathValidator = allowed
 }
 
-// Archived projects remain valid identities for existing shared library records.
-func (s *Service) projectExists(id string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, exists := s.projects[id]
-	return exists
+func (s *Service) activeProjectLocked(id string) bool {
+	d, exists := s.projects[id]
+	return exists && !d.Archived
 }
 
 // HasActiveProject resolves an active project before a scoped operation.
 func (s *Service) HasActiveProject(id string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	d, ok := s.projects[id]
-	return ok && !d.Archived
+	return s.activeProjectLocked(id)
 }
 func (s *Service) recordPath(id string) string { return filepath.Join(s.dir, "records", id+".json") }
 func (s *Service) commit(d projectData) error {

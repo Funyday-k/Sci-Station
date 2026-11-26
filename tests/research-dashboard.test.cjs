@@ -104,7 +104,7 @@ test("Home and Overview render durable draft counts and keep layout changes scop
   const ui = {
     esc: String, heading: (title, info, buttons) => `<h1>${title}</h1>${info}${buttons}`, button: String,
     link: (label, href) => `<a href="${href}">${label}</a>`, panel: (title, body) => `<h2>${title}</h2>${body}`,
-    paperRows: () => "", taskRows: () => "", meetingRows: () => "", viewURL: String, studio: String, fmtDate: String,
+    paperRows: () => "", taskRows: () => "", meetingRows: () => "", viewURL: require("../web/static/workspace-nav.js").research, studio: String, fmtDate: String,
     row: (_glyph, title, _meta, control) => `${title} ${control}`, rowAction: String, list: rows => rows.join(""),
     empty: String, reader: String, toolsPage: String
   };
@@ -112,6 +112,7 @@ test("Home and Overview render durable draft counts and keep layout changes scop
   state.dashboardData = await app.load(request);
   const now = new Date(2026, 10, 25);
   const first = app.markup(state, ui, now);
+  assert.ok(first.includes('<a href="/research?view=tasks&tab=calendar">打开日历</a>'));
   assert.match(first, /<h1>Workspace One<\/h1>/);
   assert.match(first, /<b>2<\/b> 项待审核/);
   assert.match(first, /Pending beta/);

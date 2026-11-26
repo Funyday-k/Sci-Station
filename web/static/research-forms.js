@@ -50,14 +50,12 @@
   function split(s) {
     return String(s || "").split(/[,，;；\n]+/).map(s => s.trim()).filter(Boolean);
   }
-  const paperSelect = (id, disabled = false) => select("paperId", [
-    ["", "无关联论文"], ...state.papers.map(p => [p.id, p.title])
-  ], id || "", "", disabled);
   const value = (f, name) => String(f.elements.namedItem(name)?.value || "").trim();
   const chosen = (f, name) => [...f.querySelectorAll('input[name="' + name + '"]:checked')].map(i => i.value);
   const formStatus = () => '<p class="error" data-error role="alert"></p><p class="status" data-status role="status"></p>';
-  const formFooter = (label, del = "") => formStatus() + '<div class="form-foot">' + (del ? button(del.startsWith(
-      "project:") ? local("projectArchiveAction", "归档项目", "Archive Project") : copy("删除", "Delete"), "confirm-delete", {
+  const formFooter = (label, del = "") => formStatus() + '<div class="form-foot">' + (del ? button(del.startsWith("project:") ?
+    local("projectArchiveAction", "归档项目", "Archive Project") : del.startsWith("paper:") ?
+      copy("从共享文献库删除", "Delete from Shared Library") : copy("删除", "Delete"), "confirm-delete", {
       id: del,
       kind: "bare danger"
     }) : "") +
@@ -231,6 +229,8 @@
           'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) : "") +
       '</details>' + (edit ? E.library.metadataFields(p) : "") + attachProjectBoxes(p, !edit) +
       (edit ? button(copy("引用文献", "Cite paper"), "show-citation", {id: p.id, kind: "bare"}) + button(local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-paper-bibtex", {id: p.id, kind: "bare"}) : '<ul data-import-results aria-live="polite"></ul>') +
+      (edit && p.project_ids?.includes(state.project?.id) ? button(copy("从当前项目移除", "Remove from Current Project"),
+        "confirm-paper-unlink", {id: p.id, kind: "bare danger"}) : "") +
       formFooter(edit ? copy("保存更改", "Save changes") : copy("导入文献", "Import papers"), edit ? "paper:" + p.id : "") +
       '</form>', {
         wide: true
@@ -500,6 +500,33 @@
     return {frontmatter: "", body: source};
   }
 
+  function wikiPaperStatus(note) {
+    if (!note?.paperId) return "";
+    if (note.paperStatus) return note.paperStatus;
+    const paper = state.papers.find(p => p.id === note.paperId);
+    if (!paper) return "missing";
+    return paper.project_ids?.includes(note.projectId) ? "available" : "outside_project";
+  }
+
+  function wikiPaperSelect(note) {
+    const id = note?.paperId || "";
+    const status = wikiPaperStatus(note);
+    const items = [["", copy("无关联论文", "No linked paper")], ...state.papers.filter(p => p.id !== id || status !== "missing").map(p => [p.id, p.title])];
+    if (id && !items.some(([value]) => value === id)) items.push([id, copy("已保留的来源论文", "Retained source paper")]);
+    return select("paperId", items, id, "", note?.template === "paper");
+  }
+
+  function wikiPaperNotice(note) {
+    const status = wikiPaperStatus(note);
+    if (status === "missing") return '<p data-wiki-paper-status="missing"><strong>' +
+      esc(copy("共享文献库中已找不到来源论文。", "The source paper is missing from the shared library.")) + '</strong> ' +
+      esc(copy("Wiki 仍可编辑，原论文 ID 已保留。", "This Wiki page remains editable and retains the original paper ID.")) +
+      ' <code>' + esc(note.paperId) + '</code></p>';
+    if (status === "outside_project") return '<p data-wiki-paper-status="outside_project">' +
+      esc(copy("来源论文仍在共享文献库，当前项目未关联此论文。", "The source paper remains in the shared library and is outside this project.")) + '</p>';
+    return "";
+  }
+
   function noteForm(n = null, moving = false, folder = "") {
     const base = projectPath("notes" + (n ? "/" + enc(n.id) : ""), n?.projectId);
     const namespace = field("目录", input("namespace", n?.namespace ?? folder,
@@ -522,9 +549,10 @@
       '<form class="note-edit"><fieldset class="wiki-fields">' +
       (moving ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' + namespace :
         '<div class="split">' + field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace + '</div>' +
+        '<details class="wiki-page-properties"><summary>' + esc(E.local?.("wikiPageProperties", "页面属性", "Page properties") ?? "页面属性") + '</summary>' +
         field("别名", area("aliases", n?.aliases?.join("\n"), 'aria-label="别名" rows="2" placeholder="每行一个。可用目录/名称指定完整路径。"')) +
-        '<div class="split">' + field("关联论文", paperSelect(n?.paperId, n?.template === "paper")) +
-        field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div>' +
+        '<div class="split">' + field("关联论文", wikiPaperSelect(n)) +
+        field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div></details>' + wikiPaperNotice(n) +
         '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
         wikiFormatTools() +
         field("内容", area("body", n?.body, 'aria-label="内容" id="note-body" placeholder="支持 Markdown、数学公式和 [[concept:页面|显示文字]]"')) +
@@ -550,13 +578,16 @@
     };
     f = bindForm(async (form, token) => {
       const body = {namespace: value(form, "namespace")};
-      if (!moving) Object.assign(body, {
-        title: value(form, "title"),
-        body: form.elements.body.value || (n ? "" : "# " + value(form, "title") + "\n"),
-        tags: split(value(form, "tags")),
-        aliases: value(form, "aliases").split(/\r?\n/).map(s => s.trim()).filter(Boolean),
-        paperId: n?.template === "paper" ? n.paperId : value(form, "paperId")
-      });
+      if (!moving) {
+        Object.assign(body, {
+          title: value(form, "title"),
+          body: form.elements.body.value || (n ? "" : "# " + value(form, "title") + "\n"),
+          tags: split(value(form, "tags")),
+          aliases: value(form, "aliases").split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+        });
+        const paperId = value(form, "paperId");
+        if (n?.template !== "paper" && paperId !== (n?.paperId || "")) body.paperId = paperId;
+      }
       if (current) body.revision = current.revision;
       const controls = form.querySelector("fieldset");
       const conflict = form.querySelector("[data-wiki-conflict]");
@@ -707,8 +738,12 @@
     if (token !== wikiRequest || state.project?.id !== owner) return;
     if (excerpt && excerpt.revision !== n.revision) throw Error("Wiki 页面已更新，请重新打开引用。");
     selectedWikiNote = n;
+    window.SciContextRail?.selectObject("note", n.id);
     const {frontmatter, body} = splitWikiBody(n.body);
     const noteURL = E.wikiURL(n.id, owner);
+    const paperStatus = wikiPaperStatus(n);
+    const paperLink = n.paperId && paperStatus !== "missing" ? link("关联论文",
+      reader(n.paperId, paperStatus === "outside_project" ? null : owner), "button", "book") : "";
     dialog(n.title, (n.namespace ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' : "") + '<div class="actions">' +
       button("编辑页面", "edit-note", {id: n.id, kind: "button primary", glyph: "file"}) +
       button("移动页面", "move-note", {id: n.id}) +
@@ -716,7 +751,7 @@
       link("页面链接", noteURL, "button") +
       link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") +
       (n.sourceMeetingId ? link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button", "chat") : "") +
-      (n.paperId ? link("关联论文", reader(n.paperId), "button", "book") : "") + '</div>' +
+      paperLink + '</div>' + wikiPaperNotice(n) +
       (excerpt ? sourceExcerptMarkup(excerpt) : noteOccurrence(n, locator)) +
       (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
         '<div id="wiki-metadata" aria-live="polite"></div><details><summary>原始 YAML</summary><pre>' +
@@ -882,6 +917,7 @@
       if (state.project !== project || state.view !== view) return;
       state.taskCatalog = catalog;
     }
+    if (task) window.SciContextRail?.selectObject("task", task.id);
     taskForm(task);
   }
 
@@ -1175,11 +1211,90 @@
     });
   }
 
+  function paperRemovalProjects(projects) {
+    if (!projects.length) return "";
+    const rows = [...projects].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id)).map(project => {
+      const state = project.trashed ? copy("回收站", "In Trash") : project.archived ? copy("已归档", "Archived") : "";
+      const membership = project.member ? copy("项目文献关联将移除", "Project membership will be removed") : "";
+      const pages = project.wikiPages ? copy(`${project.wikiPages} 个 Wiki 页面`, `${project.wikiPages} Wiki page(s)`) : "";
+      const archived = project.archivedWikiPages ? copy(`${project.archivedWikiPages} 个归档 Wiki 页面`, `${project.archivedWikiPages} archived Wiki page(s)`) : "";
+      return '<li><strong>' + esc(project.name || project.id) + '</strong> · ' +
+        esc([state, membership, pages, archived].filter(Boolean).join(" · ")) + '</li>';
+    });
+    return '<ul>' + rows.join("") + '</ul>';
+  }
+
+  async function confirmPaperRemoval(id, project = "") {
+    const owner = state.project?.id;
+    const path = "papers/" + enc(id);
+    const preview = path + "/removal";
+    const title = project ? copy("从当前项目移除", "Remove from Current Project") :
+      copy("从共享文献库删除", "Delete from Shared Library");
+    dialog(title, '<p role="status" data-paper-removal-loading>' + esc(copy("正在读取影响…", "Checking impact…")) +
+      '</p><div class="form-foot">' + button(local("appCancel", "取消", "Cancel"), "close-dialog") + '</div>');
+    const loading = $("dialog-content").querySelector("[data-paper-removal-loading]");
+    let impact;
+    try {
+      impact = await request(preview);
+    } catch (error) {
+      loading.textContent = error.message;
+      loading.setAttribute("role", "alert");
+      return;
+    }
+    if (!loading.isConnected || !loading.closest("dialog")?.open || state.project?.id !== owner) return;
+
+    const membership = impact.projects.find(item => item.id === project && item.member);
+    if (project && !membership) {
+      loading.textContent = copy("当前项目已无此文献的关联。", "This paper is already unlinked from the current project.");
+      return;
+    }
+    let details;
+    if (membership) {
+      const label = membership.name || membership.id;
+      details = '<p>' + esc(copy(`从项目「${label}」移除「${impact.title}」？`, `Remove “${impact.title}” from “${label}”?`)) + '</p><p>' +
+        esc(copy("此项目的核心标记、置顶和阅读安排也会移除。共享文献、附件、其他项目和 Wiki 来源引用均保留。",
+          "This project’s core status, pin and reading plan will be removed. The shared paper, attachments, other projects and Wiki source references are retained.")) + '</p>';
+    } else {
+      const removed = [copy("文献记录", "Paper record"), impact.hasPDF && copy("本地 PDF", "Local PDF"),
+        impact.hasMarkdown && copy("已保存的 Markdown 正文及其附件", "Saved Markdown and its attachments"),
+        impact.annotations > 0 && copy(`${impact.annotations} 条 PDF 批注`, `${impact.annotations} PDF annotation(s)`)].filter(Boolean);
+      const tasks = impact.relatedTasks ? '<p>' + esc(copy(`${impact.relatedTasks} 项任务保留来源引用。`, `${impact.relatedTasks} task(s) will retain their source references.`)) + '</p>' : "";
+      const wiki = impact.projects.some(item => item.wikiPages || item.archivedWikiPages) ? '<p>' +
+        esc(copy("相关 Wiki 页面保留正文和原来源引用，仍可编辑。",
+          "Linked Wiki pages remain editable and retain their text and original references.")) + '</p>' : "";
+      details = '<p>' + esc(copy(`从共享文献库删除「${impact.title}」？`, `Delete “${impact.title}” from the shared library?`)) +
+        '</p><p>' + esc(copy(`将永久删除${removed.join("、")}。`, `Permanently removes the following. ${removed.join(", ")}.`)) + '</p>' +
+        paperRemovalProjects(impact.projects) + wiki + tasks + '<p>' +
+        esc(copy("历史会议和其他记录中指向该论文的链接将无法打开原文。",
+          "Links to this paper in past meetings and other records will no longer open the original source.")) + '</p>';
+    }
+    let form;
+    dialog(title, '<form>' + details + formFooter(project ? copy("确认移除", "Remove from Project") :
+      copy("确认从文献库删除", "Delete from Shared Library")) + '</form>', {canDismiss: () => !form?.dataset.pending});
+    form = bindForm(async (f, token) => {
+      if (state.project?.id !== owner) throw Error(copy("项目已切换，请重新打开确认。", "The current project changed. Reopen the confirmation."));
+      if (project) {
+        await request(path, {method: "PATCH", body: {
+          revision: impact.revision,
+          project_ids: (impact.projectIds || []).filter(id => id !== project),
+          core_project_ids: (impact.coreProjectIds || []).filter(id => id !== project)
+        }});
+      } else {
+        await request(preview + "?revision=" + enc(impact.revision) + "&confirmation=" + enc(impact.confirmation), {method: "DELETE"});
+      }
+      delete f.dataset.pending;
+      done(token);
+      await refresh();
+      toast(project ? copy("文献已从当前项目移除", "Paper removed from the current project") :
+        copy("文献已从共享文献库删除", "Paper deleted from the shared library"));
+    });
+  }
+
   function confirmRemoval(id) {
     const [kind, key] = id.split(":");
+    if (kind === "paper") return confirmPaperRemoval(key);
     const map = {
       project: ["项目", state.projects],
-      paper: ["文献", state.papers],
       note: ["页面", selectedWikiNote?.id === key ? [selectedWikiNote] : state.notes],
       task: ["任务", state.tasks],
       material: ["材料", state.materials]
@@ -1187,7 +1302,7 @@
     if (!map[kind]) return;
     const [label, items] = map[kind], obj = items.find(x => x.id === key);
     if (!obj) return;
-    const path = kind === "project" ? "projects/" + enc(key) : kind === "paper" ? "papers/" + enc(key) : kind === "task" ? E.taskPath(key, obj.projectId) : projectPath(({
+    const path = kind === "project" ? "projects/" + enc(key) : kind === "task" ? E.taskPath(key, obj.projectId) : projectPath(({
       note: "notes",
       material: "materials"
     })[kind] + "/" + enc(key), obj.projectId);
@@ -1216,6 +1331,7 @@
       return;
     }
     if (action === "confirm-delete") return confirmRemoval(id);
+    if (action === "confirm-paper-unlink" && state.project?.id) return confirmPaperRemoval(id, state.project.id);
     if (action === "archived-projects") return archivedProjects();
     if (action === "trashed-projects") return archivedProjects(true);
     if (action === "trash-project") {

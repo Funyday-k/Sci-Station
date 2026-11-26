@@ -41,18 +41,20 @@ final class InstalledAppUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(window.frame.height, 460)
 
         let home = matching(["Edit Layout", "编辑布局", "自定义组件"], in: window.buttons).firstMatch
-        let library = matching(["Manage collections and tags", "管理集合和标签"], in: window.buttons).firstMatch
+        let libraryImport = matching(["Import papers", "导入文献"], in: window.buttons).firstMatch
+        let libraryView = matching(["Table columns", "表格列"], in: window.buttons).firstMatch
         let libraryLinks = matching(["Library", "论文库", "文献库"], in: window.links)
         let homeLinks = matching(["Home", "首页"], in: window.links)
         waitUntilVisible(home, in: window, step: "Home after launch")
-        XCTAssertFalse(library.exists)
+        XCTAssertFalse(libraryView.exists)
 
         click(libraryLinks, name: "Library", in: window, process: process)
-        waitUntilVisible(library, in: window, step: "Library after clicking its link")
+        waitUntilVisible(libraryImport, in: window, step: "Library import after clicking its link")
+        waitUntilVisible(libraryView, in: window, step: "Library view controls after clicking its link")
         XCTAssertFalse(home.exists, "Library must replace the Home content.")
         click(homeLinks, name: "Home", in: window, process: process)
         waitUntilVisible(home, in: window, step: "Home after clicking its link")
-        XCTAssertFalse(library.exists, "Returning to Home must replace the Library content.")
+        XCTAssertFalse(libraryView.exists, "Returning to Home must replace the Library content.")
 
         app.typeKey("q", modifierFlags: .command)
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 15), "The installed app must quit after Command-Q.")

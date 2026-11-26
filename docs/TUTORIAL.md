@@ -10,10 +10,12 @@ When moving from a previously published app or the Go prototype, keep your origi
 
 ## Import and cite a paper
 
-1. Open **Library**, choose **Import PDF**, and choose a local PDF. **Add by Identifier** looks up a supported public identifier such as a DOI or arXiv ID. Review the import and choose a collection if appropriate.
+1. Open **Library → Import papers**. Choose a local PDF or enter a supported identifier such as a DOI or arXiv ID. Review the import and choose a collection if appropriate.
 2. Open a paper and add it to the project. You can add the same paper to another project with its own pin, position and core-paper status.
 3. Open the PDF reader and select a passage. Save an annotation or send the passage and its source location to Roundtable. Use **Citation** in the reader or library to copy BibTeX or another citation format.
 4. To use a searchable version of the paper body in AI Lab, import its Markdown or adopt a reviewed PDFKit or MinerU conversion. Check the extracted equations, figure references and source locations against the PDF before relying on them.
+
+Removing a paper from the current project keeps its PDF and its links to other projects. Deleting it from the shared library shows the affected projects, Wiki pages and task references before confirmation. A Wiki page keeps its source identifier and remains editable after the source is gone.
 
 ## Organize a research project
 

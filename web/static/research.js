@@ -70,6 +70,7 @@
     libraryTag: "",
     notes: [],
     wikiFolders: [],
+    wikiQuery: "",
     tasks: [],
     taskCatalog: null,
     materials: [],
@@ -86,7 +87,7 @@
     graphWorkflow: null,
     inspire: {seeds: [], rows: [], pending: false, error: ""},
     query: "",
-    taskFilter: "open",
+    taskFilter: "",
     taskKind: "",
     taskTag: "",
     calendar: false,
@@ -141,16 +142,18 @@
     return navigation.route("/studio", {project: state.project?.id, session});
   }
 
-  function reader(paper) {
-    return navigation.route("/reader", {paper, project: state.project?.id});
+  function reader(paper, project = state.project?.id) {
+    return navigation.route("/reader", {paper, project});
   }
 
-  function toolsPage(tab) {
-    return navigation.route("/tools", {tab, project: state.project?.id, date: tab === "calendar" && state.calendar ? localDate(state.month) : null});
+  function toolsPage(tab, paper) {
+    return navigation.route("/tools", {
+      tab, paper, project: state.project?.id,
+      date: tab === "calendar" && state.calendar ? localDate(state.month) : null
+    });
   }
 
   function viewURL(view, id = state.project?.id) {
-    if (view === "tasks" && state.calendar) return navigation.route("/research", {view, project: id, calendar: 1});
     return navigation.research(view, id);
   }
 
@@ -199,10 +202,11 @@
 
   function button(label, action, options = {}) {
     const {
-      id = "", kind = "button", glyph = "", title = ""
+      id = "", kind = "button", glyph = "", title = "", pressed
     } = options;
     return '<button type="button" class="' + kind + '" data-action="' + action + '" data-id="' + esc(id) +
-      '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + (glyph ?
+      '"' + (title ? ' title="' + esc(title) + '"' : '') +
+      (pressed === undefined ? '' : ' aria-pressed="' + pressed + '"') + '>' + (glyph ?
       icon(glyph) : "") + esc(label) + '</button>';
   }
 
@@ -234,10 +238,15 @@
       '</div><div class="head-actions">' + actions + '</div></div>';
   }
 
+  function moreActions(actions) {
+    return '<details class="more-actions"><summary class="button">' + esc(local("toolbarMoreActions", "更多操作", "More actions")) +
+      '</summary><div class="more-action-items">' + actions + '</div></details>';
+  }
+
   function row(glyph, title, meta, control, tag = "", more = "", project = null) {
     return '<div class="row"><div class="glyph">' + (project ? projectBadge(project) : icon(glyph)) + '</div><' + control +
       ' class="row-main"><span class="title">' + esc(title) + '</span>' + (meta ? '<span class="meta">' + esc(meta) +
-        '</span>' : '') + '</' + (control.startsWith("a ") ? 'a' : 'button') + '>' + (tag ? '<span class="tag">' + esc(
+        '</span>' : '') + '</' + (control.startsWith("a ") ? 'a' : 'button') + '>' + (tag ? '<span class="tag status-tag">' + esc(
         tag) + '</span>' : '') + more + '</div>';
   }
 
@@ -269,13 +278,10 @@
   function paperRows(papers, projectID = "") {
     return list(papers.map(p => {
       const link = p.project_links?.[projectID];
-      const meta = [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey];
+      const meta = [p.authors?.slice(0, 3).join("、"), p.year || ""];
       if (projectID) {
         if (p.core_project_ids?.includes(projectID)) meta.push(text("核心文献", "Core paper"));
         if (link?.is_pinned) meta.push(text("已置顶", "Pinned"));
-        if (link?.sort_order != null) meta.push(text("序号 ", "Order ") + link.sort_order);
-        if (link?.folder_path) meta.push(text("文件夹 ", "Folder ") + link.folder_path);
-        if (link?.use_for?.length) meta.push(text("用途 ", "Purpose ") + link.use_for.join("、"));
       }
       return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
         statusLabel[p.status] || statusLabel.unread, (projectID ? button(text("论文 Wiki", "Paper Wiki"), "open-paper-wiki", {id:p.id,kind:"bare"}) : "") +
@@ -321,21 +327,32 @@
     return '<span class="task-label" style="--task-label-bg:' + color + ';--task-label-fg:' + textColor + '">' + esc(name) + '</span>';
   }
 
+  function detailButton(kind, object) {
+    const label = text("查看详情", "View details") + " · " + object.title;
+    return '<button type="button" class="icon" data-inspect-object="' + kind + '" data-id="' + esc(object.id) +
+      '" aria-label="' + esc(label) + '" title="' + esc(label) + '" aria-pressed="false">' + icon("sidebar") + '</button>';
+  }
+
   function taskRows(tasks) {
     const tags = new Map(state.taskCatalog?.tags.map(tag => [tag.name, tag.definition]));
     return list(tasks.map(t => {
       const closed = closedTask(t);
       const projects = (t.projectIds || [t.projectId]).map(id => state.projects.find(p => p.id === id)?.name);
-      const meta = [!state.project ? projects.filter(Boolean).join("、") || "未分配" : "", t.kind === "reading" ? "论文阅读" : "", taskDateLabel(t),
-        taskPriorityLabels[t.priority] ? taskPriorityLabels[t.priority] + "优先级" : "", t.description];
+      const facts = [
+        !state.project && (projects.filter(Boolean).join("、") || "未分配"),
+        taskDateLabel(t),
+        taskPriorityLabels[t.priority] && taskPriorityLabels[t.priority] + "优先级",
+        t.kind === "reading" && "论文阅读"
+      ].filter(Boolean).join(" · ");
       const labels = (t.tags || []).map(name => taskTagChip(name, tags.get(name))).join("");
       return '<div class="row ' + (closed ? "completed" : "") + '"><button type="button" class="task-check ' +
         (closed ? "done" : "") + '" aria-label="' + esc((closed ? "重新打开" : "完成") + "：" + t.title) +
         '" data-action="toggle-task" data-id="' + esc(t.id) + '">' + (closed ? "✓" : "") +
         '</button><button class="row-main" data-action="edit-task" data-id="' + esc(t.id) + '"><span class="title">' +
-        esc(t.title) + '</span><span class="meta">' + esc(meta.filter(Boolean).join(" · ").slice(0, 140)) +
-        '</span>' + (labels ? '<span class="task-labels">' + labels + '</span>' : '') +
-        '</button><span class="tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
+        esc(t.title) + '</span>' + (facts ? '<span class="row-facts">' + esc(facts) + '</span>' : "") +
+        (t.description ? '<span class="meta">' + esc(t.description.slice(0, 140)) + '</span>' : "") +
+        (labels ? '<span class="task-labels">' + labels + '</span>' : "") +
+        '</button><span class="tag status-tag">' + esc(statusLabel[t.status] || "待办") + '</span>' + detailButton("task", t) + '</div>';
     }));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a
@@ -348,7 +365,7 @@
     const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
       ({key,name,href:viewURL(key),local:true}));
     tabs.push(
-      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:navigation.route("/research",{view:"tasks",tab:"calendar",project:state.project?.id})},
+      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:viewURL("calendar")},
       {key:"recommendations",name:text("文献推荐", "Recommendations"),href:toolsPage("discover")},
       {key:"lab",name:text("AI 工作流", "AI Workflows"),href:navigation.route("/lab",{project:state.project?.id})}
     );
@@ -363,11 +380,10 @@
         (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
         '>' + esc(tab.name) + '</a>').join("") : "";
     $("projectnav").innerHTML = state.projects.map(p => '<a class="project-item ' + (p.id === state.project?.id ?
-        'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
+        'active' : '') + '"' + (p.id === state.project?.id ? ' aria-current="true"' : '') + ' data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '">' + projectBadge(p) + '<span>' + esc(p
       .name) + '</span></a>').join("");
-    window.SciShellLayout?.decorateProject(modules,$("projectnav"),state.project?.id);
-    window.SciContextRail?.update();
+    window.SciShellLayout?.decorateProject(modules, $("projectnav"));
     const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
     $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
       esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
@@ -396,26 +412,35 @@
 
   function noteRows(notes) {
     return list(notes.map(n => row("file", n.title, [n.namespace, n.tags?.join(" · "), fmtDate(n.updatedAt)].filter(Boolean).join(" · "),
-      rowAction("read-note", n.id))));
+      rowAction("read-note", n.id), "", detailButton("note", n))));
+  }
+
+  function wikiResults() {
+    const query = state.wikiQuery.trim().toLocaleLowerCase();
+    const notes = state.notes.filter(note => [note.title, note.namespace, ...(note.aliases || []), ...(note.tags || [])]
+      .some(value => value?.toLocaleLowerCase().includes(query)));
+    return panel(text("页面", "Pages") + " · " + notes.length, notes.length ? noteRows(notes.sort(byRecent)) :
+      query ? empty(text("没有匹配的 Wiki 页面", "No matching wiki pages")) :
+        empty(text("暂无 Wiki 页面", "No wiki pages yet"), "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
   }
 
   function wikiPage() {
-    const tools = button("Markdown 片段", "wiki-snippet-settings") +
-      button("已归档页面", "archived-notes") +
-      button("新建目录", "new-wiki-folder", {glyph: "folder"}) +
-      button("从论文创建", "new-paper-wiki") +
+    const actions = moreActions(button(text("从论文创建", "Create from Paper"), "new-paper-wiki") +
+      button(text("新建目录", "New Folder"), "new-wiki-folder", {glyph: "folder"}) +
+      button(text("Markdown 片段", "Markdown Snippets"), "wiki-snippet-settings") +
+      button(text("已归档页面", "Archived Pages"), "archived-notes")) +
       button(local("toolbarWikiNewPage", "新建页面", "New Page"), "new-note", {glyph: "plus", kind: "button primary"});
-    const folders = state.wikiFolders.length ? panel("目录", list(state.wikiFolders.map(path =>
+    const folders = state.wikiFolders.length ? panel(text("目录", "Folders"), list(state.wikiFolders.map(path =>
       row("folder", path, "", rowAction("read-wiki-folder", path))))) : "";
-    return heading("项目 Wiki", state.project.name, tools) + folders +
-      panel("页面 · " + state.notes.length, state.notes.length ? noteRows(state.notes.slice().sort(byRecent)) :
-        empty("暂无 Wiki 页面", "使用 Markdown、公式和 [[双链]] 记录研究过程。"));
+    const search = text("搜索 Wiki 页面", "Search wiki pages");
+    return heading(text("项目 Wiki", "Project Wiki"), state.project.name, actions) +
+      '<div class="toolbar"><input type="search" class="query" id="wiki-query" value="' + esc(state.wikiQuery) +
+      '" placeholder="' + esc(search) + '" aria-label="' + esc(search) + '"></div>' +
+      folders + '<div id="wiki-results" aria-live="polite">' + wikiResults() + '</div>';
   }
 
-  function publicLibrary() {
-    const limited = Boolean(state.project);
-    const projectID = limited ? state.project.id : "";
-    const all = (limited ? scopedPapers() : state.papers).slice().sort((a, b) => {
+  function orderedLibraryPapers(projectID) {
+    return (projectID ? scopedPapers() : state.papers).slice().sort((a, b) => {
       if (projectID) {
         const first = a.project_links?.[projectID], second = b.project_links?.[projectID];
         const pin = Number(Boolean(second?.is_pinned)) - Number(Boolean(first?.is_pinned));
@@ -428,22 +453,32 @@
       }
       return byRecent(a, b) || a.id.localeCompare(b.id);
     });
-    const papers = E.library.filterPapers(all, projectID);
+  }
+
+  function libraryResults(papers, projectID) {
     const filtered = Boolean(state.query.trim() || state.libraryCollection || state.libraryTag);
-    const actions = (papers.length ? E.library.exportButton(papers) : "") +
-      button(text("管理集合和标签", "Manage collections and tags"), "manage-library") + button(text("导入文献", "Import papers"), "new-paper", {
-      glyph: "import",
-      kind: "button primary"
-    });
-    return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", link(text("文献发现", "Discover papers"), toolsPage("discover")) + link(text("PDF 转换", "PDF conversion"), toolsPage("convert")) + actions) +
-      '<div class="toolbar"><input type="search" class="query" id="paper-query" value="'  + esc(state.query) +
-      '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
-      '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) + '</div>' +
-      panel((limited ? state.project.name : local("routePapers", "论文", "Papers")) + " · " + papers.length,
+    return '<div id="library-selection-actions">' + E.library.renderSelectionActions(papers) + '</div>' +
+      panel((projectID ? state.project.name : local("routePapers", "论文", "Papers")) + " · " + papers.length,
         papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? text("没有匹配的文献", "No matching papers") : text("还没有收录文献", "The library is empty"),
-          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier."), filtered ? "" : button(text("导入文献", "Import papers"), "new-paper", {
-            glyph: "import"
-          })));
+          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier.")));
+  }
+
+  function publicLibrary() {
+    const limited = Boolean(state.project);
+    const projectID = state.project?.id || "";
+    const all = orderedLibraryPapers(projectID);
+    const papers = E.library.filterPapers(all, projectID);
+    const actions = moreActions(link(text("文献发现", "Discover papers"), toolsPage("discover")) +
+      '<span id="library-export-action"' + (papers.length ? '' : ' hidden') + '>' +
+      (papers.length ? E.library.exportButton(papers) : "") + '</span>' +
+      button(text("管理集合和标签", "Manage collections and tags"), "manage-library")) +
+      button(text("导入文献", "Import papers"), "new-paper", {glyph: "import", kind: "button primary"});
+    return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", actions) +
+      '<div class="toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
+      '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
+      '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) +
+      button(local("toolbarLibraryColumns", "表格列", "Table columns"), "library-columns") + '</div>' +
+      '<div id="paper-results">' + libraryResults(papers, projectID) + '</div>';
   }
 
   function projectNeeded() {
@@ -461,7 +496,7 @@
     ).join("") + '</select>';
   }
 
-  function calendarView() {
+  function calendarView(tasks) {
     const d = state.month,
       year = d.getFullYear(),
       month = d.getMonth(),
@@ -473,9 +508,9 @@
     }, () => '<div class="day" aria-hidden="true"></div>');
     for (let i = 1; i <= end; i++) {
       const date = localDate(new Date(year, month, i));
-      const tasks = state.tasks.filter(t => taskOnDate(t, date));
+      const scheduled = tasks.filter(t => taskOnDate(t, date));
       cells.push('<div class="day ' + (today === date ? "today" : "") + '"><b>' + i + '</b>' +
-        tasks.map(t => button((date === t.dueDate && t.dueTime ? t.dueTime + " " : "") + t.title, "edit-task", {
+        scheduled.map(t => button((date === t.dueDate && t.dueTime ? t.dueTime + " " : "") + t.title, "edit-task", {
           id: t.id,
           kind: "day-task" + (closedTask(t) ? " completed" : ""),
           title: [t.title, statusLabel[t.status], taskDateLabel(t)].filter(Boolean).join(" · ")
@@ -511,31 +546,32 @@
     else if (state.view === "tasks") {
       const tags = taskTagNames();
       const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
+      const filter = state.taskFilter || (state.calendar ? "all" : "open");
       const t = state.tasks.filter(t =>
-        (state.taskFilter === "all" || (state.taskFilter === "open" ? !closedTask(t) : t.status === state.taskFilter)) &&
+        (filter === "all" || (filter === "open" ? !closedTask(t) : t.status === filter)) &&
         (!state.taskKind || t.kind === state.taskKind) &&
         (!chosenTag || t.tags?.includes(chosenTag))
       );
-      out = heading("日历与任务", state.project?.name || "工作区", link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
-        "切换到列表" : "切换到月历", "switch-calendar", {
-          glyph: "agenda"
-        }) + button(text("管理任务标签", "Manage Task Tags"), "manage-task-tags") + button("添加任务", "new-task", {
-        glyph: "plus",
-        kind: "button primary"
-      }));
-      out += state.calendar ? calendarView() : '<div class="toolbar task-filters"><div class="filters">' + [
-        ["open", "未完成"],
-        ["done", "已完成"],
-        ["cancelled", "已取消"],
-        ["all", "全部"]
+      const actions = moreActions(link(text("系统日历", "System Calendar"), toolsPage("calendar")) +
+        button(text("管理任务标签", "Manage Task Tags"), "manage-task-tags")) +
+        button(local("toolbarNewTask", "新建任务", "New Task"), "new-task", {glyph: "plus", kind: "button primary"});
+      out = heading(text("日历与任务", "Calendar and Tasks"), state.project?.name || text("工作区", "Workspace"), actions);
+      out += '<div class="toolbar task-filters">' + taskFilterSelect("task-project", text("项目", "Project"), text("全部项目", "All projects"),
+        state.project?.id || "", state.projects.map(p => [p.id, p.name])) + '<div class="filters">' + [
+        ["open", text("未完成", "Open")],
+        ["done", text("已完成", "Completed")],
+        ["cancelled", text("已取消", "Cancelled")],
+        ["all", text("全部", "All")]
       ].map(([key, title]) => button(title, "task-filter", {
         id: key,
-        kind: "chip " + (state.taskFilter === key ? "active" : "")
-      })).join("") + '</div>' + taskFilterSelect("task-kind", "任务类型", "全部类型", state.taskKind,
-        [["general", "普通任务"], ["reading", "论文阅读"]]) +
+        kind: "chip " + (filter === key ? "active" : ""),
+        pressed: filter === key
+      })).join("") + '</div>' + taskFilterSelect("task-kind", text("任务类型", "Task type"), text("全部类型", "All types"), state.taskKind,
+        [["general", text("普通任务", "General")], ["reading", text("论文阅读", "Paper reading")]]) +
         (tags.length ? taskFilterSelect("task-tag", text("任务标签", "Task tags"), text("全部标签", "All tags"), chosenTag, tags.map(tag => [tag, tag])) : "") +
-        '</div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
-        "可以创建带截止日期的任务。"));
+        button(state.calendar ? text("切换到列表", "Switch to list") : text("切换到月历", "Switch to month"), "switch-calendar", {glyph: "agenda"}) +
+        '</div>' + (state.calendar ? calendarView(t) : panel((state.project ? text("项目任务", "Project Tasks") : text("全部任务", "All Tasks")) + " · " + t.length,
+          t.length ? taskRows(t) : empty(text("当前列表没有任务", "No tasks in this list"), text("可以创建带截止日期的任务。", "You can create a task with a due date."))));
     } else if (state.view === "materials") {
       out = heading("研究材料", state.project.name, button("浏览项目目录", "linked-materials", {
         glyph: "folder"
@@ -547,6 +583,7 @@
           ) : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。"));
     } else if (state.view === "graph") out = graphView();
     $("main").innerHTML = out;
+    window.SciContextRail?.update();
     const dashboardRoot = $("dashboard-view");
     if (dashboardRoot) dashboard.mount(dashboardRoot, state, render, toast);
     $("main").setAttribute("aria-busy", "false");
@@ -663,7 +700,7 @@
   }
 
   async function load(projectId, view, {
-    historyMode = "replace"
+    historyMode = "replace", calendar: requestedCalendar
   } = {}) {
     const token = ++navEpoch;
     let targetView = Object.hasOwn(names, view) ? view : "overview";
@@ -682,7 +719,10 @@
       let fallback = Boolean(projectId && !nextProject);
       if (fallback) targetView = "projects";
       const config = await window.SciStationModules?.load(nextProject?.id || "");
-      const calendar = targetView==="tasks" && new URL(location.href).searchParams.get("tab")==="calendar" && historyMode!=="push";
+      const params = new URL(location.href).searchParams;
+      const tab = params.get("tab");
+      const savedCalendar = tab === "calendar" || (tab === null && params.get("calendar") === "1");
+      const calendar = targetView === "tasks" && (requestedCalendar ?? (historyMode !== "push" && savedCalendar));
       const module = targetView==="overview" && !nextProject ? null : navigation.viewModules[calendar?"calendar":targetView] || (targetView==="projects"?"projects":null);
       if (!navigation.enabled(config,module)) {
         fallback = true;
@@ -717,7 +757,10 @@
       state.paperWikiStatus = paperWikiStatus;
       state.taskCatalog = taskCatalog;
       if (state.libraryCollection !== "unfiled" && !Object.hasOwn(organization.collections, state.libraryCollection)) state.libraryCollection = "";
-      if (nextProject?.id !== state.project?.id) state.inspire = {seeds: [], rows: [], pending: false, error: ""};
+      if (nextProject?.id !== state.project?.id) {
+        state.wikiQuery = "";
+        state.inspire = {seeds: [], rows: [], pending: false, error: ""};
+      }
       state.project = nextProject;
       const rooms = Array.isArray(sessions) ? sessions : sessions.sessions || [];
       state.meetings = nextProject ? rooms.filter(m => m.project_id === nextProject.id) : rooms;
@@ -732,7 +775,7 @@
       if (fallback || historyMode==="push" || (historyMode==="replace" &&
           ((current.searchParams.get("view") || "overview") !== state.view ||
            (current.searchParams.get("project") || "") !== (nextProject?.id || "")))) {
-        navigation.commitURL(viewURL(state.view),fallback?"replace":historyMode);
+        navigation.commitURL(viewURL(state.calendar ? "calendar" : state.view),fallback?"replace":historyMode);
       }
       if(fallback && projectId && !nextProject) toast("这个项目已归档或不存在，请从项目列表重新选择。");
     } catch (err) {
@@ -749,7 +792,7 @@
     state.libraryTag = "";
     E.library.clearSelection();
     load(state.project?.id, view, {historyMode: "push"});
-    $("shell").classList.remove("mobile-open");
+    window.SciShellLayout?.dismissProjectNav();
     window.scrollTo(0, 0);
   }
 
@@ -901,12 +944,21 @@
     handleWorkspaceCommand(key);
   });
   document.addEventListener("click", async ev => {
+    const more = document.querySelectorAll("#main .more-actions[open]")[0];
+    if (more && (!more.contains(ev.target) || ev.target.closest?.(".more-action-items button, .more-action-items a"))) {
+      if (more.contains(ev.target)) more.querySelector("summary").focus();
+      more.open = false;
+    }
     const target = ev.target.closest?.("button,a");
     if (!target || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    if (target.dataset.inspectObject) {
+      window.SciContextRail?.selectObject(target.dataset.inspectObject, target.dataset.id, true);
+      return;
+    }
     if (target.hasAttribute("data-project")) {
       ev.preventDefault();
       if (!close()) return;
-      $("shell").classList.remove("mobile-open");
+      window.SciShellLayout?.dismissProjectNav();
       await load(target.dataset.project, "overview", {
         historyMode: "push"
       });
@@ -924,9 +976,11 @@
       if (action === "task-filter") {
         state.taskFilter = id;
         render();
+        $("main").querySelector('[data-action="task-filter"][aria-pressed="true"]')?.focus();
       } else if (action === "switch-calendar") {
         state.calendar = !state.calendar;
         const url = new URL(location.href);
+        url.searchParams.delete("calendar");
         if (state.calendar) url.searchParams.set("tab","calendar"); else url.searchParams.delete("tab");
         navigation.commitURL(url,"push");
         render();
@@ -982,8 +1036,15 @@
       toast(err.message);
     }
   });
-  document.addEventListener("change", ev => {
-    if (ev.target.id === "task-kind") {
+  document.addEventListener("change", async ev => {
+    if (ev.target.id === "task-project") {
+      if (!close()) {
+        ev.target.value = state.project?.id || "";
+        return;
+      }
+      await load(ev.target.value, "tasks", {historyMode: "push", calendar: state.calendar});
+      $("task-project")?.focus();
+    } else if (ev.target.id === "task-kind") {
       state.taskKind = ev.target.value;
       render();
       $("task-kind").focus();
@@ -1003,21 +1064,37 @@
     if (ev.target.id === "graph-workflow-query") void applyGraphWorkflow(query);
     else void applyGraphQuery(query);
   });
-  document.addEventListener("input", ev => {
-    if (ev.target.id === "paper-query" && !ev.isComposing) {
-      state.query = ev.target.value;
-      render();
-      const next = $("paper-query");
-      next.focus();
-      next.setSelectionRange(next.value.length, next.value.length);
+  function filterResults(event) {
+    const input = event.target;
+    if (event.isComposing) return;
+    if (input.id === "wiki-query" && state.wikiQuery !== input.value) {
+      state.wikiQuery = input.value;
+      $("wiki-results").innerHTML = wikiResults();
+      return;
     }
-  });
+    if (input.id !== "paper-query" || input.value === state.query) return;
+    state.query = input.value;
+    const projectID = state.project?.id || "";
+    const papers = E.library.filterPapers(orderedLibraryPapers(projectID), projectID);
+    $("paper-results").innerHTML = libraryResults(papers, projectID);
+    $("library-export-action").hidden = papers.length === 0;
+    $("library-export-action").innerHTML = papers.length ? E.library.exportButton(papers) : "";
+    window.SciContextRail?.update();
+  }
+  document.addEventListener("input", filterResults);
+  document.addEventListener("compositionend", filterResults);
   $("search-open").onclick = search;
   $("new-project").onclick = () => E.formAction("new-project");
   $("modal-close").onclick = close;
-  $("nav-toggle").onclick = () => $("shell").classList.toggle(matchMedia("(max-width:760px)").matches ? "mobile-open" :
-    "collapsed");
   document.addEventListener("keydown", ev => {
+    if (ev.key === "Escape") {
+      const more = document.querySelectorAll("#main .more-actions[open]")[0];
+      if (more) {
+        ev.preventDefault();
+        more.open = false;
+        more.querySelector("summary").focus();
+      }
+    }
     if (!$("modal").open && (ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") {
       ev.preventDefault();
       search();
@@ -1029,7 +1106,6 @@
     const project = u.searchParams.get("project");
     const view = u.searchParams.get("view") || "overview";
     const task = u.searchParams.get("task");
-    state.calendar = u.searchParams.get("calendar") === "1";
     await window.SciStationI18n?.ready;
     await load(project, view, {historyMode: "none"});
     if (task && view === "tasks" && !state.loadError && location.href === u.href &&
@@ -1052,7 +1128,7 @@
   }
   window.addEventListener("popstate", () => {
     if (!close()) {
-      history.pushState(null, "", viewURL(state.view));
+      history.pushState(null, "", viewURL(state.calendar ? "calendar" : state.view));
       return;
     }
     route();

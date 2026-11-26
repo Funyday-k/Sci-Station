@@ -43,6 +43,19 @@ func (s *Service) registerNotes() {
 	s.mux.HandleFunc("PUT "+prefix+"/wiki/snippets", s.wikiSnippets)
 }
 
+func noteEvidenceKey(e Evidence) string {
+	b, _ := json.Marshal(e)
+	return string(b)
+}
+
+func noteEvidenceCounts(entries []Evidence) map[string]int {
+	counts := make(map[string]int, len(entries))
+	for _, e := range entries {
+		counts[noteEvidenceKey(e)]++
+	}
+	return counts
+}
+
 // Only the reviewed-write transaction may attach meeting provenance. Manual
 // edits may retain or remove existing citations, including legacy records.
 func introducesMeetingSource(in noteInput, current Note) bool {
@@ -55,17 +68,10 @@ func introducesMeetingSource(in noteInput, current Note) bool {
 	if in.Evidence == nil {
 		return false
 	}
-	old := map[string]int{}
-	for _, e := range current.Evidence {
-		if e.Source != nil || e.MeetingID != "" || e.TurnID != "" {
-			b, _ := json.Marshal(e)
-			old[string(b)]++
-		}
-	}
+	old := noteEvidenceCounts(current.Evidence)
 	for _, e := range *in.Evidence {
 		if e.Source != nil || e.MeetingID != "" || e.TurnID != "" {
-			b, _ := json.Marshal(e)
-			key := string(b)
+			key := noteEvidenceKey(e)
 			if old[key] == 0 {
 				return true
 			}
@@ -74,8 +80,9 @@ func introducesMeetingSource(in noteInput, current Note) bool {
 	}
 	return false
 }
-func (s *Service) validateSources(in noteInput) error {
-	if in.PaperID != nil && *in.PaperID != "" {
+func (s *Service) validateSources(in noteInput, previous Note) error {
+	// A stored ID is historical provenance, even after a library deletion.
+	if in.PaperID != nil && *in.PaperID != "" && *in.PaperID != previous.PaperID {
 		if _, ok := s.papers.Snapshot(*in.PaperID); !ok {
 			return fmt.Errorf("关联论文不存在")
 		}
@@ -86,8 +93,14 @@ func (s *Service) validateSources(in noteInput) error {
 	if len(*in.Evidence) > 128 {
 		return fmt.Errorf("证据条目过多")
 	}
+	retained := noteEvidenceCounts(previous.Evidence)
 	for i := range *in.Evidence {
 		e := &(*in.Evidence)[i]
+		key := noteEvidenceKey(*e)
+		if retained[key] > 0 {
+			retained[key]--
+			continue
+		}
 		if (e.PaperID == "" && e.MeetingID == "") || e.Page < 0 || strings.TrimSpace(e.Quote) == "" || len(e.Quote) > 128<<10 || len(e.MeetingID) > 256 || len(e.TurnID) > 256 {
 			return fmt.Errorf("来源引用不完整")
 		}
@@ -110,6 +123,29 @@ func (s *Service) validateSources(in noteInput) error {
 	}
 	return nil
 }
+
+type wikiNoteView struct {
+	Note
+	PaperStatus string `json:"paperStatus,omitempty"`
+}
+
+func (s *Service) wikiNoteView(n Note) wikiNoteView {
+	view := wikiNoteView{Note: n}
+	if n.PaperID == "" {
+		return view
+	}
+	paper, exists := s.papers.Snapshot(n.PaperID)
+	switch {
+	case !exists:
+		view.PaperStatus = "missing"
+	case !paperContains(paper.ProjectIDs, n.ProjectID):
+		view.PaperStatus = "outside_project"
+	default:
+		view.PaperStatus = "available"
+	}
+	return view
+}
+
 func updateNote(n *Note, in noteInput) bool {
 	if in.Title != nil {
 		n.Title = strings.TrimSpace(*in.Title)
@@ -206,7 +242,7 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		}
 		n, ok := d.Notes[id]
 		if found(w, ok && n.Archived == archived) {
-			jsonReply(w, 200, n)
+			jsonReply(w, 200, s.wikiNoteView(n))
 		}
 		return
 	}
@@ -241,7 +277,7 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 403, "请通过会议审核保存来源")
 		return
 	}
-	if err := s.validateSources(in); err != nil {
+	if err := s.validateSources(in, d.Notes[id]); err != nil {
 		jsonFail(w, 409, err.Error())
 		return
 	}
