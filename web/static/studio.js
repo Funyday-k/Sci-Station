@@ -3204,7 +3204,7 @@
         else {
           const url = new URL(location.href);
           url.hash = target.id;
-          history.replaceState(null, "", url);
+          window.SciStationNav.commitURL(url, "replace");
           scrollToMessage(target);
           $("latest-message").hidden = false;
         }

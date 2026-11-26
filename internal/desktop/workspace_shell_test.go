@@ -107,6 +107,35 @@ func TestWorkspaceRouteRecoveryIsScopedAndOrdered(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRouteRecoveryKeepsCalendarDate(t *testing.T) {
+	for _, tc := range []struct {
+		name, route, want string
+	}{
+		{"leap day", "/tools?tab=calendar&date=2028-02-29", "/tools?date=2028-02-29&tab=calendar"},
+		{"impossible day", "/tools?tab=calendar&date=2027-02-29", "/tools?tab=calendar"},
+		{"malformed", "/tools?tab=calendar&date=2028-2-09", "/tools?tab=calendar"},
+		{"zero year", "/tools?tab=calendar&date=0000-01-01", "/tools?tab=calendar"},
+		{"repeated date", "/tools?tab=calendar&date=2028-02-29&date=2028-03-01", "/tools?tab=calendar"},
+		{"other tab", "/tools?tab=discover&date=2028-02-29", "/tools?tab=discover"},
+		{"other page", "/research?tab=calendar&view=tasks&date=2028-02-29", "/research?tab=calendar&view=tasks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			api := openNavigationFixture(t, root)
+			body, err := json.Marshal(map[string]any{"event": 1, "route": tc.route})
+			if err != nil {
+				t.Fatal(err)
+			}
+			navigationRequest(t, api, "POST", "/api/workspace/navigation", string(body), http.StatusNoContent)
+			api = openNavigationFixture(t, root)
+			restored := navigationRequest(t, api, "GET", "/resume", "", http.StatusSeeOther)
+			if got := restored.Header().Get("Location"); got != tc.want {
+				t.Fatalf("restored %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorkspaceResolutionFallsBackBeforeDomainLoads(t *testing.T) {
 	api := openNavigationFixture(t, t.TempDir())
 	projectResp := navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Navigation fixture"}`, 201)

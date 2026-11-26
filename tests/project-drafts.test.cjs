@@ -10,6 +10,36 @@ const one = { path: "/work/one", name: "one" };
 const two = { path: "/work/two", name: "two" };
 const studio = read("studio.js");
 
+test("opening a Roundtable source replaces the anchor and keeps the history position", () => {
+  const location = new URL("http://127.0.0.1:18675/studio?project=fixture&session=meeting");
+  const original = {workspacePosition:7,otherState:"kept"};
+  const history = {
+    state: original,
+    replaceState(state, _, url) {
+      this.state = state;
+      if (url) location.href = url;
+    },
+    pushState() { throw Error("source anchor must stay in the current history entry"); }
+  };
+  const window = {addEventListener(){}};
+  const document = {getElementById:()=>null,querySelector:()=>null,addEventListener(){}};
+  vm.runInNewContext(read("workspace-nav.js"), {window,document,history,location,URL,URLSearchParams});
+  const { $ } = fakeDOM();
+  const target = {id:"round-2-codex",isConnected:true,classList:{add(){}},focus(){}};
+  let scrolled;
+  const start = studio.indexOf("    reveal(target, agenda) {");
+  const end = studio.indexOf("\n  });", start);
+  const reveal = vm.runInNewContext("({" + studio.slice(start, end) + "}).reveal", {
+    $, window, history, location, URL, state:{view:"table"},
+    setChatVisible(){}, requestAnimationFrame: callback=>callback(), scrollToMessage: el=>{scrolled=el;}
+  });
+  reveal(target, false);
+  assert.equal(location.hash, "#round-2-codex");
+  assert.equal(location.search, "?project=fixture&session=meeting");
+  assert.deepEqual(plain(history.state), original);
+  assert.equal(scrolled, target);
+});
+
 function fakeDOM() {
   const elements = new Map();
   function node() {

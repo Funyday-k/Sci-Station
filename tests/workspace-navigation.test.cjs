@@ -55,26 +55,46 @@ function mountResearch(start, sessions=[]) {
   }
   const calls = [], listeners = {}, elements = {};
   for (const match of read("research.html").matchAll(/\bid="([^"]+)"/g)) {
-    elements[match[1]] = {classList:{remove(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
+    elements[match[1]] = {classList:{remove(){},toggle(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
   }
   elements.modal.addEventListener = (event, handler) => { listeners["modal." + event] = handler; };
-  const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
+  const document = {getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
   const location = {href:new URL(start, origin).href,origin};
-  const history = {pushState:(_s,_t,url)=>{location.href=new URL(url,origin).href;},replaceState:(_s,_t,url)=>{location.href=new URL(url,origin).href;}};
-  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url,mode){history[mode+"State"](null,"",url);}}};
+  const window = Object.assign(new EventTarget(), {RoundtableIcons:{icon:()=>""}});
+  const entries = [{state:null,href:location.href}];
+  let index = 0;
+  const history = {
+    get state() { return entries[index].state; },
+    get length() { return entries.length; },
+    replaceState(state, _, url = location.href) {
+      entries[index] = {state,href:new URL(url,origin).href};
+      location.href = entries[index].href;
+    },
+    pushState(state, _, url) {
+      entries.splice(++index, entries.length);
+      this.replaceState(state, _, url);
+    },
+    go(delta) {
+      queueMicrotask(() => {
+        index += delta;
+        location.href = entries[index].href;
+        window.dispatchEvent(Object.assign(new Event("popstate"), {state:history.state}));
+      });
+    }
+  };
   const fetch = async (url, init) => {
     calls.push({url,init});
     if(init.method==="PATCH" && url==="/api/research/projects/B/tasks/taskB")return Response.json({});
     assert.ok(responses.has(url),url);
     return Response.json(responses.get(url));
   };
-  const context={window,document,location,history,fetch,URL,URLSearchParams,FormData,
+  const context={window,document,location,history,fetch,URL,URLSearchParams,FormData,Event,
     localStorage:{getItem:()=>"B"},setTimeout,clearTimeout};
   const sandbox = vm.createContext(context);
-  for (const script of ["research.js", "research-forms.js", "research-library.js"]) {
+  for (const script of ["workspace-nav.js", "research.js", "research-forms.js", "research-library.js"]) {
     vm.runInContext(read(script), sandbox);
   }
-  return {ui:window.SciResearch,elements,calls,listeners};
+  return {ui:window.SciResearch,elements,calls,listeners,window,history,location};
 }
 
 test("global library deep links stay global; project drilldown restricts the same papers", async () => {
@@ -209,4 +229,48 @@ test("an earlier modal close event preserves newly opened Wiki page content", as
   elements.modal.open = false;
   listeners["modal.close"]();
   assert.equal(cleared, 1);
+});
+
+test("Research confirms a dirty history traversal once and preserves Back and Forward", async () => {
+  const {ui, elements, window, history, location} = mountResearch("/research?project=A&view=notes");
+  const settled = () => new Promise(resolve => setImmediate(resolve));
+  await settled();
+  window.SciStationNav.commitURL("/research?project=A&view=papers", "push");
+  window.SciStationNav.commitURL("/research?project=B&view=notes", "push");
+  history.go(-1);
+  await settled();
+  assert.equal(ui.state.view, "papers");
+  let browserChecks = 0, editorPrompts = 0, accept = false;
+  window.addEventListener("beforeunload", event => {
+    browserChecks++;
+    event.preventDefault();
+  });
+  window.confirm = () => { throw Error("duplicate workspace confirmation"); };
+  elements.modal.showModal = () => { elements.modal.open = true; };
+  elements.modal.close = () => { elements.modal.open = false; };
+  ui.dialog("Draft", "Synthetic dirty editor", {canDismiss: () => { editorPrompts++; return accept; }});
+
+  history.go(-1);
+  await settled();
+  assert.equal(history.length, 3);
+  assert.equal(history.state.workspacePosition, 1);
+  assert.equal(new URL(location.href).searchParams.get("view"), "papers");
+  assert.equal(elements.modal.open, true);
+  assert.equal(editorPrompts, 1);
+  assert.equal(browserChecks, 0);
+
+  accept = true;
+  history.go(-1);
+  await settled();
+  assert.equal(history.state.workspacePosition, 0);
+  assert.equal(ui.state.view, "notes");
+  assert.equal(elements.modal.open, false);
+  assert.equal(editorPrompts, 2);
+  history.go(1);
+  await settled();
+  history.go(1);
+  await settled();
+  assert.equal(ui.state.project.id, "B");
+  assert.equal(history.state.workspacePosition, 2);
+  assert.equal(browserChecks, 0);
 });

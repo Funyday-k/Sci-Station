@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
@@ -181,6 +182,13 @@ func workspaceLocation(raw string) (*url.URL, error) {
 	q := u.Query()
 	for key := range q {
 		switch key {
+		case "date":
+			value := q.Get(key)
+			date, err := time.Parse(time.DateOnly, value)
+			if u.Path != "/tools" || q.Get("tab") != "calendar" || len(q[key]) != 1 ||
+				err != nil || date.Year() < 1 || date.Format(time.DateOnly) != value {
+				q.Del(key)
+			}
 		case "project", "view", "session", "paper", "page", "annotation", "fingerprint", "quote",
 			"start", "end", "offset", "ocr", "note", "material", "task", "tab",
 			"citation", "ordinal", "line", "column", "endLine", "revision", "run", "review", "scope":

@@ -77,6 +77,7 @@
   }
   let saved = "";
   let position = 0;
+  let historyGuard = mayDiscard;
   function remember(force = false) {
     const {pathname,search,hash} = currentURL();
     const route = pathname + search + hash;
@@ -133,6 +134,9 @@
     return window.dispatchEvent(new Event("beforeunload",{cancelable:true})) ||
       window.confirm(label("有未保存的更改。继续离开？","Leave with unsaved changes?"));
   }
+  function setHistoryGuard(guard) {
+    historyGuard = guard;
+  }
   async function rootAction(action) {
     if (["create","open","rename"].includes(action) && !mayDiscard()) return;
     if (window.SciWorkspaceSetup && ["create","rename","forget"].includes(action))return window.SciWorkspaceSetup.run(action);
@@ -174,7 +178,7 @@
     if (event.shiftKey) return "";
     return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
   }
-  const nav=Object.freeze({route,research,destinations,update,commitURL,command,keyCommand,viewModules,enabled});
+  const nav=Object.freeze({route,research,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;
@@ -214,7 +218,7 @@
         return;
       }
       if(Number.isInteger(next) && next!==position) {
-        if (!mayDiscard()) {
+        if (!historyGuard()) {
           undoingPop=true;
           event.stopImmediatePropagation();
           history.go(position-next);

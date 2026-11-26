@@ -176,8 +176,9 @@
   }
 
   function close() {
+    if (!$("modal").open) return true;
     if (modalCanDismiss && !modalCanDismiss()) return false;
-    if ($("modal").open) $("modal").close();
+    $("modal").close();
     return true;
   }
   $("modal").addEventListener("cancel", ev => {
@@ -1123,13 +1124,8 @@
       catch (error) { dialog("引用原文不可用", empty(error.message)); }
     }
   }
-  window.addEventListener("popstate", () => {
-    if (!close()) {
-      history.pushState(null, "", viewURL(state.calendar ? "calendar" : state.view));
-      return;
-    }
-    route();
-  });
+  navigation.setHistoryGuard(close);
+  window.addEventListener("popstate", route);
   window.addEventListener("sci:language", () => {
     if ($("main").getAttribute("aria-busy") === "false" && !$("modal").open) render();
   });
