@@ -73,3 +73,11 @@
   .settings-nav-item { flex: 0 0 auto; min-height: 36px; padding: 7px 10px; white-space: nowrap; }
   .settings-nav-item[data-unsaved="true"]::after { display: inline; margin-left: 6px; }
 }
+
+#prompt-editor { min-width: 0; }
+#prompt-editor > label:not(.setting-row) { display: grid; gap: 6px; }
+#prompt-editor textarea, #prompt-editor input:not([type="checkbox"]) { width: 100%; }
+.prompt-actions { flex-wrap: wrap; }
+.prompt-patch-review .meeting-report-scroll { max-height: 62vh; overflow: auto; }
+.prompt-patch-versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.prompt-patch-versions pre { white-space: pre-wrap; overflow-wrap: anywhere; }

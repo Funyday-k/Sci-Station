@@ -28,6 +28,7 @@
     <script src="/static/plugin-market.js" defer></script>
     <script src="/static/calendar-preferences.js" defer></script>
     <script src="/static/settings-nav.js" defer></script>
+    <script src="/static/prompt-settings.js" defer></script>
     <script src="/static/provider-profiles.js" defer></script>
     <link rel="stylesheet" href="/static/meeting-room.css" />
     <link rel="stylesheet" href="/static/member-editor.css" />
@@ -251,6 +252,7 @@
                 <details class="continuous-checkpoint" id="run-continuous-checkpoint" hidden><summary></summary><ul></ul></details>
               </section>
             </div>
+            <section class="settings-card model-read-review" id="studio-read-review" hidden></section>
             <article id="meeting-board" tabindex="-1" aria-label="共享议题板" hidden></article>
             <section id="room-chat" class="conversation-pane room-chat" aria-label="会议对话" hidden>
             <header class="rail-heading">
@@ -481,6 +483,7 @@
                 <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models" data-en="Model sources">模型来源</button>
                 <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
                 <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
+                <button id="settings-tab-prompts" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-prompts" data-settings-page="prompts" data-en="Workspace prompts" tabindex="-1">工作区提示词</button>
                 <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" data-en="Appearance" tabindex="-1">外观</button>
                 <button id="settings-tab-calendar" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-calendar" data-settings-page="calendar" data-en="Calendar and reminders" tabindex="-1">日历与提醒</button>
                 <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
@@ -575,6 +578,13 @@
                     <label for="setting-timeout" data-en="Model call timeout (seconds)">单次模型调用超时（秒）</label>
                     <input id="setting-timeout" type="number" min="10" max="1800" required />
                   </div>
+                  <div class="setting-row"><label for="setting-max-tool-calls" data-en="Tool calls per seat">每席工具调用上限</label><input id="setting-max-tool-calls" type="number" min="1" max="240" required></div>
+                  <div class="setting-row"><label for="setting-context-chars" data-en="Text context characters">文本上下文字数</label><input id="setting-context-chars" type="number" min="1000" max="5000000" required></div>
+                  <div class="setting-row"><label for="setting-total-tool-chars" data-en="Total tool result characters">工具结果累计字数</label><input id="setting-total-tool-chars" type="number" min="1000" max="5000000" required></div>
+                  <div class="setting-row"><label for="setting-per-tool-chars" data-en="Characters per tool result">单次工具结果字数</label><input id="setting-per-tool-chars" type="number" min="1000" max="5000000" required></div>
+                  <div class="setting-row"><label for="setting-auto-read" data-en="Automatically allow discussion reads">自动批准讨论中的读取</label><input id="setting-auto-read" type="checkbox"></div>
+                  <p class="settings-note" data-en="When off, approve each requested file or statement read in the conversation. These settings apply to new turns. CLI tools follow their own permissions.">关闭后，在对话中逐项允许或拒绝申请读取的文件或发言。设置用于新轮次。CLI 工具使用各自的权限。</p>
+                  <button id="restore-tool-budget" class="button secondary" type="button" data-en="Restore tool budget defaults">恢复默认工具预算</button>
                 </div>
               </section>
                     <div class="settings-rules">
@@ -584,6 +594,33 @@
                       <span class="settings-save-state quiet" role="status"></span>
                       <button id="save-settings" type="submit" class="button primary" disabled data-en="Save settings">保存设置</button>
                     </div>
+                  </section>
+                  <section id="settings-panel-prompts" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-prompts" hidden>
+                    <section class="settings-section" aria-labelledby="prompt-settings-title">
+                      <h2 id="prompt-settings-title" data-en="Workspace prompts">工作区提示词</h2>
+                      <p class="settings-note" data-en="These instructions are added to the built-in rules for new runs in this workspace.">新发起的工作会在内置规则后附加当前工作区的指引。</p>
+                      <fieldset class="settings-card settings-options" id="prompt-editor" disabled>
+                        <label class="setting-row" for="prompt-surface"><span data-en="Used for">用途</span><select id="prompt-surface">
+                          <option value="planner" data-en="Agenda planning">议程规划</option>
+                          <option value="tool_loop" data-en="Discussion and follow-ups">讨论与追问</option>
+                          <option value="paper_summary" data-en="Single-seat paper reading">单席论文精读</option>
+                        </select></label>
+                        <label class="setting-row" for="prompt-template"><span data-en="Template">模板</span><select id="prompt-template"></select></label>
+                        <label class="setting-row" for="prompt-title"><span data-en="Template name">模板名称</span><input id="prompt-title" maxlength="80"></label>
+                        <label class="setting-row" for="prompt-description"><span data-en="Description">说明</span><input id="prompt-description" maxlength="1000"></label>
+                        <label for="prompt-system"><span data-en="Additional system guidance">附加角色指引</span><textarea id="prompt-system" rows="2" maxlength="4000"></textarea></label>
+                        <label for="prompt-body"><span data-en="Instructions">正文</span><textarea id="prompt-body" rows="7" maxlength="6500"></textarea></label>
+                        <label class="setting-row" for="prompt-enabled"><span data-en="Enabled">启用</span><input type="checkbox" id="prompt-enabled" checked></label>
+                        <label class="setting-row" for="prompt-active"><span data-en="Use for new runs">用于新发起的工作</span><input type="checkbox" id="prompt-active"></label>
+                        <div class="settings-footer prompt-actions">
+                          <button id="prompt-preview" type="button" class="button primary" data-en="Review changes">预览修改</button>
+                          <button id="prompt-suggest" type="button" class="button secondary" data-en="Suggest evidence guidance">建议证据指引</button>
+                          <button id="prompt-restore" type="button" class="button secondary" data-en="Restore built-in prompt">恢复内置提示词</button>
+                          <button id="prompt-remove" type="button" class="button secondary" data-en="Remove template">移除模板</button>
+                        </div>
+                      </fieldset>
+                      <p class="settings-note" id="prompt-status" role="status"></p>
+                    </section>
                   </section>
                   <section id="settings-panel-appearance" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
                     <section class="settings-section" aria-labelledby="interface-language-heading">
@@ -793,6 +830,22 @@
         >
           完成
         </button>
+      </div>
+    </dialog>
+    <dialog id="prompt-patch-review" class="meeting-report-dialog prompt-patch-review" aria-labelledby="prompt-patch-title">
+      <div class="meeting-report-shell">
+        <header class="meeting-report-header"><h2 id="prompt-patch-title" data-en="Review prompt changes">审核提示词修改</h2></header>
+        <div class="meeting-report-scroll">
+          <p id="prompt-patch-reason"></p>
+          <p id="prompt-patch-scope"></p>
+          <div id="prompt-patch-changes"></div>
+          <p class="settings-note" data-en="Restore the built-in prompt in this workspace or restore the previous wording from the preview.">需要回滚时，可从预览保留原文，或在工作区恢复内置提示词。</p>
+          <p id="prompt-patch-status" role="status"></p>
+        </div>
+        <footer class="meeting-report-footer">
+          <button id="prompt-patch-discard" type="button" class="button secondary" data-en="Reject proposal">拒绝提案</button>
+          <button id="prompt-patch-apply" type="button" class="button primary" data-en="Confirm and apply">确认应用</button>
+        </footer>
       </div>
     </dialog>
     <dialog id="meeting-report-dialog" class="meeting-report-dialog" aria-labelledby="meeting-report-title">

@@ -65,6 +65,7 @@ func (e *Engine) StartAgendaDraft(id string, expected *int) (*Session, error) {
 			return fmt.Errorf("%w: 应用正在关闭", ErrConflict)
 		}
 		s.AgendaDraftStatus, s.AgendaDraftError = "drafting", ""
+		s.AgendaPrompt = settings.PromptOverrides[PromptPlanner]
 		s.AgendaVersion++
 		addEvent(s, "agenda_draft_started", s.Seats[0], "首席正在为本次议题选择主页模块并起草议程。")
 		if err = e.save(s); err != nil {
@@ -178,6 +179,7 @@ func (e *Engine) runAgendaDraft(ctx context.Context, stop context.CancelFunc, sn
 	defer stop()
 	seat := snapshot.Seats[0]
 	ctx = deliberation.WithInstructions(context.WithValue(ctx, sessionKey{}, snapshot.ID+"-agenda"), draftInstructions+"\n"+materialPromptInstructions+"\n"+boardContextInstructions+"\nWhen a host has already edited the board or agenda, draft around their saved wording and preserve those edits.")
+	ctx = withPromptOverride(ctx, snapshot.AgendaPrompt)
 	callCtx := e.withVisualMaterials(ctx, snapshot.Materials)
 	promptSnapshot, err := e.Get(snapshot.ID)
 	var raw string

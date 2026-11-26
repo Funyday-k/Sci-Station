@@ -144,6 +144,7 @@
     }
     function lookAt(id) {
       if(active!==id) {
+        window.SciStationReadReview?.update($("lab-read-review"), null);
         visibleRoom=null;
         $("lab-result").hidden=true;
         void replyDraft.select(null);
@@ -182,6 +183,7 @@
     }
     async function selectProject(next, sessions) {
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
+      window.SciStationReadReview?.update($("lab-read-review"), null);
       project=next; records=[];existingTasks=[]; selected=[]; clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
       void questionDraft.select(project);
       void replyDraft.select(null);
@@ -447,6 +449,7 @@
       const archived=Boolean(room.lab_thread?.archived_at);
       $("lab-followup").hidden=archived || !["ready","partial"].includes(room.status);
       $("lab-result").hidden=false;
+      window.SciStationReadReview?.update($("lab-read-review"), room);
       $("lab-run-state").textContent=[threadTitle(room), archived ? "已归档" : "", states[room.status]||room.status].filter(Boolean).join(" · ");
       $("lab-archive-thread").hidden=archived;
       $("lab-restore-thread").hidden=!archived;

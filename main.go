@@ -189,7 +189,7 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 	}
 	gateway := studioGateway(pref)
 	call := gatewayCall(gateway)
-	engine, e := meeting.New(filepath.Join(dir, "studio"), call, func() meeting.Settings { return pref.get().Settings })
+	engine, e := meeting.New(filepath.Join(dir, "studio"), call, pref.meetingSettings)
 	if e != nil {
 		return nil, e
 	}

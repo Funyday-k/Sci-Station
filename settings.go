@@ -17,15 +17,17 @@ import (
 
 type preferences struct {
 	meeting.Settings
-	Appearance string `json:"appearance"`
-	ColorTheme string `json:"color_theme"`
-	TextSize   string `json:"text_size"`
+	PromptLibrary *promptLibrary `json:"prompt_library,omitempty"`
+	Appearance    string         `json:"appearance"`
+	ColorTheme    string         `json:"color_theme"`
+	TextSize      string         `json:"text_size"`
 }
 
 type settingsStore struct {
 	mu               sync.RWMutex
 	file             string
 	prefs            preferences
+	promptPreview    *promptPatchReview
 	providerProfiles *providerProfileStore
 	gatewayOnce      sync.Once
 	gateway          *gateway.Gateway
@@ -38,6 +40,7 @@ func openSettings(dir string) (*settingsStore, error) {
 			ChildModels: map[string]string{"codex": "gpt-6-luna", "cursor": "composer-2.5"},
 			CLIPaths:    map[string]string{"codex": "", "cursor": ""},
 			Timeout:     180, MaxChildren: 1, MaxSteps: 10,
+			ToolBudget:     &meeting.ToolBudget{MaxCalls: 240, ContextChars: 5_000_000, TotalResults: 5_000_000, PerResult: 5_000_000, AutoRead: true},
 			CodexTransport: "magpie", MagpiePort: 3425,
 		},
 		Appearance: "system",
@@ -84,7 +87,20 @@ func (s *settingsStore) get() preferences {
 	return s.prefs
 }
 
+func (s *settingsStore) meetingSettings() meeting.Settings {
+	p := s.get()
+	settings := p.Settings
+	settings.PromptOverrides = p.PromptLibrary.activeOverrides()
+	return settings
+}
+
 func validatePrefs(p preferences, checkExecutables bool) error {
+	if err := p.PromptLibrary.validate(); err != nil {
+		return err
+	}
+	if err := p.ToolBudget.Validate(); err != nil {
+		return err
+	}
 	if p.CodexTransport != "direct" && p.CodexTransport != "magpie" {
 		return errors.New("请选择 Magpie 网关或 Codex 官方直连")
 	}
@@ -143,7 +159,7 @@ func (s *settingsStore) update(raw map[string]json.RawMessage) error {
 	}
 	allowed := map[string]bool{"models": true, "child_models": true, "cli_paths": true, "timeout": true,
 		"max_children": true, "max_steps": true, "allow_edits": true, "magpie_port": true, "appearance": true,
-		"color_theme": true, "text_size": true, "codex_transport": true}
+		"color_theme": true, "text_size": true, "codex_transport": true, "tool_budget": true}
 	delete(raw, "cli_status")
 	for k, v := range raw {
 		if !allowed[k] || string(v) == "null" {
@@ -158,6 +174,10 @@ func (s *settingsStore) update(raw map[string]json.RawMessage) error {
 	if e := validatePrefs(next, true); e != nil {
 		return e
 	}
+	return s.writeLocked(next)
+}
+
+func (s *settingsStore) writeLocked(next preferences) error {
 	b, e := json.MarshalIndent(next, "", "  ")
 	if e != nil {
 		return e

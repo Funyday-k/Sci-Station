@@ -107,18 +107,10 @@ func evidencePaper(e *research.Evidence) string {
 // Explicitly tagged templates use the formal review gate. Existing and
 // personal sessions keep their manual note/task approval path.
 func formalLabWorkflow(room *meeting.Session) string {
-	if len(room.Seats) != 1 || room.ProjectID == "" || !strings.HasPrefix(room.Topic, "科研工作流 · ") {
+	if len(room.Seats) != 1 || room.ProjectID == "" {
 		return ""
 	}
-	lines := strings.SplitN(room.Topic, "\n", 3)
-	if len(lines) < 2 {
-		return ""
-	}
-	workflow, ok := strings.CutPrefix(strings.TrimSpace(lines[1]), "工作流 ID：")
-	if ok && slices.Contains([]string{"paper-reading", "related-work", "gap-planning"}, workflow) {
-		return workflow
-	}
-	return ""
+	return meeting.ResearchWorkflow(room.Topic)
 }
 
 func labDraftEvidence(workflow string, claims []labClaim, truncated bool, refs []labEvidenceReference, current bool) ([]research.Evidence, error) {

@@ -53,18 +53,20 @@ type Member struct {
 }
 
 type Settings struct {
-	ModelEpochs     map[string]int    `json:"model_epochs,omitempty"`
-	CatalogModelIDs map[string]bool   `json:"catalog_model_ids,omitempty"`
-	Efforts         map[string]string `json:"efforts,omitempty"`
-	Models          map[string]string `json:"models"`
-	ChildModels     map[string]string `json:"child_models"`
-	CLIPaths        map[string]string `json:"cli_paths"`
-	Timeout         int               `json:"timeout"`
-	MaxChildren     int               `json:"max_children"`
-	MaxSteps        int               `json:"max_steps"`
-	AllowEdits      bool              `json:"allow_edits"` // Historical round metadata; new rounds are read-only.
-	CodexTransport  string            `json:"codex_transport,omitempty"`
-	MagpiePort      int               `json:"magpie_port,omitempty"`
+	PromptOverrides map[PromptSurface]*PromptOverride `json:"-"`
+	ToolBudget      *ToolBudget                       `json:"tool_budget,omitempty"`
+	ModelEpochs     map[string]int                    `json:"model_epochs,omitempty"`
+	CatalogModelIDs map[string]bool                   `json:"catalog_model_ids,omitempty"`
+	Efforts         map[string]string                 `json:"efforts,omitempty"`
+	Models          map[string]string                 `json:"models"`
+	ChildModels     map[string]string                 `json:"child_models"`
+	CLIPaths        map[string]string                 `json:"cli_paths"`
+	Timeout         int                               `json:"timeout"`
+	MaxChildren     int                               `json:"max_children"`
+	MaxSteps        int                               `json:"max_steps"`
+	AllowEdits      bool                              `json:"allow_edits"` // Historical round metadata; new rounds are read-only.
+	CodexTransport  string                            `json:"codex_transport,omitempty"`
+	MagpiePort      int                               `json:"magpie_port,omitempty"`
 }
 
 type exactCatalogKey struct{}
@@ -150,6 +152,7 @@ type ProjectRuleSnapshot struct {
 }
 
 type Round struct {
+	PromptOverride    *PromptOverride       `json:"prompt_override,omitempty"`
 	MaterialIDs       []string              `json:"material_ids,omitempty"`
 	Checkpoint        *ContinuousCheckpoint `json:"checkpoint,omitempty"`
 	Auto              bool                  `json:"auto,omitempty"`
@@ -199,6 +202,7 @@ type UserChange struct {
 }
 
 type Session struct {
+	AgendaPrompt      *PromptOverride   `json:"agenda_prompt_override,omitempty"`
 	LabThread         *LabThread        `json:"lab_thread,omitempty"`
 	SeatOverrides     map[string]Member `json:"seat_overrides,omitempty"`
 	Board             MeetingBoard      `json:"board"`
@@ -248,6 +252,7 @@ type Summary struct {
 type Engine struct {
 	managedRoot         string
 	previousRoots       []string
+	readReviews         readReviewQueue
 	presence            boardPresenceHub
 	projectRuleSnapshot func(string) (ProjectRuleSnapshot, error)
 	projectAccess       func(string, func(string) error) error
@@ -611,7 +616,8 @@ func (e *Engine) visitSessions(visit func(*Session, *sessionstore.Unreadable)) e
 }
 func (e *Engine) snapshotSettings(session *Session) (Settings, error) {
 	// Copy maps so configuration updates cannot mutate an active round.
-	encoded, err := json.Marshal(e.settings())
+	configured := e.settings()
+	encoded, err := json.Marshal(configured)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -622,6 +628,7 @@ func (e *Engine) snapshotSettings(session *Session) (Settings, error) {
 	// Preserve the archive field without carrying legacy write permission
 	// into new meeting work or into a resumed continuous batch.
 	s.AllowEdits = false
+	s.PromptOverrides = configured.PromptOverrides
 	if len(session.Members) > 0 {
 		s.Models = map[string]string{}
 		s.ChildModels = map[string]string{}
@@ -893,7 +900,7 @@ func appendRound(s *Session, plan deliberation.Plan, note, target string, seats 
 		refs := append([]ProjectRuleVersion{}, rules.Versions...)
 		versions = &refs
 	}
-	s.Rounds = append(s.Rounds, Round{Number: len(s.Rounds) + 1, Auto: automatic, AgendaItemID: s.ActiveAgendaID, Preset: plan.Preset, Phase: plan.Phase, Note: note, Target: target, CreatedAt: now(), Turns: turns, Settings: settings, ProjectRules: versions, PluginGuidance: plugins, MaterialIDs: materialIDs})
+	s.Rounds = append(s.Rounds, Round{Number: len(s.Rounds) + 1, Auto: automatic, AgendaItemID: s.ActiveAgendaID, Preset: plan.Preset, Phase: plan.Phase, Note: note, Target: target, CreatedAt: now(), Turns: turns, Settings: settings, PromptOverride: settings.PromptOverrides[s.promptSurface()], ProjectRules: versions, PluginGuidance: plugins, MaterialIDs: materialIDs})
 	s.Status, s.CancelRequested = "running", false
 	if len(s.Agenda) > 0 {
 		s.AgendaVersion++
@@ -1647,6 +1654,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 	r := snapshot.Rounds[len(snapshot.Rounds)-1]
 	turn := r.Turns[index]
 	settings := r.Settings
+	budget := &runningToolBudget{settings: settings.ToolBudget}
 	defer func() {
 		if resultErr != nil {
 			e.mutate(id, index, func(s *Session, t *Turn) error {
@@ -1701,6 +1709,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 			recent = recent[i:]
 		}
 	}
+	ctx = withPromptOverride(ctx, r.PromptOverride)
 	inlineStatements := compactStatements(recent)
 	contextData["prior_statements"] = inlineStatements
 	visiblePoints := priorPointIDs(visibleStatements)
@@ -1739,6 +1748,10 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		includeLiveAgenda(contextData, requestSnapshot, r.AgendaItemID)
 		base := "CONTEXT:\n" + marshal(contextData)
 		prompt := base + fmt.Sprintf("\nSTEPS REMAINING: %d\nACTION HISTORY:\n", settings.MaxSteps-step) + marshal(history)
+		if err := budget.checkContext(callCtx, prompt); err != nil {
+			finishPreview()
+			return err
+		}
 		raw, err := e.invoke(callCtx, turn.Seat, turn.Model, prompt, settings)
 		finishPreview()
 		if err != nil {
@@ -1784,34 +1797,48 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 			})
 		}
 		var result any
-		switch a.Action {
-		case "read":
-			var path string
-			path, err = relative(a.Path)
-			if err == nil {
-				var f workspace.File
-				f, err = e.readProjectFile(snapshot, path)
+		if a.Action == "read" || a.Action == "read_statement" || a.Action == "delegate" {
+			err = budget.reserve()
+		}
+		if err == nil && (a.Action == "read" || a.Action == "read_statement") {
+			err = e.authorizeModelRead(ctx, id, turn.Seat, "", index, a, budget)
+		}
+		if err == nil {
+			switch a.Action {
+			case "read":
+				var path string
+				path, err = relative(a.Path)
 				if err == nil {
-					result = f
+					var f workspace.File
+					f, err = e.readProjectFile(snapshot, path)
+					if err == nil {
+						result = f
+						err = e.mutate(id, index, func(s *Session, t *Turn) error {
+							if previous, found := t.Reads[path]; found && previous.Version == f.Version {
+								result = alreadyReadFile(f)
+							}
+							t.Reads[path] = f
+							addEvent(s, "read", t.Seat, path)
+							return nil
+						})
+					}
+				}
+			case "read_statement":
+				result, err = statements.read(a)
+				if err == nil {
 					err = e.mutate(id, index, func(s *Session, t *Turn) error {
-						if previous, found := t.Reads[path]; found && previous.Version == f.Version {
-							result = alreadyReadFile(f)
-						}
-						t.Reads[path] = f
-						addEvent(s, "read", t.Seat, path)
+						addEvent(s, "read_statement", t.Seat, fmt.Sprintf("R%d · %s", a.Round, a.Seat))
 						return nil
 					})
 				}
+			case "write":
+				a.Text = nil
+				err = errors.New(modelFileEditUnavailable)
+			case "delegate":
+				result, err = e.delegate(ctx, snapshot, index, a.Task, contextData, visibleStatements, settings, r.PromptOverride, budget)
+			default:
+				err = errors.New("unknown action: " + a.Action)
 			}
-		case "read_statement":
-			result, err = statements.read(a)
-		case "write":
-			a.Text = nil
-			err = errors.New(modelFileEditUnavailable)
-		case "delegate":
-			result, err = e.delegate(ctx, id, index, a.Task, contextData, visibleStatements, settings)
-		default:
-			err = errors.New("unknown action: " + a.Action)
 		}
 		if errors.Is(err, context.Canceled) {
 			return err
@@ -1823,14 +1850,19 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 				return saveErr
 			}
 		} else {
-			feedback["result"] = result
+			if limited := budget.record(result); limited != nil {
+				feedback["result"] = limited
+			} else {
+				feedback["result_omitted"] = true
+			}
 		}
 		history = append(history, feedback)
 	}
 	return errors.New("已达到步骤上限，尚未获得最终公开发言。")
 }
 
-func (e *Engine) delegate(ctx context.Context, id string, index int, task string, contextData map[string]any, visibleStatements []publicStatement, settings Settings) (map[string]any, error) {
+func (e *Engine) delegate(ctx context.Context, room *Session, index int, task string, contextData map[string]any, visibleStatements []publicStatement, settings Settings, override *PromptOverride, budget *runningToolBudget) (map[string]any, error) {
+	id := room.ID
 	if strings.TrimSpace(task) == "" {
 		return nil, errors.New("delegate requires a task")
 	}
@@ -1856,7 +1888,7 @@ func (e *Engine) delegate(ctx context.Context, id string, index int, task string
 	if err != nil {
 		return nil, err
 	}
-	text, err := e.child(ctx, id, index, childID, seat, task, contextData, selected, visibleStatements, settings)
+	text, err := e.child(ctx, room, index, childID, seat, task, contextData, selected, visibleStatements, settings, override, budget)
 	saveErr := e.mutate(id, index, func(s *Session, t *Turn) error {
 		for i := range t.Children {
 			c := &t.Children[i]
@@ -1882,11 +1914,13 @@ func (e *Engine) delegate(ctx context.Context, id string, index int, task string
 	}
 	return map[string]any{"child_id": childID, "text": text}, nil
 }
-func (e *Engine) child(ctx context.Context, id string, index int, childID, seat, task string, contextData map[string]any, selected map[string]workspace.File, visibleStatements []publicStatement, settings Settings) (string, error) {
+func (e *Engine) child(ctx context.Context, room *Session, index int, childID, seat, task string, contextData map[string]any, selected map[string]workspace.File, visibleStatements []publicStatement, settings Settings, override *PromptOverride, budget *runningToolBudget) (string, error) {
+	id := room.ID
 	// Replace, rather than append to, the parent's stage program. A private
 	// helper is never promoted into an extra public participant or chair.
 	ctx = context.WithValue(ctx, sessionKey{}, id+"-"+seat+"-"+childID)
 	ctx = deliberation.WithInstructions(ctx, protocol(true))
+	ctx = withPromptOverride(ctx, override)
 	childData := make(map[string]any, len(contextData))
 	for key, value := range contextData {
 		childData[key] = value
@@ -1918,6 +1952,9 @@ func (e *Engine) child(ctx context.Context, id string, index int, childID, seat,
 			return "", err
 		}
 		prompt := base + fmt.Sprintf("\nSTEPS REMAINING: %d\nACTION HISTORY:\n", settings.MaxSteps-step) + marshal(history)
+		if err := budget.checkContext(ctx, prompt); err != nil {
+			return "", err
+		}
 		raw, err := e.invoke(ctx, seat, settings.ChildModels[seat], prompt, settings)
 		if err != nil {
 			return "", err
@@ -1963,14 +2000,21 @@ func (e *Engine) child(ctx context.Context, id string, index int, childID, seat,
 		}
 		var result any
 		eventType, detail := "child_read", ""
-		if a.Action == "read_statement" {
+		err = budget.reserve()
+		if err == nil {
+			err = e.authorizeModelRead(ctx, id, seat, childID, index, a, budget)
+		}
+		if errors.Is(err, context.Canceled) {
+			return "", err
+		}
+		if err == nil && a.Action == "read_statement" {
 			eventType, detail = "child_read_statement", fmt.Sprintf("R%d · %s", a.Round, a.Seat)
 			result, err = statements.read(a)
-		} else {
+		} else if err == nil {
 			detail, err = relative(a.Path)
 			if err == nil {
 				var f workspace.File
-				f, err = readFile(contextData["project"].(string), detail)
+				f, err = e.readProjectFile(room, detail)
 				if err == nil {
 					result = f
 					if seenFiles[detail] == f.Version {
@@ -1985,7 +2029,11 @@ func (e *Engine) child(ctx context.Context, id string, index int, childID, seat,
 			feedback["error"] = err.Error()
 			eventType, detail = eventType+"_error", err.Error()
 		} else {
-			feedback["result"] = result
+			if limited := budget.record(result); limited != nil {
+				feedback["result"] = limited
+			} else {
+				feedback["result_omitted"] = true
+			}
 		}
 		history = append(history, feedback)
 		if err = e.mutate(id, index, func(s *Session, t *Turn) error { addEvent(s, eventType, seat, detail).ChildID = childID; return nil }); err != nil {

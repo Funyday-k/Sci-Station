@@ -791,6 +791,19 @@
     window.RoundtableRecovery.render(result.unreadable_sessions);
     renderHistory();
   }
+  const toolBudgetDefaults = {max_calls: 240, context_chars: 5000000, total_results: 5000000, per_result: 5000000, auto_read: true};
+  const toolBudgetControls = {
+    max_calls: "setting-max-tool-calls",
+    context_chars: "setting-context-chars",
+    total_results: "setting-total-tool-chars",
+    per_result: "setting-per-tool-chars",
+  };
+
+  function showToolBudget(budget) {
+    for (const [key, id] of Object.entries(toolBudgetControls)) $(id).value = budget[key];
+    $("setting-auto-read").checked = budget.auto_read;
+  }
+
   function settingsToForm() {
     const settings = state.settings;
     if (!settings) return;
@@ -808,6 +821,7 @@
     ]) {
       $(id).value = settings[key] ?? "";
     }
+    showToolBudget(settings.tool_budget || toolBudgetDefaults);
     renderSeats();
     updateControls();
   }
@@ -820,6 +834,10 @@
       max_children: Number($("setting-max-children").value),
       max_steps: Number($("setting-max-steps").value),
       timeout: Number($("setting-timeout").value),
+      tool_budget: {
+        ...Object.fromEntries(Object.entries(toolBudgetControls).map(([key, id]) => [key, Number($(id).value)])),
+        auto_read: $("setting-auto-read").checked,
+      },
     };
   }
 
@@ -832,14 +850,20 @@
       color_theme: state.settings.color_theme || "iris",
       text_size: state.settings.text_size || "standard",
     };
-    return Object.entries(patch).some(([key, value]) => value !== baseline[key]);
+    return Object.entries(patch).some(([key, value]) => key === "tool_budget"
+      ? changedToolBudget(patch) : value !== baseline[key]);
+  }
+
+  function changedToolBudget(patch) {
+    const baseline = state.settings.tool_budget || toolBudgetDefaults;
+    return Object.entries(patch.tool_budget).some(([key, value]) => baseline[key] !== value);
   }
 
   function updateSettingsNavigation() {
     if (!state.settings) return;
     const patch = settingsPatch();
     const collaborationChanged = ["max_children", "max_steps", "timeout"]
-      .some((key) => patch[key] !== state.settings[key]);
+      .some((key) => patch[key] !== state.settings[key]) || changedToolBudget(patch);
     const appearanceChanged = patch.appearance !== (state.settings.appearance || "system") ||
       patch.color_theme !== (state.settings.color_theme || "iris") ||
       patch.text_size !== (state.settings.text_size || "standard");
@@ -1798,6 +1822,7 @@
     }
     if (state.session?.id !== session.id) resetRoomDisclosures();
     state.session = session;
+    window.SciStationReadReview?.update($("studio-read-review"), session);
     state.selected = session.id;
     state.draftOpen = false;
     $("setup-scroll").hidden = true;
@@ -1900,6 +1925,7 @@
           request.etag = poll.etag;
           request.delay = session ? 700 : Math.min(2100, request.delay + 350);
           if (session) updateSession(session);
+          else window.SciStationReadReview?.update($("studio-read-review"), previous);
         }
       } catch (error) {
         if (state.selected === id) showError(error);
@@ -1937,6 +1963,7 @@
     runMaterials.reset();
     state.selected = id;
     state.session = null;
+    window.SciStationReadReview?.update($("studio-read-review"), null);
     state.draftOpen = false;
     clearBoard();
     continuousUI.update(null);
@@ -2031,6 +2058,7 @@
     if (project) setActiveProject(project);
     state.selected = null;
     state.session = null;
+    window.SciStationReadReview?.update($("studio-read-review"), null);
     continuousUI.update(null);
     state.draftOpen = true;
     clearBoard();
@@ -2788,6 +2816,11 @@
     } finally {
       button.disabled = false;
     }
+  });
+  $("restore-tool-budget").addEventListener("click", () => {
+    showToolBudget(toolBudgetDefaults);
+    $("setting-max-steps").value = 10;
+    $("setting-auto-read").dispatchEvent(new Event("input", {bubbles: true}));
   });
   $("settings-form").addEventListener("input", () => {
     state.settingsDirty = changedSettings();

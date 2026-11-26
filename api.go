@@ -291,6 +291,10 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		a.diagnostics(w, r)
 		return
 	}
+	if path == "prompt-settings" || strings.HasPrefix(path, "prompt-settings/") {
+		a.servePromptSettings(w, r, path)
+		return
+	}
 	if path == "settings" {
 		if r.Method == "POST" {
 			var patch map[string]json.RawMessage
@@ -434,6 +438,10 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[1]
+	if len(parts) == 3 && parts[2] == "read-review" {
+		a.serveReadReview(w, r, id)
+		return
+	}
 	if len(parts) == 3 && parts[2] == "cli-edits" {
 		a.serveCLIEdits(w, r, id)
 		return

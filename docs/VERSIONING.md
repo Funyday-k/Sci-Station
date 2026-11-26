@@ -19,6 +19,12 @@ A single-seat session may include optional `lab_thread` presentation metadata wi
 
 Unsent input lives in version 1 files under the workspace meeting store's `lab-drafts/` directory. Each file is scoped to a project or the explicit global scope, and to a session or a new conversation. It stores only editor text and its revision. Credential-like inputs are rejected. The meeting engine does not load drafts into prompts or diagnostics. Malformed records, unsupported versions and records with unknown fields are retained and cannot be overwritten by an editor save. To recover drafts, close Sci-Station and restore them with the matching meeting store and research root from a verified copy.
 
+## Workstation prompts and tool budgets
+
+The research root's `settings.json` may contain a version 1 `prompt_library` with its own revision and an optional `tool_budget`. Older settings open with an empty prompt library and the standard budget. Saving a reviewed proposal atomically updates the library. Each template keeps a stable ID and adds a revision and SHA-256 fingerprint for edited content. Each new discussion round stores the prompt selected for that round and its effective budget. The active agenda draft stores its selected prompt. A rejected preview is transient, and a read decision applies to one running session request. Committed discussion history records the decision without granting permission to read again.
+
+Restore the built-in prompt for a workflow from Settings. Existing round records retain the instructions and budgets used at the time. Keep `settings.json` and the meeting store together when making a workspace backup. A copy created before this update is the rollback source for older app versions. The Swift workspace profile is preserved separately under the workstation migration policy.
+
 See [workspaces and recovery](workspaces.md) for existing roots, the prototype backup manifest, collections, reading position, and direct-provider profiles.
 
 ## Paper sources and reviewed writes

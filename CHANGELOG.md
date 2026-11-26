@@ -10,6 +10,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 - Create a named research workspace from either template, optionally include local examples, and change the workspace name from its menu. Projects can have their own color and symbol.
 - Press Space over a selection in the library to preview a local PDF in its default application.
+- Manage workspace prompts for agenda planning, discussion and single-seat paper reading. Review changes before applying them and restore the built-in instructions by workflow.
+- Set discussion tool budgets and choose whether each model-requested file or statement read needs a one-time decision. Review pending reads in Roundtable, AI Lab or the AI side panel.
 
 - Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.
 - Rename, search, archive, and reopen single-seat conversations in AI Lab. Save unsent questions and follow-ups to the active research root and recover them without sending a model request.

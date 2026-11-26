@@ -151,6 +151,7 @@
         block.append(h,answer);turns.push(block);
       }
     }
+    window.SciStationReadReview?.update(node("rail-read-review"), room);
     node("rail-transcript").replaceChildren(...turns);
   }
   async function loadScope() {
