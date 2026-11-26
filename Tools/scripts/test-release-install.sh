@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE=swift
-if [[ "${1:-}" == --workstation ]]; then
-  MODE=workstation
-  shift
-fi
-if [[ ( "$MODE" == swift && $# -ne 1 ) || ( "$MODE" == workstation && $# -ne 2 ) ]]; then
-  echo "usage: $0 /path/to/Sci-Station.app|Sci-Station.dmg|Sci-Station.zip" >&2
-  echo "       $0 --workstation /path/to/previous.zip|.dmg /path/to/candidate.zip|.dmg" >&2
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 /path/to/previous.zip|.dmg /path/to/candidate.zip|.dmg" >&2
   exit 2
 fi
 
@@ -67,93 +61,53 @@ verify_installed_copy() {
     echo "Installed executable differs from the release artifact." >&2
     exit 1
   fi
-  # Unsigned CI builds still carry a linker-generated ad-hoc Mach-O signature,
-  # so `codesign -dv` alone does not mean the app bundle has a valid resource
-  # seal. Mirror signature verification only when the source bundle itself
-  # passes the strict check. Developer ID artifacts are verified separately by
-  # verify-release.sh before this installation exercise runs.
-  if [[ "$MODE" == workstation ]] || codesign --verify --deep --strict "$SOURCE_APP" >/dev/null 2>&1; then
-    codesign --verify --deep --strict --verbose=2 "$INSTALLED_APP"
-  fi
+  codesign --verify --deep --strict --verbose=2 "$INSTALLED_APP"
 }
 
-stage_workstation_archive() {
-  local input="$1" stage="$2" artifact
+stage_release_archive() {
+  local input="$1" stage="$2" expected_build="$3" artifact
   artifact="$(cd "$(dirname "$input")" && pwd -P)/$(basename "$input")"
   if [[ "$artifact" != *.zip && "$artifact" != *.dmg ]]; then
-    printf 'Workstation install validation requires a ZIP or DMG and its SHA-256 sidecar.\n' >&2
+    printf 'Release install validation requires a ZIP or DMG and its SHA-256 sidecar.\n' >&2
     exit 2
   fi
-  SCI_STATION_BUILD_NUMBER="" "$ROOT_DIR/Tools/scripts/verify-release.sh" --workstation "$artifact"
+  SCI_STATION_BUILD_NUMBER="$expected_build" "$ROOT_DIR/Tools/scripts/verify-release.sh" "$artifact"
   open_release_app "$artifact" "$stage/container"
   /usr/bin/ditto "$RELEASE_SOURCE_APP" "$stage/Sci-Station.app"
   close_release_app
 }
 
-if [[ "$MODE" == workstation ]]; then
-  previous="$TEST_ROOT/previous"
-  candidate="$TEST_ROOT/candidate"
-  stage_workstation_archive "$1" "$previous"
-  stage_workstation_archive "$2" "$candidate"
-  previous_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$previous/Sci-Station.app/Contents/Info.plist")"
-  candidate_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$candidate/Sci-Station.app/Contents/Info.plist")"
-  if ! python3 -c 'import sys; sys.exit(int(sys.argv[2]) <= int(sys.argv[1]))' "$previous_build" "$candidate_build"; then
-    printf 'The candidate build must advance from %s to a greater number (got %s).\n' "$previous_build" "$candidate_build" >&2
-    exit 1
-  fi
-  smoke="$ROOT_DIR/RoundtableWorkstation/tests/package-install-smoke.py"
-  select_source_app "$previous/Sci-Station.app"
-  install_app
-  verify_installed_copy
-  python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" initial
-  /usr/bin/ditto "$TEST_ROOT/research-root" "$TEST_ROOT/pre-upgrade-backup"
-
-  stale_marker="$INSTALLED_APP/Contents/Resources/.sci-station-stale-install-marker"
-  printf 'stale installation fixture\n' >"$stale_marker"
-  select_source_app "$candidate/Sci-Station.app"
-  install_app
-  [[ ! -e "$stale_marker" ]] || { printf 'Upgrade left a stale bundle file.\n' >&2; exit 1; }
-  verify_installed_copy
-  python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" upgraded
-
-  # Restore the known-good snapshot into a sibling fixture. Keep the upgraded
-  # fixture intact and exercise the previous bundle again at the install path.
-  /usr/bin/ditto "$TEST_ROOT/pre-upgrade-backup" "$TEST_ROOT/restored-root"
-  select_source_app "$previous/Sci-Station.app"
-  install_app
-  verify_installed_copy
-  python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" rollback
-  printf 'Workstation candidate install, overwrite upgrade, and rollback passed (%s → %s → %s).\n' \
-    "$previous_build" "$candidate_build" "$previous_build"
-  exit 0
-fi
-
-ARTIFACT_PATH="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
-open_release_app "$ARTIFACT_PATH" "$TEST_ROOT"
-select_source_app "$RELEASE_SOURCE_APP"
-
-echo "==> Installing into an isolated Applications directory..."
-install_app
-verify_installed_copy
-
-echo "==> Exercising first launch from the installed location..."
-"$ROOT_DIR/Tools/scripts/smoke-test-sidecar-runtime.sh" "$INSTALLED_APP"
-"$ROOT_DIR/Tools/scripts/smoke-test-app.sh" "$INSTALLED_APP"
-"$ROOT_DIR/Tools/scripts/smoke-test-ui-navigation.sh" "$INSTALLED_APP"
-
-STALE_MARKER="$INSTALLED_APP/Contents/Resources/.sci-station-stale-install-marker"
-mkdir -p "$(dirname "$STALE_MARKER")"
-printf 'stale installation data\n' >"$STALE_MARKER"
-
-echo "==> Replacing the existing installation and launching the upgrade..."
-install_app
-if [[ -e "$STALE_MARKER" ]]; then
-  echo "Upgrade left stale files from the previous app bundle." >&2
+previous="$TEST_ROOT/previous"
+candidate="$TEST_ROOT/candidate"
+stage_release_archive "$1" "$previous" ""
+stage_release_archive "$2" "$candidate" "${SCI_STATION_BUILD_NUMBER:-}"
+previous_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$previous/Sci-Station.app/Contents/Info.plist")"
+candidate_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$candidate/Sci-Station.app/Contents/Info.plist")"
+if ! python3 -c 'import sys; sys.exit(int(sys.argv[2]) <= int(sys.argv[1]))' "$previous_build" "$candidate_build"; then
+  printf 'The candidate build must advance from %s to a greater number (got %s).\n' "$previous_build" "$candidate_build" >&2
   exit 1
 fi
+smoke="$ROOT_DIR/tests/package-install-smoke.py"
+select_source_app "$previous/Sci-Station.app"
+install_app
 verify_installed_copy
-"$ROOT_DIR/Tools/scripts/smoke-test-sidecar-runtime.sh" "$INSTALLED_APP"
-"$ROOT_DIR/Tools/scripts/smoke-test-app.sh" "$INSTALLED_APP"
-"$ROOT_DIR/Tools/scripts/smoke-test-ui-navigation.sh" "$INSTALLED_APP"
+python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" initial
+/usr/bin/ditto "$TEST_ROOT/research-root" "$TEST_ROOT/pre-upgrade-backup"
 
-echo "Release install, first-launch, and overwrite-upgrade tests passed."
+stale_marker="$INSTALLED_APP/Contents/Resources/.sci-station-stale-install-marker"
+printf 'stale installation fixture\n' >"$stale_marker"
+select_source_app "$candidate/Sci-Station.app"
+install_app
+[[ ! -e "$stale_marker" ]] || { printf 'Upgrade left a stale bundle file.\n' >&2; exit 1; }
+verify_installed_copy
+python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" upgraded
+
+# Restore the known-good snapshot into a sibling fixture. Keep the upgraded
+# fixture intact and exercise the previous bundle again at the install path.
+/usr/bin/ditto "$TEST_ROOT/pre-upgrade-backup" "$TEST_ROOT/restored-root"
+select_source_app "$previous/Sci-Station.app"
+install_app
+verify_installed_copy
+python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" rollback
+printf 'Release install, overwrite upgrade, and rollback passed (%s → %s → %s).\n' \
+  "$previous_build" "$candidate_build" "$previous_build"
