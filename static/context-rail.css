@@ -63,3 +63,22 @@ body[data-workspace-surface=studio]:is([data-rail-mode=ai],[data-rail-mode=inspe
 .model-read-review > p:empty { display: none; }
 .model-read-review > .actions { display: flex; gap: 8px; margin-top: 8px; }
 #studio-read-review { width: calc(100% - 36px); margin: 0 auto 8px; }
+
+
+.model-read-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0;
+}
+.model-read-details dt { color: var(--muted, var(--text)); }
+.model-read-details dd { margin: 0; min-width: 0; }
+.model-read-details pre {
+  max-height: 8rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-family: ui-monospace, monospace;
+}
