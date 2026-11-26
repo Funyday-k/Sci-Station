@@ -626,11 +626,9 @@ async function main() {
   if (failure) throw failure;
 }
 
-module.exports = {buildNativeFixture, chromeDriver, webkitDriver, fixtureHome, listen, closeServer, localGateway, launch, eventually};
+module.exports = {buildNativeFixture, chromeDriver, webkitDriver, fixtureHome, listen, closeServer, localGateway, launch, eventually, sourcePDF};
 
 if (require.main === module) main().catch(error => {
   console.error(error);
   process.exitCode = 1;
 });
-
-module.exports = {listen, closeServer, localGateway, fixtureHome, launch, sourcePDF};
