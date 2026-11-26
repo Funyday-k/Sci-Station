@@ -139,10 +139,6 @@ func graphArtifactEvidenceMessage(status string) string {
 	}
 }
 
-func (a graphArtifact) label() string {
-	return graphExcerptLabel(a.review.Title) + " [" + a.review.ResultID + "]"
-}
-
 func (a graphArtifact) staleFinding(cutoff time.Time, evidence []graphArtifactEvidence) (graphWorkflowFinding, bool) {
 	reasons := []string{}
 	links := []graphWorkflowLink{a.destination}
@@ -167,7 +163,10 @@ func (a graphArtifact) staleFinding(cutoff time.Time, evidence []graphArtifactEv
 			links = append(links, e.link)
 		}
 	}
-	return graphWorkflowFinding{Text: a.label() + " · " + strings.Join(reasons, "、"), Severity: "warning", Links: links}, len(reasons) > 0
+	return graphWorkflowFinding{
+		Title: graphExcerptLabel(a.review.Title), Text: strings.Join(reasons, "、"),
+		Severity: "warning", Links: links, locators: []string{a.review.ResultID},
+	}, len(reasons) > 0
 }
 
 func (a graphArtifact) claimFindings(filter string, evidence []graphArtifactEvidence) []graphWorkflowFinding {
@@ -175,7 +174,8 @@ func (a graphArtifact) claimFindings(filter string, evidence []graphArtifactEvid
 	add := func(line int, detail, severity string, links ...graphWorkflowLink) {
 		if filter == "" || filter == severity {
 			findings = append(findings, graphWorkflowFinding{
-				Text: a.label() + " · " + detail, Severity: severity, Line: line, Links: append([]graphWorkflowLink{a.destination}, links...),
+				Title: graphExcerptLabel(a.review.Title), Text: detail, Severity: severity, Line: line,
+				Links: append([]graphWorkflowLink{a.destination}, links...), locators: []string{a.review.ResultID},
 			})
 		}
 	}

@@ -76,6 +76,10 @@ func TestGraphWorkflowReadingIncludesFollowUpsSharedMethodsAndUncitedCore(t *tes
 	if !strings.Contains(reading.Excerpt, "项目核心论文") {
 		t.Fatalf("reason missing for uncited core paper: %+v", reading)
 	}
+	row := reading.Findings[titlePosition(core.ID)]
+	if row.Title != core.Title || strings.Contains(row.Text, core.ID) || !strings.Contains(reading.Excerpt, core.ID) {
+		t.Fatalf("display and handoff did not preserve their expected locators: %+v", reading)
+	}
 	lineage := workflowTestQuery(t, s, p, "method-lineage", url.Values{"focus": {current.ID}, "depth": {"3"}})
 	if lineage.Total != 2 || !strings.Contains(lineage.Excerpt, "使用") || !strings.Contains(lineage.Excerpt, "Earlier method") ||
 		strings.Contains(lineage.Excerpt, "Ordinary") || strings.Contains(lineage.Excerpt, center.ID) {

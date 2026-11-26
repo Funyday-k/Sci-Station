@@ -18,10 +18,12 @@ type graphWorkflowLink struct {
 }
 
 type graphWorkflowFinding struct {
+	Title    string              `json:"title,omitempty"`
 	Text     string              `json:"text"`
 	Severity string              `json:"severity,omitempty"`
 	Line     int                 `json:"line,omitempty"`
 	Links    []graphWorkflowLink `json:"links,omitempty"`
+	locators []string
 }
 
 type graphWorkflowResult struct {
@@ -213,10 +215,6 @@ func graphFindingNode(node graphNode) graphWorkflowLink {
 	return graphWorkflowLink{Label: node.Label, NodeID: node.ID}
 }
 
-func graphNodeLocator(node graphNode) string {
-	return graphExcerptLabel(node.Label) + " [" + node.ID + "]"
-}
-
 func graphTraversalFindings(q graphWorkflowQuery, graph graphResult) graphWorkflowResult {
 	nodes := map[string]graphNode{}
 	for _, n := range graph.Nodes {
@@ -231,10 +229,12 @@ func graphTraversalFindings(q graphWorkflowQuery, graph graphResult) graphWorkfl
 			return result
 		}
 		for i, id := range graph.Path.Nodes {
-			row := graphWorkflowFinding{Text: graphNodeLocator(nodes[id]), Links: []graphWorkflowLink{graphFindingNode(nodes[id])}}
+			row := graphWorkflowFinding{
+				Title: graphExcerptLabel(nodes[id].Label), Links: []graphWorkflowLink{graphFindingNode(nodes[id])}, locators: []string{id},
+			}
 			if i < len(graph.Edges) {
 				edge := graph.Edges[i]
-				row.Text += " · " + edge.Kind + " " + graphNodeLocator(nodes[edge.Source]) + " → " + graphNodeLocator(nodes[edge.Target])
+				row.Text = edge.Kind + " " + graphExcerptLabel(nodes[edge.Source].Label) + " → " + graphExcerptLabel(nodes[edge.Target].Label)
 			}
 			result.Findings = append(result.Findings, row)
 		}
@@ -245,7 +245,7 @@ func graphTraversalFindings(q graphWorkflowQuery, graph graphResult) graphWorkfl
 	if q.operation == "method-lineage" {
 		result.Title = "项目图谱 · 方法沿革" + depth
 	}
-	result.Notice = "起点 " + graphNodeLocator(nodes[q.focus])
+	result.Notice = "起点 " + graphExcerptLabel(nodes[q.focus].Label)
 	if len(graph.Edges) == 0 {
 		result.Notice += "。当前范围内没有已记录的对应关系。"
 		return result
@@ -257,8 +257,9 @@ func graphTraversalFindings(q graphWorkflowQuery, graph graphResult) graphWorkfl
 			kind = "使用"
 		}
 		row := graphWorkflowFinding{
-			Text:  graphNodeLocator(from) + " → " + kind + " → " + graphNodeLocator(to),
-			Links: []graphWorkflowLink{graphFindingNode(from), graphFindingNode(to)},
+			Text:     graphExcerptLabel(from.Label) + " → " + kind + " → " + graphExcerptLabel(to.Label),
+			Links:    []graphWorkflowLink{graphFindingNode(from), graphFindingNode(to)},
+			locators: []string{from.ID, to.ID},
 		}
 		if edge.Label != "" {
 			row.Text += " · " + graphExcerptLabel(edge.Label)
@@ -274,7 +275,17 @@ func graphWorkflowText(result graphWorkflowResult) string {
 		rows = append(rows, result.Notice)
 	}
 	for i, finding := range result.Findings {
-		rows = append(rows, strconv.Itoa(i+1)+". "+finding.Text)
+		row := finding.Text
+		if finding.Title != "" {
+			row = finding.Title
+			if finding.Text != "" {
+				row += " · " + finding.Text
+			}
+		}
+		if len(finding.locators) > 0 {
+			row += " [" + strings.Join(finding.locators, ", ") + "]"
+		}
+		rows = append(rows, strconv.Itoa(i+1)+". "+row)
 	}
 	if result.Truncated {
 		rows = append(rows, "另有 "+strconv.Itoa(result.Total-len(result.Findings))+" 条结果。")

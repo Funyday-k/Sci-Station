@@ -679,6 +679,7 @@ dialog:has([data-library-paper]) .dialog-head {
 .field input,
 .field select,
 .graph-picker select,
+.graph-picker input,
 .field textarea,
 .query-input {
   background: var(--surface);
@@ -1332,6 +1333,11 @@ dialog::backdrop {
 }
 
 .graph-picker select {
+  color: var(--ink)
+}
+
+.graph-picker input {
+  max-width: 7rem;
   color: var(--ink)
 }
 

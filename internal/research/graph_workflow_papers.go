@@ -99,15 +99,16 @@ func missingCoreFindings(ctx context.Context, project string, papers []Paper, mi
 		var target string
 		row := graphWorkflowFinding{}
 		if paper, ok := index[candidate.node.ID]; ok {
-			target = graphNodeLocator(candidate.node) + graphPaperYears(paper.Year)
+			target = graphExcerptLabel(candidate.node.Label) + graphPaperYears(paper.Year)
 			row.Links = append(row.Links, graphPaperReaderLink(paper, project))
+			row.locators = append(row.locators, paper.ID)
 		} else {
 			target = graphExcerptLabel(candidate.citing[0].Occurrences[0].Quote) + "（库内未确认）"
 		}
 		row.Text = target + " · " + strconv.Itoa(len(candidate.citing)) + " 篇核心论文引用"
 		for _, edge := range candidate.citing[:min(5, len(candidate.citing))] {
 			paper := index[edge.Source]
-			row.Text += " · " + graphNodeLocator(graphNode{paper.ID, paper.Title, "paper"})
+			row.locators = append(row.locators, graphExcerptLabel(paper.Title)+" "+paper.ID)
 			row.Links = append(row.Links, graphCitationSourceLink(paper, project, edge.Occurrences[0]))
 		}
 		result.Findings = append(result.Findings, row)
@@ -164,16 +165,18 @@ func staleCitationFindings(ctx context.Context, project string, nodes map[string
 			return strings.Compare(a.ID, b.ID)
 		})
 		row := graphWorkflowFinding{
-			Text:     graphNodeLocator(nodes[citing.ID]) + " 引用 " + graphNodeLocator(nodes[cited.ID]) + graphPaperYears(cited.Year),
+			Text:     graphExcerptLabel(nodes[citing.ID].Label) + " 引用 " + graphExcerptLabel(nodes[cited.ID].Label) + graphPaperYears(cited.Year),
 			Severity: "warning",
 			Links:    []graphWorkflowLink{graphPaperReaderLink(citing, project), graphPaperReaderLink(cited, project)},
+			locators: []string{citing.ID, cited.ID},
 		}
 		if len(edge.Occurrences) > 0 {
 			row.Links[0] = graphCitationSourceLink(citing, project, edge.Occurrences[0])
 		}
 		for _, paper := range newer[:min(5, len(newer))] {
-			row.Text += " · 较新扩展 " + graphNodeLocator(nodes[paper.ID]) + graphPaperYears(paper.Year)
+			row.Text += " · 较新扩展 " + graphExcerptLabel(nodes[paper.ID].Label) + graphPaperYears(paper.Year)
 			row.Links = append(row.Links, graphPaperReaderLink(paper, project))
+			row.locators = append(row.locators, paper.ID)
 		}
 		result.Findings = append(result.Findings, row)
 	}
@@ -309,8 +312,10 @@ func graphReadingFindings(ctx context.Context, q graphQuery, project string, nod
 			reason = "由已记录的引用、扩展或方法关系找到"
 		}
 		result.Findings = append(result.Findings, graphWorkflowFinding{
-			Text:  graphNodeLocator(nodes[id]) + graphPaperYears(index[id].Year) + " · " + reason,
-			Links: []graphWorkflowLink{graphFindingNode(nodes[id])},
+			Title:    graphExcerptLabel(nodes[id].Label),
+			Text:     reason + graphPaperYears(index[id].Year),
+			Links:    []graphWorkflowLink{graphFindingNode(nodes[id])},
+			locators: []string{id},
 		})
 	}
 	return result, nil

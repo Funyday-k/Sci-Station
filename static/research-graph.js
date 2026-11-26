@@ -100,7 +100,9 @@
           const links = (row.links || []).map(item =>
             item.nodeId ? nodeButton(item.nodeId) :
               /^\/(research|reader|tools)\?/.test(item.url || "") ? link(item.label, item.url, "bare") : "").filter(Boolean);
-          return "<li>" + esc(row.text) + (links.length ? '<p>' + links.join(" · ") + "</p>" : "") + "</li>";
+          const title = row.title ? (row.links?.[0]?.nodeId ? links.shift() || esc(row.title) : esc(row.title)) : "";
+          const detail = (title && row.text ? " · " : "") + esc(row.text);
+          return "<li>" + title + detail + (links.length ? '<p>' + links.join(" · ") + "</p>" : "") + "</li>";
         }).join("") + "</ol>";
       }
       if (result.truncated) content += '<p class="graph-status">当前显示 ' + found.length + " 项，共 " + Number(result.total) + " 项。</p>";
