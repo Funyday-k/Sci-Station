@@ -741,6 +741,9 @@
     window.SciContextRail?.selectObject("note", n.id);
     const {frontmatter, body} = splitWikiBody(n.body);
     const noteURL = E.wikiURL(n.id, owner);
+    const paperStatus = wikiPaperStatus(n);
+    const paperLink = n.paperId && paperStatus !== "missing" ? link("关联论文",
+      reader(n.paperId, paperStatus === "outside_project" ? null : owner), "button", "book") : "";
     dialog(n.title, (n.namespace ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' : "") + '<div class="actions">' +
       button("编辑页面", "edit-note", {id: n.id, kind: "button primary", glyph: "file"}) +
       button("移动页面", "move-note", {id: n.id}) +
@@ -748,7 +751,7 @@
       link("页面链接", noteURL, "button") +
       link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") +
       (n.sourceMeetingId ? link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button", "chat") : "") +
-      (n.paperId && wikiPaperStatus(n) !== "missing" ? link("关联论文", reader(n.paperId), "button", "book") : "") + '</div>' + wikiPaperNotice(n) +
+      paperLink + '</div>' + wikiPaperNotice(n) +
       (excerpt ? sourceExcerptMarkup(excerpt) : noteOccurrence(n, locator)) +
       (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
         '<div id="wiki-metadata" aria-live="polite"></div><details><summary>原始 YAML</summary><pre>' +

@@ -79,7 +79,10 @@ func TestWikiHistoricalPaperSourceSurvivesUnlinkAndDelete(t *testing.T) {
 		!slices.Contains(impact.Projects, paperRemovalProject{ID: c.ID, Name: c.Name, Archived: true, ArchivedWikiPages: 1}) {
 		t.Fatalf("incorrect shared deletion impact: %#v", impact)
 	}
-	regular := decodeResearch[Note](t, callResearch(t, s, "POST", pages, map[string]any{"title": "New fixture note", "paperId": paper.ID}, 201))
+	regular := decodeResearch[Note](t, callResearch(t, s, "POST", pages, map[string]any{
+		"title": "New fixture note", "paperId": paper.ID,
+		"evidence": []Evidence{{PaperID: paper.ID, Page: 1, Quote: "Historical fixture quotation"}},
+	}, 201))
 	confirm(impact, 409)
 	impact = preview()
 	callResearch(t, s, "PATCH", paperPath, map[string]any{"revision": impact.Revision, "tags": []string{"revised"}}, 200)
@@ -98,9 +101,23 @@ func TestWikiHistoricalPaperSourceSurvivesUnlinkAndDelete(t *testing.T) {
 	callResearch(t, s, "PATCH", notePath, map[string]any{"revision": changed.Revision, "paperId": other.ID}, 400)
 	callResearch(t, s, "POST", pages, map[string]any{"title": "Invalid new link", "paperId": paper.ID}, 409)
 	regularPath := pages + "/" + regular.ID
-	callResearch(t, s, "PATCH", regularPath, map[string]any{"revision": regular.Revision, "paperId": makeID()}, 409)
-	callResearch(t, s, "PATCH", regularPath, map[string]any{"revision": regular.Revision, "paperId": other.ID}, 200)
-	callResearch(t, s, "PATCH", regularPath, map[string]any{"revision": regular.Revision + 1, "paperId": ""}, 200)
+	edited := decodeResearch[Note](t, callResearch(t, s, "PATCH", regularPath, map[string]any{
+		"revision": regular.Revision, "evidence": regular.Evidence, "body": "Retain the historical citation.",
+	}, 200))
+	if len(edited.Evidence) != 1 || edited.Evidence[0] != regular.Evidence[0] || edited.Evidence[0].SourceHash != paper.FileSHA256 {
+		t.Fatalf("historical PDF evidence changed: %#v", edited.Evidence)
+	}
+	revisedQuote := edited.Evidence[0]
+	revisedQuote.Quote = "Changed historical quotation"
+	for _, evidence := range [][]Evidence{{revisedQuote}, {edited.Evidence[0], edited.Evidence[0]}} {
+		callResearch(t, s, "PATCH", regularPath, map[string]any{"revision": edited.Revision, "evidence": evidence}, 409)
+	}
+	callResearch(t, s, "PATCH", regularPath, map[string]any{"revision": edited.Revision, "paperId": makeID()}, 409)
+	callResearch(t, s, "PATCH", regularPath, map[string]any{
+		"revision": edited.Revision, "paperId": other.ID,
+		"evidence": []Evidence{edited.Evidence[0], {PaperID: other.ID, Quote: "A new, resolvable quotation"}},
+	}, 200)
+	callResearch(t, s, "PATCH", regularPath, map[string]any{"revision": edited.Revision + 1, "paperId": ""}, 200)
 
 	s = newResearch(t, dir)
 	reopened := assertSource(notePath, "missing")

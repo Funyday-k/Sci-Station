@@ -43,6 +43,19 @@ func (s *Service) registerNotes() {
 	s.mux.HandleFunc("PUT "+prefix+"/wiki/snippets", s.wikiSnippets)
 }
 
+func noteEvidenceKey(e Evidence) string {
+	b, _ := json.Marshal(e)
+	return string(b)
+}
+
+func noteEvidenceCounts(entries []Evidence) map[string]int {
+	counts := make(map[string]int, len(entries))
+	for _, e := range entries {
+		counts[noteEvidenceKey(e)]++
+	}
+	return counts
+}
+
 // Only the reviewed-write transaction may attach meeting provenance. Manual
 // edits may retain or remove existing citations, including legacy records.
 func introducesMeetingSource(in noteInput, current Note) bool {
@@ -55,17 +68,10 @@ func introducesMeetingSource(in noteInput, current Note) bool {
 	if in.Evidence == nil {
 		return false
 	}
-	old := map[string]int{}
-	for _, e := range current.Evidence {
-		if e.Source != nil || e.MeetingID != "" || e.TurnID != "" {
-			b, _ := json.Marshal(e)
-			old[string(b)]++
-		}
-	}
+	old := noteEvidenceCounts(current.Evidence)
 	for _, e := range *in.Evidence {
 		if e.Source != nil || e.MeetingID != "" || e.TurnID != "" {
-			b, _ := json.Marshal(e)
-			key := string(b)
+			key := noteEvidenceKey(e)
 			if old[key] == 0 {
 				return true
 			}
@@ -87,8 +93,14 @@ func (s *Service) validateSources(in noteInput, previous Note) error {
 	if len(*in.Evidence) > 128 {
 		return fmt.Errorf("证据条目过多")
 	}
+	retained := noteEvidenceCounts(previous.Evidence)
 	for i := range *in.Evidence {
 		e := &(*in.Evidence)[i]
+		key := noteEvidenceKey(*e)
+		if retained[key] > 0 {
+			retained[key]--
+			continue
+		}
 		if (e.PaperID == "" && e.MeetingID == "") || e.Page < 0 || strings.TrimSpace(e.Quote) == "" || len(e.Quote) > 128<<10 || len(e.MeetingID) > 256 || len(e.TurnID) > 256 {
 			return fmt.Errorf("来源引用不完整")
 		}

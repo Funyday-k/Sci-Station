@@ -68,7 +68,12 @@ async function main(binary) {
     };
     await openNote();
     await expect(modal.locator('[data-wiki-paper-status="outside_project"]')).toBeVisible();
-    await expect(sourceLink).toBeVisible();
+    await sourceLink.click();
+    await expect(page.locator("#title")).toHaveText(paper.title);
+    const readerURL = new URL(page.url());
+    assert.equal(readerURL.pathname, "/reader");
+    assert.equal(readerURL.searchParams.get("paper"), paper.id);
+    assert.equal(readerURL.searchParams.has("project"), false);
 
     await papers(second);
     await openSharedDelete();

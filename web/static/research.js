@@ -142,8 +142,8 @@
     return navigation.route("/studio", {project: state.project?.id, session});
   }
 
-  function reader(paper) {
-    return navigation.route("/reader", {paper, project: state.project?.id});
+  function reader(paper, project = state.project?.id) {
+    return navigation.route("/reader", {paper, project});
   }
 
   function toolsPage(tab, paper) {
