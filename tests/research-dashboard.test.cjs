@@ -141,3 +141,31 @@ test("Home and Overview render durable draft counts and keep layout changes scop
   assert.match(overview, /<b>1<\/b> 项待审核/);
   assert.doesNotMatch(overview, /Pending beta/);
 });
+
+test("dashboard cards settle on the shortest columns that fit their span", () => {
+  const items = [
+    {span: 1, height: 150},
+    {span: 1, height: 80},
+    {span: 2, height: 105},
+    {span: 1, height: 95},
+    {span: 2, height: 130},
+  ];
+  assert.deepEqual(dashboard.packWidgets(items, 4, 14), {
+    positions: [
+      {column: 0, top: 0},
+      {column: 1, top: 0},
+      {column: 2, top: 0},
+      {column: 1, top: 94},
+      {column: 2, top: 119},
+    ],
+    height: 249
+  });
+  assert.deepEqual(dashboard.packWidgets(items.map(item => ({...item, span: 1})), 1, 14), {
+    positions: [0, 164, 258, 377, 486].map(top => ({column: 0, top})),
+    height: 616
+  });
+  const aligned = dashboard.packWidgets([{span: 1, height: 130}, {span: 1, height: 80},
+    {span: 2, height: 100}, {span: 2, height: 120}], 4, 14);
+  assert.deepEqual(aligned.positions.at(-1), {column: 2, top: 114});
+  assert.deepEqual(dashboard.packWidgets([], 4, 14), {positions: [], height: 0});
+});
