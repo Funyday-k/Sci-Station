@@ -16,7 +16,7 @@ The [macOS CI workflow](../.github/workflows/macos-ci.yml) has no path filters. 
 | --- | --- |
 | Repository hygiene | Tracked artifact checks, documentation links, app version and build number consistency, and governance tool tests. |
 | Change traceability | A PR description links a real Issue, a versioned decision or a backlog item. |
-| Workstation | Go race, coverage and vet, frontend tests, signed arm64 bundle and deployment target, native shutdown and relaunch, PDF-to-Roundtable writeback, and native menu navigation. Go and Node fixtures cover the CLI approval protocol. |
+| Workstation | Go race, coverage and vet, frontend tests, signed arm64 bundle and deployment target, native shutdown and relaunch, PDF-to-Roundtable writeback, native menu navigation, and compact and wide WKWebView editing and appearance checks. Go and Node fixtures cover the CLI approval protocol. |
 | Workstation install, upgrade and rollback | Verified ZIP, DMG and SHA-256 from the same checkout on Apple Silicon macOS 15, with a lower-build fixture and a disposable workspace. XCTest launches the installed bundle and verifies visible Home and Library navigation after both the initial install and upgrade. |
 
 Reviewers verify the requirement link and the behavior claimed by each change. For a new runtime or permission boundary, the relevant RFC and ADR must record acceptance before implementation. See [developer verification](DEVELOPER.md) for local checks and the limits of controlled fixtures.

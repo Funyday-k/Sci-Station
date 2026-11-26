@@ -64,10 +64,11 @@ make app verify
 app=build/Sci-Station.app
 python3 tests/macos-close-smoke.py "$app"
 node tests/workstation-workflow-smoke.cjs --native "$app"
+node tests/workstation-workbench-smoke.cjs "$app" "$TMPDIR/workbench-ui"
 node tests/workstation-native-menu-smoke.cjs "$app"
 ```
 
-The shutdown smoke checks the signed app process and uses a separate test driver for window gestures. The workflow smoke exercises native PDF selection, a two-seat discussion, a refusal, confirmed writeback and return to the original passage after reopen, using a local model fixture. The native menu smoke exercises actual menu navigation and revocation of a window capability after switching roots. The Go and Node suites exercise CLI approval protocols with fixtures. To exercise an installed Codex executable against the isolated model fixture, run `SCI_STATION_TEST_CODEX=/path/to/codex node tests/workstation-cli-edit-smoke.cjs --native "$app"`. Name the binary, model or CLI, OS version and test mode in validation reports. Finder approval, Keychain and EventKit prompts require separate observation.
+The shutdown smoke checks the signed app process and uses a separate test driver for window gestures. The workflow smoke exercises native PDF selection, a two-seat discussion, a refusal, confirmed writeback and return to the original passage after reopen, using a local model fixture. The workbench smoke checks calendar navigation, library search and selection, project switching and saved AI Lab appearance at 900×620 and 1440×900 in WKWebView. It saves screenshots and observed results in the supplied output directory. The native menu smoke exercises actual menu navigation and revocation of a window capability after switching roots. The Go and Node suites exercise CLI approval protocols with fixtures. To exercise an installed Codex executable against the isolated model fixture, run `SCI_STATION_TEST_CODEX=/path/to/codex node tests/workstation-cli-edit-smoke.cjs --native "$app"`. Name the binary, model or CLI, OS version and test mode in validation reports. Finder approval, Keychain and EventKit prompts require separate observation.
 
 ## Package and install
 
