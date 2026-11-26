@@ -58,8 +58,9 @@ final class InstalledAppUITests: XCTestCase {
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 15), "The installed app must quit after Command-Q.")
     }
 
-    private func matching(_ labels: [String], in query: XCUIElementQuery) -> XCUIElementQuery {
-        query.matching(NSPredicate(format: "label IN %@", labels))
+    private func matching(_ names: [String], in query: XCUIElementQuery) -> XCUIElementQuery {
+        // On macOS 15, WebKit exposes these visible controls through title.
+        query.matching(NSPredicate(format: "title IN %@ OR label IN %@", names, names))
     }
 
     private func click(_ query: XCUIElementQuery, name: String, in window: XCUIElement, process: NSRunningApplication) {
