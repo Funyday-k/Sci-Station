@@ -14,6 +14,9 @@
   --workspace-accent-ink: light-dark(#fff, #1b1d21);
   --workspace-danger: light-dark(#a52f42, #ff9cae);
   --workspace-shadow: 0 4px 20px light-dark(#20242b0d, #00000033);
+  --workspace-page-top: 24px;
+  --workspace-page-inset: clamp(16px, 3vw, 32px);
+  --workspace-title-size: calc(24px + var(--workspace-text-increase));
   --workspace-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   --workspace-text-increase: 0px;
   --workspace-text: calc(14px + var(--workspace-text-increase));

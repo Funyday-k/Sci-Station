@@ -3,17 +3,18 @@
 <link rel="stylesheet" href="/static/citation-panel.css">
 <script defer src="/static/citation-panel.js"></script>
 {{end}}
+{{define "breadcrumb"}}<span data-l10n-text="routePDFReader">文献阅读</span>{{end}}
 {{define "content"}}
 <header class="reader-header">
   <a id="home" href="/research?view=papers" data-l10n-text="openLibrary">返回文献库</a>
 
-  <span class="breadcrumb" data-l10n-text="routePDFReader">文献阅读</span><span class="spacer"></span><button id="citation" type="button" data-citation-paper data-en="Cite paper">引用文献</button><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden data-l10n-text="readerExportMarkdown">导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener" data-l10n-text="readerOpenExternal">打开 PDF 原件 ↗</a>
+  <span class="spacer"></span><button id="citation" type="button" data-citation-paper data-en="Cite paper">引用文献</button><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden data-l10n-text="readerExportMarkdown">导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener" data-l10n-text="readerOpenExternal">打开 PDF 原件 ↗</a>
 </header>
 <section class="titlebar"><div><h1 id="title">论文阅读</h1><p id="byline"></p></div><span class="spacer"></span><button id="handoff" class="primary" disabled data-l10n-text="readerSendSelection">选段入会</button></section>
 <div id="message" role="status" aria-live="polite"></div>
 <div id="sourceNotice" role="status" hidden></div>
 <div id="graphCitation" role="status" hidden></div>
-<div class="layout">
+<div class="layout workspace-pane">
  <main class="viewer">
    <div class="toolbar" aria-label="阅读工具" data-l10n-aria-label="readerToolbar">
      <button id="prev" title="上一页" aria-label="上一页" data-l10n-title="readerPrevPage" data-l10n-aria-label="readerPrevPage">‹</button><label class="page-input" for="pageNo"><span data-l10n-text="readerPagePrefix">第</span> <input id="pageNo" type="number" min="1" value="1"> <span data-l10n-text="readerPageSuffix">页</span></label><span id="count"></span><button id="next" title="下一页" aria-label="下一页" data-l10n-title="readerNextPage" data-l10n-aria-label="readerNextPage">›</button>

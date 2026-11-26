@@ -21,15 +21,16 @@ import (
 type workspaceSurface struct {
 	name  string
 	title string
+	pane  bool
 	page  *template.Template
 }
 
 var workspaceSurfaces = func() map[string]workspaceSurface {
 	surfaces := map[string]workspaceSurface{
 		"/research": {name: "research", title: "科研工作台"},
-		"/studio":   {name: "studio", title: "科研圆桌"},
-		"/reader":   {name: "reader", title: "论文阅读"},
-		"/lab":      {name: "lab", title: "AI 实验室"},
+		"/studio":   {name: "studio", title: "科研圆桌", pane: true},
+		"/reader":   {name: "reader", title: "论文阅读", pane: true},
+		"/lab":      {name: "lab", title: "AI 实验室", pane: true},
 		"/tools":    {name: "science-tools", title: "科研工具"},
 		"/api-docs": {name: "api", title: "本机 API"},
 	}
@@ -75,9 +76,9 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method != http.MethodHead {
 		_ = surface.page.Execute(w, struct {
-			Title, Surface string
-			Desktop        bool
-		}{surface.title, surface.name, a.desktop})
+			Title, Surface    string
+			Desktop, Pane, AI bool
+		}{surface.title, surface.name, a.desktop, surface.pane, surface.name == "lab" || surface.name == "studio"})
 	}
 	return true
 }

@@ -402,7 +402,12 @@
   }
   async function init() {
     $(tab).hidden = false;
-    $("heading").textContent = views[tab];
+    const updateTitle = () => {
+      const english = {discover:"Discover papers", convert:"PDF conversion", calendar:"System calendar and reminders"};
+      $("heading").textContent = window.SciStationI18n?.text(views[tab], english[tab]) || views[tab];
+    };
+    updateTitle();
+    window.addEventListener("sci:language", updateTitle);
     if (tab === "calendar") {
       const today = new Date();
       const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);

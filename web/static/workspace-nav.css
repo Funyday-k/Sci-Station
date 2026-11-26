@@ -134,14 +134,54 @@ body.settings-mode #workspace-context > .settings-nav {
 .workspace-roots summary::-webkit-details-marker { display: none; }
 .workspace-roots > div { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 25; min-width: max-content; padding: 5px; background: var(--workspace-surface); border: 1px solid var(--workspace-line); border-radius: 8px; box-shadow: var(--workspace-shadow); }
 .workspace-roots button { display: block; width: 100%; min-height: 32px; padding: 6px 10px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+/* The shell owns available space. A document grows with its content; a pane
+   receives the remaining viewport and scrolls its own transcript or PDF. */
 .workspace-region { margin-left: var(--workspace-sidebar-width); min-width: 0; }
-body[data-workspace-surface="research"] #shell { display: block; min-height: calc(100vh - var(--workspace-bar-height)); }
+body[data-workspace-layout="pane"] {
+  position: relative; display: flex; flex-direction: column; inset: auto;
+  width: 100%; height: 100dvh; min-height: 0; margin: 0; overflow: hidden;
+}
+body[data-workspace-layout="pane"] > .workspace-bar { flex: none; }
+body[data-workspace-layout="pane"] > .workspace-region {
+  display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow: hidden;
+}
+.workspace-region > .workspace-pane {
+  position: relative; inset: auto; width: auto; height: auto;
+  flex: 1 1 0; min-height: 0; min-width: 0;
+}
+.workspace-region > .app.workspace-pane { grid-template-columns: minmax(0,1fr); }
+.workspace-region > .layout.workspace-pane { display: grid; }
+.workspace-region > .layout.workspace-pane > .viewer { height: auto; min-height: 0; }
+body[data-workspace-surface="reader"] .workspace-region > :is(.reader-header,.titlebar) { flex: none; flex-wrap: wrap; }
+body[data-workspace-surface="reader"] .titlebar > div { min-width: 0; flex: 1; }
+.workspace-region .workspace-page {
+  box-sizing: border-box; width: 100%; max-width: 1380px; margin-inline: auto;
+  padding: var(--workspace-page-top) var(--workspace-page-inset) 40px;
+}
+.workspace-page-heading {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px 16px; margin: 0 0 16px; padding: 0; border: 0; min-width: 0;
+}
+.workspace-page-heading h1, .workspace-page .intro h1 {
+  color: var(--workspace-ink); font: 600 var(--workspace-title-size)/1.3 var(--workspace-font);
+  margin: 0; letter-spacing: -.02em; overflow-wrap: anywhere;
+}
+.workspace-page-heading > div { min-width: 0; }
+body[data-workspace-surface="research"] #shell,
+body[data-workspace-surface="science-tools"] .frame { display: block; min-height: 0; }
 body[data-workspace-surface="research"] #workarea { min-width: 0; width: 100%; }
-body[data-workspace-surface="lab"] .shell, body[data-workspace-surface="science-tools"] .frame { grid-template-columns: minmax(0,1fr); min-height: calc(100vh - var(--workspace-bar-height)); }
-body[data-workspace-surface="studio"] .app { left: var(--workspace-sidebar-width); right: auto; top: var(--workspace-bar-height); width: calc(100% - var(--workspace-sidebar-width)); height: calc(100% - var(--workspace-bar-height)); grid-template-columns: minmax(0,1fr); }
 body[data-workspace-surface="studio"] :is(#toggle-sidebar,#sidebar-scrim) { display: none !important; }
 body[data-workspace-surface="studio"] .settings-layout { display: block; }
-body[data-workspace-surface="reader"] .layout { height: calc(100dvh - 117px - var(--workspace-bar-height)); }
+#workspace-ai-modes {
+  display: flex; flex: none; gap: 2px; margin: 0; padding: 2px; border-radius: 7px;
+  background: var(--workspace-inset); align-items: center;
+}
+#workspace-ai-modes a {
+  margin: 0; padding: 4px 9px; border-radius: 5px; font: inherit; line-height: 1.35;
+  color: var(--workspace-muted); white-space: nowrap; text-decoration: none;
+}
+#workspace-ai-modes a[aria-current="page"] { color: var(--workspace-ink); background: var(--workspace-surface); box-shadow: 0 1px 3px #0002; }
+#workspace-ai-modes[hidden] { display: none; }
 .more-actions > summary.icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; list-style: none; }
 .more-actions > summary.icon::-webkit-details-marker { display: none; }
 .more-actions > summary.icon::after { content: none; }

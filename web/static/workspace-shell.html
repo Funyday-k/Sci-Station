@@ -23,7 +23,7 @@
   <link rel="stylesheet" href="/static/workspace-nav.css">
   <link rel="stylesheet" href="/static/context-rail.css">
 </head>
-<body data-workspace-surface="{{.Surface}}">
+<body data-workspace-surface="{{.Surface}}" data-workspace-layout="{{if .Pane}}pane{{else}}document{{end}}">
   <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation">
     <div class="workspace-sidebar-heading">
       <a class="workspace-brand" href="/research" aria-label="Sci-Station"><img src="/static/roundtable-mark.png" width="25" height="25" alt=""><span>Sci-Station</span></a>
@@ -32,7 +32,7 @@
     <div class="workspace-sidebar-scroll">
       <nav data-workspace-nav aria-label="工作区" data-l10n-aria-label="toolbarWorkspace"></nav>
       <a data-project-back hidden href="/research"></a>
-      <div id="workspace-context" class="workspace-context"></div>
+      <div id="workspace-context" class="workspace-context">{{block "sidebar" .}}{{end}}</div>
     </div>
     <div class="workspace-sidebar-footer">
       <nav data-workspace-settings aria-label="设置" data-l10n-aria-label="routeSettings"></nav>
@@ -49,8 +49,12 @@
       <button type="button" class="workspace-icon" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back"><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg></button>
       <button type="button" class="workspace-icon" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward"><svg class="ui-icon" data-ui-icon="chevronRight" aria-hidden="true"></svg></button>
     </div>
-    <div id="workspace-breadcrumb"><span data-workspace-location></span></div>
-    <div id="workspace-tools"></div>
+    <div id="workspace-breadcrumb">{{block "breadcrumb" .}}<span data-workspace-location>{{.Title}}</span>{{end}}</div>
+    {{if .AI}}<nav id="workspace-ai-modes" aria-label="AI 模式" data-en-aria-label="AI mode" hidden>
+      <a data-ai-mode="single" href="/lab" data-en="Chat">单人对话</a>
+      <a data-ai-mode="roundtable" href="/studio" data-en="Roundtable">圆桌讨论</a>
+    </nav>{{end}}
+    <div id="workspace-tools">{{block "tools" .}}{{end}}</div>
     <div class="shell-rail-controls">
       <button id="shell-assist" class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
     </div>

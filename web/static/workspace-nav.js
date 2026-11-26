@@ -27,31 +27,35 @@
     if(active)link.setAttribute("aria-current","page");
     return link;
   }
-  function mountContextNavigation() {
-    const context=document.getElementById("workspace-context");
-    if(!context)return;
-    const surface=document.body.dataset.workspaceSurface;
-    const selector={research:"#sidebar",studio:".app > .sidebar",lab:".shell > aside","science-tools":".frame > aside"}[surface];
-    const sidebar=selector && document.querySelector(selector);
-    if(sidebar)context.append(sidebar);
-    if(surface==="research") {
-      const modules=document.getElementById("project-modules"), crumb=document.getElementById("crumb"), search=document.getElementById("search-open");
-      if(modules && sidebar)sidebar.append(modules);
-      if(crumb)document.getElementById("workspace-breadcrumb").replaceChildren(crumb);
-      if(search)document.getElementById("workspace-tools").append(search);
-      document.querySelector("#workarea > .topbar")?.remove();
-    }
-    if(surface==="studio") {
-      const settings=document.querySelector(".settings-nav");
-      if(settings)context.append(settings);
+  function aiMode(url) {
+    if (url.pathname === "/lab") return "single";
+    if (url.pathname === "/studio" && !["settings", "plugins"].includes(url.searchParams.get("view"))) return "roundtable";
+    return "";
+  }
+
+  function modeURL(mode, project) {
+    return route(mode === "single" ? "/lab" : "/studio", project ? {project} : {scope:"global"});
+  }
+
+  function updateModes(url) {
+    const modes = document.getElementById("workspace-ai-modes");
+    if (!modes) return;
+    const current = aiMode(url);
+    modes.hidden = !current;
+    for (const item of modes.querySelectorAll("[data-ai-mode]")) {
+      const mode = item.dataset.aiMode;
+      item.href = modeURL(mode, url.searchParams.get("project"));
+      if (mode === current) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
     }
   }
+
   function destinations(url) {
     const project = url.searchParams.get("project");
     const view = url.searchParams.get("view");
     const active = url.pathname === "/api-docs" ? "settings"
-      : url.pathname === "/lab" ? "lab"
-      : url.pathname === "/studio" ? (["settings", "plugins"].includes(view) ? "settings" : "roundtable")
+      : aiMode(url) ? "lab"
+      : url.pathname === "/studio" ? "settings"
       : project || view === "projects" ? "projects"
       : url.pathname === "/reader" || view === "papers" ? "library"
       : view === "tasks" || url.searchParams.get("tab") === "calendar" ? "calendar"
@@ -61,12 +65,11 @@
       ["projects", local("routeProjects","项目","Projects"), research("projects")],
       ["library", local("routeLibrary","文献库","Library"), research("papers")],
       ["calendar", local("routeCalendar","日历与任务","Calendar"), research("calendar")],
-      ["lab", local("routeAILab","AI 实验室","AI Lab"), route("/lab", {project})],
-      ["roundtable", local("roundtable","圆桌","Roundtable"), route("/studio")],
+      ["lab", "AI", modeURL(enabled(globalModules, "ai-lab") ? "single" : "roundtable")],
       ["settings", local("routeSettings","设置","Settings"), route("/studio",{view:"settings",project})]
     ].map(([key,name,href]) => ({key,name,href,active:active===key}));
   }
-  const globalSections={projects:"projects",library:"paper-library",calendar:"calendar",lab:"ai-lab"};
+  const globalSections={projects:"projects",library:"paper-library",calendar:"calendar"};
   const viewModules={overview:"projects",papers:"paper-library",notes:"wiki",tasks:"tasks",calendar:"calendar",materials:"materials",graph:"citation-graph",recommendations:"recommendation",lab:"ai-lab",code:"code",data:"datasets",experiments:"experiments",writing:"writing",theory:"theory-notes"};
   function enabled(config, id) {
     return !config || !id || config.modules.some(module=>module.id===id && module.effective);
@@ -99,6 +102,7 @@
     const nav = document.querySelector("[data-workspace-nav]");
     if (!nav) return;
     const url = currentURL();
+    updateModes(url);
     const visible = destinations(url).filter(item=>!globalModules || enabled(globalModules,globalSections[item.key]));
     const links=window.SciShellLayout?.top(visible) || visible;
     const project = url.searchParams.get("project");
@@ -163,6 +167,7 @@
       if (!window.dispatchEvent(new CustomEvent("roundtable:navigate",{detail:view,cancelable:true}))) return true;
     }
     let destination=destinations(url).find(link=>link.key===key)?.href;
+    if (key === "roundtable") destination = modeURL("roundtable");
     if (key === "plugins") destination=route("/studio",{view:"plugins",project:url.searchParams.get("project")});
     if (["newProject","importIdentifier","importPDF","find"].includes(key)) {
       const view=key==="newProject"?"projects":key==="find"?"overview":"papers";
@@ -179,11 +184,20 @@
     if (event.shiftKey) return "";
     return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
   }
-  const nav=Object.freeze({route,research,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
+  const nav=Object.freeze({route,research,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;
-    mountContextNavigation();
+    document.getElementById("workspace-ai-modes")?.addEventListener("click", event => {
+      const link = event.target.closest("[data-ai-mode]");
+      if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      event.preventDefault();
+      if (link.dataset.aiMode === aiMode(currentURL())) return;
+      const change = new CustomEvent("sci:change-ai-mode", {
+        cancelable:true, detail:{mode:link.dataset.aiMode, href:link.getAttribute("href")}
+      });
+      if (window.dispatchEvent(change)) location.assign(link.href);
+    });
     position = history.state?.workspacePosition || 0;
     history.replaceState({...history.state, workspacePosition:position},"");
     document.addEventListener("click",event=>{

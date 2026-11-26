@@ -49,6 +49,24 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 				t.Errorf("%s: missing or duplicate %s", route, component)
 			}
 		}
+		// Slots arrive in the initial document, including when scripts have not run.
+		contextStart := strings.Index(page, `id="workspace-context"`)
+		toolbar := strings.Index(page, `class="workspace-bar"`)
+		content := strings.Index(page, `class="workspace-region"`)
+		if !(contextStart >= 0 && contextStart < toolbar && toolbar < content) {
+			t.Fatalf("%s: unexpected shell order", route)
+		}
+		for _, id := range map[string][]string{"studio": {"new-session", "settings-tab-models"}, "science-tools": {"workspace-context"}}[surface.name] {
+			if !strings.Contains(page[contextStart:toolbar], `id="`+id+`"`) {
+				t.Errorf("%s: %s is outside sidebar", route, id)
+			}
+		}
+		if surface.name == "research" && !strings.Contains(page[toolbar:content], `id="search-open"`) {
+			t.Error("research search must be mounted in the shared toolbar")
+		}
+		if strings.Contains(page, `id="workspace-ai-modes"`) != (surface.name == "lab" || surface.name == "studio") {
+			t.Errorf("%s: unexpected AI mode selector", route)
+		}
 		if strings.Contains(page, "{{template") || strings.Contains(page, "<iframe") {
 			t.Errorf("%s: unmounted domain", route)
 		}

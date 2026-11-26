@@ -28,14 +28,27 @@ test("every desktop surface mounts the same workspace navigation", () => {
     assert.doesNotMatch(markup,/<nav data-workspace-nav |<body|<iframe/i,page);
   }
   const links = navigation.destinations(new URL("/reader?paper=astro&project=project-B", origin));
-  assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","roundtable","settings"]);
+  assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","settings"]);
   assert.equal(links.find(l => l.active).key, "projects");
   for (const link of links) {
     const url = new URL(link.href, origin);
-    assert.equal(url.searchParams.get("project"), ["lab","roundtable","settings"].includes(link.key) ? "project-B" : null);
+    assert.equal(url.searchParams.get("project"), link.key === "settings" ? "project-B" : null);
   }
   assert.equal(navigation.destinations(new URL("/studio?view=settings&project=A", origin)).find(l => l.active).key, "settings");
   assert.equal(navigation.destinations(new URL("/reader?paper=astro", origin)).find(l => l.active).key, "library");
+});
+
+test("AI has one global entry and explicit chat and discussion modes with optional project scope", () => {
+  for (const [path, mode] of [["/lab?project=A", "single"], ["/studio?project=A&session=room", "roundtable"]]) {
+    const url = new URL(path, origin);
+    const links = navigation.destinations(url);
+    assert.equal(links.find(link => link.active).name, "AI");
+    assert.equal(links.find(link => link.key === "lab").href, "/lab?scope=global");
+    assert.equal(navigation.aiMode(url), mode);
+  }
+  assert.equal(navigation.modeURL("single", "A"), "/lab?project=A");
+  assert.equal(navigation.modeURL("roundtable", null), "/studio?scope=global");
+  assert.equal(navigation.aiMode(new URL("/studio?view=settings", origin)), "");
 });
 
 function mountResearch(start, sessions=[]) {

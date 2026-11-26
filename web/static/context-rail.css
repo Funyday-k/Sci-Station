@@ -38,11 +38,9 @@ body[data-workspace-surface=reader] .toolbar {flex-wrap:wrap;}
 #shell-divider {position:fixed;right:calc(var(--shell-panel-width) - 3px);top:var(--workspace-bar-height);bottom:0;width:7px;z-index:7;cursor:col-resize;touch-action:none;}
 #shell-divider::after {content:"";position:absolute;left:3px;height:100%;width:1px;background:var(--workspace-line);}
 #shell-divider:hover::after,#shell-divider:focus-visible::after {background:var(--workspace-accent);width:3px;}
-body[data-workspace-surface=studio] .app {width:calc(100% - var(--workspace-sidebar-width,0px));}
 @media(min-width:1000px) {
   body:is([data-rail-mode=inspector],[data-rail-mode=ai]):not([data-workspace-surface=reader]) .workspace-region,
   body[data-workspace-surface=reader][data-rail-mode=ai] .workspace-region {margin-right:var(--shell-panel-width);}
-  body[data-workspace-surface=studio]:is([data-rail-mode=ai],[data-rail-mode=inspector]) .app {width:calc(100% - var(--workspace-sidebar-width,0px) - var(--shell-panel-width));}
   body[data-workspace-surface=reader][data-rail-mode=inspector] .layout {grid-template-columns:minmax(0,1fr) var(--shell-panel-width);}
 }
 body[data-workspace-surface=reader]:not([data-rail-mode=inspector]) .layout {grid-template-columns:minmax(0,1fr);}

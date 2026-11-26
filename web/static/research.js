@@ -228,7 +228,7 @@
 
   function heading(title, sub = "", actions = "", project = null) {
     const badge = project ? projectBadge(project) : "";
-    return '<div class="page-head"><div><h1>' + badge + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
+    return '<div class="page-head workspace-page-heading"><div><h1>' + badge + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
       '</div><div class="head-actions">' + actions + '</div></div>';
   }
 
