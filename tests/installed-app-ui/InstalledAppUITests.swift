@@ -40,42 +40,63 @@ final class InstalledAppUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(window.frame.width, 680)
         XCTAssertGreaterThanOrEqual(window.frame.height, 460)
 
-        let content = window.descendants(matching: .any)
-        let home = matching(["Today", "今日", "今日任务"], in: content)
-        let library = matching(["The library is empty", "还没有收录文献"], in: content)
-        let libraryLink = matching(["Library", "论文库", "文献库"], in: window.links)
-        let homeLink = matching(["Home", "首页"], in: window.links)
-        waitUntilVisible(home, in: window)
+        let home = matching(["Edit Layout", "编辑布局", "自定义组件"], in: window.buttons).firstMatch
+        let library = matching(["Manage collections and tags", "管理集合和标签"], in: window.buttons).firstMatch
+        let libraryLinks = matching(["Library", "论文库", "文献库"], in: window.links)
+        let homeLinks = matching(["Home", "首页"], in: window.links)
+        waitUntilVisible(home, in: window, step: "Home after launch")
         XCTAssertFalse(library.exists)
 
-        click(libraryLink, process: process)
-        waitUntilVisible(library, in: window)
+        click(libraryLinks, name: "Library", in: window, process: process)
+        waitUntilVisible(library, in: window, step: "Library after clicking its link")
         XCTAssertFalse(home.exists, "Library must replace the Home content.")
-        click(homeLink, process: process)
-        waitUntilVisible(home, in: window)
+        click(homeLinks, name: "Home", in: window, process: process)
+        waitUntilVisible(home, in: window, step: "Home after clicking its link")
         XCTAssertFalse(library.exists, "Returning to Home must replace the Library content.")
 
         app.typeKey("q", modifierFlags: .command)
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 15), "The installed app must quit after Command-Q.")
     }
 
-    private func matching(_ labels: [String], in query: XCUIElementQuery) -> XCUIElement {
-        query.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
+    private func matching(_ labels: [String], in query: XCUIElementQuery) -> XCUIElementQuery {
+        query.matching(NSPredicate(format: "label IN %@", labels))
     }
 
-    private func click(_ link: XCUIElement, process: NSRunningApplication) {
-        XCTAssertTrue(link.waitForExistence(timeout: 10))
-        XCTAssertTrue(link.isEnabled)
-        XCTAssertTrue(link.isHittable)
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, process.processIdentifier)
-        link.click()
+    private func click(_ query: XCUIElementQuery, name: String, in window: XCUIElement, process: NSRunningApplication) {
+        if query.firstMatch.waitForExistence(timeout: 10) {
+            // Dashboard widgets can have additional links to the same page.
+            // Select the highest visible link, where the workspace navigation sits.
+            if let link = query.allElementsBoundByIndex.filter({ $0.isEnabled && $0.isHittable })
+                .min(by: { $0.frame.minY < $1.frame.minY }) {
+                XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, process.processIdentifier)
+                link.click()
+                return
+            }
+        }
+        attachWindow(window, step: "Click " + name)
+        XCTFail("The installed app must provide a clickable " + name + " link.")
     }
 
-    private func waitUntilVisible(_ element: XCUIElement, in window: XCUIElement) {
+    private func waitUntilVisible(_ element: XCUIElement, in window: XCUIElement, step: String) {
         let predicate = NSPredicate { _, _ in
             element.exists && !element.frame.isEmpty && window.frame.intersects(element.frame)
         }
         let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 15)
-        XCTAssertEqual(result, .completed, "The destination content must be visible within the native window.")
+        if result != .completed {
+            attachWindow(window, step: step)
+        }
+        XCTAssertEqual(result, .completed, "Expected visible page controls for " + step + ".")
+        print("Installed app displayed " + step)
+    }
+
+    private func attachWindow(_ window: XCUIElement, step: String) {
+        let hierarchy = XCTAttachment(string: window.debugDescription)
+        hierarchy.name = step + " – accessibility"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        let screenshot = XCTAttachment(screenshot: window.screenshot())
+        screenshot.name = step + " – window"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 }

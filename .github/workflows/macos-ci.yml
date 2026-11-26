@@ -136,6 +136,8 @@ jobs:
           path: ${{ runner.temp }}/workstation-prior
       - name: Exercise the installed native app from both archives on Apple Silicon
         shell: bash
+        env:
+          SCI_STATION_INSTALLED_UI_RESULTS_DIR: ${{ runner.temp }}/installed-app-ui
         run: |
           set -euo pipefail
           sw_vers
@@ -147,6 +149,14 @@ jobs:
             [[ "${#previous[@]}" -eq 1 && -f "${previous[0]}" && "${#candidate[@]}" -eq 1 && -f "${candidate[0]}" ]]
             Tools/scripts/test-release-install.sh --native-ui "${previous[0]}" "${candidate[0]}"
           done
+      - name: Upload installed-app UI diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-app-ui-diagnostics
+          path: ${{ runner.temp }}/installed-app-ui
+          retention-days: 3
+          if-no-files-found: ignore
 
   required-ci:
     name: Required CI

@@ -1,6 +1,7 @@
 """Run the standalone Xcode UI test against the verified installation path."""
 
 import argparse
+import os
 from pathlib import Path
 import plistlib
 import subprocess
@@ -57,6 +58,7 @@ def main():
     parser.add_argument("app", type=Path)
     parser.add_argument("fixture", type=Path)
     parser.add_argument("phase", choices=["initial", "upgraded"])
+    parser.add_argument("archive", choices=["zip", "dmg"])
     args = parser.parse_args()
 
     fixture = args.fixture.resolve(strict=True)
@@ -70,12 +72,15 @@ def main():
         "SCI_STATION_INSTALLED_UI_ROOT": str(fixture / "research-root"),
         "SCI_STATION_INSTALLED_UI_REGISTRY": str(fixture / "workspace-registry"),
     }, args.phase)
+    result_dir = Path(os.environ.get("SCI_STATION_INSTALLED_UI_RESULTS_DIR", str(fixture)))
+    result_dir.mkdir(parents=True, exist_ok=True)
+    result_bundle = result_dir / f"{args.archive}-{args.phase}.xcresult"
     try:
         subprocess.run([
             "xcodebuild", "-xctestrun", str(configured), "-destination", DESTINATION,
             "-parallel-testing-enabled", "NO", "-test-timeouts-enabled", "YES",
             "-maximum-test-execution-time-allowance", "120",
-            "-resultBundlePath", str(fixture / f"InstalledApp-{args.phase}.xcresult"),
+            "-resultBundlePath", str(result_bundle),
             "test-without-building",
         ], check=True, timeout=180)
     except subprocess.TimeoutExpired:

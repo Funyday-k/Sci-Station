@@ -83,9 +83,9 @@ stage_release_archive() {
 }
 
 verify_native_navigation() {
-  local phase="$1"
+  local phase="$1" archive_type="$2"
   if [[ "$NATIVE_UI" == 1 ]]; then
-    python3 "$ROOT_DIR/tests/installed-app-ui/run.py" "$INSTALLED_APP" "$TEST_ROOT" "$phase"
+    python3 "$ROOT_DIR/tests/installed-app-ui/run.py" "$INSTALLED_APP" "$TEST_ROOT" "$phase" "$archive_type"
     verify_installed_copy
   fi
 }
@@ -104,7 +104,7 @@ smoke="$ROOT_DIR/tests/package-install-smoke.py"
 select_source_app "$previous/Sci-Station.app"
 install_app
 verify_installed_copy
-verify_native_navigation initial
+verify_native_navigation initial "${1##*.}"
 python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" initial
 /usr/bin/ditto "$TEST_ROOT/research-root" "$TEST_ROOT/pre-upgrade-backup"
 
@@ -115,7 +115,7 @@ install_app
 [[ ! -e "$stale_marker" ]] || { printf 'Upgrade left a stale bundle file.\n' >&2; exit 1; }
 verify_installed_copy
 python3 "$smoke" "$INSTALLED_APP" "$TEST_ROOT" upgraded
-verify_native_navigation upgraded
+verify_native_navigation upgraded "${2##*.}"
 
 # Restore the known-good snapshot into a sibling fixture. Keep the upgraded
 # fixture intact and exercise the previous bundle again at the install path.
