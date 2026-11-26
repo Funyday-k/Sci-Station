@@ -144,6 +144,31 @@ static void pollRequest(NSString *mailbox) {
                 respond(responseFile, requestID, value, error.localizedDescription);
                 working = NO;
             }];
+        } else if ([request[@"viewport"] isKindOfClass:NSDictionary.class]) {
+            NSDictionary *viewport = request[@"viewport"];
+            id width = viewport[@"width"], height = viewport[@"height"];
+            if (![width isKindOfClass:NSNumber.class] || ![height isKindOfClass:NSNumber.class] ||
+                [width doubleValue] < 1 || [height doubleValue] < 1 ||
+                [width doubleValue] > 4000 || [height doubleValue] > 3000) {
+                respond(responseFile, requestID, nil, @"Expected a positive viewport in points");
+                return;
+            }
+            NSArray<NSScreen *> *screens = NSScreen.screens;
+            NSWindow *window = webView.window;
+            NSScreen *screen = screens.count > 1 ? screens[1] : (window.screen ?: screens.firstObject);
+            if (!screen) {
+                respond(responseFile, requestID, nil, @"No display is available for the WKWebView fixture");
+                return;
+            }
+            NSRect frame = window.frame;
+            frame.size.width += [width doubleValue] - NSWidth(webView.bounds);
+            frame.size.height += [height doubleValue] - NSHeight(webView.bounds);
+            NSRect display = screen.visibleFrame;
+            frame.origin = NSMakePoint(floor(NSMidX(display) - NSWidth(frame) / 2),
+                floor(NSMidY(display) - NSHeight(frame) / 2));
+            [window setFrame:frame display:YES];
+            respond(responseFile, requestID, @{@"displays": @(screens.count), @"display": @([screens indexOfObject:screen] + 1),
+                @"viewWidth": @(NSWidth(webView.bounds)), @"viewHeight": @(NSHeight(webView.bounds))}, nil);
         } else if ([request[@"capture"] isEqual:@YES]) {
             working = YES;
             [webView takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image, NSError *error) {
