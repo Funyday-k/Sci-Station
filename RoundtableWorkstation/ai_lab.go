@@ -61,6 +61,10 @@ func (a *apiServer) serveAILab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/research/lab/")
+	if path == "draft" || strings.HasPrefix(path, "threads/") {
+		a.serveLabThreads(w, r, path)
+		return
+	}
 	if strings.HasPrefix(path, "evidence/") {
 		a.serveLabEvidence(w, r, strings.TrimPrefix(path, "evidence/"))
 		return

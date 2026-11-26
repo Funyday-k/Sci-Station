@@ -12,6 +12,13 @@
 #lab-mcp-settings{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:12px}
 #lab-mcp-settings label{display:flex;align-items:center;gap:6px;margin:0}
 #lab-mcp-enabled{width:auto}
+.lab-draft-controls{margin-bottom:14px}
+.lab-thread-filters{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
+.lab-thread-filters label:first-child{flex:1 1 240px}
+.lab-archived-toggle{display:flex;align-items:center;gap:6px}
+.lab-archived-toggle input{width:auto}
+#lab-rename-dialog{width:min(420px,calc(100% - 32px));border:1px solid currentColor;border-radius:12px;padding:20px}
+#lab-rename-error:empty{display:none}
 .lab-evidence-inspection[open] > summary { margin-bottom: 10px; }
 .lab-evidence-inspection ol { padding-inline-start: 24px; }
 .lab-evidence-inspection li + li { margin-top: 10px; }

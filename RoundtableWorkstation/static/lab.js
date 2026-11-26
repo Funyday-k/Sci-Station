@@ -7,7 +7,7 @@
   let graphOwner="", graphPreview=null, graphGeneration=0;
   function tell(text){$("status").textContent=text;}
   async function req(path,method="GET",data,signal) {
-    const opt={method,signal,cache:"no-store",headers:{"X-Roundtable":"1"}};
+    const opt={method,signal,cache:"no-store",keepalive:method==="PUT" && path.startsWith(api+"draft?"),headers:{"X-Roundtable":"1"}};
     if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
     const res=await fetch(path,opt);
     if(res.status===204)return;
@@ -26,7 +26,7 @@
   function canLeave(){return !dirtyTemplate()||confirm("放弃尚未保存的模板更改？");}
   let handingOff = false;
   window.addEventListener("beforeunload", event => {
-    if (!handingOff && (dirtyTemplate() || $("question").value.trim() || source || runs.hasDraft())) {
+    if (!handingOff && (dirtyTemplate() || source || runs.hasDraft())) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -73,7 +73,7 @@
       if (source?.kind==="project-graph" && source.projectId!==id) markSource(null);
     }
     $("session").replaceChildren(new Option("新建圆桌",""));
-    if(p)for(const s of sessions){if(s.project_id===p.id&&s.status!=="closed")$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
+    if(p)for(const s of sessions){if(s.project_id===p.id&&s.status!=="closed"&&!s.lab_thread?.archived_at)$("session").append(new Option(s.title||s.topic||"已有圆桌",s.id));}
     const url=new URL(location.href);
     if(p)url.searchParams.set("project",id);else url.searchParams.delete("project");
     if(id==="@global")url.searchParams.set("scope","global");else url.searchParams.delete("scope");
@@ -84,8 +84,12 @@
     hint();
   }
   window.addEventListener("popstate",()=>{
-    const project=new URL(location.href).searchParams.get("project") || "";
-    if (projects.some(p=>p.id===project) || !project) { $("project").value=project; projectSelection(); }
+    const route=new URL(location.href).searchParams;
+    const project=route.get("scope")==="global" ? "@global" : route.get("project") || "";
+    if (project==="@global" || projects.some(p=>p.id===project) || !project) {
+      $("project").value=project;
+      projectSelection();
+    }
   });
   function hint(){$("roster-hint").textContent=$("session").value?"工作指引会填入下一轮草稿，延用这场会议的席位。":"在圆桌中复核席位和草稿后开始。";}
   async function openDraft(){

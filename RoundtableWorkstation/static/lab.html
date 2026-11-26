@@ -19,6 +19,7 @@
 <label>工作指引<textarea id="prompt" rows="5" maxlength="6500"></textarea></label>
 <div class="actions"><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden>另存副本</button><button id="delete" type="button" hidden>删除个人模板</button></div></section>
 <section class="card"><div class="section-head"><h2>本次研究</h2><a id="discovery-link" href="/tools?tab=discover&amp;trigger=lab">文献推荐</a></div><label>研究问题<textarea id="question" rows="3" maxlength="2500" placeholder="填写本次要研究的问题、约束或期望的产物"></textarea></label>
+<div class="actions lab-draft-controls"><button type="button" id="lab-save-question-draft">保存草稿</button><button type="button" id="lab-discard-question-draft">清除草稿</button><span id="lab-question-draft-state" class="hint" role="status"></span></div>
 <fieldset id="local-sources"><legend>项目原文</legend>
 <label>来源<select id="local-record"></select></label>
 <details id="local-search"><summary>检索项目原文</summary><label>检索范围<select id="local-search-scope"><option value="project">项目文本 · 论文 Markdown、笔记和文本材料</option><option value="exact-project">逐份查找 · 包括 PDF</option><option value="record">当前来源</option></select></label>
@@ -64,10 +65,18 @@
 <button type="button" id="lab-models">读取模型目录</button><button type="button" id="lab-start" class="primary">开始单席工作流</button></div>
 <label>交给圆桌<select id="session"><option value="">新建圆桌</option></select></label><p class="hint" id="roster-hint">在圆桌中复核席位和草稿后开始。</p>
 <button type="button" class="primary" id="handoff">打开会议草稿 →</button></section>
-<section class="card"><h2>单席会话记录</h2><label>已保存的会话<select id="lab-history"></select></label>
+<section class="card"><div class="section-head"><h2>单席会话记录</h2><button type="button" id="lab-new-thread">新会话</button></div>
+<div class="lab-thread-filters"><label>搜索会话<input id="lab-thread-search" type="search" maxlength="96"></label>
+<label class="lab-archived-toggle"><input type="checkbox" id="lab-show-archived">显示归档</label></div>
+<label>已保存的会话<select id="lab-history"></select></label><p class="hint" id="lab-thread-empty" hidden>没有匹配的会话。</p>
 <div id="lab-result" hidden><p id="lab-run-state" role="status"></p><details id="lab-citations" hidden><summary>会话引用的原文</summary><div id="lab-citation-items"></div></details><div id="lab-turns"></div>
-<div id="lab-followup" hidden><label>继续此会话<textarea id="lab-reply" rows="2" maxlength="2500"></textarea></label><button type="button" id="lab-resume">发送追问</button></div>
-<div class="actions"><button type="button" id="lab-stop">停止运行</button><button type="button" id="lab-export">导出脱敏诊断包</button><a id="lab-open">查看完整记录与写入审批 →</a></div></div></section>
+<div id="lab-followup" hidden><label>继续此会话<textarea id="lab-reply" rows="2" maxlength="2500"></textarea></label>
+<div class="actions lab-draft-controls"><button type="button" id="lab-resume">发送追问</button><button type="button" id="lab-save-reply-draft">保存草稿</button><button type="button" id="lab-discard-reply-draft">清除草稿</button><span id="lab-reply-draft-state" class="hint" role="status"></span></div></div>
+<div class="actions"><button type="button" id="lab-rename-thread">重命名</button><button type="button" id="lab-archive-thread">归档</button><button type="button" id="lab-restore-thread" hidden>取消归档</button><button type="button" id="lab-stop">停止运行</button><button type="button" id="lab-export">导出脱敏诊断包</button><a id="lab-open">查看完整记录与写入审批 →</a></div></div>
+<dialog id="lab-rename-dialog" aria-labelledby="lab-rename-heading">
+<form id="lab-rename-form"><h2 id="lab-rename-heading">重命名单席会话</h2><label>会话名称<input id="lab-thread-title" maxlength="96" required></label>
+<p id="lab-rename-error" class="hint" role="status"></p><div class="actions"><button type="button" id="lab-rename-cancel">取消</button><button type="submit" class="primary">保存名称</button></div></form>
+</dialog></section>
 <p id="status" role="status" aria-live="polite"></p>
 </main></div>
 {{end}}

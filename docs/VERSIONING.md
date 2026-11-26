@@ -15,6 +15,12 @@ App releases and persisted/protocol formats serve different compatibility contra
 | Knowledge architecture | Existing knowledge records retain their own formats; the proposed KnowledgeAtom format is not yet assigned a version | Assign only after [RFC-0001](rfcs/RFC-0001-knowledge-architecture.md) is accepted; do not imply the proposal is implemented |
 | Plugin / Skill / Prompt / workspace template | Each manifest or template's own version | Advance when that component changes; record changed behavior and compatibility, independent of app releases |
 
+## AI Lab session metadata and unsent drafts
+
+A single-seat session may include optional `lab_thread` presentation metadata with a title, archive timestamp and compare-and-swap revision. Missing metadata means the conversation is active and uses its original display title. Renaming preserves its topic, session ID, turns and evidence. Archiving preserves the scheduler and report state. Restore an archived conversation before starting a new round.
+
+Unsent input lives in version 1 files under the workspace meeting store's `lab-drafts/` directory. Each file is scoped to a project or the explicit global scope, and to a session or a new conversation. It stores only editor text and its revision. Credential-like inputs are rejected. The meeting engine does not load drafts into prompts or diagnostics. Malformed records, unsupported versions and records with unknown fields are retained and cannot be overwritten by an editor save. To recover drafts, close Sci-Station and restore them with the matching meeting store and research root from a verified copy.
+
 ## Roundtable workstation reviewed writes
 
 A shared paper may carry a version 1 `markdown_source` with its body revision, byte count, SHA-256, origin and blob ID. The original UTF-8 file lives under `library/markdown/`. PDFKit and fingerprint-bound MinerU conversions also record the source PDF hash. Older records without this field have no adopted Markdown body. An unknown body version cannot be read or replaced. The service stages a new blob before the revision-checked record update. Failed or stale updates preserve the published body. Preserve both the paper records and their Markdown blobs when backing up or restoring a research root.

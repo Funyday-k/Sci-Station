@@ -199,6 +199,7 @@ type UserChange struct {
 }
 
 type Session struct {
+	LabThread         *LabThread        `json:"lab_thread,omitempty"`
 	SeatOverrides     map[string]Member `json:"seat_overrides,omitempty"`
 	Board             MeetingBoard      `json:"board"`
 	Materials         []Material        `json:"materials"`
@@ -228,6 +229,7 @@ type Session struct {
 }
 
 type Summary struct {
+	LabThread     *LabThread        `json:"lab_thread,omitempty"`
 	SeatOverrides map[string]Member `json:"seat_overrides,omitempty"`
 	Members       []Member          `json:"members,omitempty"`
 	Preset        string            `json:"preset"`
@@ -560,7 +562,7 @@ func (e *Engine) ListWithRecovery() ([]Summary, []sessionstore.Unreadable, error
 			unreadable = append(unreadable, *issue)
 			return
 		}
-		result = append(result, Summary{ID: s.ID, Topic: s.Topic, Title: s.Title, ProjectID: s.ProjectID, Project: s.Project, Preset: s.Preset, Members: s.Members, SeatOverrides: s.SeatOverrides, Seats: append([]string{}, s.Seats...), Status: s.Status, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, RoundCount: len(s.Rounds)})
+		result = append(result, Summary{ID: s.ID, Topic: s.Topic, Title: s.Title, LabThread: s.LabThread, ProjectID: s.ProjectID, Project: s.Project, Preset: s.Preset, Members: s.Members, SeatOverrides: s.SeatOverrides, Seats: append([]string{}, s.Seats...), Status: s.Status, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, RoundCount: len(s.Rounds)})
 	})
 	if err != nil {
 		return nil, nil, err
@@ -743,6 +745,9 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 		}
 		if err = s.requireOpen(); err != nil {
 			return err
+		}
+		if s.LabThread != nil && s.LabThread.ArchivedAt != "" {
+			return fmt.Errorf("%w: 请先在 AI 实验室取消会话归档", ErrConflict)
 		}
 		if s.AgendaDraftStatus == "drafting" {
 			return fmt.Errorf("%w: 首席正在起草议程", ErrConflict)
