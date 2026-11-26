@@ -80,7 +80,7 @@ stage_release_archive() {
 previous="$TEST_ROOT/previous"
 candidate="$TEST_ROOT/candidate"
 stage_release_archive "$1" "$previous" ""
-stage_release_archive "$2" "$candidate" "${SCI_STATION_BUILD_NUMBER:-}"
+stage_release_archive "$2" "$candidate" "${SCI_STATION_BUILD_NUMBER:-$(cat "$ROOT_DIR/BUILD_NUMBER")}"
 previous_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$previous/Sci-Station.app/Contents/Info.plist")"
 candidate_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$candidate/Sci-Station.app/Contents/Info.plist")"
 if ! python3 -c 'import sys; sys.exit(int(sys.argv[2]) <= int(sys.argv[1]))' "$previous_build" "$candidate_build"; then
