@@ -34,6 +34,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Fixed
 
+- When switching workspaces, the previous workspace stays locked until its final meeting, CLI edit and local request writes finish.
 - Close the desktop window during an active meeting or a native folder picker. Pending operations are cancelled, committed records are preserved and the next process can immediately reopen the workspace.
 - Reopen meetings under their original project after a folder changes. Verify the active folder grant whenever a project file is accessed.
 

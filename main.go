@@ -169,7 +169,6 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 			guard.Close()
 		}
 	}()
-	address := "http://" + listener.Addr().String()
 	if create {
 		if len(setup) > 0 {
 			if err := seedNewWorkspace(dir, setup[0]); err != nil {
@@ -218,6 +217,14 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 		log.Printf("插件已暂停：%v", marketErr)
 	}
 	engine.SetProjectRuleSnapshot(api.projectRuleSnapshot)
+	instance := api.serveOwnedWorkspace(listener, guard, 8*time.Second)
+	owned = true
+	return instance, nil
+}
+
+// The instance owns the listener and the exclusive workspace lock from here.
+func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, grace time.Duration) *workspaceInstance {
+	address := "http://" + listener.Addr().String()
 	requestContext, cancelRequests := context.WithCancel(context.Background())
 	var access sync.RWMutex
 	frozen := false
@@ -227,7 +234,7 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			access.RLock()
 			defer access.RUnlock()
-			if frozen {
+			if frozen || requestContext.Err() != nil {
 				reject(w, 503, "Workspace is reopening")
 				return
 			}
@@ -237,40 +244,53 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 		IdleTimeout:       90 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
-	// AppKit can terminate the process before app.Run returns to Go. Both native
-	// quit and command-line shutdown use this owner's single cleanup deadline.
+	// AppKit bounds the caller's wait. A root switch leaves this process alive,
+	// so keep its file lock until every admitted writer has actually returned.
 	shutdown := sync.OnceFunc(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), grace)
 		defer cancel()
 		cancelRequests()
 		api.forgetCLIEditWindow()
-		api.cliEdits.jobs.Close(ctx)
-		httpDone := make(chan error, 1)
-		go func() { httpDone <- server.Shutdown(ctx) }()
-		if err := engine.Shutdown(ctx); err != nil {
-			log.Printf("结束圆桌任务: %v", err)
+		var workers sync.WaitGroup
+		workers.Go(func() { api.cliEdits.jobs.Close(context.Background()) })
+		workers.Go(func() {
+			if err := api.meetings.Shutdown(context.Background()); err != nil {
+				log.Printf("结束圆桌任务: %v", err)
+			}
+		})
+		released := make(chan struct{})
+		go func() {
+			if err := server.Shutdown(ctx); err != nil {
+				_ = server.Close()
+			}
+			// Closing a socket does not wait for its handler. Drain admitted
+			// readers; subsequent handlers observe the cancelled base context.
+			access.Lock()
+			access.Unlock()
+			workers.Wait()
+			guard.Close()
+			close(released)
+		}()
+		select {
+		case <-released:
+		case <-ctx.Done():
+			log.Print("工作区仍在结束后台任务")
 		}
-		if err := <-httpDone; err != nil {
-			_ = server.Close()
-			log.Printf("结束本机请求: %v", err)
-		}
-		guard.Close()
 	})
-	fmt.Fprintf(os.Stderr, "Sci-Station · %s · %s\n", address, dir)
+	fmt.Fprintf(os.Stderr, "Sci-Station · %s · %s\n", address, api.workspaceDir)
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	owned = true
-	return &workspaceInstance{dir: dir, address: address, api: api, done: done, close: shutdown, freeze: func() bool {
+	return &workspaceInstance{dir: api.workspaceDir, address: address, api: api, done: done, close: shutdown, freeze: func() bool {
 		if !access.TryLock() {
 			return false
 		}
 		defer access.Unlock()
-		if engine.Busy() || api.cliEdits.jobs.Busy() {
+		if api.meetings.Busy() || api.cliEdits.jobs.Busy() {
 			return false
 		}
 		frozen = true
 		return true
-	}}, nil
+	}}
 }
 
 func main() {
