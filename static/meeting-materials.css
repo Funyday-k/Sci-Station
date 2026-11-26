@@ -1,0 +1,211 @@
+.roundtable-materials {
+  min-width: 0;
+}
+
+.roundtable-materials__input {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.roundtable-materials__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  gap: 5px 6px;
+  max-block-size: 86px;
+  overflow: auto;
+  margin: 0 0 6px;
+  padding: 3px;
+  list-style: none;
+}
+
+.roundtable-materials__opener img[hidden] {
+  display: none;
+}
+.roundtable-materials__item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-inline-size: 0;
+  min-block-size: 35px;
+  max-inline-size: min(100%, 188px, max(124px, calc((100% - 6px) / 2)));
+  padding: 3px 3px 3px 7px;
+  border: 1px solid var(--line, #dfe3e8);
+  border-radius: 7px;
+  background: var(--surface, #fff);
+}
+
+.roundtable-materials__details {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 0;
+}
+
+.roundtable-materials__name {
+  overflow: hidden;
+  color: var(--text, #20242a);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roundtable-materials__opener {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.roundtable-materials__opener img {
+  width: 18px;
+  height: 15px;
+  flex: none;
+  border-radius: 4px;
+  background: var(--hover, #f0f2f5);
+  object-fit: contain;
+}
+
+.roundtable-materials__details a,
+.roundtable-materials__opener:hover .roundtable-materials__name {
+  color: var(--accent, #4169e1);
+  text-underline-offset: 2px;
+}
+
+.roundtable-materials__opener:focus-visible,
+.roundtable-materials__details a:focus-visible,
+.roundtable-materials__action:focus-visible {
+  outline: 2px solid var(--accent, #4169e1);
+  outline-offset: 2px;
+}
+
+.roundtable-materials__state {
+  overflow: hidden;
+  color: var(--muted, #68717d);
+  font-size: 11px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roundtable-materials__state.is-error {
+  color: var(--danger, #b42318);
+}
+
+.roundtable-materials__remove {
+  flex: none;
+  min-inline-size: 24px;
+  min-block-size: 24px;
+  padding: 1px 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #68717d);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.roundtable-materials__remove--icon {
+  font-size: 17px;
+}
+
+.roundtable-materials__remove:hover:not(:disabled) {
+  background: var(--hover, #f0f2f5);
+  color: var(--text, #20242a);
+}
+
+.roundtable-materials__remove:focus-visible {
+  outline: 2px solid var(--accent, #4169e1);
+  outline-offset: 2px;
+}
+
+.roundtable-materials__remove:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.roundtable-materials__preview {
+  width: min(850px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+  padding: 0;
+  border: 1px solid var(--line, #dfe3e8);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  color: var(--text, #20242a);
+  box-shadow: 0 12px 52px #14142645;
+}
+
+.roundtable-materials__preview::backdrop {
+  background: #10121a90;
+}
+
+.roundtable-materials__preview header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line, #dfe3e8);
+}
+
+.roundtable-materials__preview h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.roundtable-materials__preview header > div {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.roundtable-materials__action {
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent, #4169e1);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.roundtable-materials__action:hover {
+  background: var(--hover, #f0f2f5);
+}
+
+.roundtable-materials__preview > img {
+  display: block;
+  width: 100%;
+  max-height: min(72dvh, 680px);
+  padding: 10px;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .roundtable-materials__item {
+    animation: roundtable-material-arrive 140ms ease-out;
+  }
+
+  @keyframes roundtable-material-arrive {
+    from { opacity: .5; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}

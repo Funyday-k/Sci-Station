@@ -1,0 +1,27 @@
+.sci-citations {
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: 90vh;
+  padding: 1rem;
+  background: var(--surface, Canvas);
+  color: var(--ink, CanvasText);
+  border: 1px solid var(--line, GrayText);
+  border-radius: .75rem;
+}
+.sci-citations::backdrop { background: rgb(0 0 0 / .32); }
+.sci-citations h2 { margin: 0 0 .75rem; font-size: 1.2rem; }
+.sci-citations textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: .75rem;
+  padding: .65rem;
+  font-family: ui-monospace, monospace;
+  resize: vertical;
+}
+.sci-citations [role="status"]:empty { display: none; }
+.sci-citations > div { display: flex; gap: .5rem; justify-content: end; margin-top: .75rem; }
+.sci-citations button, .sci-citations select {
+  padding: .4rem .65rem;
+  border: 1px solid var(--line, GrayText);
+  border-radius: .35rem;
+  background: var(--fill, ButtonFace);
+}

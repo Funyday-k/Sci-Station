@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "org.magpie.deliberation-checklist",
+  "version": "1.0.0",
+  "name": "论证与决策清单",
+  "author": "Magpie Roundtable",
+  "description": "帮助参会者说明关键假设和可验证的证据，并让报告记录决策理据与待解决的问题。",
+  "contributions": {
+    "round_guidance": "针对影响决策的主张，说明它依赖的假设，以及哪项证据会让你调整判断。质疑其他发言时，先明确你回应的是哪条主张，再给出理由。",
+    "report_guidance": "按已达成的决策、仍有分歧的问题和待补证据组织报告。每项决策附上主要理由。仅记录会议中确立的负责人和后续行动。"
+  }
+}

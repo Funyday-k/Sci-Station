@@ -9,6 +9,7 @@ Use an RFC for a new domain, persistent schema, runtime promotion, permission bo
 
 | RFC | Status | Topic |
 | --- | --- | --- |
-| [RFC-0001](RFC-0001-knowledge-architecture.md) | Proposed | Knowledge Architecture V1 |
+| [RFC-0001](RFC-0001-knowledge-architecture.md) | Proposed | Knowledge Architecture V1 and its [review and recovery proposal](knowledge-v1-review-and-recovery.md) |
+| [RFC-0002](RFC-0002-roundtable-workstation.md) | Accepted | One Sci-Station workstation on the Roundtable desktop host |
 
-Status values are `Proposed`, `Accepted`, `Rejected`, and `Superseded`. This directory replaces references to an unversioned Proposal as the sole authority for promoting an experimental runtime.
+Status values are `Proposed`, `Accepted`, `Rejected`, and `Superseded`.

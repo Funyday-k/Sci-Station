@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Sci-Station</string>
+    <key>CFBundleDisplayName</key><string>Sci-Station</string>
+    <key>CFBundleIdentifier</key><string>com.funyday.scistation.desktop</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleExecutable</key><string>sci-station</string>
+    <key>CFBundleIconFile</key><string>roundtable.icns</string>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>读取你选择查看的系统日历事件。</string>
+    <key>NSCalendarsUsageDescription</key><string>读取你选择查看的系统日历事件。</string>
+    <key>NSRemindersFullAccessUsageDescription</key><string>将你选择的研究任务发布到提醒事项。</string>
+    <key>NSRemindersUsageDescription</key><string>将你选择的研究任务发布到提醒事项。</string>
+    <key>NSAppTransportSecurity</key>
+    <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+</dict>
+</plist>

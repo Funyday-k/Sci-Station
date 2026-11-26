@@ -1,0 +1,48 @@
+/* Paint the original text nodes so the shape, layout and reading order stay intact. */
+@media (prefers-reduced-motion: no-preference) {
+  @media not all and (forced-colors: active) {
+    @supports (-webkit-text-stroke: 1px currentColor) {
+      #meeting-board .board-ink-in,
+      #meeting-board [data-board-stage="content"] :is(
+        .board-title, .board-section-title, .board-material-name, .board-agenda-link, .board-agenda-title, .board-point-title,
+        .board-prose, .board-empty, .board-point-reason
+      ) {
+        -webkit-text-stroke-width: .62px;
+        animation: board-glyph-ink var(--board-ink-duration, 620ms) linear both;
+      }
+
+      #meeting-board [data-board-stage="content"] .board-title {
+        -webkit-text-stroke-width: 1.05px;
+      }
+
+      #meeting-board [data-board-stage="content"] :is(.board-prose, .board-empty, .board-point-reason) {
+        animation-delay: 120ms;
+      }
+
+      #meeting-board [data-board-stage="content"] :is(.board-collab-label, .board-collab-passive) {
+        -webkit-text-fill-color: currentColor;
+        -webkit-text-stroke: 0 transparent;
+      }
+
+      #meeting-board .board-ink-in::selection {
+        -webkit-text-fill-color: currentColor;
+        -webkit-text-stroke-color: transparent;
+      }
+    }
+  }
+}
+
+@keyframes board-glyph-ink {
+  0% {
+    -webkit-text-fill-color: transparent;
+    -webkit-text-stroke-color: transparent;
+  }
+  12%, 42% {
+    -webkit-text-fill-color: transparent;
+    -webkit-text-stroke-color: currentColor;
+  }
+  90%, 100% {
+    -webkit-text-fill-color: currentColor;
+    -webkit-text-stroke-color: transparent;
+  }
+}

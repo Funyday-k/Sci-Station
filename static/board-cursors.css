@@ -1,0 +1,112 @@
+#meeting-board .board-collab-lane {
+  --board-collab-ink: var(--board-collab-light, var(--accent));
+  --board-collab-tint: color-mix(in srgb, var(--board-collab-ink) 12%, transparent);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+:root[data-theme="dark"] #meeting-board .board-collab-lane {
+  --board-collab-ink: var(--board-collab-dark, var(--accent));
+}
+
+#meeting-board .board-collab-body:empty,
+#meeting-board .board-collab-body:has(> [data-board-canonical]:empty):not([data-board-field-preview]),
+#meeting-board .board-collab-pending-notes:empty {
+  display: none;
+}
+
+#meeting-board .board-collab-body > .board-collab-overlay,
+#meeting-board .board-collab-note-body {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+#meeting-board .board-collab-lane + .board-collab-lane {
+  display: block;
+  margin-block-start: .36em;
+  padding-block-start: .33em;
+  border-block-start: 1px dashed var(--board-outline);
+  font-size: min(1em, 15px);
+}
+
+#meeting-board .board-collab-change {
+  background: var(--board-collab-tint);
+  color: inherit;
+}
+
+#meeting-board ins.board-collab-change {
+  text-decoration: underline solid var(--board-collab-ink) 1px;
+  text-underline-offset: .17em;
+}
+
+#meeting-board del.board-collab-change {
+  text-decoration: line-through solid var(--board-collab-ink) 1px;
+}
+
+#meeting-board [data-board-live-phase="confirmed"] ins.board-collab-change {
+  background: transparent;
+  text-decoration: none;
+}
+
+#meeting-board .board-collab-cursor {
+  display: inline-flex;
+  align-items: flex-start;
+  min-block-size: 1.05em;
+  max-inline-size: max(45%, 55px);
+  margin-inline: 1px 4px;
+  padding-inline-start: 2px;
+  border-inline-start: 2px solid var(--board-collab-ink);
+  border-radius: 1px;
+  vertical-align: baseline;
+  white-space: normal;
+}
+
+#meeting-board .board-collab-label,
+#meeting-board .board-collab-passive {
+  color: var(--board-collab-ink);
+  background: var(--board-collab-tint);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 660;
+  line-height: 1.2;
+  letter-spacing: 0;
+  padding: 2px 4px;
+  overflow-wrap: anywhere;
+}
+
+#meeting-board .board-collab-passive {
+  margin-inline-start: 4px;
+}
+
+#meeting-board [data-board-live-phase="settling"] .board-collab-cursor,
+#meeting-board [data-board-live-phase="draft"] .board-collab-cursor {
+  border-inline-start-style: dashed;
+}
+
+#meeting-board .board-collab-note {
+  margin-block: 12px;
+  padding: 10px 13px 12px;
+  border: 1px dashed var(--board-outline);
+  border-radius: 8px;
+  background: var(--board-card);
+}
+
+#meeting-board .board-collab-note-status {
+  margin: 0 0 4px;
+  color: var(--board-muted);
+  font-size: 12px;
+}
+
+#meeting-board .board-collab-note-title {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+#meeting-board .board-section:has(> .board-edit-form:not([hidden])) > .board-edit-preview:has([data-board-field-preview]) {
+  display: block;
+}
+#meeting-board .board-section:has(> .board-edit-form:not([hidden])) > .board-edit-preview > :not([data-board-field-preview]) {
+  display: none;
+}

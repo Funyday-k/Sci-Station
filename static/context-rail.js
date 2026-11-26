@@ -1,0 +1,284 @@
+"use strict";
+(() => {
+  const layout=window.SciShellLayout;
+  const node=id=>document.getElementById(id);
+  const text=(zh,en)=>window.SciStationI18n?.text(zh,en) ?? zh;
+  const req=layout.request;
+  const reader=()=>document.body.dataset.workspaceSurface==="reader";
+  const narrow=matchMedia("(max-width:999px)");
+  const recommendations=matchMedia("(max-width:1279px)");
+  const projectNames=new Map();
+  let context, draftContext, key="", generation=0, room=null, busy=false, models=[], poll=0;
+  let catalogScope="", moduleEnabled=false, runLookup="";
+  const projectOf=c=>({id:c.project,global:!c.project});
+  const storage={
+    get(key){try{return sessionStorage.getItem(key);}catch{return null;}},
+    set(key,value){try{if(value)sessionStorage.setItem(key,value);else sessionStorage.removeItem(key);}catch{}}
+  };
+  function contextOf() {
+    const url=new URL(location.href), params=url.searchParams, project=params.get("project") || "";
+    const research=window.SciResearch?.state, data=research?.project?.id===project || !project && !research?.project ? research:null;
+    const view=params.get("view") || "overview";
+    const selection=data?.view==="papers" ? window.SciResearch.library?.selectedPapers?.() || [] : [];
+    const paper=reader()?window.SciShellReader?.():selection.length===1?selection[0]:null;
+    const note=data?.notes?.find(n=>n.id===params.get("note")), task=data?.tasks?.find(t=>t.id===params.get("task"));
+    const title=(selection.length>1 ? text("已选 "+selection.length+" 篇文献",selection.length+" papers selected") : "") || paper?.title || note?.title || task?.title || document.getElementById("view-title")?.textContent ||
+      (data?.project && view==="overview" ? data.project.name : document.title.split(" · ")[0]);
+    const noteExcerpt=note ? Array.from((note.body || "").replace(/\r\n?/g,"\n")).slice(0,1000).join("").trim() : "";
+    const facts=paper ? [
+      [text("作者","Authors"),paper.authors?.join(", ")],[text("年份","Year"),paper.year],["DOI",paper.doi],["arXiv",paper.arxiv],
+      [text("阅读状态","Reading status"),paper.status]
+    ].filter(([,value])=>Boolean(value)) : task ? [[text("状态","Status"),task.status],[text("截止时间","Due"),task.dueDate]].filter(([,value])=>value) : [];
+    return {project,projectName:data?.project?.name || projectNames.get(project) || "",facts, path:url.pathname,view, paper:paper?.id || "",
+      visiblePaperIds:project && data?.view==="papers" ? window.SciResearch.library?.visiblePaperIds?.() : undefined,
+      note:note?.id || "",task:task?.id || "",meeting:params.get("session") || "", title:title || "",
+      page:paper?.page || 0, quote:paper?.quote || noteExcerpt, citation:paper?.citation || null};
+  }
+  function draftKey(c){return "sci.shell.draft."+JSON.stringify([c.project,c.path,c.view,c.paper,c.note,c.task,c.meeting]);}
+  function roomPointer(project,id){
+    const key="sci.shell.conversation."+project;
+    try{
+      if(id===undefined)return localStorage.getItem(key);
+      if(id)localStorage.setItem(key,id);else localStorage.removeItem(key);
+    } catch{}
+  }
+  function rememberDraft(){
+    if(key)storage.set(key,node("rail-prompt").value ? JSON.stringify({value:node("rail-prompt").value,context:draftContext || context}):"");
+  }
+  function status(message,retry=false){node("rail-status").textContent=message || "";node("rail-retry").hidden=!retry;}
+  function button(label,action) {
+    const btn=document.createElement("button");btn.type="button";btn.textContent=label;
+    btn.onclick=()=>Promise.resolve().then(action).catch(e=>status(e.message));
+    return btn;
+  }
+  function anchor(label,href){const a=document.createElement("a");a.textContent=label;a.href=href;return a;}
+  function routeLink(c,id){return window.SciStationNav.route("/research",{project:c.project,view:id});}
+  function mode(){
+    const state=layout.state;
+    if(!state || narrow.matches || (recommendations.matches && context?.path==="/tools" && new URL(location.href).searchParams.get("tab")==="discover"))return "hidden";
+    return state.mode;
+  }
+  function update() {
+    const next=contextOf(), nextKey=draftKey(next);
+    if(next.project && !next.projectName && !projectNames.has(next.project)){
+      projectNames.set(next.project,"");
+      req("/api/research/projects/"+encodeURIComponent(next.project)).then(p=>{
+        projectNames.set(next.project,p.name);if(context?.project===next.project)update();
+      }).catch(()=>{});
+    }
+    const changedScope=context?.project!==next.project;
+    if(nextKey!==key){
+      rememberDraft(); key=nextKey;draftContext=null;node("rail-prompt").value="";
+      try{const old=JSON.parse(storage.get(key));if(old?.context?.project===next.project){node("rail-prompt").value=old.value;draftContext=old.context;}}catch{}
+    }
+    context=next;
+    if(changedScope){generation++;clearTimeout(poll);room=null;busy=false;runLookup="";catalogScope="";moduleEnabled=false;status("");}
+    const active=mode(), nativeInspector=reader() && active==="inspector";
+    const {body}=document, rail=node("context-rail"), divider=node("shell-divider");
+    body.dataset.railMode=active;
+    rail.hidden=active==="hidden" || nativeInspector;
+    divider.hidden=active==="hidden";
+    const lower=active==="ai"?240:200, upper=active==="ai"?640:560;
+    const width=Math.min(upper,Math.max(lower,layout.state?.width || 360));
+    body.style.setProperty("--shell-panel-width",width+"px");
+    divider.setAttribute("aria-valuemin",String(lower));divider.setAttribute("aria-valuemax",String(upper));divider.setAttribute("aria-valuenow",String(width));
+    node("shell-inspect").setAttribute("aria-pressed",String(active==="inspector"));
+    node("shell-assist").setAttribute("aria-pressed",String(active==="ai"));
+    node("shell-inspect").disabled=node("shell-assist").disabled=narrow.matches || !layout.state;
+    node("rail-title").textContent=active==="ai"?"AI":text("检查器","Inspector");
+    node("rail-context").textContent=[context.projectName || context.project,context.title,context.page?text("第 "+context.page+" 页","Page "+context.page):""].filter(Boolean).join(" · ");
+    node("rail-inspect").hidden=active!=="inspector";
+    node("rail-ai").hidden=active!=="ai";
+    if(active==="inspector" && !nativeInspector)drawInspector();
+    if(active==="ai"){drawAI();loadScope();}
+  }
+  function drawInspector() {
+    const c=context, items=[];
+    if(c.facts.length){
+      const facts=document.createElement("dl");
+      for(const [label,value] of c.facts){const term=document.createElement("dt"),detail=document.createElement("dd");term.textContent=label;detail.textContent=value;facts.append(term,detail);}
+      items.push(facts);
+    }
+    if(c.paper) {
+      items.push(anchor(text("打开阅读器","Open reader"),window.SciStationNav.route("/reader",{project:c.project,paper:c.paper})));
+      items.push(button(text("文献元数据","Paper metadata"),()=>window.SciStationNav.command("inspector")));
+    } else if(c.view==="notes" && c.note) {
+      items.push(button(text("打开知识笔记","Open Wiki page"),()=>window.SciResearch.formAction("read-note",c.note)));
+    } else if(c.task) {
+      items.push(button(text("打开任务","Open task"),()=>window.SciResearch.formAction("edit-task",c.task)));
+    }
+    items.push(button(text("询问当前视图","Ask about this view"),()=>layout.save({mode:"ai"})));
+    items.push(button(text("刷新当前视图","Refresh view"),()=>window.SciResearch?.refresh?.() ?? location.reload()));
+    if(c.project)items.push(anchor(text("项目概览","Project overview"),routeLink(c,"overview")));
+    if(c.path==="/research" && (c.view==="projects" || c.project))items.push(button(text("新建项目","New project"),()=>window.SciStationNav.command("newProject")));
+    if(c.view==="tasks")items.push(anchor(text("全部任务","All tasks"),"/research?view=tasks"));
+    if(document.querySelector(".workspace-roots"))items.push(button(text("在 Finder 中显示工作区","Reveal workspace"),()=>window.SciStationNav.command("revealWorkspace")));
+    node("rail-inspect").replaceChildren(...items);
+  }
+  function drawAI() {
+    const c=draftContext || context;
+    const hint=node("rail-excerpt");hint.hidden=!c.quote;hint.textContent=c.quote;
+    const quick=[
+      [text("提问","Ask"),text("请基于当前视图回答我的问题。","Answer my question about this view.")],
+      [text("解释","Explain"),text("请解释所选内容并指出关键点。","Explain the selection and identify its key points.")],
+      [text("总结","Summarize"),text("请总结所选内容。","Summarize the selection.")],
+      [text("起草待办","Draft task"),text("请依据所选内容起草待办，供我审阅。","Draft a task from the selection for review.")]
+    ];
+    node("rail-actions").replaceChildren(...quick.map(([label,prompt],i)=>{
+      const b=button(label,()=>{
+        draftContext={...context};
+        node("rail-prompt").value=prompt;rememberDraft();drawAI();node("rail-prompt").focus();
+        if(i===1 && node("rail-model").value && !busy)return send();
+      });
+      b.disabled=busy || (i>0 && !context.quote);return b;
+    }));
+    node("rail-send").disabled=busy || !moduleEnabled || (!room && !node("rail-model").value) || Boolean(room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at));
+    node("rail-new").hidden=!room;node("rail-new").disabled=busy;
+    node("rail-stop").hidden=room?.status!=="running";
+    node("rail-lab").href=window.SciStationNav.route("/lab",{project:c.project,run:room?.id});
+    node("rail-model").disabled=Boolean(room) || busy;
+    node("rail-effort").disabled=Boolean(room) || busy;
+    const turns=[];
+    if(room?.topic){const first=document.createElement("p");first.textContent=room.topic;turns.push(first);}
+    for(const round of room?.rounds || []) {
+      if(round.note){const p=document.createElement("p");p.textContent=round.note;turns.push(p);}
+      for(const turn of round.turns || []){
+        if(!turn.text && !turn.error)continue;
+        const block=document.createElement("article");
+        const h=document.createElement("strong");h.textContent=turn.model_label || turn.model || "AI";
+        const answer=document.createElement("div");
+        if(window.SciMarkdown && turn.text)window.SciMarkdown.render(answer,turn.text,{cache:turn.status!=="running"});
+        else answer.textContent=turn.error || turn.text;
+        block.append(h,answer);
+        const cited=new Set(Array.from((turn.text || "").matchAll(/\[(S[1-9][0-9]*)\]/g),m=>m[1]));
+        for(const [index,material] of (room.materials || []).entries()) {
+          if((material.added_round || 0)>round.number || !cited.has("S"+(index+1))) continue;
+          const source=window.SciLabRun.recordedSource(material,c.project,index);
+          if(source)block.append(anchor(source.id+" · "+source.title+" · "+source.label,source.href));
+        }
+        turns.push(block);
+      }
+    }
+    window.SciStationReadReview?.update(node("rail-read-review"), room);
+    node("rail-transcript").replaceChildren(...turns);
+  }
+  async function loadScope() {
+    const project=context.project,id=project || "@global",ticket=generation;
+    if(catalogScope===id)return;
+    catalogScope=id;
+    try {
+      const config=await window.SciStationModules.load(project);
+      if(ticket!==generation)return;
+      moduleEnabled=window.SciStationModules.isEnabled(config,"ai-lab");
+      if(!moduleEnabled){status(text("AI 实验室模块已停用。","AI Lab is disabled."));drawAI();return;}
+      const saved=roomPointer(project);
+      if(saved)await readRoom(saved,ticket);
+      if(!models.length){
+        const catalog=await req("/api/studio/models");
+        if(ticket!==generation)return;
+        models=catalog.models || [];
+        node("rail-model").replaceChildren(...models.map(m=>new Option(m.label || m.id,m.id)));
+        if(models.some(m=>m.id===catalog.default_model))node("rail-model").value=catalog.default_model;
+        effortOptions();
+      }
+      if(!models.length)status(text("模型目录为空，请检查 AI 实验室设置。","No models are available. Check AI Lab settings."));
+      drawAI();
+    } catch(err){if(ticket===generation){status(err.message,true);catalogScope="";}}
+  }
+  function effortOptions() {
+    const model=models.find(m=>m.id===node("rail-model").value);
+    node("rail-effort").replaceChildren(...(model?.efforts || []).map(e=>new Option(e,e)));
+    if(model?.efforts?.includes("auto"))node("rail-effort").value="auto";
+  }
+  async function readRoom(id,ticket) {
+    runLookup=id;
+    let snapshot;
+    try{snapshot=await req("/api/studio/sessions/"+encodeURIComponent(id));}
+    catch(error){if(error.status===404 && ticket===generation){roomPointer(context.project,"");room=null;drawAI();return;}throw error;}
+    if(ticket!==generation || runLookup!==id)return;
+    if(!window.SciLabRun.ownsRun(snapshot,projectOf(context))){
+      roomPointer(context.project,"");runLookup="";room=null;
+      status(text("已清除不属于当前项目的会话位置。","Cleared a conversation pointer belonging to another project."));drawAI();return;
+    }
+    room=snapshot;drawAI();
+    clearTimeout(poll);
+    if(room.status==="running")poll=setTimeout(()=>readRoom(id,ticket).catch(err=>{if(ticket===generation)status(err.message);}),1000);
+  }
+  async function send() {
+    const c=draftContext || context, prompt=node("rail-prompt").value.trim(), ticket=generation, submittedKey=key;
+    if(!prompt || busy || !moduleEnabled || c.project!==context.project || room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at))return;
+    const model=node("rail-model").value, effort=node("rail-effort").value;
+    if(!room && (!model || !effort))return;
+    busy=true;status("");drawAI();
+    try {
+      const project=projectOf(c);
+      let citation=c.citation;
+      if(c.note && c.quote && c.project) {
+        const preview=await req("/api/research/lab/sources/preview","POST",{projectId:c.project,location:{kind:"note",id:c.note}});
+        const offset=preview.text.indexOf(c.quote);
+        if(offset<0)throw Error(text("笔记已更新，请重新选择摘录。","The note changed. Select its excerpt again."));
+        citation={kind:"note",id:c.note,hash:preview.hash,quote:c.quote,offset:Array.from(preview.text.slice(0,offset)).length};
+      }
+      if(c.project && c.paper && c.quote && !citation)throw Error(text("无法核对选段位置，请在阅读器中重新选择。","Select the passage again to verify its location."));
+      const citations=c.project && citation ? [citation]:[];
+      const prepared=await window.SciLabRun.prepareQuestionSources(req,project,"",prompt,citations,{
+        currentPaper:c.paper || window.SciLabRun.paperFromRun(room,c.project),
+        visiblePaperIds:c.visiblePaperIds
+      });
+      if(!prepared || ticket!==generation)return;
+      const message=[prompt,c.title,c.page?text("第 "+c.page+" 页","Page "+c.page):"",c.quote && !citations.length?c.quote:""].filter(Boolean).join("\n\n");
+      let run=room;
+      const followUp=Boolean(run);
+      if(!run){
+        run=await window.SciLabRun.createSingle(req,project,message,{model,effort},"review",prepared || []);
+        roomPointer(c.project,run.id);
+        if(ticket!==generation)return;
+        room=run;
+      }
+      const started=await window.SciLabRun.advance(req,run,followUp?message:"",followUp?prepared || []:[]);
+      if(ticket!==generation)return;
+      room=started;
+      if(key===submittedKey && node("rail-prompt").value.trim()===prompt){node("rail-prompt").value="";draftContext=null;rememberDraft();}
+      else if(key!==submittedKey)storage.set(submittedKey,"");
+      await readRoom(run.id,ticket);
+    } catch(err){if(ticket===generation)status(err.message);}
+    finally{if(ticket===generation){busy=false;drawAI();}}
+  }
+  function toggle(mode){
+    if(!layout.state || narrow.matches)return;
+    layout.save({mode:layout.state.mode===mode?"hidden":mode}).catch(()=>{});
+  }
+  node("shell-inspect").onclick=()=>toggle("inspector");node("shell-assist").onclick=()=>toggle("ai");
+  node("rail-prompt").oninput=()=>{if(!draftContext)draftContext={...context};rememberDraft();};
+  node("rail-prompt").onkeydown=e=>{if(e.key==="Enter" && (e.metaKey || e.ctrlKey)){e.preventDefault();send();}};
+  node("rail-model").onchange=()=>{effortOptions();drawAI();};
+  node("rail-send").onclick=send;
+  node("rail-retry").onclick=()=>{catalogScope="";status("");loadScope();};
+  node("rail-new").onclick=()=>{clearTimeout(poll);runLookup="";room=null;roomPointer(context.project,"");status("");drawAI();};
+  node("rail-stop").onclick=async()=>{
+    if(!room || busy)return;
+    const id=room.id,ticket=generation;
+    try{await req("/api/studio/sessions/"+encodeURIComponent(id)+"/cancel","POST",{});await readRoom(id,ticket);}
+    catch(err){if(ticket===generation)status(err.message);}
+  };
+  const divider=node("shell-divider");
+  const clamp=value=>Math.round(Math.max(Number(divider.getAttribute("aria-valuemin")),Math.min(Number(divider.getAttribute("aria-valuemax")),value)));
+  function commitWidth(value){layout.save({width:clamp(value)}).catch(()=>{});}
+  divider.onpointerdown=e=>{if(e.button!==0)return;divider.setPointerCapture(e.pointerId);};
+  divider.onpointermove=e=>{if(divider.hasPointerCapture(e.pointerId))document.body.style.setProperty("--shell-panel-width",clamp(innerWidth-e.clientX)+"px");};
+  divider.onpointerup=e=>{if(divider.hasPointerCapture(e.pointerId)){divider.releasePointerCapture(e.pointerId);commitWidth(innerWidth-e.clientX);}};
+  divider.onkeydown=e=>{if(!["ArrowLeft","ArrowRight"].includes(e.key))return;e.preventDefault();commitWidth(Number(divider.getAttribute("aria-valuenow"))+(e.key==="ArrowLeft"?16:-16));};
+  window.addEventListener("scistation:command",e=>{
+    if(e.detail!=="inspector" || narrow.matches)return;
+    if(reader()){
+      if(mode()!=="inspector")layout.save({mode:"inspector"}).then(()=>document.querySelector('.layout>aside [role="tab"][aria-selected="true"]')?.focus()).catch(()=>{});
+      return;
+    }
+    if(context?.view==="papers")return;
+    e.preventDefault();toggle("inspector");
+  });
+  window.SciContextRail={update};
+  narrow.addEventListener("change",update);recommendations.addEventListener("change",update);
+  window.addEventListener("sci:shell-layout",update);window.addEventListener("sci:language",update);
+  document.addEventListener("DOMContentLoaded",()=>{update();new MutationObserver(update).observe(document.querySelector("title"),{childList:true});});
+})();

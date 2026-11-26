@@ -1,0 +1,273 @@
+{{define "head"}}
+<link rel="stylesheet" href="/static/api.css">
+{{end}}
+{{define "content"}}
+<main>
+    <div class="intro">
+      <h1>Sci-Station 本机接口</h1><p>科研工作区通过 <code>/api/research/projects</code> 访问项目、笔记、任务、材料和图谱。共享文献与 PDF 使用 <code>/api/research/papers</code>。科研工具和 AI 模板分别位于 <code>/api/research/tools/</code>、<code>/api/research/lab/</code>。</p>
+      <p class="lead">macOS 桌面应用通过本机接口建立项目圆桌、读取 Magpie 模型和管理议程。以下契约供开发与本机验证使用。</p>
+      <a class="button" href="/openapi.json" download="roundtable-openapi.json">下载 OpenAPI 3.1 <span aria-hidden="true">↓</span></a>
+      <p class="caption">接口默认地址 <code>http://127.0.0.1:18765</code>；若更换启动端口，请同步修改导入工具的 server 变量。</p>
+    </div>
+
+    <section aria-labelledby="requests">
+      <h2 id="requests">请求约定</h2>
+      <div class="note">
+        <p><strong>所有 POST：</strong><code>Content-Type: application/json</code> 与 <code>X-Roundtable: 1</code>。通常传单个 JSON 对象；无参数操作建议传 <code>{}</code>。</p>
+        <p><code>Host</code> 必须是当前服务端口的 <code>127.0.0.1</code> 或 <code>localhost</code>。若有 <code>Origin</code>，须精确匹配 <code>http://</code> 加当前 Host；<code>Sec-Fetch-Site: cross-site</code> 会被拒绝。无 Origin 的本机程序客户端可调用。</p>
+        <p><code>X-Roundtable</code> 是防跨站标记，并非账户密码。服务没有远程登录、远程 CORS 或面向互联网的使用方式。早期设置中的 <code>magpie_port</code> 为本机 Magpie 默认端口及兼容诊断端口。已注册 Agent 使用 Magpie 写入的连接配置。</p>
+      </div>
+      <p>Studio 解析单个 JSON，常规请求上限 4 MiB；诊断请求上限 64 KiB。常规对象拒绝未知字段，设置补丁按已知键校验。Studio 新会话的 <code>topic</code> 与补充指令 <code>note</code> 最多 12,000 个 Unicode codepoints。JSON 错误形如 <code>{"error":"说明"}</code>。响应不缓存。</p>
+    </section>
+
+    <section aria-labelledby="workflow">
+      <h2 id="workflow">创建项目圆桌并运行议程</h2>
+      <ol class="steps">
+        <li><strong>选择项目和成员。</strong>向 <code>POST /api/studio/sessions</code> 传议题、项目绝对路径与 <code>members</code>。成员须来自 <code>GET /api/studio/models</code>，按顺序分配 <code>member-1</code> 等席位 ID，第一位为首席。应用读取模型目录校验并保存会话。使用成员模式时，会话保存后异步请求首席拟议程，标题命名单独请求。</li>
+        <li><strong>设置讨论方式。</strong>传可选的 <code>preset</code>。四种现有预设都可附 <code>continuous</code> 配置，不会新增一种预设。成员模式创建时可先保存配置，但不会自动运行首轮。已有调用方可用 <code>agenda</code> 提交既定事项，可用标题字符串或带 <code>title</code>、<code>kind</code> 的对象，最多 24 项。桌面新建时由首席按议题拟议程。</li>
+        <li><strong>启动讨论。</strong>向 <code>…/{id}/run</code> 传当前 <code>rounds.length</code> 为 <code>expected_round</code>。可附 <code>agenda_version</code>、<code>note</code>、<code>target</code>、<code>preset</code>、<code>phase</code>。传 <code>continuous</code> 对象明确启动一批持续推进；省略或传 <code>null</code> 始终只运行手动单轮。轮询 <code>GET …/{id}</code> 观察进度，202 表示已接受。</li>
+      </ol>
+      <pre><code>POST /api/studio/sessions
+Content-Type: application/json
+X-Roundtable: 1
+
+{
+  "topic": "审阅当前实现，说明依据并讨论必要修改",
+  "project": "/absolute/path/to/project",
+  "members": [{"model": "provider/model", "effort": "auto"}],
+  "preset": "review",
+  "continuous": {
+    "goal": "完成并核对部署说明",
+    "criteria": "文档包含部署步骤和回滚条件",
+    "max_rounds": 12,
+    "summary_every": 4
+  }
+}</code></pre>
+      <p class="caption">项目须为明确的真实目录；不能选根目录、整个用户目录或其祖先，路径各级不可是符号链接。示例路径需替换成自己的项目。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>项目与执行接口</caption>
+          <thead><tr><th>方法与路径</th><th>用途</th><th>成功响应</th></tr></thead>
+          <tbody>
+            <tr><td><span class="method">GET</span> <code>/api/health</code></td><td>服务名称、版本与技术栈标识；不调用模型</td><td>200 · JSON</td></tr>
+            <tr><td><span class="method">GET / POST</span> <code>/api/studio/settings</code></td><td>读取／部分更新设置，返回 <code>cli_status</code></td><td>200 · 设置</td></tr>
+            <tr><td><span class="method">GET</span> <code>/api/studio/discussion-presets</code></td><td>只读列出预设及阶段规则，不调用模型</td><td>200 · <code>{"presets":[…]}</code></td></tr>
+            <tr><td><span class="method">GET</span> <code>/api/studio/clients</code></td><td>只读探测主流 CLI 的本机安装状态，不执行客户端</td><td>200 · 客户端清单</td></tr>
+            <tr><td><span class="method">GET / POST</span> <code>/api/studio/diagnostics</code></td><td>读取缓存／主动检查本机连接、版本与登录</td><td>200 · 诊断快照</td></tr>
+            <tr><td><span class="method">GET / POST</span> <code>/api/studio/plugins</code></td><td>查看来源、可用插件、已安装插件；订阅、刷新、安装、启停或卸载</td><td>200 · 插件 View</td></tr>
+            <tr><td><span class="method">POST</span> <code>/api/studio/pick-project</code></td><td>在已连接原生选择器的 Mac App 打开选目录窗口；选择器不可用时返回 409</td><td>200 · <code>{"path":"…"}</code></td></tr>
+            <tr><td><span class="method">GET / POST</span> <code>/api/studio/sessions</code></td><td>会话摘要列表／创建项目会话</td><td>200 · 列表 / 201 · 会话</td></tr>
+            <tr><td><span class="method">GET</span> <code>/api/studio/sessions/{id}</code></td><td>完整会话、轮次、事件、子代理与写入记录</td><td>200 · 会话</td></tr>
+            <tr><td><span class="method">GET / POST</span> <code>…/{id}/members</code></td><td>查看现有席位，或为一个席位保存模型与思考强度</td><td>200 · 成员列表／完整会话</td></tr>
+            <tr><td><span class="method">POST</span> <code>…/{id}/title</code></td><td>必须提交 <code>{}</code>；复用已有标题，或使用首席模型命名并保存</td><td>200 · <code>{"title":"短标题"}</code></td></tr>
+            <tr><td><span class="method">POST</span> <code>…/{id}/run</code></td><td>手动单轮，或显式传 <code>continuous</code> 启动一批持续推进；可选 <code>target</code> 固定自动轮的席位</td><td>202 · 会话快照</td></tr>
+            <tr><td><span class="method">POST</span> <code>…/{id}/report</code></td><td><code>action:"finish"</code> 结束会话并生成报告；<code>action:"retry"</code> 重试指定报告 <code>attempt</code>。需传 <code>expected_round</code> 与 <code>agenda_version</code></td><td>202 · 处理中；200 · 已终结或幂等结果</td></tr>
+            <tr><td><span class="method">POST</span> <code>…/{id}/plugin-action</code></td><td>按安装版本、来源与摘要运行插件动作；可限定公开发言轮次范围</td><td>200 · <code>{format,text,filename}</code></td></tr>
+            <tr><td><span class="method">GET</span> <code>…/{id}/report.md</code></td><td>下载最终报告；尚无可下载报告时返回 409</td><td>200 · Markdown</td></tr>
+            <tr><td><span class="method">POST</span> <code>…/{id}/agenda</code></td><td>使用 <code>expected_version</code> 更新议程或重试草拟</td><td>200 · 会话 / 202 · 已接受草拟</td></tr>
+            <tr><td><span class="method">POST</span> <code>…/{id}/cancel</code></td><td>停止当前请求；正在持续推进时暂停批次并保留检查点，不会撤回已写入文件</td><td>202 · 会话快照</td></tr>
+            <tr><td><span class="method">GET</span> <code>…/{id}/export.md</code></td><td>下载公开发言、状态与已应用文件差异</td><td>200 · Markdown</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><code>…</code> 在本节均为 <code>/api/studio/sessions</code>。会话状态为 <code>ready</code>、<code>running</code>、<code>partial</code>、<code>closed</code>；每席及子代理为 <code>pending</code>、<code>running</code>、<code>done</code>、<code>error</code>。<code>partial</code> 可能来自失败或停止，检查对应错误，不推定所有工作均已撤回。</p>
+      <p>会话的可选 <code>continuous</code> 状态含配置、<code>configured / active / paused / completed</code> 状态、当前 <code>round / review / summary</code> 阶段、批次起始轮、已复核轮、目标席位、原因、下一步和依据。目标被确认完成后，批次变为 <code>completed</code>，会话仍保持打开；需要另行调用报告接口结束会议。</p>
+      <p><code>GET …/{id}</code> 支持条件轮询：将响应的 <code>ETag</code> 原样放入下一次请求的 <code>If-None-Match</code>，会话未变化时返回 304 且无响应体，变化时返回完整会话和新的 <code>ETag</code>。</p>
+      <p><code>POST …/{id}/report</code> 的 finish 是显式结束会议并进入报告阶段的操作；持续推进判定完成不会自动关闭会议。retry 需要指出失败报告的 <code>attempt</code>。报告状态依次可能为 <code>drafting</code>、<code>reviewing</code>、<code>revising</code>、<code>ready</code> 或 <code>failed</code>。报告含 Markdown、错误说明、复核模式（<code>peer</code>、<code>same_model</code>、<code>self</code>）、作者与复核席位和型号、复核意见、纳入的公开发言数及草稿标记。可选 <code>coverage</code> 在材料被节选时说明覆盖范围；报告阶段恢复用的 <code>draft_text</code> 是中间材料，不是最终报告，界面以 <code>markdown</code> 展示。报告材料序列化预算为 64 KiB，超长发言按首尾摘录并保留来源编号；无法为所有公开发言保留可核对原文时报告会失败并保留材料草稿。生成中返回 202；已结束操作可幂等返回 200。只有报告可用后 <code>GET …/{id}/report.md</code> 才能下载。</p>
+      <p><code>POST …/{id}/title</code> 是显式命名操作。没有标题时使用本场首席型号请求短标题，成功后保存并复用；已有标题直接返回，不再调用模型。原始 <code>topic</code> 不变，完整会话与摘要可带可选的 <code>title</code>。它不启动工作轮次，不读取项目文件；命名最多 30 秒，并受单次调用超时与请求取消限制。GET 会话、GET 列表和轮询不生成标题。</p>
+      <p>命名请求必须是空对象 <code>{}</code>，不能省略请求体、传 <code>null</code> 或增加字段。请求格式错误返回 400，来源／标记不符 403，会话不存在 404，非 POST 返回 405，应用关闭冲突 409，首席模型未成功返回标题 502。失败后可显式重试，不以本地拼接议题代替真实命名。</p>
+    </section>
+
+    <section aria-labelledby="members">
+      <h2 id="members">查看和更换席位模型</h2>
+      <p><code>GET /api/studio/sessions/{id}/members</code> 按原顺序返回 <code>{"members":[…]}</code>。每项包含席位 <code>id</code>、模型 <code>model</code>、名称 <code>label</code>、来源 <code>source</code> 和思考强度 <code>effort</code>。<code>version</code> 省略时按 0。旧式固定席位会话也可通过此接口读取实际配置，单席覆盖保存在完整会话的 <code>seat_overrides</code>。读取不启动模型调用。</p>
+      <pre><code>POST /api/studio/sessions/{id}/members
+Content-Type: application/json
+X-Roundtable: 1
+
+{"seat_id":"member-1","model":"provider/model","effort":"auto","expected_version":0}</code></pre>
+      <p>请使用 <code>GET /api/studio/models</code> 返回的完整模型 ID 和对应思考强度。<code>expected_version</code> 取该席位的当前版本。保存成功返回完整会话，相同的已保存配置可幂等重试。无效的席位、型号或强度返回 400，模型目录读取失败返回 502。</p>
+      <p>只有轮次之间且会议仍可编辑时才能保存。正在起草、运行或进入报告阶段时，以及该席位版本已更新时，返回 409 与 <code>{"error":"…","session":{…}}</code>，其中包含当前会话。</p>
+      <p>席位编号、顺序和对应的公开记录保持连续。更换型号会增加席位的 <code>model_epoch</code>，保留 <code>previous_model</code> 和已存在的轮数 <code>switched_after_round</code>。新型号通过独立的网关对话接续，并从会话快照读取公开历史与当前议题板。同一型号只调整思考强度时沿用网关对话。</p>
+      <p>历史发言使用各轮 <code>turns[].model</code>、<code>effort</code>、<code>model_label</code> 和 <code>model_source</code> 显示当时的配置。标题和议题板模块使用保存的 <code>source_seat</code>、<code>source_round</code>、<code>model</code>、<code>model_label</code> 和 <code>model_source</code> 归因。议程的原始模型信息可见于 <code>source_model</code>、<code>source_model_label</code> 和 <code>source_model_source</code>。持续推进检查点的 <code>items[].model</code> 标记被引用的公开发言模型。旧档中部分归因字段可省略。</p>
+    </section>
+
+    <section aria-labelledby="projects">
+      <h2 id="projects">本机项目与规则导入</h2>
+      <p><code>GET /api/studio/projects</code> 返回 <code>{"projects":[{"path":"…","name":"…","rule_count":0}]}</code>。对同一路径 POST <code>{"path":"/absolute/project"}</code> 可登记本机文件夹。返回完整项目列表。</p>
+      <p>项目列表和两种会话列表均含 <code>unreadable_sessions</code>，列出无法解析的存档路径与原因；单个坏档不会阻止其他会话显示。直接读取损坏会话返回 422 和 <code>unreadable_session</code> 明细。路径可复制后在 Finder 的“前往文件夹”中查看；接口不修复或改写坏档。</p>
+      <p><code>GET /api/studio/projects/import</code> 返回 <code>{"candidates":[{"path":"…","name":"…","sources":["Codex"]}]}</code>。候选来自圆桌、Codex、Claude Code、Cursor CLI 或 Cursor 桌面工作区的已知路径记录。</p>
+      <p>向 <code>POST /api/studio/projects/import</code> 提交 <code>{"action":"preview","paths":["/absolute/project"]}</code>，返回 <code>projects</code>。每项含 <code>path</code>、<code>name</code>、<code>rules</code> 和因预览限额省略的规则数量 <code>omitted</code>。规则含相对 <code>path</code>、<code>digest</code>、<code>source</code>、<code>text</code>、<code>imported</code>。提交 <code>{"action":"apply","selections":[{"path":"/absolute/project","rules":[{"path":"AGENTS.md","digest":"…"}]}]}</code> 可登记项目并保存明确选中的规则。文件变化返回 409 并要求重新预览。成功响应与 <code>GET /api/studio/projects</code> 一致。</p>
+      <p>规则是应用保存的文本副本，同项目同路径可重新导入以更新。应用在后续项目轮次读取这些副本。规则读取限于支持的文本路径，每次最多 12 个项目，每个项目保存至多 24 个文件和 64 KiB 规则上下文。<code>GET /api/studio/projects/rules?path=…</code> 读取已登记项目的启用规则，path 必须使用项目列表返回的绝对路径；原文件无需仍然存在。<code>POST /api/studio/projects/rules</code> 提交 <code>{"path":"/absolute/project","rule":{"path":"AGENTS.md","digest":"…"}}</code> 可停用指定导入版本；重复停用幂等，规则已被替换时返回 409，项目未登记返回 404。</p>
+      <p><code>POST /api/studio/open-rules</code> 接受 <code>{}</code>，生成只读的 <code>discussion-rules.md</code>，并用桌面默认文本编辑器打开。成功返回 <code>{"path":"…"}</code>；打开失败时响应可同时含 <code>path</code> 和 <code>error</code>。</p>
+    </section>
+
+    <section aria-labelledby="discussion">
+      <h2 id="discussion">讨论方式与阶段</h2>
+      <p>创建时提交 <code>project_id</code>，取自当前科研项目；全局圆桌提交 <code>scope:"global"</code> 并省略项目字段。全局圆桌没有项目文件权限。已保存的项目标识用于后续打开会话和接收论文摘录。项目目录授权失效后，仍可读取已保存的会议记录。</p>
+      <p>当前四个预设 <code>work</code>、<code>review</code>、<code>prioritize</code>、<code>forum</code> 都能使用同一持续推进配置；持续推进不是第五种预设。每轮按所选预设继续其阶段和读写约束。</p>
+      <p><code>GET /api/studio/discussion-presets</code> 返回 <code>{"presets":[{"id":"…","label":"…","phases":[{"id":"…","label":"…","instructions":"…"}]}]}</code>。<code>instructions</code> 是实际使用的共享规则、场景与阶段指令，来自项目的 <code>internal/deliberation/policy.go</code>；读取不启动模型、不保存设置。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>preset 与有效 phase</caption>
+          <thead><tr><th>预设</th><th>阶段与输出</th><th>模型写权限</th></tr></thead>
+          <tbody>
+            <tr><td><code>work</code> 项目协作</td><td><code>work</code>：读取实际文件、继续协作并交接结果</td><td>只读</td></tr>
+            <tr><td><code>review</code> 方案评审</td><td><code>proposal</code> 独立提案；<code>challenge</code> 检验异议；<code>synthesis</code> 汇总建议</td><td>只读</td></tr>
+            <tr><td><code>prioritize</code> 优先级排序</td><td><code>proposal</code> 独立排序；<code>challenge</code> 核对标准；<code>synthesis</code> 汇总排序</td><td>只读</td></tr>
+            <tr><td><code>forum</code> 多方权衡</td><td><code>proposal</code> 独立立场；<code>challenge</code> 比较取舍；<code>synthesis</code> 汇总分歧</td><td>只读</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre><code>POST /api/studio/sessions/{id}/run
+Content-Type: application/json
+X-Roundtable: 1
+
+{"expected_round":1,"agenda_version":2,"continuous":{"goal":"完成部署说明","criteria":"包含部署和回滚步骤"}}</code></pre>
+      <p>指定 <code>target</code> 时可传本场席位 ID、唯一对应的模型 ID 或显示名称；在持续推进批次中，该席位固定执行自动轮。省略 <code>target</code> 时由预设确定参与席位（例如 synthesis 仅运行首席）。停止用现有 <code>POST …/{id}/cancel</code>；它会暂停批次并保留检查点。之后必须再次显式提交 <code>continuous</code> 对象启动新一批，不能只靠轮询或恢复接口自动续跑。</p>
+      <p><code>continuous</code> 可包含 <code>goal</code>、<code>criteria</code>、<code>max_rounds</code>、<code>summary_every</code>。goal 省略或为空时使用原议题；两个文本各限 12,000 个 Unicode codepoints。轮数默认 12，范围 1–60；摘要间隔默认 4，范围 2–12。每轮全部席位完成后进行证据复核；有席位失败时先暂停，不作完成判定。达到摘要间隔时生成滚动检查点。摘要请求上限 64 KiB、输出上限 32 KiB，每份最多 24 项；每项正文最多 600 个码点、引文最多 240 个码点。达到 max_rounds、实际阻塞、席位失败、连续两轮无可核实进展或用户取消会暂停批次。<code>continuous.manual:true</code> 表示最近一次显式启动是手动单轮，此时原持续推进配置和检查点仍保留。</p>
+      <p>每次自动复核最多纳入 12 条公开发言并使用有界文件与变更摘录；复核输入上限 36,000 个 Unicode codepoints，输出上限 16 KiB、最多 12 条原文依据。出处无法完整覆盖时会暂停持续推进而不凭不完整材料判定完成。重新提交相同 goal 与 criteria 会沿用上次检查点；更换目标或验收条件会建立新的检查点链。应用退出也会暂停当前批次，已保存工作不自动重放。</p>
+      <p>省略预设时按会话和当前议程确定：实施用 <code>work</code>，旧模板阶段用议程项的预设和阶段，其他讨论沿用会话预设，项目协作会话里的讨论事项默认用 <code>review</code>。没有预设或议程的旧记录按 <code>work/work</code>。所有讨论轮次仅读取项目文件。旧调用可以继续发送 <code>allow_edits</code>，新轮次的 <code>settings.allow_edits</code> 始终为 <code>false</code>。历史轮次保留原权限与变更记录。每轮快照还可含 <code>project_rules</code>（路径与摘要），标识启动时读取的规则版本；正文只作为本轮上下文。无效组合返回 400；轮号或议程版本过期返回 409。</p>
+      <p>持续推进状态可含 <code>checkpoint</code>，由 <code>through_round</code> 与有依据的 <code>items</code> 构成。每项保存简明内容、原轮次、席位和逐字引文；无法生成新摘要时保留上一份有效检查点。每个自动轮在 <code>rounds[]</code> 中标记 <code>auto:true</code>，到检查点后另存该轮 <code>checkpoint</code>，便于按历史轮次回看。自动轮由复核决定继续阶段和下一步，不重放用户指令；明确 target 时该席位在自动批次中保持固定，否则沿用预设的席位规则。</p>
+      <p>议程从完整会话中读取。<code>agenda</code> 中的事项状态为 <code>pending</code> 或 <code>done</code>，类型为 <code>discussion</code> 或 <code>implementation</code>，来源为 <code>host</code>、<code>template</code>、<code>chair</code> 或 <code>discussion</code>。收束产生的待办记录为 <code>synthesis</code>。会话还可含 <code>active_agenda_id</code>，有效焦点保存为轮次的 <code>agenda_item_id</code>。</p>
+      <p><code>POST …/{id}/agenda</code> 需提交 <code>expected_version</code>，取自会话的 <code>agenda_version</code>。操作 <code>add</code> 带 <code>title</code> 与可选 <code>kind</code>；<code>select</code>、<code>complete</code>、<code>reopen</code> 带 <code>item_id</code>。对议程项的 <code>candidates</code>，可用 <code>adopt_candidate</code> 或 <code>dismiss_candidate</code>，并同时传 <code>item_id</code> 与候选 <code>candidate_id</code>。采用会将候选标题和类型作为新修订，忽略只移除该候选；候选已变化或议程版本过期返回 409。<code>select</code> 可附 <code>kind</code>，将未完成事项改为讨论或实施。普通操作成功返回完整会话。首席草拟状态见 <code>agenda_draft_status</code>。失败时可提交 <code>action:"draft"</code> 重试。该操作返回 202 与会话快照，已经在草拟或完成时直接返回状态。普通更新遇到正在草拟、正在运行或版本不符时返回 409。</p>
+      <p>每轮中，各席的最终公开发言可附 <code>points</code> 与 <code>positions</code>：points 逐字记录该发言明确提出的新观点；positions 以可见的 <code>point_id</code> 记录本人立场 <code>support</code>、<code>oppose</code>、<code>qualified</code> 或 <code>undecided</code>，并附同一发言中的逐字理由。沉默不算赞成，模型不能替其他席表态。完整会话保存这些字段，报告据此呈现立场变化和少数意见。</p>
+      <p>只读讨论隔离同轮席位输出，仍共享原议题和此前发言。收束默认仅首席执行，可明确点名另一席。各席在公开发言中可附 <code>agenda_updates</code>，用 <code>op:"add"</code> 增加事项，或用 <code>op:"revise"</code> 和 <code>item_id</code> 修订开放事项，并提交 <code>title</code> 和 <code>reason</code>。每席最多保存三项有效提议。轮次成功结束后保存有效提案及其来源轮次、席位，修订保留前值。主持人可选中下一项并主动启动新一轮。旧模板阶段保留自动完成规则，其他事项由主持人标记。</p>
+      <p>附件使用 <code>POST /api/studio/materials</code> 上传，Content-Type 为 <code>multipart/form-data</code>，表单只能包含一个 <code>file</code>，单件最大 12 MiB。请求须带 <code>X-Roundtable: 1</code>；若浏览器发送 <code>Origin</code>，必须与当前 localhost 或 127.0.0.1 服务地址精确同源。成功返回材料的 <code>id</code>、文件名、MIME、大小、文本摘录及可选 <code>read_status</code>。附件保存后不会自动加入任何会议。</p>
+      <p>创建圆桌时可在 <code>POST /api/studio/sessions</code> 的 JSON 中传可选 <code>material_ids</code>，将最多 12 个已上传附件关联到会话；旧请求省略该字段仍兼容。启动轮次时也可传 <code>material_ids</code>，选择本轮材料并优先提供给席位；每次最多 12 个，成功后材料会关联到会话。完整会话返回 <code>materials</code> 和 <code>board</code>。材料可通过 <code>GET /api/studio/materials/{id}</code> 下载；附 <code>?preview=1</code> 时，仅 GIF、JPEG、PNG、WebP 会以内嵌图片预览，其它类型仍下载原文件。GET 与 HEAD 为读取接口。</p>
+      <p>读取会话后，查看 <code>board.state</code>。<code>empty</code> 表示目前只有对话；<code>published</code> 表示可以按 <code>board.modules</code> 的顺序绘制主页。运行期间可用 <code>GET /api/studio/sessions/{id}/board-presence?after={seq}</code> 查看编辑席位、目标字段和临时光标位置。偏移量使用 Unicode 码点。保存的正文和版本以会话快照为准。</p>
+      <p>修改共享议题板时，向 <code>POST /api/studio/sessions/{id}/board</code> 提交编辑项的 <code>expected_version</code>。例如 <code>{"op":"rename_board","expected_version":1,"title":"候补确认时限"}</code>。成功后返回完整会话；若另一端已修改同一项，409 响应附带最新会话供核对。主持人批注在板上署名 <code>user</code>，下一次公开模型请求会读取当前内容。</p>
+      <p>桌面圆桌使用 <code>POST /api/studio/materials/{id}/save</code> 保存原件，请发送 <code>X-Roundtable: 1</code> 和 JSON 空对象 <code>{}</code>。用户在系统窗口选择保存位置，成功返回 <code>saved: true</code>，取消返回 <code>saved: false</code>。若返回 <code>browser_download: true</code>，改用 GET 下载。</p>
+      <p><code>board.modules</code> 包含议程、材料审阅、观点立场及便笺视图。材料审阅与便笺可带 <code>material_ids</code> 引用本会话附件。AI 对看板的修改提议只有在相应席的公开 <code>say</code> 成功、且本轮成功完成后才会写入；保存的 <code>source_seat</code> 和 <code>source_round</code> 标记公开来源。失败或未确认的轮次不会提交这些提议。旧创建与运行调用无需提供材料字段，继续使用原有行为。</p>
+      <p>主持人可在项目会议中显式发起 CLI 编辑并在软件中审核变更。主持人的人工保存走独立文件接口和版本检查。规则通过 Magpie 的 Chat <code>system</code> 消息或 Responses <code>instructions</code> 传入，标题命名独立。当前预设尚未经过本项目的讨论质量评测。</p>
+    </section>
+
+    <section aria-labelledby="files">
+      <h2 id="files">文件保存是真实编辑</h2>
+      <p>先读文件，再带回 <code>version</code> 及完整新内容保存。版本是 SHA-256；文件不存在时读取返回 <code>text:""</code> 与 <code>version:"missing"</code>。新文件须已有父目录；接口不创建目录。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>以下路径以 /api/studio/sessions/{id} 开头</caption>
+          <thead><tr><th>方法与路径</th><th>输入</th><th>响应</th></tr></thead>
+          <tbody>
+            <tr><td><span class="method">GET</span> <code>…/files</code></td><td>无</td><td><code>{"files":["README.md",…]}</code></td></tr>
+            <tr><td><span class="method">GET</span> <code>…/file?path=README.md</code></td><td>项目内相对路径</td><td><code>{"path":"…","text":"…","version":"…"}</code></td></tr>
+            <tr><td><span class="method">POST</span> <code>…/file</code></td><td><code>{"path":"README.md","text":"完整新内容","version":"读取所得版本"}</code></td><td><code>{"path":"…","before":"旧版本","after":"新版本","diff":"…"}</code></td></tr>
+            <tr><td><span class="method">GET</span> <code>…/review</code></td><td>同时传查询参数 <code>path</code>、<code>before</code>、<code>after</code>，精确选择已保存修订</td><td><code>{"path":"…","diff":"…","added":1,"removed":1}</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>仅支持允许类型的 UTF-8 文本，每文件至多 2 MiB。隐藏路径、<code>..</code>、绝对文件路径、符号链接、依赖／构建目录、凭据名称及二进制被排除。目录最多包含 10000 个可编辑文件，遍历项最多 50000。目录列表不是完整项目清单。</p>
+      <p>版本不符返回 409：重新读取并处理差异后再决定保存。服务内写入串行并再次校验；外部编辑器在最终校验与替换之间的极短窗口仍可能发生竞争。网络中断或记录为 <code>unknown</code> 时先看实际文件，勿直接重放。没有删除、执行脚本或构建端点。</p>
+    </section>
+
+    <section aria-labelledby="review">
+      <h2 id="review">审阅具体修订，分别计算增删</h2>
+      <p><code>GET /api/studio/sessions/{id}/review</code> 查询该会话中主 agent 或用户已记录的实际修改。<code>path</code>、<code>before</code>、<code>after</code> 三项查询参数都必填且只能出现一次，值须与同一条 <code>Change</code> 完全匹配；应分别编码后放入 URL。</p>
+      <pre><code>GET /api/studio/sessions/{id}/review?path=notes.md&amp;before={change.before}&amp;after={change.after}</code></pre>
+      <p>返回 <code>path</code>、规范化后的统一差异 <code>diff</code>、新增行数 <code>added</code> 与删除行数 <code>removed</code>。即使同一路径已经改过多次，也按所选修订的 <code>before → after</code> 计算，不累计其他修订，不把当前磁盘内容当作旧版本。接口只查保存记录，不从工作区读取任意文件；仅有写入意图、没有实际修改记录的操作不能用于审阅。</p>
+      <p>缺少、为空或重复的必需参数返回 400；该会话或完整匹配修订不存在返回 404；历史差异不能规范化返回 422；存档无法读取返回 500。它不会静默改用同路径的最新修改。只有 GET 可用，其他方法返回 405。规范化按请求执行并使用有界缓存，不在会话轮询中重算全部历史。</p>
+      <p>界面的代码模式显示行级增删；文档模式还可选择字符或字词。后两项由后台 Worker 比较本次修订的连续改变片段计算，不是 API 的 <code>added / removed</code> 字段，也不是全文净字数变化。字符是非空白 Unicode 字素簇；字词按 <code>Intl.Segmenter("zh", {granularity:"word"})</code> 的 <code>isWordLike</code> 片段计数。TeX、Markdown 等以源码为准，包含语法标记；超过精确比较预算或分词功能不可用时显示无法计算。</p>
+    </section>
+
+    <section aria-labelledby="settings">
+      <h2 id="settings">模型连接与应用设置</h2>
+      <p><code>GET /api/studio/models</code> 从当前 Magpie 连接读取 <code>{"models":[{"id":"…","label":"…","source":"…","endpoints":[],"efforts":["auto"]}],"default_model":"…"}</code>。成功时目录可以为空。思考等级由 Magpie 公布；请求选择 <code>auto</code> 时省略推理控制字段。<code>default_model</code> 只有在当前目录里找到已连接模型时才含该模型 ID，否则为 <code>""</code>。连接或目录读取失败返回 502。</p>
+      <p><code>GET /api/studio/magpie-agent</code> 返回 <code>id</code>、<code>installed</code>、<code>enabled</code>、<code>registered</code>、<code>connected</code>、<code>can_install</code>、<code>can_open</code>、<code>restart_required</code>、<code>detail</code> 和可选 <code>model</code>、<code>port</code>。<code>registered</code> 表示 Magpie 能加载 Agent，<code>connected</code> 表示已获得有效连接配置。它们均不执行推理验证。</p>
+      <p>向同一路径 <code>POST</code> 发送 <code>{"action":"install"}</code> 或 <code>{}</code>，由 Magpie 登记签名应用内置的 Agent。<code>{"action":"open"}</code> 打开 Magpie 桌面应用。注册后在 Magpie 的 Agents 页面刷新、选模型并连接。返回 200 时仍应读取响应里的 <code>registered</code>、<code>connected</code> 与 <code>detail</code>。</p>
+      <p><code>POST /api/studio/settings</code> 部分更新设置。桌面协作表单保存 <code>timeout</code>（每次模型请求 10–1800 秒）、<code>max_steps</code>（每位代理 2–40 步）、<code>max_children</code>（每席每轮 0–5 个）。旧设置的 <code>allow_edits</code> 保留为兼容字段。外观 <code>appearance</code> 可为 <code>system</code>、<code>light</code> 或 <code>dark</code>。早期固定席位的型号和 CLI 字段保留给兼容记录与诊断。</p>
+      <p>模型内部动作仍为 <code>read / write / delegate / say</code>。新圆桌私有子代理继承本席型号和思考档位，只能使用 <code>read / say</code>。父代理最终 <code>say</code> 是公开发言，可附 <code>agenda_updates</code>，并兼容原有收束 <code>followups</code>。子代理结果先交本席主代理，也会随完整会话保存。内部动作由应用协调执行。</p>
+    </section>
+
+    <section aria-labelledby="plugins">
+      <h2 id="plugins">插件市场与会中动作</h2>
+      <p><code>GET /api/studio/plugins</code> 返回 <code>{"sources":[],"available":[],"installed":[]}</code>。<code>POST</code> 同一路径按 action 管理插件来源和安装状态；成功均返回更新后的 View。</p>
+      <table>
+        <thead><tr><th>action</th><th>字段</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>subscribe</code></td><td><code>url</code></td><td>订阅插件来源。</td></tr>
+          <tr><td><code>refresh</code> / <code>unsubscribe</code></td><td><code>source_id</code></td><td>刷新或取消订阅来源。</td></tr>
+          <tr><td><code>install</code></td><td><code>source_id</code>、<code>id</code>、<code>sha256</code>、<code>grants</code>；可选 <code>version</code></td><td>安装所选来源中的插件并明确授予权限；若提交 version，当前目录必须有完全匹配版本。</td></tr>
+          <tr><td><code>enable</code> / <code>disable</code> / <code>uninstall</code></td><td><code>id</code>、<code>source_id</code>、<code>version</code>、<code>sha256</code></td><td>启用、停用或卸载已安装插件；四项须与当前安装记录匹配，否则拒绝变更。</td></tr>
+        </tbody>
+      </table>
+      <p><code>installed</code> 中每项包含 <code>source_name</code> 和 <code>sha256</code>。启用、停用或卸载前，应将当前安装项的 <code>id</code>、<code>source_id</code>、<code>version</code>、<code>sha256</code> 原样传回，只有与当前安装匹配时才会执行状态变更。</p>
+      <p><code>grants</code> 可选权限为 <code>round.guidance</code>、<code>report.guidance</code>、<code>code.execute</code>、<code>meeting.public_turns</code>、<code>meeting.report</code>。仅获授权的能力和会议材料可提供给插件。</p>
+      <p><code>POST /api/studio/sessions/{id}/plugin-action</code> 需要 <code>plugin_id</code>、<code>action_id</code>、<code>version</code>、<code>source_id</code>、<code>sha256</code>。可选 <code>from_round</code>、<code>to_round</code> 只限制 <code>meeting.public_turns</code> 的公开发言范围；不用于其他权限数据。响应为 <code>{"format":"markdown|text","text":"…","filename":"…","native_save":true}</code>；<code>native_save</code> 指示客户端可否使用系统保存窗口。</p>
+      <p>将插件输出提交到 <code>POST /api/studio/plugins/save-output</code>：<code>{"filename":"建议文件名.md","text":"…","format":"markdown"}</code>。filename 只是建议名称，不是路径；路径仅由用户在系统保存对话框中选择。已保存返回 <code>{"saved":true}</code>，用户取消返回 <code>{"saved":false}</code>。没有可用桌面保存窗口时返回 <code>{"browser_download":true}</code>，客户端改用标准浏览器下载。</p>
+      <p>会话轮次和报告分别保存适用阶段的 <code>plugin_guidance</code> 快照，每项含 <code>id</code>、<code>name</code>、<code>version</code>，以及该阶段的指导正文。历史快照保留当时的版本和正文；启停或更新插件不改写已经保存的轮次与报告。</p>
+    </section>
+
+    <section aria-labelledby="clients">
+      <h2 id="clients">本机 CLI 安装与版本</h2>
+      <p>桌面设置调用 <code>GET /api/studio/cli-health</code>，只返回确认已安装的入口，<code>clients</code> 中每项可含 <code>version</code>。<code>state</code> 为 <code>ready</code>、<code>check_failed</code> 或 <code>unverified</code>。该接口执行限时的版本命令，检查独立入口能否启动。登录、模型能力和额度不属于此检查。</p>
+      <p>兼容接口 <code>GET /api/studio/clients</code> 重新读取本机可执行文件与安装信息，返回 <code>{"clients":[…],"checked_at":"UTC 时间"}</code>。检查范围包括 Codex、Cursor Agent、Claude Code、Gemini CLI、GitHub Copilot CLI、OpenCode、Qwen Code、Aider、Kimi CLI、Pi、Amp 和 Droid。没有 POST、安装或登录操作。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>clients 数组的每项字段</caption>
+          <thead><tr><th>字段</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code> / <code>name</code></td><td>稳定标识／客户端显示名称。</td></tr>
+            <tr><td><code>installed</code> / <code>state</code></td><td><code>installed</code> 是布尔值，只有 <code>state:"installed"</code> 时为 true。<code>not_found</code> 表示当前搜索范围没有找到；<code>unverified</code> 表示找到同名程序但无法确认对应客户端。</td></tr>
+            <tr><td><code>command</code> / <code>path</code></td><td>首选命令名／发现的可执行入口路径；未找到时省略路径。<code>unverified</code> 可包含尚未核实的候选路径。</td></tr>
+            <tr><td><code>seat</code> / <code>install_url</code></td><td>早期固定席位标志（只有 Codex 和 Cursor 为 true）／可选的官方安装说明链接。新圆桌的席位使用 Magpie 的型号。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>探测使用已保存的 Codex／Cursor 自定义路径、继承的 PATH、常见安装目录及有限的版本管理器目录；不递归扫描整个用户目录。它只检查文件、安装位置及必要的少量包元数据／启动脚本，不运行 CLI、Shell、安装器或登录命令，不读取账户文件、不访问网络，也不发送模型请求。</p>
+      <p>已安装不等于已登录、版本已核实或模型可用；登录检查请主动调用下方的诊断 POST。Shell 别名、函数或搜索范围外的安装可能未被发现；仅有桌面应用也不代表安装了独立 CLI，已支持的 Codex 内置 CLI 除外。桌面设置的「本机 CLI」使用版本检查结果。</p>
+    </section>
+
+    <section aria-labelledby="diagnostics">
+      <h2 id="diagnostics">旧连接诊断</h2>
+      <p>此接口保留早期 Codex、Cursor 与 Magpie 路径的诊断。当前桌面设置分别读取模型目录、Agent 状态和独立 CLI 版本。</p>
+      <p><code>GET /api/studio/diagnostics</code> 只返回本次服务运行期间保留的结果，不启动命令、不访问网关，也不调用模型。服务重启后各来源为 <code>unchecked</code>；改变端口、主模型、CLI 路径或 Codex 接入方式后，相关旧结果会标记为待重检。</p>
+      <p><code>POST /api/studio/diagnostics</code> 主动预检。传 <code>{}</code> 检查全部来源，也可用 <code>target</code> 选择 <code>all</code>、<code>magpie</code>、<code>codex</code> 或 <code>cursor</code>。Codex 使用 Magpie 路径时，检测 Codex 也会检测网关；其他未选来源沿用缓存，并保留各自的 <code>checked_at</code>。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>POST 可选字段；单个 JSON 对象至多 64 KiB，不接受未知字段</caption>
+          <thead><tr><th>字段</th><th>作用与约束</th></tr></thead>
+          <tbody>
+            <tr><td><code>target</code></td><td>检测目标，省略或空串等同 <code>all</code>。</td></tr>
+            <tr><td><code>magpie_port</code> / <code>codex_transport</code></td><td>仅本次检测覆盖网关端口（1–65535）／Codex 路径（<code>magpie</code> 或 <code>direct</code>）。</td></tr>
+            <tr><td><code>models</code> / <code>cli_paths</code></td><td>按 <code>codex</code>、<code>cursor</code> 键覆盖主模型／程序路径。模型至多 160 字节且无空白或 NUL；CLI 路径为空时自动发现，否则须为官方程序名的绝对路径，至多 4096 字节。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>任一覆盖字段提供非 <code>null</code> 值（包括空对象映射）时返回 <code>preview:true</code>，不保存设置；覆盖字段传 <code>null</code> 视为未覆盖。未提供的项沿用已保存设置。预检结果会进入内存缓存，之后 GET 仍会对照已保存设置标记不匹配来源；<code>preview</code> 记录上次请求是否为预检。</p>
+      <pre><code>POST /api/studio/diagnostics
+Content-Type: application/json
+X-Roundtable: 1
+
+{
+  "target": "codex",
+  "codex_transport": "magpie",
+  "magpie_port": 3425,
+  "models": {"codex": "gpt-6.2-sol"}
+}</code></pre>
+      <p>响应始终包含 <code>checked_at</code>、<code>preview</code> 与 <code>sources</code>，后者包含 <code>magpie</code>、<code>codex</code>、<code>cursor</code>。每个来源包含 <code>state</code>、<code>title</code>、<code>detail</code>；状态为 <code>unchecked</code>、<code>ready</code>、<code>warning</code> 或 <code>error</code>。尚未检测时顶层时间为空串；来源时间仅在已有检测记录时出现。</p>
+      <p>根据检测结果还可返回 <code>version</code>、<code>transport</code>、<code>model</code>、<code>login_state</code>、<code>auth_method</code>；网关可返回 <code>port</code>、<code>models_count</code>、<code>models</code> 与 <code>model_available</code>。<code>models_count</code> 是有效网关目录 ID 的去重总数（含其他来源和路由分组）；<code>models</code> 只列可作为 Codex 候选的 <code>codex/…</code> ID，两者数量可以不同；数量为零或候选为空时对应字段省略。</p>
+      <p>网关在线但所选模型缺失时，Magpie 为 <code>warning</code>、<code>model_available:false</code>；使用该网关路径的 Codex 为 <code>error</code>。这与网关无法连接不同。<code>login_state</code> 为 <code>unknown / logged_in / not_logged_in</code>；<code>auth_method</code> 为 <code>chatgpt / account / api_key</code>，未核实时省略。API 不返回密钥、登录令牌或厂商原始命令输出。</p>
+      <p>预检只读取本机 Magpie 的身份和模型目录，以及官方 CLI 的版本与登录状态；不会执行登录、退出账户或发送推理请求。<code>ready</code> 仅表示对应预检通过，不证明实时额度、推理、所选 CLI 模型或工具兼容性。检测有 18 秒总期限，单条 CLI 状态命令最多 5 秒；连接失败或超时通常记录在 200 响应的来源状态中。</p>
+      <p>已有检测运行时返回 409；参数错误或超过 64 KiB 返回 400；请求取消且仍可响应时返回 408，并保留上次结果。请先查看各来源的 <code>detail</code> 再决定后续操作，检测不会自动切换请求路径。</p>
+    </section>
+
+
+
+    <section aria-labelledby="errors">
+      <h2 id="errors">状态与重试</h2>
+      <dl class="status-grid">
+        <div><dt>400 / 413</dt><dd>输入无效或请求过长；修正后提交。Studio 超限通常为 400。</dd></div>
+        <div><dt>403</dt><dd>检查本机 Host、Origin、JSON 类型与 <code>X-Roundtable: 1</code>。</dd></div>
+        <div><dt>404 / 405</dt><dd>会话、路径或方法不支持；不同路由可能以 404 或 405 拒绝。</dd></div>
+        <div><dt>422</dt><dd>历史差异无法规范化，或单个会话存档损坏；读取损坏会话时查看 <code>unreadable_session</code> 明细。</dd></div>
+        <div><dt>408</dt><dd>主动诊断请求已取消；保留上次检测结果。</dd></div>
+        <div><dt>409</dt><dd>轮号过期、已有工作或诊断运行、文件版本变化或原生选目录不可用。刷新后再决定。</dd></div>
+        <div><dt>500 / 502</dt><dd>本地存档读取失败、首席命名未成功，或 Magpie 连接与上游失败。</dd></div>
+        <div><dt>200 / 201 / 202</dt><dd>读取／已创建／异步接受。模型鉴权、超时、协议和额度错误可能稍后记录在席位 <code>error</code>，并非 HTTP 错误。</dd></div>
+      </dl>
+      <p>进程中断后会保留已完成工作，将未完成发言标记失败，不自动继续、不自动重放写入。导出及完整 JSON 可能包含绝对项目路径、代码、私有子代理结果或写入意图；分享前请检查内容。</p>
+    </section>
+    <footer><a href="/openapi.json">查看完整 OpenAPI JSON</a></footer>
+  </main>
+{{end}}

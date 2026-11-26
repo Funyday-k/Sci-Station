@@ -1,0 +1,140 @@
+{{define "head"}}
+<link rel="stylesheet" href="/static/science-tools.css">
+<link rel="stylesheet" href="/static/research-vendor/katex.min.css">
+<link rel="stylesheet" href="/static/scientific-markdown.css">
+  <script defer src="/static/research-vendor/marked.min.js"></script>
+  <script defer src="/static/research-vendor/dompurify.min.js"></script>
+  <script defer src="/static/research-vendor/katex.min.js"></script>
+  <script defer src="/static/scientific-markdown.js"></script>
+  <script defer src="/static/paper-body-preview.js"></script>
+  <script defer src="/static/discovery-view.js"></script>
+  <script defer src="/static/science-tools.js"></script>
+{{end}}
+{{define "content"}}
+<div class="frame">
+    <aside>
+      <nav aria-label="科研工具"><a href="?tab=discover" data-tab="discover">文献发现</a><a href="?tab=convert" data-tab="convert">PDF 转换</a><a href="?tab=calendar" data-tab="calendar">系统日历与提醒</a></nav>
+    </aside>
+    <main>
+      <header><span>科研工具</span><label>当前项目 <select id="project"></select></label></header>
+      <h1 id="heading"></h1>
+      <p id="status" role="status"></p>
+      <section id="discover" hidden>
+        <a id="readingTaskOpen" hidden>打开阅读待办</a>
+        <details class="panel"><summary>文献库阅读队列</summary><div id="readingQueue"></div></details>
+        <form id="search">
+          <label for="source">文献来源</label>
+          <select id="source">
+            <option value="arxiv">arXiv</option>
+            <option id="graphSource" value="graph">项目核心论文的图谱关系</option>
+            <option value="library">近期馆藏</option>
+            <option value="daily">每日文献文件</option>
+          </select>
+          <label id="dailyFeedField" hidden>JSON 或 JSONL 文献文件 <input type="file" id="dailyFeed" accept=".json,.jsonl,application/json"></label>
+          <label for="expr">关键词或 arXiv 检索式</label>
+          <input id="expr" placeholder="例如 cat:astro-ph.CO AND all:evaporation" maxlength="350">
+          <div class="discovery-controls">
+            <label>arXiv 分类 <input type="text" id="categories" placeholder="例如 hep-ex, astro-ph.HE"></label>
+            <label class="check"><input type="checkbox" id="crossList" checked> 包含交叉收录</label>
+            <label>推荐篇数 <input type="number" id="topK" min="1" max="100" value="24" required></label>
+          </div>
+          <details class="discovery-options">
+            <summary>排序参考论文</summary>
+            <label for="references">从当前文献库选择</label>
+            <select id="references" multiple size="4"></select>
+          </details>
+          <details class="discovery-options" id="aiSettings">
+            <summary>AI 检索与推荐说明</summary>
+            <div class="line"><label for="aiModel">Magpie 模型</label><select id="aiModel"><option value="">关闭</option></select>
+              <button id="loadModels" type="button">读取模型</button></div>
+          </details>
+          <details class="discovery-options">
+            <summary>当前范围的推荐设置</summary>
+            <div class="discovery-controls">
+              <label>候选上限 <input id="maxCandidates" type="number" min="1" max="500" value="100"></label>
+              <label>近期馆藏回溯天数 <input id="libraryDays" type="number" min="1" max="3650" value="60"></label>
+            </div>
+            <div class="actions">
+              <button id="saveDiscoveryDefaults" type="button">保存当前来源与筛选为默认</button>
+              <button id="useDiscoveryDefaults" type="button">应用已保存的默认设置</button>
+            </div>
+          </details>
+          <button class="primary" id="submitSearch" disabled>检索</button>
+        </form>
+        <div class="discovery-controls">
+          <label for="history">检索历史</label>
+          <select id="history"></select>
+          <button id="archiveRun" type="button" disabled>归档当前记录</button>
+        </div>
+        <p id="runSource"></p>
+        <div class="bar">
+          <h2>候选论文</h2><select id="filter" aria-label="结果筛选">
+            <option value="all">未隐藏</option>
+            <option value="saved">已收藏</option>
+            <option value="liked">相关</option>
+            <option value="disliked">不相关</option>
+            <option value="opened">打开过来源</option>
+            <option value="hidden">已隐藏</option>
+          </select>
+        </div>
+        <div id="articles"></div>
+      </section>
+      <section id="convert" hidden>
+        <div class="panel"><label for="paper">文献库论文</label><select id="paper"></select>
+          <p id="bodyState" role="status"></p>
+          <div class="line"><label for="bodyFile">已获得的论文正文（.md 或 .markdown）</label><input id="bodyFile" type="file" accept=".md,.markdown"><button id="importBody">导入论文正文</button><button id="existingBody" hidden>查看已存正文</button></div>
+          <div id="bodyLocator" hidden><p id="bodyLocatorStatus" role="status"></p><pre id="bodyLocatorText" class="paper-body-excerpt"></pre>
+            <div id="bodyLocatorFigures" class="paper-body-figures" hidden></div></div>
+          <details id="bodyFull" hidden><summary>论文正文预览</summary>
+            <div id="bodyQuality"></div>
+            <div id="bodyFigures" class="paper-body-figures" hidden></div>
+            <p id="bodyPreviewLimit" hidden>排版预览显示开头 120,000 个字符。下方可查看 Markdown 全文。</p>
+            <div id="bodyRendered" class="paper-body-rendered"></div>
+            <details><summary>查看 Markdown 全文</summary><pre id="bodyFullText" class="paper-body-raw"></pre></details>
+          </details>
+          <div class="bar">
+            <h2>本地文本</h2><button id="local">提取为 Markdown</button>
+          </div>
+          <p>按页提取可选择的原文，保留页码。扫描件可使用下方的 MinerU 转换。</p>
+        </div>
+        <details class="panel">
+          <summary>MinerU 公式、表格和扫描件转换</summary>
+          <p>开始转换会将所选 PDF 上传到 MinerU。填入 Token 可在当前页面使用。</p>
+          <label for="token">MinerU API Token</label><input type="password" id="token" autocomplete="off" spellcheck="false" maxlength="4096">
+          <div id="minerCredentialActions" hidden>
+            <p id="minerCredentialState" role="status"></p>
+            <div class="line"><button type="button" id="minerSave">保存到钥匙串</button><button type="button" id="minerClear">清除已保存的 Token</button></div>
+          </div>
+          <label for="batch">转换任务编号</label><input id="batch" placeholder="开始后自动填写，也可以恢复已有任务">
+          <div class="line"><button id="remote">上传并转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
+        </details>
+        <div id="result" class="panel" hidden>
+          <div id="resultQuality"></div>
+          <div id="resultFigures" class="paper-body-figures" hidden></div>
+          <label for="markdown">转换结果，可在保存前编辑</label><textarea id="markdown" rows="15"></textarea>
+          <div class="line"><button id="download">下载 Markdown</button><button id="saveBody">保存原始转换结果为论文正文</button><button id="saveNote" class="primary">存为项目笔记</button></div>
+        </div>
+      </section>
+      <section id="calendar" hidden>
+        <div class="panel">
+          <div class="bar">
+            <h2>Apple 日历与未完成提醒</h2>
+          </div>
+          <div class="line">
+            <label for="calendar-date">查看月份</label><input type="date" id="calendar-date" required>
+            <button id="calendar-connect">连接 Apple 日历与提醒事项</button><button id="events">刷新</button>
+          </div>
+          <label for="calendar-source">日历或提醒事项列表（留空显示全部）</label><select id="calendar-source" multiple size="4"></select>
+          <div id="eventList">
+            <p>连接后可查看所选月份的日历事件和有截止日期的未完成提醒。</p>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Apple 提醒事项</h2><label for="task">待处理任务</label>
+          <div class="line"><select id="task"></select><button id="reminder" disabled>发布或更新</button></div>
+          <div class="line"><button id="reminder-sync">同步已关联的本地任务</button></div>
+        </div>
+      </section>
+    </main>
+  </div>
+{{end}}

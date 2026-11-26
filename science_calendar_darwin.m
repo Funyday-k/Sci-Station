@@ -1,0 +1,251 @@
+//go:build darwin && cgo && !nogui
+
+#import <Foundation/Foundation.h>
+#import <EventKit/EventKit.h>
+#include <string.h>
+
+static const NSTimeInterval sciEventKitTimeout = 120;
+static dispatch_queue_t sciEventKitQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("sci-station.eventkit", DISPATCH_QUEUE_SERIAL); });
+    return queue;
+}
+
+static EKEventStore *sciEventKitStore(void) {
+    static EKEventStore *store;
+    if (!store) store = [[EKEventStore alloc] init];
+    return store;
+}
+
+static NSString *sciAccessError(EKEventStore *store, EKEntityType kind, BOOL prompt) {
+    EKAuthorizationStatus status = [store.class authorizationStatusForEntityType:kind];
+    NSString *name = kind == EKEntityTypeEvent ? @"日历" : @"提醒事项";
+    NSString *denied = [NSString stringWithFormat:@"请在“系统设置 → 隐私与安全性 → %@”中授权 Sci-Station 访问。", name];
+    if (@available(macOS 14.0, *)) {
+        if (status == EKAuthorizationStatusFullAccess) return nil;
+    } else {
+        if (status == EKAuthorizationStatusAuthorized) return nil;
+    }
+    if (!prompt || status == EKAuthorizationStatusDenied || status == EKAuthorizationStatusRestricted) return denied;
+    __block BOOL allowed = NO;
+    __block NSError *issue = nil;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    EKEventStoreRequestAccessCompletionHandler completion = ^(BOOL granted, NSError *error) {
+        allowed = granted;
+        issue = error;
+        dispatch_semaphore_signal(done);
+    };
+    if (@available(macOS 14.0, *)) {
+        if (kind == EKEntityTypeEvent) [store requestFullAccessToEventsWithCompletion:completion];
+        else [store requestFullAccessToRemindersWithCompletion:completion];
+    } else {
+        [store requestAccessToEntityType:kind completion:completion];
+    }
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sciEventKitTimeout * NSEC_PER_SEC)))) {
+        return @"等待系统授权超时。请检查系统权限提示后重试。";
+    }
+    if (issue) return issue.localizedDescription;
+    return allowed ? nil : denied;
+}
+
+static char *sciEventKitJSON(NSDictionary *result) {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    if (!data) return strdup("{\"error\":\"系统日历返回结果无效\"}");
+    return strndup(data.bytes, data.length);
+}
+
+static NSDictionary *sciUpcoming(EKEventStore *store) {
+    NSString *error = sciAccessError(store, EKEntityTypeEvent, YES);
+    if (error) return @{@"error":error};
+    NSCalendar *cal = NSCalendar.currentCalendar;
+    NSDate *start = [cal startOfDayForDate:NSDate.date];
+    NSDate *end = [cal dateByAddingUnit:NSCalendarUnitDay value:30 toDate:start options:0];
+    NSPredicate *predicate = [store predicateForEventsWithStartDate:start endDate:end calendars:nil];
+    NSArray<EKEvent *> *events = [[store eventsMatchingPredicate:predicate]
+                                 sortedArrayUsingSelector:@selector(compareStartDateWithEvent:)];
+    NSISO8601DateFormatter *iso = [[NSISO8601DateFormatter alloc] init];
+    // Preserve the user's local offset on all-day event boundaries.
+    iso.timeZone = NSTimeZone.localTimeZone;
+    NSMutableArray *items = [NSMutableArray arrayWithCapacity:events.count];
+    for (EKEvent *item in events) {
+        if (!item.startDate || !item.endDate) continue;
+        [items addObject:@{@"title":item.title ?: @"", @"calendar":item.calendar.title ?: @"",
+                           @"start":[iso stringFromDate:item.startDate], @"end":[iso stringFromDate:item.endDate]}];
+    }
+    return @{@"value":items};
+}
+
+static BOOL sciMatchesTask(EKReminder *item, NSString *marker) {
+    // Some account providers do not persist the URL property. Keep the marker
+    // as a whole line in the note as a second stable identity for a moved item.
+    return [item.URL.absoluteString isEqualToString:marker] ||
+        [[item.notes componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet] containsObject:marker];
+}
+
+static NSString *sciTaskMarker(EKReminder *item) {
+    NSString *prefix = @"sci-station://tasks/";
+    if ([item.URL.absoluteString hasPrefix:prefix]) return item.URL.absoluteString;
+    for (NSString *line in [item.notes componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+        if ([line hasPrefix:prefix]) return line;
+    }
+    return @"";
+}
+
+static NSDictionary *sciSchedule(EKEventStore *store, NSDate *start, NSDate *end, BOOL prompt, BOOL remindersOnly) {
+    NSString *eventError = remindersOnly ? nil : sciAccessError(store, EKEntityTypeEvent, prompt);
+    NSString *reminderError = sciAccessError(store, EKEntityTypeReminder, prompt);
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSMutableArray *items = [NSMutableArray array];
+    NSISO8601DateFormatter *iso = [[NSISO8601DateFormatter alloc] init];
+    iso.timeZone = NSTimeZone.localTimeZone;
+    if (!remindersOnly && !eventError) {
+        NSPredicate *predicate = [store predicateForEventsWithStartDate:start endDate:end calendars:nil];
+        for (EKEvent *item in [store eventsMatchingPredicate:predicate]) {
+            if (!item.startDate || !item.endDate) continue;
+            [items addObject:@{@"id":item.eventIdentifier ?: item.calendarItemIdentifier ?: @"",
+                @"kind":@"event", @"title":item.title ?: @"", @"calendar":item.calendar.title ?: @"",
+                @"calendarId":item.calendar.calendarIdentifier ?: @"", @"start":[iso stringFromDate:item.startDate],
+                @"end":[iso stringFromDate:item.endDate]}];
+        }
+    } else if (eventError) result[@"eventsError"] = eventError;
+    if (!reminderError) {
+        __block NSArray<EKReminder *> *itemsRead = nil;
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        NSPredicate *predicate = [store predicateForIncompleteRemindersWithDueDateStarting:start ending:end calendars:nil];
+        id fetch = [store fetchRemindersMatchingPredicate:predicate completion:^(NSArray<EKReminder *> *reminders) {
+            itemsRead = reminders;
+            dispatch_semaphore_signal(done);
+        }];
+        if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sciEventKitTimeout * NSEC_PER_SEC)))) {
+            [store cancelFetchRequest:fetch];
+            reminderError = @"读取提醒事项超时，请重试。";
+        } else if (!itemsRead) reminderError = @"无法读取提醒事项账户。";
+        if (!reminderError) {
+            for (EKReminder *item in itemsRead) {
+                NSDate *date = item.dueDateComponents.date;
+                if (item.isCompleted || !date || [date compare:start] == NSOrderedAscending || [date compare:end] != NSOrderedAscending) continue;
+                [items addObject:@{@"id":item.calendarItemIdentifier ?: @"", @"kind":@"reminder",
+                    @"title":item.title ?: @"", @"calendar":item.calendar.title ?: @"", @"calendarId":item.calendar.calendarIdentifier ?: @"",
+                    @"start":[iso stringFromDate:date], @"hasTime":@(item.dueDateComponents.hour != NSDateComponentUndefined),
+                    @"marker":sciTaskMarker(item), @"notes":item.notes ?: @""}];
+            }
+        }
+    }
+    if (reminderError) result[@"remindersError"] = reminderError;
+    result[@"items"] = items;
+    return @{@"value":result};
+}
+
+static EKReminder *sciFindReminder(EKEventStore *store, NSUserDefaults *defaults, NSString *marker, NSString **reason) {
+    NSString *cacheKey = [@"SciStationReminder." stringByAppendingString:marker];
+    NSString *identifier = [defaults stringForKey:cacheKey];
+    if (identifier.length) {
+        EKCalendarItem *cached = [store calendarItemWithIdentifier:identifier];
+        if ([cached isKindOfClass:EKReminder.class] && sciMatchesTask((EKReminder *)cached, marker)) return (EKReminder *)cached;
+    }
+    __block EKReminder *existing = nil;
+    __block BOOL loaded = NO;
+    __block BOOL ambiguous = NO;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    NSPredicate *predicate = [store predicateForRemindersInCalendars:nil];
+    id fetch = [store fetchRemindersMatchingPredicate:predicate completion:^(NSArray<EKReminder *> *reminders) {
+        loaded = reminders != nil;
+        for (EKReminder *item in reminders) {
+            if (!sciMatchesTask(item, marker)) continue;
+            if (existing) { ambiguous = YES; break; }
+            existing = item;
+        }
+        dispatch_semaphore_signal(done);
+    }];
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sciEventKitTimeout * NSEC_PER_SEC)))) {
+        [store cancelFetchRequest:fetch];
+        *reason = @"检查既有提醒事项超时，请重试。";
+        return nil;
+    }
+    if (!loaded) *reason = @"无法核对已发布的提醒事项，请检查提醒事项账户。";
+    if (ambiguous) *reason = @"找到多条关联提醒事项，请先核对后重试。";
+    return existing;
+}
+
+// The Go adapter validates this local civil date and optional local time.
+static NSDateComponents *sciReminderDueComponents(NSString *dueDate) {
+    NSDateComponents *due = nil;
+    if (dueDate.length) {
+        NSArray<NSString *> *dateAndTime = [dueDate componentsSeparatedByString:@"T"];
+        NSArray<NSString *> *parts = [dateAndTime.firstObject componentsSeparatedByString:@"-"];
+        due = [[NSDateComponents alloc] init];
+        due.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+        due.year = parts[0].integerValue;
+        due.month = parts[1].integerValue;
+        due.day = parts[2].integerValue;
+        if (dateAndTime.count == 2) {
+            NSArray<NSString *> *clock = [dateAndTime[1] componentsSeparatedByString:@":"];
+            due.hour = clock[0].integerValue;
+            due.minute = clock[1].integerValue;
+        }
+    }
+    return due;
+}
+
+static NSDictionary *sciPublish(EKEventStore *store, NSUserDefaults *defaults, NSString *marker, NSString *title,
+                                NSString *detail, NSString *dueDate, NSString *expected, BOOL automatic) {
+    NSString *issue = sciAccessError(store, EKEntityTypeReminder, !automatic);
+    if (issue) return @{@"error":issue};
+    EKReminder *item = sciFindReminder(store, defaults, marker, &issue);
+    if (issue) return @{@"error":issue};
+    if (expected.length && ![item.calendarItemIdentifier isEqualToString:expected]) {
+        return @{@"error":@"无法核对原有提醒事项，未写入。"};
+    }
+    if (item && automatic) {
+        NSString *identifier = item.calendarItemIdentifier;
+        if (!identifier.length) return @{@"error":@"系统未返回提醒事项标识，请重新核对后重试。"};
+        return @{@"value":identifier};
+    }
+    if (!item) {
+        EKCalendar *calendar = [store defaultCalendarForNewReminders];
+        if (!calendar || !calendar.allowsContentModifications) return @{@"error":@"请先在“提醒事项”中配置一个可写的默认列表。"};
+        item = [EKReminder reminderWithEventStore:store];
+        item.calendar = calendar;
+    }
+
+    item.title = title;
+    item.URL = [NSURL URLWithString:marker];
+    item.notes = detail.length ? [NSString stringWithFormat:@"%@\n\n%@", detail, marker] : marker;
+    item.dueDateComponents = sciReminderDueComponents(dueDate);
+    NSError *error = nil;
+    if (![store saveReminder:item commit:YES error:&error]) return @{@"error":error.localizedDescription ?: @"提醒事项保存失败。"};
+    NSString *identifier = item.calendarItemIdentifier;
+    if (!identifier.length) return @{@"error":@"系统未返回提醒事项标识，请重新核对后重试。"};
+    [defaults setObject:identifier forKey:[@"SciStationReminder." stringByAppendingString:marker]];
+    return @{@"value":identifier};
+}
+
+static char *sciEventKitRequest(NSDictionary *(^action)(EKEventStore *)) {
+    @autoreleasepool {
+        if (NSThread.isMainThread) return sciEventKitJSON(@{@"error":@"系统日历请求需要在后台执行。"});
+        __block NSDictionary *result = nil;
+        dispatch_sync(sciEventKitQueue(), ^{
+            @autoreleasepool { result = action(sciEventKitStore()); }
+        });
+        return sciEventKitJSON(result);
+    }
+}
+
+char *sciCalendarUpcoming(void) {
+    return sciEventKitRequest(^NSDictionary *(EKEventStore *store) { return sciUpcoming(store); });
+}
+
+char *sciCalendarSchedule(double start, double end, int prompt, int remindersOnly) {
+    return sciEventKitRequest(^NSDictionary *(EKEventStore *store) {
+        return sciSchedule(store, [NSDate dateWithTimeIntervalSince1970:start], [NSDate dateWithTimeIntervalSince1970:end], prompt != 0, remindersOnly != 0);
+    });
+}
+
+char *sciCalendarPublish(const char *marker, const char *title, const char *detail, const char *due, const char *expected, int automatic) {
+    return sciEventKitRequest(^NSDictionary *(EKEventStore *store) {
+        return sciPublish(store, NSUserDefaults.standardUserDefaults, [NSString stringWithUTF8String:marker], [NSString stringWithUTF8String:title],
+                          [NSString stringWithUTF8String:detail], [NSString stringWithUTF8String:due],
+                          [NSString stringWithUTF8String:expected], automatic != 0);
+    });
+}

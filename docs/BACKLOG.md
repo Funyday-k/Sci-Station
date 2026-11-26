@@ -1,65 +1,47 @@
 # Versioned backlog
 
-This is the initial traceability register for the governance work. Entries are repository-local identifiers, not GitHub Issue numbers. When an Issue is opened, add its real URL here. Completion means implementation plus verification evidence; planned architecture is not an existing product capability.
+Entries are repository-local identifiers. Where applicable, each has a GitHub tracking link. Completion requires implementation and verification appropriate to the scope.
 
 ## GOV-001 — Repository governance and delivery gates
 
-- Priority: P0. Status: implemented in this change; hosted CI results follow its PR.
-- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/1
-- Scope: protected `main`/transitional `dev`, required aggregate CI, private reporting, repository metadata, contributing/security/templates, version checks and traceable changes.
-- Acceptance: live branch protection requires PR and `Required CI`; all jobs are aggregate dependencies; docs and versions are checked in PR and release workflows; an empty PR template fails traceability.
-- Decisions: [ADR-0001](architecture/ADR-0001-repository-governance.md), [versioning policy](VERSIONING.md).
-- Evidence: [CI workflow](../.github/workflows/macos-ci.yml), [settings payload](../.github/repository-settings.json), `Tools/tests/test_governance.py`. Validate remote state with the commands in [GOVERNANCE](GOVERNANCE.md).
+- GitHub tracking: [Issue #1](https://github.com/Funyday-k/Sci-Station/issues/1).
+- Protected `main`, the unconditional `Required CI` aggregate, private reporting and traceability remain the delivery gates. [ADR-0001](architecture/ADR-0001-repository-governance.md) records their introduction; [ADR-0004](architecture/ADR-0004-roundtable-workstation.md) records the transition to a single integration branch.
+- Evidence and live verification commands are in [governance](GOVERNANCE.md).
 
 ## GOV-002 — Shared coding-agent guidelines
 
-- Priority: P1. Status: implemented by the pull request that closes the linked Issue.
-- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/8
-- Scope: one agent entry point for Codex and Claude Code that states delivery rules and links to the authoritative documents instead of duplicating them.
-- Acceptance: [AGENTS.md](../AGENTS.md) maps change types to minimum local checks and requires reporting checks that were not run; [CLAUDE.md](../CLAUDE.md) imports it; documentation hygiene checks both files; machine-local `.codex/config.toml` is ignored while `.codex/environments/` stays tracked.
-- Boundary: the guidelines do not add CI gates or change who may merge. Agent-produced changes follow the same review and `Required CI` rules as any other change.
+- GitHub tracking: [Issue #8](https://github.com/Funyday-k/Sci-Station/issues/8).
+- [AGENTS.md](../AGENTS.md) maps change types to checks and requires reporting skipped verification. [CLAUDE.md](../CLAUDE.md) imports the same instructions. Agent changes follow the same acceptance and review rules as any other contribution.
 
 ## ARCH-001 — Application state boundaries
 
-- Priority: P1. Status: focused stores and the paper-project membership use case are implemented; further domain isolation remains planned.
-- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/3
-- Current implementation: AppViewModel facade, ten focused extensions and Workspace/Library/Knowledge/Recommendation/Agent/Navigation stores; total family and published-state budgets prevent uncontrolled growth.
-- Delivered increment: project membership, core, pinned, purpose and folder mutations use a Core use case; metadata updates preserve unsaved UI drafts and unknown YAML fields. A failed metadata update conditionally compensates only the affected association. `PaperProjectMembershipTests` covers failures, concurrent changes, cancellation, drafts and workspace revisions.
-- Next acceptance: continue moving other business decisions into tested Core use cases and reduce cross-domain observers and facade forwarding state. Cross-process crash recovery is not provided by the two-file compensation scheme; see ADR-0003.
-- Decision: [ADR-0002](architecture/ADR-0002-application-state-and-testing.md).
-- Evidence: `AppDomainStoreTests`, `AppDomainStores`, `check-appviewmodel-architecture.sh`. Splitting files is an intermediate structural step, not proof that all coupling is removed.
+- GitHub tracking: [Issue #3](https://github.com/Funyday-k/Sci-Station/issues/3).
+- Historical decisions for application state and association failures are in [ADR-0002](architecture/ADR-0002-application-state-and-testing.md) and [ADR-0003](architecture/ADR-0003-paper-project-membership.md). The current ownership and file recovery paths are described in the [developer guide](DEVELOPER.md) and [workspace guide](workspaces.md).
 
 ## TEST-001 — Domain-based legacy verification
 
-- Priority: P1. Status: domain runner split and five MarkdownRepository checks migrated to Swift Testing; continued migration planned.
-- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/4
-- Acceptance for this change: preserve all legacy check names and assertions, group checks by domain, share fixtures, retain a fail-fast-on-empty filter and fail-on-any-check exit status, and run the full suite in CI.
-- Next acceptance: migrate cohesive domain suites to Swift Testing with equivalent assertions, then remove the corresponding legacy registration only after coverage parity is shown. Keep subprocess/system scenarios in the integration runner when appropriate.
-- Delivered increment: `MarkdownRepositoryTests` preserves the load/save, create, absolute-path rejection, rename and archive assertions with isolated fixtures. The corresponding legacy registrations were removed after equivalent assertions passed. Both test entry points remain required.
-- Evidence: `Tools/SciStationCoreTestRunner/Suites/`, `Tools/SciStationCoreTestRunner/Support/`, `Tests/SciStationCoreTests/` and the runner architecture gate.
+- GitHub tracking: [Issue #4](https://github.com/Funyday-k/Sci-Station/issues/4).
+- The prior verifier reorganization is part of the historical [state and testing decision](architecture/ADR-0002-application-state-and-testing.md). The Go/Wails regression entry points and cutover obligations are in the [developer guide](DEVELOPER.md) and [RFC-0002](rfcs/RFC-0002-roundtable-workstation.md#validation-and-rollout).
 
 ## KNOW-001 — Knowledge Architecture V1
 
-- Priority: P1. Status: proposed; no target release committed.
-- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/5
-- Scope: source-backed KnowledgeAtom records, relations, repository boundaries and graph projections.
-- Acceptance before implementation: review storage and migration, stable identifiers, evidence provenance, approval semantics, deletion/rebuild behavior, and tests; accept an RFC and write the resulting ADR.
-- Proposal: [RFC-0001](rfcs/RFC-0001-knowledge-architecture.md).
+- GitHub tracking: [Issue #5](https://github.com/Funyday-k/Sci-Station/issues/5).
+- Status: proposed. [RFC-0001](rfcs/RFC-0001-knowledge-architecture.md) and its [review and recovery proposal](rfcs/knowledge-v1-review-and-recovery.md) preserve the work from [draft PR #12](https://github.com/Funyday-k/Sci-Station/pull/12) for the current host.
+- Acceptance before implementation includes stable identity, valid source locators, reviewed revisions, relations, storage, conflict behavior, archive/rebuild and recovery. An accepted RFC and ADR are required before assigning a persisted format.
 
 ## REL-001 — Verified certificate-free public distribution
 
-- Priority: P1. Status: pipeline present; execution and publication are tracked by the linked issue and the Public Release workflow.
-- GitHub tracking: https://github.com/Funyday-k/Sci-Station/issues/6
-- Distribution model: ad-hoc signed macOS app and bundled sidecar, with no Apple Developer ID certificate and no Apple notarization.
-- Acceptance: tag reachable from `main`, full tests, matching versions, increasing build number, valid ad-hoc signatures and entitlements, arm64 and deployment-target verification, DMG/ZIP checksums, macOS 15 install/upgrade smoke tests, documented first-launch Gatekeeper behavior, and GitHub build provenance.
-- Evidence: [release workflow](../.github/workflows/release.yml), `Tools/scripts/package-release.sh`, `Tools/scripts/verify-release.sh`, and [developer guide](DEVELOPER.md).
-- Security boundary: the release must never silently claim Apple developer identity or notarization. Downloaders are expected to verify the GitHub Release source, SHA-256, or provenance before explicitly allowing the app in macOS Privacy & Security when required.
+- GitHub tracking: [Issue #6](https://github.com/Funyday-k/Sci-Station/issues/6).
+- Acceptance: tag on `main`, consistent version and increasing build number, complete tests, ad-hoc signing with hardened runtime, arm64 deployment target checks, ZIP and DMG with checksums, macOS 15 installation and rollback smoke tests, and GitHub provenance.
+- The [release workflow](../.github/workflows/release.yml) enforces the packaging gates. The [developer guide](DEVELOPER.md#package-and-install) documents installation evidence and first-launch Gatekeeper handling.
 
 ## READ-001 — Source-backed paper reading and reviewed writeback
 
-- Priority: P1. Status: implementation and bounded public-paper validation completed; scientific content still requires human review.
-- Scope: actual body evidence before paper answers and writeback, citations in the proposed file body, optional read pagination, recoverable invalid tool arguments, approval/checkpoint restoration, correctly paired single-pending revision feedback, and consistent bibliography keys.
-- Evidence: `PaperReadingWorkflowTests`, `BibTeXExportTests`, the default Swift Loop, and public-paper checks on 2026-10-16 using arXiv 2404.10066v1, 2402.18535v2 and 2405.12267v2.
-- Measured behavior: all three real PDFs imported and produced non-placeholder PDFKit text; metadata, project links, tasks, notes and bibliography survived repository reopening. Bibliography keys match app citekeys and duplicate appends preserve bytes. The configured model produced three substantive drafts; rejection did not write, and a separate process restored each checkpoint and saved/reloaded identical content after test approval.
-- Boundaries: PDFKit fallback did not extract figure assets or structured display math. Import metadata was supplied from verified public article records, so this is not an automatic-metadata-provider acceptance result. Model tests used public HTML-derived text and production Core services; UI, PDF conversion and model quality are separate checks. The samples still contain terminology, parameter-dependence, citation-location and length issues. One bounded live feedback revision per paper also completed through persisted/reloaded reconstructions of the original pending states, preserving actual recorded evidence. Each returned to a fresh approval pause without modifying the original saved note. The targeted factual errors improved, but parameter conditions, citation precision and compression requirements remain partly unmet; the revised drafts were not approved. The single-pending request protocol is also covered by a provider-request fixture. General multi-tool batches that pause before processing sibling calls still need separate resume-protocol work. Test approval is not human scientific acceptance. Mechanical source checks do not establish that a claim is supported.
-- Experimental sidecar paper-reading scaffolds cannot request approval or present themselves as completed scientific notes. Swift Loop remains the default.
+- Goal: Show the actual paper body and source locators before a human accepts a proposed research note or task. Preserve annotations, citation keys, chosen evidence and review decisions across reopen, including refusal and stale revisions.
+- The prior app validated bounded examples with arXiv 2404.10066v1, 2402.18535v2 and 2405.12267v2. The real PDFs imported and yielded PDFKit text; metadata, project links, notes, tasks and bibliography survived reopen. Model drafts used public HTML-derived body text and verified metadata. PDFKit did not supply structured equations or figure assets in those checks. Bounded feedback improved specific errors while leaving citation precision, parameter conditions and compression unresolved. Human scientific acceptance remains necessary even when checks of source hashes and locators pass.
+- For the Go/Wails workflow and its native test, see the [cutover evidence map](rfcs/RFC-0002-roundtable-workstation.md#implementation-and-release-evidence). Fixture-assisted workflow evidence and live provider output are evaluated independently.
+
+## WORK-001 — Single Go/Wails research workstation
+
+- GitHub tracking: [Issue #13](https://github.com/Funyday-k/Sci-Station/issues/13).
+- The [accepted RFC](rfcs/RFC-0002-roundtable-workstation.md) and [desktop ADR](architecture/ADR-0004-roundtable-workstation.md) cover one macOS application, research and CLI permissions, compatibility and recovery, and the acceptance evidence required for cutover.

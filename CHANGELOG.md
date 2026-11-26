@@ -8,7 +8,47 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Create a named research workspace from either template, optionally include local examples, and change the workspace name from its menu. Projects can have their own color and symbol.
+- Press Space over a selection in the library to preview a local PDF in its default application.
+- Manage workspace prompts for agenda planning, discussion and single-seat paper reading. Review changes before applying them and restore the built-in instructions by workflow.
+- Set discussion tool budgets and choose whether each model-requested file or statement read needs a one-time decision. Review pending reads in Roundtable, AI Lab or the AI side panel.
+- Manage reusable workspace task tags with separate background and text colors, and filter global or project tasks by tag. Deleting a custom definition restores default colors on tasks that use the tag.
+
+- Query project graphs for reading order, core references missing from the project, citation updates, saved research outcomes that need review, claim evidence gaps, method lineage, and connecting paths. Open the supporting source or share a query preview in AI Lab.
+- See missing source evidence from published AI Lab results in the project overview and Home, including results that have no saved note or task.
+- Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.
+- Rename, search, archive, and reopen single-seat conversations in AI Lab. Save unsent questions and follow-ups to the active research root and recover them without sending a model request.
+- Inspect each single-seat run's saved settings, source versions and timeline in AI Lab. Retry an incomplete run from its saved input using current settings and fresh approvals.
+- Review supported Codex or Claude Code file-change requests in the desktop meeting. Forward a one-time decision, cancel the run, and check the outcome reported by the CLI that applies the change.
+- Import a paper's Markdown source or adopt a verified PDFKit or MinerU conversion. AI Lab can find and cite its sections and lines, reopen a reviewed quote, and display evidence-linked comparison rows or candidate research tasks.
+- Inspect MinerU figure attachments before saving, view saved paper figures offline, and locate figure captions in AI Lab. The body preview flags missing images and PDFKit extraction limits.
+- Build and launch the combined macOS research workstation with `make run`. Its native window hosts the shared library, PDF reader, project tools, AI Lab, and multi-seat Roundtable.
+- Keep one copy of a paper across projects with independent pins, ordering and core status. Preview imports, resume failed items, organize collections and tags, and export citations from the library or reader.
+- Follow individual references between Wiki pages, tasks and source passages. Preserve reading position, selected-text offsets and the PDF fingerprint when returning from a meeting.
+- Review proposals to write meeting results to notes or tasks, retry a confirmation and recover decisions after a restart. AI Lab can reopen a single-seat session and export redacted diagnostics.
+- Let single-seat and Roundtable models propose discovery and reads on trusted project research connections. Review each destination, resource or tool and its arguments in the desktop app, and inspect approval outcomes and retry times in the run timeline.
+- Configure project-specific HTTPS and local stdio research connections in AI Lab. Store bearer tokens and device trust in Keychain, review each resource read or allowlisted read-only tool call, and attach a selected excerpt with its consent receipt.
+- Preview, enable, and trust local Markdown skills for a specific project. Save an optional public MCP resource endpoint, with confirmation before each connection.
+- Ask about a paper by its position, a numbered figure, or an equation in AI Lab and the AI side panel. Preview the matched original passage and confirm it before sending.
+- Inspect each single-seat claim’s citations and reopen verified source excerpts. Formal research templates require cited source text before entering human review.
+- Search the active project’s Markdown papers, notes and text materials offline. Optionally use deterministic local ranking, rebuild an index and open the verified original passage by line.
+- Choose project modules and dashboard widgets, create tasks with optional project and paper associations, and explicitly connect selected Apple calendars and reminders. Literature discovery keeps ranked runs, filters and feedback.
+- Save MinerU tokens and credentials for OpenAI-compatible model profiles in macOS Keychain. The desktop model directory shares these profiles between research workflows.
 - Added shared coding-agent guidelines in `AGENTS.md`, imported by `CLAUDE.md`, and included both files in documentation checks.
+
+### Changed
+
+- Remember each workspace by its folder identity. If a different folder occupies its saved location, Sci-Station returns to the workspace chooser. Re-selecting a moved workspace retains its existing settings and credential scope.
+
+- Sci-Station now builds from one Go/Wails module at the repository root. The single macOS executable retains the launch animation and uses the Roundtable icon.
+- A first launch uses a separately chosen research workspace. Keep the previous app’s files and follow the [workspace recovery guide](docs/workspaces.md) to verify a Go prototype backup and restore it into a separate workspace.
+- Roundtable discussions and continuous runs use read-only project file access. AI-file changes go through a host-initiated CLI session and its review controls. Existing meeting histories retain old edit records.
+
+### Fixed
+
+- When switching workspaces, the previous workspace stays locked until its final meeting, CLI edit and local request writes finish.
+- Close the desktop window during an active meeting or a native folder picker. Pending operations are cancelled, committed records are preserved and the next process can immediately reopen the workspace.
+- Reopen meetings under their original project after a folder changes. Verify the active folder grant whenever a project file is accessed.
 
 ## [0.2.0] - 2026-10-16
 

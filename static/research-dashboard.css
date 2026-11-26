@@ -1,0 +1,225 @@
+#dashboard-view {
+  container-type: inline-size;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(8.75rem, auto);
+  gap: 14px;
+}
+
+.dashboard-widget {
+  display: flex;
+  min-width: 0;
+  position: relative;
+}
+
+.dashboard-widget .panel {
+  width: 100%;
+  margin: 0;
+  padding: 14px;
+}
+
+.dashboard-widget .panel-header {
+  margin-bottom: 10px;
+}
+
+.dashboard-widget .list {
+  margin: 0;
+}
+
+.dashboard-widget .row {
+  min-width: 0;
+  padding-inline: 0;
+}
+
+.dashboard-widget .row .meta {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-widget .row .tag {
+  flex-shrink: 0;
+}
+
+.dashboard-widget .list + .bare,
+.dashboard-widget .dashboard-muted + .bare,
+.dashboard-widget .dashboard-stats + .bare {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.dashboard-wide, .dashboard-medium { grid-column: span 2; }
+.dashboard-tall, .dashboard-medium { grid-row: span 2; }
+.dashboard-large { grid-column: span 3; grid-row: span 3; }
+
+.dashboard-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 8px 0;
+}
+
+.dashboard-stat {
+  color: var(--soft);
+  font-size: .9rem;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-stat b {
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-muted {
+  color: var(--soft);
+  margin-block: 5px;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-subhead {
+  color: var(--soft);
+  font-size: .9rem;
+  margin-top: 12px;
+}
+
+.dashboard-stage {
+  display: inline-block;
+  padding: 3px 10px;
+  background: var(--tint);
+  color: var(--accent2);
+  border-radius: 1rem;
+  font-weight: 650;
+}
+
+.dashboard-stage[data-stage="on_hold"] {
+  background: var(--fill);
+  color: var(--soft);
+}
+
+.dashboard-calendar-head,
+.dashboard-calendar-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dashboard-month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  max-width: 32rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-month > span {
+  color: var(--soft);
+}
+
+.dashboard-day {
+  position: relative;
+  min-height: 29px;
+  padding: 0 0 3px;
+  border-radius: 6px;
+}
+
+.dashboard-day:hover,
+.dashboard-day[aria-pressed="true"] {
+  color: var(--accent2);
+  background: var(--tint);
+}
+
+.dashboard-day[aria-current="date"] {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  font-weight: 700;
+}
+
+.dashboard-day.has-events::after {
+  position: absolute;
+  content: "";
+  inset: auto 50% 3px auto;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateX(50%);
+}
+
+.dashboard-calendar-links {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+
+.dashboard-layout select {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  padding: 5px 7px;
+  max-width: 100%;
+}
+
+.dashboard-small .dashboard-day,
+.dashboard-tall .dashboard-day {
+  min-height: 24px;
+}
+
+.dashboard-brief {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-questions {
+  padding-inline-start: 1.2rem;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-layout {
+  padding: 12px 16px;
+}
+
+.dashboard-layout-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+
+.dashboard-layout-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.dashboard-layout-row label {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+}
+
+.dashboard-drag {
+  position: absolute;
+  inset: 9px 8px auto auto;
+  font-size: 1.2rem;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: var(--soft);
+  background: var(--fill);
+  cursor: grab;
+  user-select: none;
+}
+
+@container (max-width: 920px) {
+  .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-large { grid-column: span 2; }
+}
+
+@container (max-width: 480px) {
+  .dashboard-grid { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
+  .dashboard-widget { grid-area: auto; }
+}

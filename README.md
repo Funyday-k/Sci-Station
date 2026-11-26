@@ -1,130 +1,39 @@
 # Sci-Station
 
 > 当前版本：0.2.0
-> 面向平台：macOS
-> 当前状态：Developer Preview（开发者预览）
+> 支持平台：Apple Silicon Mac，macOS 15 或更新版本
+> 发布阶段：Developer Preview
 
-Sci-Station 是一个面向科研工作的本地优先工作站。它把论文库、项目知识、PDF 阅读、材料文件、任务日历和可选 AI 实验室放在同一个 macOS 应用里，并把主要数据保存到用户选择的本地科研根目录中。
+Sci-Station 是一个本地优先的科研工作台。论文库、PDF 阅读、项目 Wiki、材料、任务与日历、AI 实验室和多席圆桌共用一个 Go/Wails 桌面应用。论文、笔记、任务和会议记录存放在你选择的科研工作区；已有项目的文件夹可在项目中单独授权。
 
-英文文档见 [docs/README.en.md](docs/README.en.md)。完整中文教程见 [docs/TUTORIAL.zh-CN.md](docs/TUTORIAL.zh-CN.md)。
+[English](docs/README.en.md) · [中文教程](docs/TUTORIAL.zh-CN.md)
 
-## 截图
+## 开始使用
 
-![Sci-Station 首页截图](docs/assets/screenshots/home.png)
+安装 Go 1.26 和 Xcode Command Line Tools，在仓库根目录运行：
 
-## 基本介绍
-
-科研项目常常散落在 PDF、笔记、代码、数据、图表、任务、链接和研究计划草稿里。Sci-Station 的目标是把这些内容收束成一个可见、可审计、可带走的本地科研工作区：用户选择一个科研根目录，应用在其中组织论文、项目、知识库、材料、任务和 AI 运行记录。
-
-核心原则：
-
-- **本地优先**：论文、笔记、项目文件、任务和运行日志保存在用户自己的目录中。
-- **科研原生**：围绕论文、项目、引用、材料、图表、输出和实验记录组织信息。
-- **可审计 AI**：AI 是可选能力；凭据进入 macOS 钥匙串，写入动作经过权限确认，运行结果可回看。
-
-## 基本功能
-
-- **工作区管理**：创建、打开、修复科研根目录，并恢复最近使用的工作区。
-- **论文库**：支持 PDF 拖入、文件选择、DOI、arXiv、PDF 链接和普通链接导入。
-- **元数据管理**：保存标题、作者、年份、摘要、标签、阅读状态、优先级、评分、BibTeX 和标识符。
-- **PDF Reader**：支持搜索、翻页、缩放、论文笔记、相关任务、引用、链接和文件面板。
-- **项目空间**：为每个研究项目维护项目简介、核心论文、项目文档、任务和研究流程。
-- **Markdown 知识库**：支持源码、预览、分屏、元信息、`[[wikilink]]`、反向链接、表格、代码块、图片和 KaTeX。
-- **材料区**：统一管理数据、代码、图表、脚本、提示词、输出等真实工作文件，并可从应用打开到 VS Code 或外部工具。
-- **任务与日历**：提供本地待办、日历视图，并可选接入 Apple Calendar / Reminders。
-- **AI 实验室 V1**：支持项目会话、计划审查、权限面板、运行历史、钩子、MCP 预设展示和审计日志。
-- **无证书分发**：公开版本使用 ad-hoc 签名，不依赖 Apple Developer ID 或 notarization；发布流程仍验证应用完整性、entitlements、sidecar、安装、SHA-256 与 GitHub provenance。
-
-## 当前状态
-
-- 当前预览版本为 **0.2.0**。
-- 项目采用 certificate-free community distribution；macOS 对下载的版本可能在首次打开时显示“无法验证开发者”提示。
-- 项目会持续维护，功能、界面和文档仍会继续更新。
-
-## 接下来会开发
-
-- **AI 实验室深化**：继续接入边车运行时、工具权限、证据引用、产物和调试包。
-- **论文图谱与推荐**：增强论文关系、推荐工作流和阅读 Todo 链路。
-- **工作区模板**：提供更清晰的项目模板、模块设置和初始化流程。
-- **导入与转换质量**：继续提升 DOI、arXiv、网页导入、PDF 转 Markdown 和元数据补全。
-- **稳定性与本地化**：扩大手动回归覆盖，完善中英文文案、教程和测试数据。
-
-## 快速开始
-
-安装 GitHub Release 中的公开版本：
-
-1. 在对应 Release 中下载 DMG，并核对同版本 SHA-256 或 GitHub provenance。
-2. 打开 DMG，将 `Sci-Station.app` 拖入 `/Applications`。
-3. 由于 Sci-Station 不使用 Apple Developer ID 和 notarization，首次启动时 macOS 可能阻止应用。先尝试正常打开，然后在 **系统设置 → 隐私与安全性** 中确认来自 Sci-Station Release 的应用并选择 **仍要打开（Open Anyway）**。不要关闭整个系统的 Gatekeeper。
-4. 首次启动后选择 `Create Workspace`，创建一个空文件夹作为科研根目录。
-5. 在 Library 导入 PDF，或用 DOI、arXiv、PDF URL、网页链接添加论文。
-6. 创建项目，在项目概览中开始写项目简介、笔记和任务。
-
-发布包使用 ad-hoc code signature 维护 bundle 与嵌套 sidecar 的代码签名/entitlements 完整性，但它不提供 Apple Developer ID 身份认证，也不表示 Apple 已公证该软件。发布 workflow 会提供 SHA-256 和 GitHub build provenance，供下载者验证产物来源。
-
-## 工作区结构
-
-科研根目录是一个普通本地目录，主要结构如下：
-
-```text
-ResearchRoot/
-├── .sci-station/
-├── library/
-│   └── papers/{paper-id}/
-│       ├── paper.pdf
-│       ├── paper.md
-│       ├── meta.yaml
-│       ├── annotations.md
-│       └── figures/
-├── projects/{project-id}/
-│   ├── project.yaml
-│   ├── shared_research.md
-│   ├── wiki/
-│   ├── tasks/
-│   ├── data/
-│   ├── code/
-│   ├── figures/
-│   └── outputs/
-├── wiki/
-├── refs/
-├── settings/
-├── tasks/
-├── imports/
-├── data/
-├── prompts/
-├── scripts/
-├── code/
-├── figures/
-├── outputs/
-├── shared_research.md
-└── researchflow.sqlite
+```sh
+make run
 ```
 
-大多数内容是 Markdown、YAML、PDF、BibTeX、源码、图片或数据文件。即使离开应用，用户也可以用 Finder、VS Code、Git 或备份工具继续管理这些文件。
+应用打开后，从「工作区」菜单选择「创建工作区」，选一个空文件夹。再次使用时可打开同一个工作区。新建项目后，在论文库导入一份 PDF，将它加入项目，并在阅读器选中一段文字。你可以保存批注，也可以把原文送入圆桌，在审阅后保存项目笔记或任务。
 
-论文的 `meta.yaml` 使用 Yams 解析和输出。应用更新已知元数据时，会在 YAML 语义层保留未知字段与嵌套结构；若文件包含畸形 YAML，保存会返回明确错误，不会静默覆盖原文件。
+从源码构建的 Go/Wails 工作台包含当前开发线的功能。[GitHub Releases](https://github.com/Funyday-k/Sci-Station/releases) 提供已发布的预览版本。首次从旧工作台切换时请按[工作区与恢复指南](docs/workspaces.md)使用新工作区，并保留原始研究目录及备份。
 
-## 隐私与凭据
+## 主要功能
 
-- 仓库和构建产物不应包含 API Key、OAuth token、refresh token、client secret、private key、本机 MCP 配置或私人研究数据。
-- LLM API Key 和 MinerU API Token 通过安全输入保存到 macOS 钥匙串。
-- `settings.yaml` 只保存 base URL、model、temperature、max tokens 等非敏感设置。
-- 论文、笔记、任务、Agent 日志和生成文件保存在用户选择的科研根目录中。
-- `.env*`、本机配置、打包产物和私人科研根目录不应提交到 Git。
+- **论文库与 PDF**。导入 PDF 或按 DOI、arXiv 等标识查找论文。不同项目可共用一份论文和 PDF，各自设置核心论文、固定项与排序。可组织集合和标签、导出引用、恢复阅读位置以及重新定位已保存的原文证据。
+- **项目、Wiki 与材料**。在项目里管理笔记、双向链接、引用图谱和实际研究文件。外部目录的授权可撤回；项目记录和共享论文仍可查阅。
+- **任务、日历与发现**。本地任务可以关联多个研究项目和论文。在线发现记录检索、候选与反馈；也可导入现有推荐清单。Apple 日历及提醒事项只在主动使用时申请权限。
+- **AI 实验室与圆桌**。单席运行和多席讨论可引用论文、笔记与已授权的材料。研究人员可回看原文、讨论和报告，明确确认是否将建议保存为项目笔记或任务。圆桌还能显示受支持本地 CLI 的文件修改审批，批准后的写入由该 CLI 执行。
 
-## 相关文档
-
-- [docs/README.en.md](docs/README.en.md)：英文项目介绍。
-- [docs/TUTORIAL.zh-CN.md](docs/TUTORIAL.zh-CN.md)：中文试用教程。
-- [docs/TUTORIAL.md](docs/TUTORIAL.md)：英文试用教程。
-- [docs/DEVELOPER.md](docs/DEVELOPER.md)：开发者文档。
-- [.sci-ai/README.md](.sci-ai/README.md)：AI 配置边界。
-- [.sci-ai/sci-station/README.md](.sci-ai/sci-station/README.md)：内置 AI preset 说明。
-
-## 许可证
-
-本项目采用 [MIT 许可证](LICENSE) 开源。
+论文、批注、Wiki、任务、材料和本地 PDF 文本转换均能离线使用。可选模型连接需要自行配置 Magpie 网关或直接模型服务；直接模型的 API Key 和可选的 MinerU Token 可保存到 macOS 钥匙串。网络导入、arXiv 检索以及其他外部服务会在使用相应功能时连接。详细步骤见[中文教程](docs/TUTORIAL.zh-CN.md)。
 
 ## 参与开发
 
-贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，漏洞报告见 [SECURITY.md](SECURITY.md)。开发计划和架构决策分别维护在 [版本化 backlog](docs/BACKLOG.md) 与 [ADR 索引](docs/architecture/README.md)；版本边界见 [版本策略](docs/VERSIONING.md)。
+- [开发者指南](docs/DEVELOPER.md)介绍代码结构、构建和验证。
+- [贡献指南](CONTRIBUTING.md)和[仓库治理](docs/GOVERNANCE.md)规定评审和发布流程。
+- [变更记录](CHANGELOG.md)记录开发线及历史版本。
+- [安全报告](SECURITY.md)提供私下报告途径。
+
+本项目采用 [MIT License](LICENSE)。第三方图标与资源的来源见[品牌资产](docs/brand-assets.md)。

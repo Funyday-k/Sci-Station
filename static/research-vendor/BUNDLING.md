@@ -1,0 +1,3 @@
+# Offline scientific Markdown rendering
+
+Research notes, Markdown materials, meeting discussion, reports and AI Lab answers share `scientific-markdown.js`. It serves marked 14.1.3, DOMPurify 3.4.2, KaTeX 0.16.11 and its WOFF2 fonts locally. It sanitizes Markdown before rendering math in the DOM with KaTeX trust disabled. Research images resolve against project materials. Model and meeting text displays raw HTML literally and loads only bundled resources. The upstream KaTeX auto-render extension remains staged with the vendor distribution. The adjacent LICENSE files reproduce the upstream license terms.

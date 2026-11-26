@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "name": "圆桌精选",
+  "plugins": [
+    {
+      "id": "org.magpie.deliberation-checklist",
+      "version": "1.0.0",
+      "name": "论证与决策清单",
+      "author": "Magpie Roundtable",
+      "description": "帮助参会者说明关键假设和可验证的证据，并让报告记录决策理据与待解决的问题。",
+      "url": "deliberation-checklist.json",
+      "sha256": "8e678b91506218d512e1066d977353bee959999401befcd3066dfee9b3885532",
+      "capabilities": [
+        "report.guidance",
+        "round.guidance"
+      ]
+    },
+    {
+      "id": "org.magpie.public-turn-count",
+      "version": "1.0.1",
+      "name": "公开发言统计",
+      "author": "Magpie Roundtable",
+      "description": "统计公开发言总数、有发言的席位数和各席位的发言次数，并显示席位名与稳定编号。",
+      "url": "public-turn-count.json",
+      "sha256": "5e163487e91599e30f35db25df289d03714af68b04c0315a64db873a24d30745",
+      "capabilities": [
+        "code.execute",
+        "meeting.public_turns"
+      ]
+    }
+  ]
+}

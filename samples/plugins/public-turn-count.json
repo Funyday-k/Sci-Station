@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "org.magpie.public-turn-count",
+  "version": "1.0.1",
+  "name": "公开发言统计",
+  "author": "Magpie Roundtable",
+  "description": "统计公开发言总数、有发言的席位数和各席位的发言次数，并显示席位名与稳定编号。",
+  "contributions": {
+    "actions": [
+      {
+        "id": "count-public-turns",
+        "label": "统计公开发言",
+        "input": "public_turns",
+        "format": "text"
+      }
+    ]
+  }
+}

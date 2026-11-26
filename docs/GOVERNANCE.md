@@ -1,47 +1,40 @@
 # Repository governance
 
-The delivery chain is **Issue → RFC/ADR when needed → short-lived branch → PR → required CI → main → versioned release**. [CONTRIBUTING](../CONTRIBUTING.md) is the contributor entry point. [BACKLOG](BACKLOG.md) records the initial governance and architecture work without inventing historical GitHub Issue or PR numbers.
+Changes follow **Issue → RFC/ADR when needed → short-lived branch → PR → Required CI → main → versioned release**. See the [contributor entry point](../CONTRIBUTING.md), [backlog](BACKLOG.md) and [cutover decision](architecture/ADR-0004-roundtable-workstation.md).
 
-## Branches and review
+## Branch and review
 
-`main` is the product integration and release source. `dev` remains a protected transitional integration branch so existing work can move through PRs; do not delete it while it contains unmerged work. Start new branches from `main`. Both branches require a PR, the `Required CI` check from GitHub Actions, an up-to-date base, and resolved review conversations. Administrators are subject to these rules; force pushes and deletion are disabled.
+`main` is the integration and release branch, and new work starts from its current remote head. The Go/Wails cutover retires the transitional `dev` branch after its needed work has an enduring reference. The protection on `main` requires a PR, an up-to-date base, the GitHub Actions `Required CI` result and resolved review conversations. It covers administrators and disallows force pushes and branch deletion.
 
-The current owner is `@Funyday-k`, recorded in [CODEOWNERS](../.github/CODEOWNERS). A single maintainer can merge a PR after recording a self-review and passing CI; required independent approvals are zero because authors cannot approve their own PRs. When another regular maintainer joins, raise this to one and require code-owner review for architecture, security and release tooling. Do not weaken CI to work around a failure.
+The current owner is `@Funyday-k`, recorded in [CODEOWNERS](../.github/CODEOWNERS). The maintainer records a review in the PR. The Go/Wails cutover requires a separate reviewer to check the final diff and acceptance evidence alongside green `Required CI`. Agent-authored work also requires a review by a different agent or the maintainer. GitHub's required approving-review count remains zero during single-maintainer operation because authors cannot approve their own PRs. When another regular maintainer joins, require one approval and code-owner review for architecture, security and release tooling.
 
-## Enforced checks
+## Required CI
 
-The [macOS CI workflow](../.github/workflows/macos-ci.yml) has no path filters. Its `Required CI` job runs with `always()` and fails unless all of these jobs succeed:
+The [macOS CI workflow](../.github/workflows/macos-ci.yml) has no path filters. Its `Required CI` aggregate runs with `always()` and fails unless all four jobs succeed.
 
-| Check | Evidence |
+| Job | Evidence |
 | --- | --- |
-| Repository hygiene | Tracked artifact checks, documentation links, app/runtime version consistency, governance tooling tests, AppViewModel and core runner budgets |
-| Change traceability | A PR description links an Issue or a real, accepted/versioned local decision or backlog item |
-| SwiftLint and SwiftFormat | Pinned tools and existing baseline; no new style debt |
-| Swift test gates | Swift Testing, coverage floor, every legacy integration check |
-| Python sidecar tests | Full `AgentRuntime/tests` suite |
-| Apple Silicon Release build and smoke test | Unsigned app build, bundled runtime, installation and UI checks |
+| Repository hygiene | Tracked artifact checks, documentation links, app version and build number consistency, and governance tool tests. |
+| Change traceability | A PR description links a real Issue, a versioned decision or a backlog item. |
+| Workstation | Go race, coverage and vet, frontend tests, signed arm64 bundle and deployment target, native shutdown and relaunch, PDF-to-Roundtable writeback, and native menu navigation. Go and Node fixtures cover the CLI approval protocol. |
+| Workstation install, upgrade and rollback | Verified ZIP, DMG and SHA-256 from the same checkout on Apple Silicon macOS 15, with a lower-build fixture and a disposable workspace. XCTest launches the installed bundle and verifies visible Home and Library navigation after both the initial install and upgrade. |
 
-CI cannot judge whether an Issue's acceptance criteria are actually met; that remains part of review. A linked Issue reference is syntactically checked; the maintainer verifies that it exists and is relevant. Local RFC/ADR paths and backlog anchors are checked against the checkout. Proposed RFCs are design artifacts, not permission to silently ship a new architecture.
+Reviewers verify the requirement link and the behavior claimed by each change. For a new runtime or permission boundary, the relevant RFC and ADR must record acceptance before implementation. See [developer verification](DEVELOPER.md) for local checks and the limits of controlled fixtures.
 
 ## Remote configuration
 
-[repository-settings.json](../.github/repository-settings.json) records the intended description, topics and branch protection payload. These files alone do not configure GitHub. Inspect live settings with:
+[Repository settings](../.github/repository-settings.json) describe the intended repository metadata and the protection payload for `main`. Verify the corresponding GitHub settings when auditing the remote.
 
-```bash
-gh api repos/Funyday-k/Sci-Station --jq '{description,topics}'
+```sh
+gh api repos/Funyday-k/Sci-Station --jq '{default_branch,description,topics}'
 gh api repos/Funyday-k/Sci-Station/branches/main/protection
-gh api repos/Funyday-k/Sci-Station/branches/dev/protection
 gh api repos/Funyday-k/Sci-Station/private-vulnerability-reporting
 ```
 
-Require private vulnerability reporting to be enabled before advertising the security form. The repository already uses secret scanning and push protection; preserve those controls. The branch-protection contract uses the stable aggregate check name, so changing individual CI job names must also update the aggregate dependencies. A new PR containing this workflow must pass before merging; the existing default-branch history does not acquire new check results retroactively.
-
-The governance change applied the checked-in metadata and protection payload to both branches and enabled private reporting; GitHub API readback confirmed `protected: true` for `main` and `dev`. Treat the readback as change evidence and rerun the commands above when auditing current settings.
-
-Use the official [branch protection API](https://docs.github.com/en/rest/branches/branch-protection) and [private reporting documentation](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository) when changing these settings. Avoid undocumented bypasses or emergency direct pushes; record an incident and restore the normal gates after resolving a repository administration problem.
+Keep private reporting, secret scanning and push protection enabled. GitHub settings take effect independently of these files. Preserve the stable aggregate name and update its job dependencies when changing the required workflow. A PR containing workflow changes must pass the revised checks before merging. Use the [GitHub branch protection API](https://docs.github.com/en/rest/branches/branch-protection) and [private reporting documentation](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository) for changes.
 
 ## Release controls
 
-The release workflow verifies that the exact tag matches [VERSION](../VERSION), its commit is reachable from `origin/main`, and the build number advances. It reruns repository/docs/version/architecture, style, Swift and Python checks before building ad-hoc signed artifacts. App and sidecar signatures, entitlements, checksums, installation, minimum-macOS behavior and GitHub provenance must pass before publication. Developer ID signing and Apple notarization are not part of this certificate-free distribution model. Gatekeeper may reject a downloaded build; verification records that expected trust result separately from bundle integrity, and the first-launch instructions explain explicit approval in macOS Privacy & Security.
+The [release workflow](../.github/workflows/release.yml) checks that the tag matches [VERSION](../VERSION), its commit is reachable from `origin/main` and [BUILD_NUMBER](../BUILD_NUMBER) advances from the previous release. It verifies the Go/Wails app, macOS 15 installation, installed-app navigation and rollback, archives, checksums and GitHub provenance before publication. Artifact signing is ad-hoc with hardened runtime; a downloaded app may require explicit macOS approval on first open. See [packaging and installation](DEVELOPER.md#package-and-install) for verification and first-launch instructions.
 
-Tag-triggered releases are published as GitHub prereleases during the preview phase. Stable publication is an explicit workflow-dispatch choice after readiness review; signing alone does not establish product stability. No Apple signing or notary secrets are required. Workflow permissions are limited by job: provenance can write attestations, and only publication can write release assets. Configure release-tag and reviewer protections when a second maintainer is available. See [DEVELOPER](DEVELOPER.md) for packaging and verification commands. Never replace a published tag or claim that an older download passed a newer release pipeline.
+Tag-triggered releases publish as Developer Previews. Stable publication is an explicit workflow-dispatch choice after readiness review. Only the attestation job has provenance write permissions and only publication can write release assets. Tags are immutable. The [release history](../CHANGELOG.md) preserves the behavior and limitations of earlier downloads.
