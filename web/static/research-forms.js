@@ -738,6 +738,7 @@
     if (token !== wikiRequest || state.project?.id !== owner) return;
     if (excerpt && excerpt.revision !== n.revision) throw Error("Wiki 页面已更新，请重新打开引用。");
     selectedWikiNote = n;
+    window.SciContextRail?.selectObject("note", n.id);
     const {frontmatter, body} = splitWikiBody(n.body);
     const noteURL = E.wikiURL(n.id, owner);
     dialog(n.title, (n.namespace ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' : "") + '<div class="actions">' +
@@ -913,6 +914,7 @@
       if (state.project !== project || state.view !== view) return;
       state.taskCatalog = catalog;
     }
+    if (task) window.SciContextRail?.selectObject("task", task.id);
     taskForm(task);
   }
 

@@ -266,8 +266,10 @@ kbd {
 }
 
 .collapsed #sidebar {
-  visibility: hidden
+  display: none
 }
+
+.collapsed #workarea { grid-column: 2; }
 
 main {
   max-width: 1380px;
@@ -1205,21 +1207,19 @@ dialog::backdrop {
   }
 }
 
-@media(max-width:760px) {
+@media(max-width:999px) {
   #shell {
     grid-template-columns: 0 minmax(0, 1fr)
   }
 
-  #sidebar {
-    visibility: hidden
-  }
+  #sidebar { display: none; }
 
   .mobile-open #sidebar {
-    visibility: visible;
+    display: flex;
     position: fixed;
-    inset: 58px auto 0 0;
+    inset: calc(58px + var(--workspace-bar-height)) auto 0 0;
     width: 215px;
-    height: calc(100vh - 58px);
+    max-height: calc(100dvh - 58px - var(--workspace-bar-height));
     z-index: 5;
     box-shadow: var(--shadow)
   }
@@ -1227,7 +1227,9 @@ dialog::backdrop {
   #workarea {
     grid-column: 2
   }
+}
 
+@media(max-width:760px) {
   .columns {
     grid-template-columns: 1fr
   }

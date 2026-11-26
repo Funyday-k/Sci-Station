@@ -54,8 +54,8 @@ body[data-workspace-surface="studio"] .app { top: var(--workspace-bar-height); h
   .workspace-bar [data-project-back] { overflow: hidden; text-overflow: ellipsis; }
   body[data-workspace-surface="studio"] .sidebar { top: var(--workspace-bar-height); }
 }
-@media(max-width:760px) {
-  body[data-workspace-surface="research"] .mobile-open #sidebar { top: calc(58px + var(--workspace-bar-height)); height: calc(100vh - 58px - var(--workspace-bar-height)); }
+@media(max-width:999px) {
+  body[data-workspace-surface="research"] .mobile-open #sidebar { top: calc(58px + var(--workspace-bar-height)); }
 }
 
 @media(max-width:700px) {

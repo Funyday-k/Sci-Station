@@ -327,6 +327,12 @@
     return '<span class="task-label" style="--task-label-bg:' + color + ';--task-label-fg:' + textColor + '">' + esc(name) + '</span>';
   }
 
+  function detailButton(kind, object) {
+    const label = text("查看详情", "View details") + " · " + object.title;
+    return '<button type="button" class="icon" data-inspect-object="' + kind + '" data-id="' + esc(object.id) +
+      '" aria-label="' + esc(label) + '" title="' + esc(label) + '" aria-pressed="false">' + icon("sidebar") + '</button>';
+  }
+
   function taskRows(tasks) {
     const tags = new Map(state.taskCatalog?.tags.map(tag => [tag.name, tag.definition]));
     return list(tasks.map(t => {
@@ -346,7 +352,7 @@
         esc(t.title) + '</span>' + (facts ? '<span class="row-facts">' + esc(facts) + '</span>' : "") +
         (t.description ? '<span class="meta">' + esc(t.description.slice(0, 140)) + '</span>' : "") +
         (labels ? '<span class="task-labels">' + labels + '</span>' : "") +
-        '</button><span class="tag status-tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
+        '</button><span class="tag status-tag">' + esc(statusLabel[t.status] || "待办") + '</span>' + detailButton("task", t) + '</div>';
     }));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a
@@ -374,11 +380,10 @@
         (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
         '>' + esc(tab.name) + '</a>').join("") : "";
     $("projectnav").innerHTML = state.projects.map(p => '<a class="project-item ' + (p.id === state.project?.id ?
-        'active' : '') + '" data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
+        'active' : '') + '"' + (p.id === state.project?.id ? ' aria-current="true"' : '') + ' data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '">' + projectBadge(p) + '<span>' + esc(p
       .name) + '</span></a>').join("");
-    window.SciShellLayout?.decorateProject(modules,$("projectnav"),state.project?.id);
-    window.SciContextRail?.update();
+    window.SciShellLayout?.decorateProject(modules, $("projectnav"));
     const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
     $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
       esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
@@ -407,7 +412,7 @@
 
   function noteRows(notes) {
     return list(notes.map(n => row("file", n.title, [n.namespace, n.tags?.join(" · "), fmtDate(n.updatedAt)].filter(Boolean).join(" · "),
-      rowAction("read-note", n.id))));
+      rowAction("read-note", n.id), "", detailButton("note", n))));
   }
 
   function wikiResults() {
@@ -578,6 +583,7 @@
           ) : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。"));
     } else if (state.view === "graph") out = graphView();
     $("main").innerHTML = out;
+    window.SciContextRail?.update();
     const dashboardRoot = $("dashboard-view");
     if (dashboardRoot) dashboard.mount(dashboardRoot, state, render, toast);
     $("main").setAttribute("aria-busy", "false");
@@ -786,7 +792,7 @@
     state.libraryTag = "";
     E.library.clearSelection();
     load(state.project?.id, view, {historyMode: "push"});
-    $("shell").classList.remove("mobile-open");
+    window.SciShellLayout?.dismissProjectNav();
     window.scrollTo(0, 0);
   }
 
@@ -945,10 +951,14 @@
     }
     const target = ev.target.closest?.("button,a");
     if (!target || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    if (target.dataset.inspectObject) {
+      window.SciContextRail?.selectObject(target.dataset.inspectObject, target.dataset.id, true);
+      return;
+    }
     if (target.hasAttribute("data-project")) {
       ev.preventDefault();
       if (!close()) return;
-      $("shell").classList.remove("mobile-open");
+      window.SciShellLayout?.dismissProjectNav();
       await load(target.dataset.project, "overview", {
         historyMode: "push"
       });
@@ -1076,8 +1086,6 @@
   $("search-open").onclick = search;
   $("new-project").onclick = () => E.formAction("new-project");
   $("modal-close").onclick = close;
-  $("nav-toggle").onclick = () => $("shell").classList.toggle(matchMedia("(max-width:760px)").matches ? "mobile-open" :
-    "collapsed");
   document.addEventListener("keydown", ev => {
     if (ev.key === "Escape") {
       const more = document.querySelectorAll("#main .more-actions[open]")[0];

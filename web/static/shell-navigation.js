@@ -80,15 +80,43 @@
   function decorateTop(nav) {
     if(state)decorateStrip(nav,Array.from(nav.querySelectorAll("a"),a=>a.dataset.section),"top","section");
   }
-  function decorateProject(modules,tree,projectID) {
+  let compactTreeOpen=false;
+  function updateProjectNav() {
+    const shell=document.getElementById("shell"),toggle=document.getElementById("nav-toggle");
+    if(!toggle || !state)return;
+    shell.classList.toggle("collapsed",!narrow.matches && !state.treeExpanded);
+    shell.classList.toggle("mobile-open",narrow.matches && compactTreeOpen);
+    toggle.setAttribute("aria-expanded",String(narrow.matches ? compactTreeOpen : state.treeExpanded));
+  }
+  function dismissProjectNav(restoreFocus=false) {
+    if(!compactTreeOpen)return;
+    compactTreeOpen=false;
+    updateProjectNav();
+    if(restoreFocus)document.getElementById("nav-toggle").focus();
+  }
+  const treeToggle=document.getElementById("nav-toggle");
+  if(treeToggle){
+    treeToggle.onclick=()=>{
+      if(!state)return;
+      if(!narrow.matches){save({treeExpanded:!state.treeExpanded}).catch(()=>{});return;}
+      compactTreeOpen=!compactTreeOpen;
+      updateProjectNav();
+      if(compactTreeOpen){
+        const tree=document.getElementById("projectnav");
+        (tree.querySelector('[aria-current]') || tree.querySelector("a") || document.getElementById("new-project")).focus();
+      }
+    };
+    document.addEventListener("keydown",event=>{
+      if(event.key==="Escape" && compactTreeOpen){event.preventDefault();dismissProjectNav(true);}
+    });
+    document.addEventListener("click",event=>{
+      if(!event.target.closest("#sidebar,#nav-toggle"))dismissProjectNav();
+    });
+    narrow.addEventListener("change",()=>{compactTreeOpen=false;updateProjectNav();});
+  }
+  function decorateProject(modules,tree) {
     if(!state)return;
-    const toggle=document.getElementById("shell-tree-toggle");
-    const expanded=!narrow.matches && state.treeExpanded;
-    tree.hidden=!expanded;
-    toggle.disabled=narrow.matches;
-    toggle.setAttribute("aria-expanded",String(expanded));
-    toggle.textContent=expanded?"▾":"▸";
-    toggle.onclick=()=>save({treeExpanded:!state.treeExpanded}).catch(()=>{});
+    updateProjectNav();
     const tabs=Array.from(modules.querySelectorAll("a[data-tab-key]"));
     const sorted=[...tabs.filter(a=>a.dataset.tabKey==="overview"),...ordered(tabs.filter(a=>a.dataset.tabKey!=="overview"),state.tabOrder,a=>a.dataset.tabKey)];
     const limit=window.innerWidth>=1400?8:window.innerWidth>=1000?6:window.innerWidth>=760?4:2;
@@ -110,21 +138,9 @@
       pin.setAttribute("aria-label",(state.pinnedProjects.includes(id)?text("取消固定 ","Unpin "):text("固定 ","Pin "))+link.textContent);
       pin.onclick=()=>save({projectId:id,pinned:!state.pinnedProjects.includes(id)}).catch(()=>{});
       row.append(link,pin);
-      if(id===projectID && sorted.length) {
-        const show=!state.collapsedProjects.includes(id),branch=document.createElement("button");
-        branch.type="button";branch.textContent=show?"▾":"▸";branch.setAttribute("aria-expanded",String(show));
-        branch.setAttribute("aria-label",text("项目模块","Project modules")+" · "+link.textContent);
-        branch.onclick=()=>save({projectId:id,collapsed:show}).catch(()=>{});
-        row.prepend(branch);
-        if(show){
-          const children=document.createElement("div");children.className="shell-project-children";
-          for(const tab of sorted){const a=document.createElement("a");a.href=tab.href;a.textContent=tab.textContent;if(tab.dataset.view)a.dataset.view=tab.dataset.view;children.append(a);}
-          row.append(children);
-        }
-      }
       return row;
     }));
   }
-  window.SciShellLayout={request,ready,save,top,decorateTop,decorateProject,get state(){return state;}};
+  window.SciShellLayout={request,ready,save,top,decorateTop,decorateProject,dismissProjectNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();
