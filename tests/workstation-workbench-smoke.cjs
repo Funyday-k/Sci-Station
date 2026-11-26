@@ -2,7 +2,7 @@
 
 // Run from the source checkout corresponding to the given app bundle. The
 // shared WK driver links this source into a separate, disposable native copy.
-// node tests/workstation-workbench-smoke.cjs /path/to/Sci-Station.app /tmp/evidence [baseline]
+// node tests/workstation-workbench-smoke.cjs /path/to/Sci-Station.app /tmp/evidence [baseline|--short-display]
 const assert = require("node:assert/strict");
 const {mkdir, mkdtemp, realpath, rm, writeFile} = require("node:fs/promises");
 const {tmpdir} = require("node:os");
@@ -60,7 +60,7 @@ async function fixture(source, base) {
   return {browser, app};
 }
 
-async function run(app, browser, output, baseline) {
+async function run(app, browser, output, {baseline, wideHeight}) {
   const {ui} = browser;
   const {project, other, paper} = await seed(app);
   const report = [];
@@ -89,7 +89,7 @@ async function run(app, browser, output, baseline) {
   const open = async url => { await ui.navigate(new URL(url, app.origin).href); };
 
   try {
-    await resize(1440, 900);
+    await resize(1440, wideHeight);
     await ui.click(routes.home);
     await loaded();
     await ui.visible("#dashboard-view");
@@ -212,7 +212,7 @@ async function run(app, browser, output, baseline) {
         rootBackground:getComputedStyle(root).backgroundColor, cardBackground:computed(".card").backgroundColor,
         questionSize:parseFloat(computed("#question").fontSize), buttonColor:computed("#lab-start").backgroundColor};
     });
-    await resize(1440, 900);
+    await resize(1440, wideHeight);
     await appearance("light", "standard", "iris");
     const standard = await lab();
     await snapshot("11-lab-light-wide");
@@ -233,13 +233,15 @@ async function run(app, browser, output, baseline) {
 async function main() {
   assert.equal(process.platform, "darwin");
   const [bundle, destination, mode] = process.argv.slice(2);
-  assert.ok(bundle && destination && (mode === undefined || mode === "baseline"), "Pass a signed app bundle and an evidence directory");
+  assert.ok(bundle && destination && [undefined, "baseline", "--short-display"].includes(mode),
+    "Pass a signed app bundle, an evidence directory and optionally baseline or --short-display");
+  const options = {baseline:mode === "baseline", wideHeight:mode === "--short-display" ? 620 : 900};
   const output = path.resolve(destination);
   await mkdir(output, {recursive:true});
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "sci-workbench-ui-")));
   try {
     const {app, browser} = await fixture(await realpath(bundle), base);
-    try { await run(app, browser, output, mode === "baseline"); }
+    try { await run(app, browser, output, options); }
     finally { await app.close(); }
   } finally {
     await rm(base, {recursive:true,force:true});
