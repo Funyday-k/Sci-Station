@@ -20,6 +20,59 @@ function loadLibrary(ui, globals = {}) {
   }
 }
 
+test("Space previews the selected local PDF and preserves input, checkbox, dialog and Reader behavior", () => {
+  const papers = [
+    {id: "metadata", title: "Metadata only"},
+    {id: "local", title: "Local PDF", has_pdf: true},
+  ];
+  const documentEvents = {}, windowEvents = {};
+  const requests = [], destinations = [];
+  let dialogOpen = false;
+  const ui = {
+    state: {view: "papers", query: "", papers},
+    enc: encodeURIComponent,
+    reader: id => "/reader?paper=" + id,
+    render() {},
+    toast: assert.fail,
+    async request(url, {method, body}) {
+      requests.push([url, method, body.action]);
+    },
+  };
+  loadLibrary(ui, {
+    window: {SciResearch: ui, addEventListener: (type, handler) => { windowEvents[type] = handler; }},
+    document: {
+      addEventListener: (type, handler) => { documentEvents[type] = handler; },
+      querySelector: selector => selector === "dialog[open]" && dialogOpen ? {} : null,
+    },
+    location: {assign: url => destinations.push(url)},
+  });
+  ui.library.filterPapers(papers, "");
+  const select = (id, checked) => documentEvents.change({target: {checked, dataset: {librarySelection: id}}});
+  select("metadata", true);
+  select("local", true);
+
+  const space = target => {
+    const event = {key: " ", target, preventDefault() { this.defaultPrevented = true; }};
+    documentEvents.keydown(event);
+    return Boolean(event.defaultPrevented);
+  };
+  const body = {closest: () => null};
+  const input = {closest: selectors => selectors.split(",").includes("input") ? {} : null};
+  assert.equal(space(input), false, "search and checkbox retain the browser's Space behavior");
+  dialogOpen = true;
+  assert.equal(space(body), false, "a non-input target in an open dialog is still protected");
+  dialogOpen = false;
+  assert.deepEqual(requests, []);
+  assert.equal(space(body), true);
+  assert.deepEqual(requests, [["papers/local/native-file", "POST", "open"]]);
+  assert.deepEqual(destinations, []);
+
+  select("metadata", false);
+  windowEvents["scistation:command"]({detail: "reader", preventDefault() {}});
+  assert.deepEqual(destinations, ["/reader?paper=local"]);
+  assert.equal(requests.length, 1);
+});
+
 test("paper editor preserves invisible project and core memberships while updating visible choices", async () => {
   const visible = ["active-add", "active-remove", "active-core"];
   const choices = (name, defaults) => visible.map(value => ({
