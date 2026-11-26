@@ -298,3 +298,109 @@ func TestGlobalRoundtableHasNoDirectoryGrant(t *testing.T) {
 	}
 	t.Fatal("global round did not settle")
 }
+
+func TestUnscopedRoundtableKeepsProjectMaterialsSeparate(t *testing.T) {
+	root := t.TempDir()
+	science, err := research.New(filepath.Join(root, "research"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompted := make(chan string, 1)
+	engine, err := meeting.New(filepath.Join(root, "meetings"), func(_ context.Context, _, _, prompt, _ string) (string, error) {
+		prompted <- prompt
+		return `{"action":"say","text":"Scope fixture acknowledged."}`, nil
+	}, func() meeting.Settings {
+		return meeting.Settings{Models: map[string]string{"codex": "fixture"}, Timeout: 1, MaxSteps: 1}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Shutdown(context.Background()) })
+	engine.SetProjectAccess(science.WithProjectDirectory)
+	server := (&apiServer{research: science, meetings: engine}).serve(8765)
+
+	call := func(method, path string, input any, expected int) []byte {
+		t.Helper()
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(method, "http://localhost:8765/api/"+path, bytes.NewReader(raw))
+		r.Header.Set("X-Roundtable", "1")
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		server.ServeHTTP(w, r)
+		if w.Code != expected {
+			t.Fatalf("%s %s: got %d want %d: %s", method, path, w.Code, expected, w.Body)
+		}
+		return w.Body.Bytes()
+	}
+	newProject := func(name string) research.Project {
+		return scienceWorkflowDecode[research.Project](t, call("POST", "research/projects", map[string]string{"name": name}, 201))
+	}
+	a, b := newProject("Fixture A"), newProject("Fixture B")
+	store := func(name, value string) string {
+		t.Helper()
+		m, err := engine.StoreMaterial(name+".txt", strings.NewReader(value))
+		if err != nil || m.ReadStatus != meeting.MaterialReadText {
+			t.Fatalf("store %s: %+v %v", name, m, err)
+		}
+		return m.ID
+	}
+	aExcerpt := store("A excerpt", meeting.ProjectExcerptMarker+fmt.Sprintf(`{"projectId":%q}`, a.ID)+"\n\nPROJECT_A_BODY")
+	bExcerpt := store("B excerpt", meeting.PaperExcerptMarker+fmt.Sprintf(`{"projectId":%q}`, b.ID)+"\n\nPROJECT_B_BODY")
+	regular := store("Regular upload", "USER_UPLOAD")
+	legacy := store("Legacy attachment", meeting.PaperExcerptMarker+`{"page":1}`+"\n\nLEGACY_ATTACHMENT")
+
+	const sessions = "studio/sessions"
+	input := func(p research.Project, attachments ...string) map[string]any {
+		fields := map[string]any{"topic": "Roundtable scope fixture", "seats": []string{"codex"}, "material_ids": attachments}
+		if p.ID == "" {
+			fields["scope"] = "global"
+		} else {
+			fields["project_id"] = p.ID
+		}
+		return fields
+	}
+	create := func(p research.Project, attachments ...string) meeting.Session {
+		return scienceWorkflowDecode[meeting.Session](t, call("POST", sessions, input(p, attachments...), 201))
+	}
+
+	call("POST", sessions, input(research.Project{}, regular, aExcerpt), 403)
+	call("POST", sessions, input(a, aExcerpt, bExcerpt), 403)
+	call("POST", sessions, input(b, aExcerpt), 403)
+	aRoom, bRoom, unscoped := create(a, aExcerpt), create(b, bExcerpt), create(research.Project{}, regular, legacy)
+	if aRoom.ProjectID != a.ID || bRoom.ProjectID != b.ID || unscoped.ProjectID != "" || unscoped.Project != "" {
+		t.Fatalf("unstable session ownership: A %q; B %q; unscoped %q/%q", aRoom.ProjectID, bRoom.ProjectID, unscoped.ProjectID, unscoped.Project)
+	}
+	unscopedPath := sessions + "/" + unscoped.ID
+	call("GET", unscopedPath+"/files", nil, 403)
+	run := func(path, material string, expected int) {
+		fields := map[string]any{"expected_round": 0, "allow_edits": true}
+		if material != "" {
+			fields["material_ids"] = []string{material}
+		}
+		call("POST", path+"/run", fields, expected)
+	}
+	run(unscopedPath, aExcerpt, 403)
+	run(sessions+"/"+aRoom.ID, bExcerpt, 403)
+	run(unscopedPath, "", 202)
+	select {
+	case prompt := <-prompted:
+		if strings.Contains(prompt, "PROJECT_A_BODY") || strings.Contains(prompt, "PROJECT_B_BODY") ||
+			!strings.Contains(prompt, "USER_UPLOAD") || !strings.Contains(prompt, "LEGACY_ATTACHMENT") ||
+			!strings.Contains(prompt, `"catalog":[]`) || !strings.Contains(prompt, `"allow_edits":false`) {
+			t.Fatal("unscoped model prompt did not preserve its attachment and permission boundary")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("unscoped discussion never reached the offline fixture")
+	}
+	list := scienceWorkflowDecode[struct{ Sessions []meeting.Summary }](t, call("GET", sessions, nil, 200))
+	if len(list.Sessions) != 3 {
+		t.Fatalf("failed binding left an unexpected session: %+v", list.Sessions)
+	}
+	persisted := scienceWorkflowDecode[meeting.Session](t, call("GET", unscopedPath, nil, 200))
+	if len(persisted.Materials) != 2 || persisted.Materials[0].ID != regular || persisted.Materials[1].ID != legacy {
+		t.Fatalf("unscoped attachments changed after a rejected binding: %+v", persisted.Materials)
+	}
+}

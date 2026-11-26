@@ -262,7 +262,7 @@
     if (id) url.searchParams.set("session", id);
     else url.searchParams.delete("session");
     const project = id ? createdProject || state.sessions.find(item=>item.id===id)?.project_id || state.session?.project_id :
-      projects.available().find(item=>item.id===state.activeProject && !item.global)?.id;
+      projects.available().find(item=>item.id===state.activeProject)?.id;
     if (project) url.searchParams.set("project",project); else url.searchParams.delete("project");
     if (!preserveHash) url.hash = "";
     if (!restoringRoute) {
@@ -536,9 +536,9 @@
     const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
     const viewName = state.view === "settings" ? text("设置", "Settings")
       : state.view === "plugins" ? text("插件市场", "Plugin marketplace") : "";
-    const title = viewName || (state.selected
-      ? sessionTitle(currentSummary())
-      : projectName ? `${projectName} / 新建圆桌` : "新建圆桌");
+    const newTitle = text("新建圆桌", "New Roundtable");
+    const title = viewName || (state.selected ? sessionTitle(currentSummary()) :
+      projectName ? `${projectName} / ${newTitle}` : newTitle);
     $("view-title").textContent = title;
     $("view-title").title =
       state.view === "table" && state.titleErrors.has(state.selected) && !state.titles.has(state.selected)
@@ -1999,64 +1999,46 @@
     }
   }
   function setActiveProject(key = "") {
-    if (state.activeProject === key) return;
     state.activeProject = key;
-    storageSet("studio.active-project", key);
   }
   function paintDraftProject() {
     if (!state.draftOpen) return;
     const options = projects.available();
-    const project = window.RoundtableProjects.resolveSelection(
-      options, state.activeProject ?? storageGet("studio.active-project"),
-      state.projectListStatus === "ready",
-    );
+    const project = window.RoundtableProjects.resolveSelection(options, state.activeProject);
     $("create-form").hidden = !project;
     $("draft-project-required").hidden = !!project;
+    createCommands.close();
     if (project) {
+      const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
+      const chooser = $("create-project");
+      chooser.replaceChildren(new Option(text("不关联项目", "No project"), "@global"),
+        ...options.map(option => new Option(option.name, option.id)));
+      chooser.value = project.id;
       setActiveProject(project.id);
-      createCommands.close();
       setup.open(project);
       paintTextLimit("new-topic");
       renderHistory();
-      renderHeading();
-      return;
+    } else {
+      setup.suspend();
+      $("draft-project-message").textContent = state.projectListStatus === "loading" ? "正在读取项目…" :
+        state.projectListStatus === "failed" ? "暂时无法读取项目" : "该项目当前不可用";
+      $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
     }
-    createCommands.close();
-    setup.suspend();
-    $("draft-project-message").textContent =
-      options.some(option => !option.global) ? "选择要创建圆桌的项目" :
-      state.projectListStatus === "loading" ? "正在读取项目…" :
-      state.projectListStatus === "failed" ? "暂时无法读取项目" : "添加项目，或创建全局圆桌";
-    $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
-    const buttons = options.map(option => {
-      const button = document.createElement("button");
-      button.className = "button secondary";
-      button.type = "button";
-      button.textContent = options.some(other => other !== option && other.name === option.name)
-        ? option.path || option.name : option.name;
-      button.title = option.path || option.name;
-      button.addEventListener("click", () => openDraft(option.id));
-      return button;
-    });
-    $("draft-project-options").replaceChildren(...buttons);
     renderHeading();
   }
-  function openDraft(project) {
-    if (state.writing) return;
+  function openDraft(project = new URL(location.href).searchParams.get("project") || "@global") {
+    if (state.writing || !canLeaveFile()) return;
     if (!restoringRoute) {
-      const key=project || state.activeProject;
-      const selected=projects.available().find(item=>item.id===key && !item.global);
-      const href=window.SciStationNav.route("/studio",{project:selected?.id});
+      const href=window.SciStationNav.route("/studio",{project:project==="@global"?undefined:project});
       if (new URL(href,location.href).href!==location.href) {
         location.assign(href);
         return;
       }
     }
-    if (!canLeaveFile()) return;
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
-    if (project) setActiveProject(project);
+    setActiveProject(project);
     state.selected = null;
     state.session = null;
     window.SciStationReadReview?.update($("studio-read-review"), null);
@@ -2709,7 +2691,7 @@
     const payload = setup.payload(chief.target);
     const scope = payload.scope === "global" ? "@global" : payload.project_id || payload.project;
     if (scope !== state.activeProject ||
-        !projects.available().some(project => (project.id || project.path) === scope)) return;
+        !window.RoundtableProjects.resolveSelection(projects.available(), scope)) return;
     state.writing = true;
     updateControls();
     clearError();
@@ -3038,6 +3020,8 @@
   window.addEventListener("resize", () => closeHistoryMenu(false));
   window.addEventListener("blur", () => closeHistoryMenu(false));
   $("new-session").addEventListener("click", () => openDraft());
+  $("create-project").addEventListener("change", event => openDraft(event.target.value));
+  $("draft-clear-project").addEventListener("click", () => openDraft("@global"));
   $("dismiss-notice").addEventListener("click", clearError);
   $("toggle-sidebar").addEventListener("click", () =>
     sidebar(
@@ -3128,12 +3112,11 @@
     let research = null;
     try {
       research = window.ScienceMeeting?.requestedProject(entry.searchParams.get("project"));
-    } catch (error) {
-      if (entry.searchParams.has("project")) { showError(error); return; }
+    } catch {
+      // Keep the requested project visible as unavailable if the catalog changed.
     }
     if (linked) await openSession(linked, { preserveHash: true });
-    else if (research) openDraft(research.id);
-    else if (!state.selected) openDraft("@global");
+    else if (!state.selected) openDraft();
     if (research) {
       try {
         await window.ScienceMeeting.receive(research, linked,
@@ -3372,8 +3355,6 @@
     newSession:openDraft, projectsChanged:paintDraftProject,
     rerender:() => { state.historyKey = ""; renderHistory(); },
   });
-  $("draft-add-project").addEventListener("click", event => projects.openAdd(event.currentTarget));
-  $("draft-import-project").addEventListener("click", event => projects.openImport(event.currentTarget));
   $("draft-retry-projects").addEventListener("click", boot);
   $("retry-connect").addEventListener("click", boot);
   sidebar(

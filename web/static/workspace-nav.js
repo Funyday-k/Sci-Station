@@ -62,7 +62,7 @@
       ["library", local("routeLibrary","文献库","Library"), research("papers")],
       ["calendar", local("routeCalendar","日历与任务","Calendar"), research("calendar")],
       ["lab", local("routeAILab","AI 实验室","AI Lab"), route("/lab", {project})],
-      ["roundtable", local("roundtable","圆桌","Roundtable"), route("/studio",{project})],
+      ["roundtable", local("roundtable","圆桌","Roundtable"), route("/studio")],
       ["settings", local("routeSettings","设置","Settings"), route("/studio",{view:"settings",project})]
     ].map(([key,name,href]) => ({key,name,href,active:active===key}));
   }
@@ -157,7 +157,8 @@
       rootAction({openWorkspace:"open",createWorkspace:"create",revealWorkspace:"reveal",renameWorkspace:"rename",forgetWorkspace:"forget"}[key]);return true;
     }
     const url=currentURL();
-    if (["settings","roundtable","plugins"].includes(key) && url.pathname === "/studio") {
+    if (["settings","roundtable","plugins"].includes(key) && url.pathname === "/studio" &&
+        (key !== "roundtable" || !url.searchParams.has("project"))) {
       const view={roundtable:"table",settings:"settings",plugins:"plugins"}[key];
       if (!window.dispatchEvent(new CustomEvent("roundtable:navigate",{detail:view,cancelable:true}))) return true;
     }

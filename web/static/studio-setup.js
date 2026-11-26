@@ -276,7 +276,9 @@
       draftKey = key;
       scope = project.global ? {scope: "global"} :
         (project.id ? {project_id: project.id} : {project: project.path});
-      $("create-project-access").textContent = project.global ? "全局圆桌无项目文件访问" : "讨论仅读取项目文件";
+      $("create-project-access").textContent = project.global
+        ? (window.SciStationI18n?.text("此会话无项目文件权限", "This session has no project file access") ?? "此会话无项目文件权限")
+        : (window.SciStationI18n?.text("讨论仅读取项目文件", "Discussion has read-only access to project files") ?? "讨论仅读取项目文件");
       continuous.open(key);
       const draft = drafts[key] || {};
       members = restoreMembers(draft.members, draft.lastDraftSeat);

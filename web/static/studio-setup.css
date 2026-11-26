@@ -30,6 +30,8 @@
 .preset-card:has(:checked) .preset-figure { color: var(--accent); }
 .preset-card strong { font-size: 13px; line-height: 1.5; font-weight: 600; }
 .preset-caption { font-size: 11px; color: var(--setup-muted); font-weight: 400; }
+.setup-project { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.setup-project select { min-width: min(100%, 12rem); max-width: 100%; }
 .setup-access { display: grid; gap: 2px; margin-top: 8px; padding: 7px 9px; border-radius: 6px; background: var(--surface); }
 .setup-access strong { font-size: 11px; font-weight: 600; }
 .setup-access small { font-size: 11px; line-height: 1.45; color: var(--setup-muted); }

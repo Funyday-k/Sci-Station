@@ -114,16 +114,21 @@ test("both clients only display a length warning above the Unicode code-point li
   }
 });
 
-test("one confirmed project defaults; stale and partial choices do not guess", () => {
+test("Roundtable defaults to no project and honors only explicit project selections", () => {
   const window = {};
   vm.runInNewContext(read("projects.js"), { window });
   const { resolveSelection } = window.RoundtableProjects;
-  assert.equal(resolveSelection([], "/old", true), null);
-  assert.equal(resolveSelection([one, two], "/old", true), null);
-  assert.equal(resolveSelection([one, two], "", true), null);
-  assert.equal(resolveSelection([one], "", false), null);
-  assert.equal(resolveSelection([one], "/old", true), one);
-  assert.equal(resolveSelection([one, two], two.path, false), two);
+  assert.equal(resolveSelection([], "/old"), null);
+  assert.equal(resolveSelection([one, two], "/old"), null);
+  assert.equal(resolveSelection([one], "/old"), null);
+  assert.equal(resolveSelection([one, two], two.path), two);
+  assert.equal(resolveSelection([one, two], "").global, true);
+  assert.equal(resolveSelection([one], "").global, true);
+  assert.equal(resolveSelection([one, two], "@global").global, true);
+  assert.equal(resolveSelection([], "").global, true);
+  const navigation = require("../web/static/workspace-nav.js");
+  const target = navigation.destinations(new URL("https://example.test/research?project=fixture")).find(link=>link.key==="roundtable");
+  assert.equal(target.href, "/studio");
 });
 
 test("project switching restores only that project's draft and drops legacy path and agenda values", async () => {
@@ -269,7 +274,7 @@ test("setup shows read-only discussion in every preset and no project directorie
     assert.equal($("create-project-access").textContent, "讨论仅读取项目文件");
   }
   setup.open({id: "@global", path: "", global: true});
-  assert.equal($("create-project-access").textContent, "全局圆桌无项目文件访问");
+  assert.equal($("create-project-access").textContent, "此会话无项目文件权限");
   const html = read("studio.html");
   assert.match(html, /配置持续推进/);
   assert.match(html, /创建后请先核对议程，再点击「开始持续推进」/);
@@ -290,8 +295,10 @@ test("create refuses a stale path and retains the current draft on a request fai
   $("table-scroll").focus = () => { focusedAfterCreation = "conversation"; };
   const start = studio.indexOf('  $("create-form").addEventListener("submit"');
   const end = studio.indexOf('  $("run-form").addEventListener("submit"', start);
+  const window = {};
+  vm.runInNewContext(read("projects.js"), {window});
   vm.runInNewContext(studio.slice(start, end), {
-    $, state, paintTextLimit: inputLimit(document),
+    $, state, window, paintTextLimit: inputLimit(document),
     projects: { available: () => [one, two] },
     topicMention: { resolve: () => ({target:"seat-2"}) },
     setup: {

@@ -156,15 +156,17 @@
           <div id="setup-scroll" class="page-scroll">
               <div id="stage-layout" class="stage-layout is-new">
                 <div id="draft-project-required" class="setup-panel" hidden>
-                  <h2 id="draft-project-message" tabindex="-1">选择要创建圆桌的项目</h2>
-                  <div id="draft-project-options" class="draft-project-options"></div>
+                  <h2 id="draft-project-message" tabindex="-1">该项目当前不可用</h2>
                   <div class="draft-project-actions">
-                    <button id="draft-add-project" type="button" class="button secondary">添加项目</button>
-                    <button id="draft-import-project" type="button" class="button secondary">导入项目配置</button>
+                    <button id="draft-clear-project" type="button" class="button secondary" data-en="Continue without a project">不关联项目</button>
                     <button id="draft-retry-projects" type="button" class="button secondary" hidden>重新读取</button>
                   </div>
                 </div>
                 <form id="create-form" class="setup-panel" hidden>
+                  <div class="setup-section setup-project">
+                    <label for="create-project" data-en="Project (optional)">项目（可选）</label>
+                    <select id="create-project" aria-describedby="create-project-access"></select>
+                  </div>
                   <section id="create-composer" class="setup-section">
                     <label for="new-topic">会议议题</label>
                     <div id="create-materials"></div>
