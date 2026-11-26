@@ -126,9 +126,6 @@ test("Roundtable defaults to no project and honors only explicit project selecti
   assert.equal(resolveSelection([one], "").global, true);
   assert.equal(resolveSelection([one, two], "@global").global, true);
   assert.equal(resolveSelection([], "").global, true);
-  const navigation = require("../web/static/workspace-nav.js");
-  const target = navigation.destinations(new URL("https://example.test/research?project=fixture")).find(link=>link.key==="roundtable");
-  assert.equal(target.href, "/studio");
 });
 
 test("project switching restores only that project's draft and drops legacy path and agenda values", async () => {
@@ -448,7 +445,7 @@ test("continuous settings persist in drafts and survive all four meeting mode ch
       if (sent.length === 1) throw new Error("connection interrupted");
       return {...state.session, status:"running"};
     },
-    stopPoll() {}, updateControls() {}, clearError() {}, updateSession() {}, requestTitle() {},
+    stopPoll() {}, updateControls() {}, clearError() {}, updateSession() {}, requestTitle() {}, clearModeFollowup() {},
     schedulePoll() {}, handleSessionError:async () => { rejected++; },
   };
   $("run-note").value = "Continue with this constraint";

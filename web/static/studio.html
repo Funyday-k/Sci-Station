@@ -56,6 +56,7 @@
     <script src="/static/cli-edit-review.js" defer></script>
     <script src="/static/science-meeting.js" defer></script>
     <script src="/static/lab-handoff.js" defer></script>
+    <script src="/static/studio-mode-transfer.js" defer></script>
     <script src="/static/studio.js" defer></script>
     <script src="/static/children-panel.js" defer></script>
 {{end}}
@@ -179,6 +180,17 @@
                     <label for="create-project" data-en="Project (optional)">项目（可选）</label>
                     <select id="create-project" aria-describedby="create-project-access"></select>
                   </div>
+                  <section id="studio-mode-import" class="setup-section" aria-labelledby="studio-mode-import-title" hidden>
+                    <h2 id="studio-mode-import-title" data-en="From single chat">从单人对话转来</h2>
+                    <a id="studio-mode-source" data-en="Open original chat" hidden>查看原会话</a>
+                    <details>
+                      <summary data-en="Review context and attachments">查看上下文和附件</summary>
+                      <pre id="studio-mode-context"></pre>
+                      <ul id="studio-mode-attachments"></ul>
+                    </details>
+                    <button id="studio-mode-apply" class="button secondary" type="button" data-en="Add to draft">加入草稿</button>
+                    <button id="studio-mode-dismiss" class="text-button" type="button" data-en="Dismiss">忽略</button>
+                  </section>
                   <section id="create-composer" class="setup-section">
                     <label for="new-topic">会议议题</label>
                     <div id="create-materials"></div>

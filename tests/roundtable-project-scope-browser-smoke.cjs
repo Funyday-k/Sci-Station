@@ -45,7 +45,14 @@ async function main() {
     });
 
     const projectSelect = "#create-project", composer = "#new-topic", access = "#create-project-access";
-    const optional = "@global", roundtable = "[data-workspace-nav] a[data-section='roundtable']";
+    const optional = "@global", ai = "[data-workspace-nav] a[data-section='lab']";
+    const roundtable = "[data-ai-mode='roundtable']";
+    async function enterUnscopedRoundtable() {
+      await ui.click(ai);
+      await eventually(() => ui.evaluate(() => location.pathname === "/lab" && !new URL(location.href).searchParams.has("project")),
+        "workspace AI entry has no project");
+      await ui.click(roundtable);
+    }
     const wiki = app.origin+"/research?project="+a.id;
     const aRoute = app.origin+"/studio?project="+a.id;
     const checkDraft = async (expected, draft, protect) => {
@@ -57,9 +64,9 @@ async function main() {
 
     // Simulate an installed release that left a previous project pointer.
     await ui.navigate(wiki);
-    await ui.visible(roundtable);
+    await ui.visible(ai);
     await ui.evaluate(id => localStorage.setItem("studio.active-project", id), b.id);
-    await ui.click(roundtable);
+    await enterUnscopedRoundtable();
     await checkDraft(optional, "", false);
     assert.equal(new URL(await ui.evaluate(() => location.href)).searchParams.has("project"), false);
     assert.equal(await ui.evaluate(() => document.querySelector("#history")?.textContent.includes("全局圆桌")), false);
@@ -102,7 +109,7 @@ async function main() {
     await ui.visible("#create-materials", "A original");
     const roomA = await create(undefined, a.id, [attachments[0].id]);
 
-    await ui.click(roundtable);
+    await enterUnscopedRoundtable();
     await checkDraft(optional, "", false);
     await ui.set(projectSelect, b.id);
     await checkDraft(b.id, "B isolated draft", true);
