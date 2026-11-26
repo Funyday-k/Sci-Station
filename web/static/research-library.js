@@ -209,13 +209,12 @@
       const cells = shown.map(key => {
         if (key === "tags") return '<td>' + (paperTags(paper) || "—") + '</td>';
         if (key === "title") {
-          const link = paper.project_links?.[projectID];
-          const details = [paper.citekey, paper.core_project_ids?.includes(projectID) && "核心文献",
-            link?.is_pinned && "已置顶", link?.sort_order != null && ("序号 " + link.sort_order),
-            link?.folder_path && ("文件夹 " + link.folder_path), link?.use_for?.length && ("用途 " + link.use_for.join("、"))]
-            .filter(Boolean).join(" · ");
+          const marks = [
+            paper.core_project_ids?.includes(projectID) && text("核心文献", "Core paper"),
+            paper.project_links?.[projectID]?.is_pinned && text("已置顶", "Pinned")
+          ].filter(Boolean).map(mark => '<span class="tag status-tag">' + esc(mark) + '</span>').join("");
           return '<th scope="row">' + E.link(paper.title, E.reader(paper.id), "library-paper-title") +
-            (details ? '<span class="meta">' + esc(details) + '</span>' : "") + '</th>';
+            (marks ? '<div class="library-paper-marks">' + marks + '</div>' : "") + '</th>';
         }
         return '<td>' + esc(tableValue(paper, key) || "—") + '</td>';
       }).join("");

@@ -1,15 +1,7 @@
 :root {
-  --reading-increase: 0px;
+  --reading-increase: var(--workspace-text-increase);
   --reading-size: calc(15px + var(--reading-increase));
   --reading-small: calc(14px + var(--reading-increase));
-}
-
-:root[data-text-size="large"] {
-  --reading-increase: 2px;
-}
-
-:root[data-text-size="extra-large"] {
-  --reading-increase: 4px;
 }
 
 .reading-preview {

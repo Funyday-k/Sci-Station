@@ -236,7 +236,7 @@
   function row(glyph, title, meta, control, tag = "", more = "", project = null) {
     return '<div class="row"><div class="glyph">' + (project ? projectBadge(project) : icon(glyph)) + '</div><' + control +
       ' class="row-main"><span class="title">' + esc(title) + '</span>' + (meta ? '<span class="meta">' + esc(meta) +
-        '</span>' : '') + '</' + (control.startsWith("a ") ? 'a' : 'button') + '>' + (tag ? '<span class="tag">' + esc(
+        '</span>' : '') + '</' + (control.startsWith("a ") ? 'a' : 'button') + '>' + (tag ? '<span class="tag status-tag">' + esc(
         tag) + '</span>' : '') + more + '</div>';
   }
 
@@ -268,13 +268,10 @@
   function paperRows(papers, projectID = "") {
     return list(papers.map(p => {
       const link = p.project_links?.[projectID];
-      const meta = [p.authors?.slice(0, 3).join("、"), p.year || "", p.citekey];
+      const meta = [p.authors?.slice(0, 3).join("、"), p.year || ""];
       if (projectID) {
         if (p.core_project_ids?.includes(projectID)) meta.push(text("核心文献", "Core paper"));
         if (link?.is_pinned) meta.push(text("已置顶", "Pinned"));
-        if (link?.sort_order != null) meta.push(text("序号 ", "Order ") + link.sort_order);
-        if (link?.folder_path) meta.push(text("文件夹 ", "Folder ") + link.folder_path);
-        if (link?.use_for?.length) meta.push(text("用途 ", "Purpose ") + link.use_for.join("、"));
       }
       return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
         statusLabel[p.status] || statusLabel.unread, (projectID ? button(text("论文 Wiki", "Paper Wiki"), "open-paper-wiki", {id:p.id,kind:"bare"}) : "") +
@@ -325,16 +322,21 @@
     return list(tasks.map(t => {
       const closed = closedTask(t);
       const projects = (t.projectIds || [t.projectId]).map(id => state.projects.find(p => p.id === id)?.name);
-      const meta = [!state.project ? projects.filter(Boolean).join("、") || "未分配" : "", t.kind === "reading" ? "论文阅读" : "", taskDateLabel(t),
-        taskPriorityLabels[t.priority] ? taskPriorityLabels[t.priority] + "优先级" : "", t.description];
+      const facts = [
+        !state.project && (projects.filter(Boolean).join("、") || "未分配"),
+        taskDateLabel(t),
+        taskPriorityLabels[t.priority] && taskPriorityLabels[t.priority] + "优先级",
+        t.kind === "reading" && "论文阅读"
+      ].filter(Boolean).join(" · ");
       const labels = (t.tags || []).map(name => taskTagChip(name, tags.get(name))).join("");
       return '<div class="row ' + (closed ? "completed" : "") + '"><button type="button" class="task-check ' +
         (closed ? "done" : "") + '" aria-label="' + esc((closed ? "重新打开" : "完成") + "：" + t.title) +
         '" data-action="toggle-task" data-id="' + esc(t.id) + '">' + (closed ? "✓" : "") +
         '</button><button class="row-main" data-action="edit-task" data-id="' + esc(t.id) + '"><span class="title">' +
-        esc(t.title) + '</span><span class="meta">' + esc(meta.filter(Boolean).join(" · ").slice(0, 140)) +
-        '</span>' + (labels ? '<span class="task-labels">' + labels + '</span>' : '') +
-        '</button><span class="tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
+        esc(t.title) + '</span>' + (facts ? '<span class="row-facts">' + esc(facts) + '</span>' : "") +
+        (t.description ? '<span class="meta">' + esc(t.description.slice(0, 140)) + '</span>' : "") +
+        (labels ? '<span class="task-labels">' + labels + '</span>' : "") +
+        '</button><span class="tag status-tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
     }));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a

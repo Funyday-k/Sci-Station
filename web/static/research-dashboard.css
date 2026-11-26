@@ -156,9 +156,6 @@
 }
 
 .dashboard-layout select {
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface);
   padding: 5px 7px;
   max-width: 100%;
 }
