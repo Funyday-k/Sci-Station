@@ -427,8 +427,8 @@
       return location.assign(E.reader(paper.id));
     }
     if (command === "deletePaper") {
-      if (editing) throw Error("请在当前文献的编辑窗口中确认删除");
-      return E.formAction("confirm-delete", "paper:" + paper.id);
+      if (editing) throw Error(text("请在当前文献编辑窗口中选择移除方式", "Choose a removal action in the open paper editor."));
+      return state.project ? E.formAction("confirm-paper-unlink", paper.id) : E.formAction("confirm-delete", "paper:" + paper.id);
     }
     if (!paper.has_pdf) throw Error("此文献尚无本地 PDF");
     return request("papers/" + enc(paper.id) + "/native-file", {

@@ -73,6 +73,26 @@ test("Space previews the selected local PDF and preserves input, checkbox, dialo
   assert.equal(requests.length, 1);
 });
 
+test("the native paper removal command acts on the current library scope", () => {
+  const paper = {id: "paper", title: "Shared paper", project_ids: ["selected-project"]};
+  const documentEvents = {}, windowEvents = {}, actions = [];
+  const ui = {state: {view: "papers", query: "", papers: [paper]}, render() {}, toast: assert.fail};
+  loadLibrary(ui, {
+    window: {SciResearch: ui, addEventListener: (type, handler) => { windowEvents[type] = handler; }},
+    document: {addEventListener: (type, handler) => { documentEvents[type] = handler; }, querySelector: () => null},
+  });
+  ui.formAction = (action, id) => actions.push([action, id]);
+  function removeSelection(project) {
+    ui.state.project = project;
+    ui.library.filterPapers([paper], project?.id || "");
+    documentEvents.change({target: {checked: true, dataset: {librarySelection: paper.id}}});
+    windowEvents["scistation:command"]({detail: "deletePaper", preventDefault() {}});
+  }
+  removeSelection({id: "selected-project"});
+  removeSelection(null);
+  assert.deepEqual(actions, [["confirm-paper-unlink", paper.id], ["confirm-delete", "paper:" + paper.id]]);
+});
+
 test("paper editor preserves invisible project and core memberships while updating visible choices", async () => {
   const visible = ["active-add", "active-remove", "active-core"];
   const choices = (name, defaults) => visible.map(value => ({

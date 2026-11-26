@@ -196,6 +196,8 @@ func New(dir string) (*Service, error) {
 	s.papers.SetProjectValidator(s.activeProjectLocked)
 	s.mux.Handle(prefix+"/papers", s.papers)
 	s.mux.Handle(prefix+"/papers/", s.papers)
+	s.mux.HandleFunc("GET "+prefix+"/papers/{paper}/removal", s.paperRemoval)
+	s.mux.HandleFunc("DELETE "+prefix+"/papers/{paper}/removal", s.paperRemoval)
 	s.mux.HandleFunc("GET "+prefix+"/paper-wiki-status", s.paperWikiStatus)
 	s.mux.HandleFunc("GET "+prefix+"/projects", s.listProjects)
 	s.mux.HandleFunc("POST "+prefix+"/projects", s.createProject)

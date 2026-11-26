@@ -74,8 +74,9 @@ func introducesMeetingSource(in noteInput, current Note) bool {
 	}
 	return false
 }
-func (s *Service) validateSources(in noteInput) error {
-	if in.PaperID != nil && *in.PaperID != "" {
+func (s *Service) validateSources(in noteInput, previous Note) error {
+	// A stored ID is historical provenance, even after a library deletion.
+	if in.PaperID != nil && *in.PaperID != "" && *in.PaperID != previous.PaperID {
 		if _, ok := s.papers.Snapshot(*in.PaperID); !ok {
 			return fmt.Errorf("关联论文不存在")
 		}
@@ -110,6 +111,29 @@ func (s *Service) validateSources(in noteInput) error {
 	}
 	return nil
 }
+
+type wikiNoteView struct {
+	Note
+	PaperStatus string `json:"paperStatus,omitempty"`
+}
+
+func (s *Service) wikiNoteView(n Note) wikiNoteView {
+	view := wikiNoteView{Note: n}
+	if n.PaperID == "" {
+		return view
+	}
+	paper, exists := s.papers.Snapshot(n.PaperID)
+	switch {
+	case !exists:
+		view.PaperStatus = "missing"
+	case !paperContains(paper.ProjectIDs, n.ProjectID):
+		view.PaperStatus = "outside_project"
+	default:
+		view.PaperStatus = "available"
+	}
+	return view
+}
+
 func updateNote(n *Note, in noteInput) bool {
 	if in.Title != nil {
 		n.Title = strings.TrimSpace(*in.Title)
@@ -206,7 +230,7 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		}
 		n, ok := d.Notes[id]
 		if found(w, ok && n.Archived == archived) {
-			jsonReply(w, 200, n)
+			jsonReply(w, 200, s.wikiNoteView(n))
 		}
 		return
 	}
@@ -241,7 +265,7 @@ func (s *Service) notes(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 403, "请通过会议审核保存来源")
 		return
 	}
-	if err := s.validateSources(in); err != nil {
+	if err := s.validateSources(in, d.Notes[id]); err != nil {
 		jsonFail(w, 409, err.Error())
 		return
 	}

@@ -30,7 +30,7 @@
   "menuCopyCitation": {"en": "Copy Citation", "zh-Hans": "复制引用"},
   "menuCopyBibTeX": {"en": "Copy BibTeX", "zh-Hans": "复制 BibTeX"},
   "menuExportBibTeX": {"en": "Export BibTeX", "zh-Hans": "导出 BibTeX"},
-  "menuDeleteSelectedPaper": {"en": "Delete Selected Paper", "zh-Hans": "删除所选论文"},
+  "menuDeleteSelectedPaper": {"en": "Remove Selected Paper…", "zh-Hans": "移除所选论文…"},
   "appCancel": {"en": "Cancel", "zh-Hans": "取消"},
   "sidebarResearchShell": {"en": "Research Shell", "zh-Hans": "研究工作台"},
   "sidebarNoProjects": {"en": "No projects", "zh-Hans": "暂无项目"},
