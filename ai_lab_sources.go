@@ -19,15 +19,18 @@ type labCitation struct {
 }
 
 type labSourcesRequest struct {
-	Line      int                     `json:"line,omitempty"`
-	Query     string                  `json:"query"`
-	Scope     string                  `json:"scope"`
-	ProjectID string                  `json:"projectId"`
-	Workflow  string                  `json:"workflow"`
-	Mode      string                  `json:"mode,omitempty"`
-	Rebuild   bool                    `json:"rebuild,omitempty"`
-	Location  research.SourceLocation `json:"location"`
-	Citations []labCitation           `json:"citations"`
+	Question        string                  `json:"question,omitempty"`
+	CurrentPaper    string                  `json:"currentPaper,omitempty"`
+	VisiblePaperIDs []string                `json:"visiblePaperIds,omitempty"`
+	Line            int                     `json:"line,omitempty"`
+	Query           string                  `json:"query"`
+	Scope           string                  `json:"scope"`
+	ProjectID       string                  `json:"projectId"`
+	Workflow        string                  `json:"workflow"`
+	Mode            string                  `json:"mode,omitempty"`
+	Rebuild         bool                    `json:"rebuild,omitempty"`
+	Location        research.SourceLocation `json:"location"`
+	Citations       []labCitation           `json:"citations"`
 }
 
 func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path string) {
@@ -45,13 +48,28 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 	if !jsonBody(w, r, &in) {
 		return
 	}
-	global := in.Scope == "global" && in.ProjectID == "" && len(in.Citations) == 0 && path == "sources/prepare"
+	global := in.Scope == "global" && in.ProjectID == "" && len(in.Citations) == 0 && (path == "sources/prepare" || path == "sources/question")
 	if in.Scope != "" && !global {
 		reject(w, 400, "全局会话无法选择项目材料")
 		return
 	}
 	if !global && !lab.HasActiveProject(in.ProjectID) {
 		reject(w, 404, "项目不存在或已归档")
+		return
+	}
+	if path == "sources/question" {
+		selected := make([]research.PaperQuestionSelection, 0, len(in.Citations))
+		for _, citation := range in.Citations {
+			selected = append(selected, research.PaperQuestionSelection{SourceLocation: citation.SourceLocation, Quote: citation.Quote})
+		}
+		items, err := lab.SuggestPaperPassages(r.Context(), research.PaperQuestion{
+			Text: in.Question, Project: in.ProjectID, CurrentPaper: in.CurrentPaper, VisiblePaperIDs: in.VisiblePaperIDs, Selected: selected,
+		})
+		if err != nil {
+			reject(w, 422, err.Error())
+			return
+		}
+		reply(w, 200, items)
 		return
 	}
 	if !requireLabModules(w, lab, in, path != "sources/prepare") {

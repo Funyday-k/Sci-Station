@@ -73,7 +73,7 @@ func (a *apiServer) serveAILab(w http.ResponseWriter, r *http.Request) {
 		a.serveLabReplay(w, r, strings.TrimPrefix(path, "replay/"))
 		return
 	}
-	if path == "sources/preview" || path == "sources/prepare" || path == "sources/search" {
+	if path == "sources/preview" || path == "sources/prepare" || path == "sources/search" || path == "sources/question" {
 		a.serveLabSources(w, r, path)
 		return
 	}

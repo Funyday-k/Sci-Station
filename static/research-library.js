@@ -559,7 +559,7 @@
     return otherActions(action, id);
   };
 
-  E.library = {selectedPapers:()=>selection(visiblePapers),lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
+  E.library = {visiblePaperIds:()=>visiblePapers.map(p=>p.id), selectedPapers:()=>selection(visiblePapers),lines, collectionPath, collectionField, metadataFields, metadataPayload, saveMetadata,
     filterPapers, renderFilters, paperTags, selectionCheckbox, exportButton, clearSelection, bulkPatch, renderPaperTable};
   E.start();
 })();

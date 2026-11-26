@@ -25,6 +25,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Follow individual references between Wiki pages, tasks and source passages. Preserve reading position, selected-text offsets and the PDF fingerprint when returning from a meeting.
 - Review proposals to write meeting results to notes or tasks, retry a confirmation and recover decisions after a restart. AI Lab can reopen a single-seat session and export redacted diagnostics.
 - Preview, enable, and trust local Markdown skills for a specific project. Save an optional public MCP resource endpoint, with confirmation before each connection.
+- Ask about a paper by its position, a numbered figure, or an equation in AI Lab and the AI side panel. Preview the matched original passage and confirm it before sending.
 - Inspect each single-seat claim’s citations and reopen verified source excerpts. Formal research templates require cited source text before entering human review.
 - Search the active project’s Markdown papers, notes and text materials offline. Optionally use deterministic local ranking, rebuild an index and open the verified original passage by line.
 - Choose project modules and dashboard widgets, create tasks with optional project and paper associations, and explicitly connect selected Apple calendars and reminders. Literature discovery keeps ranked runs, filters and feedback.

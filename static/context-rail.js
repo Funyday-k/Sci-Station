@@ -30,6 +30,7 @@
       [text("阅读状态","Reading status"),paper.status]
     ].filter(([,value])=>Boolean(value)) : task ? [[text("状态","Status"),task.status],[text("截止时间","Due"),task.dueDate]].filter(([,value])=>value) : [];
     return {project,projectName:data?.project?.name || projectNames.get(project) || "",facts, path:url.pathname,view, paper:paper?.id || "",
+      visiblePaperIds:project && data?.view==="papers" ? window.SciResearch.library?.visiblePaperIds?.() : undefined,
       note:note?.id || "",task:task?.id || "",meeting:params.get("session") || "", title:title || "",
       page:paper?.page || 0, quote:paper?.quote || noteExcerpt, citation:paper?.citation || null};
   }
@@ -148,7 +149,14 @@
         const answer=document.createElement("div");
         if(window.SciMarkdown && turn.text)window.SciMarkdown.render(answer,turn.text,{cache:turn.status!=="running"});
         else answer.textContent=turn.error || turn.text;
-        block.append(h,answer);turns.push(block);
+        block.append(h,answer);
+        const cited=new Set(Array.from((turn.text || "").matchAll(/\[(S[1-9][0-9]*)\]/g),m=>m[1]));
+        for(const [index,material] of (room.materials || []).entries()) {
+          if((material.added_round || 0)>round.number || !cited.has("S"+(index+1))) continue;
+          const source=window.SciLabRun.recordedSource(material,c.project,index);
+          if(source)block.append(anchor(source.id+" · "+source.title+" · "+source.label,source.href));
+        }
+        turns.push(block);
       }
     }
     window.SciStationReadReview?.update(node("rail-read-review"), room);
@@ -213,8 +221,11 @@
       }
       if(c.project && c.paper && c.quote && !citation)throw Error(text("无法核对选段位置，请在阅读器中重新选择。","Select the passage again to verify its location."));
       const citations=c.project && citation ? [citation]:[];
-      const prepared=await req("/api/research/lab/sources/prepare","POST",{projectId:c.project,scope:project.global?"global":"",workflow:"",citations});
-      if(ticket!==generation)return;
+      const prepared=await window.SciLabRun.prepareQuestionSources(req,project,"",prompt,citations,{
+        currentPaper:c.paper || window.SciLabRun.paperFromRun(room,c.project),
+        visiblePaperIds:c.visiblePaperIds
+      });
+      if(!prepared || ticket!==generation)return;
       const message=[prompt,c.title,c.page?text("第 "+c.page+" 页","Page "+c.page):"",c.quote && !citations.length?c.quote:""].filter(Boolean).join("\n\n");
       let run=room;
       const followUp=Boolean(run);

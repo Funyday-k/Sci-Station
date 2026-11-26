@@ -29,6 +29,54 @@
     return req(studio+"sessions/"+encodeURIComponent(room.id)+"/run","POST",body);
   }
 
+  async function prepareQuestionSources(req, project, workflow, question, citations, options={}) {
+    const request = {workflow,projectId:project.id,scope:project.global?"global":"",citations};
+    if (question?.trim()) {
+      const found = await req(base+"question","POST",{...request,question,
+        currentPaper:options.currentPaper,visiblePaperIds:options.visiblePaperIds}) || [];
+      if (found.length) {
+        if (citations.length+found.length>4) throw Error("每次最多选择四段原文。请先移除不相关的选段。");
+        const preview = found.map(source => [source.title,
+          (source.heading?source.heading+" · ":"")+"L"+source.line+(source.endLine!==source.line?"–"+source.endLine:""),
+          source.quote].join("\n")).join("\n\n");
+        const confirm = options.confirm || globalThis.confirm;
+        if (!confirm("发送问题，并将以下论文原文交给所选模型？\n\n"+preview)) return null;
+        request.citations = citations.concat(found.map(({kind,id,offset,page,hash,quote})=>({kind,id,offset,page,hash,quote})));
+      }
+    }
+    return req(base+"prepare","POST",request);
+  }
+
+  function recordedSource(material, project, index) {
+    const text=material.excerpt || "", split=text.indexOf("\n\n"), headerEnd=text.indexOf("\n");
+    if ((!text.startsWith("Sci-Station · 论文原文摘录 v1\n") && !text.startsWith("Sci-Station · 项目原文摘录 v1\n")) || split<0) return null;
+    let ref;
+    try {ref=JSON.parse(text.slice(headerEnd+1,split));} catch {return null;}
+    if (ref.projectId!==project) return null;
+    const id="S"+(index+1), title=ref.title || material.name, quote=text.slice(split+2);
+    if (ref.paperId && Number.isInteger(ref.page)) {
+      const query=new URLSearchParams({project,paper:ref.paperId,page:ref.page,fingerprint:ref.fingerprint,quote});
+      if(Number.isInteger(ref.selectionStart) && Number.isInteger(ref.selectionEnd)) {
+        query.set("start",ref.selectionStart);query.set("end",ref.selectionEnd);
+      }
+      if(ref.ocr)query.set("ocr","1");
+      return {id,title,quote,paper:ref.paperId,href:"/reader?"+query,label:"打开原文第 "+ref.page+" 页"};
+    }
+    if (["note","material","paper-markdown"].includes(ref.kind) && Number.isSafeInteger(ref.offset)) {
+      const evidence={sourceHash:ref.sha256, source:{projectId:project,kind:ref.kind,id:ref.id,
+        offset:ref.offset,end:ref.end ?? ref.offset+chars(quote).length}};
+      const where=ref.lineStart ? [ref.heading,"L"+ref.lineStart+(ref.lineEnd!==ref.lineStart?"–"+ref.lineEnd:"")].filter(Boolean).join(" · ") : "";
+      return {id,title,quote,paper:ref.kind==="paper-markdown"?ref.id:"",
+        href:window.SciEvidence.href(project,evidence),label:where? "打开原文 · "+where : window.SciEvidence.label(evidence)};
+    }
+    return null;
+  }
+
+  function paperFromRun(room, project) {
+    const ids = new Set((room?.materials || []).map((m,i)=>recordedSource(m,project,i)?.paper).filter(Boolean));
+    return ids.size===1 ? ids.values().next().value : "";
+  }
+
   const threadTitle = room => room.lab_thread?.title || room.title || room.topic?.split("\n")[0] || "单席会话";
   const threadDetails = room => [states[room.status] || room.status, ...(room.members || []).map(item => item.label || item.model)].filter(Boolean).join(" · ");
   function matchingThreads(history, query, showArchived) {
@@ -377,10 +425,12 @@
       selected=selected.filter(item=>!used.includes(item));
       displaySelected();
     }
-    async function prepare(workflow,projectId) {
+    async function prepare(workflow,projectId,question="",room=null) {
       if(!project || project.id!==projectId) throw Error("请先选择科研项目。");
       const token=generation;
-      const result=await req(base+"prepare","POST",{workflow,projectId,scope:project.global?"global":"",citations:selected.map(x=>x.citation)});
+      const result=await prepareQuestionSources(req,project,workflow,question,selected.map(x=>x.citation),{
+        currentPaper:selected.some(x=>["paper","paper-markdown"].includes(x.citation.kind))?"":paperFromRun(room,projectId)
+      });
       if(token!==generation) throw Error("当前项目已改变。");
       return result;
     }
@@ -410,8 +460,8 @@
       if(token!==generation) return;
       const topic=window.ScienceLabHandoff.compose({...data,scope,projectId:pid,skill});
       const used=selected.slice();
-      const materials=await prepare(data.workflow,pid);
-      if(token!==generation) return;
+      const materials=await prepare(data.workflow,pid,data.question);
+      if(!materials || token!==generation) return;
       // Creating the session records a recoverable ID before the first model call.
       const room=await createSingle(req,project,topic,member,data.mode,materials);
       questionDraft.consume(draft, expectedDraft);
@@ -429,31 +479,13 @@
     }
     function displaySources(room) {
       const entries=[];
-      for(const material of room.materials || []) {
-        const text=material.excerpt || "", split=text.indexOf("\n\n"), headerEnd=text.indexOf("\n");
-        if(!text.startsWith("Sci-Station · 论文原文摘录 v1\n") && !text.startsWith("Sci-Station · 项目原文摘录 v1\n")) continue;
-        if(split<0) continue;
-        let ref;
-        try {ref=JSON.parse(text.slice(headerEnd+1,split));} catch {continue;}
-        if(ref.projectId!==project?.id) continue;
-        const title=document.createElement("h3"), quote=document.createElement("blockquote");
-        title.textContent=ref.title || material.name; quote.textContent=text.slice(split+2);
-        entries.push(title,quote);
-        if(ref.paperId && Number.isInteger(ref.page)) {
-          const query=new URLSearchParams({project:ref.projectId,paper:ref.paperId,page:ref.page,fingerprint:ref.fingerprint,quote:quote.textContent});
-          if(Number.isInteger(ref.selectionStart) && Number.isInteger(ref.selectionEnd)) {
-            query.set("start",ref.selectionStart);query.set("end",ref.selectionEnd);
-          }
-          if(ref.ocr)query.set("ocr","1");
-          const link=document.createElement("a");link.href="/reader?"+query;link.textContent="打开原文第 "+ref.page+" 页";entries.push(link);
-        } else if ((["note","material","paper-markdown"].includes(ref.kind)) && Number.isSafeInteger(ref.offset)) {
-          const evidence={sourceHash:ref.sha256, source:{projectId:ref.projectId,kind:ref.kind,id:ref.id,
-            offset:ref.offset,end:ref.end ?? ref.offset+Array.from(quote.textContent).length}};
-          const link=document.createElement("a");
-          link.href=window.SciEvidence.href(ref.projectId,evidence);
-          link.textContent=window.SciEvidence.label(evidence);
-          entries.push(link);
-        }
+      for(const [index,material] of (room.materials || []).entries()) {
+        const source=recordedSource(material,project?.id,index);
+        if(!source) continue;
+        const title=document.createElement("h3"), quote=document.createElement("blockquote"), link=document.createElement("a");
+        title.textContent=source.id+" · "+source.title; quote.textContent=source.quote;
+        link.href=source.href; link.textContent=source.label;
+        entries.push(title,quote,link);
       }
       $("lab-citation-items").replaceChildren(...entries);$("lab-citations").hidden=!entries.length;
     }
@@ -511,8 +543,8 @@
       if(!ownsRun(room,project) || room.lab_thread?.archived_at || id!==active || !["ready","partial"].includes(room.status)) throw Error("请先打开可继续的会话。");
       if(!note) throw Error("请填写追问。");
       const used=selected.slice();
-      const materials=await prepare("",pid);
-      if(token!==generation || id!==active) return;
+      const materials=await prepare("",pid,note,room);
+      if(!materials || token!==generation || id!==active) return;
       const next=await advance(req,room,note,materials);
       replyDraft.consume(draft, expectedDraft);
       if(token===generation && id===active) {
@@ -597,7 +629,7 @@
     bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay);
     return {selectProject, hasDraft:()=>selected.length>0 || questionDraft.unsaved() || replyDraft.unsaved(), prepareHandoff:(_,pid)=>selected.length?prepare("",pid):Promise.resolve([])};
   }
-  const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft};
+  const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft, prepareQuestionSources, recordedSource, paperFromRun};
   if(typeof module==="object" && module.exports) module.exports=api;
   else window.SciLabRun=api;
 })();
