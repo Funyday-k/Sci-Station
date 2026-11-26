@@ -62,6 +62,8 @@ Use the Swift behavior suites, legacy runner and current Go/Node tests to establ
 
 ## Implementation and release evidence
 
+The [behavioral acceptance record](../migration/behavioral-coverage.md) maps the historical assertions to the workstation and records the scope of the comparisons.
+
 Build from the repository root with `make app`. The development Run action opens the same Go/Wails executable. Earlier published downloads retain their own release and data history.
 
 | Source behavior | Workstation entry point and regression evidence |

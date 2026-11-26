@@ -22,6 +22,10 @@ The maintainer clarified the editing boundary on 2026-11-25. The selected local 
 
 The OS directory grant establishes which project the app can open. This decision assigns ownership of AI edits and their approval messages. The release review checks the chosen signing configuration, directory access and interoperability with supported external CLIs.
 
+### Model-proposed research reads
+
+On 2026-11-26 the maintainer chose to retain model-proposed external research reads. A researcher configures and trusts a connector for a project. The model can propose discovery or a read within that scope. The desktop displays the project, connector, operation and exact arguments and waits for a decision on each request. Once approved, the result returns to the originating run. Cancelling or refusing a request leaves the external service untouched. The CLI remains responsible for edits to project files.
+
 ### Cutover and branch policy
 
 The maintainer selected the hardened-runtime Go/Wails application with application-enforced workspaces and project directory grants. This distribution does not use the macOS App Sandbox entitlement or legacy security-scoped bookmarks. A native picker records the workspace or external project directory the user chose; each protected operation rechecks the active root, project identity and current grant. File-edit approval remains the responsibility of the selected CLI and its configured permission policy. EventKit and other user-facing macOS prompts retain their own authorization.

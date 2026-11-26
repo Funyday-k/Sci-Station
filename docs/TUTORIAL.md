@@ -31,7 +31,7 @@ In settings, choose a direct model profile or register the Sci-Station agent wit
 3. Review a proposed note or task and confirm to save it. Reopen the project record after restarting and follow the citation to its original passage.
 4. For direct edits to a granted project's files, explicitly start a supported local CLI editing session. Read the request and available changes in Roundtable before approving or refusing. The originating CLI receives the one-time decision and reports the outcome.
 
-AI Lab can import a project Markdown skill. Preview, enable and trust its specific version before adding it to a run. Public MCP resource listing and text reads each need confirmation; attached excerpts retain source information. Use the CLI's own configuration for authenticated or executable MCP services. The [Roundtable plugin guide](plugins.md) covers discussion guidance and local report tools.
+AI Lab can import a project Markdown skill. Preview, enable and trust its specific version before adding it to a run. In the desktop AI Lab, you can register a trusted HTTPS or local stdio research connector for a project. Bearer credentials go in the macOS Keychain. A local program runs with your account permissions. Review the selected program and script before trusting them. You can select an excerpt yourself, or review an external read proposed by a model. Check the project, connection, operation and exact arguments before approving. Your decision applies to this request only. The [Roundtable plugin guide](plugins.md) covers discussion guidance and local report tools.
 
 ## Back up your research
 
