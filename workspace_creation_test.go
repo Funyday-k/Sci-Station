@@ -179,19 +179,12 @@ func TestRenameMaintainsIdentityRecordAndMeetingDirectory(t *testing.T) {
 	if err = os.Mkdir(old, 0700); err != nil {
 		t.Fatal(err)
 	}
-	initial, err := roots.binding(old)
-	if err != nil {
-		t.Fatal(err)
-	}
-	port, err := roots.reserve(old, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := startBoundWorkspace(old, port, false, true, initial)
+	a, err := startRegisteredWorkspace(roots, rootChoice{dir: old, create: true}, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.close()
+	initial, initialAddress := a.binding, a.address
 	var project research.Project
 	rootFixtureRequest(t, a.api, "POST", "/api/research/projects", map[string]any{"name": "Fixture", "iconName": "atom", "colorHex": "#a7c7e7"}, 201, &project)
 	if project.ColorHex != "#A7C7E7" || project.IconName != "atom" {
@@ -202,13 +195,10 @@ func TestRenameMaintainsIdentityRecordAndMeetingDirectory(t *testing.T) {
 	}
 	var session meeting.Session
 	rootFixtureRequest(t, a.api, "POST", "/api/studio/sessions", map[string]any{"topic": "Fixture discussion", "project_id": project.ID}, 201, &session)
-	if err := roots.remember(old); err != nil {
+	if err := roots.remember(old, a.binding); err != nil {
 		t.Fatal(err)
 	}
-	id, err := folderIdentity(old)
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := a.binding
 	if err = roots.moveRoot(old, next, id); err == nil {
 		t.Fatal("moved in-use root")
 	}
@@ -234,19 +224,18 @@ func TestRenameMaintainsIdentityRecordAndMeetingDirectory(t *testing.T) {
 	if p, err := roots.last(); err != nil || p != next {
 		t.Fatal(p, err)
 	}
-	bound, err := roots.binding(next)
-	if err != nil || bound.ID != initial.ID || !slices.Contains(bound.Paths, old) {
-		t.Fatal(bound, err)
+	choice, err := roots.initial("")
+	if err != nil {
+		t.Fatal(err)
 	}
-	movedPort, err := roots.reserve(next, 0)
-	if err != nil || movedPort != port {
-		t.Fatal(movedPort, err)
-	}
-	b, err := startBoundWorkspace(next, movedPort, false, false, bound)
+	b, err := startRegisteredWorkspace(roots, choice, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer b.close()
+	if b.binding.ID != initial.ID || !slices.Contains(b.binding.Paths, old) || b.address != initialAddress {
+		t.Fatal(b.binding, b.address)
+	}
 	var opened meeting.Session
 	rootFixtureRequest(t, b.api, "GET", "/api/studio/sessions/"+session.ID, nil, 200, &opened)
 	if opened.ProjectID != project.ID || opened.Project != filepath.Join(next, "research", "workspaces", project.ID) {
@@ -269,12 +258,16 @@ func TestRenameMaintainsIdentityRecordAndMeetingDirectory(t *testing.T) {
 	if err = os.Mkdir(old, 0700); err != nil {
 		t.Fatal(err)
 	}
-	replacement, err := roots.binding(old)
-	if err != nil || replacement.ID == initial.ID {
-		t.Fatal(replacement, err)
+	replacement, err := startRegisteredWorkspace(roots, rootChoice{dir: old, create: true}, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.close()
+	if replacement.binding.ID == initial.ID {
+		t.Fatal(replacement.binding)
 	}
 	staleStamp := roots.recentStamp()
-	if err = roots.remember(old); err != nil {
+	if err = roots.remember(old, replacement.binding); err != nil {
 		t.Fatal(err)
 	}
 	if err := roots.forget("", staleStamp); err == nil {

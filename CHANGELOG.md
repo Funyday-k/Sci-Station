@@ -30,6 +30,8 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Changed
 
+- Remember each workspace by its folder identity. If a different folder occupies its saved location, Sci-Station returns to the workspace chooser. Re-selecting a moved workspace retains its existing settings and credential scope.
+
 - Sci-Station now builds from one Go/Wails module at the repository root. The single macOS executable retains the launch animation and uses the Roundtable icon.
 - A first launch uses a separately chosen research workspace. Keep the previous app’s files and follow the [workspace recovery guide](docs/workspaces.md) to verify a Go prototype backup and restore it into a separate workspace.
 - Roundtable discussions and continuous runs use read-only project file access. AI-file changes go through a host-initiated CLI session and its review controls. Existing meeting histories retain old edit records.

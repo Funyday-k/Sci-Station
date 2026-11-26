@@ -42,24 +42,39 @@ func TestRootSelectionRequiresExplicitCompatibleIndependentRoot(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(real, "nested")); !os.IsNotExist(err) {
 		t.Fatal("created nested data")
 	}
-	if err := roots.remember(real); err != nil {
+	binding, err := roots.authorize(real, rootBinding{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := roots.remember(real, binding); err != nil {
 		t.Fatal(err)
 	}
 	if p, err := roots.last(); err != nil || p != real {
 		t.Fatal(p, err)
 	}
-	p1, err := roots.reserve(real, 0)
+	p1, err := roots.reserve(binding, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := roots.reserve(base, 0)
+	two := filepath.Join(base, "two")
+	if _, err := roots.initial(two); err != nil {
+		t.Fatal(err)
+	}
+	if err := markNewRoot(two); err != nil {
+		t.Fatal(err)
+	}
+	otherBinding, err := roots.authorize(two, rootBinding{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := roots.reserve(otherBinding, 0)
 	if err != nil || other == p1 {
 		t.Fatal(other, err)
 	}
-	if _, err := roots.reserve(base, p1); err == nil {
+	if _, err := roots.reserve(otherBinding, p1); err == nil {
 		t.Fatal("reassigned root port")
 	}
-	if p, err := roots.reserve(real, 0); err != nil || p != p1 {
+	if p, err := roots.reserve(binding, 0); err != nil || p != p1 {
 		t.Fatal(p, err)
 	}
 	if err := os.WriteFile(filepath.Join(real, rootMarker), []byte("future"), 0600); err != nil {
@@ -259,10 +274,10 @@ func TestWorkspaceAcceptsOnlyOwnedRecordDirectories(t *testing.T) {
 	if err := os.Symlink("owned", registry.dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.remember(parent); err == nil {
+	if err := registry.remember(parent, rootBinding{}); err == nil {
 		t.Fatal("accepted a linked registry")
 	}
-	if _, err := registry.reserve(parent, 18801); err == nil {
+	if _, err := registry.reserve(rootBinding{ID: rootID(parent)}, 18801); err == nil {
 		t.Fatal("reserved a port through a linked registry")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -132,7 +133,7 @@ func markNewRoot(dir string) error {
 // can acquire a port previously assigned to another root through the chooser.
 type desktopRoots struct{ dir string }
 
-func (r desktopRoots) reserve(path string, requested int) (int, error) {
+func (r desktopRoots) reserve(binding rootBinding, requested int) (int, error) {
 	if err := workspace.ManagedMkdirAll(r.dir, 0700); err != nil {
 		return 0, err
 	}
@@ -144,37 +145,15 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return 0, err
 	}
-	binding, err := r.binding(path)
-	if err != nil {
-		return 0, err
-	}
 	key := binding.ID + "\n"
 	if requested == 0 {
-		entries, err := workspace.ManagedReadDir(r.dir)
-		if err != nil {
-			return 0, err
-		}
-		for _, e := range entries {
-			raw, ok := strings.CutPrefix(e.Name(), "port-")
-			if !ok || !e.Type().IsRegular() {
-				continue
-			}
-			p, err := strconv.Atoi(raw)
-			if err != nil || p < 1 || p > 65535 {
-				continue
-			}
-			data, err := workspace.ManagedReadFile(filepath.Join(r.dir, e.Name()))
-			if err != nil {
-				return 0, err
-			}
-			if string(data) == key {
-				return p, nil
-			}
+		if reserved, err := r.reservedPort(binding.ID); err != nil || reserved != 0 {
+			return reserved, err
 		}
 	}
 	// Ring selection is deterministic. The small ticket files resolve collisions
 	// and remain reserved even while a volume is unmounted.
-	start := int(sha256.Sum256([]byte(path))[0]) * 128
+	start := int(sha256.Sum256([]byte(binding.ID))[0]) * 128
 	for i := -1; i < 32768; i++ {
 		port := requested
 		if port == 0 {
@@ -218,38 +197,71 @@ func (r desktopRoots) reserve(path string, requested int) (int, error) {
 	return 0, errors.New("没有可用的工作区端口")
 }
 
-func (r desktopRoots) last() (string, error) {
+func (r desktopRoots) reservedPort(identity string) (int, error) {
+	entries, err := workspace.ManagedReadDir(r.dir)
+	if err != nil {
+		return 0, err
+	}
+	for _, entry := range entries {
+		raw, ok := strings.CutPrefix(entry.Name(), "port-")
+		if !ok || !entry.Type().IsRegular() {
+			continue
+		}
+		port, err := strconv.Atoi(raw)
+		if err != nil || port < 1 || port > 65535 {
+			continue
+		}
+		data, err := workspace.ManagedReadFile(filepath.Join(r.dir, entry.Name()))
+		if err != nil {
+			return 0, err
+		}
+		if string(data) == identity+"\n" {
+			return port, nil
+		}
+	}
+	return 0, nil
+}
+
+type recentWorkspace struct {
+	Version  int    `json:"version"`
+	Path     string `json:"path"`
+	Identity string `json:"identity"`
+	Bound    bool   `json:"bound"`
+}
+
+func (r desktopRoots) readRecent() (recentWorkspace, error) {
 	data, err := workspace.ManagedReadFile(filepath.Join(r.dir, "last-workspace.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return recentWorkspace{}, nil
 	}
 	if err != nil {
-		return "", err
+		return recentWorkspace{}, err
 	}
-	var path string
-	var identity string
-	if json.Unmarshal(data, &path) != nil {
-		var item struct {
-			Version        int
-			Path, Identity string
+	var recent recentWorkspace
+	if json.Unmarshal(data, &recent.Path) != nil {
+		if json.Unmarshal(data, &recent) != nil || recent.Version != 1 {
+			return recentWorkspace{}, errors.New("上次工作区的位置记录无法读取")
 		}
-		if json.Unmarshal(data, &item) != nil || item.Version != 1 {
-			return "", errors.New("上次工作区的位置记录无法读取")
-		}
-		path, identity = item.Path, item.Identity
 	}
-	if !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
-		return "", errors.New("上次工作区的位置记录无法读取")
+	if !filepath.IsAbs(recent.Path) || filepath.Clean(recent.Path) != recent.Path || strings.ContainsRune(recent.Path, 0) {
+		return recentWorkspace{}, errors.New("上次工作区的位置记录无法读取")
 	}
-	return r.recordedPath(path, identity)
+	return recent, nil
 }
-func (r desktopRoots) remember(path string) error {
-	return r.withRecentLock(func() error { return r.writeRecent(path) })
+
+func (r desktopRoots) last() (string, error) {
+	choice, err := r.initial("")
+	return choice.dir, err
 }
-func (r desktopRoots) writeRecent(path string) error {
-	binding, err := r.binding(path)
-	if err != nil {
-		return err
+
+func (r desktopRoots) remember(path string, binding rootBinding) error {
+	return r.withRecentLock(func() error { return r.writeRecent(path, binding) })
+}
+
+func (r desktopRoots) writeRecent(path string, binding rootBinding) error {
+	actual, err := folderIdentity(path)
+	if err != nil || binding.ID == "" || !binding.matches(actual) {
+		return errWorkspaceReplaced
 	}
 	file := filepath.Join(r.dir, "last-workspace.json")
 	data, err := workspace.ManagedReadFile(file)
@@ -267,19 +279,37 @@ func (r desktopRoots) writeRecent(path string) error {
 			}
 		}
 	}
-	raw, err := overlayFields(data, map[string]any{"version": 1, "path": path, "identity": binding.ID})
+	raw, err := overlayFields(data, recentWorkspace{Version: 1, Path: path, Identity: binding.ID, Bound: true})
 	if err != nil {
 		return err
 	}
 	return atomicFile(file, raw)
 }
-func (r desktopRoots) afterRename(path string) error {
+
+func (r desktopRoots) refreshRecent(choice rootChoice, instance *workspaceInstance) error {
+	prior := choice.recent
+	if prior.Path == "" || (prior.Bound && prior.Path == instance.dir) {
+		return nil
+	}
 	return r.withRecentLock(func() error {
-		recent, err := r.last()
-		if err != nil || recent != path {
+		current, err := r.readRecent()
+		if err != nil || current != prior {
 			return err
 		}
-		return r.writeRecent(path)
+		return r.writeRecent(instance.dir, instance.binding)
+	})
+}
+
+func (r desktopRoots) afterRename(path string, binding rootBinding) error {
+	return r.withRecentLock(func() error {
+		recent, err := r.readRecent()
+		if err != nil || recent.Path == "" {
+			return err
+		}
+		if recent.Identity == binding.ID || (recent.Identity == "" && slices.Contains(binding.Paths, recent.Path)) {
+			return r.writeRecent(path, binding)
+		}
+		return nil
 	})
 }
 func (r desktopRoots) recentStamp() string {
@@ -329,17 +359,21 @@ func (r desktopRoots) forget(expected string, stamp ...string) error {
 func rootID(dir string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(dir))) }
 
 type rootChoice struct {
-	dir    string
-	create bool
+	dir      string
+	create   bool
+	expected rootBinding
+	recent   recentWorkspace
 }
 
 func (r desktopRoots) initial(explicit string) (rootChoice, error) {
 	if explicit == "" {
-		path, err := r.last()
-		if err != nil {
+		recent, err := r.readRecent()
+		if err != nil || recent.Path == "" {
 			return rootChoice{}, err
 		}
-		return rootChoice{dir: path}, err
+		choice, err := r.recordedRoot(recent)
+		choice.recent = recent
+		return choice, err
 	}
 	explicit, err := filepath.Abs(explicit)
 	if err != nil {

@@ -63,7 +63,7 @@ func TestSwitchBackWaitsForWorkspaceWritersPastCloseDeadline(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a := api.serveOwnedWorkspace(listener, guard, 40*time.Millisecond)
+			a := api.serveOwnedWorkspace(listener, guard, rootBinding{}, 40*time.Millisecond)
 			session := rootSession{active: a}
 			defer session.shutdown()
 			defer release()

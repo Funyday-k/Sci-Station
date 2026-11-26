@@ -99,25 +99,7 @@ func runDesktop(explicit string, port int) error {
 }
 
 func (h *desktopHost) start(choice rootChoice, port int, setup ...rootSetup) (*workspaceInstance, error) {
-	dir, _, err := inspectRoot(choice.dir, choice.create)
-	if err != nil {
-		return nil, err
-	}
-	borrow := port != 0 && !choice.create
-	port, err = h.roots.reserve(dir, port)
-	if err != nil {
-		return nil, err
-	}
-	binding, err := h.roots.binding(dir)
-	if err != nil {
-		return nil, err
-	}
-	if borrow {
-		if borrowed := attachedWorkspace(dir, port, binding.ID); borrowed != nil {
-			return borrowed, nil
-		}
-	}
-	return startBoundWorkspace(dir, port, true, choice.create, binding, setup...)
+	return startRegisteredWorkspace(h.roots, choice, port, true, setup...)
 }
 func (h *desktopHost) choose(create bool, expected *apiServer) {
 	_, err := h.selectWorkspace(create, expected, nil)
@@ -156,22 +138,29 @@ func (h *desktopHost) selectWorkspace(create bool, expected *apiServer, setup *r
 		return false, err
 	}
 	var dir string
+	var selected rootBinding
 	if setup == nil {
 		dir, _, err = inspectRoot(path, create)
 		if err != nil {
 			return false, err
 		}
-		h.session.mu.Lock()
-		same := h.session.active != nil && h.session.active.dir == dir
-		h.session.mu.Unlock()
-		if same {
-			return true, nil
+		if !create {
+			selected, err = folderIdentity(dir)
+			if err != nil {
+				return false, err
+			}
+			h.session.mu.Lock()
+			same := h.session.active != nil && h.session.active.dir == dir && h.session.active.binding.matches(selected)
+			h.session.mu.Unlock()
+			if same {
+				return true, nil
+			}
 		}
 	}
 	opened := false
 	err = h.session.switchTo(token, func() (*workspaceInstance, error) {
 		if setup == nil {
-			return h.start(rootChoice{dir: dir, create: create}, 0)
+			return h.start(rootChoice{dir: dir, create: create, expected: selected}, 0)
 		}
 		dir, err := prepareWorkspaceTarget(path, *setup)
 		if err != nil {
@@ -185,7 +174,7 @@ func (h *desktopHost) selectWorkspace(create bool, expected *apiServer, setup *r
 		}
 		return next, err
 	}, func(next *workspaceInstance) error {
-		if err := h.roots.remember(next.dir); err != nil {
+		if err := h.roots.remember(next.dir, next.binding); err != nil {
 			return err
 		}
 		if previous := h.session.active; previous != nil {
@@ -340,10 +329,10 @@ func (h *desktopHost) rename(expected *apiServer, name string) error {
 		h.session.mu.Unlock()
 		return errors.New("目标已存在 / Destination already exists")
 	}
-	identity, err := folderIdentity(current.dir)
-	if err != nil {
+	identity := current.binding
+	if actual, err := folderIdentity(current.dir); err != nil || !identity.matches(actual) {
 		h.session.mu.Unlock()
-		return err
+		return errWorkspaceReplaced
 	}
 	h.session.moving = true
 	h.session.generation++
@@ -367,10 +356,10 @@ func (h *desktopHost) rename(expected *apiServer, name string) error {
 		if moveErr == nil {
 			dir = target
 		}
-		next, openErr := h.start(rootChoice{dir: dir}, 0)
+		next, openErr := h.start(rootChoice{dir: dir, expected: identity}, 0)
 		if openErr != nil && moveErr == nil {
 			moveErr = errors.Join(openErr, h.roots.moveRoot(target, current.dir, identity))
-			next, openErr = h.start(rootChoice{dir: current.dir}, 0)
+			next, openErr = h.start(rootChoice{dir: current.dir, expected: identity}, 0)
 		}
 		h.session.mu.Lock()
 		if h.session.closed {
@@ -383,7 +372,7 @@ func (h *desktopHost) rename(expected *apiServer, name string) error {
 		if openErr == nil {
 			h.session.active = next
 			if moveErr == nil {
-				moveErr = h.roots.afterRename(next.dir)
+				moveErr = h.roots.afterRename(next.dir, next.binding)
 			}
 			h.presentRoot(next)
 		} else {

@@ -23,7 +23,23 @@ def exercise(bundle, fixture, step):
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
     origin = f"http://127.0.0.1:{port}"
-    registry_identity = sha256(str(root).encode()).hexdigest()
+    registry = fixture / "workspace-registry"
+
+    def workspace_identity():
+        records = registry / "renamed-workspaces.json"
+        if records.exists():
+            root_file = root.stat()
+            marker_file = (root / ".sci-station-desktop").stat()
+            for record in json.loads(records.read_text(encoding="utf-8"))["records"]:
+                if (
+                    str(root) in record["paths"]
+                    and record["device"] == root_file.st_dev
+                    and record["directory"] == root_file.st_ino
+                    and record["marker"] == marker_file.st_ino
+                ):
+                    return record["id"]
+        # Earlier installers derive the scope solely from the canonical path.
+        return sha256(str(root).encode()).hexdigest()
 
     def api(path, payload=None):
         request = urllib.request.Request(
@@ -36,7 +52,7 @@ def exercise(bundle, fixture, step):
 
     # The CLI receives a disposable research root, registry, and provider config.
     env = {
-        "SCI_STATION_WORKSPACE_REGISTRY": str(fixture / "workspace-registry"),
+        "SCI_STATION_WORKSPACE_REGISTRY": str(registry),
         "XDG_CONFIG_HOME": str(fixture / "empty-provider-config"),
         "CFFIXED_USER_HOME": str(fixture),
         "PATH": "/usr/bin:/bin",
@@ -48,7 +64,7 @@ def exercise(bundle, fixture, step):
             while child.poll() is None and time.monotonic() < deadline:
                 try:
                     health = api("/api/health")
-                    if health.get("name") != "sci-station" or health.get("workspace") != registry_identity:
+                    if health.get("name") != "sci-station" or health.get("workspace") != workspace_identity():
                         raise RuntimeError("The test port belongs to a different process or workspace")
                     break
                 except urllib.error.URLError:

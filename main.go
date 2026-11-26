@@ -33,7 +33,7 @@ func rootRegistry() (desktopRoots, error) {
 }
 
 // A window may borrow a headless server only for the explicitly selected root.
-func attachedWorkspace(dir string, port int, scope string) *workspaceInstance {
+func attachedWorkspace(dir string, port int, binding rootBinding) *workspaceInstance {
 	if port == 0 {
 		return nil
 	}
@@ -48,10 +48,14 @@ func attachedWorkspace(dir string, port int, scope string) *workspaceInstance {
 		Name, Workspace string
 		Version         int
 	}
-	if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&info) != nil || info.Name != "sci-station" || info.Version != 2 || info.Workspace != scope {
+	if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&info) != nil || info.Name != "sci-station" || info.Version != 2 || info.Workspace != binding.ID {
 		return nil
 	}
-	return &workspaceInstance{dir: dir, address: address, close: func() {}}
+	actual, err := folderIdentity(dir)
+	if err != nil || !binding.matches(actual) {
+		return nil
+	}
+	return &workspaceInstance{dir: dir, address: address, binding: binding, close: func() {}}
 }
 
 func run() error {
@@ -94,19 +98,7 @@ func run() error {
 	if choice.dir == "" {
 		return errors.New("请通过 --data-dir 指定一个新工作区，或先在桌面端选择工作区")
 	}
-	dir, _, err := inspectRoot(choice.dir, choice.create)
-	if err != nil {
-		return err
-	}
-	bindPort, err := roots.reserve(dir, requested)
-	if err != nil {
-		return err
-	}
-	binding, err := roots.binding(dir)
-	if err != nil {
-		return err
-	}
-	instance, err := startBoundWorkspace(dir, bindPort, false, choice.create, binding)
+	instance, err := startRegisteredWorkspace(roots, choice, requested, false)
 	if err != nil {
 		return err
 	}
@@ -124,33 +116,80 @@ func run() error {
 type workspaceInstance struct {
 	dir     string
 	address string
+	binding rootBinding
 	api     *apiServer
 	done    <-chan error
 	close   func()
 	freeze  func() bool
 }
 
-func startWorkspace(dir string, port int, desktop bool, create bool, setup ...rootSetup) (*workspaceInstance, error) {
-	return startBoundWorkspace(dir, port, desktop, create, rootBinding{}, setup...)
+func startRegisteredWorkspace(roots desktopRoots, choice rootChoice, requested int, desktop bool, setup ...rootSetup) (*workspaceInstance, error) {
+	dir, _, err := inspectRoot(choice.dir, choice.create)
+	if err != nil {
+		return nil, err
+	}
+	expected := choice.expected
+	if !choice.create {
+		actual, err := folderIdentity(dir)
+		if err != nil || (expected.Marker != 0 && !expected.matches(actual)) {
+			return nil, errWorkspaceReplaced
+		}
+		if expected.Marker == 0 {
+			actual.ID = expected.ID
+			expected = actual
+		}
+	}
+	// An explicit desktop port can refer to an already running headless
+	// process. Check that it serves the same authorized folder identity.
+	if desktop && requested != 0 && !choice.create {
+		expected, err = roots.authorize(dir, expected, false)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := roots.reserve(expected, requested); err != nil {
+			return nil, err
+		}
+		if instance := attachedWorkspace(dir, requested, expected); instance != nil {
+			return instance, roots.refreshRecent(choice, instance)
+		}
+	}
+	instance, err := startBoundWorkspace(dir, desktop, choice.create, expected, func(path string) (rootBinding, int, error) {
+		binding, err := roots.authorize(path, expected, choice.create)
+		if err != nil {
+			return rootBinding{}, 0, err
+		}
+		port, err := roots.reserve(binding, requested)
+		return binding, port, err
+	}, setup...)
+	if err != nil {
+		return nil, err
+	}
+	if err := roots.refreshRecent(choice, instance); err != nil {
+		instance.close()
+		return nil, err
+	}
+	return instance, nil
 }
-func startBoundWorkspace(dir string, port int, desktop, create bool, binding rootBinding, setup ...rootSetup) (*workspaceInstance, error) {
+
+// Unregistered workspaces are used only for isolated tests of the service.
+func startWorkspace(dir string, port int, desktop bool, create bool, setup ...rootSetup) (*workspaceInstance, error) {
+	return startBoundWorkspace(dir, desktop, create, rootBinding{}, func(path string) (rootBinding, int, error) {
+		return rootBinding{ID: rootID(path)}, port, nil
+	}, setup...)
+}
+
+func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding, resolve func(string) (rootBinding, int, error), setup ...rootSetup) (*workspaceInstance, error) {
 	dir, _, err := inspectRoot(dir, create)
 	if err != nil {
 		return nil, err
 	}
-	if binding.ID == "" {
-		binding.ID = rootID(dir)
-	}
 	owned := false
-	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return nil, fmt.Errorf("工作区端口不可用：%w", err)
-	}
-	defer func() {
-		if !owned {
-			listener.Close()
+	if expected.Marker != 0 {
+		actual, err := folderIdentity(dir)
+		if err != nil || !expected.matches(actual) {
+			return nil, errWorkspaceReplaced
 		}
-	}()
+	}
 	flags := os.O_CREATE | os.O_RDWR | syscall.O_NOFOLLOW
 	if create {
 		flags |= os.O_EXCL
@@ -180,6 +219,19 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 			return nil, err
 		}
 	}
+	binding, port, err := resolve(dir)
+	if err != nil {
+		return nil, err
+	}
+	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return nil, fmt.Errorf("工作区端口不可用：%w", err)
+	}
+	defer func() {
+		if !owned {
+			listener.Close()
+		}
+	}()
 	pref, e := openSettings(dir)
 	if e != nil {
 		return nil, e
@@ -217,13 +269,13 @@ func startBoundWorkspace(dir string, port int, desktop, create bool, binding roo
 		log.Printf("插件已暂停：%v", marketErr)
 	}
 	engine.SetProjectRuleSnapshot(api.projectRuleSnapshot)
-	instance := api.serveOwnedWorkspace(listener, guard, 8*time.Second)
+	instance := api.serveOwnedWorkspace(listener, guard, binding, 8*time.Second)
 	owned = true
 	return instance, nil
 }
 
 // The instance owns the listener and the exclusive workspace lock from here.
-func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, grace time.Duration) *workspaceInstance {
+func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, binding rootBinding, grace time.Duration) *workspaceInstance {
 	address := "http://" + listener.Addr().String()
 	requestContext, cancelRequests := context.WithCancel(context.Background())
 	var access sync.RWMutex
@@ -237,6 +289,13 @@ func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File,
 			if frozen || requestContext.Err() != nil {
 				reject(w, 503, "Workspace is reopening")
 				return
+			}
+			if binding.Marker != 0 {
+				actual, err := folderIdentity(api.workspaceDir)
+				if err != nil || !binding.matches(actual) {
+					reject(w, 409, errWorkspaceReplaced.Error())
+					return
+				}
 			}
 			handler.ServeHTTP(w, r)
 		}),
@@ -280,7 +339,7 @@ func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File,
 	fmt.Fprintf(os.Stderr, "Sci-Station · %s · %s\n", address, api.workspaceDir)
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	return &workspaceInstance{dir: api.workspaceDir, address: address, api: api, done: done, close: shutdown, freeze: func() bool {
+	return &workspaceInstance{dir: api.workspaceDir, address: address, binding: binding, api: api, done: done, close: shutdown, freeze: func() bool {
 		if !access.TryLock() {
 			return false
 		}
