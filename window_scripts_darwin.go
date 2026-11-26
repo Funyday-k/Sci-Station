@@ -30,7 +30,7 @@ func evaluateWorkstationScript(window *application.WebviewWindow, address, scrip
 	}
 	origin := u.Scheme + "://" + u.Host
 	encoded, _ := json.Marshal(origin)
-	paths, _ := json.Marshal(append(slices.Sorted(maps.Keys(workspaceSurfaces)), "/"))
+	paths, _ := json.Marshal(append(slices.Sorted(maps.Keys(workspaceSurfaces)), "/", "/welcome"))
 	// Recheck in the evaluated document in case it navigates between scheduling
 	// and execution. Sensitive capability scripts also enforce their own route.
 	guarded := `(()=>{if(window.top!==window||location.origin!==` + string(encoded) + `||!` + string(paths) + `.includes(location.pathname))return;` + script + `})()`

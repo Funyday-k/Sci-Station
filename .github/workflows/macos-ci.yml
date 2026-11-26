@@ -2,9 +2,9 @@ name: macOS CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
-    branches: [main, dev]
+    branches: [main]
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:

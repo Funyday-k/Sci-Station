@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,7 +64,7 @@ func runDesktop(explicit string, port int) error {
 		if issue != nil {
 			message = issue.Error()
 		}
-		welcome, err := startWorkspaceWelcome(language, message)
+		welcome, err := startWorkspaceWelcome(roots, language, message)
 		if err != nil {
 			return err
 		}
@@ -301,8 +299,8 @@ func (h *desktopHost) menu(language string) {
 	if language == "en" {
 		rename, forget = "Rename workspace…", "Forget recent workspace"
 	}
-	ws.Add(rename).OnClick(func(*application.Context) { h.window.ExecJS(`window.SciStationNav?.command("renameWorkspace")`) })
-	ws.Add(forget).OnClick(func(*application.Context) { h.window.ExecJS(`window.SciStationNav?.command("forgetWorkspace")`) })
+	ws.Add(rename).OnClick(func(*application.Context) { h.menuCommand("renameWorkspace") })
+	ws.Add(forget).OnClick(func(*application.Context) { h.menuCommand("forgetWorkspace") })
 	type entry struct{ label, command, key string }
 	add := func(submenu *application.Menu, rows []entry) {
 		for _, row := range rows {
@@ -389,7 +387,7 @@ func (h *desktopHost) rename(expected *apiServer, name string) error {
 			}
 			h.presentRoot(next)
 		} else {
-			welcome, werr := startWorkspaceWelcome(h.currentLanguage(), errors.Join(openErr, moveErr).Error())
+			welcome, werr := startWorkspaceWelcome(h.roots, h.currentLanguage(), errors.Join(openErr, moveErr).Error())
 			if werr == nil {
 				h.session.active = welcome
 				h.installPickers(welcome.api)

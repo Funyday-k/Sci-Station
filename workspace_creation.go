@@ -160,10 +160,31 @@ func seedNewWorkspace(dir string, draft rootSetup) error {
 	return nil
 }
 
+// A welcome listener must not occupy the stable port of a closed workspace
+// that the user could select while the welcome page is still open.
+func listenForWorkspaceWelcome(roots desktopRoots) (net.Listener, error) {
+	for range 32 {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return nil, err
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		_, err = os.Lstat(filepath.Join(roots.dir, fmt.Sprintf("port-%d", port)))
+		if errors.Is(err, os.ErrNotExist) {
+			return listener, nil
+		}
+		listener.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return nil, errors.New("没有可用的欢迎窗口端口 / No available welcome port")
+}
+
 // A rootless welcome window gets an ephemeral listener with only chooser routes.
 // No research repository or provider configuration is created to display it.
-func startWorkspaceWelcome(language, message string) (*workspaceInstance, error) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+func startWorkspaceWelcome(roots desktopRoots, language, message string) (*workspaceInstance, error) {
+	listener, err := listenForWorkspaceWelcome(roots)
 	if err != nil {
 		return nil, err
 	}
