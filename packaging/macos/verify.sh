@@ -31,7 +31,8 @@ require_plist_string CFBundlePackageType APPL
 require_plist_string CFBundleIconFile roundtable.icns
 require_plist_string CFBundleShortVersionString "$(cat "$ROOT/../VERSION")"
 BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
-if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ || "$BUILD_NUMBER" != "${SCI_STATION_BUILD_NUMBER:-$(cat "$ROOT/../BUILD_NUMBER")}" ]]; then
+EXPECTED_BUILD_NUMBER="${SCI_STATION_BUILD_NUMBER-$(cat "$ROOT/../BUILD_NUMBER")}"
+if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ || ( -n "$EXPECTED_BUILD_NUMBER" && "$BUILD_NUMBER" != "$EXPECTED_BUILD_NUMBER" ) ]]; then
 	printf 'Unexpected workstation build number: %s.\n' "$BUILD_NUMBER" >&2
 	exit 1
 fi
