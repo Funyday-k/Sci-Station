@@ -52,8 +52,11 @@ async function smoke(binary) {
   const tasksURL = `${origin}/research?view=tasks`;
   const title = "Verify the global calculation";
   const projectName = "Fixture project";
+  const tagName = "Review, findings";
+  const projectTaskTitle = "Review the project findings";
+  const unrelatedTitle = "Unrelated task";
   let browser;
-  let taskID;
+  let taskID, projectID;
   const errors = [];
   try {
     browser = await chromium.launch({headless: true, executablePath: process.env.SCI_STATION_SMOKE_CHROME});
@@ -73,6 +76,24 @@ async function smoke(binary) {
       return response.json();
     }
 
+    async function saveTag(action) {
+      const writing = page.waitForResponse(response => response.url().endsWith("/api/research/task-tags") &&
+        response.request().method() === "PATCH");
+      await modal.getByRole("button", {name: action}).click();
+      const response = await writing;
+      assert.ok(response.ok(), await response.text());
+      return response.json();
+    }
+    async function assertTagColor(row, color, backgroundColor) {
+      const chip = row.locator(".task-label").getByText(tagName, {exact: true});
+      await chip.waitFor();
+      const style = await chip.evaluate(el => {
+        const {color, backgroundColor} = getComputedStyle(el);
+        return {color, backgroundColor};
+      });
+      assert.deepEqual(style, {color, backgroundColor});
+    }
+
     await withServer(binary, data, origin, async () => {
       await page.goto(tasksURL);
       await page.getByRole("button", {name: "添加任务"}).click();
@@ -90,6 +111,7 @@ async function smoke(binary) {
       });
       assert.ok(projectResponse.ok(), await projectResponse.text());
       const project = await projectResponse.json();
+      projectID = project.id;
       await page.reload();
       await taskRow.click();
       await modal.getByRole("checkbox", {name: projectName}).check();
@@ -114,10 +136,45 @@ async function smoke(binary) {
       const calendarTask = page.getByRole("button", {name: `14:30 ${title}`});
       await calendarTask.waitFor();
       assert.match(await calendarTask.getAttribute("class"), /\bcompleted\b/);
+
+      await page.goto(tasksURL);
+      await page.getByRole("button", {name: "管理任务标签"}).click();
+      await modal.getByRole("textbox", {name: "标签名称"}).fill(tagName);
+      await modal.getByLabel("背景色").fill("#123456");
+      await modal.getByLabel("文字色").fill("#fefefe");
+      const createdTag = await saveTag("保存标签");
+      assert.deepEqual(createdTag.tags.map(tag => tag.name), [tagName]);
+      await modal.getByRole("status").filter({hasText: "标签已保存"}).waitFor();
+      await modal.getByLabel("背景色").fill("#112233");
+      await modal.getByLabel("文字色").fill("#abcdef");
+      const updatedTag = await saveTag("保存标签");
+      assert.deepEqual(updatedTag.tags, [{name: tagName, definition: {color: "#112233", textColor: "#ABCDEF"}, inUse: false}]);
+      await modal.getByRole("status").filter({hasText: "标签已保存"}).waitFor();
+      await modal.getByRole("button", {name: "关闭", exact: true}).click();
+      await page.getByRole("button", {name: "已完成", exact: true}).click();
+      await taskRow.click();
+      await modal.getByRole("checkbox", {name: tagName}).check();
+      assert.deepEqual((await saveTask()).tags, [tagName]);
+      await assertTagColor(taskRow, "rgb(171, 205, 239)", "rgb(17, 34, 51)");
+
+      await page.goto(`${tasksURL}&project=${projectID}`);
+      for (const name of [projectTaskTitle, unrelatedTitle]) {
+        await page.getByRole("button", {name: "添加任务"}).click();
+        await modal.locator('[name="title"]').fill(name);
+        if (name === projectTaskTitle) await modal.getByRole("checkbox", {name: tagName}).check();
+        else await modal.locator('[name="tags"]').fill("existing-style entry, fieldwork");
+        const saved = await saveTask();
+        assert.deepEqual(saved.tags, name === projectTaskTitle ? [tagName] : ["existing-style entry", "fieldwork"]);
+      }
+      const projectRow = page.locator('[data-action="edit-task"]').filter({hasText: projectTaskTitle});
+      await assertTagColor(projectRow, "rgb(171, 205, 239)", "rgb(17, 34, 51)");
+      await page.getByRole("combobox", {name: "任务标签"}).selectOption(tagName);
+      await projectRow.waitFor();
+      await page.getByText(unrelatedTitle, {exact: true}).waitFor({state: "hidden"});
     });
 
     await withServer(binary, data, origin, async () => {
-      await page.goto(`${tasksURL}&calendar=1`);
+      await page.goto(`${tasksURL}&tab=calendar`);
       await page.getByRole("button", {name: `14:30 ${title}`}).click();
       assert.equal(await modal.locator('[name="title"]').inputValue(), title);
       assert.equal(await modal.locator('[name="status"]').inputValue(), "done");
@@ -125,9 +182,30 @@ async function smoke(binary) {
       const response = await page.request.get(`${origin}/api/research/tasks/${taskID}`);
       assert.ok(response.ok(), await response.text());
       assert.equal((await response.json()).id, taskID);
+      assert.equal(await modal.getByRole("checkbox", {name: tagName}).isChecked(), true);
+      await page.goto(tasksURL);
+      await page.getByRole("button", {name: "全部", exact: true}).click();
+      await page.getByRole("combobox", {name: "任务标签"}).selectOption(tagName);
+      const projectRow = page.locator('[data-action="edit-task"]').filter({hasText: projectTaskTitle});
+      await assertTagColor(taskRow, "rgb(171, 205, 239)", "rgb(17, 34, 51)");
+      await assertTagColor(projectRow, "rgb(171, 205, 239)", "rgb(17, 34, 51)");
+      await page.getByText(unrelatedTitle, {exact: true}).waitFor({state: "hidden"});
+      await page.getByRole("button", {name: "管理任务标签"}).click();
+      await modal.getByRole("button", {name: tagName}).click();
+      const removed = await saveTag("删除自定义标签");
+      assert.deepEqual(removed.tags.find(tag => tag.name === tagName), {name: tagName, inUse: true});
+      await modal.getByRole("status").filter({hasText: "已删除自定义标签"}).waitFor();
+      await modal.getByRole("button", {name: "删除自定义标签"}).waitFor({state: "hidden"});
+      await modal.getByRole("button", {name: "关闭", exact: true}).click();
+      await page.getByRole("combobox", {name: "任务标签"}).selectOption(tagName);
+      await taskRow.getByText(tagName, {exact: true}).waitFor();
+      await projectRow.getByText(tagName, {exact: true}).waitFor();
+      assert.notEqual(await projectRow.locator(".task-label").evaluate(el => getComputedStyle(el).backgroundColor), "rgb(17, 34, 51)");
+      await projectRow.click();
+      assert.equal(await modal.getByRole("checkbox", {name: tagName}).isChecked(), true);
     });
     assert.deepEqual(errors, []);
-    console.log("PASS global task creation, unassignment, status/calendar, and server restart in headless Chrome");
+    console.log("PASS global task creation, unassignment, status/calendar, shared custom tags, filtering, and server restart in headless Chrome");
   } finally {
     await browser?.close();
     await rm(data, {recursive: true, force: true});

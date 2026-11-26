@@ -12,6 +12,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Press Space over a selection in the library to preview a local PDF in its default application.
 - Manage workspace prompts for agenda planning, discussion and single-seat paper reading. Review changes before applying them and restore the built-in instructions by workflow.
 - Set discussion tool budgets and choose whether each model-requested file or statement read needs a one-time decision. Review pending reads in Roundtable, AI Lab or the AI side panel.
+- Manage reusable workspace task tags with separate background and text colors, and filter global or project tasks by tag. Deleting a custom definition restores default colors on tasks that use the tag.
 
 - Query project graphs for reading order, core references missing from the project, citation updates, saved research outcomes that need review, claim evidence gaps, method lineage, and connecting paths. Open the supporting source or share a query preview in AI Lab.
 - Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.

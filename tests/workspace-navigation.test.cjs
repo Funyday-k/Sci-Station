@@ -36,6 +36,7 @@ function mountResearch(start, sessions=[]) {
   const tasks = projects.map(p => ({id:"task" + p.id, projectId:p.id, title:p.name + " task", revision:3,status:"open"}));
   const responses = new Map([
     ["/api/research/projects", projects], ["/api/research/papers", papers], ["/api/research/tasks", tasks],
+    ["/api/research/task-tags", {revision: 0, tags: []}],
     ["/api/research/papers/organization", {revision: 0, collections: {}, tags: {}}],
     ["/api/studio/sessions", {sessions}],
   ]);

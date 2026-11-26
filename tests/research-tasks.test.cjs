@@ -95,11 +95,13 @@ test("task editor preserves archived project membership, multiple papers and rev
     title: "Original",
     revision: 7,
     status: "open",
+    tags: ["comma, kept"],
     evidence: [{paperId: "p1", page: 2, quote: "<excerpt>", sourceHash: "hash", selectionStart: 0, selectionEnd: 9}]
   };
   const selections = {
     projectIds: ["visible", "added"],
-    relatedPaperIds: ["p1", "p2"]
+    relatedPaperIds: ["p1", "p2"],
+    taskTagNames: ["comma, kept", "review"]
   };
   const values = {
     title: "Edited",
@@ -128,6 +130,7 @@ test("task editor preserves archived project membership, multiple papers and rev
   };
   Object.assign(ui.state, {
     tasks: [task],
+    taskCatalog: {revision: 1, tags: [{name: "review", definition: {color: "#AABBCC", textColor: "#123456"}}]},
     project,
     projects: [project, {
       id: "added",
@@ -160,6 +163,8 @@ test("task editor preserves archived project membership, multiple papers and rev
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../static/research-forms.js"), "utf8"), context);
   await ui.formAction("edit-task", "task");
   assert.match(dialogHTML, /<blockquote>&lt;excerpt&gt;<\/blockquote>/);
+  assert.match(dialogHTML, /name="taskTagNames" value="comma, kept" checked/);
+  assert.match(dialogHTML, /name="taskTagNames" value="review"[^]*--task-label-bg:#AABBCC;--task-label-fg:#123456/);
   const readerLink = dialogHTML.match(/href="(\/reader\?[^"]+)"/)[1].replaceAll("&amp;", "&");
   const params = new URL(readerLink, "http://localhost").searchParams;
   for (const [key, value] of Object.entries({paper: "p1", project: "visible", page: "2", fingerprint: "hash", start: "0", end: "9"})) {
@@ -171,7 +176,7 @@ test("task editor preserves archived project membership, multiple papers and rev
   assert.equal(saved.route, "projects/visible/tasks/task");
   assert.deepEqual(saved.body.projectIds, ["visible", "added", "archived"]);
   assert.deepEqual(saved.body.relatedPaperIds, ["p1", "p2"]);
-  assert.deepEqual(saved.body.tags, ["alpha", "beta"]);
+  assert.deepEqual(saved.body.tags, ["comma, kept", "review", "alpha", "beta"]);
   assert.equal(saved.body.revision, 7);
   assert.equal(saved.body.dueTime, "14:30");
 });

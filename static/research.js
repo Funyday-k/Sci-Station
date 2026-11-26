@@ -71,6 +71,7 @@
     notes: [],
     wikiFolders: [],
     tasks: [],
+    taskCatalog: null,
     materials: [],
     meetings: [],
     graph: {
@@ -283,6 +284,10 @@
   }
 
   const taskPriorityLabels = {low: "低", medium: "中", high: "高", urgent: "紧急"};
+  const taskTagPalette = [
+    ["#A7D8F0", "#17465F"], ["#BEE7C8", "#1F5130"], ["#F7C8D0", "#6B2637"], ["#F9D99A", "#62440E"],
+    ["#CDBFF5", "#3D2F73"], ["#BFE7E2", "#1E5550"], ["#F4C7A1", "#6A3A14"], ["#D6E3A3", "#48551A"]
+  ];
   const closedTask = t => t.status === "done" || t.status === "cancelled";
   function taskDateLabel(t) {
     const range = t.startDate && t.dueDate && t.startDate !== t.dueDate ?
@@ -293,18 +298,44 @@
     const start = t.startDate || t.dueDate, end = t.dueDate || t.startDate;
     return Boolean(start && date >= start && date <= end);
   }
+  function taskTagNames(extra = []) {
+    const names = [...(state.taskCatalog?.tags.map(tag => tag.name) || []),
+      ...state.tasks.flatMap(t => t.tags || []), ...extra];
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }
+
+  // Keep the historical fallback palette for tags saved as plain task strings.
+  function taskTagColors(name, definition) {
+    let index = 0;
+    for (const scalar of name) index = (index + scalar.codePointAt(0)) % taskTagPalette.length;
+    const [background, foreground] = taskTagPalette[index];
+    const hex = value => /^#[0-9a-f]{6}$/i.test(value || "");
+    return {
+      color: hex(definition?.color) ? definition.color : background,
+      textColor: hex(definition?.textColor) ? definition.textColor : (definition ? "#1F2937" : foreground)
+    };
+  }
+
+  function taskTagChip(name, definition) {
+    const {color, textColor} = taskTagColors(name, definition);
+    return '<span class="task-label" style="--task-label-bg:' + color + ';--task-label-fg:' + textColor + '">' + esc(name) + '</span>';
+  }
+
   function taskRows(tasks) {
+    const tags = new Map(state.taskCatalog?.tags.map(tag => [tag.name, tag.definition]));
     return list(tasks.map(t => {
       const closed = closedTask(t);
       const projects = (t.projectIds || [t.projectId]).map(id => state.projects.find(p => p.id === id)?.name);
       const meta = [!state.project ? projects.filter(Boolean).join("、") || "未分配" : "", t.kind === "reading" ? "论文阅读" : "", taskDateLabel(t),
-        taskPriorityLabels[t.priority] ? taskPriorityLabels[t.priority] + "优先级" : "", ...(t.tags || []), t.description];
+        taskPriorityLabels[t.priority] ? taskPriorityLabels[t.priority] + "优先级" : "", t.description];
+      const labels = (t.tags || []).map(name => taskTagChip(name, tags.get(name))).join("");
       return '<div class="row ' + (closed ? "completed" : "") + '"><button type="button" class="task-check ' +
         (closed ? "done" : "") + '" aria-label="' + esc((closed ? "重新打开" : "完成") + "：" + t.title) +
         '" data-action="toggle-task" data-id="' + esc(t.id) + '">' + (closed ? "✓" : "") +
         '</button><button class="row-main" data-action="edit-task" data-id="' + esc(t.id) + '"><span class="title">' +
         esc(t.title) + '</span><span class="meta">' + esc(meta.filter(Boolean).join(" · ").slice(0, 140)) +
-        '</span></button><span class="tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
+        '</span>' + (labels ? '<span class="task-labels">' + labels + '</span>' : '') +
+        '</button><span class="tag">' + esc(statusLabel[t.status] || "待办") + '</span></div>';
     }));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a
@@ -425,7 +456,7 @@
 
   function taskFilterSelect(id, label, all, selected, values) {
     const options = [["", all], ...values];
-    return '<select id="' + id + '" aria-label="' + label + '">' + options.map(([value, text]) =>
+    return '<select id="' + id + '" aria-label="' + esc(label) + '">' + options.map(([value, text]) =>
       '<option value="' + esc(value) + '"' + (selected === value ? " selected" : "") + '>' + esc(text) + '</option>'
     ).join("") + '</select>';
   }
@@ -478,7 +509,7 @@
     else if (!state.project && state.view !== "tasks") out = projectNeeded();
     else if (state.view === "notes") out = wikiPage();
     else if (state.view === "tasks") {
-      const tags = [...new Set(state.tasks.flatMap(t => t.tags || []))].sort((a, b) => a.localeCompare(b));
+      const tags = taskTagNames();
       const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
       const t = state.tasks.filter(t =>
         (state.taskFilter === "all" || (state.taskFilter === "open" ? !closedTask(t) : t.status === state.taskFilter)) &&
@@ -488,7 +519,7 @@
       out = heading("日历与任务", state.project?.name || "工作区", link("系统日历", toolsPage("calendar"), "button") + button(state.calendar ?
         "切换到列表" : "切换到月历", "switch-calendar", {
           glyph: "agenda"
-        }) + button("添加任务", "new-task", {
+        }) + button(text("管理任务标签", "Manage Task Tags"), "manage-task-tags") + button("添加任务", "new-task", {
         glyph: "plus",
         kind: "button primary"
       }));
@@ -502,7 +533,7 @@
         kind: "chip " + (state.taskFilter === key ? "active" : "")
       })).join("") + '</div>' + taskFilterSelect("task-kind", "任务类型", "全部类型", state.taskKind,
         [["general", "普通任务"], ["reading", "论文阅读"]]) +
-        (tags.length ? taskFilterSelect("task-tag", "任务标签", "全部标签", chosenTag, tags.map(tag => [tag, tag])) : "") +
+        (tags.length ? taskFilterSelect("task-tag", text("任务标签", "Task tags"), text("全部标签", "All tags"), chosenTag, tags.map(tag => [tag, tag])) : "") +
         '</div>' + panel((state.project ? "项目任务" : "全部任务") + " · " + t.length, t.length ? taskRows(t) : empty("当前列表没有任务",
         "可以创建带截止日期的任务。"));
     } else if (state.view === "materials") {
@@ -666,12 +697,13 @@
           graphError = err.message;
           return graph;
         }) : graph;
-      const [values,dashboardData,paperWikiStatus] = await Promise.all([nextProject ?
+      const [values,dashboardData,paperWikiStatus,taskCatalog] = await Promise.all([nextProject ?
         Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad, targetView === "notes" ? request("projects/" + enc(nextProject.id) + "/wiki/folders") : []]) :
         Promise.all([[], ["overview", "tasks"].includes(targetView) ? request("tasks") : [], [], {nodes: [], edges: []}]),
         targetView === "overview" ? dashboard.load(request, nextProject?.id) : null,
         targetView === "papers" && !nextProject && organization.library?.visible_columns.includes("wiki") ?
-          request("paper-wiki-status") : {}
+          request("paper-wiki-status") : {},
+        targetView === "tasks" ? request("task-tags") : null
       ]);
       if (token !== navEpoch) return;
       // Publish the complete snapshot together. Until this point the visible
@@ -683,6 +715,7 @@
       state.papers = papers || [];
       state.organization = organization;
       state.paperWikiStatus = paperWikiStatus;
+      state.taskCatalog = taskCatalog;
       if (state.libraryCollection !== "unfiled" && !Object.hasOwn(organization.collections, state.libraryCollection)) state.libraryCollection = "";
       if (nextProject?.id !== state.project?.id) state.inspire = {seeds: [], rows: [], pending: false, error: ""};
       state.project = nextProject;
@@ -834,6 +867,9 @@
     statusLabel,
     taskPriorityLabels,
     taskOnDate,
+    taskTagNames,
+    taskTagColors,
+    taskTagChip,
     toolsPage,
     renderWikiMarkdown,
     bytes,

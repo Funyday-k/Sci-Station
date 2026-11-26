@@ -93,6 +93,8 @@ func (t Task) MarshalJSON() ([]byte, error) {
 }
 
 func (s *Service) registerTasks() {
+	s.mux.HandleFunc("GET "+prefix+"/task-tags", s.taskTags)
+	s.mux.HandleFunc("PATCH "+prefix+"/task-tags", s.taskTags)
 	for _, base := range []string{prefix + "/tasks", prefix + "/projects/{project}/tasks"} {
 		for _, m := range []string{"GET", "POST"} {
 			s.mux.HandleFunc(m+" "+base, s.tasks)
@@ -186,8 +188,10 @@ type taskCollection struct {
 
 type workspaceTaskData struct {
 	taskCollection
-	Version int `json:"version"`
-	disk    []byte
+	Version        int                          `json:"version"`
+	TagRevision    int                          `json:"tagRevision,omitempty"`
+	TagDefinitions map[string]taskTagDefinition `json:"tagDefinitions,omitempty"`
+	disk           []byte
 }
 
 func (s *Service) workspaceTaskPath() string { return filepath.Join(s.dir, "tasks.json") }
@@ -214,7 +218,7 @@ func (s *Service) loadWorkspaceTasks() error {
 		return err
 	}
 	var record workspaceTaskData
-	if json.Unmarshal(data, &record) != nil || record.Version != 1 || record.Tasks == nil || record.TaskKeys == nil {
+	if json.Unmarshal(data, &record) != nil || record.Version != 1 || record.Tasks == nil || record.TaskKeys == nil || !record.validTaskTags() {
 		return errors.New("工作区任务文件无法读取或版本不支持")
 	}
 	for id, task := range record.Tasks {
@@ -235,7 +239,11 @@ func (s *Service) taskCollectionLocked(owner string) taskCollection {
 }
 
 func (s *Service) saveTasks(w http.ResponseWriter, owner string, collection taskCollection) bool {
-	if err := s.commitTasks(owner, collection); err != nil {
+	return savedTaskData(w, s.commitTasks(owner, collection))
+}
+
+func savedTaskData(w http.ResponseWriter, err error) bool {
+	if err != nil {
 		if errors.Is(err, errProjectRecordChanged) {
 			jsonFail(w, 409, "任务文件已更改，请重新打开工作区")
 		} else {
@@ -252,6 +260,12 @@ func (s *Service) commitTasks(owner string, collection taskCollection) error {
 		project.Tasks, project.TaskKeys = collection.Tasks, collection.TaskKeys
 		return s.commit(project)
 	}
+	record := s.workspaceTasks
+	record.taskCollection = collection
+	return s.commitWorkspaceTaskData(record)
+}
+
+func (s *Service) commitWorkspaceTaskData(record workspaceTaskData) error {
 	old := s.workspaceTasks
 	disk, err := s.readWorkspaceTasks()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -260,8 +274,6 @@ func (s *Service) commitTasks(owner string, collection taskCollection) error {
 	if !bytes.Equal(old.disk, disk) {
 		return errProjectRecordChanged
 	}
-	record := old
-	record.taskCollection = collection
 	data, err := json.Marshal(record)
 	if err == nil && disk != nil {
 		var before []byte

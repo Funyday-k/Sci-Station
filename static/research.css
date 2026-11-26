@@ -794,6 +794,60 @@ dialog::backdrop {
   max-width: 12em
 }
 
+.task-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px
+}
+
+.task-label {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--task-label-bg);
+  color: var(--task-label-fg);
+  font-size: .75rem;
+  text-align: left;
+  overflow-wrap: anywhere
+}
+
+.task-tag-layout {
+  display: grid;
+  grid-template-columns: minmax(8rem, 2fr) minmax(0, 3fr);
+  gap: 16px
+}
+
+.task-tag-directory {
+  display: grid;
+  gap: 5px;
+  max-height: 14rem;
+  overflow: auto;
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0
+}
+
+.task-tag-directory button {
+  width: 100%;
+  justify-content: flex-start
+}
+
+.task-tag-directory button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--tint)
+}
+
+.task-tag-preview {
+  min-height: 1.6rem
+}
+
+@media(max-width: 540px) {
+  .task-tag-layout { grid-template-columns: minmax(0, 1fr) }
+  .task-tag-directory { max-height: 7rem }
+}
+
 .task-evidence {
   margin-bottom: 13px;
   overflow-wrap: anywhere

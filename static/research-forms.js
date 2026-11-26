@@ -72,14 +72,14 @@
       e.preventDefault();
       if (f.dataset.pending || !f.reportValidity()) return;
       f.dataset.pending = "true";
-      const submit = f.querySelector("[type=submit]");
+      const submit = e.submitter || f.querySelector("[type=submit]");
       submit.disabled = true;
       const error = f.querySelector("[data-error]"),
         status = f.querySelector("[data-status]");
       error.textContent = "";
       status.textContent = copy("正在保存…", "Saving…");
       try {
-        await onSubmit(f, token);
+        await onSubmit(f, token, submit);
       } catch (err) {
         error.textContent = err.message;
         status.textContent = "";
@@ -875,6 +875,80 @@
     window.addEventListener("scistation:command", command);
   }
 
+  async function openTaskForm(task) {
+    if (!state.taskCatalog) {
+      const {project, view} = state;
+      const catalog = await request("task-tags");
+      if (state.project !== project || state.view !== view) return;
+      state.taskCatalog = catalog;
+    }
+    taskForm(task);
+  }
+
+  async function manageTaskTags() {
+    const catalog = await request("task-tags");
+    if (state.view !== "tasks") return;
+    state.taskCatalog = catalog;
+    render();
+    showTaskTagEditor();
+  }
+
+  function showTaskTagEditor(name = "", message = "") {
+    const catalog = state.taskCatalog;
+    const tag = catalog.tags.find(tag => tag.name === name);
+    const colors = tag ? E.taskTagColors(name, tag.definition) : {color: "#E76F51", textColor: "#1F2937"};
+    const choices = catalog.tags.slice().sort((a, b) => a.name.localeCompare(b.name));
+    let form;
+    dialog(copy("管理任务标签", "Manage Task Tags"),
+      '<form class="task-tag-manager"><div class="task-tag-layout"><div class="task-tag-library">' +
+      '<button type="button" class="button" data-new-task-tag>' + esc(copy("新建标签", "New tag")) + '</button>' +
+      (choices.length ? '<ul class="task-tag-directory">' + choices.map(item =>
+        '<li><button type="button" class="button" data-task-tag-name="' + esc(item.name) +
+        '" aria-pressed="' + (item.name === name) + '">' + E.taskTagChip(item.name, item.definition) + '</button></li>').join("") + '</ul>' :
+        '<p class="form-help">' + esc(copy("还没有任务标签。", "No task tags yet.")) + '</p>') +
+      '</div><div>' +
+      field(copy("标签名称", "Tag name"), input("tagName", name, 'required maxlength="80"' + (tag ? ' readonly' : ' autofocus'))) +
+      '<div class="split">' + field(copy("背景色", "Background color"), input("color", colors.color, 'type="color"')) +
+      field(copy("文字色", "Text color"), input("textColor", colors.textColor, 'type="color"')) + '</div>' +
+      '<div class="task-tag-preview" data-task-tag-preview></div>' +
+      (tag?.inUse && tag.definition ? '<p class="form-help">' +
+        esc(copy("删除自定义标签后，已关联的任务仍保留此标签，并恢复默认颜色。", "Tasks keep this tag in its default colors when you delete its custom definition.")) + '</p>' : "") +
+      '</div></div>' + formStatus() + '<div class="form-foot">' +
+      '<button type="submit" value="set" class="button primary">' + esc(copy("保存标签", "Save tag")) + '</button>' +
+      (tag?.definition ? '<button type="submit" value="delete" class="bare danger">' + esc(copy("删除自定义标签", "Delete custom tag")) + '</button>' : "") +
+      '</div></form>',
+      {wide: true, canDismiss: () => !form?.dataset.pending});
+    form = bindForm(async (f, _, submit) => {
+      const operation = submit.value === "delete" ? "delete" : "set";
+      const tagName = value(f, "tagName");
+      const saved = await request("task-tags", {
+        method: "PATCH",
+        body: {revision: catalog.revision, operation, name: tagName, color: value(f, "color"), textColor: value(f, "textColor")}
+      });
+      state.taskCatalog = saved;
+      const exists = saved.tags.some(tag => tag.name === tagName);
+      if (!exists && state.taskTag === tagName) state.taskTag = "";
+      render();
+      showTaskTagEditor(exists ? tagName : "", operation === "delete" ?
+        copy("已删除自定义标签。", "Custom tag deleted.") : copy("标签已保存。", "Task tag saved."));
+    });
+    form.querySelector("[data-status]").textContent = message;
+    const showPreview = () => {
+      const title = value(form, "tagName") || copy("预览", "Preview");
+      form.querySelector("[data-task-tag-preview]").innerHTML =
+        E.taskTagChip(title, {color: value(form, "color"), textColor: value(form, "textColor")});
+    };
+    showPreview();
+    form.addEventListener("input", showPreview);
+    form.addEventListener("click", e => {
+      const edit = e.target.closest("[data-task-tag-name], [data-new-task-tag]");
+      if (!edit || form.dataset.pending) return;
+      showTaskTagEditor(edit.dataset.taskTagName || "");
+    });
+    if (tag) form.elements.namedItem("color").focus();
+    else form.elements.namedItem("tagName").focus();
+  }
+
   function taskForm(t = null) {
     const pid = state.project?.id;
     const member = t ? t.projectId : pid;
@@ -886,6 +960,11 @@
         '" value="' + esc(id) + '"' + (selected.includes(id) ? " checked" : "") + '> ' + esc(title) + '</label>').join("") +
       '</div></fieldset>';
     const papers = state.papers.map(p => [p.id, p.title]);
+    const assignedTags = t?.tags || [];
+    const definitions = new Map(state.taskCatalog?.tags.map(tag => [tag.name, tag.definition]));
+    const tagChoices = E.taskTagNames(assignedTags).map(name =>
+      '<label><input type="checkbox" name="taskTagNames" value="' + esc(name) + '"' +
+      (assignedTags.includes(name) ? " checked" : "") + '> ' + E.taskTagChip(name, definitions.get(name)) + '</label>');
     dialog(t ? "编辑任务" : "添加任务", '<form>' +
       field("任务", input("title", t?.title, 'required autofocus maxlength="240"')) +
       '<div class="split">' + field("类型", select("kind", [["general", "普通任务"], ["reading", "论文阅读"]], t?.kind || "general")) +
@@ -896,14 +975,20 @@
       field("截止时间", input("dueTime", t?.dueTime, 'type="time"')) +
       (state.projects.length ? multi("关联项目（可选）", "projectIds", state.projects.map(p => [p.id, p.name]), members) : "") +
       (papers.length ? multi("关联论文", "relatedPaperIds", papers, paperIds) : "") +
-      field("标签", input("tags", t?.tags?.join(", "), 'placeholder="用逗号分隔"')) +
+      (tagChoices.length ? '<fieldset class="task-picker"><legend>' + esc(copy("任务标签", "Task tags")) +
+        '</legend><div class="task-options">' + tagChoices.join("") + '</div></fieldset>' : "") +
+      field(copy("添加标签", "Add tags"), input("tags", "", 'placeholder="' + esc(copy("用逗号分隔", "Separate with commas")) + '"')) +
       field("说明", area("description", t?.description)) + taskEvidence(t) + formFooter("保存任务", t ? "task:" + t.id : "") + '</form>', {wide: true});
     bindForm(async (f, token) => {
       const body = {};
       for (const key of ["title", "kind", "priority", "status", "startDate", "dueDate", "dueTime", "description"]) {
         body[key] = value(f, key);
       }
-      body.tags = split(value(f, "tags"));
+      const chosenTags = chosen(f, "taskTagNames");
+      const tags = [...new Set([...assignedTags.filter(name => chosenTags.includes(name)), ...chosenTags, ...split(value(f, "tags"))])];
+      if (!t || tags.length !== assignedTags.length || tags.some((name, index) => name !== assignedTags[index])) {
+        body.tags = tags;
+      }
       const projects = chosen(f, "projectIds");
       body.projectIds = projects.length ? [...projects, ...hiddenMembers] : [];
       const routeProject = t ? (t.projectId || pid) : (projects.includes(pid) ? pid : projects[0]);
@@ -1169,10 +1254,11 @@
       toast("项目已恢复");
       return;
     }
-    if (action === "new-task") return taskForm();
+    if (action === "manage-task-tags") return manageTaskTags();
+    if (action === "new-task") return openTaskForm(null);
     if (action === "edit-task") {
       const t = state.tasks.find(item => item.id === id);
-      if (t) return taskForm(t);
+      if (t) return openTaskForm(t);
       return;
     }
     if (!state.project) {
