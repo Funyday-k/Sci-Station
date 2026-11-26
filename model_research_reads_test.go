@@ -319,6 +319,24 @@ func TestModelResearchBackoffAndRetry(t *testing.T) {
 		t.Fatal(audit)
 	}
 }
+func TestResearchReadBackoffRestartsAfterSuccess(t *testing.T) {
+	state := &researchRetryState{}
+	failure := errors.New("service unavailable")
+	state.failed("catalog", failure)
+	state.failed("catalog", failure)
+	state.failed("second connector", failure)
+	state.success("catalog")
+	if err := state.canAttempt("catalog"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.failed("catalog", failure); !strings.Contains(err.Error(), "retry_count=1 ") {
+		t.Fatalf("a new outage must restart the retry interval: %v", err)
+	}
+	if err := state.canAttempt("second connector"); err == nil {
+		t.Fatal("success on one connector cleared another connector's cooldown")
+	}
+}
+
 func TestModelResearchRejectsMalformedOrUnregisteredOperations(t *testing.T) {
 	f, _ := modelRegisteredStdio(t)
 	s := f.api.research.(*research.Service)

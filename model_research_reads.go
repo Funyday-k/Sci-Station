@@ -118,11 +118,7 @@ func (s *researchRetryState) failed(key string, err error) error {
 func (s *researchRetryState) success(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if item, ok := s.entries[key]; ok {
-		item.until = time.Time{}
-		item.last = ""
-		s.entries[key] = item
-	}
+	delete(s.entries, key)
 }
 
 // A discovery/transport failure can be retried after a delay. Credential
