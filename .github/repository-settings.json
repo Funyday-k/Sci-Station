@@ -1,7 +1,7 @@
 {
   "description": "Local-first macOS research workstation for papers, project knowledge, and auditable AI workflows.",
-  "topics": ["macos", "swiftui", "research", "reference-management", "local-first", "knowledge-management", "ai-agents"],
-  "protected_branches": ["main", "dev"],
+  "topics": ["macos", "go", "wails", "research", "reference-management", "local-first", "knowledge-management", "ai-agents"],
+  "protected_branches": ["main"],
   "branch_protection": {
     "required_status_checks": {
       "strict": true,
