@@ -253,7 +253,8 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 	api := &apiServer{desktop: desktop, workspaceDir: dir, boundRootID: binding.ID, prefs: pref, meetings: engine, research: lab, plugins: market, pluginErr: marketErr}
 	if api.desktop {
 		lab.SetNewTaskReminder(func(task research.Task) (string, error) { return api.sendReminder(task, true) })
-		store, _, err := credentials.WorkspaceStores(binding.ID)
+		store, keys, err := credentials.WorkspaceStores(binding.ID)
+		api.labConnect.key = keys
 		if err != nil {
 			log.Print("无法为此数据目录启用 MinerU 钥匙串")
 		} else if store != nil {

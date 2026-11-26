@@ -29,6 +29,8 @@ type labRPC struct {
 	client  *http.Client
 	version string
 	session string
+	bearer  string
+	local   *labStdio
 }
 type labRPCMessage struct {
 	ID      int             `json:"id"`
@@ -55,9 +57,15 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 	if e != nil {
 		return e
 	}
+	if m.local != nil {
+		return m.local.call(body, id, out)
+	}
 	req, e := http.NewRequestWithContext(ctx, "POST", m.target, bytes.NewReader(body))
 	if e != nil {
 		return e
+	}
+	if m.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+m.bearer)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -87,22 +95,7 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 	}
 	const limit = 1 << 20
 	r := io.LimitReader(res.Body, limit+1)
-	validate := func(data []byte) (bool, error) {
-		var env labRPCMessage
-		if json.Unmarshal(data, &env) != nil {
-			return false, errors.New("MCP 消息不是有效 JSON")
-		}
-		if env.ID != id {
-			return false, nil
-		}
-		if env.Version != "2.0" || env.Error != nil {
-			return false, errors.New("MCP 服务未完成请求")
-		}
-		if e := json.Unmarshal(env.Result, out); e != nil {
-			return false, errors.New("MCP 返回格式无效")
-		}
-		return true, nil
-	}
+	validate := func(data []byte) (bool, error) { return decodeLabRPC(data, id, out) }
 	mt, _, _ := mime.ParseMediaType(res.Header.Get("Content-Type"))
 	if mt == "text/event-stream" {
 		scan := bufio.NewScanner(r)
@@ -135,41 +128,77 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 	}
 	return nil
 }
-func labReadResources(ctx context.Context, client *http.Client, endpoint, uri string) (any, error) {
-	m := labRPC{target: endpoint, client: client}
-	var init struct {
-		Version      string `json:"protocolVersion"`
-		Capabilities struct {
-			Resources *struct{} `json:"resources"`
-		} `json:"capabilities"`
+func decodeLabRPC(data []byte, id int, out any) (bool, error) {
+	var env labRPCMessage
+	if json.Unmarshal(data, &env) != nil {
+		return false, errors.New("MCP 消息不是有效 JSON")
 	}
-	if e := m.call(ctx, "initialize", 1, map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "Sci-Station", "version": "1.0"}}, &init); e != nil {
-		return nil, e
+	if env.ID != id {
+		return false, nil
+	}
+	if env.Version != "2.0" || env.Error != nil {
+		return false, errors.New("MCP 服务未完成请求")
+	}
+	if e := json.Unmarshal(env.Result, out); e != nil {
+		return false, errors.New("MCP 返回格式无效")
+	}
+	return true, nil
+}
+
+type labCapabilities struct {
+	Resources *struct{} `json:"resources"`
+	Tools     *struct{} `json:"tools"`
+}
+
+func (m *labRPC) initialize(ctx context.Context) (labCapabilities, error) {
+	var init struct {
+		Version      string          `json:"protocolVersion"`
+		Capabilities labCapabilities `json:"capabilities"`
+	}
+	if err := m.call(ctx, "initialize", 1, map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "Sci-Station", "version": "1.0"}}, &init); err != nil {
+		return init.Capabilities, err
 	}
 	if init.Version != "2025-06-18" && init.Version != "2025-03-26" {
-		return nil, errors.New("不支持对端的 MCP 协议版本")
+		return init.Capabilities, errors.New("不支持对端的 MCP 协议版本")
 	}
 	m.version = init.Version
-	if init.Capabilities.Resources == nil {
+	return init.Capabilities, m.call(ctx, "notifications/initialized", 0, nil, nil)
+}
+func (m *labRPC) close() {
+	if m.local != nil {
+		m.local.close()
+		return
+	}
+	if m.session == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "DELETE", m.target, nil)
+	if err == nil {
+		req.Header.Set("Mcp-Session-Id", m.session)
+		req.Header.Set("MCP-Protocol-Version", m.version)
+		if m.bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+m.bearer)
+		}
+		if resp, e := m.client.Do(req); e == nil {
+			resp.Body.Close()
+		}
+	}
+}
+func labReadResources(ctx context.Context, client *http.Client, endpoint, uri string) (any, error) {
+	m := labRPC{target: endpoint, client: client}
+	defer m.close()
+	caps, err := m.initialize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if caps.Resources == nil {
 		return nil, errors.New("此服务未开放资源读取")
 	}
-	if e := m.call(ctx, "notifications/initialized", 0, nil, nil); e != nil {
-		return nil, e
-	}
-	if m.session != "" {
-		defer func() {
-			endCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			req, err := http.NewRequestWithContext(endCtx, "DELETE", endpoint, nil)
-			if err == nil {
-				req.Header.Set("Mcp-Session-Id", m.session)
-				req.Header.Set("MCP-Protocol-Version", m.version)
-				if resp, e := client.Do(req); e == nil {
-					resp.Body.Close()
-				}
-			}
-		}()
-	}
+	return m.resources(ctx, uri, func() error { return nil })
+}
+func (m *labRPC) resources(ctx context.Context, uri string, check func() error) (any, error) {
 	index := []labResource{}
 	cursor := ""
 	for page := 0; page < 4; page++ {
@@ -216,6 +245,9 @@ func labReadResources(ctx context.Context, client *http.Client, endpoint, uri st
 			Text string `json:"text"`
 		} `json:"contents"`
 	}
+	if e := check(); e != nil {
+		return nil, e
+	}
 	if e := m.call(ctx, "resources/read", 9, map[string]string{"uri": uri}, &out); e != nil {
 		return nil, e
 	}
@@ -225,7 +257,7 @@ func labReadResources(ctx context.Context, client *http.Client, endpoint, uri st
 				return nil, errors.New("此资源超过 60 KiB 文本预览上限")
 			}
 			sum := sha256.Sum256([]byte(item.Text))
-			return map[string]string{"uri": uri, "server": endpoint, "sha256": hex.EncodeToString(sum[:]), "text": item.Text}, nil
+			return map[string]string{"uri": uri, "server": m.target, "sha256": hex.EncodeToString(sum[:]), "text": item.Text}, nil
 		}
 	}
 	return nil, errors.New("此资源没有可预览的文字")

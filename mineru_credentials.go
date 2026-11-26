@@ -15,12 +15,13 @@ const desktopCredentialHeader = "X-Sci-Station-Credential-Session"
 const minerCredentialUnavailable = "无法访问 macOS 钥匙串，请检查权限后重试。"
 
 type minerCredentials struct {
-	store credentials.Store
-	proof string
+	store    credentials.Store
+	proof    string
+	labProof string
 }
 
 func newMinerCredentials(store credentials.Store) *minerCredentials {
-	return &minerCredentials{store: store, proof: rand.Text()}
+	return &minerCredentials{store: store, proof: rand.Text(), labProof: rand.Text()}
 }
 
 // Wails runs this script after each page loads. Only bundled credential
@@ -35,9 +36,15 @@ func (a *apiServer) desktopCredentialSessionScript(address string) string {
 	}
 	origin, _ := json.Marshal(appURL.Scheme + "://" + appURL.Host)
 	proof, _ := json.Marshal(a.minerCreds.proof)
+	labProof, _ := json.Marshal(a.minerCreds.labProof)
 	return `(() => {
-		if (location.origin !== ` + string(origin) + ` ||
-			!["/tools", "/static/science-tools.html", "/studio", "/static/studio.html"].includes(location.pathname)) return;
+		if (location.origin !== ` + string(origin) + `) return;
+		if (["/lab","/static/lab.html"].includes(location.pathname)) {
+			window.sciStationConnectorSession = ` + string(labProof) + `;
+			window.dispatchEvent(new Event("scistation:connector-session"));
+			return;
+		}
+		if (!["/tools", "/static/science-tools.html", "/studio", "/static/studio.html"].includes(location.pathname)) return;
 		window.sciStationCredentialSession = ` + string(proof) + `;
 		window.dispatchEvent(new Event("scistation:credential-session"));
 	})()`

@@ -9,7 +9,7 @@
     return skill.enabled && skill.trusted && !skill.invalid;
   }
 
-  function mount({req,tell,resetResource}) {
+  function mount({req,tell,resetResource,settingsChanged}) {
     const $=id=>document.getElementById(id);
     let project="", title="", state=null, generation=0, review=null, remote=null;
     function clearPreview() {
@@ -87,6 +87,7 @@
       const config=await req(base+"context","PATCH",{projectId:owner,revision:state.revision,confirmed:true,...edit});
       if(token!==generation) return false;
       state=config;
+      settingsChanged?.(project,config.revision);
       drawSkills();
       return true;
     }
@@ -187,7 +188,7 @@
         clearResource();tell("项目 MCP 设置已保存。");
       }
     });
-    return {select,resolve,resource,clearResource};
+    return {select,resolve,resource,clearResource,updateRevision(id,rev){if(project===id && state)state.revision=rev;}};
   }
   if(typeof module==="object" && module.exports)module.exports={skillMatches,eligible,mount};
   else window.SciLabContext={mount};

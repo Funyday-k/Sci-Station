@@ -124,3 +124,13 @@ test("formal workflows identify structured scientific artifacts with turn-visibl
   const matrix=projectRows(comparison,reply([row]).replace("research-tasks","research-comparison"),[paper,paper],1,[],"p1");
   assert.equal(matrix.rows[0].refs.length,2);
 });
+
+test("a selected MCP excerpt carries the exact one-time consent into its project run",()=>{
+  const receipt={projectId:setup.projectId,connection:"papers",operation:"tools/call",id:"1".repeat(64),
+    configHash:"2".repeat(64),argumentsHash:"3".repeat(64),time:"2026-10-25T08:30:00Z"};
+  const resource={kind:"mcp-resource",projectId:setup.projectId,server:"MCP · papers",uri:"mcp-tool:papers/find",
+    sha256:"4".repeat(64),excerpt:"Selected sentence.",receipt};
+  const topic=compose({...setup,resource});
+  for(const value of [receipt.id,receipt.configHash,receipt.argumentsHash,receipt.operation,resource.excerpt])assert.ok(topic.includes(value));
+  assert.throws(()=>compose({...setup,resource:{...resource,receipt:{...receipt,projectId:"another"}}}),/同意记录/);
+});

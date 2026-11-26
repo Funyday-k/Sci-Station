@@ -255,8 +255,8 @@ func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	}
 	for key, value := range next {
 		if prior, exists := old[key]; exists && original[key] != nil {
-			if key == "annotations" && (value[0] == '[' || bytes.Equal(value, []byte("null"))) && !bytes.Equal(prior, value) {
-				original[key] = mergePaperAnnotations(original[key], prior, value)
+			if (key == "annotations" || key == "connections") && (value[0] == '[' || bytes.Equal(value, []byte("null"))) && !bytes.Equal(prior, value) {
+				original[key] = mergeRecordArrayByID(original[key], prior, value)
 			} else {
 				original[key] = mergeRecordFields(original[key], prior, value)
 			}
@@ -268,9 +268,8 @@ func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	return merged
 }
 
-// Annotation arrays may change order or length. Match by stable ID to
-// preserve extensions on existing annotations when writing another mark.
-func mergePaperAnnotations(disk, before, after json.RawMessage) json.RawMessage {
+// Match array entries by stable ID to preserve unknown nested fields across edits.
+func mergeRecordArrayByID(disk, before, after json.RawMessage) json.RawMessage {
 	type annotationIdentity struct {
 		ID string `json:"id"`
 	}

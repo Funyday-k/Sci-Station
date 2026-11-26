@@ -9,6 +9,8 @@
   function tell(text){$("status").textContent=text;}
   async function req(path,method="GET",data,signal) {
     const opt={method,signal,cache:"no-store",keepalive:method==="PUT" && path.startsWith(api+"draft?"),headers:{"X-Roundtable":"1"}};
+    if(path.startsWith(api+"connectors/") && window.sciStationConnectorSession)
+      opt.headers["X-Sci-Station-Connector-Session"]=window.sciStationConnectorSession;
     if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
     const res=await fetch(path,opt);
     if(res.status===204)return;
@@ -16,7 +18,10 @@
     if(!res.ok)throw Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
     return x;
   }
-  const projectContext = window.SciLabContext.mount({req, tell, resetResource});
+  const projectContext = window.SciLabContext.mount({req, tell, resetResource,settingsChanged:(id,rev)=>connections.updateRevision(id,rev)});
+  const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
+    showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
+  });
   const runs = window.SciLabRun.mount({req, tell, skillForRun:projectContext.resolve,
     form:() => ({...form(), workflow:current?.id || "", question:$("question").value.trim(), resource:source})});
   function form(){
@@ -81,6 +86,7 @@
     if(id==="@global")url.searchParams.set("scope","global");else url.searchParams.delete("scope");
     if (commit) window.SciStationNav.commitURL(url,"push");
     $("handoff").disabled=!p;
+    connections.select(id,p?.name || "");
     projectContext.select(id, p?.name || "").catch(e => tell(e.message));
     runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
     hint();
@@ -192,7 +198,7 @@
   action("select-excerpt",()=>{
     const area=$("resource-text");if(!preview)throw Error("请先预览资源。");
     const snippet=area.value.slice(area.selectionStart,area.selectionEnd).trim();if(!snippet||Array.from(snippet).length>2000)throw Error("请在预览中选中 1–2,000 字。");
-    const {uri,server,sha256,projectId}=preview;markSource({kind:"mcp-resource",uri,server,sha256,projectId,excerpt:snippet});tell("选段已加入本次会议草稿。");
+    const {uri,server,sha256,projectId,receipt}=preview;markSource({kind:"mcp-resource",uri,server,sha256,projectId,receipt,excerpt:snippet});tell("选段已加入本次会议草稿。");
   });
   action("remove",()=>markSource(null));
   action("handoff",openDraft);$("project").onchange=()=>projectSelection(true);$("session").onchange=hint;

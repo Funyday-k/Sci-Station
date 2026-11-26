@@ -15,11 +15,27 @@ import (
 	"scistation.local/desktop/internal/credentials"
 )
 
+// LabConnector stores only user-reviewed project metadata. Device trust and bearer
+// credentials live in the workstation Keychain, outside the research root.
+type LabConnector struct {
+	ID          string   `json:"id"`
+	Transport   string   `json:"transport"`
+	Endpoint    string   `json:"endpoint,omitempty"`
+	Program     string   `json:"program,omitempty"`
+	Arguments   []string `json:"arguments,omitempty"`
+	ProgramHash string   `json:"programHash,omitempty"`
+	ScriptHash  string   `json:"scriptHash,omitempty"`
+	Bearer      bool     `json:"bearer,omitempty"`
+	Tools       []string `json:"tools,omitempty"`
+	Enabled     bool     `json:"enabled"`
+}
+
 type LabSettings struct {
-	Revision   int        `json:"revision"`
-	Endpoint   string     `json:"endpoint,omitempty"`
-	MCPEnabled bool       `json:"mcpEnabled"`
-	Skills     []LabSkill `json:"skills"`
+	Connections []LabConnector `json:"connections,omitempty"`
+	Revision    int            `json:"revision"`
+	Endpoint    string         `json:"endpoint,omitempty"`
+	MCPEnabled  bool           `json:"mcpEnabled"`
+	Skills      []LabSkill     `json:"skills"`
 }
 
 type LabSkill struct {
@@ -121,6 +137,11 @@ func labSettingsSnapshot(d projectData) LabSettings {
 	}
 	config := *d.Lab
 	config.Skills = slices.Clone(config.Skills)
+	config.Connections = slices.Clone(config.Connections)
+	for i := range config.Connections {
+		config.Connections[i].Arguments = slices.Clone(config.Connections[i].Arguments)
+		config.Connections[i].Tools = slices.Clone(config.Connections[i].Tools)
+	}
 	return config
 }
 

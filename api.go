@@ -28,6 +28,7 @@ import (
 var assets embed.FS
 
 type apiServer struct {
+	labConnect      labConnectorAccess
 	cliEdits        cliEditAPI
 	navigation      workspaceNavigation
 	calendar        calendarBridge

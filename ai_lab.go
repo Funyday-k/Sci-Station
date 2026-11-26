@@ -85,6 +85,10 @@ func (a *apiServer) serveAILab(w http.ResponseWriter, r *http.Request) {
 		a.serveLabContext(w, r, path)
 		return
 	}
+	if strings.HasPrefix(path, "connectors/") {
+		a.serveLabConnector(w, r, strings.TrimPrefix(path, "connectors/"), research.PublicResourceClient())
+		return
+	}
 	if path == "resources/list" || path == "resources/read" {
 		a.serveLabResources(w, r, path, research.PublicResourceClient())
 		return

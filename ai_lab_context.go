@@ -18,10 +18,11 @@ type labSkillStatus struct {
 }
 
 type labContextResponse struct {
-	Revision   int              `json:"revision"`
-	Endpoint   string           `json:"endpoint"`
-	MCPEnabled bool             `json:"mcpEnabled"`
-	Skills     []labSkillStatus `json:"skills"`
+	Connections []research.LabConnector `json:"connections,omitempty"`
+	Revision    int                     `json:"revision"`
+	Endpoint    string                  `json:"endpoint"`
+	MCPEnabled  bool                    `json:"mcpEnabled"`
+	Skills      []labSkillStatus        `json:"skills"`
 }
 
 type labContextEdit struct {

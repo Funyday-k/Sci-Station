@@ -27,7 +27,16 @@
       if (kind === "mcp-resource" && projectId !== data.projectId) throw Error("公共资源选段不属于当前范围。");
       if (!server || !uri || !/^[a-f0-9]{64}$/.test(sha256) || typeof excerpt !== "string" ||
           !excerpt.trim() || count(excerpt)>2000) throw Error("所选资源摘录不完整。");
-      chunks.push((kind === "project-graph" ? "项目图谱资料（供核对）" : "外部资源摘录（供核对）") + "\n来源服务："+server+"\n资源："+uri+"\n原文 SHA-256："+sha256+"\n\n"+excerpt.trim());
+      const receipt = data.resource.receipt;
+      let decision="";
+      if (receipt) {
+        if (receipt.projectId!==data.projectId || !/^[a-f0-9]{64}$/.test(receipt.id) ||
+            !/^[a-f0-9]{64}$/.test(receipt.configHash) || !/^[a-f0-9]{64}$/.test(receipt.argumentsHash) ||
+            !["tools/call","resources/read"].includes(receipt.operation)) throw Error("本次科研连接的同意记录无效。");
+        decision="\n用户已确认 "+receipt.operation+" · "+receipt.connection+" · "+receipt.time+
+          "\n连接配置 SHA-256："+receipt.configHash+"\n参数 SHA-256："+receipt.argumentsHash+"\n本次同意编号："+receipt.id;
+      }
+      chunks.push((kind === "project-graph" ? "项目图谱资料（供核对）" : "外部资源摘录（供核对）") + "\n来源服务："+server+"\n资源："+uri+"\n原文 SHA-256："+sha256+decision+"\n\n"+excerpt.trim());
     }
     const text = chunks.join("\n\n");
     if(count(text)>12000) throw Error("会议草稿超过 12,000 字，请缩短工作指引、研究问题或摘录，或取消本次技能。");

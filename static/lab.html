@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/static/lab.css">
   <script defer src="/static/lab-evidence.js"></script>
   <script defer src="/static/lab-run-audit.js"></script>
-  <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-artifacts.js"></script><script defer src="/static/lab.js"></script>
+  <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-connectors.js"></script><script defer src="/static/lab-artifacts.js"></script><script defer src="/static/lab.js"></script>
 {{end}}
 {{define "content"}}
 <div class="shell"><aside>
@@ -58,9 +58,30 @@
 <label>导入 Markdown 技能<input type="file" id="lab-skill-file" accept=".md,.markdown,text/markdown"></label>
 <div id="lab-skill-review" hidden><p id="lab-skill-summary"></p><label>技能正文<textarea id="lab-skill-body" rows="7" readonly></textarea></label><button type="button" id="lab-skill-install" hidden>确认导入</button></div>
 <p class="hint">项目技能作为工作指引随本次工作流提交。技能需要启用和信任，文件中的工具声明不授予权限。</p></details>
-<details id="mcp" hidden><summary>引入公共 MCP 资源</summary><p>预览公开文本并选择摘录。外部工具由所用 CLI 的 MCP 配置管理，受支持的 CLI 文件审批会在圆桌显示。</p><label>公开 HTTPS 服务地址<input id="endpoint" type="url" placeholder="https://…/mcp" autocomplete="off"></label>
+<details id="mcp" hidden><summary>科研连接（MCP）</summary><label>公开 HTTPS 服务地址<input id="endpoint" type="url" placeholder="https://…/mcp" autocomplete="off"></label>
 <div id="lab-mcp-settings"><label><input type="checkbox" id="lab-mcp-enabled">在当前项目启用</label><button type="button" id="lab-mcp-save">保存项目服务设置</button></div>
 <div class="actions"><button type="button" id="list">列出资源</button></div><div id="resource-panel" hidden><label>可读资源<select id="resources"></select></label><button type="button" id="read">预览原文</button></div>
+<fieldset id="lab-connections" hidden><legend>项目科研连接</legend>
+<label>已保存的连接<select id="connector-select"></select></label>
+<label>连接名称<input id="connector-id" maxlength="64" placeholder="paper-index" autocomplete="off"></label>
+<label>传输方式<select id="connector-transport"><option value="https">HTTPS</option><option value="stdio">本机 stdio</option></select></label>
+<div id="connector-https"><label>远程 HTTPS 服务地址<input id="connector-endpoint" type="url" autocomplete="off"></label>
+<label><input id="connector-bearer" type="checkbox">此连接需要 Bearer 令牌</label></div>
+<div id="connector-stdio" hidden><label>本机 MCP 程序绝对路径<input id="connector-program" autocomplete="off"></label>
+<label>启动参数（JSON 字符串数组）<input id="connector-argv" placeholder='["/path/to/mcp_server.py"]' autocomplete="off"></label>
+<p class="hint">仅选择你已核对的本机科研服务。它以你的系统账户启动。独立服务可无参数启动或使用 --stdio。Python 或 Node 可指定本机脚本和参数。</p></div>
+<label>允许的只读工具（逐行填写服务中的工具名）<textarea id="connector-tools" rows="2"></textarea></label>
+<label><input id="connector-enabled" type="checkbox">在当前项目启用</label>
+<button id="connector-save" type="button">保存配置</button>
+<div id="connector-stored" hidden><p id="connector-status" role="status"></p>
+<div class="actions"><button id="connector-trust" type="button">信任此版本</button><button id="connector-untrust" type="button">撤销信任</button><button id="connector-remove" type="button">移除连接</button></div>
+<div id="connector-token-panel" hidden><label>Bearer 令牌<input id="connector-token" type="password" autocomplete="new-password"></label>
+<div class="actions"><button id="connector-set-token" type="button">存入钥匙串</button><button id="connector-clear-token" type="button">清除令牌</button></div></div>
+<div class="actions"><button type="button" id="connector-list">列出项目连接资料</button><button type="button" id="connector-tool-list">列出允许的只读工具</button></div>
+<div id="connector-resources-panel" hidden><label>资料<select id="connector-resources"></select></label><button type="button" id="connector-read">预览资料</button></div>
+<div id="connector-tools-panel" hidden><label>只读工具<select id="connector-tool"></select></label><pre id="connector-schema"></pre>
+<label>本次参数（JSON 对象）<textarea id="connector-args" rows="3">{}</textarea></label>
+<button type="button" id="connector-call">复核并调用一次</button></div></div></fieldset>
 <div id="preview-panel" hidden><label>原文预览<textarea id="resource-text" rows="5" readonly></textarea></label><p>在上框选中至多 2,000 字，再加入本次会议。</p><button type="button" id="select-excerpt">加入选段</button></div></details>
 <div id="source" hidden><h3>本次选段</h3><p id="source-title"></p><blockquote id="excerpt"></blockquote><button type="button" id="remove">移除选段</button></div>
 <div class="run-controls"><label>单席运行模型<select id="lab-model"></select></label><label>思考程度<select id="lab-effort"></select></label>
