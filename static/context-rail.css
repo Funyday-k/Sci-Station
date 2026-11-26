@@ -50,3 +50,16 @@ body[data-workspace-surface=studio]:is([data-rail-mode=ai],[data-rail-mode=inspe
 
 #rail-inspect dl {display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 10px;margin:3px 0 10px;font-size:13px;}
 #rail-inspect dt {color:var(--muted);} #rail-inspect dd {margin:0;overflow-wrap:anywhere;}
+
+.model-read-review {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper, var(--surface));
+  overflow-wrap: anywhere;
+}
+.model-read-review > p { margin: 0; }
+.model-read-review > p:empty { display: none; }
+.model-read-review > .actions { display: flex; gap: 8px; margin-top: 8px; }
+#studio-read-review { width: calc(100% - 36px); margin: 0 auto 8px; }

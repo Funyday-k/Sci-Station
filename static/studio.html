@@ -243,6 +243,7 @@
                 <span class="context-state" id="table-center-state"></span>
                 <button type="button" class="context-trigger viewpoints-trigger" id="opinions-toggle" aria-controls="meeting-opinions" aria-expanded="false"><svg class="ui-icon" data-ui-icon="chat" width="16" height="16" aria-hidden="true"></svg><span>讨论观点</span><span class="context-count" id="opinions-toggle-count">0</span></button>
               </div>
+              <section class="model-read-review" id="studio-read-review" aria-live="polite" hidden></section>
               <section aria-label="圆桌席位" class="context-drawer" id="participants-panel" hidden>
                 <div id="member-seats" class="compact-seats"></div>
               </section>
@@ -252,7 +253,6 @@
                 <details class="continuous-checkpoint" id="run-continuous-checkpoint" hidden><summary></summary><ul></ul></details>
               </section>
             </div>
-            <section class="settings-card model-read-review" id="studio-read-review" hidden></section>
             <article id="meeting-board" tabindex="-1" aria-label="共享议题板" hidden></article>
             <section id="room-chat" class="conversation-pane room-chat" aria-label="会议对话" hidden>
             <header class="rail-heading">
