@@ -7,12 +7,13 @@ import (
 )
 
 type dashboardProjectFacts struct {
-	NoteCount     int      `json:"noteCount"`
-	GapCount      int      `json:"gapCount"`
-	ArtifactKinds []string `json:"artifactKinds"`
+	NoteCount             int      `json:"noteCount"`
+	GapCount              int      `json:"gapCount"`
+	ArtifactKinds         []string `json:"artifactKinds"`
+	UnsupportedClaimCount int      `json:"unsupportedClaimCount"`
 }
 
-func (s *Service) dashboardProjects(w http.ResponseWriter, _ *http.Request) {
+func (s *Service) dashboardProjects(w http.ResponseWriter, r *http.Request) {
 	projects := make(map[string]dashboardProjectFacts)
 	s.mu.RLock()
 	for id, project := range s.projects {
@@ -36,6 +37,19 @@ func (s *Service) dashboardProjects(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 		slices.Sort(facts.ArtifactKinds)
+		if len(project.Reviews) > 0 {
+			for _, artifact := range graphArtifacts(project, s.visibleTasksLocked(id)) {
+				if r.Context().Err() != nil {
+					s.mu.RUnlock()
+					return
+				}
+				for _, claim := range artifact.claimFindings("error", nil) {
+					if claim.Line > 0 {
+						facts.UnsupportedClaimCount++
+					}
+				}
+			}
+		}
 		projects[id] = facts
 	}
 	s.mu.RUnlock()

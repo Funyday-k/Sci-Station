@@ -1273,8 +1273,24 @@ dialog::backdrop {
   max-width: min(100%, 19rem)
 }
 
+.graph-picker label[hidden] {
+  display: none
+}
+
 .graph-picker select {
   color: var(--ink)
+}
+
+.graph-workflow-findings {
+  display: grid;
+  gap: 10px;
+  margin-inline: 16px;
+  padding-inline-start: 24px;
+  overflow-wrap: anywhere
+}
+
+.graph-workflow-findings p {
+  margin: 4px 0 0
 }
 
 .graph-diagram {

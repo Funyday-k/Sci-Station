@@ -113,9 +113,9 @@ func formalLabWorkflow(room *meeting.Session) string {
 	return meeting.ResearchWorkflow(room.Topic)
 }
 
-func labDraftEvidence(workflow string, claims []labClaim, truncated bool, refs []labEvidenceReference, current bool) ([]research.Evidence, error) {
+func labDraftEvidence(workflow string, claims []labClaim, truncated bool, refs []labEvidenceReference, current bool) ([]research.Evidence, map[string]int, error) {
 	if truncated {
-		return nil, errors.New("待审正文声明过多，请拆分并逐项核对引用")
+		return nil, nil, errors.New("待审正文声明过多，请拆分并逐项核对引用")
 	}
 	status := "recorded"
 	if current {
@@ -125,29 +125,31 @@ func labDraftEvidence(workflow string, claims []labClaim, truncated bool, refs [
 	used := make(map[string]bool)
 	for _, claim := range claims {
 		if claim.Core && len(claim.References) == 0 {
-			return nil, fmt.Errorf("待审正文第 %d 行的核心声明缺少原文引用，请填写对应的 [S编号]", claim.Line)
+			return nil, nil, fmt.Errorf("待审正文第 %d 行的核心声明缺少原文引用，请填写对应的 [S编号]", claim.Line)
 		}
 		for _, id := range claim.References {
 			if ref := index[id]; ref.Status != status || ref.Evidence == nil {
-				return nil, fmt.Errorf("待审正文第 %d 行的引用 %s 无法核对，请重新选择原文", claim.Line, id)
+				return nil, nil, fmt.Errorf("待审正文第 %d 行的引用 %s 无法核对，请重新选择原文", claim.Line, id)
 			}
 			used[id] = true
 		}
 	}
 	selected := make([]research.Evidence, 0, len(used))
+	ordinals := make(map[string]int, len(used))
 	papers := make(map[string]bool)
 	for _, ref := range refs {
 		if used[ref.ID] {
 			selected = append(selected, *ref.Evidence)
+			ordinals[ref.ID] = len(selected)
 			if paper := evidencePaper(ref.Evidence); paper != "" {
 				papers[paper] = true
 			}
 		}
 	}
 	if len(selected) == 0 {
-		return nil, errors.New("正式研究成果需要在待审正文中引用至少一段可核对的原文")
+		return nil, nil, errors.New("正式研究成果需要在待审正文中引用至少一段可核对的原文")
 	}
-	return selected, labRequiredEvidence(workflow, len(papers), len(selected))
+	return selected, ordinals, labRequiredEvidence(workflow, len(papers), len(selected))
 }
 
 func labReviewSource(room *meeting.Session, output string) (research.ReviewSource, error) {
@@ -160,7 +162,7 @@ func labReviewSource(room *meeting.Session, output string) (research.ReviewSourc
 		return research.ReviewSource{}, err
 	}
 	refs := labRecordedReferences(room, round, output)
-	return research.ReviewSource{Text: text, SelectEvidence: func(body string) ([]research.Evidence, error) {
+	return research.ReviewSource{Text: text, SelectEvidence: func(body string) ([]research.Evidence, map[string]int, error) {
 		claims, truncated := labClaims(body)
 		// ServeMeetingReview rechecks the selected original bytes while
 		// holding the corresponding project and paper locks.
@@ -211,7 +213,7 @@ func inspectLabOutput(ctx context.Context, room *meeting.Session, output string,
 	result.QualityIssues = labQualityIssues(labOutputGoal(room, round), body, hasPaper, hasPaperCitation)
 	if workflow := formalLabWorkflow(room); workflow != "" {
 		result.Formal = true
-		if _, err := labDraftEvidence(workflow, result.Claims, result.Truncated, result.Sources, true); err != nil {
+		if _, _, err := labDraftEvidence(workflow, result.Claims, result.Truncated, result.Sources, true); err != nil {
 			result.ReviewBlock = err.Error()
 		}
 	}

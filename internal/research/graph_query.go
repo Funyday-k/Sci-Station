@@ -44,14 +44,14 @@ func parseGraphQuery(values url.Values) (graphQuery, error) {
 	}
 	for _, kind := range q.edgeKinds {
 		switch kind {
-		case "cites", "possible-cites", "evidence", "wikilink", "paper", "reading", "related", "supports", "contradicts", "extends":
+		case "cites", "possible-cites", "evidence", "wikilink", "paper", "reading", "related", "supports", "contradicts", "extends", "uses":
 		default:
 			return q, errors.New("无效的关系类型")
 		}
 	}
 	for _, kind := range q.nodeKinds {
 		switch kind {
-		case "note", "paper", "reference", "task", "meeting", "missing":
+		case "note", "method", "paper", "reference", "task", "meeting", "missing":
 		default:
 			return q, errors.New("无效的条目类型")
 		}

@@ -36,6 +36,7 @@ test("project stages and deadline counts are scoped to current records", () => {
     {id: "b", name: "Beta", updatedAt: "2026-11-04T08:00:00Z"},
     {id: "idle", name: "Idle", updatedAt: "2026-11-04T07:59:59Z"},
     {id: "empty", name: "Empty", updatedAt: "2026-11-25T00:00:00Z"},
+    {id: "claims", name: "Claims", updatedAt: "2026-11-25T00:00:00Z"},
     {id: "plan", name: "Plan", updatedAt: "2026-11-25T00:00:00Z"},
     {id: "missing", name: "Missing facts", updatedAt: "2026-11-25T00:00:00Z"},
   ];
@@ -45,8 +46,9 @@ test("project stages and deadline counts are scoped to current records", () => {
   const facts = {
     a: {noteCount: 0, gapCount: 0, artifactKinds: ["related_work", "reviewer_response"]},
     b: {noteCount: 0, gapCount: 0, artifactKinds: ["writing_revision"]},
-    idle: {noteCount: 0, gapCount: 0, artifactKinds: ["reviewer_response"]},
+    idle: {noteCount: 0, gapCount: 0, artifactKinds: ["reviewer_response"], unsupportedClaimCount: 4},
     empty: {noteCount: 0, gapCount: 0, artifactKinds: []},
+    claims: {noteCount: 1, gapCount: 0, artifactKinds: [], unsupportedClaimCount: 2},
     plan: {noteCount: 3, gapCount: 1, artifactKinds: []},
   };
   const summaries = dashboard.projectSummaries(projects, papers, tasks, reviews, facts, now);
@@ -54,7 +56,7 @@ test("project stages and deadline counts are scoped to current records", () => {
   assert.deepEqual(summaries.slice(0, 2).map(s => s.activeTasks.length), [1, 1]);
   assert.deepEqual(summaries.slice(0, 2).map(s => s.core.length), [0, 1]);
   const byID = Object.fromEntries(summaries.map(s => [s.project.id, s.stage?.[0]]));
-  assert.deepEqual(byID, {a: "reviewing", b: "drafting", idle: "on_hold", empty: "exploration", plan: "planning", missing: undefined});
+  assert.deepEqual(byID, {a: "reviewing", b: "drafting", idle: "on_hold", empty: "exploration", claims: "reviewing", plan: "planning", missing: undefined});
 });
 
 test("widget configuration normalizes old settings and preserves bidirectional movement", () => {

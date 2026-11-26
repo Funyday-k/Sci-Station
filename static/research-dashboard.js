@@ -95,8 +95,9 @@
     }).sort(byDue);
   }
 
-  function stage({papers, notes, gaps, kinds, activity}, now) {
+  function stage({papers, notes, gaps, kinds, activity, unsupportedClaimCount}, now) {
     if (activity && +now - activity > 21 * 86400000) return ["on_hold", text("搁置", "On hold"), text("最近 21 天无活动", "No activity in the last 21 days")];
+    if (unsupportedClaimCount > 0) return ["reviewing", text("审阅", "In review"), text("有声明缺少原文证据", "Claims are missing source evidence")];
     if (kinds.has("reviewer_response")) return ["reviewing", text("审阅", "In review"), text("已登记审稿回复", "Reviewer response recorded")];
     if (kinds.has("writing_revision") || kinds.has("related_work")) return ["drafting", text("撰写", "Drafting"), text("已登记写作修订或相关工作", "Writing revisions or related work recorded")];
     if (papers >= 5 && gaps > 0 && kinds.has("research_plan")) return ["planning", text("规划", "Planning"), text("已有研究计划、论文和待研究缺口", "Research plan, papers, and research gaps recorded")];
@@ -132,7 +133,7 @@
       const windows = taskWindows(deadlines, now);
       const readingCount = linked.filter(p => +now - instant(timestamp(p)) <= 14 * 86400000).length;
       return {project, linked, core, ...windows, readingCount, facts: info, drafts, activity, stage: info ? stage({
-        papers: linked.length, notes: info.noteCount, gaps: info.gapCount, kinds, activity
+        papers: linked.length, notes: info.noteCount, gaps: info.gapCount, kinds, activity, unsupportedClaimCount: info.unsupportedClaimCount
       }, now) : null};
     }).sort((a, b) => (a.next?.dueDate || "9999").localeCompare(b.next?.dueDate || "9999") ||
       a.project.name.localeCompare(b.project.name, "zh-CN", {numeric: true}));
@@ -278,6 +279,7 @@
         .sort((a, b) => b.priority - a.priority || Number(b.status === "reading") - Number(a.status === "reading") || recent(a, b));
       const projectRows = items => list(items.map(summary => row("folder", summary.project.name,
         [isEnabled("paper-library") && summary.core.length + " 篇核心文献", isEnabled("tasks") && summary.activeTasks.length + " 项待办",
+          summary.facts?.unsupportedClaimCount > 0 && text(summary.facts.unsupportedClaimCount + " 项缺证据声明", summary.facts.unsupportedClaimCount + " claims need evidence"),
           isEnabled("tasks") && summary.next && dateLabel(summary.next)].filter(Boolean).join(" · "),
         'a data-project="' + esc(summary.project.id) + '" href="' + esc(viewURL("overview", summary.project.id)) + '"',
         summary.stage?.[1] || text("阶段暂不可用", "Stage unavailable"), "", summary.project)));
@@ -287,7 +289,8 @@
           callout(due.slice(0, limit), taskRows, text("今天没有到期任务", "No tasks are due today")) + (upcoming.length && limit > 1
             ? subhead(text("近期截止", "Upcoming deadlines")) + taskRows(upcoming.slice(0, Math.min(limit - 1, 3))) : "") + dashboardNav(text("查看任务", "View tasks"), "tasks"),
         active_projects: limit => callout(overview.slice(0, limit), projectRows, text("暂无活跃项目", "No active projects")) + dashboardNav(text("全部项目", "All projects"), "projects"),
-        ai_review: limit => reviews ? groupedMetrics(metric(pending.length, text("项待审核", "for review"))) + callout(pending.slice(0, limit), items =>
+        ai_review: limit => reviews ? groupedMetrics(metric(pending.length, text("项待审核", "for review")),
+          facts && metric(overview.reduce((sum, item) => sum + (item.facts?.unsupportedClaimCount || 0), 0), text("项缺证据声明", "claims missing evidence"))) + callout(pending.slice(0, limit), items =>
           list(items.map(r => row("file", r.title, [state.projects.find(p => p.id === r.projectId)?.name, fmtDate(r.createdAt)].filter(Boolean).join(" · "),
             'a href="' + esc(reviewURL(r)) + '"'))), text("暂无待审核草稿", "No drafts to review")) : message(text("暂时无法读取审核队列", "Could not load the review queue")),
         calendar: calendarWidget,
@@ -352,6 +355,7 @@
         project_status: () => stageBadge(info) + (info.stage ? message(info.stage[2]) : "") + groupedMetrics(
           isEnabled("paper-library") && metric(info.linked.length, text("篇论文", "papers")), isEnabled("paper-library") && metric(core.length, text("篇核心论文", "core papers")),
           isEnabled("wiki") && metric(notes.length, text("篇笔记", "notes")), isEnabled("tasks") && metric(info.activeTasks.length, text("项待办", "open tasks")),
+          info.facts && metric(info.facts.unsupportedClaimCount || 0, text("项缺证据声明", "claims missing evidence")),
           isEnabled("ai-lab") && reviews && metric(pending.length, text("项待审核", "for review"))) + (isEnabled("tasks") && info.next
           ? subhead(text("下一项截止", "Next deadline")) + taskRows([info.next]) : ""),
         research_questions: limit => callout(researchQuestions(brief?.body).slice(0, limit), items => '<ul class="dashboard-questions">' +

@@ -13,6 +13,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Manage workspace prompts for agenda planning, discussion and single-seat paper reading. Review changes before applying them and restore the built-in instructions by workflow.
 - Set discussion tool budgets and choose whether each model-requested file or statement read needs a one-time decision. Review pending reads in Roundtable, AI Lab or the AI side panel.
 
+- Query project graphs for reading order, core references missing from the project, citation updates, saved research outcomes that need review, claim evidence gaps, method lineage, and connecting paths. Open the supporting source or share a query preview in AI Lab.
 - Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.
 - Rename, search, archive, and reopen single-seat conversations in AI Lab. Save unsent questions and follow-ups to the active research root and recover them without sending a model request.
 - Review supported Codex or Claude Code file-change requests in the desktop meeting. Forward a one-time decision, cancel the run, and check the outcome reported by the CLI that applies the change.

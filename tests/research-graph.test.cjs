@@ -72,11 +72,14 @@ function mount() {
   const location = {href:base + "/research?project=A&view=graph", origin:base};
   const history = {replaceState:(_s,_t,url)=>{location.href=new URL(url,base).href;}};
   const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url){history.replaceState(null,"",url);}},SciResearchGraph:graph};
-  let resolveQuery, rejectQuery;
+  let resolveQuery, rejectQuery, resolveWorkflow;
   const fetch = async url => {
     calls.push(url);
     if (url.startsWith("/api/research/projects/A/graph?")) {
       return new Promise((resolve, reject) => {resolveQuery = resolve; rejectQuery = reject;});
+    }
+    if (url.includes("/graph/workflow?")) {
+      return new Promise(resolve => {resolveWorkflow = resolve;});
     }
     assert.ok(entries.has(url), url);
     return Response.json(entries.get(url));
@@ -91,7 +94,7 @@ function mount() {
     vm.runInContext(staticFile(script), sandbox);
   }
   return {ui:window.SciResearch,elements,calls,listeners,resolveQuery:data=>resolveQuery(Response.json(data)),
-    rejectQuery:error=>rejectQuery(error)};
+    rejectQuery:error=>rejectQuery(error),resolveWorkflow:data=>resolveWorkflow(Response.json(data))};
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -125,6 +128,32 @@ test("project graph lookup failure exposes a retry and retains current source en
   assert.match(elements.main.innerHTML, /重新生成/);
   assert.match(elements.main.innerHTML, /Solar note/);
   assert.equal(ui.state.graphPending,false);
+});
+
+test("the project graph runs research checks, links local evidence, and ignores a stale workspace response", async () => {
+  const {ui,elements,listeners,calls,resolveWorkflow} = mount();
+  await tick();
+  assert.match(elements.main.innerHTML, /id="graph-workflow-query"/);
+  for (const operation of ["reading","missing-core","stale-citations","unsupported-claims","stale-artifacts","method-lineage","bridge"]) {
+    assert.match(elements.main.innerHTML, new RegExp('value="' + operation + '"'));
+  }
+  const submit = fields => listeners.submit({preventDefault(){},target:{id:"graph-workflow-query",fields}});
+  submit({operation:"unsupported-claims",severity:"warning"});
+  assert.equal(calls.at(-1), "/api/research/projects/A/graph/workflow?operation=unsupported-claims&severity=warning");
+  resolveWorkflow({notice:"Source checks",findings:[{text:"Changed <source>",links:[
+    {label:"Open original",url:"/research?project=A&note=note-A"},
+    {label:"Untrusted link",url:"https://example.org/elsewhere"}
+  ]}]});
+  await tick();
+  assert.match(elements.main.innerHTML, /Changed &lt;source&gt;/);
+  assert.match(elements.main.innerHTML, /href="\/research\?project=A&amp;note=note-A"/);
+  assert.doesNotMatch(elements.main.innerHTML, /Untrusted link/);
+  submit({operation:"stale-artifacts",thresholdDays:"42"});
+  assert.equal(calls.at(-1), "/api/research/projects/A/graph/workflow?operation=stale-artifacts&thresholdDays=42");
+  await ui.load("B", "graph");
+  resolveWorkflow({findings:[{text:"Response from the old project"}]});
+  await tick();
+  assert.doesNotMatch(elements.main.innerHTML, /Response from the old project/);
 });
 
 test("INSPIRE seed parsing admits published record IDs and encodes repeated seeds", () => {

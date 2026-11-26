@@ -44,11 +44,11 @@ func (s *Service) relations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Label = strings.TrimSpace(in.Label)
-	if (in.Kind != "related" && in.Kind != "supports" && in.Kind != "contradicts" && in.Kind != "extends") || in.Source == in.Target || (in.Label != "" && !label(in.Label, 240)) {
+	if (in.Kind != "related" && in.Kind != "supports" && in.Kind != "contradicts" && in.Kind != "extends" && in.Kind != "uses") || in.Source == in.Target || (in.Label != "" && !label(in.Label, 240)) {
 		jsonFail(w, 400, "关系类型、目标或说明无效")
 		return
 	}
-	nodes, _ := s.derivedGraph(r.Context(), d, s.visibleTasksLocked(d.Project.ID))
+	nodes, _ := s.derivedGraph(r.Context(), d, s.visibleTasksLocked(d.Project.ID), s.papers.all())
 	if r.Context().Err() != nil {
 		return
 	}
@@ -56,8 +56,13 @@ func (s *Service) relations(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 400, "起点没有出现在项目图谱中")
 		return
 	}
-	if _, ok := nodes[in.Target]; !ok {
+	target, ok := nodes[in.Target]
+	if !ok {
 		jsonFail(w, 400, "终点没有出现在项目图谱中")
+		return
+	}
+	if in.Kind == "uses" && target.Kind != "method" {
+		jsonFail(w, 400, "使用关系须指向方法页面")
 		return
 	}
 	for _, rel := range d.Relations {

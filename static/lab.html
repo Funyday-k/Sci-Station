@@ -38,11 +38,11 @@
 <details id="project-graph"><summary>读取项目图谱</summary>
 <div class="actions"><button type="button" id="graph-nodes">读取项目条目</button></div>
 <div id="graph-controls" hidden>
-<label>查询<select id="graph-operation"><option value="reading">论文阅读顺序</option><option value="bridge">最短关系路径</option><option value="lineage">扩展关系</option></select></label>
-<label>起点<select id="graph-node"></select></label>
+<label>查询<select id="graph-operation"><option value="reading">论文阅读顺序</option><option value="missing-core">核心论文引用的未关联文献</option><option value="stale-citations">查找待核对的陈旧引文</option><option value="unsupported-claims">查找需核对证据的声明</option><option value="stale-artifacts">查找待复核的保存成果</option><option value="method-lineage">方法沿革</option><option value="bridge">最短关系路径</option></select></label>
+<label id="graph-focus-field">起点<select id="graph-node"></select></label>
 <label id="graph-target-field" hidden>终点<select id="graph-target"></select></label>
 <label id="graph-direction-field" hidden>方向<select id="graph-direction"><option value="both">双向</option><option value="outgoing">沿关系方向</option><option value="incoming">逆关系方向</option></select></label>
-<label>深度 <input type="number" id="graph-depth" value="3" min="1" max="10"></label>
+<label id="graph-depth-field">深度 <input type="number" id="graph-depth" value="3" min="1" max="10"></label>
 <button type="button" id="graph-preview">预览图谱资料</button>
 </div>
 <div id="graph-preview-panel" hidden>

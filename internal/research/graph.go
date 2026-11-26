@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type graphNode struct {
@@ -121,7 +122,11 @@ func (s *Service) projectGraphData(w http.ResponseWriter, r *http.Request) (proj
 }
 
 func (s *Service) projectGraph(ctx context.Context, d projectData, tasks map[string]Task) (map[string]graphNode, graphEdges) {
-	nodes, edges := s.derivedGraph(ctx, d, tasks)
+	return s.projectGraphWithPapers(ctx, d, tasks, s.papers.all())
+}
+
+func (s *Service) projectGraphWithPapers(ctx context.Context, d projectData, tasks map[string]Task, allPapers []Paper) (map[string]graphNode, graphEdges) {
+	nodes, edges := s.derivedGraph(ctx, d, tasks, allPapers)
 	// Manual relations are source records. Keep their IDs available for
 	// revision-checked deletion even when an endpoint has been removed.
 	for _, rel := range d.Relations {
@@ -156,11 +161,10 @@ func sortedGraphEdges(edges graphEdges) []graphEdge {
 
 // This projection is rebuilt from one published project snapshot and one
 // library snapshot. No derived files need to be repaired or loaded on restart.
-func (s *Service) derivedGraph(ctx context.Context, d projectData, tasks map[string]Task) (map[string]graphNode, graphEdges) {
+func (s *Service) derivedGraph(ctx context.Context, d projectData, tasks map[string]Task, allPapers []Paper) (map[string]graphNode, graphEdges) {
 	nodes := map[string]graphNode{}
 	edges := graphEdges{}
 	papers := map[string]Paper{}
-	allPapers := s.papers.all()
 	for _, paper := range allPapers {
 		papers[paper.ID] = paper
 	}
@@ -223,7 +227,7 @@ func (s *Service) derivedGraph(ctx context.Context, d projectData, tasks map[str
 		if ctx.Err() != nil {
 			return nodes, edges
 		}
-		if nodes[note.ID].Kind != "note" {
+		if note.Archived {
 			continue
 		}
 		if note.PaperID != "" {
@@ -245,7 +249,12 @@ func addWikiGraph(ctx context.Context, d projectData, nodes map[string]graphNode
 	index := wikiLinkIndex(d)
 	for _, note := range d.Notes {
 		if !note.Archived {
-			nodes[note.ID] = graphNode{note.ID, wikiPath(note), "note"}
+			kind := "note"
+			namespace, _, _ := strings.Cut(strings.ToLower(note.Namespace), "/")
+			if namespace == "method" || namespace == "methods" {
+				kind = "method"
+			}
+			nodes[note.ID] = graphNode{note.ID, wikiPath(note), kind}
 		}
 	}
 	for _, note := range d.Notes {

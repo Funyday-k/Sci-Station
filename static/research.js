@@ -82,6 +82,7 @@
     graphQuery: null,
     graphError: "",
     graphPending: false,
+    graphWorkflow: null,
     inspire: {seeds: [], rows: [], pending: false, error: ""},
     query: "",
     taskFilter: "open",
@@ -529,6 +530,7 @@
       query: state.graphQuery || graphUI.defaultQuery,
       error: state.graphError,
       pending: state.graphPending,
+      workflow: state.graphWorkflow,
       citationPanel: window.SciInspireGraph?.renderPanel({...state.inspire, papers: scopedPapers()}, {esc, button, panel})
     }, {esc, button, heading, panel, empty, link, route: navigation.route});
   }
@@ -606,6 +608,29 @@
     }
   }
 
+  async function applyGraphWorkflow(query) {
+    const project = state.project?.id;
+    const currentLoad = navEpoch;
+    const lookup = {query, pending: true};
+    const isCurrent = () => state.graphWorkflow === lookup && currentLoad === navEpoch &&
+      state.view === "graph" && state.project?.id === project;
+    state.graphWorkflow = lookup;
+    render();
+    try {
+      const path = window.SciResearchGraph.workflowPath(projectPath("graph/workflow", project), query);
+      const result = await request(path);
+      if (isCurrent()) lookup.result = result;
+    } catch (err) {
+      if (isCurrent()) lookup.error = err.message;
+    } finally {
+      if (isCurrent()) {
+        lookup.pending = false;
+        render();
+        $("graph-workflow-query")?.querySelector("button[type=submit]")?.focus();
+      }
+    }
+  }
+
   async function load(projectId, view, {
     historyMode = "replace"
   } = {}) {
@@ -668,6 +693,7 @@
       state.graphQuery = null;
       state.graphError = graphError;
       state.graphPending = false;
+      state.graphWorkflow = null;
       state.dashboardData = dashboardData;
       const current=new URL(location.href);
       if (fallback || historyMode==="push" || (historyMode==="replace" &&
@@ -877,12 +903,14 @@
       else if (action === "inspire-seed-add" || action === "inspire-seed-remove") await changeCitationSeeds(action, id);
       else if (action === "graph-rebuild") {
         const query = state.graphQuery;
+        const workflow = state.graphWorkflow?.query;
         const project = state.project?.id;
         await refresh();
         if (query && !state.graphError && state.project?.id === project && state.view === "graph") {
           const ids = new Set(state.graph.nodes.map(node => node.id));
           if ((!query.focus || ids.has(query.focus)) && (!query.target || ids.has(query.target))) await applyGraphQuery(query);
         }
+        if (workflow && state.project?.id === project && state.view === "graph") await applyGraphWorkflow(workflow);
       } else if (action === "graph-occurrence") {
         const edge = (state.graphResult || state.graph).edges.find(edge => edge.occurrences?.some(item => item.id === id));
         const occurrence = edge?.occurrences.find(item => item.id === id);
@@ -927,13 +955,17 @@
       state.taskTag = ev.target.value;
       render();
       $("task-tag").focus();
+    } else if (ev.target.name === "operation" && ev.target.form?.id === "graph-workflow-query") {
+      window.SciResearchGraph.updateWorkflowForm(ev.target.form);
     }
   });
   document.addEventListener("submit", ev => {
-    if (ev.target.id !== "graph-query") return;
+    if (ev.target.id !== "graph-query" && ev.target.id !== "graph-workflow-query") return;
     ev.preventDefault();
     const data = new FormData(ev.target);
-    void applyGraphQuery(Object.fromEntries(data));
+    const query = Object.fromEntries(data);
+    if (ev.target.id === "graph-workflow-query") void applyGraphWorkflow(query);
+    else void applyGraphQuery(query);
   });
   document.addEventListener("input", ev => {
     if (ev.target.id === "paper-query" && !ev.isComposing) {

@@ -4,7 +4,8 @@
   const handoff=window.ScienceLabHandoff;
   const api="/api/research/lab/";
   let presets=[], projects=[], sessions=[], current=null, original=null, preview=null, source=null;
-  let graphOwner="", graphPreview=null, graphGeneration=0;
+  let graphOwner="", graphPreview=null, graphGeneration=0, graphNodes=[];
+  const graphPathOperations=["reading","method-lineage","bridge"];
   function tell(text){$("status").textContent=text;}
   async function req(path,method="GET",data,signal) {
     const opt={method,signal,cache:"no-store",keepalive:method==="PUT" && path.startsWith(api+"draft?"),headers:{"X-Roundtable":"1"}};
@@ -68,6 +69,7 @@
     if (graphOwner!==id) {
       graphOwner=id;
       graphGeneration++;
+      graphNodes=[];
       $("graph-controls").hidden=true;
       clearGraphPreview();
       if (source?.kind==="project-graph" && source.projectId!==id) markSource(null);
@@ -120,8 +122,16 @@
   }
   function graphOperation(){
     const operation=$("graph-operation").value;
+    const path=graphPathOperations.includes(operation);
+    $("graph-focus-field").hidden=!path;
+    $("graph-depth-field").hidden=!path;
     $("graph-target-field").hidden=operation!=="bridge";
-    $("graph-direction-field").hidden=operation==="reading";
+    $("graph-direction-field").hidden=operation!=="method-lineage" && operation!=="bridge";
+    const kind={reading:"paper","method-lineage":"method"}[operation];
+    const focus=$("graph-node"), previous=focus.value;
+    const candidates=graphNodes.filter(node=>!kind || node.kind===kind);
+    focus.replaceChildren(new Option("请选择",""),...candidates.map(n=>new Option(n.label,n.id)));
+    if(candidates.some(n=>n.id===previous))focus.value=previous;
     graphGeneration++;
     clearGraphPreview();
   }
@@ -131,21 +141,25 @@
     const ticket=++graphGeneration;
     const graph=await req("/api/research/projects/"+encodeURIComponent(project)+"/graph");
     if(ticket!==graphGeneration || project!==$("project").value)return;
-    const options=select=>select.replaceChildren(new Option("请选择",""),...graph.nodes.filter(n=>n.kind!=="missing").map(n=>new Option(n.label,n.id)));
-    options($("graph-node"));options($("graph-target"));
-    clearGraphPreview();
-    $("graph-controls").hidden=!graph.nodes.length;
-    if(!graph.nodes.length)tell("当前项目暂无可查询的图谱条目。");
+    graphNodes=graph.nodes.filter(n=>n.kind!=="missing");
+    $("graph-target").replaceChildren(new Option("请选择",""),...graphNodes.map(n=>new Option(n.label,n.id)));
+    if($("graph-operation").value==="reading" && !graphNodes.some(n=>n.kind==="paper"))$("graph-operation").value="missing-core";
+    graphOperation();
+    $("graph-controls").hidden=false;
   });
   action("graph-preview",async()=>{
-    const project=$("project").value, focus=$("graph-node").value;
-    if(!project||!focus)throw Error("请选择项目图谱起点。");
+    const project=$("project").value, focus=$("graph-node").value, operation=$("graph-operation").value;
+    if(!project)throw Error("请先选择科研项目。");
+    if(graphPathOperations.includes(operation) && !focus)throw Error("请选择项目图谱起点。");
     const ticket=++graphGeneration;
     clearGraphPreview();
-    const operation=$("graph-operation").value;
-    const query=new URLSearchParams({operation,focus,depth:$("graph-depth").value});
+    const query=new URLSearchParams({operation});
+    if(graphPathOperations.includes(operation)){
+      query.set("focus",focus);
+      query.set("depth",$("graph-depth").value);
+    }
     if(operation==="bridge")query.set("target",$("graph-target").value);
-    if(operation!=="reading")query.set("direction",$("graph-direction").value);
+    if(operation==="bridge" || operation==="method-lineage")query.set("direction",$("graph-direction").value);
     const result=await req("/api/research/projects/"+encodeURIComponent(project)+"/graph/workflow?"+query);
     if(ticket!==graphGeneration || result.projectId!==$("project").value)return;
     graphPreview=result;

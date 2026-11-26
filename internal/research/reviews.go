@@ -18,9 +18,9 @@ import (
 // ReviewSource is resolved from a published meeting record by the desktop host.
 // It is never decoded from a proposed write or a decision supplied by a seat.
 type ReviewSource struct {
-	Text           string                           `json:"text"`
-	Evidence       []Evidence                       `json:"evidence"`
-	SelectEvidence func(string) ([]Evidence, error) `json:"-"`
+	Text           string                                           `json:"text"`
+	Evidence       []Evidence                                       `json:"evidence"`
+	SelectEvidence func(string) ([]Evidence, map[string]int, error) `json:"-"`
 }
 
 type ReviewProposal struct {
@@ -42,8 +42,11 @@ type MeetingReview struct {
 	SourceHash string     `json:"sourceHash"`
 	SourceText string     `json:"sourceText"`
 	Evidence   []Evidence `json:"evidence"`
-	Status     string     `json:"status"`
-	ResultID   string     `json:"resultId,omitempty"`
+	// CitationOrdinals binds the reviewed inline IDs to the one-based order of
+	// the resolved evidence. Older decisions remain readable without this map.
+	CitationOrdinals map[string]int `json:"citationOrdinals,omitempty"`
+	Status           string         `json:"status"`
+	ResultID         string         `json:"resultId,omitempty"`
 }
 
 func reviewSourceHash(source ReviewSource) string {
@@ -306,8 +309,9 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 			jsonFail(w, 409, err.Error())
 			return
 		}
+		var ordinals map[string]int
 		if source.SelectEvidence != nil {
-			source.Evidence, err = source.SelectEvidence(v.Body)
+			source.Evidence, ordinals, err = source.SelectEvidence(v.Body)
 			if err != nil {
 				jsonFail(w, 422, err.Error())
 				return
@@ -317,10 +321,11 @@ func (s *Service) ServeMeetingReview(w http.ResponseWriter, r *http.Request, pro
 			v.SourceHash = reviewSourceHash(source)
 			v.SourceText = source.Text
 			v.Evidence = source.Evidence
-		} else if v.SourceHash != reviewSourceHash(source) {
+		} else if v.SourceHash != reviewSourceHash(source) || (v.CitationOrdinals != nil && !maps.Equal(v.CitationOrdinals, ordinals)) {
 			jsonFail(w, 409, "会议原文或共享证据已改变，请重新审核")
 			return
 		}
+		v.CitationOrdinals = ordinals
 		if slices.ContainsFunc(v.Evidence, func(e Evidence) bool { return e.linkedPaperID() != "" }) {
 			s.papers.mu.Lock()
 			defer s.papers.mu.Unlock()

@@ -163,17 +163,22 @@ func TestLabEvidenceIsProjectAndRoundScopedAndFormalAdmissionUsesReviewedBody(t 
 	call("POST", reviewURL, command, 422)
 	command.Proposal.Body = "## Methods\n- The small-scale premise comes from the project note [S1]."
 	draft := scienceWorkflowDecode[research.MeetingReview](t, call("POST", reviewURL, command, 201))
-	if len(draft.Evidence) != 1 || draft.Evidence[0].Quote != original || draft.Status != "pending" {
+	if len(draft.Evidence) != 1 || draft.Evidence[0].Quote != original || draft.Status != "pending" || draft.CitationOrdinals["S1"] != 1 {
 		t.Fatalf("bad review %#v", draft)
 	}
 	accepted := scienceWorkflowDecode[research.MeetingReview](t, call("POST", reviewURL, research.ReviewRequest{ProjectID: p.ID, Decision: "accept", OperationID: draft.ID, Revision: draft.Revision}, 200))
-	if accepted.Status != "accepted" || accepted.ResultID == "" {
+	if accepted.Status != "accepted" || accepted.ResultID == "" || accepted.CitationOrdinals["S1"] != 1 {
 		t.Fatal("verified draft did not enter the normal human approval path", accepted)
 	}
 	command.OperationID = strings.Repeat("2", 32)
 	command.Proposal.Title = "Stale gap"
 	draft = scienceWorkflowDecode[research.MeetingReview](t, call("POST", reviewURL, command, 201))
 	call("PATCH", projURL+"/notes/"+note.ID, map[string]any{"revision": note.Revision, "body": "Changed after preview"}, 200)
+	graph := call("GET", projURL+"/graph/workflow?operation=unsupported-claims", nil, 200)
+	if !bytes.Contains(graph, []byte("S1 原文已改变")) || !bytes.Contains(graph, []byte(accepted.ResultID)) ||
+		!bytes.Contains(graph, []byte(fingerprint)) {
+		t.Fatalf("saved claim did not retain re-openable evidence: %s", graph)
+	}
 	rechecked := scienceWorkflowDecode[labEvidenceInspection](t, call("GET", inspect(p.ID), nil, 200))
 	if rechecked.Sources[0].Status != "stale" {
 		t.Fatal("changed original was reported as valid", rechecked.Sources[0])

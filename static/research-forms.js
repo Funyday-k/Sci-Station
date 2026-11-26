@@ -1011,7 +1011,8 @@
       ["related", "相关"],
       ["supports", "支持"],
       ["contradicts", "矛盾"],
-      ["extends", "扩展"]
+      ["extends", "扩展"],
+      ["uses", "使用方法"]
     ], "related")) + field("目标条目", select("target", choices, choices[1][0])) + formFooter("添加关系") + '</form>');
     bindForm(async (f, token) => {
       const source = value(f, "source"),

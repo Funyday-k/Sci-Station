@@ -106,14 +106,19 @@ func paperGraph(papers []Paper) paperGraphResult {
 }
 
 func buildPaperGraph(ctx context.Context, papers []Paper) paperGraphResult {
+	return buildPaperGraphForSources(ctx, papers, papers)
+}
+
+// Index the catalog for reference resolution while projecting outgoing
+// citations only from the requested source papers.
+func buildPaperGraphForSources(ctx context.Context, sources, catalog []Paper) paperGraphResult {
 	graph := paperGraphResult{Nodes: []paperGraphNode{}, Edges: []graphEdge{}}
 	lookup := map[string]string{}
 	ambiguous := map[string]bool{}
 	external := map[string]bool{}
 	edges := graphEdges{}
-	titles := indexCitationTitles(papers)
-	for _, paper := range papers {
-		graph.Nodes = append(graph.Nodes, paperGraphNode{paper.ID, paper.Title, "paper"})
+	titles := indexCitationTitles(catalog)
+	for _, paper := range catalog {
 		for _, identifier := range []string{paper.ID, paper.DOI, paper.Arxiv, paper.Citekey, paper.URL, paper.Title} {
 			key := paperRefKey(identifier)
 			if key == "" {
@@ -126,10 +131,11 @@ func buildPaperGraph(ctx context.Context, papers []Paper) paperGraphResult {
 			}
 		}
 	}
-	for _, paper := range papers {
+	for _, paper := range sources {
 		if ctx.Err() != nil {
 			return graph
 		}
+		graph.Nodes = append(graph.Nodes, paperGraphNode{paper.ID, paper.Title, "paper"})
 		occurrences := paperNoteReferences(paper.Notes)
 		for i, ref := range paper.References {
 			occurrences = append(occurrences, graphOccurrence{Source: "metadata", Ordinal: i + 1, Quote: ref})
