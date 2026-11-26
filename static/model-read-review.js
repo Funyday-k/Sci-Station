@@ -123,9 +123,10 @@
   async function update(panel, room) {
     if (!panel) return;
     const session = room?.status === "running" && !room.cancel_requested ? room.id : "";
+    const project = session ? room.project_id || "" : "";
     let state = mounts.get(panel);
-    if (!state || state.session !== session) {
-      state = {session};
+    if (!state || state.session !== session || state.project !== project) {
+      state = {session, project};
       mounts.set(panel, state);
       panel.replaceChildren();
       panel.hidden = true;
@@ -137,7 +138,9 @@
     state.loading = true;
     try {
       const pending = await request(session);
-      if (mounts.get(panel) === state && !state.deciding) render(panel, state, pending);
+      if (mounts.get(panel) !== state || state.deciding) return;
+      const matchesProject = pending?.action !== "research_read" || pending.project_id === state.project;
+      render(panel, state, matchesProject ? pending : null);
     } catch {
       // The conversation's next refresh retries transient local connection errors.
     } finally {
