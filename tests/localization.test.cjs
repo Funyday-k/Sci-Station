@@ -2,9 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const catalog = require('../static/interface-catalog.json');
-const {translate} = require('../static/interface-language.js');
-const script = fs.readFileSync(require.resolve('../static/interface-language.js'), 'utf8');
+const catalog = require('../web/static/interface-catalog.json');
+const {translate} = require('../web/static/interface-language.js');
+const script = fs.readFileSync(require.resolve('../web/static/interface-language.js'), 'utf8');
 
 function fixture(preference) {
   const root = {};
@@ -66,7 +66,7 @@ test('dynamic workspace destinations use the active locale', async t => {
   await app.window.SciStationI18n.ready;
   globalThis.SciStationI18n = app.window.SciStationI18n;
   t.after(() => { delete globalThis.SciStationI18n; });
-  const {destinations} = require('../static/workspace-nav.js');
+  const {destinations} = require('../web/static/workspace-nav.js');
   const url = new URL('http://127.0.0.1/research?view=papers');
   assert.equal(destinations(url).find(item => item.active).name, '论文库');
   app.navigator.languages = ['en-GB'];

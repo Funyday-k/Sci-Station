@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const {figureURL, figureRange, resolveImages} = require("../static/paper-body-preview.js");
+const {figureURL, figureRange, resolveImages} = require("../web/static/paper-body-preview.js");
 
 test("paper image previews use only a current paper, fingerprint and indexed local asset", () => {
   const paper = "1".repeat(32), hash = "2".repeat(64), asset = "3".repeat(64);

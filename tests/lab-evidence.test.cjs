@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const lab = require("../static/lab-evidence.js");
+const lab = require("../web/static/lab-evidence.js");
 
 function element(tag) {
   return {

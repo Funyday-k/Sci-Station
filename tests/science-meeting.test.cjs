@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const {reference, encodeReference, decodeReference, paperHref, outputs, sources} = require('../static/science-meeting.js');
+const {reference, encodeReference, decodeReference, paperHref, outputs, sources} = require('../web/static/science-meeting.js');
 
 const ref = {projectId:'project_1', paperId:'p123', title:'半径与 Δt', page:3, quote:'原文第一行\n\n第二行',
   fingerprint:'a'.repeat(64),annotationId:'annotation-1'};
@@ -29,7 +29,7 @@ test('only finished public statements and the approved final report can be writt
   assert.deepEqual(outputs(session).map(x=>x.key),['report','round-1-s1']);
 });
 test('reader handoff queues only the selected excerpt, enforces project and source revision, and leaves sending to the host',async()=>{
-  const src=fs.readFileSync(path.join(__dirname,'../static/science-meeting.js'),'utf8');
+  const src=fs.readFileSync(path.join(__dirname,'../web/static/science-meeting.js'),'utf8');
   const storage = new Map(), operations=[];
   const project={id:ref.projectId,path:'/research/one',name:'One'};
   let paper={id:ref.paperId,title:ref.title,project_ids:[project.id],file_sha256:ref.fingerprint};
@@ -106,7 +106,7 @@ test('reviewing is read-only until confirmation; notes honor revision and meetin
   const ctx=vm.createContext({window:{},URL,URLSearchParams,FormData,Blob,Event,Option,fetch,localStorage,crypto:require('node:crypto'),
     location:new URL('http://localhost/studio?project='+project.id),history:{replaceState(){}},
     document:{body,createElement:t=>new Node(t),getElementById:id=>id==='chat-toolbar'?toolbar:null}});
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../static/science-meeting.js'),'utf8'),ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/static/science-meeting.js'),'utf8'),ctx);
   const bridge=ctx.window.ScienceMeeting;await bridge.loadProjects();bridge.update(session);
   const open=()=>toolbar.children[0].fire('click');
   await open();const dialog=body.children[0], [out,target]=dialog.all('select'), findButton=text=>dialog.all('button').find(b=>b.textContent===text);

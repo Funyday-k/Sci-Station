@@ -5,7 +5,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const window = {};
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "static", "board-cursors.js"), "utf8"), {window});
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "web", "static", "board-cursors.js"), "utf8"), {window});
 const diff = (before, after, complete) => JSON.parse(JSON.stringify(window.RoundtableBoardCursors.diff(before, after, complete)));
 
 test("a streamed prefix keeps the unwritten canonical suffix without marking a deletion", () => {

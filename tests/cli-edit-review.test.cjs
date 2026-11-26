@@ -4,14 +4,14 @@ const {test} = require("node:test");
 const {readFileSync} = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const helpers = require("../static/cli-edit-review.js");
+const helpers = require("../web/static/cli-edit-review.js");
 
 const session = {id:"m", project_id:"p", topic:"Native edits", rounds:[{number:1},{number:2},{number:3}], status:"ready"};
 const providers = [{id:"codex",label:"Codex CLI",available:true},{id:"cursor",label:"Cursor CLI",available:false,reason:"No per-file approval"}];
 const run = {id:"run-1", projectId:"p",meetingId:"m",meetingRound:3,provider:"codex",status:"pending",threadId:"thread",turnId:"turn",
   prompt:"Edit the fixture title", paths:["notes.md"], pending:{requestId:"wire-4",itemId:"item",threadId:"thread",turnId:"turn",
     reason:"Change a heading",changes:[{path:"notes.md",kind:"update",diff:"-old\n+new <section>"}]}};
-const staticFile = name => readFileSync(path.join(__dirname, "../static", name), "utf8");
+const staticFile = name => readFileSync(path.join(__dirname, "../web/static", name), "utf8");
 const tick = () => new Promise(done => setImmediate(done));
 const copy = value => JSON.parse(JSON.stringify(value));
 

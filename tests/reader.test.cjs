@@ -4,8 +4,8 @@ const {join} = require("node:path");
 const {test} = require("node:test");
 const vm = require("node:vm");
 
-const html = readFileSync(join(__dirname, "../static/reader.html"), "utf8");
-const script = readFileSync(join(__dirname, "../static/reader.js"), "utf8");
+const html = readFileSync(join(__dirname, "../web/static/reader.html"), "utf8");
+const script = readFileSync(join(__dirname, "../web/static/reader.js"), "utf8");
 const nextTurn = () => new Promise(resolve => setImmediate(resolve));
 
 class Element extends EventTarget {

@@ -18,7 +18,7 @@ class FakeElement {
 global.window = {};
 global.document = { createElement: tag => new FakeElement(tag) };
 global.Event = class { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } };
-require('../static/seat-mention.js');
+require('../web/static/seat-mention.js');
 const resolve = window.RoundtableMention.resolve;
 const members = [
   { id: 'seat-a', label: '分析员 · 席位 1' },

@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(path.join(__dirname, "..", "static", "plugin-market.js"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "..", "web", "static", "plugin-market.js"), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 const event = { preventDefault() {} };
 

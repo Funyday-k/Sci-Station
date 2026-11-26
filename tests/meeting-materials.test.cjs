@@ -4,7 +4,7 @@ const { join } = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const script = readFileSync(join(__dirname, "../static/meeting-materials.js"), "utf8");
+const script = readFileSync(join(__dirname, "../web/static/meeting-materials.js"), "utf8");
 
 class Element extends EventTarget {
   dataset = {};

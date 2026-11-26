@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const test = require("node:test");
 const vm = require("node:vm");
-const dashboard = require("../static/research-dashboard.js");
+const dashboard = require("../web/static/research-dashboard.js");
 
 test("dashboard calendar uses local dates across month and daylight-saving transitions", () => {
   const now = new Date(2026, 9, 27, 23, 59);
@@ -85,7 +85,7 @@ test("overview extracts research questions only from corresponding brief section
 test("Home and Overview render durable draft counts and keep layout changes scoped to each root", async () => {
   const storage = new Map();
   const window = {SciStationNav: {route: (path, params) => path + "?" + new URLSearchParams(params)}};
-  const js = fs.readFileSync(require.resolve("../static/research-dashboard.js"), "utf8");
+  const js = fs.readFileSync(require.resolve("../web/static/research-dashboard.js"), "utf8");
   const browser = () => {
     vm.runInNewContext(js, {window, localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)}});
     return window.SciStationDashboard;

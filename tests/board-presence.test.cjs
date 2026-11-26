@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const source = fs.readFileSync(path.join(__dirname, "../static/board-presence.js"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "../web/static/board-presence.js"), "utf8");
 
 test("an older meeting cannot publish a late cursor; release reconciles the current document", async () => {
   const requests = [];

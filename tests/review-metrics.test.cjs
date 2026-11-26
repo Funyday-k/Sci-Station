@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const metrics = require('../static/review-metrics.js');
+const metrics = require('../web/static/review-metrics.js');
 const patch = (before, after) => {
   const old = before === '' ? [] : before.split('\n');
   const next = after === '' ? [] : after.split('\n');
@@ -104,8 +104,8 @@ test('exact-content cache separates revisions and worker preserves request ids',
   assert.deepEqual(metrics.analyze(second,'a.md').words,{added:2,removed:1});
   const replies=[];
   const ctx=vm.createContext({Intl,self:{postMessage:x=>replies.push(x)}});
-  ctx.importScripts = file => vm.runInContext(fs.readFileSync(path.join(__dirname,'../static',file),'utf8'),ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../static/review-worker.js'),'utf8'),ctx);
+  ctx.importScripts = file => vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/static',file),'utf8'),ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/static/review-worker.js'),'utf8'),ctx);
   ctx.self.onmessage({data:{id:'revision-42',diff:first,path:'a.md'}});
   assert.equal(replies[0].id,'revision-42');
   assert.equal(replies[0].metrics.status,'ok');

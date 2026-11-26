@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const editor = require("../static/wiki-editor.js");
+const editor = require("../web/static/wiki-editor.js");
 
 test("formats apply at the selected text without replacing the rest of a Wiki draft", () => {
   const source = "前言 Hidden result 之后";

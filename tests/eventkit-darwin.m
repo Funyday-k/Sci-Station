@@ -1,6 +1,6 @@
 // Native bridge regressions using only fake objects. This test must never
 // create an EKEventStore or request access to the user's system calendars.
-#import "../science_calendar_darwin.m"
+#import "../internal/desktop/science_calendar_darwin.m"
 @interface SciFakeTask : NSObject
 @property(nonatomic, copy) NSURL *URL;
 @property(nonatomic, copy) NSString *title;

@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const read = name => fs.readFileSync(path.join(__dirname, "..", "static", name), "utf8");
+const read = name => fs.readFileSync(path.join(__dirname, "..", "web", "static", name), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 const one = { path: "/work/one", name: "one" };
 const two = { path: "/work/two", name: "two" };
