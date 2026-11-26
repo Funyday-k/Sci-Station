@@ -1,7 +1,0 @@
-__pycache__/
-.DS_Store
-data/
-build/bin/
-*.app/
-.*.app.build-lock
-dist/

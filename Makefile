@@ -1,14 +1,21 @@
-WORKSTATION := RoundtableWorkstation
+GO ?= go
 APP_OUTPUT ?= $(CURDIR)/build/Sci-Station.app
 export APP_OUTPUT
 
-.PHONY: app run verify test
-app verify:
-	@case "$$APP_OUTPUT" in /*) bundle="$$APP_OUTPUT" ;; *) bundle="$$PWD/$$APP_OUTPUT" ;; esac; \
-	$(MAKE) -C "$(WORKSTATION)" $@ APP_OUTPUT="$$bundle"
+.PHONY: app verify run headless test
+app:
+	GO="$(GO)" ./packaging/macos/build.sh
+
+verify:
+	./packaging/macos/verify.sh "$$APP_OUTPUT"
 
 run: app
 	/usr/bin/open "$$APP_OUTPUT"
 
+headless:
+	mkdir -p build/bin
+	$(GO) build -tags nogui -trimpath -o build/bin/sci-station-server .
+
 test:
-	$(MAKE) -C "$(WORKSTATION)" test
+	$(GO) test -tags nogui ./...
+	node --test tests/*.test.cjs

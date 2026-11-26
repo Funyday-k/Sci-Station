@@ -7,7 +7,7 @@
 /dist/
 /release/
 
-# Xcode and SwiftPM
+# macOS build products and historical compiler caches
 /.build/
 /.build-cache/
 /.build-sandbox/
@@ -102,3 +102,8 @@ docs/user-feedback/
 
 # Local development notes (public guidance lives in docs/DEVELOPER.md)
 /docs/development/
+
+# Desktop and headless Go builds
+/coverage.out
+/sci-station
+.*.app.build-lock

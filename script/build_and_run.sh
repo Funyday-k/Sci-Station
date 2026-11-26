@@ -12,7 +12,7 @@ esac
 make -C "$root_dir" app APP_OUTPUT="$bundle"
 case "$mode" in
     debug|--debug) exec lldb -- "$bundle/Contents/MacOS/sci-station" ;;
-    verify|--verify) make -C "$root_dir" verify APP_OUTPUT="$bundle" ;;
+    verify|--verify) make -C "$root_dir" verify APP_OUTPUT="$bundle"; exit ;;
 esac
 /usr/bin/open "$bundle"
 case "$mode" in

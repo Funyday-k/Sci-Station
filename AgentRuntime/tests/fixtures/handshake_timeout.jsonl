@@ -1,2 +1,0 @@
-{"fixture_schema_version":1,"name":"handshake_timeout","mode":"handshake_timeout"}
-{"kind":"sleep","seconds":60}
