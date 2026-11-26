@@ -58,6 +58,7 @@ async function mount(suffix = "", options = {}) {
       calls.push({url,opts});
       let data;
       if(url === "/api/research/papers/P1") {
+        if(options.missingPaper)return {ok:false,status:404,text:async()=>JSON.stringify({error:"Missing paper"})};
         if(opts.method==="PUT") {
           const patch = JSON.parse(opts.body);
           if (patch.revision !== paper.revision)
@@ -98,6 +99,14 @@ async function mount(suffix = "", options = {}) {
   await nextTurn();
   return {get,calls,memory,paper,browser,getDestination:()=>destination,getRoute:()=>route};
 }
+
+test("the shell receives a Reader selection only for a loaded paper", async () => {
+  const missing = await mount("", {missingPaper:true});
+  assert.equal(missing.browser.SciShellReader(), null);
+  const loaded = await mount();
+  assert.equal(loaded.browser.SciShellReader().id, loaded.paper.id);
+  assert.equal(loaded.browser.SciShellReader().title, loaded.paper.title);
+});
 
 test("a stale paper fingerprint displays a warning and does not open the obsolete page anchor",async()=>{
   const {get,calls} = await mount("&page=2&fingerprint=obsolete");

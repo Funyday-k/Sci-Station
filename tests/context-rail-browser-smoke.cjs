@@ -43,6 +43,29 @@ async function main(binary) {
       }
     }
     const width=async selector=>(await page.locator(selector).boundingBox()).width;
+    const readerInspector=page.locator("#reader-inspector");
+    for(const readerWidth of [900,1440]){
+      await page.setViewportSize({width:readerWidth,height:900});
+      await page.goto(host.origin+"/reader");
+      await page.locator("#empty").filter({hasText:/未选择论文|Open a paper/}).waitFor();
+      await page.waitForFunction(()=>!!window.SciShellLayout?.state);
+      await mode("hidden");
+      assert.ok(await readerInspector.isHidden());
+      assert.equal(await width(".viewer"),await width(".layout"));
+      await page.locator("#shell-inspect").click();
+      await mode("inspector");await readerInspector.waitFor();
+      if(readerWidth===900){
+        await page.locator("#shell-pin").click();
+        await page.waitForFunction(()=>window.SciShellLayout.state.panelPinned);
+        await page.reload();
+        await mode("inspector");await readerInspector.waitFor();
+      }
+      await page.locator("#shell-inspect").click();
+      await mode("hidden");
+      await page.goto(host.origin+"/reader?paper="+paper.id);
+      await page.locator("#title").filter({hasText:paper.title}).waitFor();
+      await mode("inspector");await readerInspector.waitFor();
+    }
     for(const view of ["overview","papers","tasks"]){
       await goto("/research?view="+view);
       await mode("hidden");

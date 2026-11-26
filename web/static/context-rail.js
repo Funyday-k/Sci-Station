@@ -69,7 +69,7 @@
     if(!state)return "hidden";
     if(state.panelPinned)return state.mode;
     if(requestedMode)return requestedMode;
-    return reader() || context?.paper || context?.note || context?.task ? "inspector" : "hidden";
+    return context?.paper || context?.note || context?.task ? "inspector" : "hidden";
   }
   function update() {
     const next=contextOf(), nextKey=draftKey(next);

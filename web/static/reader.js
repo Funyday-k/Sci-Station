@@ -163,11 +163,12 @@
         k => by(k).disabled = !nativeAvailable);
   }
   window.SciShellReader=()=>{
+    if(!paper)return null;
     const quote=selection?.selected_text || "";
     const idx=selection?.selectionStart;
     const valid=Boolean(quote && pageData && Number.isInteger(idx) && pageData.text.slice(idx,idx+quote.length)===quote);
     const offset=valid ? Array.from(pageData.text.slice(0,idx).replace(/\r\n?/g,"\n")).length : 0;
-    return {id:paperID,title:paper?.title || "",page:paper?.has_pdf?currentPage:0,quote,
+    return {id:paper.id,title:paper.title,page:paper.has_pdf?currentPage:0,quote,
       citation:valid ? {kind:"paper",id:paperID,page:currentPage,hash:paper.file_sha256,quote,offset} : null};
   };
   function resetSelection() {
