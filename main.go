@@ -259,6 +259,7 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 			log.Print("无法为此数据目录启用 MinerU 钥匙串")
 		} else if store != nil {
 			api.minerCreds = newMinerCredentials(store)
+			engine.SetResearchReads(api)
 		}
 	}
 	engine.SetManagedRootHistory(dir, binding.Paths)

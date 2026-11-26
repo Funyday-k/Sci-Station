@@ -10,11 +10,19 @@ import (
 )
 
 type ReadReview struct {
-	ID      string `json:"id"`
-	Seat    string `json:"seat"`
-	ChildID string `json:"child_id,omitempty"`
-	Action  string `json:"action"`
-	Target  string `json:"target"`
+	ProjectID     string `json:"project_id,omitempty"`
+	ProjectLabel  string `json:"project_label,omitempty"`
+	Connection    string `json:"connection,omitempty"`
+	Operation     string `json:"operation,omitempty"`
+	Resource      string `json:"resource,omitempty"`
+	Definition    string `json:"definition,omitempty"`
+	ArgumentsJSON string `json:"arguments_json,omitempty"`
+	Destination   string `json:"destination,omitempty"`
+	ID            string `json:"id"`
+	Seat          string `json:"seat"`
+	ChildID       string `json:"child_id,omitempty"`
+	Action        string `json:"action"`
+	Target        string `json:"target"`
 }
 
 type pendingReadReview struct {
@@ -51,16 +59,17 @@ func (e *Engine) DecideReadReview(session, id string, allow bool) error {
 }
 
 func (e *Engine) waitForReadDecision(ctx context.Context, id, seat, child string, index int, action, target string) error {
+	return e.waitForReview(ctx, id, index, ReadReview{ID: newID(), Seat: seat, ChildID: child, Action: action, Target: target}, target)
+}
+func (e *Engine) waitForReview(ctx context.Context, id string, index int, view ReadReview, audit string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := e.recordReadReview(ctx, id, index, child, "read_approval_requested", target); err != nil {
+	if err := e.recordReadReview(ctx, id, index, view.ChildID, "read_approval_requested", audit); err != nil {
 		return err
 	}
 	queue := &e.readReviews
-	pending := &pendingReadReview{ReadReview: ReadReview{
-		ID: newID(), Seat: seat, ChildID: child, Action: action, Target: target,
-	}, ctx: ctx, decision: make(chan bool, 1)}
+	pending := &pendingReadReview{ReadReview: view, ctx: ctx, decision: make(chan bool, 1)}
 	queue.mu.Lock()
 	if queue.pending == nil {
 		queue.pending = make(map[string]*pendingReadReview)
@@ -89,11 +98,11 @@ func (e *Engine) waitForReadDecision(ctx context.Context, id, seat, child string
 		if !allow {
 			event = "read_approval_denied"
 		}
-		if err := e.recordReadReview(ctx, id, index, child, event, target); err != nil {
+		if err := e.recordReadReview(ctx, id, index, view.ChildID, event, audit); err != nil {
 			return err
 		}
 		if !allow {
-			return errors.New("用户拒绝了本次读取。请根据现有证据继续")
+			return errReadDeclined
 		}
 		return nil
 	}

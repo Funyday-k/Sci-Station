@@ -21,9 +21,10 @@ import (
 )
 
 type labConnectorAccess struct {
-	key     func(string, string) credentials.Store
-	mu      sync.Mutex
-	pending map[string]labConnectorTicket
+	modelAudit researchRetryState
+	key        func(string, string) credentials.Store
+	mu         sync.Mutex
+	pending    map[string]labConnectorTicket
 }
 type labConnectorTicket struct {
 	digest  string
@@ -61,8 +62,19 @@ func (a *labConnectorAccess) store(project string, c research.LabConnector, kind
 	return a.key("research-mcp/"+project+"/"+c.ID+"/"+kind, endpoint)
 }
 
-// Keep a saved secret reachable if the metadata update fails. Like model
-// profiles, the user clears a bound key before moving or removing its owner.
+// Invalidate queued reads when credentials change, even at the same endpoint.
+func rotateResearchGrant(store credentials.Store, c research.LabConnector) error {
+	current, err := store.Resolve()
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(current, labJSONDigest(c)+":") {
+		return store.Save(labJSONDigest(c) + ":" + rand.Text())
+	}
+	return nil
+}
+
+// Keep a saved secret reachable if the metadata update fails.
 func connectorKeyCanDetach(w http.ResponseWriter, store credentials.Store) bool {
 	configured, err := store.Configured()
 	if err != nil {
@@ -331,9 +343,15 @@ func (a *apiServer) serveLabConnector(w http.ResponseWriter, r *http.Request, pa
 				reject(w, 422, "此远程连接需要有效的 Bearer 令牌")
 				return
 			}
-			err = bearer.Save(in.Token)
+			err = rotateResearchGrant(trust, conn)
+			if err == nil {
+				err = bearer.Save(in.Token)
+			}
 		case "clear-token":
-			err = bearer.Delete()
+			err = rotateResearchGrant(trust, conn)
+			if err == nil {
+				err = bearer.Delete()
+			}
 		case "remove":
 			if !connectorKeyCanDetach(w, bearer) {
 				return
@@ -363,17 +381,7 @@ func (a *apiServer) serveLabConnector(w http.ResponseWriter, r *http.Request, pa
 		reject(w, 404, "未知的连接操作")
 		return
 	}
-	directoryGrant := func() error {
-		if _, err := lab.ProjectDirectory(in.ProjectID); err != nil {
-			return errors.New("当前项目的目录授权已失效，请重新打开项目")
-		}
-		return nil
-	}
-	if err := directoryGrant(); err != nil {
-		reject(w, 403, err.Error())
-		return
-	}
-	grant, err := a.labConnect.grant(in.ProjectID, conn)
+	grant, check, err := a.checkResearchConnection(lab, in.ProjectID, "", in.Revision, conn)
 	if err != nil {
 		reject(w, 403, err.Error())
 		return
@@ -401,27 +409,7 @@ func (a *apiServer) serveLabConnector(w http.ResponseWriter, r *http.Request, pa
 		reject(w, 403, "本次操作尚未批准、已执行或已过期")
 		return
 	}
-	check := func() error {
-		if err := directoryGrant(); err != nil {
-			return err
-		}
-		cfg, err := lab.LabSettings(in.ProjectID)
-		if err != nil || cfg.Revision != in.Revision {
-			return research.ErrLabSettingsConflict
-		}
-		enabled, err := lab.ModuleEnabled(in.ProjectID, "ai-lab")
-		if err != nil || !enabled {
-			return errors.New("当前项目实验室不可用")
-		}
-		current, err := a.labConnect.grant(in.ProjectID, conn)
-		if err != nil {
-			return err
-		}
-		if current != grant {
-			return errors.New("连接信任已改变，请重新确认本次操作")
-		}
-		return nil
-	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
 	defer cancel()
 	result, err := a.runLabConnector(ctx, client, in, conn, check)

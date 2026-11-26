@@ -90,6 +90,7 @@ func labEventKind(kind string) string {
 	case "created", "round_started", "round_finished", "seat_started", "seat_done", "seat_error", "child_started", "child_done", "child_error",
 		"read", "action_error", "protocol_error", "cancel_requested", "shutdown_requested", "recovered", "meeting_closed",
 		"read_statement", "child_read", "child_read_statement", "child_read_error", "child_read_statement_error",
+		"mcp_read_success", "mcp_read_error", "mcp_read_backoff", "mcp_read_denied",
 		"read_approval_requested", "read_approval_allowed", "read_approval_denied",
 		"seat_settings_changed", "continuous_paused", "continuous_completed", "continuous_summary", "report_started", "report_ready", "report_failed",
 		"write_intent", "write", "write_failed", "write_outcome_unknown", "user_write_intent", "user_write", "user_write_failed":

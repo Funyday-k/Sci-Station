@@ -26,6 +26,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Keep one copy of a paper across projects with independent pins, ordering and core status. Preview imports, resume failed items, organize collections and tags, and export citations from the library or reader.
 - Follow individual references between Wiki pages, tasks and source passages. Preserve reading position, selected-text offsets and the PDF fingerprint when returning from a meeting.
 - Review proposals to write meeting results to notes or tasks, retry a confirmation and recover decisions after a restart. AI Lab can reopen a single-seat session and export redacted diagnostics.
+- Let single-seat and Roundtable models propose discovery and reads on trusted project research connections. Review each destination, resource or tool and its arguments in the desktop app, and inspect approval outcomes and retry times in the run timeline.
 - Configure project-specific HTTPS and local stdio research connections in AI Lab. Store bearer tokens and device trust in Keychain, review each resource read or allowlisted read-only tool call, and attach a selected excerpt with its consent receipt.
 - Preview, enable, and trust local Markdown skills for a specific project. Save an optional public MCP resource endpoint, with confirmation before each connection.
 - Ask about a paper by its position, a numbered figure, or an equation in AI Lab and the AI side panel. Preview the matched original passage and confirm it before sending.

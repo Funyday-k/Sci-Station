@@ -45,7 +45,26 @@ func labEndpoint(value string) bool {
 	u, err := url.Parse(value)
 	return err == nil && len(value) <= 2048 && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Port() == "" || u.Port() == "443")
 }
-func (m *labRPC) call(ctx context.Context, method string, id int, params any, out any) error {
+func (m *labRPC) call(ctx context.Context, method string, id int, params any, out any) (callErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Repeated remote discovery must not probe a failing service on every model
+	// step. Authentication and cancelled requests do not enter the retry timer.
+	defer func() {
+		if callErr == nil || m.local != nil || ctx.Err() != nil {
+			return
+		}
+		var auth labAuthFailure
+		var already labTransportFailure
+		if errors.As(callErr, &auth) || errors.As(callErr, &already) {
+			return
+		}
+		switch method {
+		case "initialize", "notifications/initialized", "resources/list", "tools/list":
+			callErr = labTransportFailure{callErr}
+		}
+	}()
 	msg := map[string]any{"jsonrpc": "2.0", "method": method}
 	if id > 0 {
 		msg["id"] = id
@@ -77,11 +96,18 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 	}
 	res, e := m.client.Do(req)
 	if e != nil {
-		return errors.New("无法连接公共 MCP 服务")
+		return labTransportFailure{errors.New("无法连接公共 MCP 服务")}
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return fmt.Errorf("MCP 服务返回 HTTP %d", res.StatusCode)
+		err := fmt.Errorf("MCP 服务返回 HTTP %d", res.StatusCode)
+		if res.StatusCode == 401 || res.StatusCode == 403 {
+			return labAuthFailure{err}
+		}
+		if res.StatusCode == 429 || res.StatusCode >= 500 {
+			return labTransportFailure{err}
+		}
+		return err
 	}
 	if method == "initialize" {
 		sid := res.Header.Get("Mcp-Session-Id")

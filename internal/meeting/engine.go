@@ -255,6 +255,7 @@ type Summary struct {
 }
 
 type Engine struct {
+	researchReads       ResearchReads
 	managedRoot         string
 	previousRoots       []string
 	readReviews         readReviewQueue
@@ -1183,6 +1184,7 @@ func (e *Engine) run(ctx context.Context, id string, lease *os.File, cancel cont
 }
 
 type action struct {
+	ResearchRead
 	BoardUpdates  json.RawMessage `json:"board_updates,omitempty"`
 	Points        json.RawMessage `json:"points,omitempty"`
 	Positions     json.RawMessage `json:"positions,omitempty"`
@@ -1270,6 +1272,17 @@ func wholeAction(value string, depth int) (action, bool, error) {
 		return action{}, true, errors.New("动作字段类型无效；action、path、task、text、seat 须为字符串，round 须为整数。")
 	}
 	switch a.Action {
+	case "research_read":
+		for key := range object {
+			switch key {
+			case "action", "connection", "operation", "resource", "definition", "arguments":
+			default:
+				return action{}, true, errors.New("科研读取提议包含不支持的字段")
+			}
+		}
+		if a.Connection == "" || a.Operation == "" {
+			return action{}, true, errors.New("科研读取提议需要已配置的连接名称和具体操作")
+		}
 	case "read":
 		if strings.TrimSpace(a.Path) == "" {
 			return action{}, true, errors.New("read 动作缺少有效 path。")
@@ -1372,7 +1385,7 @@ func outerJSONBlocks(value string) []string {
 }
 
 func protocolCorrection(child bool) string {
-	allowed := "read、read_statement、delegate 或 say"
+	allowed := "read、read_statement、可用项目连接的 research_read、delegate 或 say"
 	if child {
 		allowed = "read、read_statement 或 say"
 	}
@@ -1382,7 +1395,10 @@ func protocolCorrection(child bool) string {
 func (e *Engine) protocolFailure(id string, index, step int, childID, raw string, cause error) error {
 	return e.mutate(id, index, func(s *Session, t *Turn) error {
 		event := addEvent(s, "protocol_error", t.Seat, cause.Error())
-		event.ChildID, event.Step, event.RawExcerpt = childID, step+1, shorten(raw, 400)
+		event.ChildID, event.Step = childID, step+1
+		if !strings.Contains(raw, "research_read") {
+			event.RawExcerpt = shorten(raw, 400)
+		}
 		return nil
 	})
 }
@@ -1723,6 +1739,13 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 	}
 	ctx = context.WithValue(ctx, sessionKey{}, requestSession)
 	instructions := protocol(false) + "\n" + positionInstructions + "\n" + plan.Instructions() + "\n" + agendaInstructions + "\n" + agendaUpdateInstructions + "\n" + boardInstructions + "\n" + publicBoardContextInstructions
+	if e.researchReads != nil && snapshot.ProjectID != "" {
+		connections := e.researchReads.ResearchConnections(ProjectScope{ID: snapshot.ProjectID, Directory: snapshot.Project})
+		if len(connections) > 0 {
+			contextData["research_connections"] = connections
+			instructions += "\n" + researchProtocol
+		}
+	}
 	if contextData["model_handoff"] != nil {
 		instructions += "\nMODEL_HANDOFF: You are taking over the same seat from a previous model. Continue the topic using the public record and its stable point IDs. Evaluate earlier statements independently, including this seat's prior statements, and identify their actual model when attributing them."
 	}
@@ -1838,7 +1861,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 			})
 		}
 		var result any
-		if a.Action == "read" || a.Action == "read_statement" || a.Action == "delegate" {
+		if a.Action == "read" || a.Action == "read_statement" || a.Action == "delegate" || a.Action == "research_read" {
 			err = budget.reserve()
 		}
 		if err == nil && (a.Action == "read" || a.Action == "read_statement") {
@@ -1846,6 +1869,8 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		}
 		if err == nil {
 			switch a.Action {
+			case "research_read":
+				result, err = e.researchRead(ctx, snapshot, index, a.ResearchRead)
 			case "read":
 				var path string
 				path, err = relative(a.Path)
@@ -1967,6 +1992,7 @@ func (e *Engine) child(ctx context.Context, room *Session, index int, childID, s
 		childData[key] = value
 	}
 	delete(childData, "plugin_guidance")
+	delete(childData, "research_connections")
 	childData["allow_edits"], childData["max_children"] = false, 0
 	evidence := newProjectEvidence()
 	paths := make([]string, 0, len(selected))
