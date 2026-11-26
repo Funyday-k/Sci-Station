@@ -130,8 +130,14 @@ static void pollRequest(NSString *mailbox) {
         id requestID = request[@"id"];
         if ((![requestID isKindOfClass:NSString.class] && ![requestID isKindOfClass:NSNumber.class]) ||
             [requestID isEqual:lastID]) return;
-        lastID = requestID;
         NSString *script = request[@"script"];
+        if (([script isKindOfClass:NSString.class] || [request[@"capture"] isEqual:@YES]) &&
+            !(positioned.occlusionState & NSWindowOcclusionStateVisible)) {
+            // Restore the test window after another application covers it.
+            [positioned orderFrontRegardless];
+            return;
+        }
+        lastID = requestID;
         if ([script isKindOfClass:NSString.class]) {
             working = YES;
             [webView evaluateJavaScript:script completionHandler:^(id value, NSError *error) {
