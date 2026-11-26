@@ -482,6 +482,8 @@ async function reviewProjectSources(app, ui, fixture) {
   file.append("file", new Blob(["Context\n" + material]), "source-data.txt");
   const attachment = await app.request(path + "/materials", "POST", file, 201);
   await ui.navigate(app.origin + "/lab?project=" + project.id);
+  await eventually(() => ui.evaluate(name => [...document.querySelectorAll("#local-record option")]
+    .some(option => option.textContent.includes(name)), attachment.name), "AI Lab loads the project source list");
   await ui.click("#local-search summary");
   await ui.set("#local-query", "actual project attachment");
   await ui.click("#local-find");

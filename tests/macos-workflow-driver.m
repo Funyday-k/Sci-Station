@@ -116,6 +116,11 @@ static void pollRequest(NSString *mailbox) {
         if (webView.window != positioned) {
             positioned = webView.window;
             steerToSecondaryScreen(positioned);
+            // Keep the disposable window visible while the smoke host runs.
+            // WebKit suspends the Studio refresh when another window covers it.
+            positioned.level = NSFloatingWindowLevel;
+            [NSApp activateIgnoringOtherApps:YES];
+            [positioned makeKeyAndOrderFront:nil];
         }
         NSData *input = [NSData dataWithContentsOfFile:requestFile];
         if (!input) return;
