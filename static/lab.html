@@ -8,6 +8,7 @@
 <script defer src="/static/paper-body-preview.js"></script>
 <link rel="stylesheet" href="/static/lab.css">
   <script defer src="/static/lab-evidence.js"></script>
+  <script defer src="/static/lab-run-audit.js"></script>
   <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-artifacts.js"></script><script defer src="/static/lab.js"></script>
 {{end}}
 {{define "content"}}
@@ -70,7 +71,12 @@
 <div class="lab-thread-filters"><label>搜索会话<input id="lab-thread-search" type="search" maxlength="96"></label>
 <label class="lab-archived-toggle"><input type="checkbox" id="lab-show-archived">显示归档</label></div>
 <label>已保存的会话<select id="lab-history"></select></label><p class="hint" id="lab-thread-empty" hidden>没有匹配的会话。</p>
-<div id="lab-result" hidden><p id="lab-run-state" role="status"></p><section class="model-read-review" id="lab-read-review" aria-live="polite" hidden></section><details id="lab-citations" hidden><summary>会话引用的原文</summary><div id="lab-citation-items"></div></details><div id="lab-turns"></div>
+<div id="lab-result" hidden><p id="lab-run-state" role="status"></p>
+<section class="model-read-review" id="lab-read-review" aria-live="polite" hidden></section>
+<button type="button" id="lab-retry" hidden>重试本轮</button>
+<details id="lab-run-audit" hidden><summary>运行回顾</summary>
+<label>查看轮次<select id="lab-audit-round"></select></label><p id="lab-audit-status" class="hint" role="status"></p><div id="lab-audit-content"></div></details>
+<details id="lab-citations" hidden><summary>会话引用的原文</summary><div id="lab-citation-items"></div></details><div id="lab-turns"></div>
 <div id="lab-followup" hidden><label>继续此会话<textarea id="lab-reply" rows="2" maxlength="2500"></textarea></label>
 <div class="actions lab-draft-controls"><button type="button" id="lab-resume">发送追问</button><button type="button" id="lab-save-reply-draft">保存草稿</button><button type="button" id="lab-discard-reply-draft">清除草稿</button><span id="lab-reply-draft-state" class="hint" role="status"></span></div></div>
 <div class="actions"><button type="button" id="lab-rename-thread">重命名</button><button type="button" id="lab-archive-thread">归档</button><button type="button" id="lab-restore-thread" hidden>取消归档</button><button type="button" id="lab-stop">停止运行</button><button type="button" id="lab-export">导出脱敏诊断包</button><a id="lab-open">查看完整记录与写入审批 →</a></div></div>

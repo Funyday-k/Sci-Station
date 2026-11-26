@@ -17,6 +17,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Query project graphs for reading order, core references missing from the project, citation updates, saved research outcomes that need review, claim evidence gaps, method lineage, and connecting paths. Open the supporting source or share a query preview in AI Lab.
 - Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.
 - Rename, search, archive, and reopen single-seat conversations in AI Lab. Save unsent questions and follow-ups to the active research root and recover them without sending a model request.
+- Inspect each single-seat run's saved settings, source versions and timeline in AI Lab. Retry an incomplete run from its saved input using current settings and fresh approvals.
 - Review supported Codex or Claude Code file-change requests in the desktop meeting. Forward a one-time decision, cancel the run, and check the outcome reported by the CLI that applies the change.
 - Import a paper's Markdown source or adopt a verified PDFKit or MinerU conversion. AI Lab can find and cite its sections and lines, reopen a reviewed quote, and display evidence-linked comparison rows or candidate research tasks.
 - Inspect MinerU figure attachments before saving, view saved paper figures offline, and locate figure captions in AI Lab. The body preview flags missing images and PDFKit extraction limits.

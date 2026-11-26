@@ -30,3 +30,12 @@
 .lab-evidence-source code { display: block; overflow-wrap: anywhere; }
 .lab-evidence-warning { font-weight: 650; }
 .lab-artifact{max-width:100%;overflow:auto;margin:12px 0}.lab-artifact table{border-collapse:collapse;font-size:.9rem}.lab-artifact caption{text-align:left;font-weight:600}.lab-artifact th,.lab-artifact td{padding:.55rem;border:1px solid currentColor;text-align:left;vertical-align:top}.lab-artifact a{color:inherit}
+#lab-run-audit[open] > summary { margin-bottom: 12px; }
+#lab-retry { margin-bottom: 12px; }
+#lab-audit-status:empty { display: none; }
+#lab-audit-content { overflow-wrap: anywhere; }
+#lab-audit-content dl { display: grid; grid-template-columns: minmax(8rem, 1fr) 3fr; gap: 6px 12px; font-size: 13px; }
+#lab-audit-content dd { margin: 0; }
+#lab-audit-content ul { padding-inline-start: 22px; }
+#lab-audit-content li + li { margin-top: 6px; }
+#lab-audit-content code { display: block; }

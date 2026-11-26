@@ -16,10 +16,12 @@ import (
 func TestLabExportOmitsPromptsPathsAndProviderDetails(t *testing.T) {
 	const private = "private-fixture-marker"
 	room := &meeting.Session{Topic: private, Title: private, ProjectID: private, Project: "/test/" + private, Status: "ready",
-		Events: []meeting.Event{{ID: 5, Type: "round_started", At: "2026-11-25T01:02:03Z", Detail: private, RawExcerpt: private, Seat: private},
+		Events: []meeting.Event{{ID: 5, Type: "round_started", At: "2026-11-25T01:02:03Z", Detail: private, RawExcerpt: private, Seat: private, FileVersion: private},
 			{ID: 7, Type: "board_" + private, At: private}, {ID: 9, Type: private}}, Materials: []meeting.Material{
 			{Name: private, Excerpt: "Sci-Station · 论文原文摘录 v1\n" + private}, {Name: private, Excerpt: "Sci-Station · 项目原文摘录 v1\n" + private}},
-		Rounds: []meeting.Round{{Note: private, Turns: []meeting.Turn{{Model: private, Error: private, Text: private}}}}}
+		Rounds: []meeting.Round{{Number: 1, Note: private, Turns: []meeting.Turn{{Model: private, Error: private, Text: private}}},
+			{Number: 2, LabRun: &meeting.LabRunRecord{Version: 1, RetryOfRound: 1, PromptDigest: private},
+				PromptOverride: &meeting.PromptOverride{ID: private, Digest: private, Body: private}}}}
 	data, err := labReplayBundle(room)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +55,8 @@ func TestLabExportOmitsPromptsPathsAndProviderDetails(t *testing.T) {
 			t.Fatalf("missing provenance %s", needle)
 		}
 	}
-	if !bytes.Contains(files["checkpoint.json"], []byte(`"rounds":1`)) || files["manifest.json"] == nil {
+	if !bytes.Contains(files["checkpoint.json"], []byte(`"rounds":2`)) || files["manifest.json"] == nil ||
+		!bytes.Contains(files["replay.json"], []byte(`"retry_of_round":{"2":1}`)) {
 		t.Fatal("missing checkpoint or manifest")
 	}
 }

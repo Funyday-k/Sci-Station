@@ -153,6 +153,7 @@ type ProjectRuleSnapshot struct {
 
 type Round struct {
 	PromptOverride    *PromptOverride       `json:"prompt_override,omitempty"`
+	LabRun            *LabRunRecord         `json:"lab_run,omitempty"`
 	MaterialIDs       []string              `json:"material_ids,omitempty"`
 	Checkpoint        *ContinuousCheckpoint `json:"checkpoint,omitempty"`
 	Auto              bool                  `json:"auto,omitempty"`
@@ -181,6 +182,7 @@ type Event struct {
 	OperationID string `json:"operation_id,omitempty"`
 	RawExcerpt  string `json:"raw_excerpt,omitempty"`
 	Step        int    `json:"step,omitempty"`
+	FileVersion string `json:"file_version,omitempty"`
 }
 
 // Operation is a write-ahead record. Unknown outcomes are inspected, never replayed.
@@ -729,6 +731,7 @@ func (e *Engine) StartWithDiscussion(id, note, target string, expectedRound int,
 }
 
 type RoundOptions struct {
+	labRecovery   *LabScope
 	Continuous    *ContinuousConfig
 	Preset, Phase string
 	AgendaVersion *int
@@ -739,11 +742,8 @@ type RoundOptions struct {
 
 // StartRound snapshots the selected plan and effective permissions.
 func (e *Engine) StartRound(id, note, target string, expectedRound int, options RoundOptions) (*Session, error) {
-	if credentials.ContainsSecret(note) {
-		return nil, credentials.ErrSecretInPrompt
-	}
-	if utf8.RuneCountInString(note) > maxInputCharacters {
-		return nil, fmt.Errorf("本轮消息最多 %d 个字符", maxInputCharacters)
+	if err := validateRoundNote(note); err != nil {
+		return nil, err
 	}
 	preset, phase := options.Preset, options.Phase
 	namedSeat := target != ""
@@ -756,6 +756,9 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 		s, err := e.load(id)
 		if err != nil {
 			return err
+		}
+		if scope := options.labRecovery; scope != nil && !scope.owns(s) {
+			return os.ErrNotExist
 		}
 		if err = e.recover(s); err != nil {
 			return err
@@ -777,6 +780,24 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 		}
 		if options.AgendaVersion != nil && *options.AgendaVersion != s.AgendaVersion {
 			return fmt.Errorf("%w: 议程已变化，请刷新后发起本轮", ErrConflict)
+		}
+		var retryOf int
+		if options.labRecovery != nil {
+			if !s.CanRetryLabRun() {
+				return fmt.Errorf("%w: 此会话当前没有可重试的单席运行", ErrConflict)
+			}
+			if err = ValidateTopic(s.Topic); err != nil {
+				return err
+			}
+			if expectedRound > 0 {
+				prior := &s.Rounds[expectedRound-1]
+				retryOf, note, target = prior.Number, prior.Note, prior.Target
+				preset, phase = prior.Preset, prior.Phase
+				options.MaterialIDs = prior.MaterialIDs
+				if err = validateRoundNote(note); err != nil {
+					return err
+				}
+			}
 		}
 		previousMaterials := len(s.Materials)
 		materialIDs, err := e.bindMaterials(s, options.MaterialIDs)
@@ -842,6 +863,9 @@ func (e *Engine) StartRound(id, note, target string, expectedRound int, options 
 			return fmt.Errorf("%w: scheduler already active", ErrConflict)
 		}
 		appendRound(s, plan, note, target, selected, settings, projectRules, pluginGuidance, materialIDs, false)
+		if run := s.Rounds[len(s.Rounds)-1].LabRun; run != nil {
+			run.RetryOfRound = retryOf
+		}
 		ctx, cancel = context.WithCancel(context.Background())
 		e.cancelMu.Lock()
 		defer e.cancelMu.Unlock()
@@ -901,6 +925,9 @@ func appendRound(s *Session, plan deliberation.Plan, note, target string, seats 
 		versions = &refs
 	}
 	s.Rounds = append(s.Rounds, Round{Number: len(s.Rounds) + 1, Auto: automatic, AgendaItemID: s.ActiveAgendaID, Preset: plan.Preset, Phase: plan.Phase, Note: note, Target: target, CreatedAt: now(), Turns: turns, Settings: settings, PromptOverride: settings.PromptOverrides[s.promptSurface()], ProjectRules: versions, PluginGuidance: plugins, MaterialIDs: materialIDs})
+	if len(s.Seats) == 1 && (s.ProjectID != "" || s.isGlobal()) {
+		s.Rounds[len(s.Rounds)-1].LabRun = &LabRunRecord{Version: 1}
+	}
 	s.Status, s.CancelRequested = "running", false
 	if len(s.Agenda) > 0 {
 		s.AgendaVersion++
@@ -1673,6 +1700,9 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		return err
 	}
 	requestSession := id + "-" + turn.Seat
+	if retry := latestLabRetry(snapshot.Rounds); retry > 0 {
+		requestSession += fmt.Sprintf("-retry-%d", retry)
+	}
 	if epoch := pluginGuidanceEpoch(snapshot.Rounds); epoch > 0 {
 		requestSession += fmt.Sprintf("-guidance-%d", epoch)
 	}
@@ -1710,6 +1740,11 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 		}
 	}
 	ctx = withPromptOverride(ctx, r.PromptOverride)
+	if r.LabRun != nil {
+		if err := e.recordLabPromptDigest(id, index, ctx); err != nil {
+			return err
+		}
+	}
 	inlineStatements := compactStatements(recent)
 	contextData["prior_statements"] = inlineStatements
 	visiblePoints := priorPointIDs(visibleStatements)
@@ -1818,7 +1853,7 @@ func (e *Engine) parent(ctx context.Context, id string, index int, importedGuida
 								result = alreadyReadFile(f)
 							}
 							t.Reads[path] = f
-							addEvent(s, "read", t.Seat, path)
+							addEvent(s, "read", t.Seat, path).FileVersion = f.Version
 							return nil
 						})
 					}
@@ -2000,6 +2035,7 @@ func (e *Engine) child(ctx context.Context, room *Session, index int, childID, s
 		}
 		var result any
 		eventType, detail := "child_read", ""
+		var fileVersion string
 		err = budget.reserve()
 		if err == nil {
 			err = e.authorizeModelRead(ctx, id, seat, childID, index, a, budget)
@@ -2017,6 +2053,7 @@ func (e *Engine) child(ctx context.Context, room *Session, index int, childID, s
 				f, err = e.readProjectFile(room, detail)
 				if err == nil {
 					result = f
+					fileVersion = f.Version
 					if seenFiles[detail] == f.Version {
 						result = alreadyReadFile(f)
 					}
@@ -2036,7 +2073,11 @@ func (e *Engine) child(ctx context.Context, room *Session, index int, childID, s
 			}
 		}
 		history = append(history, feedback)
-		if err = e.mutate(id, index, func(s *Session, t *Turn) error { addEvent(s, eventType, seat, detail).ChildID = childID; return nil }); err != nil {
+		if err = e.mutate(id, index, func(s *Session, _ *Turn) error {
+			event := addEvent(s, eventType, seat, detail)
+			event.ChildID, event.FileVersion = childID, fileVersion
+			return nil
+		}); err != nil {
 			return "", err
 		}
 	}

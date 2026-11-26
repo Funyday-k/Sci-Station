@@ -180,6 +180,7 @@
     const recentRooms=new Map();
     let visibleRoom=null, searchState=null, renameTarget=null;
     let history = [], active = "", pollTimer = 0, models = [], previewSequence = 0;
+    const audit = window.SciLabRunAudit.mount({req, scopeQuery});
     const questionDraft = createDraft({req,input:$("question"),status:message=>{$("lab-question-draft-state").textContent=message;}});
     const replyDraft = createDraft({req,input:$("lab-reply"),status:message=>{$("lab-reply-draft-state").textContent=message;}});
     function bind(id, fn) {
@@ -194,6 +195,7 @@
       if(active!==id) {
         window.SciStationReadReview?.update($("lab-read-review"), null);
         visibleRoom=null;
+        audit.show(null, null);
         $("lab-result").hidden=true;
         void replyDraft.select(null);
       }
@@ -233,6 +235,7 @@
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
       window.SciStationReadReview?.update($("lab-read-review"), null);
       project=next; records=[];existingTasks=[]; selected=[]; clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
+      audit.show(null, null);
       void questionDraft.select(project);
       void replyDraft.select(null);
       $("lab-thread-search").value=""; $("lab-show-archived").checked=false;
@@ -474,7 +477,7 @@
         const result=await advance(req,room,"");
         if(token===generation && active===room.id) {renderRun(result); schedule(room.id);}
       } catch(error) {
-        throw Error("会话已保存，可在圆桌中重试。"+error.message);
+        throw Error("会话已保存，可从会话记录重新启动。"+error.message);
       }
     }
     function displaySources(room) {
@@ -503,11 +506,14 @@
       $("lab-archive-thread").hidden=archived;
       $("lab-restore-thread").hidden=!archived;
       $("lab-stop").hidden=room.status!=="running" || room.cancel_requested;
+      $("lab-retry").hidden=!window.SciLabRunAudit.canRetry(room);
+      $("lab-retry").textContent=rounds.length ? "重试本轮" : "启动已保存的会话";
       $("lab-open").href="/studio?"+new URLSearchParams(project.global?{session:room.id}:{project:project.id,session:room.id});
       const turns=[];
       for(const round of rounds) for(const turn of round.turns||[]) {
         const heading=document.createElement("h3");
         heading.textContent="第 "+round.number+" 轮 · "+(turn.model_label||turn.model||turn.seat)+" · "+(states[turn.status]||turn.status);
+        if(round.lab_run?.retry_of_round) heading.textContent += " · 重试第 "+round.lab_run.retry_of_round+" 轮";
         const structured=turn.status==="done" && window.SciLabArtifacts?.projectRows(room.topic,turn.text,room.materials||[],round.number,existingTasks,project.id);
         const body=document.createElement(turn.error ? "p" : "div");
         if(turn.error) body.textContent=turn.error;
@@ -522,6 +528,7 @@
         }
       }
       $("lab-turns").replaceChildren(...turns);
+      audit.show(room, project);
     }
     function schedule(id) {clearTimeout(pollTimer);pollTimer=setTimeout(()=>openRun(id),1000);}
     async function openRun(id) {
@@ -576,6 +583,14 @@
         link.href=url;link.download="sci-station-run-"+room.id+".zip";document.body.append(link);link.click();link.remove();
       } else if(result.saved) tell("已保存脱敏诊断包。");
     }
+    async function retry() {
+      const room=visibleRoom, owner=project;
+      if(!ownsRun(room,owner) || active!==room.id || !window.SciLabRunAudit.canRetry(room)) return;
+      const rounds=room.rounds?.length || 0;
+      if(rounds && !confirm("用本轮已保存的输入和当前设置重新运行？项目文件写入仍需另行发起 CLI 编辑并审核。")) return;
+      const next=await window.SciLabRunAudit.retry(req,room,owner,scopeQuery);
+      if(owner===project && active===room.id) {renderRun(next); schedule(room.id);}
+    }
     async function cancel() {
       const id=active, token=generation;
       if(!history.some(s=>s.id===id && ownsRun(s,project))) return;
@@ -626,7 +641,7 @@
     bind("local-preview",()=>showPreview(0,records[$("local-record").value]?.kind==="paper-markdown"?Number($("body-line").value):0)); bind("local-add",addSelection);
     bind("local-prev",()=>showPreview(Math.max(0,(preview?.offset || 0)-4000)));
     bind("local-next",()=>showPreview((preview?.offset || 0)+chars(preview?.text || "").length));
-    bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay);
+    bind("lab-models",loadModels); bind("lab-start",start); bind("lab-stop",cancel); bind("lab-resume",ask); bind("lab-export",exportReplay); bind("lab-retry",retry);
     return {selectProject, hasDraft:()=>selected.length>0 || questionDraft.unsaved() || replyDraft.unsaved(), prepareHandoff:(_,pid)=>selected.length?prepare("",pid):Promise.resolve([])};
   }
   const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft, prepareQuestionSources, recordedSource, paperFromRun};

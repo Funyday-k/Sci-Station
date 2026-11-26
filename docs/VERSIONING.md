@@ -17,6 +17,8 @@ Release identifiers, workspace formats and extension contracts advance independe
 
 A single-seat session may include optional `lab_thread` presentation metadata with a title, archive timestamp and compare-and-swap revision. Missing metadata means the conversation is active and uses its original display title. Renaming preserves its topic, session ID, turns and evidence. Archiving preserves the scheduler and report state. Restore an archived conversation before starting a new round.
 
+Rounds can include optional version 1 `lab_run` metadata. It records a SHA-256 fingerprint of the model guidance assembled for the round and the prior round number when a user retries a failed or cancelled attempt. An older round can still show its recorded events, model and source references. Its missing settings and fingerprints remain unknown. A retry appends a separate round with current authorized settings and the saved input. The redacted diagnostics include retry round numbers and event kinds. The local history keeps the detailed records.
+
 Unsent input lives in version 1 files under the workspace meeting store's `lab-drafts/` directory. Each file is scoped to a project or the explicit global scope, and to a session or a new conversation. It stores only editor text and its revision. Credential-like inputs are rejected. The meeting engine does not load drafts into prompts or diagnostics. Malformed records, unsupported versions and records with unknown fields are retained and cannot be overwritten by an editor save. To recover drafts, close Sci-Station and restore them with the matching meeting store and research root from a verified copy.
 
 ## Workstation prompts and tool budgets
