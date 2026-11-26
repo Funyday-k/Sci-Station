@@ -18,6 +18,13 @@
 
   const folder = '<path d="M3.5 7a2 2 0 0 1 2-2H10l2 2h6.5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>';
   const shapes = {
+    dashboard: '<rect x="3" y="3" width="8" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="14" y="17" width="7" height="4" rx="1.5"/>',
+    book: '<path d="M3 5.5c3.5-1.5 6.5-1 9 .7 2.5-1.7 5.5-2.2 9-.7v13c-3.5-1.5-6.5-1-9 .7-2.5-1.7-5.5-2.2-9-.7zM12 6.2v13"/>',
+    search: '<circle cx="10" cy="10" r="6.3"/><path d="m15 15 5.5 5.5"/>',
+    tools: '<path d="m9 3 6 0m-4 0v6l-6 9a2 2 0 0 0 1.5 3h11a2 2 0 0 0 1.5-3l-6-9V3m-4 12h7"/>',
+    // Lucide pin: https://github.com/lucide-icons/lucide/blob/main/icons/pin.svg
+    // ISC license and copyright: research-vendor/LICENSE-Lucide.txt.
+    pin: '<path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />',
     sidebar: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 5v14"/>',
     refresh: '<path d="M20 6v5h-5M4 18v-5h5M5 9a7.5 7.5 0 0 1 12.5-2.4L20 9M4 15l2.5 2.4A7.5 7.5 0 0 0 19 15"/>',
     close: '<path d="m6.5 6.5 11 11m0-11-11 11"/>',

@@ -1,22 +1,32 @@
-/* Shared roles for the workbench and its navigation surfaces. */
+/* Neutral workbench surfaces. Color themes change accents, not the canvas. */
 :root {
   color-scheme: light dark;
-  --workspace-paper: var(--palette-paper, light-dark(#f7f7fb, #1b1b23));
-  --workspace-surface: var(--palette-surface, light-dark(#fff, #252530));
-  --workspace-inset: var(--palette-editor, light-dark(#eeeff6, #22232e));
-  --workspace-ink: light-dark(#22232e, #f3f2f7);
-  --workspace-muted: var(--palette-muted, light-dark(#55586a, #b9bacd));
-  --workspace-line: var(--palette-line, light-dark(#dedfe8, #3b3c48));
-  --workspace-control-line: color-mix(in srgb, var(--workspace-ink) 55%, var(--workspace-inset));
+  --workspace-paper: light-dark(#f7f7f8, #1b1d21);
+  --workspace-surface: light-dark(#fff, #202328);
+  --workspace-inset: light-dark(#f1f2f4, #282c32);
+  --workspace-ink: light-dark(#3f4650, #d7dbe2);
+  --workspace-muted: light-dark(#626b77, #a3abb7);
+  --workspace-line: light-dark(#e5e7eb, #373c44);
+  --workspace-control-line: light-dark(#8893a1, #6b7787);
+  --workspace-button-line: light-dark(#d6dae0, #48515d);
   --workspace-accent: var(--palette-accent, light-dark(#4f46e5, #a5b4fc));
   --workspace-accent-soft: var(--palette-soft, light-dark(#eeedfd, #30324e));
-  --workspace-accent-ink: light-dark(#fff, #171923);
+  --workspace-accent-ink: light-dark(#fff, #1b1d21);
   --workspace-danger: light-dark(#a52f42, #ff9cae);
-  --workspace-shadow: 0 6px 30px light-dark(#24244213, #00000040);
+  --workspace-shadow: 0 4px 20px light-dark(#20242b0d, #00000033);
   --workspace-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   --workspace-text-increase: 0px;
   --workspace-text: calc(14px + var(--workspace-text-increase));
   --workspace-text-small: calc(13px + var(--workspace-text-increase));
+
+  /* Compatibility names used by the studio, reader and meeting board. */
+  --palette-paper: var(--workspace-paper);
+  --palette-surface: var(--workspace-surface);
+  --palette-editor: var(--workspace-inset);
+  --palette-line: var(--workspace-line);
+  --palette-muted: var(--workspace-muted);
+  --palette-board-current: var(--workspace-inset);
+  --palette-board-card: var(--workspace-paper);
 }
 
 :root[data-text-size="large"] {
@@ -39,76 +49,34 @@
 }
 
 [data-color-theme="teal"] {
-  --palette-paper: #f0f7f4;
-  --palette-surface: #fcfefd;
-  --palette-editor: #eaf4f0;
-  --palette-line: #d1e3dc;
   --palette-accent: #066756;
   --palette-soft: #dcefe7;
-  --palette-muted: #4d655d;
-  --palette-board-current: #e3f2eb;
-  --palette-board-card: #f0f8f4;
 }
 
 :root[data-theme="dark"][data-color-theme="teal"],
 [data-theme="dark"] [data-color-theme="teal"] {
-  --palette-paper: #121e1b;
-  --palette-surface: #1b2a25;
-  --palette-editor: #162420;
-  --palette-line: #344b42;
   --palette-accent: #8dd9bf;
   --palette-soft: #284438;
-  --palette-muted: #adc7bd;
-  --palette-board-current: #254035;
-  --palette-board-card: #20332d;
 }
 
 [data-color-theme="amber"] {
-  --palette-paper: #faf4eb;
-  --palette-surface: #fffdf9;
-  --palette-editor: #f9f0e4;
-  --palette-line: #e8dbc9;
   --palette-accent: #875113;
   --palette-soft: #f6e5cc;
-  --palette-muted: #715d45;
-  --palette-board-current: #f7ead6;
-  --palette-board-card: #fbf5ec;
 }
 
 :root[data-theme="dark"][data-color-theme="amber"],
 [data-theme="dark"] [data-color-theme="amber"] {
-  --palette-paper: #211911;
-  --palette-surface: #2c2319;
-  --palette-editor: #281e15;
-  --palette-line: #4e3c2a;
   --palette-accent: #f5c179;
   --palette-soft: #4a3622;
-  --palette-muted: #d4c0a7;
-  --palette-board-current: #44311f;
-  --palette-board-card: #352a1e;
 }
 
 [data-color-theme="blue"] {
-  --palette-paper: #f0f5fa;
-  --palette-surface: #fcfdff;
-  --palette-editor: #eaf1f8;
-  --palette-line: #d4e2ef;
   --palette-accent: #225f98;
   --palette-soft: #dcebf9;
-  --palette-muted: #4d6177;
-  --palette-board-current: #e2effb;
-  --palette-board-card: #eff5fb;
 }
 
 :root[data-theme="dark"][data-color-theme="blue"],
 [data-theme="dark"] [data-color-theme="blue"] {
-  --palette-paper: #131d2a;
-  --palette-surface: #1b2838;
-  --palette-editor: #162232;
-  --palette-line: #34465d;
   --palette-accent: #92c5f6;
   --palette-soft: #283f58;
-  --palette-muted: #adc0d7;
-  --palette-board-current: #243d55;
-  --palette-board-card: #203247;
 }

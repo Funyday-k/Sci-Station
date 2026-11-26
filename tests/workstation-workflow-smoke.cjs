@@ -337,6 +337,8 @@ async function enterAndRun(app, ui, fixture, gateway) {
   await ui.navigate(readerURL.href);
   await ui.visible("#pageStatus", "第 2 页");
   await ui.visible("#textLayer span");
+  await ui.click("#reader-inspect");
+  await ui.visible("#reader-inspector");
   await ui.evaluate(({beginWord, endWord, startOffset, endOffset}) => {
     const layer = document.getElementById("textLayer"), spans = layer.querySelectorAll("span");
     const range = document.createRange();

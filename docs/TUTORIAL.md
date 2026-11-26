@@ -8,6 +8,14 @@ On an Apple Silicon Mac with macOS 15 or later, install Go 1.26 and Xcode Comman
 
 When moving from a previously published app or the Go prototype, keep your original data and make a verified copy where applicable. The [workspace and recovery guide](workspaces.md) describes how each source is handled.
 
+## Navigation and appearance
+
+The shared left sidebar holds Home, Projects, Library, Calendar, AI Lab and Roundtable. Opening a project places its Papers, Wiki, Tasks and other modules beneath that project. Settings stays at the bottom. The top bar keeps back, forward, the current location and page tools. In a compact window, use the sidebar icon at the upper left to open navigation; choosing a page closes it.
+
+Selecting papers prepares bulk actions without opening a panel. Use an item's **View details** icon when you need its properties, or **Annotations and notes** in the reader. The top-bar chat icon opens AI. Closing a panel returns focus to its entry point; pinning keeps it open across views and restarts. Icons have accessible names and hover labels.
+
+Use **Settings → Appearance** to choose light or dark mode, text size and an accent. Backgrounds, navigation and ordinary buttons use neutral colors, while primary actions and selected controls use the accent. **Edit layout** on Home or a project overview controls which cards appear.
+
 ## Import and cite a paper
 
 1. Open **Library → Import papers**. Choose a local PDF or enter a supported identifier such as a DOI or arXiv ID. Review the import and choose a collection if appropriate.

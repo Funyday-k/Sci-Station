@@ -36,15 +36,7 @@
     graph: "subagent",
     meetings: "chat"
   };
-  const shapes = {
-    dashboard: '<rect x="3" y="3" width="8" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="14" y="17" width="7" height="4" rx="1.5"/>',
-    book: '<path d="M3 5.5c3.5-1.5 6.5-1 9 .7 2.5-1.7 5.5-2.2 9-.7v13c-3.5-1.5-6.5-1-9 .7-2.5-1.7-5.5-2.2-9-.7zM12 6.2v13"/>',
-    search: '<circle cx="10" cy="10" r="6.3"/><path d="m15 15 5.5 5.5"/>',
-    tools: '<path d="m9 3 6 0m-4 0v6l-6 9a2 2 0 0 0 1.5 3h11a2 2 0 0 0 1.5-3l-6-9V3m-4 12h7"/>'
-  };
-  const icon = key => shapes[key] ?
-    '<svg aria-hidden="true" class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round">' +
-    shapes[key] + '</svg>' : window.RoundtableIcons.icon(key);
+  const icon = key => window.RoundtableIcons.icon(key);
   const statusLabel = {
     get unread() { return text("未读", "Unread"); },
     get reading() { return text("阅读中", "Reading"); },
@@ -202,12 +194,13 @@
 
   function button(label, action, options = {}) {
     const {
-      id = "", kind = "button", glyph = "", title = "", pressed
+      id = "", kind = "button", glyph = "", title = "", pressed, iconOnly = false
     } = options;
     return '<button type="button" class="' + kind + '" data-action="' + action + '" data-id="' + esc(id) +
-      '"' + (title ? ' title="' + esc(title) + '"' : '') +
+      '"' + (title || iconOnly ? ' title="' + esc(title || label) + '"' : '') +
+      (iconOnly ? ' aria-label="' + esc(title || label) + '"' : '') +
       (pressed === undefined ? '' : ' aria-pressed="' + pressed + '"') + '>' + (glyph ?
-      icon(glyph) : "") + esc(label) + '</button>';
+      icon(glyph) : "") + (iconOnly ? '' : esc(label)) + '</button>';
   }
 
   function link(label, href, kind = "button", glyph = "") {
@@ -239,7 +232,8 @@
   }
 
   function moreActions(actions) {
-    return '<details class="more-actions"><summary class="button">' + esc(local("toolbarMoreActions", "更多操作", "More actions")) +
+    const title=local("toolbarMoreActions", "更多操作", "More actions");
+    return '<details class="more-actions"><summary class="icon" aria-label="'+esc(title)+'" title="'+esc(title)+'">' + icon("more") +
       '</summary><div class="more-action-items">' + actions + '</div></details>';
   }
 
@@ -361,6 +355,8 @@
   function updateNav() {
     navigation.update();
     const modules = $("project-modules");
+    // Keep the mounted secondary navigation alive when rebuilding project rows.
+    if(modules.parentElement && modules.parentElement!==$("sidebar"))$("sidebar").append(modules);
     modules.hidden = !state.project;
     const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
       ({key,name,href:viewURL(key),local:true}));
@@ -378,7 +374,7 @@
       .sort((left,right)=>rank(left)-rank(right)).map(tab=>'<a data-tab-key="'+esc(tab.key)+'" href="' + esc(tab.href) + '"' +
         (tab.local ? ' data-view="'+tab.key+'"' : "") +
         (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
-        '>' + esc(tab.name) + '</a>').join("") : "";
+        '>' + icon(glyphs[tab.key] || ({calendar:"agenda",recommendations:"search",lab:"model",code:"file",data:"folder",experiments:"tools",writing:"file",theory:"book"}[tab.key]) || "file") + '<span>' + esc(tab.name) + '</span></a>').join("") : "";
     $("projectnav").innerHTML = state.projects.map(p => '<a class="project-item ' + (p.id === state.project?.id ?
         'active' : '') + '"' + (p.id === state.project?.id ? ' aria-current="true"' : '') + ' data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
       '">' + projectBadge(p) + '<span>' + esc(p
@@ -474,7 +470,7 @@
       button(text("管理集合和标签", "Manage collections and tags"), "manage-library")) +
       button(text("导入文献", "Import papers"), "new-paper", {glyph: "import", kind: "button primary"});
     return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", actions) +
-      '<div class="toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
+      '<div class="toolbar library-toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
       '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
       '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) +
       button(local("toolbarLibraryColumns", "表格列", "Table columns"), "library-columns") + '</div>' +
@@ -900,6 +896,7 @@
     load,
     render,
     button,
+    detailButton,
     link,
     empty,
     dialog,

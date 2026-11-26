@@ -12,6 +12,7 @@
   <script defer src="/static/research-modules.js"></script>
   <script defer src="/static/workspace-setup.js"></script>
   <link rel="stylesheet" href="/static/workspace-setup.css">
+  <script defer src="/static/ui-icons.js"></script>
   <script defer src="/static/workspace-nav.js"></script>
   <script defer src="/static/model-read-review.js"></script>
   <script defer src="/static/research-evidence.js"></script>
@@ -23,28 +24,45 @@
   <link rel="stylesheet" href="/static/context-rail.css">
 </head>
 <body data-workspace-surface="{{.Surface}}">
-  <div class="workspace-bar">
-    <a class="workspace-brand" href="/research" aria-label="Sci-Station"><img src="/static/roundtable-mark.png" width="25" height="25" alt=""><span>Sci-Station</span></a>
+  <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation">
+    <div class="workspace-sidebar-heading">
+      <a class="workspace-brand" href="/research" aria-label="Sci-Station"><img src="/static/roundtable-mark.png" width="25" height="25" alt=""><span>Sci-Station</span></a>
+      <button id="workspace-nav-close" class="workspace-icon" type="button" aria-label="关闭导航" title="关闭导航" data-l10n-aria-label="closeNavigation" data-l10n-title="closeNavigation"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button>
+    </div>
+    <div class="workspace-sidebar-scroll">
+      <nav data-workspace-nav aria-label="工作区" data-l10n-aria-label="toolbarWorkspace"></nav>
+      <a data-project-back hidden href="/research"></a>
+      <div id="workspace-context" class="workspace-context"></div>
+    </div>
+    <div class="workspace-sidebar-footer">
+      <nav data-workspace-settings aria-label="设置" data-l10n-aria-label="routeSettings"></nav>
+      {{if .Desktop}}<details class="workspace-roots">
+        <summary><svg class="ui-icon" data-ui-icon="folder" aria-hidden="true"></svg><span data-l10n-text="toolbarWorkspace">工作区</span></summary>
+        <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="rename" data-en="Rename workspace…">重命名工作区…</button><button type="button" data-root-action="forget" data-en="Forget recent workspace">清除最近工作区</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
+      </details>{{end}}
+    </div>
+  </aside>
+  <button id="workspace-nav-scrim" type="button" aria-label="关闭导航" data-l10n-aria-label="closeNavigation" tabindex="-1" hidden></button>
+  <header class="workspace-bar">
+    <button id="workspace-nav-toggle" class="workspace-icon" type="button" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="切换导航" title="切换导航" data-l10n-title="toggleNavigation" data-l10n-aria-label="toggleNavigation"><svg class="ui-icon" data-ui-icon="sidebar" aria-hidden="true"></svg></button>
     <div class="workspace-history">
-      <button type="button" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back">‹</button>
-      <button type="button" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward">›</button>
+      <button type="button" class="workspace-icon" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back"><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg></button>
+      <button type="button" class="workspace-icon" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward"><svg class="ui-icon" data-ui-icon="chevronRight" aria-hidden="true"></svg></button>
     </div>
-    <nav data-workspace-nav aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation"></nav>
-    <a data-project-back hidden href="/research">返回当前项目</a>
+    <div id="workspace-breadcrumb"><span data-workspace-location></span></div>
+    <div id="workspace-tools"></div>
     <div class="shell-rail-controls">
-      <button id="shell-inspect" type="button" aria-controls="context-rail" aria-pressed="false" data-en="Inspector">检查器</button>
-      <button id="shell-assist" type="button" aria-controls="context-rail" aria-pressed="false" data-en="Ask AI">询问 AI</button>
-      <button id="shell-pin" type="button" aria-pressed="false" hidden data-en="Pin panel">固定侧栏</button>
+      <button id="shell-assist" class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
     </div>
-    {{if .Desktop}}<details class="workspace-roots">
-      <summary data-l10n-text="toolbarWorkspace">工作区</summary>
-      <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="rename" data-en="Rename workspace…">重命名工作区…</button><button type="button" data-root-action="forget" data-en="Forget recent workspace">清除最近工作区</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
-    </details>{{end}}
-  </div>
+  </header>
   <div class="workspace-region">{{template "content" .}}</div>
   <div id="shell-divider" role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度" tabindex="0" hidden></div>
   <section id="context-rail" aria-labelledby="rail-title" hidden>
-    <h2 id="rail-title"></h2>
+    <div class="rail-heading">
+      <h2 id="rail-title"></h2>
+      <button id="shell-pin" class="workspace-icon" type="button" aria-pressed="false" aria-label="固定侧栏" title="固定侧栏" hidden><svg class="ui-icon" data-ui-icon="pin" aria-hidden="true"></svg></button>
+      <button id="rail-close" class="workspace-icon" type="button" aria-label="关闭侧栏" title="关闭侧栏" data-l10n-aria-label="closePanel" data-l10n-title="closePanel"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button>
+    </div>
     <p id="rail-context"></p>
     <div id="rail-inspect"></div>
     <div id="rail-ai" hidden>

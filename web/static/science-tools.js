@@ -159,6 +159,8 @@
   function nav() {
     for (const a of document.querySelectorAll("[data-tab]")) {
       a.classList.toggle("active", a.dataset.tab === tab);
+      if (a.dataset.tab === tab) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
       const u = new URLSearchParams({
         tab: a.dataset.tab
       });

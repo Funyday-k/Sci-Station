@@ -3,7 +3,6 @@
 <link rel="stylesheet" href="/static/scientific-markdown.css">
   <link rel="stylesheet" href="/static/research.css">
   <link rel="stylesheet" href="/static/research-dashboard.css">
-  <script defer src="/static/ui-icons.js"></script>
   <script defer src="/static/research-vendor/marked.min.js"></script>
   <script defer src="/static/research-vendor/dompurify.min.js"></script>
   <script defer src="/static/research-vendor/katex.min.js"></script>
@@ -21,16 +20,14 @@
 {{end}}
 {{define "content"}}
 <div id="shell">
-    <aside id="sidebar" aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation">
+    <aside id="sidebar" aria-label="科研项目" data-l10n-aria-label="projectNavigation">
 
       <div class="project-heading"><strong data-l10n-text="myProjects">我的项目</strong><button type="button" id="new-project" class="icon" aria-label="新建项目"
-          title="新建项目" data-l10n-title="toolbarNewProject" data-l10n-aria-label="toolbarNewProject">＋</button></div>
+          title="新建项目" data-l10n-title="toolbarNewProject" data-l10n-aria-label="toolbarNewProject"><svg class="ui-icon" data-ui-icon="plus" aria-hidden="true"></svg></button></div>
       <nav id="projectnav" aria-label="科研项目" data-l10n-aria-label="projectNavigation"></nav>
     </aside>
     <div id="workarea">
       <header class="topbar">
-        <button type="button" id="nav-toggle" class="icon" title="切换导航" aria-label="切换导航" aria-controls="sidebar" aria-expanded="false" data-l10n-title="toggleNavigation" data-l10n-aria-label="toggleNavigation"><span
-            data-icon="sidebar"></span></button>
         <div id="crumb"><span data-l10n-text="sidebarResearchShell">科研工作台</span></div>
         <button id="search-open" class="search-open"><span data-icon="search"></span><span data-l10n-text="searchWorkspace">搜索工作区</span><kbd>⌘ K</kbd></button>
       </header>

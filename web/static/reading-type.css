@@ -36,6 +36,7 @@
 .app-shell .turn-model strong,
 .app-shell .user-message > strong {
   font-size: var(--reading-small);
+  font-weight: 500;
 }
 
 #room-chat .message-body code,
@@ -50,20 +51,25 @@
 
 #meeting-board .board-section-title {
   font-size: calc(18px + var(--reading-increase));
+  font-weight: 600;
 }
 
 #meeting-board .board-title {
-  font-size: calc(clamp(26px, 4.8cqi, 44px) + var(--reading-increase));
+  font-size: calc(clamp(20px, 3cqi, 24px) + var(--reading-increase));
+  font-weight: 600;
 }
 
 .meeting-report-content h3 {
-  font-size: calc(1.4rem + var(--reading-increase));
+  font-size: calc(20px + var(--reading-increase));
+  font-weight: 600;
 }
 
 .meeting-report-content h4 {
-  font-size: calc(1.18rem + var(--reading-increase));
+  font-size: calc(17px + var(--reading-increase));
+  font-weight: 600;
 }
 
 .meeting-report-content :is(h5, h6) {
   font-size: var(--reading-size);
+  font-weight: 600;
 }

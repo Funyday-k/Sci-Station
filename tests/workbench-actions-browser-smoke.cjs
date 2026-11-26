@@ -148,7 +148,9 @@ async function main(binary) {
     assert.ok(await handoff.isVisible());
     await mode.selectOption("single");
     const pair = page.getByRole("button", {name: "双席独立复核"});
+    await page.locator("#workspace-nav-toggle").click();
     await pair.click();
+    assert.ok(await page.locator("#workspace-sidebar").isHidden());
     assert.equal(await mode.inputValue(), "roundtable");
     assert.ok(await start.isHidden());
     assert.ok(await handoff.isEnabled());

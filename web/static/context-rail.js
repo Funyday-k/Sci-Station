@@ -6,7 +6,7 @@
   const req=layout.request;
   const reader=()=>document.body.dataset.workspaceSurface==="reader";
   const narrow=matchMedia("(max-width:999px)");
-  let selectedObject=null, requestedMode=null;
+  let selectedObject=null, requestedMode=null, requestedRoute="", returnFocus=null;
   const projectNames=new Map();
   let context, draftContext, key="", generation=0, room=null, busy=false, models=[], poll=0;
   let catalogScope="", moduleEnabled=false, runLookup="";
@@ -15,16 +15,25 @@
     get(key){try{return sessionStorage.getItem(key);}catch{return null;}},
     set(key,value){try{if(value)sessionStorage.setItem(key,value);else sessionStorage.removeItem(key);}catch{}}
   };
+  const paperSelection=()=>window.SciResearch?.library?.selectedPapers?.() || [];
+  const selectionKey=papers=>papers.map(p=>p.id).sort().join("\u0000");
+  function panelRoute() {
+    const url=new URL(location.href);
+    // A page or evidence anchor changes position within the same reader task.
+    return reader() ? JSON.stringify([url.pathname,url.searchParams.get("project") || "",url.searchParams.get("paper") || ""]) : url.href;
+  }
   function contextOf() {
     const url=new URL(location.href), params=url.searchParams, project=params.get("project") || "";
     const research=window.SciResearch?.state, data=research?.project?.id===project || !project && !research?.project ? research:null;
     const view=params.get("view") || "overview";
     if(selectedObject?.route!==url.href)selectedObject=null;
-    const selection=view==="papers" && data?.view==="papers" ? window.SciResearch.library?.selectedPapers?.() || [] : [];
-    const paper=reader()?window.SciShellReader?.():selection.length===1?selection[0]:null;
+    const selection=view==="papers" && data?.view==="papers" ? paperSelection() : [];
+    if(selectedObject?.paper && selectedObject.selection!==selectionKey(selection))selectedObject=null;
+    const inspectedPaper=data?.papers?.find(p=>p.id===selectedObject?.paper && (!project || p.project_ids?.includes(project)));
+    const paper=reader()?window.SciShellReader?.():inspectedPaper || (selection.length===1?selection[0]:null);
     const note=data?.notes?.find(n=>n.id===(selectedObject ? selectedObject.note : params.get("note")));
     const task=data?.tasks?.find(t=>t.id===(selectedObject ? selectedObject.task : params.get("task")));
-    const title=(selection.length>1 ? text("已选 "+selection.length+" 篇文献",selection.length+" papers selected") : "") || paper?.title || note?.title || task?.title || document.getElementById("view-title")?.textContent ||
+    const title=(!inspectedPaper && selection.length>1 ? text("已选 "+selection.length+" 篇文献",selection.length+" papers selected") : "") || paper?.title || note?.title || task?.title || document.getElementById("view-title")?.textContent ||
       (data?.project && view==="overview" ? data.project.name : document.title.split(" · ")[0]);
     const noteExcerpt=note ? Array.from((note.body || "").replace(/\r\n?/g,"\n")).slice(0,1000).join("").trim() : "";
     const facts=paper ? [
@@ -67,12 +76,13 @@
   function mode(){
     const state=layout.state;
     if(!state)return "hidden";
-    if(state.panelPinned)return state.mode;
     if(requestedMode)return requestedMode;
-    return context?.paper || context?.note || context?.task ? "inspector" : "hidden";
+    return state.panelPinned ? state.mode : "hidden";
   }
   function update() {
     const next=contextOf(), nextKey=draftKey(next);
+    const route=panelRoute();
+    if(requestedRoute!==route){requestedMode=null;requestedRoute=route;returnFocus=null;}
     if(next.project && !next.projectName && !projectNames.has(next.project)){
       projectNames.set(next.project,"");
       req("/api/research/projects/"+encodeURIComponent(next.project)).then(p=>{
@@ -81,7 +91,6 @@
     }
     const changedScope=context?.project!==next.project;
     if(nextKey!==key){
-      requestedMode=null;
       rememberDraft(); key=nextKey;draftContext=null;node("rail-prompt").value="";
       try{const old=JSON.parse(storage.get(key));if(old?.context?.project===next.project){node("rail-prompt").value=old.value;draftContext=old.context;}}catch{}
     }
@@ -96,16 +105,25 @@
     const width=Math.min(upper,Math.max(lower,layout.state?.width || 360));
     body.style.setProperty("--shell-panel-width",width+"px");
     divider.setAttribute("aria-valuemin",String(lower));divider.setAttribute("aria-valuemax",String(upper));divider.setAttribute("aria-valuenow",String(width));
-    node("shell-inspect").setAttribute("aria-controls",reader()?"reader-inspector":"context-rail");
-    node("shell-inspect").setAttribute("aria-pressed",String(active==="inspector"));
     node("shell-assist").setAttribute("aria-pressed",String(active==="ai"));
-    node("shell-inspect").disabled=node("shell-assist").disabled=!layout.state;
-    node("shell-pin").hidden=active==="hidden";
-    node("shell-pin").setAttribute("aria-pressed",String(Boolean(layout.state?.panelPinned)));
+    node("shell-assist").disabled=!layout.state;
+    const pinned=Boolean(layout.state?.panelPinned);
+    for(const id of ["shell-pin","reader-pin"]){
+      const pin=node(id);if(!pin)continue;
+      pin.hidden=active==="hidden";
+      pin.setAttribute("aria-pressed",String(pinned));
+      pin.setAttribute("aria-label",pinned?text("取消固定侧栏","Unpin panel"):text("固定侧栏","Pin panel"));
+      pin.title=pin.getAttribute("aria-label");
+    }
+    if(reader()){
+      node("reader-inspector").hidden=!nativeInspector;
+      node("reader-inspect").disabled=!layout.state;
+      node("reader-inspect").setAttribute("aria-expanded",String(nativeInspector));
+    }
     for(const detail of document.querySelectorAll("[data-inspect-object]")){
       detail.setAttribute("aria-pressed",String(active==="inspector" && context[detail.dataset.inspectObject]===detail.dataset.id));
     }
-    node("rail-title").textContent=active==="ai"?"AI":text("检查器","Inspector");
+    node("rail-title").textContent=active==="ai"?"AI":text("详情","Details");
     node("rail-context").textContent=[context.projectName || context.project,context.title,context.page?text("第 "+context.page+" 页","Page "+context.page):""].filter(Boolean).join(" · ");
     node("rail-inspect").hidden=active!=="inspector";
     node("rail-ai").hidden=active!=="ai";
@@ -121,7 +139,7 @@
     }
     if(c.paper) {
       items.push(anchor(text("打开阅读器","Open reader"),window.SciStationNav.route("/reader",{project:c.project,paper:c.paper})));
-      items.push(button(text("文献元数据","Paper metadata"),()=>window.SciStationNav.command("inspector")));
+      items.push(button(text("文献元数据","Paper metadata"),()=>window.SciResearch.formAction("edit-paper",c.paper)));
     } else if(c.note) {
       if(c.quote){
         const preview=document.createElement("p");
@@ -272,27 +290,41 @@
     } catch(err){if(ticket===generation)status(err.message);}
     finally{if(ticket===generation){busy=false;drawAI();}}
   }
-  function showMode(next){
+  function showMode(next,trigger=document.activeElement){
     if(!layout.state)return;
+    const previous=mode();
+    if(next!=="hidden" && trigger && !trigger.closest?.("#context-rail,#reader-inspector"))returnFocus=trigger;
+    requestedRoute=panelRoute();
     requestedMode=next;
-    if(layout.state.panelPinned){
-      return layout.save({mode:next,panelPinned:next!=="hidden"}).catch(()=>{});
-    }else update();
-  }
-  function toggle(next){showMode(mode()===next ? "hidden" : next);}
-  function selectObject(kind,id,open=false){
-    const deselect=open && mode()==="inspector" && context?.[kind]===id;
-    selectedObject=deselect ? {route:location.href} : {route:location.href,[kind]:id};
+    if(next==="hidden")rememberDraft();
     update();
-    if(open && !deselect && mode()!=="inspector")showMode("inspector");
+    if(next==="hidden" && previous!=="hidden"){
+      const fallback=reader() && previous==="inspector"?node("reader-inspect"):node("shell-assist");
+      (returnFocus?.isConnected?returnFocus:fallback)?.focus();
+    }
+    if(layout.state.panelPinned && (layout.state.mode!==next || next==="hidden")){
+      return layout.save({mode:next,panelPinned:next!=="hidden"}).catch(()=>{});
+    }
   }
-  node("shell-inspect").onclick=()=>toggle("inspector");
-  node("shell-assist").onclick=()=>toggle("ai");
-  node("shell-pin").onclick=()=>{
+  function toggle(next,trigger){return showMode(mode()===next ? "hidden" : next,trigger);}
+  function closePanel(){return showMode("hidden");}
+  function selectObject(kind,id,open=false){
+    const close=open && mode()==="inspector" && context?.[kind]===id;
+    selectedObject={route:location.href,[kind]:id,selection:selectionKey(paperSelection())};
+    update();
+    if(open){
+      const trigger=Array.from(document.querySelectorAll("[data-inspect-object]")).find(el=>el.dataset.inspectObject===kind && el.dataset.id===id);
+      return showMode(close?"hidden":"inspector",trigger);
+    }
+  }
+  node("shell-assist").onclick=event=>toggle("ai",event?.currentTarget || node("shell-assist"));
+  function pinPanel(){
     if(!layout.state || mode()==="hidden")return;
     requestedMode=mode();
-    layout.save({mode:requestedMode,panelPinned:!layout.state.panelPinned}).catch(()=>{});
-  };
+    return layout.save({mode:requestedMode,panelPinned:!layout.state.panelPinned}).catch(()=>{});
+  }
+  node("shell-pin").onclick=pinPanel;
+  if(node("rail-close"))node("rail-close").onclick=closePanel;
   node("rail-prompt").oninput=()=>{if(!draftContext)draftContext={...context};rememberDraft();};
   node("rail-prompt").onkeydown=e=>{if(e.key==="Enter" && (e.metaKey || e.ctrlKey)){e.preventDefault();send();}};
   node("rail-model").onchange=()=>{effortOptions();drawAI();};
@@ -314,17 +346,11 @@
   divider.onkeydown=e=>{if(!["ArrowLeft","ArrowRight"].includes(e.key))return;e.preventDefault();commitWidth(Number(divider.getAttribute("aria-valuenow"))+(e.key==="ArrowLeft"?16:-16));};
   window.addEventListener("scistation:command",e=>{
     if(e.detail!=="inspector")return;
-    if(reader()){
-      if(mode()!=="inspector"){
-        e.preventDefault();
-        Promise.resolve(showMode("inspector")).then(()=>document.querySelector('#reader-inspector [aria-selected="true"]')?.focus());
-      }
-      return;
-    }
+    if(reader())return;
     if(context?.view==="papers")return;
     e.preventDefault();toggle("inspector");
   });
-  window.SciContextRail={update,selectObject};
+  window.SciContextRail={update,selectObject,show:showMode,toggle,close:closePanel,pin:pinPanel};
   narrow.addEventListener("change",update);
   window.addEventListener("sci:shell-layout",update);window.addEventListener("sci:language",update);
   document.addEventListener("DOMContentLoaded",()=>{update();new MutationObserver(update).observe(document.querySelector("title"),{childList:true});});

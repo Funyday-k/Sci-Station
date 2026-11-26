@@ -13,6 +13,39 @@
   }
   const label = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
   const local = (key, zh, en) => globalThis.SciStationI18n?.message?.(key) ?? label(zh, en);
+  const icons = {home:"dashboard",projects:"folder",library:"book",calendar:"agenda",lab:"model",roundtable:"chat",settings:"settings"};
+  function destinationLink({key,name,href,active}) {
+    const link=document.createElement("a"), caption=document.createElement("span");
+    link.href=href;
+    link.dataset.section=key;
+    link.setAttribute("aria-label",name);
+    link.title=name;
+    link.innerHTML=window.RoundtableIcons?.icon(icons[key]) || "";
+    caption.className="workspace-nav-label";
+    caption.textContent=name;
+    link.append(caption);
+    if(active)link.setAttribute("aria-current","page");
+    return link;
+  }
+  function mountContextNavigation() {
+    const context=document.getElementById("workspace-context");
+    if(!context)return;
+    const surface=document.body.dataset.workspaceSurface;
+    const selector={research:"#sidebar",studio:".app > .sidebar",lab:".shell > aside","science-tools":".frame > aside"}[surface];
+    const sidebar=selector && document.querySelector(selector);
+    if(sidebar)context.append(sidebar);
+    if(surface==="research") {
+      const modules=document.getElementById("project-modules"), crumb=document.getElementById("crumb"), search=document.getElementById("search-open");
+      if(modules && sidebar)sidebar.append(modules);
+      if(crumb)document.getElementById("workspace-breadcrumb").replaceChildren(crumb);
+      if(search)document.getElementById("workspace-tools").append(search);
+      document.querySelector("#workarea > .topbar")?.remove();
+    }
+    if(surface==="studio") {
+      const settings=document.querySelector(".settings-nav");
+      if(settings)context.append(settings);
+    }
+  }
   function destinations(url) {
     const project = url.searchParams.get("project");
     const view = url.searchParams.get("view");
@@ -71,18 +104,17 @@
     const signature = JSON.stringify([links,project]);
     if (nav.dataset.signature !== signature) {
       nav.dataset.signature = signature;
-      nav.replaceChildren(...links.map(({key,name,href,active}) => {
-        const link = document.createElement("a");
-        link.textContent = name;
-        link.href = href;
-        link.dataset.section = key;
-        if (active) link.setAttribute("aria-current","page");
-        return link;
-      }));
+      nav.replaceChildren(...links.filter(link=>link.key!=="settings").map(destinationLink));
+      document.querySelector("[data-workspace-settings]")?.replaceChildren(...links.filter(link=>link.key==="settings").map(destinationLink));
       const back = document.querySelector("[data-project-back]");
-      back.hidden = !project;
+      back.hidden = !project || document.body.dataset.workspaceSurface==="research";
       back.href = research("overview",project);
-      back.textContent = local("projectSpaceBackToProjects","返回当前项目","Back to project");
+      const backLabel=local("projectSpaceBackToProjects","返回当前项目","Back to project");
+      back.innerHTML=window.RoundtableIcons?.icon("chevronLeft") || "";
+      const caption=document.createElement("span");caption.textContent=backLabel;back.append(caption);
+      back.setAttribute("aria-label",backLabel);
+      const locationLabel=document.querySelector("[data-workspace-location]");
+      if(locationLabel)locationLabel.textContent=links.find(link=>link.active)?.name || "Sci-Station";
     }
     window.SciShellLayout?.decorateTop(nav);
     window.SciContextRail?.update();
@@ -146,16 +178,21 @@
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;
+    mountContextNavigation();
     position = history.state?.workspacePosition || 0;
     history.replaceState({...history.state, workspacePosition:position},"");
-    document.querySelector(".workspace-bar").addEventListener("click",event=>{
+    document.addEventListener("click",event=>{
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (!event.target.closest(".workspace-bar,#workspace-sidebar")) return;
       const target=event.target.closest("[data-command],[data-section],[data-root-action]");
       if (!target) return;
       if (target.dataset.rootAction) {
         target.closest("details").open=false;
         rootAction(target.dataset.rootAction);
-      } else if (command(target.dataset.command || target.dataset.section)) event.preventDefault();
+      } else if (command(target.dataset.command || target.dataset.section)) {
+        event.preventDefault();
+        window.SciShellLayout?.dismissProjectNav();
+      }
     });
     document.addEventListener("keydown",event=>{
       if (event.defaultPrevented || event.repeat) return;

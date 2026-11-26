@@ -12,6 +12,14 @@ const origin = "http://127.0.0.1:18765";
 test("every desktop surface mounts the same workspace navigation", () => {
   const shell = read("workspace-shell.html");
   assert.equal(shell.match(/<nav data-workspace-nav /g).length, 1);
+  const sidebar = shell.slice(shell.indexOf('<aside id="workspace-sidebar"'), shell.indexOf('</aside>'));
+  assert.match(sidebar, /<nav data-workspace-nav /);
+  assert.match(sidebar, /<nav data-workspace-settings /);
+  assert.match(sidebar, /id="workspace-context"/);
+  assert.match(shell, /id="workspace-nav-toggle"[^>]+aria-controls="workspace-sidebar"/);
+  assert.match(shell, /id="rail-close"/);
+  assert.doesNotMatch(shell, /id="shell-inspect"/);
+  assert.doesNotMatch(read("research.html"), /id="nav-toggle"/);
   assert.match(shell,/src="\/static\/workspace-nav.js"/);
   assert.match(shell,/{{template "content" ./);
   for (const page of ["research", "reader", "studio", "lab", "science-tools","api"]) {
@@ -166,8 +174,10 @@ test("declining to leave a draft leaves the active root and history entry intact
   };
   const links={dataset:{},replaceChildren(){}};
   const document={
-    createElement(){return {dataset:{},setAttribute(){}};},
-    querySelector(selector){if(selector==="[data-workspace-nav]")return links;return {addEventListener(){}};},
+    body:{dataset:{workspaceSurface:"lab"}},
+    getElementById(){return null;},
+    createElement(){return {dataset:{},setAttribute(){},append(){}};},
+    querySelector(selector){if(selector==="[data-workspace-nav]")return links;return {addEventListener(){},replaceChildren(){},append(){},setAttribute(){}};},
     addEventListener(){}
   };
   vm.runInNewContext(read("workspace-nav.js"),{

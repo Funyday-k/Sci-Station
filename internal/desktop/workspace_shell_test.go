@@ -44,13 +44,16 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 	api := openNavigationFixture(t, t.TempDir())
 	for route, surface := range workspaceSurfaces {
 		page := navigationRequest(t, api, "GET", route, "", 200).Body.String()
-		for _, component := range []string{"<!doctype html>", `class="workspace-bar"`, "<nav data-workspace-nav ", `data-workspace-surface="` + surface.name + `"`, `src="/static/workspace-nav.js"`} {
+		for _, component := range []string{"<!doctype html>", `class="workspace-bar"`, `id="workspace-sidebar"`, `id="workspace-nav-toggle"`, `id="workspace-context"`, "<nav data-workspace-nav ", "<nav data-workspace-settings ", `id="rail-close"`, `data-workspace-surface="` + surface.name + `"`, `src="/static/workspace-nav.js"`} {
 			if strings.Count(page, component) != 1 {
 				t.Errorf("%s: missing or duplicate %s", route, component)
 			}
 		}
 		if strings.Contains(page, "{{template") || strings.Contains(page, "<iframe") {
 			t.Errorf("%s: unmounted domain", route)
+		}
+		if strings.Contains(page, `id="shell-inspect"`) || strings.Contains(page, `id="nav-toggle"`) {
+			t.Errorf("%s: obsolete global inspector or duplicate navigation toggle", route)
 		}
 	}
 	old := navigationRequest(t, api, "GET", "/static/reader.html?paper=abc", "", http.StatusTemporaryRedirect)

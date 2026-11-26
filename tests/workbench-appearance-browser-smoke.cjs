@@ -85,7 +85,7 @@ async function smoke(binary) {
       priority: "high", dueDate: "2027-01-05", description: "Supplementary task description."
     }, 201);
     const upload = new FormData();
-    upload.append("metadata", JSON.stringify({title: "Solar capture fixture", project_ids: [project.id], citekey: "FixtureContrast2026"}));
+    upload.append("metadata", JSON.stringify({title: "Solar capture fixture", authors: ["Fixture Author"], project_ids: [project.id], citekey: "FixtureContrast2026"}));
     upload.append("file", new Blob([sourcePDF()], {type: "application/pdf"}), "fixture.pdf");
     const paper = await request("/api/research/papers", "POST", upload, 201);
     browser = await chromium.launch({headless: true, executablePath: process.env.SCI_STATION_SMOKE_CHROME});
@@ -96,14 +96,16 @@ async function smoke(binary) {
 
     for (const theme of [
       {mode: "dark", size: "extra-large", system: "light", text: "18px", small: "17px",
-        paper: "rgb(19, 29, 42)", surface: "rgb(27, 40, 56)", inset: "rgb(22, 34, 50)", accent: "rgb(146, 197, 246)"},
+        paper: "rgb(27, 29, 33)", surface: "rgb(32, 35, 40)", inset: "rgb(40, 44, 50)", accent: "rgb(146, 197, 246)"},
       {mode: "light", size: "standard", system: "dark", text: "14px", small: "13px",
-        paper: "rgb(240, 245, 250)", surface: "rgb(252, 253, 255)", inset: "rgb(234, 241, 248)", accent: "rgb(34, 95, 152)"}
+        paper: "rgb(247, 247, 248)", surface: "rgb(255, 255, 255)", inset: "rgb(241, 242, 244)", accent: "rgb(34, 95, 152)"}
     ]) {
       await saveAppearance(page, origin, theme);
       await page.goto(origin + "/research?view=tasks");
       await expect(page.locator("html")).toHaveCSS("color-scheme", theme.mode);
       await expect(page.locator("body")).toHaveCSS("background-color", theme.paper);
+      await expect(page.locator("#workspace-sidebar")).toHaveCSS("background-color", theme.inset);
+      await expect(page.locator("#workspace-sidebar [data-workspace-nav]")).toBeVisible();
       const item = page.locator(".row").filter({has: page.locator(`[data-action="edit-task"][data-id="${task.id}"]`)});
       await expect(item.locator(".row-facts")).toContainText(project.name);
       await expect(item.locator(".row-facts")).toContainText(task.dueDate);
@@ -126,7 +128,8 @@ async function smoke(binary) {
       await expect(page.locator("body")).toHaveAttribute("data-workspace-surface", "lab");
       await expect(page.locator("html")).toHaveCSS("color-scheme", theme.mode);
       await expect(page.locator("body")).toHaveCSS("background-color", theme.paper);
-      await expect(page.locator(".workspace-bar")).toHaveCSS("background-color", theme.inset);
+      await expect(page.locator(".workspace-bar")).toHaveCSS("background-color", theme.surface);
+      await expect(page.locator("#workspace-sidebar")).toHaveCSS("background-color", theme.inset);
       await expect(page.locator(".shell .card").first()).toHaveCSS("background-color", theme.surface);
       await expect(page.locator("#question")).toHaveCSS("background-color", theme.surface);
       await assertReadable(page.locator("#question"), theme.text);
@@ -150,9 +153,28 @@ async function smoke(binary) {
         await page.screenshot({path: path.join(process.env.SCI_STATION_SMOKE_SCREENSHOTS, "appearance-tasks.png")});
         await page.setViewportSize({width: 1360, height: 940});
       }
+
+      await page.goto(origin + "/reader?paper=" + paper.id + "&project=" + project.id);
+      await expect(page.locator("#title")).toHaveText(paper.title);
+      await expect(page.locator("html")).toHaveCSS("color-scheme", theme.mode);
+      await expect(page.locator("body")).toHaveCSS("background-color", theme.paper);
+      await expect(page.locator("#workspace-sidebar")).toHaveCSS("background-color", theme.inset);
+      await expect(page.locator("#workspace-sidebar")).toHaveCSS("padding-left", "0px");
+      await expect(page.locator("#workspace-sidebar")).toHaveCSS("padding-right", "0px");
+      await expect(page.locator(".titlebar")).toHaveCSS("background-color", theme.surface);
+      await expect(page.locator("#viewport")).toHaveCSS("background-color", theme.inset);
+      await expect(page.locator("#pageSurface")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+      await assertReadable(page.locator("#byline"), theme.small);
+      await expect(page.locator("#reader-inspector")).toBeHidden();
+      await page.locator("#reader-inspect").click();
+      await expect(page.locator("#reader-inspector")).toHaveCSS("background-color", theme.surface);
+      await page.locator("#notesTab").click();
+      await assertReadable(page.locator("#notes"), theme.text);
+      await page.locator("#reader-close").click();
+      await expect(page.locator("#reader-inspect")).toBeFocused();
     }
     assert.deepEqual(errors, []);
-    console.log("Saved appearance overrides both OS modes in the workbench, library, Lab, and shell. Text, controls, status and accents passed.");
+    console.log("Saved appearance overrides both OS modes in the workbench, library, Lab, reader, and shared sidebar. Text, controls, status and accents passed.");
   } finally {
     await browser?.close();
     await host?.close();

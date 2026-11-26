@@ -252,6 +252,7 @@
     if (!mobile) storageSet("studio.sidebar", open ? "open" : "closed");
   }
   function closeMobileSidebar() {
+    window.SciShellLayout?.dismissProjectNav();
     if (matchMedia("(max-width: 800px)").matches) sidebar(false);
   }
   let restoringRoute = true;
@@ -3032,7 +3033,8 @@
     if (!$("history-menu").hidden && !$("history-menu").contains(event.target))
       closeHistoryMenu(false);
   });
-  $("history").addEventListener("scroll", () => closeHistoryMenu(false));
+  const historyScroller = $("history").closest(".workspace-sidebar-scroll") || $("history");
+  historyScroller.addEventListener("scroll", () => closeHistoryMenu(false));
   window.addEventListener("resize", () => closeHistoryMenu(false));
   window.addEventListener("blur", () => closeHistoryMenu(false));
   $("new-session").addEventListener("click", () => openDraft());
@@ -3077,7 +3079,7 @@
     if (event.key === "Escape" && state.filePanelOpen) {
       event.preventDefault();
       closeChanges();
-    } else if (event.key === "Escape") closeMobileSidebar();
+    } else if (event.key === "Escape" && !window.SciShellLayout) closeMobileSidebar();
   });
   window.addEventListener("roundtable:navigate", (event) => {
     event.preventDefault();

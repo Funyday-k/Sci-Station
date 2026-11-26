@@ -5,7 +5,7 @@
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-auto-rows: minmax(8.75rem, auto);
+  align-items: start;
   gap: 14px;
 }
 
@@ -18,10 +18,11 @@
 .dashboard-widget .panel {
   width: 100%;
   margin: 0;
-  padding: 14px;
+  padding: 16px;
 }
 
 .dashboard-widget .panel-header {
+  padding: 0 0 10px;
   margin-bottom: 10px;
 }
 
@@ -49,9 +50,9 @@
   margin-top: 8px;
 }
 
+/* Width and content limits express size; empty cards keep their natural height. */
 .dashboard-wide, .dashboard-medium { grid-column: span 2; }
-.dashboard-tall, .dashboard-medium { grid-row: span 2; }
-.dashboard-large { grid-column: span 3; grid-row: span 3; }
+.dashboard-large { grid-column: span 3; }
 
 .dashboard-stats {
   display: flex;
@@ -62,13 +63,14 @@
 
 .dashboard-stat {
   color: var(--soft);
-  font-size: .9rem;
+  font-size: var(--workspace-text-small);
   overflow-wrap: anywhere;
 }
 
 .dashboard-stat b {
   color: var(--ink);
-  font-size: 1.05rem;
+  font-size: var(--workspace-text);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -80,7 +82,7 @@
 
 .dashboard-subhead {
   color: var(--soft);
-  font-size: .9rem;
+  font-size: var(--workspace-text-small);
   margin-top: 12px;
 }
 
@@ -90,7 +92,7 @@
   background: var(--tint);
   color: var(--accent2);
   border-radius: 1rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .dashboard-stage[data-stage="on_hold"] {
@@ -136,7 +138,7 @@
 
 .dashboard-day[aria-current="date"] {
   box-shadow: inset 0 0 0 1px var(--accent);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .dashboard-day.has-events::after {
@@ -211,12 +213,13 @@
   user-select: none;
 }
 
-@container (max-width: 920px) {
+@container (max-width: 1180px) {
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-wide, .dashboard-medium { grid-column: span 1; }
   .dashboard-large { grid-column: span 2; }
 }
 
-@container (max-width: 480px) {
+@container (max-width: 640px) {
   .dashboard-grid { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
   .dashboard-widget { grid-area: auto; }
 }
