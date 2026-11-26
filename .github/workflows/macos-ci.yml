@@ -83,8 +83,8 @@ jobs:
         run: python3 tests/macos-close-smoke.py "$RUNNER_TEMP/Sci-Station.app"
       - name: Review a paper excerpt and reopen its source in WKWebView
         run: node tests/workstation-workflow-smoke.cjs --native "$RUNNER_TEMP/Sci-Station.app"
-      - name: Exercise software approval for CLI edits in WKWebView
-        run: node tests/workstation-cli-edit-smoke.cjs --native "$RUNNER_TEMP/Sci-Station.app"
+      - name: Exercise native menu navigation and cross-root access revocation
+        run: node tests/workstation-native-menu-smoke.cjs "$RUNNER_TEMP/Sci-Station.app"
       - name: Package the tested desktop build
         id: workstation-candidate
         env:

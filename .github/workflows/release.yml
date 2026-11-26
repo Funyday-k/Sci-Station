@@ -92,7 +92,7 @@ jobs:
           Tools/scripts/verify-release.sh "$APP_PATH"
           python3 tests/macos-close-smoke.py "$APP_PATH"
           node tests/workstation-workflow-smoke.cjs --native "$APP_PATH"
-          node tests/workstation-cli-edit-smoke.cjs --native "$APP_PATH"
+          node tests/workstation-native-menu-smoke.cjs "$APP_PATH"
 
       - name: Package the lower-build-number rollback fixture from this checkout
         id: prior
