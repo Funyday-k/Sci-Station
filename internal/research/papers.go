@@ -105,11 +105,12 @@ type Paper struct {
 	ReadingPosition *PDFReadingPosition `json:"reading_position,omitempty"`
 }
 type PaperLibrary struct {
-	dir        string
-	dirInfo    os.FileInfo
-	mu         sync.RWMutex
-	records    map[string]Paper
-	hasProject func(string) bool
+	dir             string
+	dirInfo         os.FileInfo
+	mu              sync.RWMutex
+	records         map[string]Paper
+	projectReadLock sync.Locker
+	hasProject      func(string) bool
 }
 
 var errPaperConflict = errors.New("论文已被修改，请重新打开后再保存")
@@ -173,8 +174,20 @@ func NewPaperLibrary(dir string) (*PaperLibrary, error) {
 	return p, nil
 }
 
-// SetProjectValidator is called once during application startup.
+// SetProjectValidator is called once during startup. The desktop validator
+// reads the registry under projectReadLock, which is held by the caller.
 func (s *PaperLibrary) SetProjectValidator(f func(string) bool) { s.hasProject = f }
+
+// Wiki writes hold the project lock before reading the library. A membership
+// change takes the same locks in that order and keeps the project stable
+// through the paper commit. A standalone library has no project registry.
+func (s *PaperLibrary) holdProjects() func() {
+	if s.projectReadLock == nil {
+		return func() {}
+	}
+	s.projectReadLock.Lock()
+	return s.projectReadLock.Unlock
+}
 func (s *PaperLibrary) Snapshot(id string) (Paper, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -438,7 +451,7 @@ func validatePaperLinks(m *PaperMetadata) error {
 	}
 	return nil
 }
-func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) error {
+func validatePaperMetadata(m *PaperMetadata) error {
 	if err := normalizeBibliography(m); err != nil {
 		return err
 	}
@@ -487,12 +500,16 @@ func (s *PaperLibrary) validate(m *PaperMetadata, priorProjectIDs []string) erro
 			m.ProjectIDs = append(m.ProjectIDs, id)
 		}
 	}
-	for _, id := range m.ProjectIDs {
+	return validatePaperLinks(m)
+}
+
+func (s *PaperLibrary) validateProjects(projectIDs, priorProjectIDs []string) error {
+	for _, id := range projectIDs {
 		if s.hasProject != nil && !paperContains(priorProjectIDs, id) && !s.hasProject(id) {
-			return fmt.Errorf("%w：项目不存在", errInvalidPaper)
+			return fmt.Errorf("%w：项目不存在或已归档", errInvalidPaper)
 		}
 	}
-	return validatePaperLinks(m)
+	return nil
 }
 func (s *PaperLibrary) all() []Paper {
 	s.mu.RLock()
@@ -563,12 +580,14 @@ func samePaper(a, b Paper) bool {
 		a.URL != "" && a.URL == b.URL
 }
 func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, bool, error) {
-	if err := s.validate(&m, nil); err != nil {
+	if err := validatePaperMetadata(&m); err != nil {
 		return Paper{}, false, err
 	}
 	collectionExplicit := m.collectionExplicit || m.CollectionID != ""
 	m.collectionExplicit = false
 	p := Paper{PaperMetadata: m, ID: paperID(), CreatedAt: time.Now().UTC(), HasPDF: tempFile != "", FileSHA256: digest, Annotations: []PaperAnnotation{}}
+	releaseProjects := s.holdProjects()
+	defer releaseProjects()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	other, err := s.findImportLocked(p)
@@ -612,7 +631,10 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 			return clonePaper(old), false, nil
 		}
 	}
-	if err := s.validate(&p.PaperMetadata, other.ProjectIDs); err != nil {
+	if err := validatePaperMetadata(&p.PaperMetadata); err != nil {
+		return Paper{}, false, err
+	}
+	if err := s.validateProjects(p.ProjectIDs, other.ProjectIDs); err != nil {
 		return Paper{}, false, err
 	}
 	if p.Citekey == "" {
@@ -630,6 +652,8 @@ func (s *PaperLibrary) create(m PaperMetadata, tempFile, digest string) (Paper, 
 	return clonePaper(p), isNew, nil
 }
 func (s *PaperLibrary) update(id string, revision int, meta PaperMetadata) (Paper, error) {
+	releaseProjects := s.holdProjects()
+	defer releaseProjects()
 	current, exists := s.Snapshot(id)
 	if !exists {
 		return Paper{}, os.ErrNotExist
@@ -644,7 +668,10 @@ func (s *PaperLibrary) update(id string, revision int, meta PaperMetadata) (Pape
 			delete(meta.ProjectLinks, id)
 		}
 	}
-	if err := s.validate(&meta, current.ProjectIDs); err != nil {
+	if err := validatePaperMetadata(&meta); err != nil {
+		return Paper{}, err
+	}
+	if err := s.validateProjects(meta.ProjectIDs, current.ProjectIDs); err != nil {
 		return Paper{}, err
 	}
 	s.mu.Lock()
