@@ -128,8 +128,8 @@
       const core = linked.filter(p => p.core_project_ids?.includes(project.id));
       const info = facts?.[project.id];
       const kinds = new Set(info?.artifactKinds || []);
-      let activity = instant(timestamp(project));
-      for (const item of [...linked, ...deadlines, ...drafts]) activity = Math.max(activity, instant(timestamp(item)));
+      let activity = Math.max(instant(timestamp(project)), instant(info?.lastResearchActivity));
+      for (const item of [...linked, ...deadlines, ...drafts.filter(r => r.status === "accepted")]) activity = Math.max(activity, instant(timestamp(item)));
       const windows = taskWindows(deadlines, now);
       const readingCount = linked.filter(p => +now - instant(timestamp(p)) <= 14 * 86400000).length;
       return {project, linked, core, ...windows, readingCount, facts: info, drafts, activity, stage: info ? stage({
@@ -205,7 +205,8 @@
     const dataOrUnavailable = promise => promise.catch(() => null);
     const moduleService = window.SciStationModules;
     const [workspace, facts, reviews, modules] = await Promise.all([
-      dataOrUnavailable(request("/api/workspace")), dataOrUnavailable(request("dashboard/projects")),
+      dataOrUnavailable(request("/api/workspace")), dataOrUnavailable(request("dashboard/projects" +
+        (projectID ? "?project=" + encodeURIComponent(projectID) : ""))),
       dataOrUnavailable(request(projectID ? "projects/" + encodeURIComponent(projectID) + "/reviews" : "reviews")),
       moduleService ? dataOrUnavailable(moduleService.load(projectID)) : null
     ]);

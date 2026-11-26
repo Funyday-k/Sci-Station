@@ -207,7 +207,9 @@ func New(dir string) (*Service, error) {
 	s.registerReviews()
 	s.mux.HandleFunc("GET "+prefix+"/projects/{project}/source-excerpts/{kind}/{source}", s.projectSourceExcerpt)
 	s.registerNotes()
-	s.mux.HandleFunc("GET "+prefix+"/dashboard/projects", s.dashboardProjects)
+	s.mux.HandleFunc("GET "+prefix+"/dashboard/projects", func(w http.ResponseWriter, r *http.Request) {
+		s.ServeDashboardProjects(w, r, nil)
+	})
 	s.registerTasks()
 	s.registerMaterials()
 	s.registerModules()

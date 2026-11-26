@@ -36,19 +36,21 @@ test("project stages and deadline counts are scoped to current records", () => {
     {id: "b", name: "Beta", updatedAt: "2026-11-04T08:00:00Z"},
     {id: "idle", name: "Idle", updatedAt: "2026-11-04T07:59:59Z"},
     {id: "empty", name: "Empty", updatedAt: "2026-11-25T00:00:00Z"},
-    {id: "claims", name: "Claims", updatedAt: "2026-11-25T00:00:00Z"},
+    {id: "claims", name: "Claims", updatedAt: "2026-11-02T00:00:00Z"},
     {id: "plan", name: "Plan", updatedAt: "2026-11-25T00:00:00Z"},
     {id: "missing", name: "Missing facts", updatedAt: "2026-11-25T00:00:00Z"},
   ];
   const papers = [{project_ids: ["a", "b"], core_project_ids: ["b"], updated_at: "2026-11-25T00:00:00Z"}];
   const tasks = [{projectIds: ["a", "b"], dueDate: "2026-11-26", title: "Shared"}];
-  const reviews = [{projectId: "empty", status: "pending"}];
+  const reviews = [{projectId: "empty", status: "pending"},
+    {projectId: "idle", status: "pending", updatedAt: "2026-11-25T00:00:00Z"},
+    {projectId: "idle", status: "rejected", updatedAt: "2026-11-25T02:00:00Z"}];
   const facts = {
     a: {noteCount: 0, gapCount: 0, artifactKinds: ["related_work", "reviewer_response"]},
     b: {noteCount: 0, gapCount: 0, artifactKinds: ["writing_revision"]},
-    idle: {noteCount: 0, gapCount: 0, artifactKinds: ["reviewer_response"], unsupportedClaimCount: 4},
+    idle: {noteCount: 0, gapCount: 0, artifactKinds: ["reviewer_response"], unsupportedClaimCount: 4, lastResearchActivity: "2026-11-04T07:59:59Z"},
     empty: {noteCount: 0, gapCount: 0, artifactKinds: []},
-    claims: {noteCount: 1, gapCount: 0, artifactKinds: [], unsupportedClaimCount: 2},
+    claims: {noteCount: 0, gapCount: 0, artifactKinds: [], unsupportedClaimCount: 2, lastResearchActivity: "2026-11-25T01:00:00Z"},
     plan: {noteCount: 3, gapCount: 1, artifactKinds: []},
   };
   const summaries = dashboard.projectSummaries(projects, papers, tasks, reviews, facts, now);
@@ -97,6 +99,7 @@ test("Home and Overview render durable draft counts and keep layout changes scop
     {id: "3", title: "Rejected note", status: "rejected", projectId: "a", meetingId: "m1"},
   ];
   const request = async url => ({"/api/workspace": {id: "root-one", name: "Workspace One"}, "dashboard/projects": facts, reviews,
+    "dashboard/projects?project=a": {a: facts.a},
     "projects/a/reviews": reviews.filter(r => r.projectId === "a")})[url];
   const ui = {
     esc: String, heading: (title, info, buttons) => `<h1>${title}</h1>${info}${buttons}`, button: String,

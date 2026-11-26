@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -27,17 +28,31 @@ func meetingOutput(s *meeting.Session, key string) (string, int, error) {
 			return text, item.SourceRound, nil
 		}
 	}
-	for i, round := range s.Rounds {
-		if i == len(s.Rounds)-1 && s.Status == "running" {
-			break
-		}
-		for _, turn := range round.Turns {
-			if key == fmt.Sprintf("round-%d-%s", round.Number, turn.Seat) && turn.Status == "done" && turn.Error == "" && strings.TrimSpace(turn.Text) != "" {
-				return turn.Text, round.Number, nil
-			}
+	for round, turn := range publishedRoomTurns(s) {
+		if key == roomTurnOutput(round.Number, turn.Seat) {
+			return turn.Text, round.Number, nil
 		}
 	}
 	return "", 0, errors.New("所选会议输出尚未公开，或已不存在")
+}
+
+func roomTurnOutput(round int, seat string) string {
+	return fmt.Sprintf("round-%d-%s", round, seat)
+}
+
+func publishedRoomTurns(room *meeting.Session) iter.Seq2[meeting.Round, meeting.Turn] {
+	return func(yield func(meeting.Round, meeting.Turn) bool) {
+		for i, round := range room.Rounds {
+			if i == len(room.Rounds)-1 && room.Status == "running" {
+				return
+			}
+			for _, turn := range round.Turns {
+				if turn.Status == "done" && turn.Error == "" && strings.TrimSpace(turn.Text) != "" && !yield(round, turn) {
+					return
+				}
+			}
+		}
+	}
 }
 
 func recordedReviewSource(s *meeting.Session, key string) (research.ReviewSource, error) {

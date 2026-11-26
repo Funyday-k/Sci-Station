@@ -15,6 +15,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Manage reusable workspace task tags with separate background and text colors, and filter global or project tasks by tag. Deleting a custom definition restores default colors on tasks that use the tag.
 
 - Query project graphs for reading order, core references missing from the project, citation updates, saved research outcomes that need review, claim evidence gaps, method lineage, and connecting paths. Open the supporting source or share a query preview in AI Lab.
+- See missing source evidence from published AI Lab results in the project overview and Home, including results that have no saved note or task.
 - Restore the inspector and single-seat AI side panel across the workstation, with resizable panels, a collapsible project tree and draggable project tabs remembered by each workspace.
 - Rename, search, archive, and reopen single-seat conversations in AI Lab. Save unsent questions and follow-ups to the active research root and recover them without sending a model request.
 - Inspect each single-seat run's saved settings, source versions and timeline in AI Lab. Retry an incomplete run from its saved input using current settings and fresh approvals.

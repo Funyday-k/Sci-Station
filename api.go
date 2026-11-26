@@ -177,6 +177,8 @@ func (a *apiServer) serve(port int) http.Handler {
 			a.saveLibraryBibtex(w, r)
 		case strings.HasPrefix(path, "/api/research/papers/") && strings.HasSuffix(path, "/native-file") && a.research != nil:
 			a.openLibraryPDF(w, r)
+		case path == "/api/research/dashboard/projects" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && a.research != nil:
+			a.serveResearchDashboard(w, r)
 		case strings.HasPrefix(path, "/api/research/") && a.research != nil:
 			a.research.ServeHTTP(w, r)
 		case strings.HasPrefix(path, "/api/studio/"):

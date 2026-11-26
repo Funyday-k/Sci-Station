@@ -171,16 +171,16 @@ func (a graphArtifact) staleFinding(cutoff time.Time, evidence []graphArtifactEv
 
 func (a graphArtifact) claimFindings(filter string, evidence []graphArtifactEvidence) []graphWorkflowFinding {
 	var findings []graphWorkflowFinding
-	add := func(line int, detail, severity string, links ...graphWorkflowLink) {
+	add := func(claim WorkflowClaim, detail, severity string, links ...graphWorkflowLink) {
 		if filter == "" || filter == severity {
 			findings = append(findings, graphWorkflowFinding{
-				Title: graphExcerptLabel(a.review.Title), Text: detail, Severity: severity, Line: line,
+				Title: graphExcerptLabel(a.review.Title), Text: detail, Severity: severity, Line: claim.Line, digest: claim.Digest,
 				Links: append([]graphWorkflowLink{a.destination}, links...), locators: []string{a.review.ResultID},
 			})
 		}
 	}
 	if a.changed {
-		add(0, "保存的正文已改变，需重新核对声明与引用", "warning")
+		add(WorkflowClaim{}, "保存的正文已改变，需重新核对声明与引用", "warning")
 		return findings
 	}
 	claims, truncated := WorkflowClaims(a.review.Body)
@@ -192,7 +192,7 @@ func (a graphArtifact) claimFindings(filter string, evidence []graphArtifactEvid
 		inspected = true
 		claimLabel := fmt.Sprintf("审核稿第 %d 行 %s", claim.Line, graphExcerptLabel(claim.Text))
 		if len(claim.References) == 0 {
-			add(claim.Line, claimLabel+" · 缺少声明对应的原文引用", "error")
+			add(claim, claimLabel+" · 缺少声明对应的原文引用", "error")
 			continue
 		}
 		var issues []string
@@ -222,14 +222,14 @@ func (a graphArtifact) claimFindings(filter string, evidence []graphArtifactEvid
 			}
 		}
 		if len(issues) > 0 {
-			add(claim.Line, claimLabel+" · "+strings.Join(issues, "、"), severity, links...)
+			add(claim, claimLabel+" · "+strings.Join(issues, "、"), severity, links...)
 		}
 	}
 	if !inspected && len(a.review.Evidence) == 0 {
-		add(0, "未登记可核对的原文证据", "error")
+		add(WorkflowClaim{}, "未登记可核对的原文证据", "error")
 	}
 	if truncated {
-		add(0, "正文超出声明核查范围，其余条目需分段核对", "warning")
+		add(WorkflowClaim{}, "正文超出声明核查范围，其余条目需分段核对", "warning")
 	}
 	return findings
 }

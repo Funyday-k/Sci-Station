@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"scistation.local/desktop/internal/credentials"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -249,6 +250,8 @@ type Summary struct {
 	CreatedAt     string            `json:"created_at"`
 	UpdatedAt     string            `json:"updated_at"`
 	RoundCount    int               `json:"round_count"`
+
+	HasResearchCitations bool `json:"-"`
 }
 
 type Engine struct {
@@ -579,7 +582,10 @@ func (e *Engine) ListWithRecovery() ([]Summary, []sessionstore.Unreadable, error
 			unreadable = append(unreadable, *issue)
 			return
 		}
-		result = append(result, Summary{ID: s.ID, Topic: s.Topic, Title: s.Title, LabThread: s.LabThread, ProjectID: s.ProjectID, Project: s.Project, Preset: s.Preset, Members: s.Members, SeatOverrides: s.SeatOverrides, Seats: append([]string{}, s.Seats...), Status: s.Status, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, RoundCount: len(s.Rounds)})
+		researchCitations := slices.ContainsFunc(s.Materials, func(material Material) bool {
+			return strings.HasPrefix(material.Excerpt, PaperExcerptMarker) || strings.HasPrefix(material.Excerpt, ProjectExcerptMarker)
+		})
+		result = append(result, Summary{ID: s.ID, Topic: s.Topic, Title: s.Title, LabThread: s.LabThread, ProjectID: s.ProjectID, Project: s.Project, Preset: s.Preset, Members: s.Members, SeatOverrides: s.SeatOverrides, Seats: append([]string{}, s.Seats...), Status: s.Status, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, RoundCount: len(s.Rounds), HasResearchCitations: researchCitations})
 	})
 	if err != nil {
 		return nil, nil, err

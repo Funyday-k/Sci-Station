@@ -1,6 +1,7 @@
 package research
 
 import (
+	"crypto/sha256"
 	"regexp"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ type WorkflowClaim struct {
 	References []string `json:"references"`
 	Status     string   `json:"status"`
 	Warnings   []string `json:"warnings,omitempty"`
+	Digest     [32]byte `json:"-"`
 }
 
 // WorkflowClaims extracts the same source references and claim lines for review and graph queries.
@@ -71,7 +73,8 @@ func WorkflowClaims(markdown string) ([]WorkflowClaim, bool) {
 			return claims, true
 		}
 		core := slices.Contains(labCoreClaimSections, section)
-		claim := WorkflowClaim{Line: i + 1, Section: section, Text: shortenClaim(text), Core: core, References: refs}
+		claim := WorkflowClaim{Line: i + 1, Section: section, Text: shortenClaim(text), Core: core, References: refs,
+			Digest: sha256.Sum256([]byte(strings.Join(strings.Fields(trimmed), " ")))}
 		if len(refs) > 0 && labStrongWording.MatchString(trimmed) {
 			claim.Warnings = append(claim.Warnings, "strong_wording")
 		}

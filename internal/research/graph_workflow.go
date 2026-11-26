@@ -24,6 +24,7 @@ type graphWorkflowFinding struct {
 	Line     int                 `json:"line,omitempty"`
 	Links    []graphWorkflowLink `json:"links,omitempty"`
 	locators []string
+	digest   [32]byte
 }
 
 type graphWorkflowResult struct {

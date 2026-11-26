@@ -136,8 +136,42 @@ func TestLabEvidenceIsProjectAndRoundScopedAndFormalAdmissionUsesReviewedBody(t 
 	if prompt := run(0, nil); !strings.Contains(prompt, `"citation_id":"S1"`) || !strings.Contains(prompt, original) || strings.Contains(prompt, later) {
 		t.Fatal("first prompt did not match recorded source")
 	}
+	type dashboardFacts struct {
+		UnsupportedClaimCount int
+		LastResearchActivity  string
+	}
+	const dashboardRoute = "/api/research/dashboard/projects"
+	dashboard := func(path string) map[string]dashboardFacts {
+		t.Helper()
+		return scienceWorkflowDecode[map[string]dashboardFacts](t, call("GET", dashboardRoute+path, nil, 200))
+	}
+	beforeAnyWrite := dashboard("?project=" + p.ID)
+	if len(beforeAnyWrite) != 1 || beforeAnyWrite[p.ID].UnsupportedClaimCount != 2 ||
+		beforeAnyWrite[p.ID].LastResearchActivity != room.Rounds[0].Turns[0].FinishedAt {
+		t.Fatalf("published evidence gaps were lost without a writeback: %+v", beforeAnyWrite)
+	}
+	scoped := dashboard("?project=" + other.ID)
+	if len(scoped) != 1 || scoped[other.ID] != (dashboardFacts{}) {
+		t.Fatalf("another project's research influenced selected project facts: %+v", scoped)
+	}
+	call("GET", dashboardRoute+"?project=missing", nil, 404)
 	if prompt := run(1, []string{second.ID}); !strings.Contains(prompt, `"id":"`+second.ID+`","citation_id":"S2"`) || !strings.Contains(prompt, `"id":"`+first.ID+`","citation_id":"S1"`) {
 		t.Fatal("follow-up did not retain stable originals")
+	}
+	if all := dashboard(""); all[p.ID].UnsupportedClaimCount != 3 || all[other.ID] != (dashboardFacts{}) {
+		t.Fatalf("workspace summary lost historical publication or project isolation: %+v", all)
+	}
+	open := *room
+	open.Status = "running"
+	var incomplete research.DashboardPublishedResearch
+	if err := addPublishedDashboardClaims(t.Context(), &open, &incomplete); err != nil || len(incomplete.Claims) != 2 {
+		t.Fatalf("an unpublished latest turn contributed to the count: %+v, %v", incomplete, err)
+	}
+	ordinary := *room
+	ordinary.Topic = "An ordinary discussion with recorded excerpts"
+	var explicit research.DashboardPublishedResearch
+	if err := addPublishedDashboardClaims(t.Context(), &ordinary, &explicit); err != nil || len(explicit.Claims) != 1 {
+		t.Fatalf("ordinary prose was treated as uncited formal claims: %+v, %v", explicit, err)
 	}
 	output := fmt.Sprintf("round-1-%s", room.Rounds[0].Turns[0].Seat)
 	inspect := func(project string) string {
@@ -178,6 +212,9 @@ func TestLabEvidenceIsProjectAndRoundScopedAndFormalAdmissionUsesReviewedBody(t 
 	if !bytes.Contains(graph, []byte("S1 原文已改变")) || !bytes.Contains(graph, []byte(accepted.ResultID)) ||
 		!bytes.Contains(graph, []byte(fingerprint)) {
 		t.Fatalf("saved claim did not retain re-openable evidence: %s", graph)
+	}
+	if all := dashboard(""); all[p.ID].UnsupportedClaimCount != 3 {
+		t.Fatalf("pending proof and source edits changed the original published coverage: %+v", all)
 	}
 	rechecked := scienceWorkflowDecode[labEvidenceInspection](t, call("GET", inspect(p.ID), nil, 200))
 	if rechecked.Sources[0].Status != "stale" {

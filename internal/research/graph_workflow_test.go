@@ -2,6 +2,7 @@ package research
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -255,6 +256,23 @@ func TestGraphWorkflowChecksAcceptedArtifactsAndFeedsDashboard(t *testing.T) {
 	facts := decodeResearch[map[string]dashboardProjectFacts](t, callResearch(t, s, "GET", "/dashboard/projects", nil, 200))
 	if facts[p.ID].UnsupportedClaimCount != 2 || facts[other.ID].UnsupportedClaimCount != 0 {
 		t.Fatalf("dashboard counted duplicate claims, warnings or other-project records: %+v", facts)
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/research/dashboard/projects?project="+p.ID, nil)
+	s.ServeDashboardProjects(w, req, func(_ context.Context, projects map[string]struct{}) (map[string]DashboardPublishedResearch, error) {
+		if _, ok := projects[p.ID]; len(projects) != 1 || !ok {
+			t.Fatalf("published output reader was given a foreign project: %+v", projects)
+		}
+		claims, _ := WorkflowClaims(missing.Body)
+		key := DashboardClaimKey{MeetingID: missing.MeetingID, OutputID: missing.TurnID, Digest: claims[0].Digest}
+		return map[string]DashboardPublishedResearch{
+			p.ID:     {Claims: map[DashboardClaimKey]struct{}{key: {}}},
+			other.ID: {Claims: map[DashboardClaimKey]struct{}{key: {}}},
+		}, nil
+	})
+	union := decodeResearch[map[string]dashboardProjectFacts](t, w.Body.Bytes())
+	if w.Code != 200 || len(union) != 1 || union[p.ID].UnsupportedClaimCount != 2 {
+		t.Fatalf("published and saved copies of a claim were double-counted: %+v", union)
 	}
 
 	callResearch(t, s, "PATCH", base+"/notes/"+note.ID, map[string]any{"revision": note.Revision, "body": sourceBody + " Changed."}, 200)
