@@ -121,9 +121,71 @@ async function main() {
     assert.deepEqual(Object.fromEntries(stored.sessions.map(room => [room.id,room.project_id || ""])),
       {[unscoped.id]:"", [roomA.id]:a.id, [roomB.id]:b.id});
     await ui.visible("#history", "未关联项目的会话");
+
+    // A saved Roundtable keeps its original messages and pending follow-up when context moves both ways.
+    const aSaved = sessions+"/"+roomA.id, aSession = aRoute+"&session="+roomA.id;
+    await eventually(async () => {
+      const saved = await app.request(aSaved);
+      return saved.status === "ready" && !["pending","drafting"].includes(saved.agenda_draft_status);
+    }, "fixture agenda settled");
+    await app.request(aSaved+"/run","POST",{expected_round:0, allow_edits:false},202);
+    const completed = await eventually(async () => {
+      const saved = await app.request(aSaved);
+      return saved.status === "ready" && saved.rounds[0]?.turns.some(turn=>turn.status==="done") && saved;
+    }, "fixture Roundtable has completed public messages");
+    const statements = () => gateway.calls.filter(call=>call.kind==="statement").length;
+    const before = statements();
+    const firstMessage = completed.rounds[0].turns.find(turn=>turn.status==="done").text;
+    const pending = "A follow-up still in its original Roundtable.";
+    await ui.navigate(aSession);
+    await ui.visible("#chat-header");
+    if (!await ui.evaluate(() => !!document.querySelector("#run-note")?.getClientRects().length))
+      await ui.click("#room-chat-toggle");
+    await ui.set("#run-note",pending);
+    await ui.click("[data-ai-mode='single']");
+    await ui.click("#lab-transfer-preview");
+    const preview = (await ui.visible("#lab-transfer-context")).value;
+    assert.ok(preview.includes(firstMessage) && preview.includes(pending));
+    await ui.visible("#lab-transfer-materials","A original");
+    await ui.click("#lab-transfer-apply");
+    await eventually(async () => (await ui.visible("#question")).value.includes(firstMessage), "Roundtable excerpt added to chat");
+    await ui.visible("#local-list","A original");
+    assert.equal(statements(),before);
+
+    await ui.click(roundtable);
+    await ui.visible("#lab-transfer-dialog");
+    await ui.click("#lab-transfer-apply");
+    await ui.visible("#studio-mode-import");
+    await checkDraft(a.id,"",true);
+    await ui.set(composer,"This is a separate Roundtable draft.");
+    await ui.click("#studio-mode-apply");
+    await eventually(async () => (await ui.visible(composer)).value.includes(firstMessage), "single chat excerpt appended to Roundtable");
+    assert.match((await ui.visible(composer)).value,/^This is a separate Roundtable draft\./);
+    await ui.visible("#create-materials","A original");
+    assert.equal(statements(),before);
+    assert.equal((await app.request(sessions)).sessions.length,3);
+
+    await ui.navigate(aSession);
+    await ui.visible("#chat-header");
+    if (!await ui.evaluate(() => !!document.querySelector("#run-note")?.getClientRects().length))
+      await ui.click("#room-chat-toggle");
+    assert.equal((await ui.visible("#run-note")).value,pending);
+    assert.equal((await app.request(aSaved)).rounds[0].turns[0].text,completed.rounds[0].turns[0].text);
+
+    await enterUnscopedRoundtable();
+    await checkDraft(optional,"",false);
+    await ui.set(composer,"Unscoped draft travels without a project.");
+    await ui.click("[data-ai-mode='single']");
+    await ui.click("#lab-transfer-preview");
+    assert.match((await ui.visible("#lab-transfer-context")).value,/Unscoped draft travels/);
+    await ui.click("#lab-transfer-apply");
+    await eventually(async () => (await ui.visible("#question")).value.includes("Unscoped draft travels"),"unscoped draft in single chat");
+    assert.equal(new URL(await ui.evaluate(() => location.href)).searchParams.has("project"),false);
+    assert.equal(statements(),before);
+
     if (browser.errors) assert.deepEqual(browser.errors, []);
     assert.deepEqual(gateway.errors, []);
-    console.log("Roundtable global and project entry, isolated drafts and attachments, and saved scoped sessions verified.");
+    console.log("Roundtable project selection, isolated drafts, saved sessions, and no-send conversion in both directions verified.");
   } finally {
     await browser?.close();
     await app?.close();
