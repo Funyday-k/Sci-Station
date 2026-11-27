@@ -49,6 +49,40 @@ esac
 	return codex, cursor
 }
 
+func TestDiagnosticCommandUsesScopedEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, "codex-login"))
+	t.Setenv("CURSOR_CONFIG_DIR", filepath.Join(home, "cursor-login"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("PATH", filepath.Join(home, "bin"))
+	t.Setenv("NO_COLOR", "0")
+	t.Setenv("NO_OPEN_BROWSER", "0")
+	t.Setenv("SCI_TEST_AMBIENT_SECRET", "synthetic")
+	t.Setenv("HTTPS_PROXY", "http://synthetic:synthetic@proxy.invalid")
+
+	common := `
+[ -d "$HOME" ]
+[ "$XDG_CONFIG_HOME" = "$HOME/config" ]
+[ "$NO_COLOR" = 1 ]
+[ "$NO_OPEN_BROWSER" = 1 ]
+case "$PATH" in "$HOME/bin:$HOME/.local/bin:"*) ;; *) exit 1;; esac
+[ "${SCI_TEST_AMBIENT_SECRET+x}" != x ]
+[ "${HTTPS_PROXY+x}" != x ]
+`
+	for _, fixture := range []struct{ seat, name, body string }{
+		{"codex", "codex", `[ "$CODEX_HOME" = "$HOME/codex-login" ] && [ "${CURSOR_CONFIG_DIR+x}" != x ]`},
+		{"cursor", "agent", `[ "$CURSOR_CONFIG_DIR" = "$HOME/cursor-login" ] && [ "${CODEX_HOME+x}" != x ]`},
+	} {
+		t.Run(fixture.seat, func(t *testing.T) {
+			cli := diagnosticFakeCLI(t, fixture.name, common+fixture.body)
+			if _, err := diagnosticCommand(context.Background(), fixture.seat, cli, "--version"); err != nil {
+				t.Fatalf("diagnostic runtime settings were not scoped to the selected CLI: %v", err)
+			}
+		})
+	}
+}
+
 func diagnosticFakeGateway(t *testing.T) (int, *atomic.Int32) {
 	t.Helper()
 	count := &atomic.Int32{}

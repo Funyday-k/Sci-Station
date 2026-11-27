@@ -3,8 +3,10 @@
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 
-// Use the user's default file-based Keychain. The app is ad-hoc signed, so it
-// cannot rely on a provisioning profile for a data-protection access group.
+// Keep the user's default file-based Keychain for the ad-hoc signed app.
+// The ThisDeviceOnly accessibility classes require the data-protection
+// Keychain, which needs an authorized access group. File-based items are
+// outside iCloud Keychain sync and retain the file-based backup behavior.
 static NSDictionary *credentialQuery(const char *account) {
     return @{
         (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
