@@ -1,64 +1,7 @@
-/* The studio and reading room use different names for the same roles. */
-:root[data-color-theme]:not([data-color-theme="iris"]) {
-  --paper: var(--palette-paper);
-  --surface: var(--palette-surface);
-  --editor: var(--palette-editor);
-  --line: var(--palette-line);
-  --accent: var(--palette-accent);
-  --accent-soft: var(--palette-soft);
-  --muted: var(--palette-muted);
-  --accent-ink: #fff;
-  --sidebar: var(--paper);
-  --white: var(--surface);
-  --green: var(--accent);
-  --pale: var(--accent-soft);
-}
-
-:root[data-theme="dark"][data-color-theme]:not([data-color-theme="iris"]) {
-  --accent-ink: var(--paper);
-}
-
-:root[data-color-theme]:not([data-color-theme="iris"]) :is(
-  .history-row.selected,
-  .view-tab.selected,
-  .app-shell .history-item.selected,
-  .app-shell .history-item:hover,
-  .app-shell .new-button:hover
-) {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-:root[data-color-theme]:not([data-color-theme="iris"]) .app-shell .new-button {
-  border-color: var(--line);
-}
-
-:root[data-color-theme]:not([data-color-theme="iris"]) :is(
-  .button.primary,
-  .history-menu > button:hover:not(:disabled),
-  .history-menu > button:focus-visible
-) {
-  color: var(--accent-ink);
-}
-
-:root[data-color-theme]:not([data-color-theme="iris"]) .app-shell .button.primary:hover:not(:disabled) {
-  background: var(--accent);
-  filter: brightness(0.95);
-}
-
-:root[data-color-theme]:not([data-color-theme="iris"])
-  .app-shell :is(a, button, select, textarea):focus-visible {
-  outline-color: var(--accent);
-}
-
-:root[data-color-theme]:not([data-color-theme="iris"])
-  :is(#new-topic, #run-note, .app-shell textarea)::placeholder {
-  color: var(--muted);
-}
-
+/* Color-theme picker UI. Palette tokens live in tokens.css (#39). */
 .theme-settings {
   border-block-start: 1px solid var(--line);
-  padding: 14px;
+  padding: var(--space-4);
 }
 
 .theme-settings fieldset {
@@ -70,13 +13,13 @@
 
 .theme-settings legend {
   padding: 0;
-  margin-block-end: 10px;
+  margin-block-end: var(--space-3);
 }
 
 .theme-choices {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .theme-choice {
@@ -88,14 +31,14 @@
 .theme-choice-content {
   position: relative;
   display: grid;
-  gap: 7px;
+  gap: var(--space-2);
   min-block-size: 80px;
-  padding: 7px;
+  padding: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-size: var(--text-sm);
   font-weight: 550;
   text-align: center;
 }
@@ -111,14 +54,14 @@
   inset-inline-end: 11px;
   inline-size: 6px;
   block-size: 10px;
-  border: solid var(--palette-accent, var(--accent));
+  border: solid var(--palette-accent);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
   content: "";
 }
 
 .theme-choice input:focus-visible + .theme-choice-content {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -126,8 +69,8 @@
   display: flex;
   align-items: center;
   min-block-size: 42px;
-  padding-inline: 10px;
-  border-radius: 5px;
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-sm);
   background: var(--palette-soft);
 }
 
@@ -135,7 +78,7 @@
   flex: none;
   inline-size: 15px;
   block-size: 15px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--palette-accent);
   content: "";
 }

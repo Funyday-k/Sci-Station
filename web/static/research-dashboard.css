@@ -147,9 +147,9 @@
 .dashboard-stage {
   display: inline-block;
   padding: var(--space-1) var(--space-3);
-  background: var(--brand-accent-soft);
-  color: var(--brand-accent);
-  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--radius-pill);
   font-size: var(--text-sm);
   font-weight: 500;
 }
@@ -209,12 +209,12 @@
 
 .dashboard-day:hover,
 .dashboard-day[aria-pressed="true"] {
-  color: var(--brand-accent);
-  background: var(--brand-accent-soft);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .dashboard-day[aria-current="date"] {
-  box-shadow: inset 0 0 0 1px var(--brand-accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
   font-weight: 600;
 }
 
@@ -224,8 +224,8 @@
   inset: auto 50% 3px auto;
   width: 4px;
   height: 4px;
-  border-radius: 50%;
-  background: var(--brand-accent);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
   transform: translateX(50%);
 }
 

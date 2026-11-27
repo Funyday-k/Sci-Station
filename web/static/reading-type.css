@@ -1,13 +1,8 @@
-:root {
-  --reading-increase: var(--workspace-text-increase);
-  --reading-size: calc(15px + var(--reading-increase));
-  --reading-small: calc(14px + var(--reading-increase));
-}
 
 .reading-preview {
   margin: 2px 0 0;
-  color: var(--text);
-  font-size: var(--reading-size);
+  color: var(--ink-muted);
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
@@ -23,7 +18,7 @@
 .app-shell textarea,
 .app-shell .turn-body,
 .app-shell .user-message p {
-  font-size: var(--reading-size);
+  font-size: var(--text-md);
 }
 
 #room-chat .message-header strong,
@@ -35,41 +30,41 @@
 #meeting-agenda :is(.ag-title, .ag-source p),
 .app-shell .turn-model strong,
 .app-shell .user-message > strong {
-  font-size: var(--reading-small);
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
 #room-chat .message-body code,
 .app-shell .turn-body code {
-  font-size: calc(13px + var(--reading-increase));
+  font-size: var(--text-sm);
 }
 
 #room-chat .message-body :is(h4, h5, h6),
 .app-shell .turn-body :is(h3, h4, h5, h6) {
-  font-size: calc(16px + var(--reading-increase));
+  font-size: var(--text-lg);
 }
 
 #meeting-board .board-section-title {
-  font-size: calc(18px + var(--reading-increase));
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
 #meeting-board .board-title {
-  font-size: calc(clamp(20px, 3cqi, 24px) + var(--reading-increase));
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 
 .meeting-report-content h3 {
-  font-size: calc(20px + var(--reading-increase));
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 
 .meeting-report-content h4 {
-  font-size: calc(17px + var(--reading-increase));
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
 .meeting-report-content :is(h5, h6) {
-  font-size: var(--reading-size);
+  font-size: var(--text-md);
   font-weight: 600;
 }

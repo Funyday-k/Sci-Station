@@ -12,7 +12,7 @@
 
 .scientific-content th,
 .scientific-content td {
-  border: 1px solid var(--line, #d3d5df);
+  border: 1px solid var(--line);
   padding: .36em .65em;
 }
 
@@ -26,18 +26,18 @@
   margin-inline-start: auto;
   padding: .18em .45em;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: .82rem;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
 .scientific-copy:hover,
 .scientific-copy:focus-visible {
-  background: var(--paper, #eef0f5);
-  color: var(--ink, #202321);
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
 }
 
 .scientific-copy-buffer {

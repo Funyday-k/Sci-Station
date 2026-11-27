@@ -25,7 +25,7 @@
 }
 
 #meeting-board .board-edit-trigger {
-  color: var(--board-muted);
+  color: var(--ink-muted);
 }
 
 #meeting-board .board-edit-trigger:hover,
@@ -45,9 +45,9 @@
   gap: 9px;
   margin-block: 7px 10px;
   padding: 10px 12px;
-  border: 1px solid var(--board-outline);
-  border-radius: 8px;
-  background: var(--board-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
 }
 
 #meeting-board .board-agenda-item-main > .board-edit-form {
@@ -64,8 +64,8 @@
 #meeting-board .board-edit-field {
   display: grid;
   gap: 3px;
-  color: var(--text);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
@@ -75,12 +75,12 @@
   width: 100%;
   min-width: 0;
   padding: 6px 8px;
-  border: 1px solid var(--board-outline);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 #meeting-board .board-edit-field > textarea {
@@ -96,8 +96,8 @@
   margin: 0;
   padding: 0;
   border: 0;
-  color: var(--text);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 #meeting-board .board-edit-materials > label {
@@ -121,8 +121,8 @@
 
 #meeting-board .board-edit-status {
   flex: 1 1 100px;
-  color: var(--board-muted);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
@@ -131,7 +131,7 @@
 }
 
 #meeting-board .board-edit-done {
-  border-color: var(--board-outline);
+  border-color: var(--line);
   padding-inline: 9px;
 }
 
@@ -141,12 +141,12 @@
 
 #meeting-board .board-edit-conflict {
   padding-block-start: 7px;
-  border-block-start: 1px solid var(--board-outline);
+  border-block-start: 1px solid var(--line);
 }
 
 #meeting-board .board-edit-remote {
-  color: var(--text);
-  font-size: 13px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   white-space: pre-wrap;
 }
 
@@ -160,13 +160,13 @@
 
 #meeting-board .board-edit-note {
   padding-block-start: 11px;
-  border-block-start: 1px solid var(--board-outline);
+  border-block-start: 1px solid var(--line);
 }
 
 #meeting-board :is(.board-original-topic, .board-material-excerpt) > summary {
   width: fit-content;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -181,12 +181,12 @@
 #meeting-board .board-host-annotation {
   margin-block: 8px;
   padding-inline-start: 8px;
-  border-inline-start: 2px solid var(--board-outline);
+  border-inline-start: 2px solid var(--line);
 }
 
 #meeting-board .board-host-label {
-  color: var(--board-muted);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 #meeting-board .board-point > .board-edit-actions {

@@ -1,33 +1,52 @@
 /* Shared UI components (pilot slice seeded by #33; expanded in #40). */
 
+.model-effort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.model-effort-control input[type="range"] {
+  flex: 1 1 80px;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.model-effort-control output {
+  color: var(--ink-primary);
+  white-space: nowrap;
+}
+
 /* 1. Card variants: primary, secondary, compact, empty */
 .card {
   border-radius: var(--radius-md);
   background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   overflow: hidden;
 }
 
 .card--primary {
   background: var(--bg-surface);
-  border: 1px solid var(--border-control);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-button);
+  box-shadow: var(--shadow-md);
 }
 
 .card--secondary {
   background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
 }
 
 .card--compact {
   background: var(--bg-subtle);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   padding: var(--space-3) var(--space-4);
 }
 
 .card--empty {
   background: var(--bg-subtle);
-  border: 1px dashed var(--border-subtle);
+  border: 1px dashed var(--line);
 }
 
 /* 2. Compact empty status row (<= 56px tall) */
@@ -41,7 +60,7 @@
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   color: var(--ink-muted);
   font-size: var(--text-sm);
 }
@@ -68,7 +87,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--brand-accent);
+  color: var(--accent);
   font: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
@@ -86,7 +105,7 @@
 }
 
 .action-link:hover {
-  background: var(--brand-accent-soft);
+  background: var(--accent-soft);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -109,7 +128,7 @@
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
 }
 
 .quick-add-row__label {

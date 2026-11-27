@@ -1,11 +1,6 @@
 /* Field and result layouts are local to the science tools. */
-:root {
-  --paper: var(--workspace-paper); --side: var(--workspace-inset);
-  --text: var(--workspace-ink); --muted: var(--workspace-muted);
-  --line: var(--workspace-line); --accent: var(--workspace-accent); --tint: var(--workspace-accent-soft);
-}
 * { box-sizing: border-box; }
-body { margin: 0; color: var(--text); background: var(--paper); font: var(--workspace-text)/1.55 var(--workspace-font); }
+body { margin: 0; color: var(--ink-muted); background: var(--bg-canvas); font: var(--text-md)/1.55 var(--workspace-font); }
 .tools-navigation nav { display: grid; gap: 3px; }
 .frame a { color: var(--accent); }
 .bar,
@@ -18,7 +13,7 @@ body { margin: 0; color: var(--text); background: var(--paper); font: var(--work
 .bar { justify-content: space-between; }
 
 h2 {
-  font-size: 17px;
+  font-size: var(--text-lg);
   margin: 12px 0
 }
 
@@ -29,7 +24,7 @@ label {
 }
 
 .workspace-page-heading label {
-  font-size: var(--workspace-text-small);
+  font-size: var(--text-sm);
   margin: 0
 }
 
@@ -38,10 +33,10 @@ select,
 textarea,
 button {
   font: inherit;
-  color: var(--text);
-  background: var(--paper);
+  color: var(--ink-muted);
+  background: var(--bg-canvas);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   padding: 8px 11px
 }
 
@@ -63,7 +58,7 @@ button {
 
 .primary {
   background: var(--accent);
-  color: var(--workspace-accent-ink);
+  color: var(--accent-ink);
   border-color: transparent
 }
 
@@ -77,8 +72,7 @@ form {
   padding: 15px 20px;
   margin-bottom: 16px;
   border: 1px solid var(--line);
-  border-radius: 13px
-}
+  border-radius: var(--radius-lg)}
 
 .panel>select {
   max-width: 100%
@@ -86,7 +80,7 @@ form {
 
 p,
 .meta {
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
 #status {
@@ -100,7 +94,7 @@ article {
 }
 
 article h3 {
-  font-size: 17px;
+  font-size: var(--text-lg);
   margin: 0 0 4px
 }
 
@@ -116,7 +110,7 @@ details>summary {
 }
 
 .actions button {
-  font-size: var(--workspace-text-small);
+  font-size: var(--text-sm);
   padding: 4px 9px
 }
 
@@ -141,8 +135,7 @@ select:focus-visible {
 }
 
 .bar select {
-  font-size: var(--workspace-text-small)
-}
+  font-size: var(--text-sm)}
 
 @media(max-width:700px) {
   .line { flex-wrap: wrap; }

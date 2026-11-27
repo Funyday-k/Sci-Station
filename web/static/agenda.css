@@ -1,7 +1,7 @@
 #meeting-agenda {
   min-width: 0;
   margin-bottom: .8rem;
-  color: var(--text);
+  color: var(--ink-muted);
 }
 .ag-header, .ag-item, .ag-editor {
   display: flex;
@@ -12,12 +12,12 @@
   padding: .35rem .4rem;
 }
 .ag-label {
-  font-size: 1rem;
-  color: var(--ink);
+  font-size: var(--text-lg);
+  color: var(--ink-primary);
 }
 .ag-progress, .ag-state, .ag-source summary {
-  color: var(--text);
-  font-size: .88rem;
+  color: var(--ink-muted);
+  font-size: var(--text-md);
 }
 .ag-progress { margin-right: auto; }
 .ag-link, .ag-title {
@@ -31,7 +31,7 @@
   color: var(--accent);
   padding: .18rem .3rem;
   white-space: nowrap;
-  font-size: .92rem;
+  font-size: var(--text-md);
 }
 .ag-link:hover:not(:disabled), .ag-title:hover:not(:disabled) { text-decoration: underline; }
 .ag-list {
@@ -55,10 +55,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  color: var(--ink);
+  color: var(--ink-primary);
 }
 .ag-title:disabled { opacity: 1; }
-.ag-done .ag-title { color: var(--text); }
+.ag-done .ag-title { color: var(--ink-muted); }
 .ag-state { flex-shrink: 0; }
 .ag-source { margin: 0 .4rem .3rem 2.05rem; }
 .ag-source summary { cursor: pointer; }
@@ -67,17 +67,17 @@
   margin: .45rem 0;
   padding: .45rem .55rem;
   border-left: 2px solid var(--accent);
-  background: var(--surface);
+  background: var(--bg-surface);
 }
 .ag-candidate .ag-link { margin-right: .35rem; }
 .ag-editor { margin: .45rem .4rem; }
 .ag-editor input, .ag-editor select {
   min-width: 0;
   padding: .3rem .45rem;
-  background: var(--surface);
-  color: var(--ink);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
   border: 1px solid var(--line);
-  border-radius: .35rem;
+  border-radius: var(--radius-sm);
 }
 .ag-editor input { flex: 1; }
 .ag-message:not(:empty) { padding: .2rem .4rem; color: var(--danger); }

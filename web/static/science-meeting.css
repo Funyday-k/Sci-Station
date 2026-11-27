@@ -1,38 +1,38 @@
 .science-meeting-open {
-  font: inherit; font-size: 12px; font-weight: 550; background: transparent; color: var(--accent);
-  border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 7px;
+  font: inherit; font-size: var(--text-sm); font-weight: 550; background: transparent; color: var(--accent);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: var(--radius-sm);
   padding: 5px 9px; white-space: nowrap; cursor: pointer;
 }
 .meeting-menu-commands .science-meeting-open {
-  width: 100%; border: 0; border-radius: 6px; padding: 7px 9px;
-  color: var(--ink); font-weight: 400; text-align: left;
+  width: 100%; border: 0; border-radius: var(--radius-sm); padding: 7px 9px;
+  color: var(--ink-primary); font-weight: 400; text-align: left;
 }
-.meeting-menu-commands .science-meeting-open:hover { background: var(--editor); }
-.science-meeting-dialog { box-sizing: border-box; color: CanvasText; background: Canvas; width: min(580px, 92vw); max-height: 86dvh; padding: 24px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 16px; box-shadow: 0 16px 72px #15132833; overflow-y:auto; }
-.science-meeting-dialog::backdrop {background: #16142566;}
+.meeting-menu-commands .science-meeting-open:hover { background: var(--bg-subtle); }
+.science-meeting-dialog { box-sizing: border-box; color: CanvasText; background: Canvas; width: min(580px, 92vw); max-height: 86dvh; padding: 24px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow-y:auto; }
+.science-meeting-dialog::backdrop {background: var(--scrim);}
 .science-meeting-dialog header,.science-meeting-dialog footer {display:flex;align-items:center;justify-content:space-between;gap:16px;}
-.science-meeting-dialog h2 {font-size:19px;line-height:1.3;margin:0;}
-.science-meeting-dialog h3 {font-size:14px;margin:16px 0 8px;}
-.science-meeting-dialog .science-context {opacity:.68;font-size:12px;margin:6px 0 12px;}
+.science-meeting-dialog h2 {font-size: var(--text-xl);line-height:1.3;margin:0;}
+.science-meeting-dialog h3 {font-size: var(--text-md);margin:16px 0 8px;}
+.science-meeting-dialog .science-context {opacity:.68;font-size: var(--text-sm);margin:6px 0 12px;}
 .science-meeting-dialog details {padding:8px 0;border-bottom:1px solid color-mix(in srgb, CanvasText 14%, transparent);}
-.science-meeting-dialog summary {cursor:pointer;font-size:13px;}
-.science-meeting-dialog blockquote {margin:10px 0;padding:3px 12px;border-left:3px solid #8978b1;white-space:pre-wrap;}
-.science-meeting-dialog a {color:var(--accent,#8b6cbd);}
+.science-meeting-dialog summary {cursor:pointer;font-size: var(--text-sm);}
+.science-meeting-dialog blockquote {margin:10px 0;padding:3px 12px;border-left: 3px solid var(--accent);white-space:pre-wrap;}
+.science-meeting-dialog a {color:var(--accent);}
 .science-meeting-dialog form {display:grid;gap:12px;margin-top:18px;}
 .science-meeting-dialog form[hidden],.science-meeting-open[hidden]{display:none!important;}
-.science-meeting-dialog label {display:grid;gap:4px;font-size:12px;}
-.science-meeting-dialog input,.science-meeting-dialog select,.science-meeting-dialog textarea {font:inherit;line-height:1.45;color:inherit;background:Canvas;border:1px solid color-mix(in srgb,CanvasText 24%,transparent);border-radius:6px;padding:7px;width:100%;box-sizing:border-box;}
+.science-meeting-dialog label {display:grid;gap:4px;font-size: var(--text-sm);}
+.science-meeting-dialog input,.science-meeting-dialog select,.science-meeting-dialog textarea {font:inherit;line-height:1.45;color:inherit;background:Canvas;border:1px solid color-mix(in srgb,CanvasText 24%,transparent);border-radius: var(--radius-sm);padding:7px;width:100%;box-sizing:border-box;}
 .science-meeting-dialog textarea {resize:vertical;min-height:110px;}
 .science-meeting-dialog .science-text {border:0;background:transparent;color:inherit;cursor:pointer;}
 .science-meeting-dialog footer {justify-content:flex-end;}
-.science-meeting-dialog .science-status {margin:8px 0 0;white-space:pre-wrap;font-size:12px;}
+.science-meeting-dialog .science-status {margin:8px 0 0;white-space:pre-wrap;font-size: var(--text-sm);}
 
 .science-report-sources {margin:20px 0 12px;padding-top:10px;border-top:1px solid color-mix(in srgb,currentColor 16%,transparent);}
-.science-report-sources h3 {font-size:14px;margin:8px 0;}
+.science-report-sources h3 {font-size: var(--text-md);margin:8px 0;}
 .science-report-sources details {margin:6px 0;}
 .science-report-sources summary {cursor:pointer;}
-.science-report-sources blockquote {white-space:pre-wrap;margin:8px 0;padding-left:12px;border-left:2px solid var(--accent,#8575af);}
+.science-report-sources blockquote {white-space:pre-wrap;margin:8px 0;padding-left:12px;border-left:2px solid var(--accent);}
 
 .science-meeting-dialog pre {white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5;}
-.science-meeting-dialog code {display:block;overflow-wrap:anywhere;font-size:.8em;}
+.science-meeting-dialog code {display:block;overflow-wrap:anywhere;font-size: var(--text-xs);}
 .science-meeting-dialog details > button {margin:.6em .5em 0 0;}

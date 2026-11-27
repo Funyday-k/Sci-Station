@@ -3,7 +3,7 @@
   min-height: 34px;
   padding-inline: 9px;
   margin-top: 9px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .plugin-market-nav.selected {
@@ -27,7 +27,7 @@
 
 .plugin-market-intro {
   margin: 0 0 14px;
-  color: var(--text);
+  color: var(--ink-muted);
 }
 
 .plugin-market-tabs, .plugin-market-filters, .plugin-card-actions, .plugin-source-actions {
@@ -50,9 +50,9 @@
   min-height: 34px;
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--ink);
-  background: var(--surface);
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+  background: var(--bg-surface);
 }
 
 .plugin-market-filters input {
@@ -88,9 +88,9 @@
 
 .plugin-card, .plugin-source-panel {
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
 }
 
 .plugin-card {
@@ -104,7 +104,7 @@
 
 .plugin-card h2, .plugin-source-panel h2 {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 650;
 }
 
@@ -114,8 +114,8 @@
 
 .plugin-card .plugin-card-meta, .plugin-source-url, .plugin-source-status {
   margin: 0;
-  color: var(--text);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 .plugin-card-actions {
@@ -125,7 +125,7 @@
 
 .plugin-card-capabilities {
   margin-top: 8px;
-  color: var(--text);
+  color: var(--ink-muted);
 }
 
 .plugin-card-capabilities summary {
@@ -139,7 +139,7 @@
 }
 
 .plugin-card-state {
-  color: var(--text);
+  color: var(--ink-muted);
 }
 
 .plugin-source-panel {
@@ -189,14 +189,14 @@
   max-height: calc(100% - 2rem);
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--ink);
-  background: var(--surface);
-  box-shadow: 0 16px 65px #0004;
+  border-radius: var(--radius-md);
+  color: var(--ink-primary);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
 }
 
 .plugin-dialog::backdrop {
-  background: #15152155;
+  background: var(--scrim);
 }
 
 .plugin-tools-dialog {
@@ -225,7 +225,7 @@
 .plugin-dialog-header h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 
 .plugin-dialog-footer {
@@ -254,7 +254,7 @@
 
 .plugin-dialog-body h3 {
   margin-top: 9px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .plugin-confirm-check {
@@ -278,7 +278,7 @@
   margin: 0;
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .plugin-tools-range label {
@@ -295,8 +295,8 @@
   margin: 0;
   padding: 11px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--editor);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -330,5 +330,5 @@
 
 .round-plugin-guidance p {
   margin: 2px 0 0;
-  color: var(--text);
+  color: var(--ink-muted);
 }

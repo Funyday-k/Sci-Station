@@ -425,7 +425,7 @@ test("reader consolidates headers to two rows with semantic warning tokens and s
   assert.match(toolbar, /id="handoff" class="primary"/);
   assert.equal((toolbar.match(/class="primary"/g) || []).length, 1);
   assert.match(toolbar, /id="readerMoreMenu"[\s\S]*id="citation"[\s\S]*id="exportMarkdown"[\s\S]*id="bib"[\s\S]*id="original"/);
-  assert.match(css, /#sourceNotice,\s*#graphCitation[\s\S]*var\(--workspace-warning-bg\)[\s\S]*var\(--workspace-warning-ink\)/);
+  assert.match(css, /#sourceNotice,\s*#graphCitation[\s\S]*var\(--warning-soft\)[\s\S]*var\(--warning\)/);
   assert.equal(css.includes("#f5df9a"), false);
   assert.equal(css.includes("#3d3118"), false);
 });

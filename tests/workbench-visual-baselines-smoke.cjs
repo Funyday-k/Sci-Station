@@ -539,6 +539,69 @@ async function runVisualBaselines(binary, outputArg) {
       await session.goto(host.origin + route);
       await waitForScreenReady(session, step, fixtures);
 
+      if (step.screen === "home" && step.viewport === "1380x900") {
+        const audit = await session.evaluate(() => {
+          const canvas = document.createElement("canvas");
+          canvas.width = canvas.height = 1;
+          const ctx = canvas.getContext("2d");
+          const rgb = color => {
+            ctx.clearRect(0, 0, 1, 1);
+            ctx.fillStyle = color;
+            ctx.fillRect(0, 0, 1, 1);
+            return Array.from(ctx.getImageData(0, 0, 1, 1).data);
+          };
+          const lum = ([r, g, b]) => {
+            const lin = [r, g, b].map(v => {
+              const s = v / 255;
+              return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+          };
+          const ratio = (fg, bg) => {
+            const l1 = lum(rgb(fg)), l2 = lum(rgb(bg));
+            return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+          };
+          const styles = getComputedStyle(document.documentElement);
+          const token = name => styles.getPropertyValue(name).trim();
+          const canvasBg = token("--bg-canvas");
+          const surfaceBg = token("--bg-surface");
+          const subtleBg = token("--bg-subtle");
+          const ink = token("--ink-primary");
+          const muted = token("--ink-muted");
+          const accent = token("--accent");
+          const accentInk = token("--accent-ink");
+          const focusRing = token("--focus-ring");
+          const danger = token("--danger");
+          const warning = token("--warning");
+          const success = token("--success");
+          const actionLink = document.querySelector("#dashboard-view .action-link");
+          const checks = [
+            ["ink on canvas", ratio(ink, canvasBg), 4.5],
+            ["ink on surface", ratio(ink, surfaceBg), 4.5],
+            ["ink on subtle", ratio(ink, subtleBg), 4.5],
+            ["muted on surface", ratio(muted, surfaceBg), 4.5],
+            ["muted on canvas", ratio(muted, canvasBg), 4.5],
+            ["accent on surface", ratio(accent, surfaceBg), 4.5],
+            ["accent-ink on accent", ratio(accentInk, accent), 4.5],
+            ["focus-ring on surface", ratio(focusRing, surfaceBg), 3.0],
+            ["focus-ring on canvas", ratio(focusRing, canvasBg), 3.0],
+            ["danger on surface", ratio(danger, surfaceBg), 4.5],
+            ["warning on surface", ratio(warning, surfaceBg), 4.5],
+            ["success on surface", ratio(success, surfaceBg), 4.5],
+          ];
+          if (actionLink) {
+            checks.push(["rendered .action-link", ratio(getComputedStyle(actionLink).color, surfaceBg), 4.5]);
+          }
+          return checks.map(([label, value, min]) => ({label, value: Number(value.toFixed(2)), min, ok: value >= min}));
+        });
+        const failed = audit.filter(item => !item.ok);
+        assert.deepEqual(
+          failed,
+          [],
+          `WCAG AA contrast failed for ${step.locale}/${step.theme}/${step.colorTheme}: ${JSON.stringify(failed)}`
+        );
+      }
+
       const dest = path.join(outputDir, step.file);
       await session.screenshot(dest);
       manifestEntries.push({

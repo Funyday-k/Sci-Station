@@ -9,27 +9,27 @@
   grid-template-columns:30px minmax(0,1fr) 16px;
 }
 #lab-tools-directory > button > .ui-icon:first-child {
-  width:30px; height:30px; padding:6px; border-radius:7px;
-  color:var(--workspace-accent); background:var(--workspace-inset);
+  width:30px; height:30px; padding:6px; border-radius: var(--radius-sm);
+  color:var(--accent); background:var(--bg-subtle);
 }
 #lab-tools-directory > button > .lab-tool-nav-arrow {
   width:16px; height:16px; align-self:start; margin-block-start:2px;
-  color:var(--workspace-muted);
+  color:var(--ink-muted);
 }
 #lab-tools-directory > button[data-lab-tool-route]:is(:hover, :focus-visible) > .lab-tool-nav-arrow {
-  color:var(--workspace-accent);
+  color:var(--accent);
 }
 #lab-tools-directory strong, #lab-tools-directory small {display:block; overflow-wrap:anywhere;}
-#lab-tools-directory small {margin-block-start:3px; color:var(--workspace-muted); font-size:var(--workspace-text-small);}
+#lab-tools-directory small {margin-block-start:3px; color:var(--ink-muted); font-size: var(--text-sm);}
 #lab-tools-dialog [data-lab-tool-page] > :first-child {margin-block-start:0;}
 .lab-tool-open {display:inline-flex; align-items:center; gap:6px; padding-block:5px;}
 #lab-tools-dialog .lab-tool-templates {display:grid; gap:8px; margin:0 0 12px; padding:0; list-style:none;}
-.lab-tool-templates > li {display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius:7px;}
+.lab-tool-templates > li {display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius: var(--radius-sm);}
 .lab-tool-templates .lab-template-description {min-width:0; overflow-wrap:anywhere;}
 .lab-template-description :is(h3,p) {margin:0;}
 .lab-template-description p {margin-top:2px;}
 #lab-tools-dialog #presets .lab-template-choice {border-color:transparent; background:transparent; text-align:start;}
-#lab-tools-dialog #presets .lab-template-choice.active {color:var(--workspace-accent); border-color:var(--workspace-accent);}
+#lab-tools-dialog #presets .lab-template-choice.active {color:var(--accent); border-color:var(--accent);}
 #lab-tools-dialog :is(#lab-skills,#mcp) {border:0; margin:0; padding:0;}
 #lab-tool-page-graph #graph-controls {margin-top:12px;}
 @media (max-width:470px) {#lab-tools-directory {grid-template-columns:1fr;}}
