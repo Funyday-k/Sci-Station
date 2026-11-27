@@ -396,6 +396,10 @@
     by('notesTab').setAttribute('aria-selected', String(notes));
     by('annotPanel').hidden = notes;
     by('notesPanel').hidden = !notes;
+    window.SciContextRail?.show('inspector');
+  }
+  function focusInspector() {
+    by(by('notesPanel').hidden ? 'annTab' : 'notesTab').focus();
   }
   function renderAnn() {
     const host = by('annotations');
@@ -878,6 +882,12 @@
   by('findButton').onclick = () => showFind(by('findBar').hidden);
   by('closeFind').onclick = () => showFind(false);
   by('searchForm').onsubmit = findText;
+  by('reader-inspect').onclick = event => {
+    window.SciContextRail?.toggle('inspector', event?.currentTarget || by('reader-inspect'));
+    if (!by('reader-inspector').hidden) focusInspector();
+  };
+  by('reader-close').onclick = () => window.SciContextRail?.close();
+  by('reader-pin').onclick = () => window.SciContextRail?.pin();
   by('annTab').onclick = () => showTab(false);
   by('notesTab').onclick = () => showTab(true);
   by('notes').oninput = () => {
@@ -1002,6 +1012,7 @@
     applyZoom();
   });
   const viewport = by('viewport');
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(applyZoom).observe(viewport);
   viewport.addEventListener('scroll', () => rememberPosition());
   for (const event of ['wheel', 'pointerdown', 'keydown'])
     viewport.addEventListener(event, () => trackedPosition = true);
@@ -1025,9 +1036,10 @@
       void saveNote();
     else if (command === 'save' && !by('annotPanel').hidden && selection)
       void saveAnnotation();
-    else if (command === 'inspector')
-      by(by('notesPanel').hidden ? 'annTab' : 'notesTab').focus();
-    else if (command === 'bibtex' && !by('bib').hidden)
+    else if (command === 'inspector') {
+      window.SciContextRail?.show('inspector');
+      focusInspector();
+    } else if (command === 'bibtex' && !by('bib').hidden)
       by('bib').click();
     else if ((command === 'externalPDF' || command === 'reveal') && paper?.has_pdf) {
       const action = command === 'reveal' ? 'reveal' : 'open';

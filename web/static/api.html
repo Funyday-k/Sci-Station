@@ -1,8 +1,9 @@
 {{define "head"}}
 <link rel="stylesheet" href="/static/api.css">
 {{end}}
+{{define "breadcrumb"}}<span data-en="Local API">本机 API</span>{{end}}
 {{define "content"}}
-<main>
+<main class="workspace-page api-guide">
     <div class="intro">
       <h1>Sci-Station 本机接口</h1><p>科研工作区通过 <code>/api/research/projects</code> 访问项目、笔记、任务、材料和图谱。共享文献与 PDF 使用 <code>/api/research/papers</code>。科研工具和 AI 模板分别位于 <code>/api/research/tools/</code>、<code>/api/research/lab/</code>。</p>
       <p class="lead">macOS 桌面应用通过本机接口建立项目圆桌、读取 Magpie 模型和管理议程。以下契约供开发与本机验证使用。</p>
@@ -133,6 +134,7 @@ X-Roundtable: 1
       <p><code>POST …/{id}/agenda</code> 需提交 <code>expected_version</code>，取自会话的 <code>agenda_version</code>。操作 <code>add</code> 带 <code>title</code> 与可选 <code>kind</code>；<code>select</code>、<code>complete</code>、<code>reopen</code> 带 <code>item_id</code>。对议程项的 <code>candidates</code>，可用 <code>adopt_candidate</code> 或 <code>dismiss_candidate</code>，并同时传 <code>item_id</code> 与候选 <code>candidate_id</code>。采用会将候选标题和类型作为新修订，忽略只移除该候选；候选已变化或议程版本过期返回 409。<code>select</code> 可附 <code>kind</code>，将未完成事项改为讨论或实施。普通操作成功返回完整会话。首席草拟状态见 <code>agenda_draft_status</code>。失败时可提交 <code>action:"draft"</code> 重试。该操作返回 202 与会话快照，已经在草拟或完成时直接返回状态。普通更新遇到正在草拟、正在运行或版本不符时返回 409。</p>
       <p>每轮中，各席的最终公开发言可附 <code>points</code> 与 <code>positions</code>：points 逐字记录该发言明确提出的新观点；positions 以可见的 <code>point_id</code> 记录本人立场 <code>support</code>、<code>oppose</code>、<code>qualified</code> 或 <code>undecided</code>，并附同一发言中的逐字理由。沉默不算赞成，模型不能替其他席表态。完整会话保存这些字段，报告据此呈现立场变化和少数意见。</p>
       <p>只读讨论隔离同轮席位输出，仍共享原议题和此前发言。收束默认仅首席执行，可明确点名另一席。各席在公开发言中可附 <code>agenda_updates</code>，用 <code>op:"add"</code> 增加事项，或用 <code>op:"revise"</code> 和 <code>item_id</code> 修订开放事项，并提交 <code>title</code> 和 <code>reason</code>。每席最多保存三项有效提议。轮次成功结束后保存有效提案及其来源轮次、席位，修订保留前值。主持人可选中下一项并主动启动新一轮。旧模板阶段保留自动完成规则，其他事项由主持人标记。</p>
+      <p>在单人对话与圆桌之间带入附件时，可以向 <code>POST /api/studio/materials/transfer-check</code> 提交源会话、项目和材料 ID。返回的 <code>revision</code> 用于在确认前核对同一份材料，提交草稿与运行模型分别由用户操作。</p>
       <p>附件使用 <code>POST /api/studio/materials</code> 上传，Content-Type 为 <code>multipart/form-data</code>，表单只能包含一个 <code>file</code>，单件最大 12 MiB。请求须带 <code>X-Roundtable: 1</code>；若浏览器发送 <code>Origin</code>，必须与当前 localhost 或 127.0.0.1 服务地址精确同源。成功返回材料的 <code>id</code>、文件名、MIME、大小、文本摘录及可选 <code>read_status</code>。附件保存后不会自动加入任何会议。</p>
       <p>创建圆桌时可在 <code>POST /api/studio/sessions</code> 的 JSON 中传可选 <code>material_ids</code>，将最多 12 个已上传附件关联到会话；旧请求省略该字段仍兼容。启动轮次时也可传 <code>material_ids</code>，选择本轮材料并优先提供给席位；每次最多 12 个，成功后材料会关联到会话。完整会话返回 <code>materials</code> 和 <code>board</code>。材料可通过 <code>GET /api/studio/materials/{id}</code> 下载；附 <code>?preview=1</code> 时，仅 GIF、JPEG、PNG、WebP 会以内嵌图片预览，其它类型仍下载原文件。GET 与 HEAD 为读取接口。</p>
       <p>读取会话后，查看 <code>board.state</code>。<code>empty</code> 表示目前只有对话；<code>published</code> 表示可以按 <code>board.modules</code> 的顺序绘制主页。运行期间可用 <code>GET /api/studio/sessions/{id}/board-presence?after={seq}</code> 查看编辑席位、目标字段和临时光标位置。偏移量使用 Unicode 码点。保存的正文和版本以会话快照为准。</p>

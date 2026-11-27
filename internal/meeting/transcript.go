@@ -23,7 +23,7 @@ func renderTranscript(s *Session) string {
 	}
 	project := filepath.Base(filepath.Clean(s.Project))
 	if s.isGlobal() {
-		project = "全局圆桌"
+		project = "未关联项目"
 	}
 	fmt.Fprintf(&b, "Project: %s\n\nStatus: %s（%s）\n", project, s.Status, sessionStatusLabel(s.Status))
 

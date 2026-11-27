@@ -18,7 +18,7 @@ const routes = {
   home: '[data-workspace-nav] [data-section="home"]',
   library: '[data-workspace-nav] [data-section="library"]',
   lab: '[data-workspace-nav] [data-section="lab"]',
-  settings: '[data-workspace-nav] [data-section="settings"]'
+  settings: '[data-workspace-settings] [data-section="settings"]'
 };
 
 async function seed(app) {
@@ -72,6 +72,13 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     const r = el?.getBoundingClientRect();
     return Boolean(r?.width && r.height && r.left >= 0 && r.right <= innerWidth && r.bottom > 0 && r.top < innerHeight);
   }, selector);
+  const navigate = async section => {
+    const selector = routes[section];
+    if (!await visible("#workspace-sidebar")) await ui.click("#workspace-nav-toggle");
+    await ui.evaluate(selector => document.querySelector(selector).scrollIntoView({block:"nearest"}), selector);
+    await wait(() => visible(selector), "visible " + section + " navigation");
+    await ui.click(selector);
+  };
   const resize = async (width, height) => {
     const display = await browser.native({viewport:{width,height}});
     const viewport = () => ui.evaluate(() => ({width:innerWidth,height:innerHeight,state:document.visibilityState}));
@@ -90,7 +97,7 @@ async function run(app, browser, output, {baseline, wideHeight}) {
 
   try {
     await resize(1440, wideHeight);
-    await ui.click(routes.home);
+    await navigate("home");
     await loaded();
     await ui.visible("#dashboard-view");
     await snapshot("01-home-wide");
@@ -106,7 +113,7 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     check("Home opens the task calendar directly", taskView.calendar && taskView.hasTask, taskView);
     await snapshot("02-task-calendar-wide");
 
-    await ui.click(routes.library);
+    await navigate("library");
     await ui.visible(".library-paper-title", title);
     const importAction = '[data-action="new-paper"].primary';
     const rail = "#context-rail";
@@ -120,12 +127,26 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     check("Visible Import opens its own dialog", await ui.evaluate(() => /导入|import/i.test(document.querySelector("#dialog-title").textContent)));
     await snapshot("04-library-import-wide");
     await ui.click("#modal-close");
+    const libraryWidth = await ui.evaluate(() => document.querySelector(".workspace-region").getBoundingClientRect().width);
     await ui.click('[data-library-selection="' + paper.id + '"]');
-    if (baseline && !await visible(rail)) await ui.click("#shell-inspect");
-    await wait(() => visible(rail), "selected paper shows the inspector");
+    const selectionLayout = await ui.evaluate(() => ({mode:document.body.dataset.railMode,
+      width:document.querySelector(".workspace-region").getBoundingClientRect().width,
+      selected:document.querySelector("[data-library-selection]:checked")?.dataset.librarySelection}));
+    check("Selecting a paper preserves the Library layout", selectionLayout.mode === "hidden" &&
+      selectionLayout.width === libraryWidth && selectionLayout.selected === paper.id, selectionLayout);
+    const paperDetails = '[data-inspect-object="paper"][data-id="' + paper.id + '"]';
+    check("Paper details have a visible row action", await visible(paperDetails));
+    await ui.click(paperDetails);
+    await wait(() => visible(rail), "explicit paper details open the inspector");
     await ui.visible("#rail-context", title);
-    check("Selected paper has visible object details", await visible(rail));
+    check("Explicit paper details show the selected object", await visible(rail));
     await snapshot("05-library-paper-detail-wide");
+    await ui.click("#rail-close");
+    const closedDetails = await ui.evaluate(selector => ({mode:document.body.dataset.railMode,
+      focused:document.activeElement === document.querySelector(selector),
+      width:document.querySelector(".workspace-region").getBoundingClientRect().width}), paperDetails);
+    check("Closing paper details restores focus and content width", closedDetails.mode === "hidden" &&
+      closedDetails.focused && closedDetails.width === libraryWidth, closedDetails);
 
     await ui.set("#paper-query", "Solar caure");
     const edit = await ui.evaluate(() => {
@@ -155,17 +176,34 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     await loaded();
     await ui.visible("#project-modules");
     const tree = "#projectnav";
-    check("Wide project tree switches projects and modules live in the header", await visible(tree) &&
-      await ui.evaluate(() => Boolean(document.querySelector('#project-modules [data-tab-key="papers"]')) &&
-        !document.querySelector("#projectnav .shell-project-children a")));
+    const navigation = await ui.evaluate(project => ({
+      shared:document.querySelectorAll("[data-workspace-nav]").length === 1 &&
+        Boolean(document.querySelector("#workspace-sidebar [data-workspace-nav]")),
+      modules:document.querySelector("#project-modules")?.parentElement.querySelector("[data-project]")?.dataset.project,
+      current:document.querySelector('#project-modules [data-tab-key="overview"]')?.getAttribute("aria-current"),
+      nested:Boolean(document.querySelector("#workspace-context #project-modules")),
+      headerModules:Boolean(document.querySelector(".workspace-bar #project-modules, #workarea #project-modules")),
+      oldInspector:Boolean(document.querySelector("#shell-inspect")),project
+    }), project.id);
+    check("Project modules form secondary navigation in the shared sidebar", await visible(tree) &&
+      navigation.shared && navigation.nested && navigation.modules === project.id && navigation.current === "page" &&
+      !navigation.headerModules && !navigation.oldInspector, navigation);
     await snapshot("06-project-wide");
     await resize(900, 620);
     await snapshot("07-project-compact-closed");
-    await ui.click("#nav-toggle");
+    const compactWidth = await ui.evaluate(() => document.querySelector("#workarea").getBoundingClientRect().width);
+    await ui.click("#workspace-nav-toggle");
     const otherLink = '#projectnav [data-project="' + other.id + '"]';
+    await ui.evaluate(selector => document.querySelector(selector).scrollIntoView({block:"nearest"}), otherLink);
     const opens = await wait(() => visible(otherLink), "compact switcher exposes the other project", 2200)
       .catch(() => false);
-    check("Compact project navigator opens over the workbench", opens);
+    const compactNavigation = await ui.evaluate(() => ({
+      expanded:document.querySelector("#workspace-nav-toggle").getAttribute("aria-expanded"),
+      width:document.querySelector("#workarea").getBoundingClientRect().width,
+      overlay:document.body.classList.contains("workspace-nav-open")
+    }));
+    check("Compact project navigator opens over the workbench", opens && compactNavigation.overlay &&
+      compactNavigation.expanded === "true" && compactNavigation.width === compactWidth, compactNavigation);
     await snapshot("08-project-compact-open");
     if (opens) {
       await ui.click(otherLink);
@@ -173,18 +211,47 @@ async function run(app, browser, output, {baseline, wideHeight}) {
       await loaded();
       check("Choosing a compact project dismisses its navigator", !await visible(tree));
       await snapshot("09-project-compact-after-switch");
-      await ui.click("#nav-toggle");
+      await ui.click("#workspace-nav-toggle");
       await wait(() => visible(tree), "reopen compact navigator");
-      await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true})));
-      check("Escape dismisses the compact project navigator", !await visible(tree));
+      await ui.click(".workspace-roots summary");
+      await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true})));
+      check("Escape closes the workspace menu before its compact navigator", await visible("#workspace-sidebar") &&
+        await ui.evaluate(() => !document.querySelector(".workspace-roots").open &&
+          document.activeElement === document.querySelector(".workspace-roots summary")));
+      await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true})));
+      check("Escape dismisses the compact navigator and restores focus", !await visible(tree) &&
+        await ui.evaluate(() => document.activeElement?.id === "workspace-nav-toggle"));
     }
-    await open("/research?view=papers");
+    await navigate("library");
     await ui.visible(".library-paper-title", title);
+    check("Compact global navigation opens the unscoped Library and closes", !await visible("#workspace-sidebar") &&
+      await ui.evaluate(() => !new URL(location.href).searchParams.has("project")));
     check("Import remains visible in compact Library", await visible(importAction));
     await snapshot("10-library-compact");
 
+    const meeting = await app.request("/api/studio/sessions", "POST", {
+      topic:"Check the compact Roundtable side panel", project_id:project.id, seats:["codex"]
+    }, 201);
+    await open("/studio?session=" + meeting.id);
+    await ui.visible("#meeting-actions-toggle");
+    await ui.click("#shell-assist");
+    await ui.visible("#rail-prompt");
+    // The WK click helper bypasses hit testing. Check that the session toolbar
+    // behind the overlay cannot intercept a real click on its close control.
+    const closeTarget = await ui.evaluate(() => {
+      const close = document.getElementById("rail-close");
+      const {x,y,width,height} = close.getBoundingClientRect();
+      const target = document.elementFromPoint(x + width/2, y + height/2);
+      return {reachable:close.contains(target), hit:target?.closest("button")?.id || target?.localName};
+    });
+    check("Compact Roundtable overlay close control is reachable by pointer", closeTarget.reachable, closeTarget);
+    await snapshot("10b-roundtable-ai-overlay-compact");
+    await ui.click("#rail-close");
+    await wait(() => ui.evaluate(() => document.getElementById("context-rail").hidden), "Roundtable overlay closes");
+    check("Closing the Roundtable overlay restores focus", await ui.evaluate(() => document.activeElement?.id === "shell-assist"));
+
     async function appearance(mode, size, color) {
-      await ui.click(routes.settings);
+      await navigate("settings");
       await ui.click("#settings-tab-appearance");
       await wait(() => ui.evaluate(() => Boolean(document.getElementById("setting-max-children").value)), "settings loaded");
       await ui.evaluate(([mode, size]) => {
@@ -201,15 +268,15 @@ async function run(app, browser, output, {baseline, wideHeight}) {
         const stored = await app.request("/api/studio/settings");
         return stored.appearance === mode && stored.text_size === size && stored.color_theme === color;
       }, "appearance stored");
-      await ui.click(routes.lab);
+      await navigate("lab");
       await ui.visible("#question");
-      await wait(() => ui.evaluate(() => Boolean(document.querySelector("#presets button"))), "Lab presets loaded");
+      await wait(() => ui.evaluate(() => !document.getElementById("lab-start").disabled), "Lab composer ready");
     }
     const lab = () => ui.evaluate(() => {
       const root = document.documentElement;
       const computed = id => getComputedStyle(document.querySelector(id));
       return {theme:root.dataset.theme,size:root.dataset.textSize,colorTheme:root.dataset.colorTheme,
-        rootBackground:getComputedStyle(root).backgroundColor, cardBackground:computed(".card").backgroundColor,
+        rootBackground:getComputedStyle(root).backgroundColor, cardBackground:computed(".lab-composer").backgroundColor,
         questionSize:parseFloat(computed("#question").fontSize), buttonColor:computed("#lab-start").backgroundColor};
     });
     await resize(1440, wideHeight);

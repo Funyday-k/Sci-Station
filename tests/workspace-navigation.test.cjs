@@ -12,6 +12,17 @@ const origin = "http://127.0.0.1:18765";
 test("every desktop surface mounts the same workspace navigation", () => {
   const shell = read("workspace-shell.html");
   assert.equal(shell.match(/<nav data-workspace-nav /g).length, 1);
+  const sidebar = shell.slice(shell.indexOf('<aside id="workspace-sidebar"'), shell.indexOf('</aside>'));
+  assert.match(sidebar, /<nav data-workspace-nav /);
+  assert.match(sidebar, /<nav data-workspace-settings /);
+  assert.match(sidebar, /id="workspace-context"/);
+  assert.match(sidebar, /id="workspace-projects"/);
+  assert.match(sidebar, /id="projectnav"/);
+  assert.doesNotMatch(read("research.html"), /id="projectnav"|id="project-modules"/);
+  assert.match(shell, /id="workspace-nav-toggle"[^>]+aria-controls="workspace-sidebar"/);
+  assert.match(shell, /id="rail-close"/);
+  assert.doesNotMatch(shell, /id="shell-inspect"/);
+  assert.doesNotMatch(read("research.html"), /id="nav-toggle"/);
   assert.match(shell,/src="\/static\/workspace-nav.js"/);
   assert.match(shell,/{{template "content" ./);
   for (const page of ["research", "reader", "studio", "lab", "science-tools","api"]) {
@@ -20,14 +31,27 @@ test("every desktop surface mounts the same workspace navigation", () => {
     assert.doesNotMatch(markup,/<nav data-workspace-nav |<body|<iframe/i,page);
   }
   const links = navigation.destinations(new URL("/reader?paper=astro&project=project-B", origin));
-  assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","roundtable","settings"]);
+  assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","settings"]);
   assert.equal(links.find(l => l.active).key, "projects");
   for (const link of links) {
     const url = new URL(link.href, origin);
-    assert.equal(url.searchParams.get("project"), ["lab","roundtable","settings"].includes(link.key) ? "project-B" : null);
+    assert.equal(url.searchParams.get("project"), link.key === "settings" ? "project-B" : null);
   }
   assert.equal(navigation.destinations(new URL("/studio?view=settings&project=A", origin)).find(l => l.active).key, "settings");
   assert.equal(navigation.destinations(new URL("/reader?paper=astro", origin)).find(l => l.active).key, "library");
+});
+
+test("AI has one global entry and explicit chat and discussion modes with optional project scope", () => {
+  for (const [path, mode] of [["/lab?project=A", "single"], ["/studio?project=A&session=room", "roundtable"]]) {
+    const url = new URL(path, origin);
+    const links = navigation.destinations(url);
+    assert.equal(links.find(link => link.active).name, "AI");
+    assert.equal(links.find(link => link.key === "lab").href, "/lab?scope=global");
+    assert.equal(navigation.aiMode(url), mode);
+  }
+  assert.equal(navigation.modeURL("single", "A"), "/lab?project=A");
+  assert.equal(navigation.modeURL("roundtable", null), "/studio?scope=global");
+  assert.equal(navigation.aiMode(new URL("/studio?view=settings", origin)), "");
 });
 
 function mountResearch(start, sessions=[]) {
@@ -47,26 +71,46 @@ function mountResearch(start, sessions=[]) {
   }
   const calls = [], listeners = {}, elements = {};
   for (const match of read("research.html").matchAll(/\bid="([^"]+)"/g)) {
-    elements[match[1]] = {classList:{remove(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
+    elements[match[1]] = {classList:{remove(){},toggle(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
   }
   elements.modal.addEventListener = (event, handler) => { listeners["modal." + event] = handler; };
-  const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
+  const document = {getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
   const location = {href:new URL(start, origin).href,origin};
-  const history = {pushState:(_s,_t,url)=>{location.href=new URL(url,origin).href;},replaceState:(_s,_t,url)=>{location.href=new URL(url,origin).href;}};
-  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url,mode){history[mode+"State"](null,"",url);}}};
+  const window = Object.assign(new EventTarget(), {RoundtableIcons:{icon:()=>""}});
+  const entries = [{state:null,href:location.href}];
+  let index = 0;
+  const history = {
+    get state() { return entries[index].state; },
+    get length() { return entries.length; },
+    replaceState(state, _, url = location.href) {
+      entries[index] = {state,href:new URL(url,origin).href};
+      location.href = entries[index].href;
+    },
+    pushState(state, _, url) {
+      entries.splice(++index, entries.length);
+      this.replaceState(state, _, url);
+    },
+    go(delta) {
+      queueMicrotask(() => {
+        index += delta;
+        location.href = entries[index].href;
+        window.dispatchEvent(Object.assign(new Event("popstate"), {state:history.state}));
+      });
+    }
+  };
   const fetch = async (url, init) => {
     calls.push({url,init});
     if(init.method==="PATCH" && url==="/api/research/projects/B/tasks/taskB")return Response.json({});
     assert.ok(responses.has(url),url);
     return Response.json(responses.get(url));
   };
-  const context={window,document,location,history,fetch,URL,URLSearchParams,FormData,
+  const context={window,document,location,history,fetch,URL,URLSearchParams,FormData,Event,
     localStorage:{getItem:()=>"B"},setTimeout,clearTimeout};
   const sandbox = vm.createContext(context);
-  for (const script of ["research.js", "research-forms.js", "research-library.js"]) {
+  for (const script of ["workspace-nav.js", "research.js", "research-forms.js", "research-library.js"]) {
     vm.runInContext(read(script), sandbox);
   }
-  return {ui:window.SciResearch,elements,calls,listeners};
+  return {ui:window.SciResearch,elements,calls,listeners,window,history,location};
 }
 
 test("global library deep links stay global; project drilldown restricts the same papers", async () => {
@@ -75,12 +119,10 @@ test("global library deep links stay global; project drilldown restricts the sam
   assert.equal(ui.state.project,null);
   assert.match(elements.main.innerHTML,/Solar paper/);
   assert.match(elements.main.innerHTML,/Lensing paper/);
-  assert.equal(elements["project-modules"].hidden,true);
   assert.equal(calls.some(c=>c.url.includes("/projects/B")),false);
   await ui.load("A","papers");
   assert.match(elements.main.innerHTML,/Solar paper/);
   assert.doesNotMatch(elements.main.innerHTML,/Lensing paper/);
-  assert.equal(elements["project-modules"].hidden,false);
   await ui.load("missing","tasks");
   assert.equal(ui.state.project,null);
   assert.equal(ui.state.view,"projects");
@@ -166,8 +208,10 @@ test("declining to leave a draft leaves the active root and history entry intact
   };
   const links={dataset:{},replaceChildren(){}};
   const document={
-    createElement(){return {dataset:{},setAttribute(){}};},
-    querySelector(selector){if(selector==="[data-workspace-nav]")return links;return {addEventListener(){}};},
+    body:{dataset:{workspaceSurface:"lab"}},
+    getElementById(){return null;},
+    createElement(){return {dataset:{},setAttribute(){},append(){}};},
+    querySelector(selector){if(selector==="[data-workspace-nav]")return links;return {addEventListener(){},replaceChildren(){},append(){},setAttribute(){}};},
     addEventListener(){}
   };
   vm.runInNewContext(read("workspace-nav.js"),{
@@ -199,4 +243,48 @@ test("an earlier modal close event preserves newly opened Wiki page content", as
   elements.modal.open = false;
   listeners["modal.close"]();
   assert.equal(cleared, 1);
+});
+
+test("Research confirms a dirty history traversal once and preserves Back and Forward", async () => {
+  const {ui, elements, window, history, location} = mountResearch("/research?project=A&view=notes");
+  const settled = () => new Promise(resolve => setImmediate(resolve));
+  await settled();
+  window.SciStationNav.commitURL("/research?project=A&view=papers", "push");
+  window.SciStationNav.commitURL("/research?project=B&view=notes", "push");
+  history.go(-1);
+  await settled();
+  assert.equal(ui.state.view, "papers");
+  let browserChecks = 0, editorPrompts = 0, accept = false;
+  window.addEventListener("beforeunload", event => {
+    browserChecks++;
+    event.preventDefault();
+  });
+  window.confirm = () => { throw Error("duplicate workspace confirmation"); };
+  elements.modal.showModal = () => { elements.modal.open = true; };
+  elements.modal.close = () => { elements.modal.open = false; };
+  ui.dialog("Draft", "Synthetic dirty editor", {canDismiss: () => { editorPrompts++; return accept; }});
+
+  history.go(-1);
+  await settled();
+  assert.equal(history.length, 3);
+  assert.equal(history.state.workspacePosition, 1);
+  assert.equal(new URL(location.href).searchParams.get("view"), "papers");
+  assert.equal(elements.modal.open, true);
+  assert.equal(editorPrompts, 1);
+  assert.equal(browserChecks, 0);
+
+  accept = true;
+  history.go(-1);
+  await settled();
+  assert.equal(history.state.workspacePosition, 0);
+  assert.equal(ui.state.view, "notes");
+  assert.equal(elements.modal.open, false);
+  assert.equal(editorPrompts, 2);
+  history.go(1);
+  await settled();
+  history.go(1);
+  await settled();
+  assert.equal(ui.state.project.id, "B");
+  assert.equal(history.state.workspacePosition, 2);
+  assert.equal(browserChecks, 0);
 });

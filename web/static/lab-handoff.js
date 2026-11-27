@@ -1,6 +1,9 @@
 (() => {
   "use strict";
   const key = "sci-station.lab-handoff";
+  const transferKeys={single:"sci-station.roundtable-to-lab.v1",roundtable:"sci-station.lab-to-roundtable.v1"};
+  const modeContextLimit=2400, roundtablePresetContextLimit=7000;
+  const recordID = value => typeof value === "string" && /^[a-f0-9]{32}$/.test(value);
   const count = text => Array.from(text).length;
   const validID = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
   function compose(data) {
@@ -13,6 +16,11 @@
     const formal=["paper-reading","related-work","gap-planning"].includes(data.workflow);
     const chunks = ["科研工作流 · " + data.title.trim()+(formal?"\n工作流 ID："+data.workflow:""), data.prompt.trim()];
     if (data.question) chunks.push("研究问题\n"+String(data.question).trim());
+    return boundedDraft(chunks.concat(contextBlocks(data,global)));
+  }
+
+  function contextBlocks(data,global) {
+    const chunks=[];
     if (data.skill) {
       const {name,digest,body,projectId} = data.skill;
       if (global || projectId!==data.projectId || typeof name!=="string" ||
@@ -38,9 +46,65 @@
       }
       chunks.push((kind === "project-graph" ? "项目图谱资料（供核对）" : "外部资源摘录（供核对）") + "\n来源服务："+server+"\n资源："+uri+"\n原文 SHA-256："+sha256+decision+"\n\n"+excerpt.trim());
     }
+    return chunks;
+  }
+
+  function boundedDraft(chunks) {
     const text = chunks.join("\n\n");
-    if(count(text)>12000) throw Error("会议草稿超过 12,000 字，请缩短工作指引、研究问题或摘录，或取消本次技能。");
+    if(count(text)>12000) throw Error("草稿超过 12,000 字，请缩短工作指引、问题或摘录。");
     return text;
+  }
+
+  function composeFollowup(data) {
+    return boundedDraft([data.question].concat(contextBlocks(data,data.scope === "global")));
+  }
+
+  function retainExcerpt(resource,projectId) {
+    if(!resource) return null;
+    const {kind,server,uri,sha256,excerpt,receipt}=resource;
+    if(!["project-graph","mcp-resource"].includes(kind) || resource.projectId!==projectId) throw Error("Invalid draft excerpt scope");
+    const copy={kind,server,uri,sha256,excerpt,projectId};
+    if(receipt) {
+      const {id,projectId,connection,time,operation,argumentsHash,configHash}=receipt;
+      copy.receipt={id,projectId,connection,time,operation,argumentsHash,configHash};
+    }
+    contextBlocks({resource:copy,projectId},projectId==="");
+    return copy;
+  }
+
+  function modeTransferPayload(data,target) {
+    const preset=data?.roundtablePreset;
+    const limit=preset ? roundtablePresetContextLimit : modeContextLimit;
+    if (!data || typeof data.workspace!=="string" || !data.workspace || data.workspace.length>128 ||
+        (data.projectId!=="" && !validID(data.projectId)) || (data.sourceSessionId!=="" && !recordID(data.sourceSessionId)) ||
+        typeof data.context!=="string" || !data.context.trim() || count(data.context)>limit ||
+        !Array.isArray(data.materials) || data.materials.length>12 ||
+        data.materials.some(m=>!recordID(m?.id) || typeof m?.name!=="string" || count(m.name)>240)) throw Error("Invalid AI mode transfer");
+    const materials=[...new Map(data.materials.map(({id,name})=>[id,{id,name}])).values()];
+    const transfer={workspace:data.workspace,projectId:data.projectId,sourceSessionId:data.sourceSessionId,context:data.context,materials};
+    if(preset!==undefined) {
+      if(target!=="roundtable" || data.sourceSessionId || materials.length || !["review","forum","prioritize"].includes(preset?.mode) ||
+          !Number.isInteger(preset.seats) || preset.seats<2 || preset.seats>4) throw Error("Invalid Roundtable template transfer");
+      transfer.roundtablePreset={mode:preset.mode,seats:preset.seats};
+    }
+    return transfer;
+  }
+  function writeModeTransfer(target,data) {
+    if (!Object.hasOwn(transferKeys,target)) throw Error("Unknown AI mode");
+    sessionStorage.setItem(transferKeys[target],JSON.stringify(modeTransferPayload(data,target)));
+  }
+  function readModeTransfer(target,{workspace,projectId}) {
+    if (!Object.hasOwn(transferKeys,target)) return null;
+    try {
+      const data=modeTransferPayload(JSON.parse(sessionStorage.getItem(transferKeys[target])),target);
+      return data.workspace===workspace && data.projectId===projectId ? data : null;
+    } catch { return null; }
+  }
+  function clearModeTransfer(target) {
+    if (Object.hasOwn(transferKeys,target)) sessionStorage.removeItem(transferKeys[target]);
+  }
+  function scopeOwnsModeSource(room,projectId) {
+    return Boolean(room && (projectId ? room.project_id===projectId : !room.project_id && !room.project));
   }
   async function receive(project,linked,session,box,configure,materials) {
     let data;
@@ -67,7 +131,8 @@
     sessionStorage.removeItem(key);
     box.focus();
   }
-  const exposed={key,compose,receive};
+  const exposed={key,compose,composeFollowup,retainExcerpt,receive,writeModeTransfer,readModeTransfer,clearModeTransfer,scopeOwnsModeSource,
+    modeContextLimit,roundtablePresetContextLimit};
   if(typeof module==="object" && module.exports){module.exports=exposed;return;}
   window.ScienceLabHandoff=exposed;
 })();

@@ -14,7 +14,7 @@
   --accent2: var(--workspace-accent);
   --danger: var(--workspace-danger);
   --shadow: var(--workspace-shadow);
-  --rad: 14px;
+  --rad: 10px;
   font: var(--workspace-text)/1.52 var(--workspace-font);
 }
 
@@ -83,6 +83,10 @@ p {
   margin: 0
 }
 
+:where(h1, h2, h3, h4, h5, h6, strong, b) {
+  font-weight: 600
+}
+
 [hidden] {
   display: none !important
 }
@@ -98,8 +102,8 @@ p {
   display: inline-grid;
   place-items: center;
   border-radius: 7px;
-  min-width: 30px;
-  height: 30px;
+  min-width: 32px;
+  height: 32px;
   color: var(--soft);
   font-size: 18px
 }
@@ -145,7 +149,7 @@ p {
 .brand span {
   font-size: 22px;
   letter-spacing: -1px;
-  font-weight: 710
+  font-weight: 600
 }
 
 .navitem,
@@ -159,7 +163,7 @@ p {
   text-align: left;
   color: var(--soft);
   border-radius: 8px;
-  font-weight: 530
+  font-weight: 400
 }
 
 .navitem:focus-visible,
@@ -234,7 +238,7 @@ p {
 
 #crumb strong {
   color: var(--ink);
-  font-weight: 550;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap
@@ -271,36 +275,14 @@ kbd {
 
 .collapsed #workarea { grid-column: 2; }
 
-main {
-  max-width: 1380px;
-  margin: 0 auto;
-  padding: clamp(26px, 3.6vw, 53px) clamp(20px, 3.5vw, 50px) 60px
-}
-
 .initial,
 .subtle {
   color: var(--muted)
 }
 
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 18px;
-  flex-wrap: wrap;
-  margin-bottom: 26px
-}
-
-.page-head h1 {
-  font-size: clamp(1.75rem, 2.85vw, 2.55rem);
-  line-height: 1.2;
-  letter-spacing: -.055em;
-  overflow-wrap: anywhere
-}
-
 .page-head p {
   color: var(--soft);
-  margin-top: 8px;
+  margin-top: 6px;
   white-space: pre-line;
   max-width: 72ch
 }
@@ -322,10 +304,10 @@ main {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 7px 12px;
-  min-height: 35px;
-  border-radius: 8px;
-  font-weight: 550;
+  padding: 6px 10px;
+  min-height: 32px;
+  border-radius: 6px;
+  font-weight: 500;
   color: var(--ink);
   line-height: 1.3;
   text-align: center
@@ -333,12 +315,12 @@ main {
 
 .button {
   background: var(--surface);
-  border: 1px solid var(--workspace-control-line)
+  border: 1px solid var(--workspace-button-line)
 }
 
-.button:hover {
-  border-color: var(--accent);
-  color: var(--accent)
+.button:hover:not(:disabled) {
+  background: var(--fill);
+  border-color: var(--workspace-control-line)
 }
 
 .button.primary {
@@ -347,7 +329,9 @@ main {
   border-color: var(--accent)
 }
 
-.button.primary:hover {
+.button.primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
   filter: brightness(.94)
 }
 
@@ -358,7 +342,7 @@ main {
 
 .bare {
   font-size: var(--workspace-text-small);
-  color: var(--accent);
+  color: var(--ink);
   padding: 5px 7px;
   min-height: 30px
 }
@@ -386,11 +370,11 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 25px 27px;
+  padding: 18px 20px;
   margin-bottom: 20px;
   border: 1px solid var(--line);
   border-radius: var(--rad);
-  background: var(--tint)
+  background: var(--surface)
 }
 
 .overview-intro h2 {
@@ -414,7 +398,7 @@ main {
 }
 
 .metric {
-  padding: 20px;
+  padding: 16px;
   text-align: left;
   position: relative;
   color: var(--soft);
@@ -430,14 +414,14 @@ main {
 
 .metric strong {
   color: var(--ink);
-  font-size: 1.9rem;
+  font-size: calc(24px + var(--workspace-text-increase));
   line-height: 1.15;
   grid-column: 1/-1;
-  letter-spacing: -.07em
+  letter-spacing: -.025em
 }
 
 .metric .ui-icon {
-  color: var(--accent)
+  color: var(--soft)
 }
 
 .metric:hover {
@@ -447,7 +431,7 @@ main {
 .columns {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: 16px;
   align-items: start
 }
 
@@ -466,14 +450,14 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 19px;
+  padding: 12px 16px;
   gap: 8px;
   border-bottom: 1px solid var(--line)
 }
 
 .panel-header h2 {
-  font-size: 1.08rem;
-  letter-spacing: -.025em
+  font-size: calc(15px + var(--workspace-text-increase));
+  letter-spacing: 0
 }
 
 .list {
@@ -510,7 +494,7 @@ main {
 .title {
   display: block;
   overflow-wrap: anywhere;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.4
 }
 
@@ -536,9 +520,9 @@ main {
   display: grid;
   place-items: center;
   flex: none;
-  background: var(--tint);
-  color: var(--accent);
-  border-radius: 8px
+  background: var(--fill);
+  color: var(--soft);
+  border-radius: 6px
 }
 
 .tag {
@@ -553,21 +537,21 @@ main {
 }
 
 .tag.status-tag {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
   font-size: var(--workspace-text);
-  font-weight: 550;
+  font-weight: 400;
 }
 
 .empty {
-  padding: 28px 21px;
+  padding: 20px 16px;
   color: var(--soft)
 }
 
 .empty h3 {
   color: var(--ink);
   font-size: 1rem;
-  font-weight: 590
+  font-weight: 500
 }
 
 .empty .actions {
@@ -592,6 +576,10 @@ main {
 }
 
 .library-filters { width: min(100%, 288px); }
+
+.library-toolbar { align-items: flex-end; justify-content: flex-start; }
+.library-toolbar .query { flex: 1 1 240px; max-width: 360px; }
+.library-toolbar > .button { margin-left: auto; }
 
 .library-filters .field {
   flex: 1 1 128px;
@@ -638,10 +626,10 @@ dialog:has([data-library-paper]) .dialog-head {
 .library-table th, .library-table td { padding: .65rem .75rem; border-bottom: 1px solid var(--line); }
 .library-paper-marks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .library-table tbody tr:last-child > * { border-bottom: 0; }
-.library-table thead th { white-space: nowrap; font-size: var(--workspace-text-small); }
+.library-table thead th { white-space: nowrap; font-size: var(--workspace-text-small); font-weight: 500; }
 .library-table th[aria-sort="ascending"] .bare::after { content: " ↑"; }
 .library-table th[aria-sort="descending"] .bare::after { content: " ↓"; }
-.library-paper-title { color: var(--ink); font-weight: 650; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
+.library-paper-title { color: var(--ink); font-weight: 500; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
 .library-paper-title:hover { color: var(--accent); }
 .library-table .paper-tags { max-width: 12rem; }
 .library-table-actions { display: flex; gap: .3rem; white-space: nowrap; }
@@ -696,7 +684,7 @@ dialog {
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 15px;
+  border-radius: 10px;
   box-shadow: 0 20px 90px #19192d38
 }
 
@@ -734,7 +722,7 @@ dialog::backdrop {
 }
 
 .field span:first-child {
-  font-weight: 570
+  font-weight: 500
 }
 
 .field textarea {
@@ -753,7 +741,7 @@ dialog::backdrop {
 
 .task-picker legend {
   margin-bottom: 5px;
-  font-weight: 570
+  font-weight: 500
 }
 
 .task-options {
@@ -1433,7 +1421,7 @@ details>summary {
   color: var(--accent);
   cursor: pointer;
   margin: 4px 0 9px;
-  font-weight: 550
+  font-weight: 500
 }
 
 #project-modules {
@@ -1644,7 +1632,7 @@ h1 > .project-badge {
 
 .paper-selection-actions > span {
   overflow-wrap: anywhere;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .wiki-page-properties {
@@ -1657,4 +1645,51 @@ h1 > .project-badge {
 
 .wiki-page-properties[open] > summary {
   margin-block-end: 12px;
+}
+
+.paper-import-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.paper-import-or::before,
+.paper-import-or::after {
+  content: "";
+  flex: 1;
+  border-block-start: 1px solid var(--line);
+}
+
+.paper-file-source [type="file"]::file-selector-button {
+  cursor: pointer;
+}
+
+[data-paper-dragging] .paper-file-source,
+#main[data-paper-dragging] .page-head [data-action="new-paper"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.paper-import-settings {
+  margin-block: 12px;
+}
+
+.paper-import-settings > summary {
+  cursor: pointer;
+}
+
+.paper-import-settings[open] > summary {
+  margin-block-end: 12px;
+}
+
+[data-paper-intake] [data-import-preview],
+[data-paper-intake] [data-import-results] {
+  overflow-wrap: anywhere;
+}
+
+[data-paper-intake] [data-paper-source-status]:empty,
+[data-paper-intake] [data-import-preview]:empty,
+[data-paper-intake] [data-import-results]:empty {
+  margin: 0;
 }

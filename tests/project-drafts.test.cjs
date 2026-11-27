@@ -10,6 +10,36 @@ const one = { path: "/work/one", name: "one" };
 const two = { path: "/work/two", name: "two" };
 const studio = read("studio.js");
 
+test("opening a Roundtable source replaces the anchor and keeps the history position", () => {
+  const location = new URL("http://127.0.0.1:18675/studio?project=fixture&session=meeting");
+  const original = {workspacePosition:7,otherState:"kept"};
+  const history = {
+    state: original,
+    replaceState(state, _, url) {
+      this.state = state;
+      if (url) location.href = url;
+    },
+    pushState() { throw Error("source anchor must stay in the current history entry"); }
+  };
+  const window = {addEventListener(){}};
+  const document = {getElementById:()=>null,querySelector:()=>null,addEventListener(){}};
+  vm.runInNewContext(read("workspace-nav.js"), {window,document,history,location,URL,URLSearchParams});
+  const { $ } = fakeDOM();
+  const target = {id:"round-2-codex",isConnected:true,classList:{add(){}},focus(){}};
+  let scrolled;
+  const start = studio.indexOf("    reveal(target, agenda) {");
+  const end = studio.indexOf("\n  });", start);
+  const reveal = vm.runInNewContext("({" + studio.slice(start, end) + "}).reveal", {
+    $, window, history, location, URL, state:{view:"table"},
+    setChatVisible(){}, requestAnimationFrame: callback=>callback(), scrollToMessage: el=>{scrolled=el;}
+  });
+  reveal(target, false);
+  assert.equal(location.hash, "#round-2-codex");
+  assert.equal(location.search, "?project=fixture&session=meeting");
+  assert.deepEqual(plain(history.state), original);
+  assert.equal(scrolled, target);
+});
+
 function fakeDOM() {
   const elements = new Map();
   function node() {
@@ -84,16 +114,18 @@ test("both clients only display a length warning above the Unicode code-point li
   }
 });
 
-test("one confirmed project defaults; stale and partial choices do not guess", () => {
+test("Roundtable defaults to no project and honors only explicit project selections", () => {
   const window = {};
   vm.runInNewContext(read("projects.js"), { window });
   const { resolveSelection } = window.RoundtableProjects;
-  assert.equal(resolveSelection([], "/old", true), null);
-  assert.equal(resolveSelection([one, two], "/old", true), null);
-  assert.equal(resolveSelection([one, two], "", true), null);
-  assert.equal(resolveSelection([one], "", false), null);
-  assert.equal(resolveSelection([one], "/old", true), one);
-  assert.equal(resolveSelection([one, two], two.path, false), two);
+  assert.equal(resolveSelection([], "/old"), null);
+  assert.equal(resolveSelection([one, two], "/old"), null);
+  assert.equal(resolveSelection([one], "/old"), null);
+  assert.equal(resolveSelection([one, two], two.path), two);
+  assert.equal(resolveSelection([one, two], "").global, true);
+  assert.equal(resolveSelection([one], "").global, true);
+  assert.equal(resolveSelection([one, two], "@global").global, true);
+  assert.equal(resolveSelection([], "").global, true);
 });
 
 test("project switching restores only that project's draft and drops legacy path and agenda values", async () => {
@@ -239,7 +271,7 @@ test("setup shows read-only discussion in every preset and no project directorie
     assert.equal($("create-project-access").textContent, "讨论仅读取项目文件");
   }
   setup.open({id: "@global", path: "", global: true});
-  assert.equal($("create-project-access").textContent, "全局圆桌无项目文件访问");
+  assert.equal($("create-project-access").textContent, "此会话无项目文件权限");
   const html = read("studio.html");
   assert.match(html, /配置持续推进/);
   assert.match(html, /创建后请先核对议程，再点击「开始持续推进」/);
@@ -260,8 +292,10 @@ test("create refuses a stale path and retains the current draft on a request fai
   $("table-scroll").focus = () => { focusedAfterCreation = "conversation"; };
   const start = studio.indexOf('  $("create-form").addEventListener("submit"');
   const end = studio.indexOf('  $("run-form").addEventListener("submit"', start);
+  const window = {};
+  vm.runInNewContext(read("projects.js"), {window});
   vm.runInNewContext(studio.slice(start, end), {
-    $, state, paintTextLimit: inputLimit(document),
+    $, state, window, paintTextLimit: inputLimit(document),
     projects: { available: () => [one, two] },
     topicMention: { resolve: () => ({target:"seat-2"}) },
     setup: {
@@ -411,7 +445,7 @@ test("continuous settings persist in drafts and survive all four meeting mode ch
       if (sent.length === 1) throw new Error("connection interrupted");
       return {...state.session, status:"running"};
     },
-    stopPoll() {}, updateControls() {}, clearError() {}, updateSession() {}, requestTitle() {},
+    stopPoll() {}, updateControls() {}, clearError() {}, updateSession() {}, requestTitle() {}, clearModeFollowup() {},
     schedulePoll() {}, handleSessionError:async () => { rejected++; },
   };
   $("run-note").value = "Continue with this constraint";

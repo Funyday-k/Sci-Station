@@ -38,8 +38,14 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Changed
 
-- Library, Wiki, Tasks and AI Lab prioritize import, creation or starting the current workflow. Project modules live in the project header. Compact windows can open the project switcher without reserving a column.
-- Empty inspectors release reading space. Select an item for details, open AI explicitly or pin the panel. AI Lab and the research views share the selected theme, text size and accent.
+- Open AI once, then choose a single research chat or a multi-seat Roundtable. Work without a project or select one explicitly. Review transferred questions, recent public messages and attachments in a draft before sending.
+- Edit a project from its sidebar context menu and independently collapse its modules. Home and project overview place cards using their content height and share a compact layout control.
+- Start a paper import with a publication link or local PDF. Additional catalog fields are available on demand. Research, AI, Tools and Reader now share the shell layout and panel space.
+
+- Use one shared sidebar for workspaces, projects and page navigation. Project modules sit beneath the active project, settings stay at the bottom, and compact windows open navigation on demand. The top bar keeps history, location and contextual tools.
+- Open object details, reader annotations or AI explicitly, and pin a panel when it should remain open across views. Selecting a paper no longer opens details, and closing a panel returns focus to its entry point. The global Inspector button has been removed.
+- Use neutral backgrounds and quieter buttons across the workbench, with color reserved for primary actions and meaningful status. Shared text sizes, lighter headings and familiar action icons reduce visual density; the PDF reader follows the selected appearance. Dashboard cards follow their content height.
+- Library, Wiki, Tasks and AI Lab prioritize import, creation or starting the current workflow.
 
 - Remember each workspace by its folder identity. If a different folder occupies its saved location, Sci-Station returns to the workspace chooser. Re-selecting a moved workspace retains its existing settings and credential scope.
 

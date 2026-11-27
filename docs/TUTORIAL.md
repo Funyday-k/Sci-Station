@@ -8,9 +8,17 @@ On an Apple Silicon Mac with macOS 15 or later, install Go 1.26 and Xcode Comman
 
 When moving from a previously published app or the Go prototype, keep your original data and make a verified copy where applicable. The [workspace and recovery guide](workspaces.md) describes how each source is handled.
 
+## Navigation and appearance
+
+The sidebar holds Home, Projects, Library, Calendar and AI. Use the arrow beside a project to expand or collapse its modules. Right-click a project and choose **Edit project info** to edit that project. Keyboard users can focus its row and press Shift+F10. In compact windows the sidebar button opens the navigator.
+
+Selecting papers prepares bulk actions without opening a panel. Use an item's **View details** icon when you need its properties, or **Annotations and notes** in the reader. The top-bar chat icon opens AI. Closing a panel returns focus to its entry point; pinning keeps it open across views and restarts. Icons have accessible names and hover labels.
+
+Use **Settings → Appearance** to choose light or dark mode, text size and an accent. Backgrounds, navigation and ordinary buttons use neutral colors, while primary actions and selected controls use the accent. **Edit layout** on Home or a project overview controls which cards appear.
+
 ## Import and cite a paper
 
-1. Open **Library → Import papers**. Choose a local PDF or enter a supported identifier such as a DOI or arXiv ID. Review the import and choose a collection if appropriate.
+1. Open **Library → Import papers** and paste a publication link, DOI or arXiv ID, or drop or choose a local PDF. You can add collection, tags and metadata under details. An ordinary article link keeps its source URL even if publication metadata is unavailable.
 2. Open a paper and add it to the project. You can add the same paper to another project with its own pin, position and core-paper status.
 3. Open the PDF reader and select a passage. Save an annotation or send the passage and its source location to Roundtable. Use **Citation** in the reader or library to copy BibTeX or another citation format.
 4. To use a searchable version of the paper body in AI Lab, import its Markdown or adopt a reviewed PDFKit or MinerU conversion. Check the extracted equations, figure references and source locations against the PDF before relying on them.
@@ -28,8 +36,8 @@ Removing a paper from the current project keeps its PDF and its links to other p
 
 In settings, choose a direct model profile or register the Sci-Station agent with your local Magpie gateway and select its model in Magpie. A direct HTTPS provider takes an API Base URL, model ID and API key. A local loopback endpoint can also use HTTP. macOS Keychain stores persistent direct-provider keys and the optional MinerU token.
 
-1. Select text in the PDF reader and send it to a project Roundtable. Add seats, assign models, and choose a discussion method. To examine a source with one seat, use AI Lab.
-2. Ask a question about the chosen text; open cited passages and check the discussion or report against the original source. See the [discussion methods](discussion-methods.md) for evidence roles and the moderator's options.
+1. Open **AI** and choose **Chat** for a single research conversation with its source material, or **Roundtable** for a discussion with multiple seats. Start without a project for a general question, or enter AI from a project to work within that project.
+2. Use the mode switch to bring a question, recent messages or selected attachments to the other mode. Review the proposed context, then add it to the destination draft. The original conversation stays available. Sending the draft starts the next run. See the [discussion methods](discussion-methods.md) for discussion and evidence options.
 3. Review a proposed note or task and confirm to save it. Reopen the project record after restarting and follow the citation to its original passage.
 4. For direct edits to a granted project's files, explicitly start a supported local CLI editing session. Read the request and available changes in Roundtable before approving or refusing. The originating CLI receives the one-time decision and reports the outcome.
 

@@ -252,6 +252,7 @@
     if (!mobile) storageSet("studio.sidebar", open ? "open" : "closed");
   }
   function closeMobileSidebar() {
+    window.SciShellLayout?.dismissProjectNav();
     if (matchMedia("(max-width: 800px)").matches) sidebar(false);
   }
   let restoringRoute = true;
@@ -261,7 +262,7 @@
     if (id) url.searchParams.set("session", id);
     else url.searchParams.delete("session");
     const project = id ? createdProject || state.sessions.find(item=>item.id===id)?.project_id || state.session?.project_id :
-      projects.available().find(item=>item.id===state.activeProject && !item.global)?.id;
+      projects.available().find(item=>item.id===state.activeProject)?.id;
     if (project) url.searchParams.set("project",project); else url.searchParams.delete("project");
     if (!preserveHash) url.hash = "";
     if (!restoringRoute) {
@@ -535,9 +536,9 @@
     const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
     const viewName = state.view === "settings" ? text("设置", "Settings")
       : state.view === "plugins" ? text("插件市场", "Plugin marketplace") : "";
-    const title = viewName || (state.selected
-      ? sessionTitle(currentSummary())
-      : projectName ? `${projectName} / 新建圆桌` : "新建圆桌");
+    const newTitle = text("新建圆桌", "New Roundtable");
+    const title = viewName || (state.selected ? sessionTitle(currentSummary()) :
+      projectName ? `${projectName} / ${newTitle}` : newTitle);
     $("view-title").textContent = title;
     $("view-title").title =
       state.view === "table" && state.titleErrors.has(state.selected) && !state.titles.has(state.selected)
@@ -1986,6 +1987,7 @@
       const session = await api(`/sessions/${encodeURIComponent(id)}`);
       if (state.selected === id) {
         updateSession(session);
+        restoreModeFollowup(session);
         state.enteredSessions.add(id);
         requestTitle(id);
         schedulePoll();
@@ -1998,64 +2000,46 @@
     }
   }
   function setActiveProject(key = "") {
-    if (state.activeProject === key) return;
     state.activeProject = key;
-    storageSet("studio.active-project", key);
   }
   function paintDraftProject() {
     if (!state.draftOpen) return;
     const options = projects.available();
-    const project = window.RoundtableProjects.resolveSelection(
-      options, state.activeProject ?? storageGet("studio.active-project"),
-      state.projectListStatus === "ready",
-    );
+    const project = window.RoundtableProjects.resolveSelection(options, state.activeProject);
     $("create-form").hidden = !project;
     $("draft-project-required").hidden = !!project;
+    createCommands.close();
     if (project) {
+      const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
+      const chooser = $("create-project");
+      chooser.replaceChildren(new Option(text("不关联项目", "No project"), "@global"),
+        ...options.map(option => new Option(option.name, option.id)));
+      chooser.value = project.id;
       setActiveProject(project.id);
-      createCommands.close();
       setup.open(project);
       paintTextLimit("new-topic");
       renderHistory();
-      renderHeading();
-      return;
+    } else {
+      setup.suspend();
+      $("draft-project-message").textContent = state.projectListStatus === "loading" ? "正在读取项目…" :
+        state.projectListStatus === "failed" ? "暂时无法读取项目" : "该项目当前不可用";
+      $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
     }
-    createCommands.close();
-    setup.suspend();
-    $("draft-project-message").textContent =
-      options.some(option => !option.global) ? "选择要创建圆桌的项目" :
-      state.projectListStatus === "loading" ? "正在读取项目…" :
-      state.projectListStatus === "failed" ? "暂时无法读取项目" : "添加项目，或创建全局圆桌";
-    $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
-    const buttons = options.map(option => {
-      const button = document.createElement("button");
-      button.className = "button secondary";
-      button.type = "button";
-      button.textContent = options.some(other => other !== option && other.name === option.name)
-        ? option.path || option.name : option.name;
-      button.title = option.path || option.name;
-      button.addEventListener("click", () => openDraft(option.id));
-      return button;
-    });
-    $("draft-project-options").replaceChildren(...buttons);
     renderHeading();
   }
-  function openDraft(project) {
-    if (state.writing) return;
+  function openDraft(project = new URL(location.href).searchParams.get("project") || "@global") {
+    if (state.writing || !canLeaveFile()) return;
     if (!restoringRoute) {
-      const key=project || state.activeProject;
-      const selected=projects.available().find(item=>item.id===key && !item.global);
-      const href=window.SciStationNav.route("/studio",{project:selected?.id});
+      const href=window.SciStationNav.route("/studio",{project:project==="@global"?undefined:project});
       if (new URL(href,location.href).href!==location.href) {
         location.assign(href);
         return;
       }
     }
-    if (!canLeaveFile()) return;
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
-    if (project) setActiveProject(project);
+    setActiveProject(project);
     state.selected = null;
     state.session = null;
     window.SciStationReadReview?.update($("studio-read-review"), null);
@@ -2163,6 +2147,7 @@
       if (continuous) payload.continuous = continuous;
       const session = await api(sessionPath("/run"), payload);
       if (state.selected === id) {
+        clearModeFollowup(id);
         state.agendaNote = "";
         seatMention.clear();
         runMaterials.reset();
@@ -2708,7 +2693,7 @@
     const payload = setup.payload(chief.target);
     const scope = payload.scope === "global" ? "@global" : payload.project_id || payload.project;
     if (scope !== state.activeProject ||
-        !projects.available().some(project => (project.id || project.path) === scope)) return;
+        !window.RoundtableProjects.resolveSelection(projects.available(), scope)) return;
     state.writing = true;
     updateControls();
     clearError();
@@ -3032,10 +3017,13 @@
     if (!$("history-menu").hidden && !$("history-menu").contains(event.target))
       closeHistoryMenu(false);
   });
-  $("history").addEventListener("scroll", () => closeHistoryMenu(false));
+  const historyScroller = $("history").closest(".workspace-sidebar-scroll") || $("history");
+  historyScroller.addEventListener("scroll", () => closeHistoryMenu(false));
   window.addEventListener("resize", () => closeHistoryMenu(false));
   window.addEventListener("blur", () => closeHistoryMenu(false));
   $("new-session").addEventListener("click", () => openDraft());
+  $("create-project").addEventListener("change", event => openDraft(event.target.value));
+  $("draft-clear-project").addEventListener("click", () => openDraft("@global"));
   $("dismiss-notice").addEventListener("click", clearError);
   $("toggle-sidebar").addEventListener("click", () =>
     sidebar(
@@ -3077,7 +3065,7 @@
     if (event.key === "Escape" && state.filePanelOpen) {
       event.preventDefault();
       closeChanges();
-    } else if (event.key === "Escape") closeMobileSidebar();
+    } else if (event.key === "Escape" && !window.SciShellLayout) closeMobileSidebar();
   });
   window.addEventListener("roundtable:navigate", (event) => {
     event.preventDefault();
@@ -3104,6 +3092,187 @@
       event.returnValue = "";
     }
   });
+  const modeTransfer = window.SciStudioModeTransfer;
+  const modeFollowupKey = id => "sci-station.roundtable-followup.v1."+id;
+  const modeText = (zh, en) => window.SciStationI18n?.text(zh,en) ?? zh;
+  const modeMaterialIDs = materials => materials.map(({id}) => id);
+  const modeMaterialStamp = materials => JSON.stringify(modeMaterialIDs(materials));
+  let switchingToSingle = false;
+  async function modeWorkspace() {
+    const response = await fetch("/api/health", {cache:"no-store"});
+    const info = response.ok && await response.json();
+    if (!info?.workspace) throw Error(modeText("无法确认当前工作区。", "Could not identify the current workspace."));
+    return info.workspace;
+  }
+  async function checkModeMaterials(data, fromSingle = false) {
+    const result = await api("/materials/transfer-check", {
+      sessionId:data.sourceSessionId, projectId:data.projectId, materialIds:modeMaterialIDs(data.materials)
+    });
+    if (fromSingle && data.sourceSessionId && !result.sourceIsSingle)
+      throw Error(modeText("原会话不属于当前范围。", "The original chat is outside this scope."));
+    return result.materials;
+  }
+  function chooseModeTextOnly(count) {
+    const dialog = $("studio-mode-overflow");
+    $("studio-mode-overflow-summary").textContent = modeText(
+      `当前共有 ${count} 份附件，切换时最多可带入 ${modeTransfer.materialLimit} 份。选择仅带入文本，附件会留在原圆桌和草稿。`,
+      `There are ${count} attachments. A mode switch can carry up to ${modeTransfer.materialLimit}. If you continue with text only, the attachments stay in the original Roundtable and its draft.`);
+    dialog.showModal();
+    return new Promise(resolve => {
+      const listeners = new AbortController();
+      // The browser queues the close event after the dialog is already hidden.
+      function finish(event, choice) {
+        event.preventDefault();
+        listeners.abort();
+        dialog.close(choice);
+        resolve(choice === "text-only");
+      }
+      dialog.addEventListener("submit", event => finish(event,event.submitter?.value || ""), {signal:listeners.signal});
+      dialog.addEventListener("cancel", event => finish(event,""), {signal:listeners.signal});
+    });
+  }
+  function clearModeFollowup(id) {
+    try { sessionStorage.removeItem(modeFollowupKey(id)); } catch {}
+  }
+  function restoreModeFollowup(room) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(modeFollowupKey(room.id)));
+      if (!saved || saved.projectId !== (room.project_id || "") || room.status === "closed") return;
+      $("run-note").value = saved.note;
+      runMaterials.set(saved.materials);
+      $("run-note").dispatchEvent(new Event("input", {bubbles:true}));
+    } catch {
+      // The meeting is still readable if the optional tab draft is unavailable.
+    }
+  }
+  window.addEventListener("sci:change-ai-mode", async event => {
+    if (event.detail?.mode !== "single" || state.view !== "table") return;
+    event.preventDefault();
+    if (switchingToSingle) return;
+    switchingToSingle = true;
+    try {
+      if (state.writing || !canLeaveFile()) return;
+      const room = state.session;
+      if (state.selected && !room) return;
+      if (room?.project && !room.project_id) throw Error(modeText(
+        "先将旧会话关联到科研项目，再切换模式带入上下文。", "Link this older meeting to a research project before transferring its context."));
+      const chosenProject = room?.project_id || (room ? "" :
+        projects.available().find(project=>project.id===state.activeProject)?.id) || "";
+      const next = {project:chosenProject, scope:chosenProject?"":"global"};
+      const materials = room ? runMaterials : createMaterials;
+      if (materials.busy() || materials.failed()) throw Error(modeText(
+        "请等附件上传完成，或移除上传失败的附件后重试。", "Wait for attachments to finish uploading or remove failed uploads and try again."));
+      const box = room ? $("run-note") : state.draftOpen ? $("new-topic") : null;
+      const draft = box?.value || "";
+      const ready = materials.ready();
+      const pendingStamp = modeMaterialStamp(ready);
+      const boundStamp = modeMaterialStamp(room?.materials || []);
+      const owner = state.activeProject;
+      const sameSource = () => state.activeProject === owner && state.session?.id === room?.id &&
+        !state.writing && state.view === "table";
+      const draftChanged = () => materials.busy() || materials.failed() || (box?.value || "") !== draft ||
+        modeMaterialStamp(materials.ready()) !== pendingStamp || modeMaterialStamp(state.session?.materials || []) !== boundStamp;
+      const changedError = () => Error(modeText("草稿已更改，请重新切换模式。", "The draft changed. Try the mode switch again."));
+      const count = modeTransfer.roundtableMaterials(room,ready).length;
+      const textOnly = count > modeTransfer.materialLimit;
+      if (textOnly && !await chooseModeTextOnly(count)) return;
+      if (!sameSource()) return;
+      if (draftChanged()) throw changedError();
+      const data = modeTransfer.roundtableTransfer({room,projectId:chosenProject,draft,materials:ready,textOnly});
+      if (data.context) {
+        const [workspace, verified] = await Promise.all([modeWorkspace(), checkModeMaterials(data)]);
+        if (!sameSource()) return;
+        if (draftChanged()) throw changedError();
+        if (room && (draft || ready.length)) sessionStorage.setItem(modeFollowupKey(room.id), JSON.stringify({
+          projectId:chosenProject, note:draft, materials:ready
+        }));
+        else if (room) clearModeFollowup(room.id);
+        window.ScienceLabHandoff.writeModeTransfer("single", {...data,workspace,materials:verified});
+        next.fromRoundtable = "1";
+      }
+      location.assign(window.SciStationNav.route("/lab",next));
+    } catch (error) { showError(error); }
+    finally { switchingToSingle = false; }
+  });
+
+  async function showLabModeImport(entry) {
+    const panel = $("studio-mode-import");
+    panel.hidden = true;
+    if (entry.searchParams.get("fromLab") !== "1" || state.selected || !state.draftOpen || $("create-form").hidden) return;
+    const handoff = window.ScienceLabHandoff;
+    const owner = state.activeProject, projectId = owner === "@global" ? "" : owner;
+    const scope = {workspace:await modeWorkspace(),projectId};
+    const received = handoff.readModeTransfer("roundtable",scope);
+    if (!received) return;
+    const stamp = JSON.stringify(received);
+    const current = () => state.activeProject === owner && state.draftOpen && !state.selected &&
+      !state.writing && JSON.stringify(handoff.readModeTransfer("roundtable",scope)) === stamp;
+    const data = {...received, materials:await checkModeMaterials(received,true)};
+    if (!current()) return;
+    const link = $("studio-mode-source");
+    link.hidden = !data.sourceSessionId;
+    if (data.sourceSessionId) {
+      const route = window.SciStationNav.route("/lab", {project:projectId,scope:projectId?"":"global",run:data.sourceSessionId});
+      link.href = route;
+      data.context += "\n\n"+modeText("原单人会话", "Original single chat")+" "+route;
+    }
+    const preset = data.roundtablePreset;
+    const presetNote = $("studio-mode-preset");
+    presetNote.hidden = !preset;
+    if (preset) {
+      const labels = {review:"Proposal review", forum:"Multiple perspectives", prioritize:"Prioritization"};
+      presetNote.textContent = modeText(`${discussionPresets[preset.mode].label} · ${preset.seats} 个席位`,
+        `${labels[preset.mode]} · ${preset.seats} seats`);
+    }
+    $("studio-mode-context").textContent = data.context;
+    $("studio-mode-attachments").replaceChildren(...data.materials.map(item => {
+      const li = document.createElement("li");
+      li.textContent = item.name;
+      return li;
+    }));
+    function finish() {
+      handoff.clearModeTransfer("roundtable");
+      panel.hidden = true;
+      const url = new URL(location.href);
+      url.searchParams.delete("fromLab");
+      url.searchParams.delete("scope");
+      window.SciStationNav.commitURL(url,"replace");
+    }
+    $("studio-mode-dismiss").onclick = () => { if (current()) finish(); };
+    const apply = $("studio-mode-apply");
+    apply.onclick = async () => {
+      if (!current() || apply.disabled) return;
+      apply.disabled = true;
+      try {
+        const verified = await checkModeMaterials(received,true);
+        if (!current()) return;
+        if (JSON.stringify(verified) !== JSON.stringify(data.materials)) throw Error(modeText(
+          "附件已更改，请重新打开转换预览。", "The attachments changed. Open the transfer preview again."));
+        if (createMaterials.busy() || createMaterials.failed()) throw Error(modeText(
+          "请等附件处理完成后重试。", "Wait for attachments to finish and try again."));
+        const box = $("new-topic");
+        const topic = box.value, materials = createMaterials.ready();
+        const materialStamp = modeMaterialStamp(materials);
+        const draft = modeTransfer.appendTransfer(topic, materials, data);
+        if (preset) {
+          const stillCurrent = () => current() && box.value === topic && !createMaterials.busy() &&
+            !createMaterials.failed() && modeMaterialStamp(createMaterials.ready()) === materialStamp;
+          if (!await setup.applyLabPreset(preset.mode,preset.seats,stillCurrent) || !stillCurrent()) {
+            if (current()) throw Error(modeText("无法应用圆桌预设，请核对草稿和可用席位后重试。",
+              "Could not apply the Roundtable preset. Check the draft and available seats, then try again."));
+            return;
+          }
+        }
+        box.value = draft.topic;
+        createMaterials.set(draft.materials);
+        box.dispatchEvent(new Event("input", {bubbles:true}));
+        finish();
+        box.focus();
+      } catch (error) { showError(error); }
+      finally { apply.disabled = false; }
+    };
+    panel.hidden = false;
+  }
   async function boot() {
     const requestedView = new URL(location.href).searchParams.get("view");
     clearError();
@@ -3126,12 +3295,11 @@
     let research = null;
     try {
       research = window.ScienceMeeting?.requestedProject(entry.searchParams.get("project"));
-    } catch (error) {
-      if (entry.searchParams.has("project")) { showError(error); return; }
+    } catch {
+      // Keep the requested project visible as unavailable if the catalog changed.
     }
     if (linked) await openSession(linked, { preserveHash: true });
-    else if (research) openDraft(research.id);
-    else if (!state.selected) openDraft("@global");
+    else if (!state.selected) openDraft();
     if (research) {
       try {
         await window.ScienceMeeting.receive(research, linked,
@@ -3142,6 +3310,8 @@
           linked ? runMaterials : createMaterials);
       } catch (error) { showError(error); }
     }
+    try { await showLabModeImport(entry); }
+    catch (error) { showError(error); }
     if (["settings", "files", "plugins"].includes(requestedView))
       switchView(requestedView);
     restoringRoute=false;
@@ -3202,7 +3372,7 @@
         else {
           const url = new URL(location.href);
           url.hash = target.id;
-          history.replaceState(null, "", url);
+          window.SciStationNav.commitURL(url, "replace");
           scrollToMessage(target);
           $("latest-message").hidden = false;
         }
@@ -3370,8 +3540,7 @@
     newSession:openDraft, projectsChanged:paintDraftProject,
     rerender:() => { state.historyKey = ""; renderHistory(); },
   });
-  $("draft-add-project").addEventListener("click", event => projects.openAdd(event.currentTarget));
-  $("draft-import-project").addEventListener("click", event => projects.openImport(event.currentTarget));
+  window.addEventListener("sci:projects-changed", () => projects.load().catch(showError));
   $("draft-retry-projects").addEventListener("click", boot);
   $("retry-connect").addEventListener("click", boot);
   sidebar(

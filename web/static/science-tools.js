@@ -159,6 +159,8 @@
   function nav() {
     for (const a of document.querySelectorAll("[data-tab]")) {
       a.classList.toggle("active", a.dataset.tab === tab);
+      if (a.dataset.tab === tab) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
       const u = new URLSearchParams({
         tab: a.dataset.tab
       });
@@ -233,6 +235,23 @@
       token: $("token").value,
       batch: $("batch").value.trim()
     };
+  }
+
+  let catalogEpoch = 0;
+  async function refreshProjectChoices() {
+    const epoch = ++catalogEpoch;
+    const items = await req("projects");
+    if (epoch !== catalogEpoch) return;
+    projects = items;
+    const labels = {discover: ["整个文献库", "Entire library"], calendar: ["全部项目", "All projects"], convert: ["选择项目", "Select a project"]};
+    const [zh, en] = labels[tab];
+    const rows = [["", window.SciStationI18n?.text(zh, en) || zh], ...items.map(p => [p.id, p.name])];
+    const missing = project && !items.some(p => p.id === project);
+    if (missing) rows.push([project, window.SciStationI18n?.text("项目不可用", "Project unavailable") || "项目不可用"]);
+    const selector = $("project");
+    choices(selector, rows);
+    selector.value = project;
+    if (missing) throw Error(window.SciStationI18n?.text("所选项目不存在或已归档", "The selected project is unavailable or archived.") || "所选项目不存在或已归档");
   }
 
   function initActions() {
@@ -400,7 +419,12 @@
   }
   async function init() {
     $(tab).hidden = false;
-    $("heading").textContent = views[tab];
+    const updateTitle = () => {
+      const english = {discover:"Discover papers", convert:"PDF conversion", calendar:"System calendar and reminders"};
+      $("heading").textContent = window.SciStationI18n?.text(views[tab], english[tab]) || views[tab];
+    };
+    updateTitle();
+    window.addEventListener("sci:language", updateTitle);
     if (tab === "calendar") {
       const today = new Date();
       const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -412,14 +436,8 @@
       window.addEventListener("scistation:credential-session", enableMinerCredential);
       enableMinerCredential();
     }
-    projects = await req("projects");
-    const choicesList = projects.map(p => [p.id, p.name]);
-    if (tab === "discover") choicesList.unshift(["", "整个文献库"]);
-    if (tab === "calendar") choicesList.unshift(["", "全部项目"]);
-    choices($("project"), choicesList, "未选择项目");
-    if (project && !projects.some(p => p.id === project)) throw Error("所选项目不存在或已归档");
-    if (!project && tab !== "discover") choices($("project"), [["","请选择项目"], ...choicesList], "未选择项目");
-    $("project").value = project;
+    window.addEventListener("sci:projects-changed", () => refreshProjectChoices().catch(e => tell(e.message)));
+    await refreshProjectChoices();
     await loadProject();
     if (tab === "convert") {
       papers = await req("papers");

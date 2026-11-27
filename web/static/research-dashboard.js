@@ -163,6 +163,58 @@
     return items;
   }
 
+  // Match the native dashboard: find the lowest adjacent columns that can hold the card.
+  // The browser supplies the content height so short cards need no reserved rows.
+  function packWidgets(items, columns, gap) {
+    const bottoms = Array(columns).fill(0);
+    const positions = items.map(({span, height}) => {
+      let best = {column: 0, top: Infinity};
+      for (let column = 0; column <= columns - span; column++) {
+        const top = Math.max(...bottoms.slice(column, column + span));
+        // Keep neighboring groups aligned when two placements have the same height.
+        if (top < best.top || (top === best.top && column % span === 0 && best.column % span !== 0)) {
+          best = {column, top};
+        }
+      }
+      bottoms.fill(best.top + height + gap, best.column, best.column + span);
+      return best;
+    });
+    return {positions, height: items.length ? Math.max(...bottoms) - gap : 0};
+  }
+
+  function mountGrid(grid) {
+    if (!grid || typeof ResizeObserver === "undefined") return;
+    const cards = Array.from(grid.children);
+    function place() {
+      const style = getComputedStyle(grid);
+      const columns = Number(style.getPropertyValue("--dashboard-columns"));
+      const gap = parseFloat(style.columnGap);
+      const width = grid.getBoundingClientRect().width;
+      const unit = (width - (columns - 1) * gap) / columns;
+      if (unit <= 0) return;
+      const spans = cards.map(card => Math.min(columns, Number(getComputedStyle(card).getPropertyValue("--dashboard-span"))));
+      cards.forEach((card, i) => {
+        card.style.inlineSize = spans[i] * (unit + gap) - gap + "px";
+      });
+      const items = cards.map((card, i) => ({span: spans[i], height: card.getBoundingClientRect().height}));
+      const {positions, height} = packWidgets(items, columns, gap);
+      positions.forEach(({column, top}, i) => {
+        cards[i].style.insetInlineStart = column * (unit + gap) + "px";
+        cards[i].style.insetBlockStart = top + "px";
+      });
+      grid.style.blockSize = height + "px";
+      grid.classList.add("dashboard-grid-packed");
+    }
+
+    place();
+    const observer = new ResizeObserver(() => {
+      if (grid.isConnected) place();
+      else observer.disconnect();
+    });
+    observer.observe(grid);
+    cards.forEach(card => observer.observe(card));
+  }
+
   function move(items, source, destination) {
     const from = items.findIndex(item => item.id === source);
     const to = items.findIndex(item => item.id === destination);
@@ -234,8 +286,8 @@
       : '<span class="dashboard-muted">阶段暂不可用</span>';
     const message = text => '<p class="dashboard-muted">' + esc(text) + '</p>';
     const subhead = text => '<h3 class="dashboard-subhead">' + esc(text) + '</h3>';
-    const metric = (value, label) => '<span class="dashboard-stat"><b>' + esc(value) + '</b> ' + esc(label) + '</span>';
-    const groupedMetrics = (...metrics) => '<div class="dashboard-stats">' + metrics.filter(Boolean).join("") + '</div>';
+    const metric = (value, label) => value ? '<span class="dashboard-stat"><b>' + esc(value) + '</b> ' + esc(label) + '</span>' : "";
+    const groupedMetrics = (...metrics) => metrics.some(Boolean) ? '<div class="dashboard-stats">' + metrics.filter(Boolean).join("") + '</div>' : "";
     const callout = (items, render, fallback) => items.length ? render(items) : message(fallback);
     const dateLabel = item => [dateStr(item.dueDate || timestamp(item)), item.dueTime].filter(Boolean).join(" · ");
     const noteRows = items => list(items.map(n => row("file", n.title, fmtDate(n.updatedAt), rowAction("read-note", n.id))));
@@ -243,17 +295,22 @@
     const paperLimit = size => ({small: 1, wide: 2, tall: 3, medium: 4, large: 6})[size];
     const sections = project ? projectSections() : homeSections();
     const title = project ? project.name : (workspace?.name || local("routeHome", "首页", "Home"));
-    const edit = '<button type="button" class="button" data-dashboard-control="edit" aria-expanded="' + board.editing + '"' +
-      ' aria-controls="dashboard-layout">' + (board.editing ? local("homeDoneEditing", "完成布局", "Done") : local("homeEditLayout", "自定义组件", "Edit Layout")) + '</button>';
-    const projectActions = project ? button(local("projectsEditInfo", "项目设置", "Edit Project Info"), "edit-project", {glyph: "sliders"}) +
-      (isEnabled("ai-lab") ? link(text("进入圆桌", "Open Roundtable"), studio(), "button primary", "chat") : "") : "";
+    const editLabel = board.editing ? local("homeDoneEditing", "完成布局", "Done") : local("homeEditLayout", "编辑布局", "Edit Layout");
+    const edit = '<button type="button" class="' + (board.editing ? 'button primary' : 'button dashboard-edit-layout') +
+      '" data-dashboard-control="edit" aria-expanded="' + board.editing + '" aria-controls="dashboard-layout"' +
+      ' aria-label="' + esc(editLabel) + '" title="' + esc(editLabel) + '">' +
+      (board.editing ? esc(editLabel) : window.RoundtableIcons?.icon("sliders") || "") + '</button>';
+    const aiHome = url(isEnabled("ai-lab") ? "/lab" : "/studio", project ? {project: project.id} : {scope: "global"});
+    const projectActions = project ? link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome,
+      board.editing ? "button" : "button primary", "chat") : "";
     const available = new Map(descriptors.filter(([, , , required]) => isEnabled(required)).map(d => [d[0], d]));
     const visible = board.items.filter(item => item.visible && available.has(item.id));
     const widget = item => {
       const title = widgetTitle(available.get(item.id));
-      const handle = board.editing ? '<span aria-hidden="true" class="dashboard-drag" draggable="true" title="拖动排序">⠿</span>' : "";
+      const handle = board.editing ? '<span aria-hidden="true" class="dashboard-drag" draggable="true" title="' +
+        esc(text("拖动排序", "Drag to reorder")) + '">⠿</span>' : "";
       return '<article class="dashboard-widget dashboard-' + item.size + '" data-dashboard-widget="' + item.id + '">' +
-        handle + panel(title, sections[item.id](paperLimit(item.size))) + '</article>';
+        panel(title, sections[item.id](paperLimit(item.size), item.size), handle) + '</article>';
     };
     const layoutOption = (item, index, availableItems) => {
       const id = item.id, label = widgetTitle(available.get(item.id));
@@ -298,11 +355,12 @@
         recent_papers: limit => callout(state.papers.slice().sort(recent).slice(0, limit), paperRows, text("暂无文献", "No papers yet")) + dashboardNav(local("routeLibrary", "文献库", "Library"), "papers"),
         reading_plan: limit => groupedMetrics(metric(reading.length, text("篇待读", "to read"))) +
           callout(reading.slice(0, limit), paperRows, local("homeReadingEmpty", "暂无待读论文", "No papers to read yet.")) + dashboardNav(local("routeLibrary", "文献库", "Library"), "papers"),
-        project_health: () => groupedMetrics(metric(overview.length, text("个活跃项目", "active projects")),
-          isEnabled("tasks") && metric(due.filter(t => t.dueDate < today).length, text("项逾期任务", "overdue tasks"))) + dashboardNav(text("全部项目", "All projects"), "projects"),
+        project_health: () => (groupedMetrics(metric(overview.length, text("个活跃项目", "active projects")),
+          isEnabled("tasks") && metric(due.filter(t => t.dueDate < today).length, text("项逾期任务", "overdue tasks"))) ||
+          message(text("暂无活跃项目", "No active projects"))) + dashboardNav(text("全部项目", "All projects"), "projects"),
         quick_actions: () => '<div class="actions">' + [isEnabled("projects") && button(local("toolbarNewProject", "新建项目", "New Project"), "new-project"),
           isEnabled("paper-library") && button(text("导入文献", "Import papers"), "new-paper"), isEnabled("tasks") && button(text("添加任务", "New task"), "new-task"),
-          isEnabled("ai-lab") && link(local("routeAILab", "AI 实验室", "AI Lab"), url("/lab"))].filter(Boolean).join("") + '</div>',
+          link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome)].filter(Boolean).join("") + '</div>',
         meetings: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, text("暂无圆桌", "No Roundtables yet")) + link(local("openRoundtable", "打开圆桌", "Open Roundtable"), studio(), "bare")
       };
     }
@@ -353,16 +411,21 @@
           fmtDate(timestamp(r)), 'a href="' + esc(reviewURL(r)) + '"', r.status === "accepted" ? text("已接受", "Accepted") : text("待审核", "In review"))})) : [])
       ].sort((a, b) => instant(b.date) - instant(a.date));
       return {
-        project_status: () => stageBadge(info) + (info.stage ? message(info.stage[2]) : "") + groupedMetrics(
+        project_status: (_limit, size) => stageBadge(info) + groupedMetrics(
           isEnabled("paper-library") && metric(info.linked.length, text("篇论文", "papers")), isEnabled("paper-library") && metric(core.length, text("篇核心论文", "core papers")),
           isEnabled("wiki") && metric(notes.length, text("篇笔记", "notes")), isEnabled("tasks") && metric(info.activeTasks.length, text("项待办", "open tasks")),
           info.facts && metric(info.facts.unsupportedClaimCount || 0, text("项缺证据声明", "claims missing evidence")),
-          isEnabled("ai-lab") && reviews && metric(pending.length, text("项待审核", "for review"))) + (isEnabled("tasks") && info.next
+          isEnabled("ai-lab") && reviews && metric(pending.length, text("项待审核", "for review"))) + (isEnabled("tasks") && info.next && size !== "small" && size !== "wide"
           ? subhead(text("下一项截止", "Next deadline")) + taskRows([info.next]) : ""),
         research_questions: limit => callout(researchQuestions(brief?.body).slice(0, limit), items => '<ul class="dashboard-questions">' +
-          items.map(item => '<li>' + esc(item) + '</li>').join("") + '</ul>', "简报中暂无研究问题"),
-        project_brief: limit => (brief ? '<p class="dashboard-brief">' + esc(brief.body.slice(0, limit * 180)) + '</p>' +
-          button("编辑简报", "edit-note", {id: brief.id, kind: "bare"}) : message(text("暂无项目简报", "No project brief")) + dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes")),
+          items.map(item => '<li>' + esc(item) + '</li>').join("") + '</ul>', text("简报中暂无研究问题", "No research questions in the brief yet")),
+        project_brief: limit => {
+          const preview = brief?.body?.trim();
+          return (preview ? '<div class="dashboard-brief">' + esc(preview.slice(0, limit * 180)) + '</div>' :
+            message(text("暂无项目简报", "No project brief"))) + (brief ?
+            button(text("编辑简报", "Edit brief"), "edit-note", {id: brief.id, kind: "bare"}) :
+            dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes"));
+        },
         core_papers: limit => callout(core.slice(0, limit), items => paperRows(items, project.id), text("暂无核心论文", "No core papers yet")) + dashboardNav(text("项目论文", "Project papers"), "papers"),
         current_tasks: limit => callout(info.activeTasks.slice(0, limit), taskRows, text("暂无未完成任务", "No open tasks")) + dashboardNav(text("查看任务", "View tasks"), "tasks"),
         materials: limit => callout(materials.slice(0, limit), items => list(items.map(m => row("file", m.name, fmtDate(m.updatedAt),
@@ -371,12 +434,15 @@
         recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)), text("暂无近期活动", "No recent activity")),
         project_documents: limit => callout(notes.slice(0, limit), noteRows, "暂无项目文档") + dashboardNav("全部文档", "notes"),
         workflow: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, "暂无项目圆桌") +
-          link("AI 工作流", url("/lab", {project: project.id}), "bare") + dashboardNav("全部圆桌", "meetings")
+          dashboardNav(text("查看项目会话", "View project sessions"), "meetings")
       };
     }
   }
 
   function mount(root, state, render, toast) {
+    const brief = root.querySelector?.(".dashboard-brief");
+    if (brief) window.SciMarkdown?.render(brief, brief.textContent, {headingShift: 2, cache: true});
+    mountGrid(root.querySelector?.(".dashboard-grid"));
     const descriptors = state.project ? projectWidgets : homeWidgets;
     const board = preference(state, descriptors);
     const modules = state.dashboardData?.modules;
@@ -445,7 +511,7 @@
     root.ondragend = () => { dragged = ""; };
   }
 
-  const dashboard = {load, markup, mount, calendarKey, calendarMonth, tasksOn, taskWindows, projectSummaries, normalizeLayout, move, scopeKey, researchQuestions};
+  const dashboard = {load, markup, mount, calendarKey, calendarMonth, tasksOn, taskWindows, projectSummaries, normalizeLayout, move, scopeKey, researchQuestions, packWidgets};
   if (typeof module !== "undefined" && module.exports) module.exports = dashboard;
   if (typeof window !== "undefined") window.SciStationDashboard = dashboard;
 })();

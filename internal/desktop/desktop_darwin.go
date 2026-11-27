@@ -303,7 +303,7 @@ func (h *desktopHost) menu(language string) {
 			})
 		}
 	}
-	add(ws, []entry{{copy("toolbarNewProject") + "…", "newProject", "CmdOrCtrl+N"}, {copy("revealWorkspace"), "revealWorkspace", ""}, {copy("sidebarResearchShell"), "home", "CmdOrCtrl+1"}, {copy("openRoundtable"), "roundtable", "CmdOrCtrl+2"}, {copy("pluginMarketplace"), "plugins", ""}, {copy("routeSettings") + "…", "settings", "CmdOrCtrl+,"}})
+	add(ws, []entry{{copy("toolbarNewProject") + "…", "newProject", "CmdOrCtrl+N"}, {copy("revealWorkspace"), "revealWorkspace", ""}, {copy("sidebarResearchShell"), "home", "CmdOrCtrl+1"}, {copy("openAIWorkspace"), "lab", "CmdOrCtrl+2"}, {copy("pluginMarketplace"), "plugins", ""}, {copy("routeSettings") + "…", "settings", "CmdOrCtrl+,"}})
 	add(menu.AddSubmenu(copy("libraryMenu")), []entry{{copy("toolbarImportPDF") + "…", "importPDF", ""}, {copy("toolbarAddByIdentifier") + "…", "importIdentifier", ""}, {copy("menuOpenInReader"), "reader", ""}, {copy("menuOpenExternalPDF"), "externalPDF", ""}, {copy("menuPreviewSelectedPDF"), "preview", ""}, {copy("menuRevealPaperInFinder"), "reveal", ""}, {copy("menuCopyCitation"), "copyCitation", ""}, {copy("menuCopyBibTeX"), "copyBibtex", ""}, {copy("menuExportBibTeX") + "…", "bibtex", ""}, {copy("menuDeleteSelectedPaper"), "deletePaper", "CmdOrCtrl+Backspace"}})
 	add(menu.AddSubmenu(copy("menuView")), []entry{{copy("back"), "back", "CmdOrCtrl+["}, {copy("forward"), "forward", "CmdOrCtrl+]"}, {copy("find"), "find", "CmdOrCtrl+F"}, {copy("findNext"), "findNext", "CmdOrCtrl+G"}, {copy("findPrevious"), "findPrevious", "CmdOrCtrl+Shift+G"}, {copy("toolbarInspector"), "inspector", "CmdOrCtrl+I"}})
 	add(menu.AddSubmenu("Wiki"), []entry{{copy("toolbarSave"), "save", "CmdOrCtrl+S"}})

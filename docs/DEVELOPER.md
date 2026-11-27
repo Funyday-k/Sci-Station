@@ -35,6 +35,12 @@ Open `http://127.0.0.1:18765/research`. Open the macOS app to exercise PDFKit, E
 | Plugins | [internal/plugins/](../internal/plugins/) | Load and check versioned plugins. |
 | Packaging and verification | [packaging/macos/](../packaging/macos/), [tests/](../tests/), [Tools/](../Tools/) | Build and verify the signed arm64 bundle, exercise frontend behavior and native workflows, and run repository and release checks. |
 
+## Desktop layout and AI navigation
+
+The [workspace shell](../web/static/workspace-shell.html) renders navigation, the project tree, a toolbar and a single content region for every desktop route. Pages supply optional sidebar, breadcrumb and tool content through Go templates. Document pages use the shared page heading and gutters. Chat, Roundtable and Reader use the available viewport and own their internal transcript or PDF scroll area. Width and panel placement are managed by the shell. The Research home and project overview share their card placement rules.
+
+The sidebar and native Workspace menu open one AI destination. The shared switch selects single chat at `/lab` or a discussion at `/studio`. Legacy deep links still open the requested conversation. Project context comes from the route or the saved session. Switching modes prepares a scoped transfer for explicit review. Both conversation engines keep their own sessions, run controls and approvals.
+
 ## Work within the domain boundaries
 
 - Put persistence and validation in the owning service or repository. The shell coordinates navigation and dispatch, and the frontend presents state. Share one paper and PDF, with per-project state kept as an association. Use test fixtures with conflicting revisions, missing references or partially completed operations when changing state transitions.

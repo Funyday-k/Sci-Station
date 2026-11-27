@@ -12,39 +12,8 @@
   const navigation = window.SciStationNav;
   const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
   const local = (key, zh, en) => window.SciStationI18n?.message?.(key) ?? text(zh, en);
-  const names = {
-    get overview() { return local("routeOverview", "概览", "Overview"); },
-    get projects() { return local("routeProjects", "项目", "Projects"); },
-    get papers() { return local("routePapers", "论文", "Papers"); },
-    get notes() { return local("routeWiki", "Wiki", "Wiki"); },
-    get tasks() { return local("routeTasks", "任务", "Tasks"); },
-    get materials() { return local("routeMaterials", "材料", "Materials"); },
-    get graph() { return local("routeGraph", "图谱", "Graph"); },
-    get meetings() { return local("roundtable", "圆桌", "Roundtable"); },
-    get code() { return text("代码", "Code"); },
-    get data() { return text("数据", "Data"); },
-    get experiments() { return text("实验", "Experiments"); },
-    get writing() { return text("写作", "Writing"); },
-    get theory() { return text("理论笔记", "Theory Notes"); },
-  };
-  const glyphs = {
-    overview: "dashboard",
-    papers: "book",
-    notes: "file",
-    tasks: "agenda",
-    materials: "folder",
-    graph: "subagent",
-    meetings: "chat"
-  };
-  const shapes = {
-    dashboard: '<rect x="3" y="3" width="8" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="14" y="17" width="7" height="4" rx="1.5"/>',
-    book: '<path d="M3 5.5c3.5-1.5 6.5-1 9 .7 2.5-1.7 5.5-2.2 9-.7v13c-3.5-1.5-6.5-1-9 .7-2.5-1.7-5.5-2.2-9-.7zM12 6.2v13"/>',
-    search: '<circle cx="10" cy="10" r="6.3"/><path d="m15 15 5.5 5.5"/>',
-    tools: '<path d="m9 3 6 0m-4 0v6l-6 9a2 2 0 0 0 1.5 3h11a2 2 0 0 0 1.5-3l-6-9V3m-4 12h7"/>'
-  };
-  const icon = key => shapes[key] ?
-    '<svg aria-hidden="true" class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round">' +
-    shapes[key] + '</svg>' : window.RoundtableIcons.icon(key);
+  const names = navigation.projectNames;
+  const icon = key => window.RoundtableIcons.icon(key);
   const statusLabel = {
     get unread() { return text("未读", "Unread"); },
     get reading() { return text("阅读中", "Reading"); },
@@ -55,11 +24,7 @@
     get cancelled() { return text("已取消", "Cancelled"); },
     get done() { return text("已完成", "Completed"); },
   };
-  function projectBadge(project) {
-    const color = /^#[0-9a-f]{6}$/i.test(project.colorHex) ? project.colorHex : "#4F7CAC";
-    const symbol = /^[a-z0-9][a-z0-9.-]{0,79}$/i.test(project.iconName || "") ? project.iconName : "folder";
-    return '<span class="project-badge" style="--project-color:' + color + '"><img alt="" src="/api/workspace/symbol/' + enc(symbol) + '"></span>';
-  }
+  const projectBadge = navigation.projectBadge;
   const state = {
     projects: [],
     project: null,
@@ -114,13 +79,15 @@
     }
     const res = await fetch(path.startsWith("/api/") ? path : apiRoot + path, init);
     if (!res.ok) {
-      let msg;
+      let msg, code;
       try {
         const j = await res.json();
         msg = j.error || j.message;
+        code = j.code;
       } catch {}
       const error = new Error(msg || "操作失败（" + res.status + "）");
       error.status = res.status;
+      error.code = code;
       throw error;
     }
     if (res.status === 204) return null;
@@ -184,8 +151,9 @@
   }
 
   function close() {
+    if (!$("modal").open) return true;
     if (modalCanDismiss && !modalCanDismiss()) return false;
-    if ($("modal").open) $("modal").close();
+    $("modal").close();
     return true;
   }
   $("modal").addEventListener("cancel", ev => {
@@ -202,12 +170,13 @@
 
   function button(label, action, options = {}) {
     const {
-      id = "", kind = "button", glyph = "", title = "", pressed
+      id = "", kind = "button", glyph = "", title = "", pressed, iconOnly = false
     } = options;
     return '<button type="button" class="' + kind + '" data-action="' + action + '" data-id="' + esc(id) +
-      '"' + (title ? ' title="' + esc(title) + '"' : '') +
+      '"' + (title || iconOnly ? ' title="' + esc(title || label) + '"' : '') +
+      (iconOnly ? ' aria-label="' + esc(title || label) + '"' : '') +
       (pressed === undefined ? '' : ' aria-pressed="' + pressed + '"') + '>' + (glyph ?
-      icon(glyph) : "") + esc(label) + '</button>';
+      icon(glyph) : "") + (iconOnly ? '' : esc(label)) + '</button>';
   }
 
   function link(label, href, kind = "button", glyph = "") {
@@ -234,12 +203,13 @@
 
   function heading(title, sub = "", actions = "", project = null) {
     const badge = project ? projectBadge(project) : "";
-    return '<div class="page-head"><div><h1>' + badge + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
+    return '<div class="page-head workspace-page-heading"><div><h1>' + badge + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
       '</div><div class="head-actions">' + actions + '</div></div>';
   }
 
   function moreActions(actions) {
-    return '<details class="more-actions"><summary class="button">' + esc(local("toolbarMoreActions", "更多操作", "More actions")) +
+    const title=local("toolbarMoreActions", "更多操作", "More actions");
+    return '<details class="more-actions"><summary class="icon" aria-label="'+esc(title)+'" title="'+esc(title)+'">' + icon("more") +
       '</summary><div class="more-action-items">' + actions + '</div></details>';
   }
 
@@ -360,30 +330,7 @@
 
   function updateNav() {
     navigation.update();
-    const modules = $("project-modules");
-    modules.hidden = !state.project;
-    const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
-      ({key,name,href:viewURL(key),local:true}));
-    tabs.push(
-      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:viewURL("calendar")},
-      {key:"recommendations",name:text("文献推荐", "Recommendations"),href:toolsPage("discover")},
-      {key:"lab",name:text("AI 工作流", "AI Workflows"),href:navigation.route("/lab",{project:state.project?.id})}
-    );
-    const pins = state.modules?.pinnedOrder || [];
-    const rank = tab => {
-      const index = pins.indexOf(navigation.viewModules[tab.key]);
-      return index < 0 ? pins.length : index;
-    };
-    modules.innerHTML = state.project ? tabs.filter(tab=>navigation.enabled(state.modules,navigation.viewModules[tab.key]))
-      .sort((left,right)=>rank(left)-rank(right)).map(tab=>'<a data-tab-key="'+esc(tab.key)+'" href="' + esc(tab.href) + '"' +
-        (tab.local ? ' data-view="'+tab.key+'"' : "") +
-        (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
-        '>' + esc(tab.name) + '</a>').join("") : "";
-    $("projectnav").innerHTML = state.projects.map(p => '<a class="project-item ' + (p.id === state.project?.id ?
-        'active' : '') + '"' + (p.id === state.project?.id ? ' aria-current="true"' : '') + ' data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
-      '">' + projectBadge(p) + '<span>' + esc(p
-      .name) + '</span></a>').join("");
-    window.SciShellLayout?.decorateProject(modules, $("projectnav"));
+    window.SciProjectSidebar?.setProjects(state.projects, state.project?.id, state.modules);
     const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
     $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
       esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
@@ -474,8 +421,8 @@
       button(text("管理集合和标签", "Manage collections and tags"), "manage-library")) +
       button(text("导入文献", "Import papers"), "new-paper", {glyph: "import", kind: "button primary"});
     return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", actions) +
-      '<div class="toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
-      '" placeholder="' + esc(text("搜索标题、作者、DOI…", "Search title, author or DOI…")) +
+      '<div class="toolbar library-toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
+      '" placeholder="' + esc(text("搜索标题、作者、DOI 或链接…", "Search title, author, DOI or link…")) +
       '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) +
       button(local("toolbarLibraryColumns", "表格列", "Table columns"), "library-columns") + '</div>' +
       '<div id="paper-results">' + libraryResults(papers, projectID) + '</div>';
@@ -900,6 +847,7 @@
     load,
     render,
     button,
+    detailButton,
     link,
     empty,
     dialog,
@@ -922,26 +870,20 @@
   };
   window.SciResearch = E;
   function handleWorkspaceCommand(key) {
+    if(key==="archivedProjects"){E.formAction("archived-projects");return true;}
     if(key==="find") {search();return true;}
     if(!["newProject","importIdentifier","importPDF"].includes(key) || !E.formAction) return false;
-    if($("modal").open) return true;
-    E.formAction(key==="newProject"?"new-project":"new-paper");
-    if(key!=="newProject") {
-      $("dialog-content").querySelector(key==="importPDF"?'[name="pdf"]':'[name="doi"]')?.focus();
+    const field = key === "importPDF" ? "pdf" : "identifiers";
+    if ($("modal").open) {
+      if (key !== "newProject") $("dialog-content").querySelector('[data-paper-intake] [name="' + field + '"]')?.focus();
+      return true;
     }
+    if (key === "newProject") E.formAction("new-project");
+    else E.formAction("new-paper", field);
     return true;
   }
   window.addEventListener("scistation:command",event=>{
     if(handleWorkspaceCommand(event.detail)) event.preventDefault();
-  });
-  window.addEventListener("load",async()=>{
-    const url=new URL(location.href);
-    const key=url.searchParams.get("command");
-    if (!key) return;
-    url.searchParams.delete("command");
-    navigation.commitURL(url,"replace");
-    await load(url.searchParams.get("project"),url.searchParams.get("view") || "overview",{historyMode:"none"});
-    handleWorkspaceCommand(key);
   });
   document.addEventListener("click", async ev => {
     const more = document.querySelectorAll("#main .more-actions[open]")[0];
@@ -1084,7 +1026,6 @@
   document.addEventListener("input", filterResults);
   document.addEventListener("compositionend", filterResults);
   $("search-open").onclick = search;
-  $("new-project").onclick = () => E.formAction("new-project");
   $("modal-close").onclick = close;
   document.addEventListener("keydown", ev => {
     if (ev.key === "Escape") {
@@ -1106,8 +1047,14 @@
     const project = u.searchParams.get("project");
     const view = u.searchParams.get("view") || "overview";
     const task = u.searchParams.get("task");
+    const command = u.searchParams.get("command");
+    if (command) {
+      u.searchParams.delete("command");
+      navigation.commitURL(u, "replace");
+    }
     await window.SciStationI18n?.ready;
     await load(project, view, {historyMode: "none"});
+    if (command && !state.loadError && location.href === u.href) handleWorkspaceCommand(command);
     if (task && view === "tasks" && !state.loadError && location.href === u.href &&
         (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
       await E.formAction?.("edit-task", task);
@@ -1126,13 +1073,8 @@
       catch (error) { dialog("引用原文不可用", empty(error.message)); }
     }
   }
-  window.addEventListener("popstate", () => {
-    if (!close()) {
-      history.pushState(null, "", viewURL(state.calendar ? "calendar" : state.view));
-      return;
-    }
-    route();
-  });
+  navigation.setHistoryGuard(close);
+  window.addEventListener("popstate", route);
   window.addEventListener("sci:language", () => {
     if ($("main").getAttribute("aria-busy") === "false" && !$("modal").open) render();
   });

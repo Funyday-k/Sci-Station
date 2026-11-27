@@ -8,12 +8,14 @@
     const options={method,cache:"no-store",headers:{Accept:"application/json"}};
     if(body!==undefined){options.headers["Content-Type"]="application/json";options.headers["X-Roundtable"]="1";options.body=JSON.stringify(body);}
     const response=await fetch(path,options);
+    if(response.status===204)return null;
     const result=await response.json();
     if(!response.ok){const error=Error(result.error?.message || result.error || text("本机服务未能完成操作","Local service request failed"));error.status=response.status;throw error;}
     return result;
   }
   function updated(value) {
     state=value;
+    updateProjectNav();
     window.SciStationNav.update();
     window.SciResearch?.updateNav();
     window.dispatchEvent(new Event("sci:shell-layout"));
@@ -44,7 +46,7 @@
       const id=link.dataset[key];
       if(!movable.includes(id))continue;
       link.draggable=true;
-      link.title=text("拖动排序，或按 Option + 左右方向键","Drag to reorder, or use Alt + Left / Right");
+      link.title=(link.getAttribute("aria-label") || link.textContent.trim())+" · "+text("拖动排序，或按 Option + 上下方向键","Drag to reorder, or use Alt + Up / Down");
       link.ondragstart=e=>{e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/x-sci-"+kind,id);};
       link.ondragover=e=>{if(e.dataTransfer.types.includes("text/x-sci-"+kind))e.preventDefault();};
       const commit=ids=>{
@@ -55,7 +57,9 @@
         const slots=[...prior,...movable.filter(id=>!prior.includes(id))];
         let index=0;
         save({[field]:slots.map(id=>movable.includes(id)?ids[index++]:id)}).then(()=>{
-          const restored=Array.from(container.querySelectorAll("a")).find(a=>a.dataset[key]===id);
+          const live=document.getElementById(container.id) || container;
+          if(live.dataset.moduleProject!==container.dataset.moduleProject)return;
+          const restored=Array.from(live.querySelectorAll("a")).find(a=>a.dataset[key]===id);
           if(restored) {const menu=restored.closest("details");if(menu)menu.open=true;restored.focus();}
         }).catch(()=>{});
       };
@@ -65,8 +69,8 @@
         e.preventDefault();commit(reorder(movable,from,id));
       };
       link.onkeydown=e=>{
-        if(!e.altKey || !["ArrowLeft","ArrowRight"].includes(e.key))return;
-        const at=movable.indexOf(id),dest=at+(e.key==="ArrowRight"?1:-1);
+        if(!e.altKey || !["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key))return;
+        const at=movable.indexOf(id),dest=at+(["ArrowDown","ArrowRight"].includes(e.key)?1:-1);
         if(dest<0 || dest>=movable.length)return;
         e.preventDefault();
         const next=movable.slice();next.splice(at,1);next.splice(dest,0,id);commit(next);
@@ -82,65 +86,55 @@
   }
   let compactTreeOpen=false;
   function updateProjectNav() {
-    const shell=document.getElementById("shell"),toggle=document.getElementById("nav-toggle");
-    if(!toggle || !state)return;
-    shell.classList.toggle("collapsed",!narrow.matches && !state.treeExpanded);
-    shell.classList.toggle("mobile-open",narrow.matches && compactTreeOpen);
-    toggle.setAttribute("aria-expanded",String(narrow.matches ? compactTreeOpen : state.treeExpanded));
+    const sidebar=document.getElementById("workspace-sidebar"), toggle=document.getElementById("workspace-nav-toggle");
+    if(!sidebar || !toggle)return;
+    const expanded=narrow.matches ? compactTreeOpen : state?.treeExpanded!==false;
+    document.body.classList.toggle("workspace-nav-collapsed",!narrow.matches && !expanded);
+    document.body.classList.toggle("workspace-nav-open",narrow.matches && expanded);
+    sidebar.hidden=!expanded;
+    sidebar.inert=!expanded;
+    toggle.setAttribute("aria-expanded",String(expanded));
+    const scrim=document.getElementById("workspace-nav-scrim");
+    if(scrim)scrim.hidden=!narrow.matches || !expanded;
   }
   function dismissProjectNav(restoreFocus=false) {
     if(!compactTreeOpen)return;
     compactTreeOpen=false;
     updateProjectNav();
-    if(restoreFocus)document.getElementById("nav-toggle").focus();
+    if(restoreFocus)document.getElementById("workspace-nav-toggle")?.focus();
   }
-  const treeToggle=document.getElementById("nav-toggle");
+  const treeToggle=document.getElementById("workspace-nav-toggle");
   if(treeToggle){
     treeToggle.onclick=()=>{
-      if(!state)return;
-      if(!narrow.matches){save({treeExpanded:!state.treeExpanded}).catch(()=>{});return;}
+      if(!narrow.matches){
+        if(state)save({treeExpanded:!state.treeExpanded}).catch(()=>{});
+        return;
+      }
       compactTreeOpen=!compactTreeOpen;
       updateProjectNav();
       if(compactTreeOpen){
-        const tree=document.getElementById("projectnav");
-        (tree.querySelector('[aria-current]') || tree.querySelector("a") || document.getElementById("new-project")).focus();
+        const sidebar=document.getElementById("workspace-sidebar");
+        (sidebar.querySelector('[data-project][aria-current]') || sidebar.querySelector('[aria-current="page"]') || sidebar.querySelector("a"))?.focus();
       }
     };
-    document.addEventListener("keydown",event=>{
-      if(event.key==="Escape" && compactTreeOpen){event.preventDefault();dismissProjectNav(true);}
+    document.getElementById("workspace-nav-close").onclick=()=>dismissProjectNav(true);
+    document.getElementById("workspace-nav-scrim").onclick=()=>dismissProjectNav(true);
+    // Page menus handle Escape before the outer navigation drawer.
+    window.addEventListener("keydown",event=>{
+      if(event.defaultPrevented || event.key!=="Escape" || !compactTreeOpen || document.querySelector("dialog[open]"))return;
+      const disclosure=event.target.closest?.("#workspace-sidebar details[open]") || document.querySelector("#workspace-sidebar .workspace-roots[open]");
+      event.preventDefault();
+      if(disclosure){disclosure.open=false;disclosure.querySelector("summary")?.focus();return;}
+      dismissProjectNav(true);
     });
     document.addEventListener("click",event=>{
-      if(!event.target.closest("#sidebar,#nav-toggle"))dismissProjectNav();
+      if(!event.target.closest("#workspace-sidebar,#workspace-nav-toggle,#project-row-menu,#project-editor"))dismissProjectNav();
+      else if(event.target.closest("#presets button,[data-settings-page]"))dismissProjectNav();
     });
     narrow.addEventListener("change",()=>{compactTreeOpen=false;updateProjectNav();});
-  }
-  function decorateProject(modules,tree) {
-    if(!state)return;
     updateProjectNav();
-    const tabs=Array.from(modules.querySelectorAll("a[data-tab-key]"));
-    const sorted=[...tabs.filter(a=>a.dataset.tabKey==="overview"),...ordered(tabs.filter(a=>a.dataset.tabKey!=="overview"),state.tabOrder,a=>a.dataset.tabKey)];
-    const limit=window.innerWidth>=1400?8:window.innerWidth>=1000?6:window.innerWidth>=760?4:2;
-    const current=sorted.find(a=>a.getAttribute("aria-current")==="page");
-    const visible=sorted.slice(0,limit);
-    if(current && !visible.includes(current))visible[limit-1]=current;
-    const overflow=sorted.filter(a=>!visible.includes(a));
-    modules.replaceChildren(...visible);
-    if(overflow.length) {
-      const menu=document.createElement("details"),summary=document.createElement("summary"),items=document.createElement("div");
-      menu.className="project-tab-overflow";summary.textContent=text("更多","More");items.append(...overflow);menu.append(summary,items);modules.append(menu);
-    }
-    decorateStrip(modules,sorted.map(a=>a.dataset.tabKey),"tabs","tabKey");
-    const rows=ordered(Array.from(tree.querySelectorAll("a[data-project]")),state.pinnedProjects,a=>a.dataset.project);
-    tree.replaceChildren(...rows.map(link=>{
-      const row=document.createElement("div"),pin=document.createElement("button"),id=link.dataset.project;
-      row.className="shell-project-row";
-      pin.type="button";pin.textContent=state.pinnedProjects.includes(id)?"★":"☆";
-      pin.setAttribute("aria-label",(state.pinnedProjects.includes(id)?text("取消固定 ","Unpin "):text("固定 ","Pin "))+link.textContent);
-      pin.onclick=()=>save({projectId:id,pinned:!state.pinnedProjects.includes(id)}).catch(()=>{});
-      row.append(link,pin);
-      return row;
-    }));
   }
-  window.SciShellLayout={request,ready,save,top,decorateTop,decorateProject,dismissProjectNav,get state(){return state;}};
+  function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
+  window.SciShellLayout={request,ready,save,top,ordered,decorateTop,decorateTabs,dismissProjectNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();

@@ -337,6 +337,8 @@ async function enterAndRun(app, ui, fixture, gateway) {
   await ui.navigate(readerURL.href);
   await ui.visible("#pageStatus", "第 2 页");
   await ui.visible("#textLayer span");
+  await ui.click("#reader-inspect");
+  await ui.visible("#reader-inspector");
   await ui.evaluate(({beginWord, endWord, startOffset, endOffset}) => {
     const layer = document.getElementById("textLayer"), spans = layer.querySelectorAll("span");
     const range = document.createRange();
@@ -484,6 +486,7 @@ async function reviewProjectSources(app, ui, fixture) {
   await ui.navigate(app.origin + "/lab?project=" + project.id);
   await eventually(() => ui.evaluate(name => [...document.querySelectorAll("#local-record option")]
     .some(option => option.textContent.includes(name)), attachment.name), "AI Lab loads the project source list");
+  await ui.click("#lab-attach");
   await ui.click("#local-search summary");
   await ui.set("#local-query", "actual project attachment");
   await ui.click("#local-find");
@@ -496,6 +499,7 @@ async function reviewProjectSources(app, ui, fixture) {
   await ui.click("#local-find");
   await ui.visible("#local-search-status", "复用");
   await ui.visible("#local-hits button", material);
+  await ui.click("#lab-materials-dialog footer [data-lab-close]");
   console.log("PASS AI Lab offline project search, original passage, and hybrid rebuild and reuse");
   const sourcePath = "/api/research/lab/sources/";
   const citations = [];

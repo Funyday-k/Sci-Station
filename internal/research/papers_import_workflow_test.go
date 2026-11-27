@@ -3,10 +3,12 @@ package research
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +55,59 @@ func TestPaperImportPreviewAndOfflineFallback(t *testing.T) {
 	res = testPaperRequest(t, lib, "POST", "/preview", `{"identifier":"not a published identifier"}`)
 	if res.Code != http.StatusBadRequest || len(lib.all()) != 1 || calls != 1 {
 		t.Fatalf("unsupported input: %d %s", res.Code, res.Body)
+	}
+}
+
+func TestPublisherLinkInfersDOIAndKeepsOrigin(t *testing.T) {
+	source := "https://journal.example/doi/full/10.1000/Figures?section=results"
+	calls := 0
+	providerFixture(t, func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.URL.Host != "api.crossref.org" || req.URL.EscapedPath() != "/works/10.1000%2Ffigures" {
+			t.Fatalf("unexpected provider request %s", req.URL)
+		}
+		if calls == 1 {
+			return nil, errors.New("fixture offline")
+		}
+		return providerResponse(req, `{"message":{"DOI":"10.1000/Figures","title":["Catalogue title"],"URL":"https://doi.org/10.1000/Figures"}}`)
+	})
+	lib := testPaperLib(t)
+	body := fmt.Sprintf(`{"identifier":%q}`, source)
+	res := testPaperRequest(t, lib, "POST", "", body)
+	fallback := decodeResearch[Paper](t, res.Body.Bytes())
+	if res.Code != http.StatusCreated || fallback.Title != "10.1000/figures" || fallback.DOI != "10.1000/figures" ||
+		fallback.URL != source || fallback.HasPDF || !strings.Contains(res.Body.String(), "metadata_warning") {
+		t.Fatalf("fallback import %d: %s", res.Code, res.Body)
+	}
+	res = testPaperRequest(t, lib, "POST", "", body)
+	resolved := decodeResearch[Paper](t, res.Body.Bytes())
+	if res.Code != http.StatusOK || resolved.ID != fallback.ID || resolved.Title != "Catalogue title" ||
+		resolved.URL != source || resolved.MetadataSource != "Crossref" || calls != 2 || len(lib.all()) != 1 {
+		t.Fatalf("resolved import %d: %s (provider calls %d)", res.Code, res.Body, calls)
+	}
+}
+
+func TestGenericPaperLinksAreRetainedWithoutFetching(t *testing.T) {
+	providerFixture(t, func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("unexpected request for a link-only import %s", req.URL)
+		return nil, nil
+	})
+	lib := testPaperLib(t)
+	for _, example := range []struct{ input, title, pdf string }{
+		{"https://journal.example/papers/article-42?ref=10.1000/ignored#results", "journal.example", ""},
+		{"https://journal.example/papers/Solar%20capture.PDF?download=1", "Solar capture", "https://journal.example/papers/Solar%20capture.PDF?download=1"},
+	} {
+		body := fmt.Sprintf(`{"identifier":%q}`, example.input)
+		res := testPaperRequest(t, lib, "POST", "", body)
+		record := decodeResearch[Paper](t, res.Body.Bytes())
+		if res.Code != http.StatusCreated || record.URL != example.input || record.Title != example.title ||
+			record.PDFURL != example.pdf || record.HasPDF || record.DOI != "" || record.MetadataSource != "" {
+			t.Fatalf("link import %d: %s", res.Code, res.Body)
+		}
+		papers, err := lib.libraryPapers(url.Values{"q": {example.input}})
+		if err != nil || len(papers) != 1 || papers[0].ID != record.ID {
+			t.Fatalf("source URL search: %v, %v", papers, err)
+		}
 	}
 }
 

@@ -223,7 +223,7 @@ test("a reopened discovery run restores its filters and can retry a partially co
     Option: class {constructor(text, value) {this.value = value;}},
     location: new URL("http://localhost/tools?tab=discover&project=project"), URL, URLSearchParams, fetch,
     history: {replaceState() {}},
-    window: {SciStationNav: {commitURL(url) { context.location = url; }}}
+    window: {addEventListener() {}, SciStationNav: {commitURL(url) { context.location = url; }}}
   });
   vm.runInContext(discoveryScript, context);
   vm.runInContext(script, context);

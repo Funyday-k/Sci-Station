@@ -233,6 +233,10 @@ func (a *apiServer) serve(port int) http.Handler {
 
 func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/studio/")
+	if path == "materials/transfer-check" {
+		a.checkMaterialTransfer(w, r)
+		return
+	}
 	if strings.HasPrefix(path, "materials/") {
 		id := strings.TrimPrefix(path, "materials/")
 		if materialID, match := strings.CutSuffix(id, "/save"); match {

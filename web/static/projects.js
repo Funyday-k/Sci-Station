@@ -23,14 +23,13 @@
     return button;
   };
   const pathName = (path) => path.split("/").filter(Boolean).at(-1) || path;
-  const globalProject = {id: "@global", name: "全局圆桌", path: "", global: true};
+  const unscopedProject = {id: "@global", global: true};
   const projectKey = project => project.id || project.path;
   const sessionProjectKey = session => session.project_id ||
-    (session.project ? "legacy:" + session.project : globalProject.id);
-  function resolveSelection(projects, preferredKey, complete) {
-    const ordinary = projects.filter(project => !project.global);
-    return projects.find(project => projectKey(project) === preferredKey) ||
-      (complete && ordinary.length === 1 ? ordinary[0] : null);
+    (session.project ? "legacy:" + session.project : unscopedProject.id);
+  function resolveSelection(projects, key) {
+    if (!key || key === unscopedProject.id) return unscopedProject;
+    return projects.find(project => projectKey(project) === key) || null;
   }
 
   function mount({ api, history, loadResearch, rerender, newSession, projectsChanged }) {
@@ -44,9 +43,7 @@
     const importButton = iconButton("import", "导入项目配置");
     actions.append(addButton, importButton);
     const label = history.previousElementSibling;
-    label.querySelector("h2").textContent = "项目";
     label.append(actions);
-    history.setAttribute("aria-label", "项目和圆桌");
 
     const dialog = element("dialog", "project-dialog project-management");
     dialog.setAttribute("aria-labelledby", "project-management-heading");
@@ -435,7 +432,7 @@
       const sorted = research.map(project => ({
         ...project, rule_count: rules.get(project.id)?.rule_count,
       })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-      return [...sorted, globalProject];
+      return sorted;
     }
     function render(sessions, rows, selected, activeProject) {
       const groups = new Map(available().map(project => [projectKey(project), { ...project, sessions: [], canCreate: true }]));
@@ -443,8 +440,9 @@
         const key = sessionProjectKey(session);
         if (!groups.has(key)) {
           const path = session.project || "";
-          const label = session.project_id ? "项目已停用" : "旧会话";
-          groups.set(key, { path, name: path ? label + " · " + pathName(path) : label, sessions: [] });
+          const unscoped = key === unscopedProject.id;
+          const label = unscoped ? "未关联项目的会话" : session.project_id ? "项目已停用" : "旧会话";
+          groups.set(key, { path, name: path ? label + " · " + pathName(path) : label, sessions: [], unscoped });
         }
         groups.get(key).sessions.push(session);
         if (session.id === selected && selected !== lastSelected) collapsed.delete(key);
@@ -466,7 +464,8 @@
         const folder = element("span", "project-rail-folder");
         folder.innerHTML = icon("folder");
         const name = element("span", "project-rail-name", group.name);
-        trigger.append(folder, name);
+        if (!group.unscoped) trigger.append(folder);
+        trigger.append(name);
         header.append(toggle, trigger);
         if (group.canCreate) {
           trigger.type = "button";

@@ -117,6 +117,7 @@ func fetchPaperURL(ctx context.Context, raw, accept string) (*http.Response, err
 	return res, nil
 }
 
+var errInvalidPaperPDF = fmt.Errorf("%w：请选择有效 PDF", errInvalidPaper)
 var errRemotePDF = errors.New("在线 PDF 无法下载")
 var errPDFReaderUnavailable = errors.New("当前构建缺少 PDF 阅读支持")
 
@@ -142,7 +143,7 @@ func (s *PaperLibrary) stagePDF(ctx context.Context, reader io.Reader) (temp, di
 	r := bufio.NewReader(reader)
 	prefix, err := r.Peek(5)
 	if err != nil || string(prefix) != "%PDF-" {
-		return "", "", fmt.Errorf("%w：请选择有效 PDF", errInvalidPaper)
+		return "", "", errInvalidPaperPDF
 	}
 	f, err := workspace.ManagedCreateTemp(filepath.Join(s.dir, "pdf"), ".import-*")
 	if err != nil {

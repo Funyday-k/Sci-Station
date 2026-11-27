@@ -44,13 +44,34 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 	api := openNavigationFixture(t, t.TempDir())
 	for route, surface := range workspaceSurfaces {
 		page := navigationRequest(t, api, "GET", route, "", 200).Body.String()
-		for _, component := range []string{"<!doctype html>", `class="workspace-bar"`, "<nav data-workspace-nav ", `data-workspace-surface="` + surface.name + `"`, `src="/static/workspace-nav.js"`} {
+		for _, component := range []string{"<!doctype html>", `class="workspace-bar"`, `id="workspace-sidebar"`, `id="workspace-nav-toggle"`, `id="workspace-context"`, "<nav data-workspace-nav ", "<nav data-workspace-settings ", `id="rail-close"`, `data-workspace-surface="` + surface.name + `"`, `src="/static/workspace-nav.js"`} {
 			if strings.Count(page, component) != 1 {
 				t.Errorf("%s: missing or duplicate %s", route, component)
 			}
 		}
+		// Slots arrive in the initial document, including when scripts have not run.
+		contextStart := strings.Index(page, `id="workspace-context"`)
+		toolbar := strings.Index(page, `class="workspace-bar"`)
+		content := strings.Index(page, `class="workspace-region"`)
+		if !(contextStart >= 0 && contextStart < toolbar && toolbar < content) {
+			t.Fatalf("%s: unexpected shell order", route)
+		}
+		for _, id := range map[string][]string{"studio": {"new-session", "settings-tab-models"}, "science-tools": {"workspace-context"}}[surface.name] {
+			if !strings.Contains(page[contextStart:toolbar], `id="`+id+`"`) {
+				t.Errorf("%s: %s is outside sidebar", route, id)
+			}
+		}
+		if surface.name == "research" && !strings.Contains(page[toolbar:content], `id="search-open"`) {
+			t.Error("research search must be mounted in the shared toolbar")
+		}
+		if strings.Contains(page, `id="workspace-ai-modes"`) != (surface.name == "lab" || surface.name == "studio") {
+			t.Errorf("%s: unexpected AI mode selector", route)
+		}
 		if strings.Contains(page, "{{template") || strings.Contains(page, "<iframe") {
 			t.Errorf("%s: unmounted domain", route)
+		}
+		if strings.Contains(page, `id="shell-inspect"`) || strings.Contains(page, `id="nav-toggle"`) {
+			t.Errorf("%s: obsolete global inspector or duplicate navigation toggle", route)
 		}
 	}
 	old := navigationRequest(t, api, "GET", "/static/reader.html?paper=abc", "", http.StatusTemporaryRedirect)
@@ -101,6 +122,35 @@ func TestWorkspaceRouteRecoveryIsScopedAndOrdered(t *testing.T) {
 	navigationRequest(t, api, "POST", endpoint, `{"event":40,"route":"/lab"}`, 500)
 	if data, err = os.ReadFile(file); err != nil || string(data) != `{"version":2,"future":true}` {
 		t.Fatal(string(data), err)
+	}
+}
+
+func TestWorkspaceRouteRecoveryKeepsCalendarDate(t *testing.T) {
+	for _, tc := range []struct {
+		name, route, want string
+	}{
+		{"leap day", "/tools?tab=calendar&date=2028-02-29", "/tools?date=2028-02-29&tab=calendar"},
+		{"impossible day", "/tools?tab=calendar&date=2027-02-29", "/tools?tab=calendar"},
+		{"malformed", "/tools?tab=calendar&date=2028-2-09", "/tools?tab=calendar"},
+		{"zero year", "/tools?tab=calendar&date=0000-01-01", "/tools?tab=calendar"},
+		{"repeated date", "/tools?tab=calendar&date=2028-02-29&date=2028-03-01", "/tools?tab=calendar"},
+		{"other tab", "/tools?tab=discover&date=2028-02-29", "/tools?tab=discover"},
+		{"other page", "/research?tab=calendar&view=tasks&date=2028-02-29", "/research?tab=calendar&view=tasks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			api := openNavigationFixture(t, root)
+			body, err := json.Marshal(map[string]any{"event": 1, "route": tc.route})
+			if err != nil {
+				t.Fatal(err)
+			}
+			navigationRequest(t, api, "POST", "/api/workspace/navigation", string(body), http.StatusNoContent)
+			api = openNavigationFixture(t, root)
+			restored := navigationRequest(t, api, "GET", "/resume", "", http.StatusSeeOther)
+			if got := restored.Header().Get("Location"); got != tc.want {
+				t.Fatalf("restored %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

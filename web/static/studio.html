@@ -15,7 +15,6 @@
     <link rel="stylesheet" href="/static/plugin-market.css" />
     <link rel="stylesheet" href="/static/settings-nav.css" />
     <link rel="stylesheet" href="/static/research-modules.css" />
-    <script src="/static/ui-icons.js" defer></script>
     <script src="/static/projects.js" defer></script>
     <script src="/static/agenda.js" defer></script>
     <script src="/static/seating-plan.js" defer></script>
@@ -57,21 +56,19 @@
     <script src="/static/cli-edit-review.js" defer></script>
     <script src="/static/science-meeting.js" defer></script>
     <script src="/static/lab-handoff.js" defer></script>
+    <script src="/static/studio-mode-transfer.js" defer></script>
     <script src="/static/studio.js" defer></script>
     <script src="/static/children-panel.js" defer></script>
 {{end}}
-{{define "content"}}
-<div class="app">
-      <aside class="sidebar" id="sidebar" aria-label="项目与圆桌">
-
-
+{{define "sidebar"}}
+<aside class="sidebar" id="studio-session-sidebar" aria-labelledby="studio-history-title">
         <button id="new-session" class="button secondary new-button">
           <svg class="ui-icon" data-ui-icon="plus" width="16" height="16" aria-hidden="true"></svg>新建圆桌
         </button>
         <div class="history-label">
-          <h2>项目</h2>
+          <h2 id="studio-history-title" data-en="Roundtable sessions">圆桌会话</h2>
         </div>
-        <nav id="history" class="history" aria-label="已保存的圆桌">
+        <nav id="history" class="history" aria-labelledby="studio-history-title">
           <p class="quiet">正在读取…</p>
         </nav>
         <details id="session-recovery" class="session-recovery" hidden>
@@ -81,6 +78,19 @@
         </details>
 
       </aside>
+<nav class="settings-nav" aria-label="设置分类" data-en-aria-label="Settings categories" role="tablist" aria-orientation="vertical">
+                <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-l10n-text="settingsWorkspaceModules" tabindex="-1">工作区模块</button>
+                <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models" data-en="Model sources">模型来源</button>
+                <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
+                <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
+                <button id="settings-tab-prompts" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-prompts" data-settings-page="prompts" data-en="Workspace prompts" tabindex="-1">工作区提示词</button>
+                <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" data-en="Appearance" tabindex="-1">外观</button>
+                <button id="settings-tab-calendar" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-calendar" data-settings-page="calendar" data-en="Calendar and reminders" tabindex="-1">日历与提醒</button>
+                <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
+              </nav>
+{{end}}
+{{define "content"}}
+<div class="app workspace-pane">
       <button
         id="sidebar-scrim"
         class="scrim"
@@ -94,7 +104,7 @@
               id="toggle-sidebar"
               class="icon-button"
               aria-label="切换项目栏"
-              aria-controls="sidebar"
+              aria-controls="studio-session-sidebar"
               aria-expanded="true"
             ></button>
           </div>
@@ -157,15 +167,29 @@
           <div id="setup-scroll" class="page-scroll">
               <div id="stage-layout" class="stage-layout is-new">
                 <div id="draft-project-required" class="setup-panel" hidden>
-                  <h2 id="draft-project-message" tabindex="-1">选择要创建圆桌的项目</h2>
-                  <div id="draft-project-options" class="draft-project-options"></div>
+                  <h2 id="draft-project-message" tabindex="-1">该项目当前不可用</h2>
                   <div class="draft-project-actions">
-                    <button id="draft-add-project" type="button" class="button secondary">添加项目</button>
-                    <button id="draft-import-project" type="button" class="button secondary">导入项目配置</button>
+                    <button id="draft-clear-project" type="button" class="button secondary" data-en="Continue without a project">不关联项目</button>
                     <button id="draft-retry-projects" type="button" class="button secondary" hidden>重新读取</button>
                   </div>
                 </div>
                 <form id="create-form" class="setup-panel" hidden>
+                  <div class="setup-section setup-project">
+                    <label for="create-project" data-en="Project (optional)">项目（可选）</label>
+                    <select id="create-project" aria-describedby="create-project-access"></select>
+                  </div>
+                  <section id="studio-mode-import" class="setup-section" aria-labelledby="studio-mode-import-title" hidden>
+                    <h2 id="studio-mode-import-title" data-en="From single chat">从单人对话转来</h2>
+                    <a id="studio-mode-source" data-en="Open original chat" hidden>查看原会话</a>
+                    <p id="studio-mode-preset" hidden></p>
+                    <details>
+                      <summary data-en="Review context and attachments">查看上下文和附件</summary>
+                      <pre id="studio-mode-context"></pre>
+                      <ul id="studio-mode-attachments"></ul>
+                    </details>
+                    <button id="studio-mode-apply" class="button secondary" type="button" data-en="Add to draft">加入草稿</button>
+                    <button id="studio-mode-dismiss" class="text-button" type="button" data-en="Dismiss">忽略</button>
+                  </section>
                   <section id="create-composer" class="setup-section">
                     <label for="new-topic">会议议题</label>
                     <div id="create-materials"></div>
@@ -477,16 +501,7 @@
         <section id="settings-view" class="page settings-page" hidden>
           <div class="page-scroll">
             <div class="settings-layout">
-              <nav class="settings-nav" aria-label="设置分类" data-en-aria-label="Settings categories" role="tablist" aria-orientation="vertical">
-                <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-l10n-text="settingsWorkspaceModules" tabindex="-1">工作区模块</button>
-                <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models" data-en="Model sources">模型来源</button>
-                <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
-                <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
-                <button id="settings-tab-prompts" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-prompts" data-settings-page="prompts" data-en="Workspace prompts" tabindex="-1">工作区提示词</button>
-                <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" data-en="Appearance" tabindex="-1">外观</button>
-                <button id="settings-tab-calendar" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-calendar" data-settings-page="calendar" data-en="Calendar and reminders" tabindex="-1">日历与提醒</button>
-                <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
-              </nav>
+
               <div class="settings-content">
                 <form id="settings-form" class="settings-form" novalidate>
                   <section id="settings-panel-models" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-models">
@@ -767,6 +782,16 @@
           </div>
         </section>
       </main>
+        <dialog id="studio-mode-overflow" aria-labelledby="studio-mode-overflow-title" aria-describedby="studio-mode-overflow-summary">
+          <form method="dialog">
+            <h2 id="studio-mode-overflow-title" data-en="Switch to single chat">切换到单人对话</h2>
+            <p id="studio-mode-overflow-summary"></p>
+            <div class="dialog-actions">
+              <button type="submit" value="cancel" class="button secondary" autofocus data-en="Cancel">取消</button>
+              <button type="submit" value="text-only" class="button primary" data-en="Continue with text only">仅带入文本</button>
+            </div>
+          </form>
+        </dialog>
     </div>
     <div
       id="history-menu"

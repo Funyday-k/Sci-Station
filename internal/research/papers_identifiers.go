@@ -8,6 +8,8 @@ import (
 )
 
 var inspirePattern = regexp.MustCompile(`^[0-9]{1,12}$`)
+var errPaperIdentifier = fmt.Errorf("%w：请输入 DOI、arXiv 编号、INSPIRE 链接或 HTTP(S) 网址", errInvalidPaper)
+var publisherDOIPath = regexp.MustCompile(`(?i)/(?:doi(?:/(?:abs|full|epdf))?|articles?|abstract|fulltext)/(10\.[0-9]{4,9}/[-._;()/:a-z0-9]+)$`)
 
 func normalizeDOI(value string) string {
 	value = strings.TrimSpace(value)
@@ -132,7 +134,13 @@ func (p *paperImport) identifyTarget(value string) error {
 	}
 	if paperHTTPURL(value) {
 		p.URL = value
+		link, _ := url.Parse(value)
+		if !strings.HasSuffix(strings.ToLower(link.Path), ".pdf") {
+			if match := publisherDOIPath.FindStringSubmatch(link.Path); len(match) > 1 && len(match[1]) <= 512 {
+				p.DOI = normalizeDOI(match[1])
+			}
+		}
 		return nil
 	}
-	return fmt.Errorf("%w：请输入 DOI、arXiv 编号、INSPIRE 链接或 HTTP(S) 网址", errInvalidPaper)
+	return errPaperIdentifier
 }

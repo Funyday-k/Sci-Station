@@ -10,14 +10,17 @@
   <script defer src="/static/discovery-view.js"></script>
   <script defer src="/static/science-tools.js"></script>
 {{end}}
+{{define "breadcrumb"}}<span data-en="Research tools">科研工具</span>{{end}}
+{{define "sidebar"}}
+<aside class="tools-navigation">
+      <nav aria-label="科研工具"><a href="?tab=discover" data-tab="discover" data-en="Discover papers">文献发现</a><a href="?tab=convert" data-tab="convert" data-en="PDF conversion">PDF 转换</a><a href="?tab=calendar" data-tab="calendar" data-en="System calendar and reminders">系统日历与提醒</a></nav>
+    </aside>
+{{end}}
 {{define "content"}}
 <div class="frame">
-    <aside>
-      <nav aria-label="科研工具"><a href="?tab=discover" data-tab="discover">文献发现</a><a href="?tab=convert" data-tab="convert">PDF 转换</a><a href="?tab=calendar" data-tab="calendar">系统日历与提醒</a></nav>
-    </aside>
-    <main>
-      <header><span>科研工具</span><label>当前项目 <select id="project"></select></label></header>
-      <h1 id="heading"></h1>
+
+    <main class="workspace-page">
+      <header class="workspace-page-heading"><h1 id="heading"></h1><label><span data-en="Project">当前项目</span> <select id="project"></select></label></header>
       <p id="status" role="status"></p>
       <section id="discover" hidden>
         <a id="readingTaskOpen" hidden>打开阅读待办</a>

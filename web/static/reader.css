@@ -1,14 +1,14 @@
 :root {
   color-scheme:light dark;
-  --bg:#f2f4f4;
-  --surface:#fff;
-  --fg:#242e2d;
-  --muted:#616e6a;
-  --edge:#d5ddda;
-  --accent:#275f52;
-  --pale:#e1eee8;
-  --desk:#e0e6e3;
-  font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+  --bg:var(--workspace-paper);
+  --surface:var(--workspace-surface);
+  --fg:var(--workspace-ink);
+  --muted:var(--workspace-muted);
+  --edge:var(--workspace-line);
+  --accent:var(--workspace-accent);
+  --pale:var(--workspace-accent-soft);
+  --desk:var(--workspace-inset);
+  font:var(--workspace-text)/1.5 var(--workspace-font);
 }
 
 * {
@@ -19,6 +19,10 @@ body {
   margin:0;
   color:var(--fg);
   background:var(--bg);
+}
+
+:where(h1, h2, h3, h4, h5, h6, strong, b) {
+  font-weight:600;
 }
 
 [hidden] {
@@ -44,8 +48,8 @@ a:hover {
 
 button,select,input,textarea {
   background:var(--surface);
-  border:1px solid var(--edge);
-  border-radius:7px;
+  border:1px solid var(--workspace-control-line);
+  border-radius:6px;
 }
 
 button,select {
@@ -53,7 +57,15 @@ button,select {
 }
 
 button {
+  min-height:32px;
   padding:5px 10px;
+  border-color:var(--workspace-button-line);
+  font-weight:400;
+}
+
+:is(input, textarea)::placeholder {
+  color:var(--muted);
+  opacity:1;
 }
 
 button:disabled {
@@ -62,7 +74,8 @@ button:disabled {
 }
 
 button:hover:enabled {
-  border-color:var(--accent);
+  background:var(--desk);
+  border-color:var(--workspace-control-line);
 }
 
 a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible {
@@ -72,9 +85,15 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,
 
 .primary {
   background:var(--accent);
-  border-color:transparent;
-  color:white;
-  font-weight:600;
+  border-color:var(--accent);
+  color:var(--workspace-accent-ink);
+  font-weight:500;
+}
+
+.primary:hover:enabled {
+  background:var(--accent);
+  border-color:var(--accent);
+  filter:brightness(.95);
 }
 
 .spacer {
@@ -94,7 +113,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,
 }
 
 .reader-header>a:not(.brand) {
-  font-size:13px;
+  font-size:var(--workspace-text-small);
 }
 
 .brand {
@@ -102,20 +121,21 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,
   align-items:center;
   gap:8px;
   color:var(--fg);
-  font-weight:650;
+  font-weight:600;
   letter-spacing:-.02em;
 }
 
 .brand img {
   width:27px;
   height:27px;
+  border-radius:5px;
 }
 
 .breadcrumb {
   border-left:1px solid var(--edge);
   padding-left:12px;
   color:var(--muted);
-  font-size:13px;
+  font-size:var(--workspace-text-small);
 }
 
 .titlebar {
@@ -124,7 +144,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,
 }
 
 h1 {
-  font-size:clamp(18px,2vw,25px);
+  font-size:calc(clamp(20px,2vw,24px) + var(--workspace-text-increase));
   line-height:1.22;
   margin:0;
   letter-spacing:-.025em;
@@ -134,7 +154,7 @@ h1 {
 #byline {
   color:var(--muted);
   margin:4px 0 0;
-  font-size:12px;
+  font-size:var(--workspace-text-small);
 }
 
 .layout {
@@ -143,8 +163,7 @@ h1 {
   gap:1px;
   background:var(--edge);
   border-top:1px solid var(--edge);
-  height:calc(100dvh - 117px);
-  min-height:430px;
+  min-height:0;
 }
 
 .viewer {
@@ -164,8 +183,8 @@ h1 {
 }
 
 .toolbar button {
-  font-size:13px;
-  min-width:29px;
+  font-size:var(--workspace-text-small);
+  min-width:32px;
 }
 
 .divider {
@@ -176,7 +195,7 @@ h1 {
 }
 
 .page-input,#count,.foot {
-  font-size:12px;
+  font-size:var(--workspace-text-small);
   color:var(--muted);
 }
 
@@ -266,7 +285,7 @@ h1 {
 }
 
 .foot button {
-  font-size:12px;
+  font-size:var(--workspace-text-small);
 }
 
 .empty {
@@ -282,7 +301,7 @@ h1 {
 
 .muted {
   color:var(--muted);
-  font-size:13px;
+  font-size:var(--workspace-text-small);
 }
 
 aside {
@@ -310,7 +329,7 @@ aside {
 .tabs button[aria-selected=true] {
   border-bottom-color:var(--accent);
   color:var(--accent);
-  font-weight:650;
+  font-weight:500;
 }
 
 .panel-title {
@@ -319,17 +338,17 @@ aside {
 }
 
 h2,h3 {
-  font-size:16px;
+  font-size:calc(16px + var(--workspace-text-increase));
   line-height:1.4;
   margin:0;
 }
 
 h3 {
-  font-size:14px;
+  font-size:var(--workspace-text);
 }
 
 #annotationCount {
-  font-size:12px;
+  font-size:var(--workspace-text-small);
   color:var(--muted);
 }
 
@@ -366,7 +385,7 @@ h3 {
 
 .ann-actions button {
   padding:2px 6px;
-  font-size:12px;
+  font-size:var(--workspace-text-small);
 }
 
 .ann-actions .where {
@@ -390,7 +409,7 @@ textarea {
 label:not(.page-input) {
   display:block;
   color:var(--muted);
-  font-size:12px;
+  font-size:var(--workspace-text-small);
   margin:12px 0 4px;
 }
 
@@ -410,7 +429,7 @@ label:not(.page-input) {
 
 #message {
   margin-top:12px;
-  font-size:13px;
+  font-size:var(--workspace-text-small);
   color:var(--accent);
   white-space:pre-wrap;
 }
@@ -439,7 +458,7 @@ label:not(.page-input) {
 #findResults button {
   display:block;
   border:0;
-  font-size:12px;
+  font-size:var(--workspace-text-small);
   text-align:left;
   width:100%;
   padding:3px 0;
@@ -451,7 +470,7 @@ dialog {
   background:var(--surface);
   color:var(--fg);
   border:1px solid var(--edge);
-  border-radius:13px;
+  border-radius:10px;
   padding:20px;
   box-shadow:0 12px 55px #18231f40;
 }
@@ -470,14 +489,6 @@ dialog .actions {
 }
 
 @media(max-width:720px) {
-  .layout {
-    display:flex;
-    height:auto;
-    flex-direction:column;
-  }
-  .viewer {
-    height:75dvh;
-  }
   aside {
     padding-bottom:24px;
   }
@@ -491,29 +502,10 @@ dialog .actions {
     padding:8px;
   }
   .reader-header>a:not(.brand) {
-    font-size:12px;
+    font-size:var(--workspace-text-small);
   }
   .titlebar .primary {
     flex-shrink:0;
-  }
-}
-
-@media(prefers-color-scheme:dark) {
-  :root {
-    --bg:#1b2120;
-    --surface:#252d2b;
-    --fg:#e4ebe7;
-    --muted:#b2c1bb;
-    --edge:#3d4944;
-    --accent:#8dceb1;
-    --pale:#30443b;
-    --desk:#191e1b;
-  }
-  .primary {
-    color:#13241c;
-  }
-  .brand img {
-    border-radius:5px;
   }
 }
 
@@ -534,7 +526,7 @@ dialog .actions {
 }
 
 .empty .actions button {
-  font-size:13px;
+  font-size:var(--workspace-text-small);
 }
 
 .page-surface.region-mode {

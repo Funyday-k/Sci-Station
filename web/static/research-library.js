@@ -108,7 +108,7 @@
         if (ancestor !== collection) return false;
       }
       const scope = p.project_links?.[projectID];
-      return [p.title, (p.authors || []).join(" "), p.year || 0, p.doi, p.arxiv, p.citekey,
+      return [p.title, (p.authors || []).join(" "), p.year || 0, p.doi, p.arxiv, p.inspire_id, p.url, p.citekey,
         (p.tags || []).join(" "), p.publication_title, p.abstract, scope?.folder_path, (scope?.use_for || []).join(" ")]
         .join(" ").toLowerCase().includes(query);
     });
@@ -227,8 +227,9 @@
         return '<td>' + esc(tableValue(paper, key) || "—") + '</td>';
       }).join("");
       const actions = (!shown.includes("title") ? E.link("阅读", E.reader(paper.id), "bare") : "") +
-        button("引文", "show-citation", {id: paper.id, kind: "bare"}) +
-        button("编辑", "edit-paper", {id: paper.id, kind: "bare"}) +
+        button(text("引文", "Citation"), "show-citation", {id: paper.id, kind: "icon", glyph:"copy", iconOnly:true, title:text("引文", "Citation")+" · "+paper.title}) +
+        button(text("编辑", "Edit"), "edit-paper", {id: paper.id, kind: "icon", glyph:"sliders", iconOnly:true, title:text("编辑", "Edit")+" · "+paper.title}) +
+        E.detailButton("paper", paper) +
         (projectID ? button("论文 Wiki", "open-paper-wiki", {id: paper.id, kind: "bare"}) : "");
       return '<tr><td>' + selectionCheckbox(paper) + '</td>' + cells + '<td><div class="library-table-actions">' + actions + '</div></td></tr>';
     });

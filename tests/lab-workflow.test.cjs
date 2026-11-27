@@ -1,6 +1,34 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {compose,receive,key} = require("../web/static/lab-handoff.js");
+
+test("mode transfers are isolated by destination, workspace and project",()=>{
+  const {writeModeTransfer,readModeTransfer,clearModeTransfer,scopeOwnsModeSource}=require("../web/static/lab-handoff.js");
+  const cache=new Map(), previous=global.sessionStorage;
+  global.sessionStorage={getItem:key=>cache.get(key),setItem:(key,value)=>cache.set(key,value),removeItem:key=>cache.delete(key)};
+  try {
+    const draft={workspace:"isolated-root",projectId:"physics",sourceSessionId:"a".repeat(32),context:"Review the existing calibration.",
+      materials:[{id:"b".repeat(32),name:"Original excerpt"}]};
+    writeModeTransfer("single",draft);
+    assert.deepEqual(readModeTransfer("single",draft),draft);
+    assert.equal(readModeTransfer("roundtable",draft),null);
+    assert.equal(readModeTransfer("single",{...draft,projectId:""}),null);
+    assert.equal(readModeTransfer("single",{...draft,workspace:"other-root"}),null);
+    assert.throws(()=>writeModeTransfer("single",{...draft,materials:[{id:"../file",name:"Other file"}]}));
+    const preset={...draft,sourceSessionId:"",materials:[],context:"α".repeat(6500),roundtablePreset:{mode:"forum",seats:3}};
+    writeModeTransfer("roundtable",preset);
+    assert.deepEqual(readModeTransfer("roundtable",preset),preset);
+    assert.throws(()=>writeModeTransfer("single",preset));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,materials:draft.materials}));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,sourceSessionId:draft.sourceSessionId}));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,roundtablePreset:{mode:"forum",seats:1}}));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,roundtablePreset:undefined}));
+    assert.ok(scopeOwnsModeSource({project_id:"physics",project:"/fixture/physics"},"physics"));
+    assert.ok(!scopeOwnsModeSource({project:"/fixture/other"},""));
+    clearModeTransfer("single");
+    assert.equal(readModeTransfer("single",draft),null);
+  } finally {global.sessionStorage=previous;}
+});
 const setup = {projectId:"p1",sessionId:"",title:"复核",prompt:"检查近似。",mode:"review",seats:2,question:"验证边界条件。"};
 test("workflows preserve source provenance and Unicode limits",()=>{
  const text=compose({...setup,resource:{server:"https://tools.example/mcp",uri:"urn:paper:one",sha256:"f".repeat(64),excerpt:"原文。"}});
@@ -126,6 +154,7 @@ test("formal workflows identify structured scientific artifacts with turn-visibl
 });
 
 test("a selected MCP excerpt carries the exact one-time consent into its project run",()=>{
+  const {retainExcerpt}=require("../web/static/lab-handoff.js");
   const receipt={projectId:setup.projectId,connection:"papers",operation:"tools/call",id:"1".repeat(64),
     configHash:"2".repeat(64),argumentsHash:"3".repeat(64),time:"2026-10-25T08:30:00Z"};
   const resource={kind:"mcp-resource",projectId:setup.projectId,server:"MCP · papers",uri:"mcp-tool:papers/find",
@@ -133,4 +162,7 @@ test("a selected MCP excerpt carries the exact one-time consent into its project
   const topic=compose({...setup,resource});
   for(const value of [receipt.id,receipt.configHash,receipt.argumentsHash,receipt.operation,resource.excerpt])assert.ok(topic.includes(value));
   assert.throws(()=>compose({...setup,resource:{...resource,receipt:{...receipt,projectId:"another"}}}),/同意记录/);
+  const retained=retainExcerpt({...resource,token:"connector fixture token",receipt:{...receipt,arguments:{private:true}}},setup.projectId);
+  assert.deepEqual(retained,resource);
+  assert.throws(()=>retainExcerpt(resource,"another"));
 });

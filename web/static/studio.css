@@ -1,41 +1,29 @@
 :root {
-  --paper: #f4f4f6;
-  --surface: #fff;
-  --editor: #f9f9fb;
-  --ink: #1c1c21;
-  --text: #34343b;
-  --muted: #5b5c6b;
-  --line: #e3e3e8;
-  --accent: #4f46e5;
-  --accent-soft: #eeedfd;
+  --paper: var(--workspace-paper);
+  --surface: var(--workspace-surface);
+  --editor: var(--workspace-inset);
+  --ink: var(--workspace-ink);
+  --text: var(--workspace-ink);
+  --muted: var(--workspace-muted);
+  --line: var(--workspace-line);
+  --accent: var(--workspace-accent);
+  --accent-soft: var(--workspace-accent-soft);
   --success: #14783f;
   --danger: #b12f2f;
   --warning: #88520c;
-  --shadow: 0 1px 2px #00000014, 0 0 0 0.5px #0000000a;
+  --shadow: var(--workspace-shadow);
   color-scheme: light;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
-    sans-serif;
-  font-size: 13px;
-  line-height: 1.45;
+  font-family: var(--workspace-font);
+  font-size: var(--workspace-text);
+  line-height: 1.5;
   color: var(--ink);
   background: var(--paper);
   font-synthesis: none;
 }
 :root[data-theme="dark"] {
-  --paper: #1a1a1e;
-  --surface: #232327;
-  --editor: #1f1f23;
-  --ink: #ededf1;
-  --text: #dedee5;
-  --muted: #b9b9c6;
-  --line: #393940;
-  --accent: #a5b4fc;
-  --accent-soft: #30324e;
   --success: #8be0ac;
   --danger: #ffa49d;
   --warning: #f2c373;
-  --shadow: inset 0 0.5px 0 #ffffff14, 0 1px 2px #0000004d;
   color-scheme: dark;
 }
 * {
@@ -44,6 +32,9 @@
 body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
+}
+:where(h1, h2, h3, h4, h5, h6, strong, b) {
+  font-weight: 600;
 }
 button,
 input,
@@ -129,34 +120,34 @@ summary:focus-visible {
   border: 1px solid transparent;
   border-radius: 6px;
   line-height: 1.5;
-  font-size: 12px;
+  font-size: var(--workspace-text-small);
   font-weight: 500;
   white-space: nowrap;
 }
 .primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--workspace-accent-ink);
 }
 .primary:hover:not(:disabled) {
   filter: brightness(0.95);
 }
 [data-theme="dark"] .primary {
-  color: #14142a;
+  color: var(--workspace-accent-ink);
 }
 .secondary,
 .subtle {
   background: var(--surface);
-  border-color: var(--line);
+  border-color: var(--workspace-button-line);
   color: var(--ink);
 }
 .secondary:hover:not(:disabled),
 .subtle:hover {
-  background: var(--accent-soft);
+  background: var(--editor);
 }
 .small {
-  font-size: 11px;
-  min-height: 29px;
+  font-size: var(--workspace-text-small);
+  min-height: 32px;
   padding: 5px 10px;
 }
 .new-button {
@@ -164,12 +155,11 @@ summary:focus-visible {
   background: var(--surface);
   border-color: var(--line);
   color: var(--ink);
-  box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: var(--workspace-text-small);
 }
 .icon-button {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 5px;
   border: 0;
   border-radius: 6px;
@@ -185,7 +175,7 @@ summary:focus-visible {
   height: 18px;
 }
 .icon-button:hover {
-  background: var(--accent-soft);
+  background: var(--editor);
 }
 .history-label {
   display: flex;
@@ -194,8 +184,8 @@ summary:focus-visible {
   margin: 22px 6px 8px;
 }
 .history-label h2 {
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--workspace-text-small);
+  font-weight: 500;
   margin: 0;
 }
 .history {
@@ -218,14 +208,14 @@ summary:focus-visible {
   margin-bottom: 4px;
 }
 .history-item:hover {
-  background: var(--accent-soft);
+  background: var(--editor);
 }
 .history-item.selected {
   background: var(--surface);
   box-shadow: var(--shadow);
 }
 .history-topic {
-  font-size: 13px;
+  font-size: var(--workspace-text);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -298,7 +288,7 @@ summary:focus-visible {
 .view-tab.selected {
   background: var(--surface);
   box-shadow: var(--shadow);
-  font-weight: 550;
+  font-weight: 500;
 }
 .view-tab:hover:not(.selected) {
   background: var(--accent-soft);
@@ -333,7 +323,7 @@ summary:focus-visible {
   margin: 0 0 23px;
 }
 .page-heading h1 {
-  font-size: 23px;
+  font-size: calc(22px + var(--workspace-text-increase));
   line-height: 1.45;
   font-weight: 600;
   margin: 0;
@@ -344,8 +334,8 @@ summary:focus-visible {
   margin: 0 auto 17px;
 }
 .session-heading h1 {
-  font-size: 18px;
-  font-weight: 550;
+  font-size: calc(20px + var(--workspace-text-increase));
+  font-weight: 600;
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
@@ -400,19 +390,19 @@ summary:focus-visible {
 }
 .setup-panel label {
   display: block;
-  font-size: 13px;
-  font-weight: 550;
+  font-size: var(--workspace-text-small);
+  font-weight: 500;
   margin-bottom: 10px;
 }
 input,
 textarea,
 select {
-  border: 1px solid var(--line);
+  border: 1px solid var(--workspace-control-line);
   border-radius: 6px;
   background: var(--surface);
   padding: 9px 11px;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--workspace-text);
 }
 textarea {
   display: block;
@@ -422,8 +412,8 @@ textarea {
 }
 input::placeholder,
 textarea::placeholder {
-  color: var(--text);
-  opacity: 0.8;
+  color: var(--muted);
+  opacity: 1;
 }
 .setup-panel textarea {
   margin: 0 0 25px;
@@ -604,7 +594,7 @@ textarea::placeholder {
   margin-bottom: 4px;
 }
 .child-item strong {
-  font-weight: 550;
+  font-weight: 500;
 }
 .child-item p {
   white-space: pre-wrap;
@@ -926,7 +916,7 @@ textarea::placeholder {
 }
 .file-sidebar-title {
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 500;
   margin: 0 6px 12px;
 }
 .file-filter {
@@ -1020,7 +1010,7 @@ textarea::placeholder {
 }
 .editor-toolbar strong {
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 .editor-toolbar span {
@@ -1087,7 +1077,7 @@ textarea::placeholder {
 }
 .diff-heading h2 {
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   overflow-wrap: anywhere;
   margin: 0;
 }
@@ -1139,7 +1129,7 @@ textarea::placeholder {
 }
 .settings-section h2 {
   margin: 0 0 8px;
-  font-size: 14px;
+  font-size: var(--workspace-text);
   font-weight: 600;
 }
 .settings-card {
@@ -1171,15 +1161,15 @@ textarea::placeholder {
 }
 .model-source-name strong,
 .client-identity strong {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--workspace-text);
+  font-weight: 500;
 }
 .settings-status,
 .settings-note,
 .client-identity small,
 .magpie-models small {
-  color: var(--text);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: var(--workspace-text-small);
 }
 .settings-status.settings-ready {
   color: var(--success);
@@ -1685,7 +1675,7 @@ input[role="switch"]:checked:before {
   background: var(--surface);
   font-size: 12px;
 }
-.round-checkpoint > summary { cursor: pointer; color: var(--ink); font-weight: 550; }
+.round-checkpoint > summary { cursor: pointer; color: var(--ink); font-weight: 500; }
 .round-checkpoint ul { margin: 8px 0 2px; padding-inline-start: 19px; }
 .round-checkpoint li { margin: 5px 0; line-height: 1.55; }
 @media (max-width: 640px) {
@@ -1852,7 +1842,7 @@ input[role="switch"]:checked:before {
 
 .view-title {
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   margin-right: auto;
 }
 .sidebar-settings.view-tab {
@@ -1910,7 +1900,7 @@ input[role="switch"]:checked:before {
 }
 .review-heading h2 {
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   margin: 0;
 }
 .review-heading > div {
@@ -2401,7 +2391,7 @@ body {
   min-width: 0;
   margin: 0;
   font-size: 14px;
-  font-weight: 550;
+  font-weight: 500;
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2752,7 +2742,7 @@ body {
 .menu-project-context > span {
   display: block;
   font-size: 11px;
-  font-weight: 550;
+  font-weight: 500;
   margin-bottom: 5px;
 }
 .menu-project-path {
