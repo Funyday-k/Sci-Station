@@ -9,6 +9,9 @@ import (
 	"scistation.local/desktop/internal/workspace"
 )
 
+// Markdown renders the saved record without consulting models, files or settings.
+func (s *Session) Markdown() string { return renderTranscript(s) }
+
 // renderTranscript keeps the saved meeting record readable while retaining the
 // established English anchors used by existing exports and consumers.
 func renderTranscript(s *Session) string {

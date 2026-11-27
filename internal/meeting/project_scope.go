@@ -14,6 +14,11 @@ type ProjectScope struct {
 	Global        bool
 }
 
+// PathOnly reports an older session whose archive has no stable project identity.
+func (s *Session) PathOnly() bool {
+	return s.ProjectID == "" && s.Project != ""
+}
+
 func (s *Session) isGlobal() bool {
 	return s.ProjectID == "" && s.Project == ""
 }

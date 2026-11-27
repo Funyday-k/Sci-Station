@@ -18,7 +18,7 @@
   <script defer src="/static/shell-navigation.js"></script>
   <script defer src="/static/project-sidebar.js"></script>
   <script defer src="/static/project-editor.js"></script>
-  <script defer src="/static/context-rail.js"></script>
+  {{if not .Archive}}<script defer src="/static/context-rail.js"></script>{{end}}
   {{template "head" .}}
   <link rel="stylesheet" href="/static/workspace-nav.css">
   <link rel="stylesheet" href="/static/context-rail.css">
@@ -79,9 +79,9 @@
     </nav>{{end}}
     <div class="workspace-bar-end">
       <div id="workspace-tools">{{block "tools" .}}{{end}}</div>
-      <div class="shell-rail-controls">
+      {{if not .Archive}}<div class="shell-rail-controls">
         <button id="shell-assist" disabled class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
-      </div>
+      </div>{{end}}
     </div>
   </header>
   <div class="workspace-region"{{if and .AI (not .Settings)}} inert{{end}}>{{template "content" .}}</div>

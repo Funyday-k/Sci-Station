@@ -277,6 +277,84 @@ func TestWorkspaceAIScopesFollowModuleSettings(t *testing.T) {
 	check("/lab?run="+room.ID, "/lab?project="+p.ID+"&run="+room.ID)
 }
 
+func TestPathOnlyTranscriptUsesSavedSpeechWithoutChangingTheArchive(t *testing.T) {
+	root := t.TempDir()
+	instance, err := startWorkspace(root, 0, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.close()
+	const id = "00000000000000000000000000000abc"
+	const message = "保存的发言 <sample>"
+	dir := filepath.Join(root, "unavailable-project")
+	record := meeting.Session{ID: id, Title: "历史讨论", Topic: "历史议题", Status: "running", Project: dir, Seats: []string{"codex"},
+		Rounds: []meeting.Round{{Number: 1, Note: "主持人原文", Turns: []meeting.Turn{{Seat: "codex", Model: "sample-model", Text: message, Status: "done"}}}}}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "studio", id+".json")
+	if err := os.WriteFile(file, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	instance, err = startWorkspace(root, 0, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.close()
+	api := instance.api
+	link := "/studio?session=" + id
+	page := navigationRequest(t, api, "GET", link, "", 200).Body.String()
+	for _, want := range []string{`data-workspace-surface="session-transcript"`, "只读会话记录", "保存的发言 &lt;sample&gt;", "主持人原文", "sample-model",
+		`id="round-1-codex"`, `href="/api/studio/sessions/` + id + `/export.md"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("transcript is missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{`src="/static/studio.js"`, `id="shell-assist"`, `id="run-form"`, dir} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("unexpected transcript content %q", forbidden)
+		}
+	}
+	if dest := navigationRequest(t, api, "GET", "/lab?run="+id, "", 307).Header().Get("Location"); dest != link {
+		t.Fatal(dest)
+	}
+	export := "/api/studio/sessions/" + id + "/export.md"
+	if !strings.Contains(navigationRequest(t, api, "GET", export, "", 200).Body.String(), message) {
+		t.Fatal("missing saved speech in export")
+	}
+	navigationRequest(t, api, "POST", "/api/studio/sessions/"+id+"/agenda", `{}`, 403)
+	navigationRequest(t, api, "GET", "/api/studio/sessions/"+id+"/files", "", 403)
+	cfg := scienceWorkflowDecode[struct{ Revision string }](t, navigationRequest(t, api, "GET", "/api/research/modules", "", 200).Body.Bytes())
+	navigationRequest(t, api, "PATCH", "/api/research/modules", `{"id":"ai-lab","action":"set","enabled":false,"revision":"`+cfg.Revision+`"}`, 200)
+	for _, path := range []string{link, "/lab?run=" + id} {
+		if dest := navigationRequest(t, api, "GET", path, "", 307).Header().Get("Location"); dest != "/research" {
+			t.Fatal(dest)
+		}
+	}
+	navigationRequest(t, api, "GET", export, "", 409)
+	if strings.Contains(navigationRequest(t, api, "GET", "/api/studio/sessions", "", 200).Body.String(), id) {
+		t.Fatal("disabled workspace listed an unscoped historical record")
+	}
+	deleted := "00000000000000000000000000000def"
+	p := scienceWorkflowDecode[research.Project](t, navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Existing project"}`, 201).Body.Bytes())
+	for _, stale := range []string{"/studio?session=" + deleted, "/lab?run=" + deleted} {
+		if dest := navigationRequest(t, api, "GET", stale, "", 307).Header().Get("Location"); dest != "/research" {
+			t.Fatal(dest)
+		}
+		if dest := navigationRequest(t, api, "GET", stale+"&project="+p.ID, "", 307).Header().Get("Location"); dest != "/research?project="+p.ID {
+			t.Fatal(dest)
+		}
+	}
+	after, err := os.ReadFile(file)
+	if err != nil || string(after) != string(data) {
+		t.Fatalf("changed historical record: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("unexpected historical directory: %v", err)
+	}
+}
+
 func TestNavigationRestoresEvidenceLocatorsWithoutReplayingCommands(t *testing.T) {
 	api := openNavigationFixture(t, t.TempDir())
 	record := navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Evidence navigation fixture"}`, 201)

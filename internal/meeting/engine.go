@@ -289,6 +289,11 @@ func newID() string {
 }
 
 func New(dir string, call func(context.Context, string, string, string, string) (string, error), settings func() Settings) (*Engine, error) {
+	return NewWithProjectAccess(dir, call, settings, nil)
+}
+
+// NewWithProjectAccess installs workspace authority before examining saved sessions.
+func NewWithProjectAccess(dir string, call func(context.Context, string, string, string, string) (string, error), settings func() Settings, access func(string, func(string) error) error) (*Engine, error) {
 	if call == nil || settings == nil {
 		return nil, errors.New("model call and settings getter are required")
 	}
@@ -299,7 +304,7 @@ func New(dir string, call func(context.Context, string, string, string, string) 
 	if err = workspace.ManagedMkdirAll(abs, 0700); err != nil {
 		return nil, err
 	}
-	e := &Engine{dir: abs, call: call, settings: settings, cancels: make(map[string]context.CancelFunc), activeRounds: make(map[string]int)}
+	e := &Engine{dir: abs, projectAccess: access, call: call, settings: settings, cancels: make(map[string]context.CancelFunc), activeRounds: make(map[string]int)}
 	if err := e.visitSessions(nil); err != nil {
 		return nil, err
 	}
@@ -372,6 +377,9 @@ func (e *Engine) load(id string) (*Session, error) {
 	return &s, nil
 }
 func (e *Engine) save(s *Session) error {
+	if e.projectAccess != nil && s.PathOnly() {
+		return fmt.Errorf("%w: 旧会话记录为只读", os.ErrPermission)
+	}
 	ensureBoard(s)
 	s.UpdatedAt = now()
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -399,6 +407,9 @@ func clone(s *Session) *Session {
 }
 
 func (e *Engine) recover(s *Session) error {
+	if e.projectAccess != nil && s.PathOnly() {
+		return nil
+	}
 	if s.Report.active() {
 		return e.recoverReport(s)
 	}
@@ -557,6 +568,18 @@ func (e *Engine) create(topic string, scope ProjectScope, seats []string, member
 	})
 	return clone(s), err
 }
+
+// Stored reads the saved record without recovering workers or consulting a project directory.
+func (e *Engine) Stored(id string) (*Session, error) {
+	var s *Session
+	err := e.locked(func() error {
+		var err error
+		s, err = e.load(id)
+		return err
+	})
+	return s, err
+}
+
 func (e *Engine) Get(id string) (*Session, error) {
 	var result *Session
 	err := e.locked(func() error {
@@ -2168,7 +2191,7 @@ func (e *Engine) UserWrite(id, path, text, version string) (workspace.Change, er
 	return result, err
 }
 func (e *Engine) Markdown(id string) (string, error) {
-	s, err := e.Get(id)
+	s, err := e.Stored(id)
 	if err != nil {
 		return "", err
 	}

@@ -377,6 +377,31 @@ async function main(binary) {
         assert.equal(await chat.count(), 0);
       }
     }
+    const archive = {id:"00000000000000000000000000000abc", title:"旧格式科研讨论", topic:"原始议题",
+      project:path.join(base,"previous-directory"), seats:["codex"], status:"ready",
+      rounds:[{number:1,note:"请检查第一轮记录",turns:[{seat:"codex",status:"done",model:"fixture",text:"从旧会话保存的发言读取数据。"}]}]};
+    await writeFile(path.join(base,"root","studio",archive.id+".json"), JSON.stringify(archive));
+    for (const [width,height] of [[1440,900],[900,620]]) {
+      await page.setViewportSize({width,height});
+      await page.goto(host.origin+"/studio");
+      if (width<1000) await page.locator("#workspace-session-toggle").click();
+      await page.locator("#history-open-"+archive.id).click();
+      await page.locator('body[data-workspace-surface="session-transcript"]').waitFor();
+      await page.getByRole("heading",{name:archive.title}).waitFor();
+      await page.getByText(archive.rounds[0].turns[0].text,{exact:true}).waitFor();
+      assert.equal(await page.locator("#run-form,#shell-assist,#studio-mode-import").count(),0);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth),true);
+      const downloaded = page.waitForEvent("download");
+      await page.getByRole("link",{name:"导出 Markdown"}).click();
+      const download = await downloaded;
+      assert.equal(download.suggestedFilename(),"meeting-"+archive.id+".md");
+      const chunks = [];
+      for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+      assert.ok(Buffer.concat(chunks).toString().includes(archive.rounds[0].turns[0].text));
+      await capture("archive-"+width);
+      await page.getByRole("link",{name:"返回圆桌"}).click();
+      await page.locator("#create-form").waitFor();
+    }
     assert.deepEqual(errors,[]);assert.deepEqual(gateway.errors,[]);
     console.log("Shell inspector, reader inspector, project tree, width, tab order, narrow layout, scoped single-seat AI and restart passed.");
   }catch(err){

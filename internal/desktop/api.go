@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -367,6 +368,12 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				reject(w, http.StatusInternalServerError, "无法访问圆桌存档目录，请检查目录和本机权限后重试。")
 				return
 			}
+			if a.research != nil {
+				allowed, err := a.research.ModuleEnabled("", "ai-lab")
+				if err != nil || !allowed {
+					list = slices.DeleteFunc(list, func(s meeting.Summary) bool { return s.ProjectID == "" && s.Project != "" })
+				}
+			}
 			reply(w, 200, map[string]any{"sessions": list, "unreadable_sessions": unreadable})
 			return
 		}
@@ -461,6 +468,34 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[1]
+	if len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "export.md" {
+		record, err := a.meetings.Stored(id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record.PathOnly() && a.research != nil && !checkLabModule(w, a.research, "") {
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="meeting-%s.md"`, url.PathEscape(id)))
+		_, _ = io.WriteString(w, record.Markdown())
+		return
+	}
+	// No session mutation is available for a historical record without a
+	// stable project identity, including actions dispatched to other services.
+	if len(parts) == 3 && r.Method == http.MethodPost && a.research != nil && a.meetings != nil {
+		record, err := a.meetings.Stored(id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record.PathOnly() {
+			reject(w, http.StatusForbidden, "旧会话仅支持查看和导出记录")
+			return
+		}
+	}
+
 	if len(parts) == 3 && parts[2] == "read-review" {
 		a.serveReadReview(w, r, id)
 		return
@@ -549,6 +584,9 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 			fail(w, err)
 			return
 		}
+		if session != nil && session.PathOnly() && a.research != nil && !checkLabModule(w, a.research, "") {
+			return
+		}
 		w.Header().Set("ETag", `W/"`+revision+`"`)
 		if session == nil {
 			w.WriteHeader(http.StatusNotModified)
@@ -572,15 +610,6 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 	}
 	route := r.Method + " " + parts[2]
 	switch route {
-	case "GET export.md":
-		content, e := a.meetings.Markdown(id)
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="meeting-%s.md"`, url.PathEscape(id)))
-		_, _ = io.WriteString(w, content)
 	case "GET files":
 		var files []string
 		e := a.meetings.WithProjectDirectory(s, func(dir string) error {

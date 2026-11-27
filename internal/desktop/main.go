@@ -241,11 +241,11 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 	}
 	gateway := studioGateway(pref)
 	call := gatewayCall(gateway)
-	engine, e := meeting.New(filepath.Join(dir, "studio"), call, pref.meetingSettings)
+	lab, e := research.New(filepath.Join(dir, "research"))
 	if e != nil {
 		return nil, e
 	}
-	lab, e := research.New(filepath.Join(dir, "research"))
+	engine, e := meeting.NewWithProjectAccess(filepath.Join(dir, "studio"), call, pref.meetingSettings, lab.WithProjectDirectory)
 	if e != nil {
 		return nil, e
 	}
