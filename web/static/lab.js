@@ -211,7 +211,6 @@
     runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
     showScopeStatus();
     void showPendingTransfer();
-    updateDiscoveryLink();
   }
   window.addEventListener("popstate",()=>{
     const route=new URL(location.href).searchParams;
