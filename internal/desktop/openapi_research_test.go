@@ -105,7 +105,13 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lab.SetPathValidator(func(path string, _ research.DirectoryGrant) bool { return path == externalDir })
+	replacementDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab.SetPathValidator(func(path string, _ research.DirectoryGrant) bool {
+		return path == externalDir || path == replacementDir
+	})
 	server := &apiServer{prefs: prefs, research: lab, meetings: engine}
 	api := server.serve(8765)
 
@@ -142,7 +148,8 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 	}](t, download.Body.Bytes())
 	published := make(map[string]operationContract)
 	for path, methods := range doc.Paths {
-		if !strings.HasPrefix(path, "/api/research/") && !strings.HasPrefix(path, "/api/studio/projects") {
+		if !strings.HasPrefix(path, "/api/research/") && !strings.HasPrefix(path, "/api/studio/projects") &&
+			path != "/api/studio/sessions" && path != "/api/studio/sessions/{id}" {
 			continue
 		}
 		for method, raw := range methods {
@@ -226,7 +233,7 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 		return true
 	}
 
-	projectID, paperID, noteID, presetID := "", "", "", ""
+	projectID, paperID, noteID, presetID, sessionID := "", "", "", "", ""
 	run := func(id string, status int, query string, payload any) json.RawMessage {
 		t.Helper()
 		operation, ok := published[id]
@@ -234,7 +241,7 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 			t.Fatalf("missing OpenAPI operation %s", id)
 		}
 		checked[id] = true
-		route := strings.NewReplacer("{project}", projectID, "{paper}", paperID, "{note}", noteID, "{preset}", presetID).Replace(operation.Path)
+		route := strings.NewReplacer("{project}", projectID, "{paper}", paperID, "{note}", noteID, "{preset}", presetID, "{id}", sessionID).Replace(operation.Path)
 		var requestBody io.Reader
 		var media string
 		switch data := payload.(type) {
@@ -421,7 +428,85 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 		t.Fatalf("unexpected historical rule snapshot: %+v", legacy)
 	}
 
+	projectQuery = "?project=" + projectID
+	globalQuery := "?scope=global"
 	external := fields(run("getResearchProject", 200, "", nil))
+	if external["conversationGeneration"] != nil {
+		t.Fatalf("generation zero must be omitted: %+v", external)
+	}
+	projectDraft := fields(run("saveResearchLabDraft", 200, projectQuery, object{"text": "Previous project draft", "revision": 0}))
+	run("saveResearchLabDraft", 200, globalQuery, object{"text": "Global draft", "revision": 0})
+	session := fields(run("createStudioSession", 201, "", object{"topic": "Earlier project session", "project_id": projectID, "seats": []string{"codex"}}))
+	sessionID = session["id"].(string)
+	run("getStudioSession", 200, "", nil)
+	run("saveResearchLabDraft", 200, projectQuery+"&thread="+sessionID, object{"text": "Previous thread draft", "revision": 0})
+
+	change := object{"revision": external["revision"], "path": replacementDir}
+	confirmation := fields(run("updateResearchProjectDirectory", 409, "", change))
+	if confirmation["code"] != "confirmation_required" {
+		t.Fatalf("expected confirmation before replacing a directory: %+v", confirmation)
+	}
+	run("getStudioSession", 200, "", nil)
+	kept := fields(run("getResearchLabDraft", 200, projectQuery, nil))
+	if kept["text"] != projectDraft["text"] {
+		t.Fatalf("unconfirmed change altered the existing draft: %+v", kept)
+	}
+	change["resetConversations"] = true
+	rebound := fields(run("updateResearchProjectDirectory", 200, "", change))
+	if rebound["id"] != projectID || rebound["path"] != replacementDir ||
+		rebound["conversationGeneration"] != float64(1) || rebound["conversationResetPending"] != nil {
+		t.Fatalf("expected a completed reassignment of the existing project: %+v", rebound)
+	}
+	run("getStudioSession", 404, "", nil)
+	list := fields(run("listStudioSessions", 200, "", nil))
+	if len(list["sessions"].([]any)) != 0 {
+		t.Fatalf("retired conversations are still listed: %+v", list)
+	}
+	currentQuery := projectQuery + "&conversationGeneration=1"
+	run("getResearchLabDraft", 404, currentQuery+"&thread="+sessionID, nil)
+	run("getResearchLabDraft", 409, projectQuery, nil)
+	run("saveResearchLabDraft", 409, projectQuery, object{"text": "Late project draft", "revision": 0})
+	cleared := fields(run("getResearchLabDraft", 200, currentQuery, nil))
+	if cleared["text"] != "" || cleared["revision"] != float64(0) {
+		t.Fatalf("expected an empty new-generation draft: %+v", cleared)
+	}
+	if globalDraft := fields(run("getResearchLabDraft", 200, globalQuery+"&conversationGeneration=1", nil)); globalDraft["text"] != "Global draft" {
+		t.Fatalf("reset affected unrelated global draft: %+v", globalDraft)
+	}
+	run("createStudioSession", 409, "", object{"topic": "Stale project generation", "projectId": projectID})
+	current := fields(run("createStudioSession", 201, "", object{
+		"topic": "Current project session", "projectId": projectID, "conversationGeneration": 1,
+	}))
+	sessionID = current["id"].(string)
+
+	// Interrupt cleanup after the documented directory change has committed.
+	lab.SetConversationReset(func(_ string, begin func() error) error {
+		if err := begin(); err != nil {
+			return err
+		}
+		return errors.New("fixture cleanup interrupted")
+	})
+	change = object{"revision": rebound["revision"], "path": externalDir, "resetConversations": true}
+	failed := fields(run("updateResearchProjectDirectory", 503, "", change))
+	if failed["code"] != "reset_pending" {
+		t.Fatalf("directory change did not publish pending recovery: %+v", failed)
+	}
+	pending := fields(run("getResearchProject", 200, "", nil))
+	if pending["conversationResetPending"] != true || pending["conversationGeneration"] != float64(2) {
+		t.Fatalf("project response did not expose the interrupted cleanup: %+v", pending)
+	}
+	run("getResearchLabDraft", 409, projectQuery+"&conversationGeneration=2", nil)
+	run("createStudioSession", 409, "", object{"topic": "Cleanup still pending", "projectId": projectID, "conversationGeneration": 2})
+	lab.SetConversationReset(engine.ResetProjectSessions)
+	change["revision"] = pending["revision"]
+	recovered := fields(run("updateResearchProjectDirectory", 200, "", change))
+	if recovered["conversationResetPending"] != nil || recovered["conversationGeneration"] != float64(2) {
+		t.Fatalf("retry of unfinished cleanup changed the committed generation: %+v", recovered)
+	}
+	run("getStudioSession", 404, "", nil)
+	run("getResearchLabDraft", 200, projectQuery+"&conversationGeneration=2", nil)
+
+	external = fields(run("getResearchProject", 200, "", nil))
 	run("updateResearchProjectDirectory", 200, "", object{"revision": external["revision"], "path": ""})
 	run("getStudioProjectRules", 200, activeQuery, nil)
 	run("getStudioProjectRules", 404, "?path="+url.QueryEscape(externalDir), nil)

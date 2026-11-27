@@ -3,7 +3,7 @@
   "info": {
     "title": "Sci-Station · 本机 API",
     "version": "1.0.0",
-    "description": "Sci-Station 本机接口。科研契约包括项目、Wiki 页面读取和创建、模块设置、共享文献与 AI 实验室模板、项目配置和原文材料准备。辅助接口清单见 [本机 API 页面](/api-docs#research-api)。新增科研 JSON 请求如需单个项目 ID，使用 projectId；既有查询参数 project 和文献关联字段沿用原有名称。"
+    "description": "Sci-Station 本机接口。科研契约包括项目、Wiki 页面读取和创建、模块设置、共享文献与 AI 实验室模板、草稿、项目配置和原文材料准备。辅助接口清单见 [本机 API 页面](/api-docs#research-api)。新增科研 JSON 请求如需单个项目 ID，使用 projectId；既有查询参数 project 和文献关联字段沿用原有名称。"
   },
   "servers": [
     {
@@ -115,6 +115,7 @@
         "operationId": "getResearchProject",
         "summary": "读取活动科研项目",
         "tags": ["科研项目"],
+        "description": "创建项目会话或读取、保存 AI 实验室项目草稿前读取 conversationGeneration，缺省表示 0。conversationResetPending 为 true 时，目录变更后的会话清理尚未完成。",
         "responses": {
           "200": {
             "description": "当前项目。",
@@ -237,14 +238,22 @@
         "operationId": "updateResearchProjectDirectory",
         "summary": "更新活动项目的外部目录授权",
         "tags": ["科研项目"],
-        "description": "仅外部目录适用。提供桌面选择器新登记的绝对目录，或传空 path 撤销授权。",
+        "description": "仅适用于外部目录。提供桌面选择器新登记的绝对目录，或传空 path 撤销授权。替换为不同目录前先提交 revision 和 path；收到 409 且 code 为 confirmation_required 后，向用户确认，再提交 resetConversations: true。确认后保留项目 ID，清除此项目的单席会话、圆桌历史、未发送草稿、旧会话审核提案和回执，以及从原目录导入的圆桌规则快照，并增加 conversationGeneration。已采纳的 Wiki、任务、共享文献和原文、目录内的文件、其他项目与全局会话均保留。初次关联目录、重新批准同一目录或撤销目录授权无需确认，也不清理会话。若清理尚未完成，重新打开工作区会尝试恢复；也可先读取项目，再对同一目标重复提交已确认的请求。已清理的会话只能从变更前的完整工作区备份恢复。",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": {"revision": {"type": "integer", "minimum": 1}, "path": {"type": "string"}},
+                "properties": {
+                  "revision": {"type": "integer", "minimum": 1},
+                  "path": {"type": "string"},
+                  "resetConversations": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "用户明确确认清除项目旧会话和草稿后填 true。缺省或 false 时，替换目录只返回确认请求。"
+                  }
+                },
                 "required": ["revision", "path"],
                 "additionalProperties": false
               }
@@ -253,15 +262,32 @@
         },
         "responses": {
           "200": {
-            "description": "已更新的项目。",
+            "description": "已更新的项目。目录替换时返回清理完成后的新 conversationGeneration。",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProject"}}}
           },
           "403": {"$ref": "#/components/responses/Research403"},
           "400": {"$ref": "#/components/responses/Research400"},
           "404": {"$ref": "#/components/responses/Research404"},
-          "409": {"$ref": "#/components/responses/Research409"},
+          "409": {
+            "description": "需要用户确认时返回 code 为 confirmation_required。项目版本已变化、目标已被使用或有正在进行的会话或文件编辑时返回冲突；先重新读取项目或结束活动操作。",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ResearchError"},
+                "example": {"error": "切换目录将清除此项目的旧对话和草稿，请确认后继续", "code": "confirmation_required"}
+              }
+            }
+          },
           "428": {"$ref": "#/components/responses/Research428"},
-          "500": {"$ref": "#/components/responses/Research500"}
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {
+            "description": "会话服务暂不可用，或目录已变更且清理尚未完成，后者返回 code 为 reset_pending。重新打开工作区，或重试同一已确认的目录变更。",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ResearchError"},
+                "example": {"error": "正在清理此项目的旧对话，请稍后重试", "code": "reset_pending"}
+              }
+            }
+          }
         },
         "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
       }
@@ -893,6 +919,55 @@
           "503": {"$ref": "#/components/responses/Research503"}
         },
         "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/lab/draft": {
+      "parameters": [
+        {"name": "project", "in": "query", "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "description": "项目草稿使用活动项目 ID，scope 可省略或留空。"},
+        {"name": "scope", "in": "query", "schema": {"type": "string", "enum": ["global", ""]}, "description": "全局草稿传 global，此时 project 省略或留空。"},
+        {"name": "thread", "in": "query", "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "description": "提供已有单席会话 ID 时读写该会话的回复草稿；省略时读写新建会话的草稿。"},
+        {"name": "conversationGeneration", "in": "query", "schema": {"$ref": "#/components/schemas/ConversationGeneration"}, "description": "从活动科研项目读取的会话代次。省略视为 0；全局草稿不使用代次。"}
+      ],
+      "get": {
+        "operationId": "getResearchLabDraft",
+        "summary": "读取 AI 实验室的未发送草稿",
+        "tags": ["AI 实验室"],
+        "description": "没有草稿时返回空文本及版本 0。项目代次不符或尚未清理完毕时返回 409。重新读取项目，确认清理状态后，使用当前代次读取草稿；已清理的会话 ID 返回 404。",
+        "responses": {
+          "200": {
+            "description": "草稿及其当前版本。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabDraft"}}}
+          },
+          "400": {"$ref": "#/components/responses/Research400"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "405": {"$ref": "#/components/responses/MethodNotAllowed"},
+          "409": {"$ref": "#/components/responses/ResearchLabDraftConflict"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        }
+      },
+      "put": {
+        "operationId": "saveResearchLabDraft",
+        "summary": "保存 AI 实验室的未发送草稿",
+        "tags": ["AI 实验室"],
+        "description": "提交同一草稿的 revision，空文档可传空文本。目录变更后须重新读取项目和草稿，再保存；过时的代次或草稿版本返回 409。",
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabDraft"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "保存后的草稿及其版本。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabDraft"}}}
+          },
+          "400": {"$ref": "#/components/responses/Research400"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "405": {"$ref": "#/components/responses/MethodNotAllowed"},
+          "409": {"$ref": "#/components/responses/ResearchLabDraftConflict"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        }
       }
     },
     "/api/research/lab/context": {
@@ -2014,7 +2089,7 @@
         "tags": [
           "项目"
         ],
-        "description": "返回可读取会话摘要和 unreadable_sessions 坏档列表。坏档逐条隔离，不阻塞其他会话；列表级存档访问/锁/写入错误返回 500。",
+        "description": "返回可读取会话摘要和 unreadable_sessions 坏档列表。确认替换项目目录并完成清理后，旧会话从列表移除。坏档逐条隔离；列表级存档访问或写入失败返回 500。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -2049,7 +2124,7 @@
         "tags": [
           "项目"
         ],
-        "description": "按 project_id 关联当前科研项目，或使用 scope: global 创建无项目文件权限的圆桌。校验 Magpie 型号并保存会话。members 模式默认异步请求首席拟议程，可用 start_agenda_draft: false 跳过。201 表示会话已保存。四种讨论预设均可保存 continuous 配置；创建不会运行首轮。",
+        "description": "为 projectId 创建项目圆桌或单席会话，或用 scope: global 创建全局会话。项目会话使用从科研项目读取的 conversationGeneration，旧客户端省略时按 0 处理。代次不符或该项目仍在清理时返回 409；请重新读取项目并确认清理完成，再创建会话。members 模式校验 Magpie 型号，默认异步请求首席拟议程，可用 start_agenda_draft: false 跳过。201 表示会话已保存。创建可以保存 continuous 配置；首轮需要另行发起。",
         "responses": {
           "201": {
             "description": "成功。",
@@ -2125,7 +2200,7 @@
         "tags": [
           "项目"
         ],
-        "description": "轮询此接口观察异步运行。记录包含私有子代理任务／结果、完整写入意图、文件内容快照及本机路径；分享前自行检查。发现中断时标记失败，不自动重放。",
+        "description": "轮询此接口观察异步运行。记录包含私有子代理任务／结果、完整写入意图、文件内容快照及本机路径；分享前自行检查。发现中断时标记失败，不自动重放。项目目录替换后已清理的会话返回 404。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -4062,6 +4137,12 @@
         "properties": {"error": {"type": "string"}, "code": {"type": "string"}},
         "required": ["error"]
       },
+      "ConversationGeneration": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 18446744073709551615,
+        "description": "项目会话代次。缺省表示 0；每次确认替换为不同目录时递增。"
+      },
       "ResearchProject": {
         "type": "object",
         "properties": {
@@ -4075,6 +4156,8 @@
           "colorHex": {"type": "string"},
           "iconName": {"type": "string"},
           "managedDirectory": {"type": "boolean"},
+          "conversationGeneration": {"$ref": "#/components/schemas/ConversationGeneration"},
+          "conversationResetPending": {"const": true, "description": "目录已变更，旧会话清理尚未完成。清理完成后省略。"},
           "directoryGrant": {
             "type": "object",
             "properties": {"device": {"type": "integer", "minimum": 0}, "inode": {"type": "integer", "minimum": 0}},
@@ -4527,6 +4610,15 @@
           "projects",
           "confirmation"
         ]
+      },
+      "ResearchLabDraft": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string", "maxLength": 2500, "description": "未发送草稿，可为空。"},
+          "revision": {"type": "integer", "minimum": 0, "description": "该草稿的版本，与项目会话代次分别核对。"}
+        },
+        "required": ["text", "revision"],
+        "additionalProperties": false
       },
       "ResearchLabPreset": {
         "type": "object",
@@ -5750,6 +5842,10 @@
           "scope": {
             "enum": ["global", ""],
             "description": "global 显式创建无项目目录的全局圆桌；项目会话可省略此字段。"
+          },
+          "conversationGeneration": {
+            "$ref": "#/components/schemas/ConversationGeneration",
+            "description": "项目会话使用从该科研项目读取的当前代次，省略按 0 处理。全局会话忽略此字段。"
           },
           "start_agenda_draft": {
             "type": "boolean",
@@ -8914,6 +9010,10 @@
       },
       "Research502": {
         "description": "上游 PDF 下载失败。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "ResearchLabDraftConflict": {
+        "description": "草稿版本或项目会话代次已过时、AI 实验室已停用，或项目会话清理尚未完成。重新读取项目与草稿状态。",
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
       },
       "Research503": {
