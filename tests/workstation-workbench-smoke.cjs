@@ -229,6 +229,27 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     check("Import remains visible in compact Library", await visible(importAction));
     await snapshot("10-library-compact");
 
+    const meeting = await app.request("/api/studio/sessions", "POST", {
+      topic:"Check the compact Roundtable side panel", project_id:project.id, seats:["codex"]
+    }, 201);
+    await open("/studio?session=" + meeting.id);
+    await ui.visible("#meeting-actions-toggle");
+    await ui.click("#shell-assist");
+    await ui.visible("#rail-prompt");
+    // The WK click helper bypasses hit testing. Check that the session toolbar
+    // behind the overlay cannot intercept a real click on its close control.
+    const closeTarget = await ui.evaluate(() => {
+      const close = document.getElementById("rail-close");
+      const {x,y,width,height} = close.getBoundingClientRect();
+      const target = document.elementFromPoint(x + width/2, y + height/2);
+      return {reachable:close.contains(target), hit:target?.closest("button")?.id || target?.localName};
+    });
+    check("Compact Roundtable overlay close control is reachable by pointer", closeTarget.reachable, closeTarget);
+    await snapshot("10b-roundtable-ai-overlay-compact");
+    await ui.click("#rail-close");
+    await wait(() => ui.evaluate(() => document.getElementById("context-rail").hidden), "Roundtable overlay closes");
+    check("Closing the Roundtable overlay restores focus", await ui.evaluate(() => document.activeElement?.id === "shell-assist"));
+
     async function appearance(mode, size, color) {
       await navigate("settings");
       await ui.click("#settings-tab-appearance");
