@@ -649,7 +649,7 @@ async function runVisualBaselines(binary, outputArg) {
     await session?.close();
     await host?.close();
     await closeServer(gateway.server);
-    await rm(base, {recursive: true, force: true});
+    await rm(base, {recursive: true, force: true, maxRetries: 5, retryDelay: 200}).catch(() => {});
   }
 }
 
