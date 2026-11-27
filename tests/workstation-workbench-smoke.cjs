@@ -533,9 +533,10 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       await open("/studio?project=" + project.id);
       await ui.visible("#new-topic");
       const roundtable = await ui.evaluate(() => {
-        const pane = document.querySelector(".workspace-region").getBoundingClientRect();
+        const scroll = document.getElementById("setup-scroll");
+        const pane = scroll.getBoundingClientRect();
         const composer = document.querySelector("#create-composer .composer-surface").getBoundingClientRect();
-        return {paneCenter:(pane.left + pane.right) / 2, composerCenter:(composer.left + composer.right) / 2,
+        return {paneCenter:pane.left + scroll.clientLeft + scroll.clientWidth / 2, composerCenter:(composer.left + composer.right) / 2,
           optionalProject:Array.from(document.getElementById("create-project").options).some(option => option.value === "@global")};
       });
       check("Roundtable setup centers its composer and exposes project, file and plugin controls", roundtable.optionalProject &&
