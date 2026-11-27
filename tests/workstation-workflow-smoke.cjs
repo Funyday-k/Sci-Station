@@ -277,9 +277,12 @@ async function launch(binary, port, dataDir, env, mode, quit, inherited = proces
       if (child.exitCode === null && child.signalCode === null) {
         if (!quit || !await quit().then(() => true, () => false)) child.kill("SIGTERM");
       }
-      const [exitCode, signal] = await Promise.race([exited, delay(18000, null, {ref: false})]) || [];
-      if (exitCode === undefined && signal === undefined) child.kill("SIGKILL");
-      assert.equal(exitCode, 0, "fixture workstation did not exit cleanly");
+      let result = await Promise.race([exited, delay(18000, null, {ref: false})]);
+      if (!result) {
+        child.kill("SIGKILL");
+        result = await exited;
+      }
+      assert.equal(result[0], 0, "fixture workstation did not exit cleanly");
     }
   };
   try {
