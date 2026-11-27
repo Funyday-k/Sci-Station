@@ -49,6 +49,7 @@ function fakeDOM() {
       disabled: false,
       open: false,
       dataset: {},
+      style: {},
       textContent: "",
       hidden: false,
       listeners: {},
@@ -178,6 +179,131 @@ test("project switching restores only that project's draft and drops legacy path
   assert.equal($("new-topic").value, "");
   setup.open(two);
   assert.equal($("new-topic").value, "second project draft");
+});
+
+test("Roundtable topics, attachments and continuous setup are scoped to the current folder generation", async () => {
+  const { $, document } = fakeDOM();
+  const window = {addEventListener() {},RoundtableSeating:{mount:()=>({render() {}})}};
+  continuous(window,document);
+  vm.runInNewContext(read("studio-setup.js"),{window,document,Option:function(text,value) {this.text=text;this.value=value;}});
+  const key="studio.setup-drafts.v1", config="studio.continuous-drafts.v1";
+  const store = new Map([
+    [key,JSON.stringify({p:{topic:"Old folder topic",materials:[{id:"old-file",name:"Old folder file"}]},other:{topic:"Other project's topic"}})],
+    [config,JSON.stringify({p:{enabled:true,goal:"Old folder plan"}})],
+  ]);
+  let attachments=[];
+  const materials={set:items=>{attachments=items || [];},reset:()=>{attachments=[];},ready:()=>attachments,busy:()=>false,failed:()=>false};
+  const mount=()=>window.RoundtableSetup.mount({
+    api:async()=>({models:[{id:"test",efforts:[]}],default_model:"test"}),assetFor:()=>"",materials,
+    storageGet:key=>store.get(key),storageSet:(key,value)=>store.set(key,value),
+  });
+  const old=mount();
+  old.open({...one,id:"p"});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal($("new-topic").value,"Old folder topic");
+  assert.deepEqual(plain(old.payload().material_ids),["old-file"]);
+  assert.equal(old.payload().continuous.goal,"Old folder plan");
+  old.retire();
+  assert.equal(old.canSubmit(),false);
+  assert.equal($("new-topic").value,"");
+  assert.deepEqual(attachments,[]);
+
+  const fresh=mount(), rebound={...two,id:"p",conversationGeneration:1};
+  fresh.open(rebound);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal($("new-topic").value,"");
+  assert.equal(fresh.payload().continuous,undefined);
+  assert.equal(fresh.payload().material_ids,undefined);
+  assert.equal(fresh.payload().conversationGeneration,1);
+  $("new-topic").value="Current folder topic";
+  $("new-topic").listeners.input();
+  fresh.open({...one,id:"other"});
+  assert.equal($("new-topic").value,"Other project's topic");
+  fresh.open({...one,id:"p",conversationGeneration:2});
+  assert.equal($("new-topic").value,"");
+  fresh.open(rebound);
+  assert.equal($("new-topic").value,"Current folder topic");
+});
+
+test("the folder editor confirms only destructive rebinds and retires drafts only for that project", async () => {
+  const { $, document } = fakeDOM();
+  const editor=$("project-editor"),confirm=$("project-directory-reset"),form=editor.querySelector("form");
+  for(const dialog of [editor,confirm]) {
+    dialog.showModal=()=>{dialog.open=true;};
+    dialog.close=value=>{dialog.open=false;dialog.returnValue=value;dialog.listeners.close?.();};
+    dialog.querySelectorAll=()=>[];
+  }
+  const fields=new Map(["name","description","colorHex","iconName"].map(name=>[name,$(name)]));
+  form.elements=[...fields.values()];
+  form.elements.namedItem=name=>fields.get(name);
+  form.reset=()=>{};
+  form.reportValidity=()=>true;
+
+  let project={id:"p",name:"Fixture",path:"/fixture/A",revision:1,directoryGrant:{}};
+  let chosen=project.path;
+  const directoryCalls=[], events=[];
+  const location=new URL("http://fixture.test/lab?project=p&run=old&fromRoundtable=1");
+  location.replace=url=>{location.href=url;};
+  const window={addEventListener() {},dispatchEvent:event=>events.push(event),SciProjectSidebar:{refresh:async()=>{}},
+    SciStationNav:{projectBadge:()=>"",isSettings:()=>false},
+    SciShellLayout:{request:async(route,method,body)=>{
+      if(route.endsWith("/pick-project"))return {path:chosen};
+      if(route.endsWith("/directory")) {
+        directoryCalls.push(plain(body));
+        if(body.path!==project.path && !body.resetConversations)throw Object.assign(Error("Needs confirmation"),{status:409,code:"confirmation_required"});
+        project={...project,path:body.path,revision:project.revision+1,conversationGeneration:body.resetConversations ? 1 : 0};
+      } else if(method==="PATCH") project={...project,name:body.name,revision:project.revision+1};
+      return project;
+    }}};
+  const webStorage=items=>Object.defineProperties({...items},{
+    getItem:{value:function(key) {return this[key] || null;}},
+    setItem:{value:function(key,value) {this[key]=String(value);}},
+    removeItem:{value:function(key) {delete this[key];}},
+  });
+  const key="studio.setup-drafts.v1", transfer="sci-station.roundtable-to-lab.v1";
+  const ownDraft="sci-station.lab-mode-draft.v1:p::fixture", otherDraft="sci-station.lab-mode-draft.v1:other::fixture";
+  const localStorage=webStorage({[key]:JSON.stringify({p:{topic:"Old"},"p:1":{topic:"Current"},other:{topic:"Other"},"@global":{topic:"Global"}})});
+  const sessionStorage=webStorage({[ownDraft]:"{}",[otherDraft]:"{}",[transfer]:JSON.stringify({projectId:"p"})});
+  vm.runInNewContext(read("project-editor.js"),{window,document,URL,location,localStorage,sessionStorage,
+    CustomEvent:class {constructor(type,{detail}) {this.type=type;this.detail=detail;}},
+  });
+  const open=()=>window.SciProjectEditor.open("p"), select=()=>editor.querySelector("[data-folder]").onclick();
+  await open();
+  fields.get("name").value="Renamed fixture";
+  form.onsubmit({preventDefault() {}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(project.name,"Renamed fixture");
+  assert.equal(confirm.open,false);
+  await open();
+  await select();
+  assert.equal(confirm.open,false);
+  assert.equal(project.conversationGeneration,0);
+  assert.equal(sessionStorage.getItem(ownDraft),"{}");
+
+  chosen="/fixture/B";
+  const cancelled=select();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(confirm.open,true);
+  assert.equal(confirm.querySelector("#project-directory-reset-path").textContent,chosen);
+  confirm.close("cancel");
+  await cancelled;
+  assert.equal(project.path,"/fixture/A");
+  assert.equal(sessionStorage.getItem(ownDraft),"{}");
+  assert.equal(directoryCalls.some(call=>call.resetConversations),false);
+
+  const accepted=select();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(confirm.open,true);
+  confirm.close("reset");
+  await accepted;
+  assert.equal(directoryCalls.filter(call=>call.resetConversations).length,1);
+  assert.equal(project.path,chosen);
+  assert.equal(location.search,"?project=p");
+  assert.equal(sessionStorage.getItem(ownDraft),null);
+  assert.equal(sessionStorage.getItem(transfer),null);
+  assert.equal(sessionStorage.getItem(otherDraft),"{}");
+  assert.deepEqual(JSON.parse(localStorage.getItem(key)),{"p:1":{topic:"Current"},other:{topic:"Other"},"@global":{topic:"Global"}});
+  assert.deepEqual(plain(events.filter(event=>event.type==="sci:project-conversations-reset").map(event=>event.detail)),[{id:"p",generation:1}]);
 });
 
 test("the draft seat slider sends the chosen catalog level and resets it when the model changes", async () => {

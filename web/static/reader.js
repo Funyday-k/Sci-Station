@@ -614,7 +614,6 @@
     const projectId = by('projectSelect').value, sessionId = by('sessionSelect').value;
     const payload = {
       projectId,
-      projectGeneration:projects.find(project=>project.id===projectId)?.conversationGeneration || 0,
       paperId: paper.id,
       title: paper.title,
       page: handoffSelection.page,
@@ -626,6 +625,8 @@
       ocr: handoffSelection.ocr || undefined,
       sessionId
     };
+    const projectGeneration=projects.find(project=>project.id===projectId)?.conversationGeneration;
+    if(projectGeneration) payload.projectGeneration=projectGeneration;
     const dialog = by('handoffDialog');
     submit.disabled = true;
     try {

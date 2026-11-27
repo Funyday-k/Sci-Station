@@ -1,6 +1,6 @@
 const {test} = require("node:test");
 const assert = require("node:assert/strict");
-const {createDraft, draftURL, matchingThreads, threadTitle, messageText} = require("../web/static/lab-run.js");
+const {createDraft, createSingle, draftURL, matchingThreads, threadTitle, messageText} = require("../web/static/lab-run.js");
 
 test("saved template threads show the research question and keep multi-paragraph messages", () => {
   const question = "How stable is the calibration?\n\nCheck both regimes.";
@@ -92,4 +92,41 @@ test("a failed draft read keeps the editor locked until a retry restores its rev
   assert.equal(input.value, "Recovered project question");
   assert.equal(input.disabled, false);
   assert.equal(draft.unsaved(), false);
+});
+
+test("rebinding stops scheduled old chat writes and opens a new draft and chat in the current generation", async () => {
+  const old = {id:"p"}, rebound = {...old,conversationGeneration:1};
+  const oldFollowup = draftURL(old,"thread");
+  const currentDraft = draftURL(rebound);
+  assert.equal(new URL(currentDraft,"http://fixture.test").searchParams.get("conversationGeneration"), "1");
+  assert.notEqual(currentDraft,draftURL(old));
+  const requests = [];
+  const req = async (url,method,body) => {
+    requests.push({url,method,body});
+    if (!method) return {revision:0,text:url===oldFollowup ? "Original follow-up" : ""};
+    return {revision:1,text:body.text};
+  };
+  const field = new EventTarget();
+  const draft = createDraft({req,input:field,status() {}});
+  await draft.select(old,"thread");
+  assert.equal(field.value,"Original follow-up");
+  field.value="Pending edit from the old folder";
+  field.dispatchEvent(new Event("input"));
+  const queued = draft.save();
+  draft.retire();
+  await queued;
+  assert.equal(field.value,"");
+  assert.equal(field.disabled,true);
+  assert.deepEqual(requests.map(({url,method})=>[url,method]),[[oldFollowup,undefined]]);
+
+  const nextField = new EventTarget();
+  const nextDraft = createDraft({req,input:nextField,status() {}});
+  await nextDraft.select(rebound);
+  assert.equal(nextField.value,"");
+  nextField.value="New folder question";
+  nextField.dispatchEvent(new Event("input"));
+  await nextDraft.save();
+  assert.deepEqual(requests.at(-1),{url:currentDraft,method:"PUT",body:{text:"New folder question",revision:0}});
+  await createSingle(req,rebound,nextField.value,{model:"fixture/first",effort:"auto"},"review",[]);
+  assert.equal(requests.at(-1).body.conversationGeneration,1);
 });

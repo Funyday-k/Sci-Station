@@ -104,7 +104,7 @@ async function mount(suffix = "", options = {}) {
           {text:"Evidence",start:0,end:8,box:box(.15)},
           {text:"Evidence",start:9,end:17,box:box(.75)}
         ]};
-      } else if(url==="/api/research/projects")data=[{id:"project",name:"Project",path:"/new-path"}];
+      } else if(url==="/api/research/projects")data=[{id:"project",name:"Project",path:"/new-path",...options.project}];
       else if(url.startsWith("/api/research/projects/"))data={id:url.split("/").at(-1),name:"Project"};
       else if(url==="/api/studio/sessions")data={sessions:[
         {id:"round",title:"Round",project:"/old-path",project_id:"project"},
@@ -248,6 +248,15 @@ test("sending an annotation hands a frozen quote and source identity to the chos
   assert.deepEqual(draft,{projectId:"project",paperId:"P1",title:"Paper",page:1,quote:"Evidence",
     fingerprint:"verified",annotationId:"ann",selectionStart:0,selectionEnd:8,sessionId:"round"});
   assert.equal(getDestination(),"http://localhost/studio?project=project&session=round");
+});
+
+test("a Reader excerpt is sent only to the chosen project folder generation",async()=>{
+  const {get,memory}=await mount("",{project:{conversationGeneration:2}});
+  const actions=get("annotations").children[0].children[0];
+  actions.children.find(b=>b.textContent==="入会").dispatchEvent(new Event("click"));
+  await nextTurn();
+  await get("submitHandoff").onclick();
+  assert.equal(JSON.parse(memory.get("sci-station.paper-handoff")).projectGeneration,2);
 });
 
 test("annotation edits send the original revision and preserve the draft on conflict",async()=>{
