@@ -7,13 +7,16 @@ const assert = require("node:assert/strict");
 const {mkdir, mkdtemp, realpath, rm, writeFile} = require("node:fs/promises");
 const {tmpdir} = require("node:os");
 const path = require("node:path");
-const {buildNativeFixture, webkitDriver, listen, closeServer,
-  launch, eventually, sourcePDF} = require("./workstation-workflow-smoke.cjs");
+const {buildNativeFixture, webkitDriver, listen, closeServer, fixtureHome,
+  launch, eventually, localGateway, sourcePDF} = require("./workstation-workflow-smoke.cjs");
 
 const title = "Solar capture with orbital precession and velocity-dependent dark-matter scattering";
 const projectName = "Solar capture and orbital transport across long-baseline numerical ensembles";
 const otherName = "Gamma-ray response for atmospheric Cherenkov telescope observations";
 const taskName = "Check the low-velocity interpolation against the published solar model";
+const reasoningModel = "fixture/first";
+const automaticModel = "fixture/second";
+const reasoningLevels = ["low", "medium", "high"];
 const routes = {
   home: '[data-workspace-nav] [data-section="home"]',
   library: '[data-workspace-nav] [data-section="library"]',
@@ -44,23 +47,30 @@ async function seed(app) {
 }
 
 async function fixture(source, base) {
-  const home = path.join(base, "home");
-  const config = path.join(home, ".config");
+  const gateway = await localGateway({reasoningLevels:{[reasoningModel]:reasoningLevels}});
   const mailbox = path.join(base, "driver");
-  await mkdir(config, {recursive:true, mode:0o700});
-  const binary = await buildNativeFixture(source, base);
-  const probe = await listen();
-  const port = probe.address().port;
-  await closeServer(probe);
-  const browser = await webkitDriver(mailbox);
-  const app = await launch(binary, port, path.join(base, "workspace"), {
-    HOME:home, XDG_CONFIG_HOME:config, TMPDIR:base + "/",
-    SCI_STATION_WORKSPACE_REGISTRY:path.join(base, "roots"), SCI_STATION_WORKFLOW_DRIVER_DIR:mailbox
-  }, "app", browser.quit, {PATH:"/usr/bin:/bin:/opt/homebrew/bin", LANG:"en_US.UTF-8", NO_PROXY:"127.0.0.1,localhost"});
-  return {browser, app};
+  const dataDir = path.join(base, "workspace");
+  try {
+    const spec = path.join(base, "Fixture.app", "Contents", "Resources", "sci-station.agent.js");
+    await mkdir(path.dirname(spec), {recursive:true});
+    await writeFile(spec, "// Local model catalog fixture.\n");
+    const env = await fixtureHome(base, gateway.port, spec);
+    const binary = await buildNativeFixture(source, base);
+    const probe = await listen();
+    const port = probe.address().port;
+    await closeServer(probe);
+    const browser = await webkitDriver(mailbox);
+    const app = await launch(binary, port, dataDir, {
+      ...env, TMPDIR:base + "/", SCI_STATION_WORKFLOW_DRIVER_DIR:mailbox
+    }, "app", browser.quit, {PATH:"/usr/bin:/bin:/opt/homebrew/bin", LANG:"en_US.UTF-8", NO_PROXY:"127.0.0.1,localhost"});
+    return {browser, app, gateway, dataDir, defaultDir:path.join(env.SCI_STATION_WORKSPACE_REGISTRY, "Data")};
+  } catch (error) {
+    await closeServer(gateway.server);
+    throw error;
+  }
 }
 
-async function run(app, browser, output, {baseline, wideHeight}) {
+async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseline, wideHeight}) {
   const {ui} = browser;
   const {project, other, paper} = await seed(app);
   const report = [];
@@ -95,12 +105,246 @@ async function run(app, browser, output, {baseline, wideHeight}) {
   }
   const open = async url => { await ui.navigate(new URL(url, app.origin).href); };
 
+  async function checkDashboard(label, widgetIDs, withCalendar = false) {
+    const layout = await ui.evaluate(ids => {
+      const measure = element => {
+        const rect = element?.getBoundingClientRect();
+        return rect && {left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom};
+      };
+      const widget = id => measure(document.querySelector(`[data-dashboard-widget="${id}"] > .panel`));
+      return {cards:ids.map(widget), calendar:widget("calendar"), grid:measure(document.querySelector(".dashboard-grid"))};
+    }, widgetIDs);
+    const {cards, calendar, grid} = layout;
+    const aligned = cards.every((box, index) => box && Math.abs(box.top - cards[0].top) <= 1 &&
+      Math.abs(box.bottom - cards[0].bottom) <= 1 && (index === 0 || box.left > cards[index - 1].right));
+    check(label + " cards share top and bottom edges", aligned, layout);
+    if (withCalendar) {
+      check(label + " calendar spans the dashboard width", calendar && grid &&
+        Math.abs(calendar.left - grid.left) <= 1 && Math.abs(calendar.right - grid.right) <= 1, {calendar,grid});
+    }
+  }
+
+  async function checkDashboardPreferences() {
+    const button = action => `[data-dashboard-control="${action}"]`;
+    const onWidget = (id, action) => `[data-dashboard-option="${id}"] ${button(action)}`;
+    const calendar = '[data-dashboard-widget="calendar"]';
+    const first = '.dashboard-grid > :first-child';
+    await ui.click(button("edit"));
+    await ui.click(onWidget("active_projects", "up"));
+    await ui.set(onWidget("calendar", "size"), "small");
+    await ui.click(button("edit"));
+    await open("/research");
+    await loaded();
+    await ui.visible("#dashboard-view");
+    const saved = await ui.evaluate(([calendar,first]) => ({
+      small:document.querySelector(calendar)?.classList.contains("dashboard-small"),
+      first:document.querySelector(first)?.dataset.dashboardWidget
+    }), [calendar,first]);
+    check("Home keeps widget size and order after reopening", saved.small && saved.first === "active_projects", saved);
+    await ui.click(button("edit"));
+    await ui.click(button("reset"));
+    await ui.click(button("edit"));
+  }
+
+  const globalSidebar = "#workspace-sidebar";
+  const historySidebar = "#workspace-session-sidebar";
+  const globalToggle = "#workspace-nav-toggle";
+  const historyToggle = "#workspace-session-toggle";
+  async function checkAIShell(mode, compact, content) {
+    const view = compact ? "Compact" : "Wide";
+    const controls = [globalToggle,historyToggle,...(mode === "roundtable" ? ["#room-chat-toggle","#meeting-actions-toggle"] : [])];
+    const result = await ui.evaluate(([content,controls]) => {
+      const bar = document.querySelector(".workspace-bar"), modes = document.querySelector("#workspace-ai-modes");
+      const rect = selector => {
+        const node = typeof selector === "string" ? document.querySelector(selector) : selector;
+        const bounds = node?.getBoundingClientRect();
+        return bounds && {x:bounds.x,y:bounds.y,right:bounds.right,bottom:bounds.bottom};
+      };
+      return {bar:rect(bar), modes:rect(modes), workspace:rect(".workspace-region"), global:rect("#workspace-sidebar"),
+        history:rect("#workspace-session-sidebar"),
+        active:modes?.querySelector('[aria-current="page"]')?.dataset.aiMode,
+        distinct:Boolean(document.querySelector("#workspace-sidebar [data-workspace-nav]") &&
+          document.querySelector("#workspace-session-sidebar " + content) &&
+          !document.querySelector("#workspace-sidebar " + content)),
+        controls:controls.map(selector =>
+          bar?.contains(document.querySelector(selector)) ? rect(selector) : null),
+        stacked:Boolean(document.querySelector(".workspace-region .lab-conversation-heading")?.getClientRects().length),
+        horizontalOverflow:document.documentElement.scrollWidth > innerWidth};
+    }, [content,controls]);
+    const {bar, modes, workspace, global, history} = result;
+    const withinBar = box => box && box.right > box.x && box.y >= bar.y - 1 && box.bottom <= bar.bottom + 1;
+    check(`${view} ${mode} shows one AI toolbar`, result.active === mode && !result.horizontalOverflow && !result.stacked &&
+      withinBar(modes) && result.controls.every(withinBar) && Math.abs(workspace.y - bar.bottom) <= 1 &&
+      Math.abs((modes.x + modes.right) / 2 - (bar.x + bar.right) / 2) <= 2, result);
+    check(`${view} ${mode} separates global and conversation navigation`, result.distinct && (compact ||
+      (global.right > global.x && history.right > history.x && Math.abs(global.right - history.x) <= 1 &&
+        Math.abs(history.right - workspace.x) <= 1)), result);
+  }
+
+  async function checkNewChat(label) {
+    const layout = await ui.evaluate(() => {
+      const bounds = selector => {
+        const r = document.querySelector(selector)?.getBoundingClientRect();
+        return r && {left:r.left, right:r.right, top:r.top, bottom:r.bottom, height:r.height};
+      };
+      return {pane:bounds("#lab-workspace"), heading:bounds("#lab-empty h1"), composer:bounds("#lab-composer"),
+        mode:document.getElementById("lab-workspace")?.dataset.labState, start:bounds("#lab-start"),
+        optionalProject:Boolean(document.querySelector('#project option[value="@global"]'))};
+    });
+    const {pane, heading, composer, start} = layout;
+    check(label + " empty chat centers the title and composer", layout.mode === "new" && pane && heading && composer &&
+      start && heading.bottom <= composer.top + 1 &&
+      Math.abs((composer.left + composer.right) / 2 - (pane.left + pane.right) / 2) <= 3 &&
+      Math.abs((heading.top + composer.bottom) / 2 - (pane.top + pane.bottom) / 2) <= pane.height * 0.12 &&
+      start.bottom <= pane.bottom && composer.left >= pane.left && composer.right <= pane.right, layout);
+    check(label + " empty chat offers optional project, files, plugins and model actions", layout.optionalProject &&
+      await reachable("#project") && await reachable("#lab-attach") && await reachable("#lab-tools") &&
+      await reachable("#lab-model-trigger"));
+  }
+
+  async function checkCompactDrawers() {
+    await ui.click(historyToggle);
+    await wait(() => visible(historySidebar), "compact conversation drawer opens");
+    check("Compact AI opens its conversation navigation independently", !await visible(globalSidebar));
+    await snapshot("10d-lab-conversation-drawer-compact");
+    await ui.click(globalToggle);
+    await wait(() => visible(globalSidebar), "compact workspace drawer opens");
+    check("Compact AI shows only one open navigation drawer", !await visible(historySidebar));
+    await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true})));
+    await wait(() => ui.evaluate(() => document.activeElement?.id === "workspace-nav-toggle"), "closing the compact drawer restores focus");
+  }
+
+  async function reachable(selector) {
+    return ui.evaluate(selector => {
+      const control = document.querySelector(selector), box = control?.getBoundingClientRect();
+      return Boolean(box?.width && box.height && control.contains(document.elementFromPoint(
+        (box.left + box.right) / 2, (box.top + box.bottom) / 2)));
+    }, selector);
+  }
+
+  async function checkReasoning() {
+    const trigger = "#lab-model-trigger", picker = "#lab-model-dialog", model = "#lab-model", effort = "#lab-effort";
+    const catalog = await app.request("/api/studio/models");
+    const choose = async id => {
+      await ui.click(trigger);
+      await ui.visible(`${picker}[open] ${model}`);
+      await wait(() => ui.evaluate(([selector,id]) => Array.from(document.querySelector(selector).options).some(option => option.value === id),
+        [model,id]), "local model appears in the chooser");
+      await ui.set(model,id);
+      await ui.click(`${picker} [data-lab-close]`);
+      await wait(() => ui.evaluate(selector => !document.querySelector(selector).open,picker), "model chooser closes");
+    };
+    const state = () => ui.evaluate(selector => {
+      const input = document.querySelector(selector);
+      return {type:input.type, min:Number(input.min), max:Number(input.max), value:Number(input.value),
+        label:input.getAttribute("aria-valuetext"), disabled:input.disabled, drawn:input.getClientRects().length > 0,
+        announces:document.getElementById("lab-effort-value")?.textContent.trim()};
+    }, effort);
+    const triggerReachable = await reachable(trigger);
+    await choose(reasoningModel);
+    const available = catalog.models.find(item => item.id === reasoningModel).efforts;
+    const multiple = await state();
+    const sliderReachable = await reachable(effort);
+    await ui.set(effort,String(available.length - 1));
+    const selected = await state();
+    check("Model chooser and capability-based reasoning slider are reachable", triggerReachable && sliderReachable &&
+      multiple.drawn && multiple.type === "range" && !multiple.disabled && multiple.min === 0 && multiple.max === available.length - 1 &&
+      selected.value === available.length - 1 && selected.label && selected.label !== multiple.label &&
+      selected.announces === selected.label, {multiple,selected,available});
+    await snapshot("10h-lab-model-effort-wide");
+    await choose(automaticModel);
+    const automatic = await state();
+    check("Changing to an automatic-only model removes adjustable reasoning levels", automatic.value === 0 &&
+      automatic.max === 0 && (automatic.disabled || !automatic.drawn) && automatic.label !== selected.label, automatic);
+    await choose(reasoningModel);
+    const changedBack = await state();
+    check("Changing back to a multi-level model re-enables its slider", changedBack.max === available.length - 1 &&
+      !changedBack.disabled && changedBack.drawn && await reachable(effort), changedBack);
+  }
+
+  async function checkToolsRoundTrip() {
+    const draft = "Keep this unsent question when opening a research tool.";
+    await ui.set("#question",draft);
+    const tools = "#lab-tools-dialog", discovery = '[data-lab-tool="discovery"]';
+    const clickTarget = await reachable("#lab-tools");
+    await ui.click("#lab-tools");
+    await ui.visible(`${tools}[open] #lab-tools-directory ${discovery}`);
+    const entries = await ui.evaluate(() => Array.from(document.querySelectorAll("#lab-tools-directory [data-lab-tool]"),
+      row => row.dataset.labTool));
+    check("Plugins opens a browsable research tools list", clickTarget && entries.includes("discovery") && entries.includes("graph") &&
+      new Set(entries).size === entries.length, entries);
+    await snapshot("10i-lab-tool-directory-wide");
+    await ui.click(discovery);
+    await ui.visible("#lab-tool-page-discovery");
+    await snapshot("10i2-lab-tool-discovery-wide");
+    const backReachable = await reachable("#lab-tool-back");
+    await ui.click("#lab-tool-back");
+    await ui.visible(`#lab-tools-directory ${discovery}`);
+    check("Tool detail has a reachable in-dialog return to the list", backReachable && await ui.evaluate(selector =>
+      document.activeElement === document.querySelector(selector),discovery));
+    await ui.click(discovery);
+    await ui.click("#discovery-link");
+    await wait(() => ui.evaluate(() => location.pathname === "/tools"), "open the Research Tools page");
+    await ui.visible("#discovery-return-lab");
+    await ui.click("#discovery-return-lab");
+    await wait(() => ui.evaluate(() => location.pathname === "/lab"), "return to Lab from Research Tools");
+    await ui.visible(`${tools}[open] #lab-tool-page-discovery`);
+    const restored = await ui.evaluate(() => ({project:new URL(location.href).searchParams.get("project"),
+      draft:document.getElementById("question").value}));
+    check("Returning from Research Tools restores the project, unsent question and open tool", restored.project === project.id &&
+      restored.draft === draft, restored);
+    await ui.click(`${tools} > header [data-lab-close]`);
+    await ui.set("#question", "");
+  }
+
+  async function checkSettings() {
+    const from = await ui.evaluate(() => location.pathname + location.search);
+    await navigate("settings");
+    await ui.visible("#workspace-settings-nav .settings-nav");
+    await ui.click("#settings-tab-storage");
+    await ui.visible("#settings-panel-storage");
+    await ui.visible("#storage-data-path", dataDir);
+    const settings = await ui.evaluate(() => {
+      const drawn = selector => Boolean(document.querySelector(selector)?.getClientRects().length);
+      return {global:drawn("#workspace-sidebar [data-workspace-nav]"), projects:drawn("#projectnav"), history:drawn("#workspace-session-sidebar"),
+        folder:document.getElementById("storage-data-path")?.textContent.trim(),
+        library:document.getElementById("storage-library-path")?.textContent.trim(),
+        defaultPath:document.getElementById("storage-default-path")?.textContent.trim(),
+        useDefault:!document.getElementById("storage-use-default")?.disabled,
+        categories:Array.from(document.querySelectorAll("#workspace-settings-nav [data-settings-page]"), item => item.dataset.settingsPage),
+        footer:drawn("[data-workspace-settings] [data-section='settings']"), back:drawn("#workspace-settings-back")};
+    });
+    check("Settings sidebar contains only settings categories and a return action", !settings.global && !settings.projects && !settings.history &&
+      !settings.footer && settings.back && settings.categories.includes("appearance") && settings.categories.includes("storage"),settings);
+    check("Data Location reports the isolated data and library paths and offers directory choices", settings.folder === dataDir &&
+      settings.library === path.join(dataDir,"research","library") && settings.defaultPath === defaultDir &&
+      settings.useDefault && await reachable("#storage-choose") && await reachable("#storage-use-default"),settings);
+    await snapshot("10j-settings-storage-wide");
+    await ui.click("#workspace-settings-back");
+    await wait(() => ui.evaluate(path => location.pathname + location.search === path,from),"Settings returns to its originating screen");
+    await ui.visible("#question");
+    check("Settings returns to the originating project and chat", true, {from});
+  }
+
   try {
     await resize(1440, wideHeight);
     await navigate("home");
     await loaded();
     await ui.visible("#dashboard-view");
     await snapshot("01-home-wide");
+    if (!baseline) {
+      const footer = await ui.evaluate(() => {
+        const drawn = selector => Array.from(document.querySelectorAll(selector)).filter(node => node.getClientRects().length);
+        const entries = drawn("[data-workspace-settings] :is(a,summary,button)");
+        return {entries:entries.map(node => node.dataset.section || node.localName),
+          inPrimaryFooter:Boolean(entries[0]?.closest("#workspace-sidebar .workspace-sidebar-footer")),
+          workspace:drawn(".workspace-roots, [data-section='workspace']").length};
+      });
+      check("The ordinary workspace footer offers only Settings", footer.entries.length === 1 && footer.entries[0] === "settings" &&
+        footer.inPrimaryFooter && footer.workspace === 0, footer);
+      await checkDashboard("Wide Home", ["today","active_projects","ai_review"], true);
+      await checkDashboardPreferences();
+    }
     const calendar = '#dashboard-view .dashboard-calendar-links a[href*="view=tasks"]';
     await ui.visible(calendar);
     await ui.evaluate(selector => document.querySelector(selector).scrollIntoView({block:"center"}), calendar);
@@ -189,8 +433,10 @@ async function run(app, browser, output, {baseline, wideHeight}) {
       navigation.shared && navigation.nested && navigation.modules === project.id && navigation.current === "page" &&
       !navigation.headerModules && !navigation.oldInspector, navigation);
     await snapshot("06-project-wide");
+    if (!baseline) await checkDashboard("Wide project Overview", ["project_status","research_questions","project_brief"]);
     await resize(900, 620);
     await snapshot("07-project-compact-closed");
+    if (!baseline) await checkDashboard("Compact project Overview", ["project_status","research_questions"]);
     const compactWidth = await ui.evaluate(() => document.querySelector("#workarea").getBoundingClientRect().width);
     await ui.click("#workspace-nav-toggle");
     const otherLink = '#projectnav [data-project="' + other.id + '"]';
@@ -213,14 +459,23 @@ async function run(app, browser, output, {baseline, wideHeight}) {
       await snapshot("09-project-compact-after-switch");
       await ui.click("#workspace-nav-toggle");
       await wait(() => visible(tree), "reopen compact navigator");
-      await ui.click(".workspace-roots summary");
-      await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true})));
-      check("Escape closes the workspace menu before its compact navigator", await visible("#workspace-sidebar") &&
-        await ui.evaluate(() => !document.querySelector(".workspace-roots").open &&
-          document.activeElement === document.querySelector(".workspace-roots summary")));
+      if (baseline && await visible(".workspace-roots summary")) {
+        await ui.click(".workspace-roots summary");
+        await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true})));
+        check("Escape closes the workspace menu before its compact navigator", await visible("#workspace-sidebar") &&
+          await ui.evaluate(() => !document.querySelector(".workspace-roots").open &&
+            document.activeElement === document.querySelector(".workspace-roots summary")));
+      }
       await ui.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true})));
       check("Escape dismisses the compact navigator and restores focus", !await visible(tree) &&
         await ui.evaluate(() => document.activeElement?.id === "workspace-nav-toggle"));
+    }
+    if (!baseline) {
+      await navigate("home");
+      await loaded();
+      await ui.visible("#dashboard-view");
+      await checkDashboard("Compact Home", ["today","active_projects"], true);
+      await snapshot("09b-home-compact");
     }
     await navigate("library");
     await ui.visible(".library-paper-title", title);
@@ -234,6 +489,7 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     }, 201);
     await open("/studio?session=" + meeting.id);
     await ui.visible("#meeting-actions-toggle");
+    if (!baseline) await checkAIShell("roundtable", true, "#studio-session-sidebar");
     await ui.click("#shell-assist");
     await ui.visible("#rail-prompt");
     // The WK click helper bypasses hit testing. Check that the session toolbar
@@ -249,6 +505,43 @@ async function run(app, browser, output, {baseline, wideHeight}) {
     await ui.click("#rail-close");
     await wait(() => ui.evaluate(() => document.getElementById("context-rail").hidden), "Roundtable overlay closes");
     check("Closing the Roundtable overlay restores focus", await ui.evaluate(() => document.activeElement?.id === "shell-assist"));
+
+    if (!baseline) {
+      const chat = "/lab?project=" + project.id;
+      await open(chat);
+      await ui.visible("#question");
+      await checkAIShell("single", true, "#lab-history");
+      await checkNewChat("Compact");
+      await snapshot("10c-lab-empty-compact");
+      await checkCompactDrawers();
+      await resize(1440, wideHeight);
+      await open("/studio?session=" + meeting.id);
+      await ui.visible("#meeting-actions-toggle");
+      await checkAIShell("roundtable", false, "#studio-session-sidebar");
+      await snapshot("10e-roundtable-two-nav-wide");
+      await open("/studio?project=" + project.id);
+      await ui.visible("#new-topic");
+      const roundtable = await ui.evaluate(() => {
+        const pane = document.querySelector(".workspace-region").getBoundingClientRect();
+        const composer = document.querySelector("#create-composer .composer-surface").getBoundingClientRect();
+        return {paneCenter:(pane.left + pane.right) / 2, composerCenter:(composer.left + composer.right) / 2,
+          optionalProject:Array.from(document.getElementById("create-project").options).some(option => option.value === "@global")};
+      });
+      check("Roundtable setup centers its composer and exposes project, file and plugin controls", roundtable.optionalProject &&
+        Math.abs(roundtable.paneCenter - roundtable.composerCenter) <= 3 && await reachable("#create-project") &&
+        await reachable("#create-attach") && await reachable("#create-plugins"), roundtable);
+      await snapshot("10f-roundtable-new-wide");
+      await open(chat);
+      await ui.visible("#question");
+      await checkAIShell("single", false, "#lab-history");
+      await checkNewChat("Wide");
+      await snapshot("10g-lab-empty-wide");
+      await checkReasoning();
+      await checkToolsRoundTrip();
+      await checkSettings();
+      assert.deepEqual(gateway.errors, []);
+      check("Navigation, tool browsing and model selection make no model calls", gateway.calls.length === 0, gateway.calls.length);
+    }
 
     async function appearance(mode, size, color) {
       await navigate("settings");
@@ -268,7 +561,8 @@ async function run(app, browser, output, {baseline, wideHeight}) {
         const stored = await app.request("/api/studio/settings");
         return stored.appearance === mode && stored.text_size === size && stored.color_theme === color;
       }, "appearance stored");
-      await navigate("lab");
+      if (baseline) await navigate("lab");
+      else await ui.click("#workspace-settings-back");
       await ui.visible("#question");
       await wait(() => ui.evaluate(() => !document.getElementById("lab-start").disabled), "Lab composer ready");
     }
@@ -307,9 +601,12 @@ async function main() {
   await mkdir(output, {recursive:true});
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "sci-workbench-ui-")));
   try {
-    const {app, browser} = await fixture(await realpath(bundle), base);
-    try { await run(app, browser, output, options); }
-    finally { await app.close(); }
+    const session = await fixture(await realpath(bundle), base);
+    try { await run(session, output, options); }
+    finally {
+      try { await session.app.close(); }
+      finally { await closeServer(session.gateway.server); }
+    }
   } finally {
     await rm(base, {recursive:true,force:true});
   }

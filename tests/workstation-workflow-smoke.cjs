@@ -70,7 +70,7 @@ async function closeServer(server) {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 }
 
-async function localGateway() {
+async function localGateway({reasoningLevels = {}} = {}) {
   const calls = [], errors = [];
   const server = await listen(async (req, res) => {
     const send = (status, value) => {
@@ -82,7 +82,7 @@ async function localGateway() {
       if (req.method === "GET" && req.url === "/v1/models") {
         send(200, {data: models.map((id, i) => ({
           id, display_name: "Fixture seat " + (i + 1), owned_by: "fixture",
-          kind: "chat", native_endpoints: ["/v1/chat/completions"]
+          kind: "chat", native_endpoints: ["/v1/chat/completions"], reasoning_levels: reasoningLevels[id]
         }))});
         return;
       }
