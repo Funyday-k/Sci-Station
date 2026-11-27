@@ -10,6 +10,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 - Introduce pilot semantic tokens (`tokens.css`) and shared card, empty-row, action-link, and quick-add components (`components.css`); deduplicate today’s tasks between Home’s Today and Calendar widgets, render empty AI Review as a compact status row, and organize Project Overview into a top summary strip, two-column work area, and bottom Quick add row for empty modules.
 - Highlight added, removed and context lines with `+`/`−` gutters in the CLI file-edit approval dialog using a shared `diff-view` component and unified dialog footer.
+- Navigate directly from route-only AI Lab plugin catalog entries (such as Literature recommendations) to the in-app tool with an arrow affordance, preserving project and draft context on return.
 - Align Home and project widgets to shared grid rows. Browse conversations in a separate sidebar and switch between single chat and Roundtable in one toolbar. The new-chat composer groups the project, files, plugins, model and supported reasoning levels. Research tools have individual views with a back action.
 - Manage the shared data and paper location in Settings. A fresh desktop installation starts with a per-user Application Support folder, while existing installations reopen their selected data directory.
 
