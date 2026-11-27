@@ -185,16 +185,15 @@
       unsaved:() => [...saved.values()].some(record => record.text !== record.confirmed)};
   }
 
-  function mount({req,tell,form,scopeAvailable,restoreModeDraft,restoreTemplate,skillForRun,currentResource,consumeResource,setResource}) {
+  function mount({req,tell,form,scopeAvailable,rememberDraft,restoreModeDraft,restoreTemplate,resetTemplate,checkedMaterials,skillForRun,currentResource,consumeResource,setResource}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
     let enabledModules=null;
     const recentRooms=new Map();
     let visibleRoom=null, searchState=null, renameTarget=null, painted="", scrollOnOpen=false;
     let history = [], active = "", pollTimer = 0, models = [], modelFlight=null, previewSequence = 0;
-    let importedMaterials=[], restoringDraft=null, legacyMember=null;
+    let importedMaterials=[], restoringDraft=null, legacyMember=null, compositionReady=false, defaultModel="";
     let filePickerOwner=null, fileBatch=null;
-    const chatAttachments=new Map();
     const effortChoices=new Map();
     const reasoning=window.SciModelEffort.bind($("lab-effort"),$("lab-effort-value"),effort=>{
       effortChoices.set($("lab-model").value,effort);
@@ -229,12 +228,10 @@
     function lookAt(id) {
       const changed=active!==id;
       if(changed) {
+        rememberComposition();
         stopFileUpload();
         legacyMember=null;
-        chatAttachments.set(active,{selected,importedMaterials,resource:currentResource()});
-        const saved=chatAttachments.get(id);
-        selected=saved?.selected || []; importedMaterials=saved?.importedMaterials || [];
-        setResource(saved?.resource || null); displaySelected();
+        resetComposition();
         window.SciStationReadReview?.update($("lab-read-review"), null);
         visibleRoom=null;
         painted=""; scrollOnOpen=Boolean(id);
@@ -252,6 +249,7 @@
     }
     function restoreAttachments() {
       const owner=project, thread=active, token=generation;
+      compositionReady=Boolean(owner);
       const pending=owner ? restoreModeDraft(owner.id,thread) : null;
       restoringDraft=pending;
       if(!pending) return;
@@ -265,12 +263,28 @@
         if(!thread) restoreDraftModel(draft.modelChoice);
         if(draft.resource && !currentResource()) setResource(draft.resource);
         displaySelected();
+        if(draft.warning) tell(draft.warning);
         draft.consume();
       }).catch(error=>{
         if(current()) tell(error.message);
       }).finally(()=>{
         if(current()){restoringDraft=null;updateComposer();}
       });
+    }
+    function compositionState() {
+      return {citations:selected.slice(),materials:importedMaterials.slice(),resource:currentResource(),modelChoice:active ? undefined : draftModelChoice()};
+    }
+    function rememberComposition() {
+      if(!project || !compositionReady || restoringDraft) return true;
+      try { return rememberDraft(project.id,active,compositionState()); }
+      catch(error) {tell(error.message);return false;}
+    }
+    function resetComposition() {
+      compositionReady=false;
+      selected=[];importedMaterials=[];setResource(null);displaySelected();
+      resetTemplate();effortChoices.clear();
+      if(defaultModel) $("lab-model").value=defaultModel;
+      effortOptions();
     }
     function updateComposer() {
       const archived=Boolean(visibleRoom?.lab_thread?.archived_at);
@@ -367,12 +381,13 @@
       $("lab-attachments").hidden=!rows.length && !currentResource();
     }
     async function selectProject(next, sessions) {
+      rememberComposition();
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
       stopFileUpload();
       window.SciStationReadReview?.update($("lab-read-review"), null);
-      project=next; records=[];existingTasks=[]; selected=[];importedMaterials=[]; restoringDraft=null; legacyMember=null;
+      project=next; records=[];existingTasks=[]; restoringDraft=null; legacyMember=null;
       clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
-      chatAttachments.clear();
+      resetComposition();
       painted="";$("lab-thread-actions").open=false;
       audit.show(null, null);
       void questionDraft.select(project);
@@ -610,9 +625,11 @@
           }
           const data=new FormData();data.append("file",file,file.name);
           try {
-            const {id,name}=await req(studio+"materials","POST",data,batch.signal);
+            const {id}=await req(studio+"materials","POST",data,batch.signal);
             if(!ownsDraft(owner) || fileBatch!==batch) return;
-            importedMaterials.push({id,name});
+            const [material]=await checkedMaterials({sourceSessionId:owner.thread,projectId:owner.project.id,materials:[{id}]});
+            if(!ownsDraft(owner) || fileBatch!==batch) return;
+            importedMaterials.push(material);
             added++;displaySelected();
           } catch(error) {
             if(batch.signal.aborted || !ownsDraft(owner) || fileBatch!==batch) return;
@@ -681,9 +698,10 @@
         const previous=$("lab-model").value;
         const catalog = await req(studio + "models");
         models = catalog.models || [];
+        defaultModel=models.some(m=>m.id===catalog.default_model) ? catalog.default_model : models[0]?.id || "";
         $("lab-model").replaceChildren(...models.map(m => new Option(m.label || m.id, m.id)));
         if (models.some(m=>m.id===previous)) $("lab-model").value=previous;
-        else if (models.some(m => m.id === catalog.default_model)) $("lab-model").value = catalog.default_model;
+        else if(defaultModel) $("lab-model").value=defaultModel;
         $("lab-model").disabled=!models.length;
         effortOptions();
         if (!models.length) throw Error(text("模型目录为空，请检查 AI 设置。","No models available. Check AI settings."));
@@ -946,7 +964,7 @@
       ["lab-discard-question-draft",questionDraft,$("question")],
       ["lab-discard-reply-draft",replyDraft,$("lab-reply")],
     ]) bind(id,async()=>{draft.consume(draft.capture(),input.value);await draft.save();});
-    window.addEventListener("pagehide",()=>{void questionDraft.save();void replyDraft.save();});
+    window.addEventListener("pagehide",()=>{rememberComposition();void questionDraft.save();void replyDraft.save();});
     bind("local-find",()=>findSources());bind("local-search-more",()=>findSources(true));
     bind("local-rebuild",()=>runProjectSearch("",true));bind("local-rebuild-source",()=>runProjectSearch("",true,true));
     $("local-search-stop").onclick=()=>searchState?.controller?.abort();
@@ -984,9 +1002,9 @@
       $("question").dispatchEvent(new Event("input",{bubbles:true}));
       importedMaterials=materials;displaySelected();
     }
-    return {selectProject,updateComposer,ensureModels,draftModelChoice,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
+    return {selectProject,updateComposer,ensureModels,compositionState,rememberComposition,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
       restoringDraft:()=>Boolean(restoringDraft),
-      modeDraftSelections:()=>({citations:selected.slice(),importedIds:importedMaterials.map(item=>item.id)}),
+      hasUnsavedInput:()=>Boolean(fileBatch || questionDraft.unsaved() || replyDraft.unsaved()),
       handoffDraftStamp:()=>JSON.stringify([active,selected.map(item=>item.citation),importedMaterials.map(item=>item.id),currentResource()]),
       saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
       prepareHandoff:async pid=>{

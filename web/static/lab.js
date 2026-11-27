@@ -6,6 +6,7 @@
   const text=(zh,en)=>window.SciStationI18n?.text(zh,en) || zh;
   const toolPanel=window.SciLabTools.mount({dialog:$("lab-tools-dialog"),trigger:$("lab-tools")});
   let presets=[], projects=[], sessions=[], current=null, original=null, preview=null, source=null, selectedTemplate=null;
+  let draftWorkspace="", workspaceLookup=null;
   let graphOwner="", graphPreview=null, graphGeneration=0, graphNodes=[];
   const graphPathOperations=["reading","method-lineage","bridge"];
   function tell(message){
@@ -44,7 +45,7 @@
   const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
     showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
   });
-  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, restoreModeDraft, restoreTemplate, skillForRun:projectContext.resolve,
+  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, rememberDraft, restoreModeDraft, restoreTemplate, resetTemplate, checkedMaterials, skillForRun:projectContext.resolve,
     currentResource:()=>source, consumeResource:used=>{if(source===used) markSource(null);},setResource:markSource,
     form:()=>{
       const template=selectedTemplate ? presets.find(p=>p.id===selectedTemplate) : defaultTemplate();
@@ -60,7 +61,7 @@
   function canLeave(){return !dirtyTemplate()||confirm(text("放弃尚未保存的模板更改？","Discard unsaved template changes?"));}
   let handingOff = false;
   window.addEventListener("beforeunload", event => {
-    if (!handingOff && (dirtyTemplate() || source || runs.hasDraft())) {
+    if (!handingOff && (dirtyTemplate() || runs.hasUnsavedInput() || (!runs.rememberComposition() && (source || runs.hasDraft())))) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -147,6 +148,12 @@
     if(!dirtyTemplate()) select(template);
     renderPresets();
   }
+  function resetTemplate() {
+    if(!selectedTemplate) return;
+    selectedTemplate=null;
+    if(!dirtyTemplate()) select(defaultTemplate() || null);
+    renderPresets();
+  }
   async function refresh(selected){
     presets=await req(api+"presets");
     const saved=presets.find(p=>p.id===selected);
@@ -180,7 +187,7 @@
     const id=$("project").value,p=projects.find(v=>v.id===id);
     $("graph-nodes").disabled=!p;
     for(const note of document.querySelectorAll("[data-lab-project-tool-note]")) note.hidden=Boolean(p);
-    if(previousScope!==null && previousScope!==id) {markSource(null);resetResource();}
+    if(previousScope!==null && previousScope!==id) resetResource();
     previousScope=id;
     if (graphOwner!==id) {
       graphOwner=id;
@@ -188,7 +195,6 @@
       graphNodes=[];
       $("graph-controls").hidden=true;
       clearGraphPreview();
-      if (source?.kind==="project-graph" && source.projectId!==id) markSource(null);
     }
     const url=new URL(location.href);
     if(p)url.searchParams.set("project",id);else url.searchParams.delete("project");
@@ -220,12 +226,25 @@
   let pendingTransfer=null, transferReview=null, transferSequence=0;
   const draftPrefix=(owner,thread)=>"sci-station.lab-mode-draft.v1:"+encodeURIComponent(owner)+":"+encodeURIComponent(thread)+":";
   const modeDraftKey=(workspace,owner,thread)=>draftPrefix(owner,thread)+encodeURIComponent(workspace);
-  async function verifyDraftCitation(owner,selection) {
-    const {kind,id,page,offset,hash,quote}=selection.citation;
+  function workspaceForDraft() {
+    if(draftWorkspace) return Promise.resolve(draftWorkspace);
+    if(!workspaceLookup) workspaceLookup=req("/api/health").then(({workspace})=>draftWorkspace=workspace).finally(()=>{workspaceLookup=null;});
+    return workspaceLookup;
+  }
+  async function verifyDraftCitation(owner,reference) {
+    const {kind,id,page,offset,hash,characters}=reference.citation || reference;
     const original=await req(api+"sources/preview","POST",{projectId:owner,location:{kind,id,page,offset}});
-    if(original.hash!==hash || !original.text.startsWith(quote)) throw Error(text(
+    const length=characters ?? Array.from(reference.citation?.quote || "").length;
+    const excerpt=Array.from(original.text).slice(0,length);
+    if(!Number.isInteger(length) || length<1 || length>1000 || original.hash!==hash || (original.offset || 0)!==offset || excerpt.length!==length ||
+       (reference.citation?.quote && excerpt.join("")!==reference.citation.quote)) throw Error(text(
       "草稿中的原文已更改，请重新选择选段。","A source in the draft changed. Select the excerpt again."));
-    return {title:original.title,citation:{kind,id,page,offset,hash,quote}};
+    return {title:original.title,citation:{kind,id,page,offset,hash,quote:excerpt.join("")}};
+  }
+  async function verifyDraftFile(owner,thread,{id,revision}) {
+    const [material]=await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:[{id}]});
+    if(!material || (revision && material.revision!==revision)) throw Error(text("草稿附件已更改。","A draft attachment changed."));
+    return material;
   }
   function restoreModeDraft(owner,thread) {
     const prefix=draftPrefix(owner,thread);
@@ -233,36 +252,48 @@
       if(!Object.keys(sessionStorage).some(key=>key.startsWith(prefix))) return null;
     } catch { return null; }
     return (async()=>{
-      const {workspace}=await req("/api/health");
+      const workspace=await workspaceForDraft();
       const key=modeDraftKey(workspace,owner,thread), value=sessionStorage.getItem(key);
       if(!value) return null;
-      const {ids,resource,citations=[],templateId="",templateRevision,modelChoice}=JSON.parse(value);
-      if(!Array.isArray(ids) || ids.length>12 || ids.some(id=>typeof id!=="string" || !/^[a-f0-9]{32}$/.test(id))) return null;
-      if(!Array.isArray(citations) || citations.length>4) return null;
-      const [materials,selected]=await Promise.all([
-        ids.length ? checkedMaterials({sourceSessionId:thread,projectId:owner,materials:ids.map(id=>({id}))}) : [],
-        Promise.all(citations.map(citation=>verifyDraftCitation(owner,citation)))
+      const {ids=[],imports=ids.map(id=>({id})),resource,citations=[],templateId="",templateRevision,modelChoice}=JSON.parse(value);
+      if(!Array.isArray(imports) || !Array.isArray(citations) || imports.length+citations.length>12 || citations.length>4 ||
+        imports.some(item=>!item || typeof item.id!=="string" || !/^[a-f0-9]{32}$/.test(item.id))) return null;
+      const [files,sources]=await Promise.all([
+        Promise.allSettled(imports.map(item=>verifyDraftFile(owner,thread,item))),
+        Promise.allSettled(citations.map(citation=>verifyDraftCitation(owner,citation)))
       ]);
-      return {materials,selected,templateId,templateRevision,modelChoice,resource:handoff.retainExcerpt(resource,owner),consume(){
+      const valid=items=>items.flatMap(result=>result.status==="fulfilled" ? [result.value] : []);
+      const warning=[...files,...sources].some(result=>result.status==="rejected") ? text(
+        "部分草稿附件已更改或不可用。请核对并重新添加缺失的材料。",
+        "Some draft attachments changed or are unavailable. Review the draft and attach any missing materials again.") : "";
+      return {materials:valid(files),selected:valid(sources),templateId,templateRevision,modelChoice,warning,
+        resource:handoff.retainExcerpt(resource,owner),consume(){
         if(sessionStorage.getItem(key)===value) sessionStorage.removeItem(key);
       }};
     })();
   }
+  function rememberDraft(owner,thread,draft,workspace=draftWorkspace) {
+    if(!workspace) return false;
+    const key=modeDraftKey(workspace,owner,thread);
+    const template=presets.find(item=>item.id===selectedTemplate && item.seats===1);
+    const imports=draft.materials.map(({id,revision})=>({id,revision}));
+    const citations=draft.citations.map(({citation:{kind,id,page,offset,hash,quote}})=>({kind,id,page,offset,hash,characters:Array.from(quote).length}));
+    // External excerpts were explicitly selected. Keep this exact approved text in the tab without opening the connection again.
+    const resource=handoff.retainExcerpt(draft.resource,owner);
+    const {modelChoice}=draft;
+    if(imports.length || citations.length || resource || template || modelChoice) {
+      sessionStorage.setItem(key,JSON.stringify({imports,citations,resource,templateId:template?.id,templateRevision:template?.revision,modelChoice}));
+    } else sessionStorage.removeItem(key);
+    return true;
+  }
   async function retainModeDraft(workspace,owner,thread,materials) {
-    const {citations,importedIds}=runs.modeDraftSelections();
+    const draft=runs.compositionState();
+    const importedIds=new Set(draft.materials.map(item=>item.id));
     if(!materials) {
-      materials=importedIds.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:importedIds.map(id=>({id}))}) : [];
+      materials=importedIds.size ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:draft.materials}) : [];
     }
     if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
-    const key=modeDraftKey(workspace,owner,thread), resource=handoff.retainExcerpt(source,owner);
-    const ids=materials.filter(item=>importedIds.includes(item.id)).map(item=>item.id);
-    const template=presets.find(item=>item.id===selectedTemplate && item.seats===1);
-    const modelChoice=thread ? undefined : runs.draftModelChoice();
-    if(ids.length || citations.length || resource || template || modelChoice) {
-      sessionStorage.setItem(key,JSON.stringify({ids,citations,resource,templateId:template?.id,templateRevision:template?.revision,modelChoice}));
-    }
-    else sessionStorage.removeItem(key);
-    return true;
+    return rememberDraft(owner,thread,{...draft,materials:materials.filter(item=>importedIds.has(item.id))},workspace);
   }
   function updateDiscoveryLink() {
     const owner=projectId(), thread=runs.activeThread();
@@ -542,7 +573,7 @@
   $("endpoint").oninput=projectContext.clearResource;
   $("resources").onchange=resetResource;
   const initialScope=(async()=>{
-    const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh()]);
+    const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh(),workspaceForDraft().catch(()=>{})]);
     projects=list;sessions=Array.isArray(rooms)?rooms:rooms.sessions||[];
     scopeOptions(new URLSearchParams(location.search).get("project") || "@global");
     projectSelection();

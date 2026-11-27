@@ -69,6 +69,7 @@ async function main(binary) {
     });
     for(const [width,height] of [[1440,900],[900,620],[520,490]]) {
       await page.setViewportSize({width,height});
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
       const geometry=await inspect();assert.ok(geometry.midpoint<35,JSON.stringify(geometry));
       assert.equal(geometry.adjacent,true);assert.equal(geometry.noOverflow,true);
       await screenshot(`lab-blank-${width}x${height}`);
@@ -124,15 +125,40 @@ async function main(binary) {
     const question="Analyze the two fixture sources.";
     await $("question").fill(question);
     const draftRoute=page.url();
+    async function restoredQuestion() {
+      for(const label of ["composer-fixture.txt","Composer note"]) await $("local-list").getByText(label,{exact:true}).waitFor();
+      await page.waitForFunction(()=>document.getElementById("lab-effort").getAttribute("aria-valuetext")==="极高");
+      assert.equal(await $("lab-model").inputValue(),"fixture/second");
+      await page.waitForFunction(value=>document.getElementById("question").value===value,question);
+    }
+    await $("project").selectOption(other.id);
+    await page.locator("#question:enabled").waitFor();
+    assert.equal(await $("question").inputValue(),"");
+    assert.equal(await $("local-list").locator("li").count(),0);
+    assert.equal(await $("lab-model").inputValue(),"fixture/first");
+    assert.equal(await slider.getAttribute("aria-valuetext"),"自动");
+    const stashed=await page.evaluate(id=>Object.entries(sessionStorage).find(([key])=>key.startsWith("sci-station.lab-mode-draft.v1:"+id+":"))?.[1],project.id);
+    assert.ok(stashed);
+    assert.doesNotMatch(stashed,/Known project excerpt/);
+    assert.match(JSON.parse(stashed).imports[0].revision,/\S+/);
+    await $("project").selectOption(project.id);
+    await restoredQuestion();
+    const settings=page.locator('[data-workspace-settings] a[data-section="settings"]');
+    if(!await settings.isVisible()) await $("workspace-nav-toggle").click();
+    await settings.click();
+    await page.waitForURL(url=>url.searchParams.get("view")==="settings");
+    const settingsBack=$("workspace-settings-back");
+    await settingsBack.waitFor({state:"attached"});
+    if(!await settingsBack.isVisible()) await $("workspace-nav-toggle").click();
+    await settingsBack.click();
+    await restoredQuestion();
+    await page.setViewportSize({width:900,height:620});
     await page.locator('[data-ai-mode="roundtable"]').click();
     await $("lab-transfer-apply").click();
     await $("studio-mode-import").waitFor();
     await $("studio-mode-dismiss").click();
     await page.goto(draftRoute);
-    for(const label of ["composer-fixture.txt","Composer note"]) await $("local-list").getByText(label,{exact:true}).waitFor();
-    await page.waitForFunction(()=>document.getElementById("lab-effort").getAttribute("aria-valuetext")==="极高");
-    assert.equal(await $("lab-model").inputValue(),"fixture/second");
-    await page.waitForFunction(value=>document.getElementById("question").value===value,question);
+    await restoredQuestion();
     assert.equal(calls.length,0);
     await $("lab-start").click();
     await page.getByText("Fixture reply from fixture/second",{exact:true}).waitFor();
