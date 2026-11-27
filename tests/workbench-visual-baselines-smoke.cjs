@@ -279,9 +279,12 @@ async function connectCdpSession(child, stopChrome) {
         mobile: false,
       });
     },
-    async emulateColorScheme(scheme) {
+    async emulateMedia(scheme, motion = "no-preference") {
       await send("Emulation.setEmulatedMedia", {
-        features: [{name: "prefers-color-scheme", value: scheme}],
+        features: [
+          {name: "prefers-color-scheme", value: scheme},
+          {name: "prefers-reduced-motion", value: motion},
+        ],
       });
     },
     async goto(url) {
@@ -346,8 +349,8 @@ async function openPlaywrightSession(playwright, origin) {
     async setViewport(width, height) {
       await page.setViewportSize({width, height});
     },
-    async emulateColorScheme(scheme) {
-      await page.emulateMedia({colorScheme: scheme});
+    async emulateMedia(scheme, motion = "no-preference") {
+      await page.emulateMedia({colorScheme: scheme, reducedMotion: motion});
     },
     async goto(url) {
       await page.goto(url, {waitUntil: "domcontentloaded"});
@@ -519,6 +522,45 @@ async function waitForScreenReady(session, step, fixtures) {
   );
 }
 
+async function checkRoomMotion(session, theme) {
+  // The fixture has two idle seats and an empty transcript. Sample the running
+  // state on a rendered participant and a timestamp without starting a round.
+  function readMotion() {
+    const toggle = document.getElementById("participants-toggle");
+    const wasClosed = document.getElementById("participants-panel").hidden;
+    if (wasClosed) toggle.click();
+    const seat = document.querySelector("#member-seats .seat");
+    const wasActive = seat.classList.contains("active");
+    const timestamp = document.createElement("time");
+    timestamp.className = "message-time";
+    document.getElementById("rounds").append(timestamp);
+    seat.classList.add("active");
+    try {
+      return {
+        reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+        pulse: getComputedStyle(seat.querySelector(".seat-indicator")).animationName,
+        scroll: getComputedStyle(document.getElementById("setup-scroll")).scrollBehavior,
+        fade: parseFloat(getComputedStyle(timestamp).transitionDuration) > 0,
+      };
+    } finally {
+      seat.classList.toggle("active", wasActive);
+      timestamp.remove();
+      if (wasClosed) toggle.click();
+    }
+  }
+  assert.deepEqual(await session.evaluate(readMotion), {
+    reduced: false, pulse: "breathe", scroll: "smooth", fade: true,
+  });
+  await session.emulateMedia(theme, "reduce");
+  try {
+    assert.deepEqual(await session.evaluate(readMotion), {
+      reduced: true, pulse: "none", scroll: "auto", fade: false,
+    });
+  } finally {
+    await session.emulateMedia(theme);
+  }
+}
+
 function isReaderComparisonView(step) {
   return step.screen === "reader" && step.width === 1380 && step.height === 900 &&
     step.locale === "zh" && step.theme === "light" && step.colorTheme === "iris";
@@ -615,7 +657,7 @@ async function captureVisualBaselines(binary, outputDir, plan, readerComparison)
         currentLocale = step.apiLocale;
       }
       if (currentTheme !== step.theme || currentColorTheme !== step.colorTheme) {
-        await session.emulateColorScheme(step.theme);
+        await session.emulateMedia(step.theme);
         await session.evaluate(
           ({theme, colorTheme}) => {
             localStorage.setItem("studio.appearance", theme);
@@ -636,6 +678,9 @@ async function captureVisualBaselines(binary, outputDir, plan, readerComparison)
       const route = screenRoute(step.screen, fixtures);
       await session.goto(host.origin + route);
       await waitForScreenReady(session, step, fixtures);
+      if (step.screen === "roundtable-room" && step.width === 1380 && step.theme === "light" && step.locale === "zh") {
+        await checkRoomMotion(session, step.theme);
+      }
 
       if (step.screen === "home" && step.viewport === "1380x900") {
         const audit = await session.evaluate(() => {

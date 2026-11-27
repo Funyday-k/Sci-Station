@@ -39,6 +39,8 @@ Open `http://127.0.0.1:18765/research`. Open the macOS app to exercise PDFKit, E
 
 The [workspace shell](../web/static/workspace-shell.html) renders navigation, the project tree, a toolbar and a single content region for every desktop route. Pages supply optional sidebar, breadcrumb and tool content through Go templates. Document pages use the shared page heading and gutters. Chat, Roundtable and Reader use the available viewport and own their internal transcript or PDF scroll area. Width and panel placement are managed by the shell. Home and project overviews use a row-aligned CSS grid. AI uses a second independently collapsible pane for conversation history. Settings substitutes its own categories for the regular navigation and restores the originating route on return.
 
+Roundtable declares feature assets in inert `template[data-view-assets]` groups in `studio.html`. The shell activates them at their declared cascade position. Project navigation, handoff and composer controls are shared by setup and the room. Creating a meeting prepares the room before submitting the draft. Document review and plugin tools load at their own entry points, and the AI rail can request the shared Markdown renderer separately.
+
 The sidebar and native Workspace menu open one AI destination. The shared switch selects single chat at `/lab` or a discussion at `/studio`. Legacy deep links still open the requested conversation. Project context comes from the route or the saved session. Switching modes prepares a scoped transfer for explicit review. Both conversation engines keep their own sessions, run controls and approvals.
 
 ## Workbench layout rules

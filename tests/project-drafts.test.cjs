@@ -95,6 +95,27 @@ function inputLimit(document) {
   return window.RoundtableInputLimit.paint;
 }
 
+test("lazy document review follows the latest requested revision even when the sidebar is already open", async () => {
+  const { $ } = fakeDOM();
+  const waits = [], shown = [];
+  const state = {selected:"meeting", session:{id:"meeting"}, view:"table", filePanelOpen:true};
+  const start = studio.indexOf("  let reviewOpenRequest =");
+  const end = studio.indexOf("  function closeChanges(", start);
+  const open = vm.runInNewContext(studio.slice(start, end) + "\nopenChanges", {
+    $, state, document:{activeElement:null}, CustomEvent: class {},
+    window:{SciShellLayout:{loadViewAssets:()=>new Promise(resolve => waits.push(resolve))}, dispatchEvent(){}},
+    allChanges:()=>["first", "second"], chatPosition(){}, restoreChatPosition(){},
+    showDiff:change=>shown.push(change), loadFiles:async()=>{}, showError:error=>{throw error;},
+  });
+  const first = open("first"), second = open("second");
+  waits[1](); await second;
+  waits[0](); await first;
+  assert.deepEqual(shown, ["second"]);
+  const again = open("first");
+  waits[2](); await again;
+  assert.deepEqual(shown, ["second", "first"]);
+});
+
 test("both clients only display a length warning above the Unicode code-point limit", () => {
   const { $, document } = fakeDOM();
   const paint = inputLimit(document);
@@ -490,6 +511,7 @@ test("create refuses a stale path and retains the current draft on a request fai
       },
       complete: () => { completions++; },
     },
+    prepareRoom: async () => {},
     api: async (endpoint, payload) => {
       calls.push({ endpoint, payload });
       if (failNext) {
