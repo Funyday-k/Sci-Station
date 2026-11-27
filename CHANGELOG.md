@@ -8,6 +8,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Expand only the active project by default in the navigation sidebar while honoring explicitly expanded or collapsed projects, and default the AI conversation sidebar to collapsed (persisted in workspace `shellLayout`) so AI pages start with a single sidebar (≤ 260px).
 - Align Home and project widgets to shared grid rows. Browse conversations in a separate sidebar and switch between single chat and Roundtable in one toolbar. The new-chat composer groups the project, files, plugins, model and supported reasoning levels. Research tools have individual views with a back action.
 - Manage the shared data and paper location in Settings. A fresh desktop installation starts with a per-user Application Support folder, while existing installations reopen their selected data directory.
 

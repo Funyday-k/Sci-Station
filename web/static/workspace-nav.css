@@ -53,15 +53,16 @@ nav[data-workspace-nav] a[aria-current="page"], nav[data-workspace-settings] a[a
 .workspace-sidebar-footer nav[data-workspace-settings] { align-items: flex-start; }
 .workspace-sidebar-footer [data-section="settings"] { justify-content: center; width: 38px; height: 38px; padding: 0; }
 .workspace-sidebar-footer [data-section="settings"] .workspace-nav-label { display: none; }
-.workspace-context { margin-top: 22px; min-width: 0; }
+.workspace-context { margin-top: 16px; min-width: 0; }
 .workspace-context:empty { display: none; }
+#workspace-projects { padding-top: 14px; border-top: 1px solid var(--workspace-line); }
 #workspace-context > :is(aside,#sidebar) {
   position: static; inset: auto; display: block; visibility: visible; transform: none;
   width: auto; height: auto; min-height: 0; padding: 0; margin: 0; border: 0;
   background: transparent; color: inherit; overflow: visible; box-shadow: none;
 }
 #workspace-context .project-heading {
-  display: flex; align-items: center; justify-content: space-between; margin: 0 0 5px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; padding: 0 8px;
   color: var(--workspace-muted); font-size: var(--workspace-text-small);
 }
 #workspace-context .project-heading strong { font-weight: 500; }
