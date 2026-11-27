@@ -162,6 +162,16 @@ test("AI commands stay unavailable until the active workspace confirms its modul
   assert.deepEqual(destinations,["/lab?scope=global"]);
 });
 
+function findChild(root, predicate) {
+  if (!root) return null;
+  if (predicate(root)) return root;
+  for (const child of root.children) {
+    const found = findChild(child, predicate);
+    if (found) return found;
+  }
+  return null;
+}
+
 function mountResearch(start, sessions=[], intercept) {
   const projects = [{id:"A",name:"Solar",path:"/one"}, {id:"B",name:"Lensing",path:"/two"}];
   const papers = [{id:"p1",title:"Solar paper",project_ids:["A"]},{id:"p2",title:"Lensing paper",project_ids:["B"]}];
@@ -178,13 +188,19 @@ function mountResearch(start, sessions=[], intercept) {
     }
   }
   const calls = [], listeners = {}, elements = {};
+  const {createTestDocument} = require("./lib/research-dom-fixture.cjs");
+  const document = createTestDocument();
   for (const match of read("research.html").matchAll(/\bid="([^"]+)"/g)) {
-    elements[match[1]] = {classList:{remove(){},toggle(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
+    elements[match[1]] = document.createElement("div");
   }
   elements.modal.addEventListener = (event, handler) => { listeners["modal." + event] = handler; };
-  const document = {getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;},createElement:tag=>({tagName:tag.toUpperCase(),dataset:{},setAttribute(){},append(){}})};
+  Object.assign(document, {
+    getElementById: id => elements[id] || findChild(elements.main, node => node.getAttribute("id") === id),
+    querySelector: () => null, querySelectorAll: () => [],
+    addEventListener: (event, cb) => { listeners[event] = cb; }
+  });
   const location = {href:new URL(start, origin).href,origin};
-  const window = Object.assign(new EventTarget(), {RoundtableIcons:{icon:()=>""}});
+  const window = Object.assign(new EventTarget(), {RoundtableIcons:{iconNode:()=>null}});
   window.SciStationModules = {
     load: async () => ({modules:Object.values(navigation.viewModules).map(id=>({id,effective:true}))})
   };
@@ -226,6 +242,31 @@ function mountResearch(start, sessions=[], intercept) {
   }
   return {ui:window.SciResearch,elements,calls,listeners,window,history,location};
 }
+
+test("Research dialogs, Wiki results and action IDs preserve literal workspace text", async () => {
+  const label = 'Alpha <strong>result</strong> & "notes"';
+  const id = 'note-"A&B"';
+  const mounted = mountResearch("/research?view=notes&project=A", [], url =>
+    url === "/api/research/projects/A/notes" ? Response.json([{id, title:label, tags:[], aliases:[]}]) : null);
+  const {ui, elements, listeners} = mounted;
+  await new Promise(resolve => setImmediate(resolve));
+  const rows = () => findChild(elements.main, node => node.getAttribute("id") === "wiki-results");
+  const action = () => findChild(rows(), node => node.getAttribute("data-action") === "read-note");
+  assert.equal(action().textContent, label);
+  assert.equal(action().getAttribute("data-id"), id);
+  assert.equal(findChild(action(), node => node.localName === "strong"), null);
+  listeners.input({target:{id:"wiki-query", value:"no match"}});
+  assert.equal(action(), null);
+  listeners.compositionend({target:{id:"wiki-query", value:"Alpha"}});
+  assert.equal(action().textContent, label);
+  elements.modal.showModal = () => { elements.modal.open = true; };
+  const control = ui.button(label, "read-note", {id});
+  ui.dialog(label, ui.fragment(control));
+  assert.equal(elements["dialog-title"].textContent, label);
+  assert.equal(elements["dialog-content"].firstElementChild, control);
+  assert.equal(control.childNodes[0].nodeType, 3);
+  assert.equal(control.getAttribute("data-id"), id);
+});
 
 test("research keeps stale content inert and retries the failed project and calendar view", async () => {
   const hold = Promise.withResolvers();

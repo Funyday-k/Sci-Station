@@ -133,12 +133,23 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     } catch (_) {}
   }
   const appearance = window.RoundtableAppearance;
-  function showError(error) {
+  let retryNotice = null;
+  function showError(error, retry = null) {
+    retryNotice = retry;
+    $("retry-connect").textContent = retry
+      ? (window.SciStationI18n?.text("重试", "Retry") ?? "重试")
+      : (window.SciStationI18n?.text("重新连接", "Reconnect") ?? "重新连接");
     $("notice-text").textContent = error.message || String(error);
     $("notice").hidden = false;
   }
   function clearError() {
+    retryNotice = null;
     $("notice").hidden = true;
+  }
+  function retryError() {
+    const retry = retryNotice || boot;
+    clearError();
+    return retry();
   }
   async function api(path, body, poll = null) {
     const response = await fetch(`/api/studio${path}`, {
@@ -413,8 +424,19 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
       else scroll.scrollTop = position.top;
     });
   }
-  function openChanges(change = null, opener = document.activeElement) {
+  let reviewOpenRequest = 0;
+  async function openChanges(change = null, opener = document.activeElement) {
     if (!state.session || !allChanges().length) return;
+    const id = state.selected, request = ++reviewOpenRequest;
+    try {
+      await window.SciShellLayout.loadViewAssets("files");
+    } catch (error) {
+      if (request === reviewOpenRequest && state.selected === id) showError(error, () => {
+        if (request === reviewOpenRequest && state.selected === id) return openChanges(change, opener);
+      });
+      return;
+    }
+    if (request !== reviewOpenRequest || state.selected !== id || !state.session || !allChanges().length) return;
     if (state.view !== "table") switchView("table");
     window.dispatchEvent(
       new CustomEvent("roundtable:sidepanel-open", { detail: "review" }),
@@ -431,6 +453,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     $("close-changes").focus({ preventScroll: true });
   }
   function closeChanges(restoreFocus = true) {
+    reviewOpenRequest++;
     if (!state.filePanelOpen) {
       $("files-view").hidden = true;
       return;
@@ -466,7 +489,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     $("table-view").hidden = false;
     syncBoardPresence();
     if (state.session) schedulePoll();
-    if (!state.selected && !$("create-form").hidden) setup.resume();
+    if (!state.selected && !$("create-form").hidden) setup?.resume();
     renderHeading();
     window.SciShellLayout?.dismissSessionNav(true);
   }
@@ -792,7 +815,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
   }
   function resetRoomDisclosures() {
     showRoomDrawer();
-    meetingActions.close();
+    meetingActions?.close();
     runCommands.close();
     window.RoundtableOpinions?.close({restoreFocus:false});
     seatMention.setContext();
@@ -840,7 +863,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     const members = sessionMembers(), session = state.session;
     $("chat-header").hidden = !session;
     if (!session) {
-      seatEditor.update(null, state.writing);
+      seatEditor?.update(null, state.writing);
       return;
     }
     loadLegacyRoster(session);
@@ -879,7 +902,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
         }
         const model = document.createElement("div"); model.className = "seat-model";
         model.textContent = [member.model && member.model !== member.label ? member.model : "",
-          member.effort ? window.RoundtableSetup.effortName(member.effort) : ""].filter(Boolean).join(" · ");
+          member.effort ? window.SciModelEffort.label(member.effort) : ""].filter(Boolean).join(" · ");
         model.title = model.textContent;
         copy.append(primary, model);
         identity.append(pic("person-avatar"), copy);
@@ -1382,6 +1405,9 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     $("round-settings").hidden = Boolean(closed);
   }
   function updateControls() {
+    setup?.setBusy(state.writing);
+    if (state.writing) createCommands.close();
+    if (!reportUI) return;
     const running = sessionWorking();
     reportUI.setBusy(state.writing);
     continuousUI.update(state.session);
@@ -1392,7 +1418,6 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     $("run-commands").disabled = runLocked;
     runMaterials.setDisabled(runLocked);
     if (runLocked) runCommands.close();
-    if (state.writing) createCommands.close();
     if (state.writing || running) seatMention.setContext();
     $("run-preset").disabled = state.writing || running;
     $("run-phase").disabled = state.writing || running;
@@ -1415,7 +1440,6 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     $("run-hint").textContent = running
       ? continuousUI.isActive() ? "持续推进中，记录会自动更新；可随时暂停" : "本轮进行中，记录会自动更新"
       : continuousRequest ? "持续推进由本机服务按限额执行，可随时暂停" : "每次发起推进一轮";
-    setup.setBusy(state.writing);
   }
   function paintRunSubmit() {
     $("run-submit").disabled = state.writing || sessionWorking() || !state.session ||
@@ -1514,8 +1538,8 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     activeTab: () => roomTab,
   });
   function clearBoard() {
-    boardPresence.stop();
-    board.clear();
+    boardPresence?.stop();
+    board?.clear();
     boardSourceOpener = null;
     $("board-workspace").hidden = true;
     $("setup-scroll").hidden = !state.draftOpen;
@@ -1528,7 +1552,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     if (compact === compactWorkspace) return;
     compactWorkspace = compact;
     const keepChat = conversationInUse();
-    setChatVisible(!compactWorkspace || keepChat, {paired: keepChat && board.isDrawing()});
+    setChatVisible(!compactWorkspace || keepChat, {paired: keepChat && board?.isDrawing()});
   }).observe(tableView.closest(".workspace-region"));
   function returnToBoard() {
     if (compactWorkspace || !boardSourceOpener) setChatVisible(false);
@@ -1619,7 +1643,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     board.render(session, {animateInitial});
     syncBoardPresence();
     if (firstBoard && hadChatFocus && $("room-chat").hidden) $("meeting-board").focus({preventScroll: true});
-    pluginsUI.updateSession(session);
+    pluginsUI?.updateSession(session);
     fileControls();
     const workspaceKey = JSON.stringify([
       allChanges().map((change) => [change.path, change.diff, change.after]),
@@ -1676,16 +1700,19 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
       return;
     }
     if (!canLeaveFile()) return;
+    if (!board) {
+      try { await prepareRoom(); } catch (error) { showError(error); return; }
+    }
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
     createCommands.close();
-    setup.suspend();
-    window.MeetingAgenda.clear();
-    reportUI.update(null);
+    setup?.suspend();
+    window.MeetingAgenda?.clear();
+    reportUI?.update(null);
     window.ScienceMeeting?.update(null);
     window.SciCLIEdit?.setSession(null);
-    pluginsUI.updateSession(null);
+    pluginsUI?.updateSession(null);
     $("create-form").hidden = true;
     $("draft-project-required").hidden = true;
     $("chat-header").hidden = true;
@@ -1754,7 +1781,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
       paintTextLimit("new-topic");
       renderHistory();
     } else {
-      setup.suspend();
+      setup?.suspend();
       $("draft-project-message").textContent = state.projectListStatus === "loading" ? "正在读取项目…" :
         state.projectListStatus === "failed" ? "暂时无法读取项目" : "该项目当前不可用";
       $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
@@ -1770,6 +1797,10 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
         return;
       }
     }
+    if (!setup) {
+      prepareSetup().then(() => openDraft(project), showError);
+      return;
+    }
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
@@ -1780,11 +1811,11 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     continuousUI.update(null);
     state.draftOpen = true;
     clearBoard();
-    window.MeetingAgenda.clear();
-    reportUI.update(null);
+    window.MeetingAgenda?.clear();
+    reportUI?.update(null);
     window.ScienceMeeting?.update(null);
     window.SciCLIEdit?.setSession(null);
-    pluginsUI.updateSession(null);
+    pluginsUI?.updateSession(null);
     state.file = null;
     state.filesSession = null;
     state.diff = null;
@@ -2396,6 +2427,9 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     updateControls();
     clearError();
     try {
+      // Prepare the room before creating it so an asset retry cannot create a second meeting.
+      await prepareRoom();
+      if (state.rebinding) return;
       const session = await api("/sessions", { topic, ...payload });
       if (state.rebinding) return;
       setup.complete();
@@ -2665,7 +2699,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
   $("dismiss-notice").addEventListener("click", clearError);
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented) return;
-    if (reportUI.isOpen() || pluginsUI.isOpen()) return;
+    if (reportUI?.isOpen() || pluginsUI?.isOpen()) return;
     if ($("project-dialog").open) return;
     if (!$("history-menu").hidden) {
       const items = menuItems(),
@@ -2904,8 +2938,28 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     };
     panel.hidden = false;
   }
+  let setup, reportUI, board, boardPresence, seatEditor, meetingActions, pluginsUI;
+  async function prepareRoom() {
+    await Promise.all([window.SciShellLayout.loadViewAssets("room"), window.SciShellLayout.loadViewAssets("markdown")]);
+    if (board) return;
+    reportUI = mountReport();
+    board = mountBoard();
+    seatEditor = mountSeatEditor();
+    boardPresence = mountPresence();
+    meetingActions = window.RoundtableActions.mount();
+  }
+  async function prepareSetup() {
+    await window.SciShellLayout.loadViewAssets("setup");
+    setup ??= mountSetup();
+  }
   async function boot() {
     clearError();
+    const entry = new URL(location.href);
+    const linked = entry.searchParams.get("session");
+    try {
+      if (linked) await prepareRoom();
+      else await prepareSetup();
+    } catch (error) { showError(error); return; }
     state.projectListStatus = "loading";
     paintDraftProject();
     const results = await Promise.allSettled([api("/settings"), loadHistory(), projects.load()]);
@@ -2920,8 +2974,6 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
       $("connection-status").classList.add("offline");
       $("connection-status").textContent = "连接中断";
     }
-    const entry = new URL(location.href);
-    const linked = entry.searchParams.get("session");
     let research = null;
     try {
       research = window.ScienceMeeting?.requestedProject(entry.searchParams.get("project"));
@@ -2948,7 +3000,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     const failure = results.find(result => result.status === "rejected");
     if (failure) showError(failure.reason);
   }
-  const reportUI = window.RoundtableReport.mount({
+  const mountReport = () => window.RoundtableReport.mount({
     fileChanges: session => closedFileCatalog(session).cited,
     openRevision: change => openChanges(change, $("meeting-report")),
     hasUnsentNote: () => Boolean($("run-note").value.trim() || runMaterials.items().length),
@@ -3000,7 +3052,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
       });
     },
   });
-  const board = window.RoundtableBoard.mount({
+  const mountBoard = () => window.RoundtableBoard.mount({
     root:$("meeting-board"),
     statusRoot:$("chat-board-status"),
     async writeEdit(id, payload) {
@@ -3040,8 +3092,23 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     },
     onRetry() { window.MeetingAgenda.retry(); },
   });
-  const pluginsUI = window.RoundtablePlugins.mount({api});
-  const seatEditor = window.RoundtableMemberEditor.mount({
+  async function openPluginTools() {
+    if (pluginsUI || !state.session) return;
+    const id = state.selected;
+    try {
+      await window.SciShellLayout.loadViewAssets("plugins");
+      if (state.selected !== id || !state.session) return;
+      pluginsUI ??= window.RoundtablePlugins.mount({api});
+      pluginsUI.updateSession(state.session);
+      await pluginsUI.openTools();
+    } catch (error) {
+      if (state.selected === id) showError(error, () => {
+        if (state.selected === id) return openPluginTools();
+      });
+    }
+  }
+  $("plugin-tools-open").addEventListener("click", openPluginTools);
+  const mountSeatEditor = () => window.RoundtableMemberEditor.mount({
     loadModels: () => api("/models"),
     write: (id, payload) => api(`/sessions/${encodeURIComponent(id)}/members`, payload),
     acceptSession(session) {
@@ -3051,7 +3118,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     },
     membersOf: sessionMembers, displayName: seatName,
   });
-  const boardPresence = window.RoundtableBoardPresence.mount(snapshot => {
+  const mountPresence = () => window.RoundtableBoardPresence.mount(snapshot => {
     if (!snapshot || state.selected === snapshot.session_id) board.setPresence(snapshot);
   }, async id => {
     const current = state.session;
@@ -3064,10 +3131,10 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     }
   });
   function syncBoardPresence() {
-    boardPresence.sync(state.session, state.view === "table" && !document.hidden);
+    boardPresence?.sync(state.session, state.view === "table" && !document.hidden);
   }
   document.addEventListener("visibilitychange", syncBoardPresence);
-  window.addEventListener("pagehide", boardPresence.stop);
+  window.addEventListener("pagehide", () => boardPresence?.stop());
   window.addEventListener("pageshow", syncBoardPresence);
   window.addEventListener("sci:language", () => {
     if (state.draftOpen) {
@@ -3076,19 +3143,19 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     }
     renderHeading();
   });
-  const meetingActions = window.RoundtableActions.mount();
+
   const topicMention = window.RoundtableMention.mount({
-    textarea: $("new-topic"), members: () => setup.mentionMembers(),
+    textarea: $("new-topic"), members: () => setup?.mentionMembers() || [],
     status: $("new-topic-mention-status"), list: $("new-topic-mention-list"),
     describeTarget: label => label + " 将担任首席并起草议程",
     multipleTargetsError: "只能指定一位首席，请保留一个 @目标。",
   });
   const createMaterials = window.RoundtableMaterials.mount({
     root: $("create-materials"), pasteTarget: $("new-topic"),
-    onChange: () => setup.materialsChanged(),
+    onChange: () => setup?.materialsChanged(),
     onError: message => showError(new Error(message)),
   });
-  const setup = window.RoundtableSetup.mount({
+  const mountSetup = () => window.RoundtableSetup.mount({
     api, assetFor, storageGet, storageSet, materials: createMaterials,
     onRosterChange() { topicMention.setContext(); topicMention.updateStatus(); },
   });
@@ -3110,7 +3177,7 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
       mention,
       mentionsAvailable,
       otherCommands,
-      meetingActions,
+      openMeetingSettings: input => meetingActions.openSettings(input),
       $,
     });
   }
@@ -3132,10 +3199,10 @@ import { mountComposerCommands as mountStudioComposerCommands } from "./composer
     if (state.activeProject !== detail.id && state.session?.project_id !== detail.id) return;
     state.rebinding = true;
     stopPoll();
-    setup.retire();
+    setup?.retire();
     runMaterials.set([]);
     $("run-note").value = "";
   });
   $("draft-retry-projects").addEventListener("click", boot);
-  $("retry-connect").addEventListener("click", boot);
+  $("retry-connect").addEventListener("click", retryError);
   boot();

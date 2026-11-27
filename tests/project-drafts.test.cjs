@@ -12,6 +12,21 @@ const one = { path: "/work/one", name: "one" };
 const two = { path: "/work/two", name: "two" };
 const studio = read("modules/studio/entry.js");
 
+test("a mounted composer opens settings on the meeting controller available when the command runs", () => {
+  const { $ } = fakeDOM();
+  const window = {RoundtableCommands: {mount: controls => controls}};
+  const sandbox = vm.createContext({window, $});
+  sandbox.mountStudioComposerCommands = loadESMInContext("modules/studio/composer.js", sandbox).mountComposerCommands;
+  const start = studio.indexOf("  function mountComposerCommands(");
+  const end = studio.indexOf("  const createCommands", start);
+  const mount = vm.runInContext(studio.slice(start, end) + "\nmountComposerCommands", sandbox);
+  const menu = mount("run", {}, {}, {}, () => false, []);
+  let focused;
+  sandbox.meetingActions = {openSettings: input => { focused = input; }};
+  menu.commands().find(item => item.label === "持续推进设置").run();
+  assert.equal(focused, $("run-continuous-goal"));
+});
+
 test("opening a Roundtable source replaces the anchor and keeps the history position", () => {
   const location = new URL("http://127.0.0.1:18675/studio?project=fixture&session=meeting");
   const original = {workspacePosition:7,otherState:"kept"};
@@ -105,6 +120,73 @@ function inputLimit(document) {
   vm.runInNewContext(read("input-limit.js"), { window, document });
   return window.RoundtableInputLimit.paint;
 }
+
+test("lazy document review follows the latest requested revision even when the sidebar is already open", async () => {
+  const { $ } = fakeDOM();
+  const waits = [], shown = [];
+  const state = {selected:"meeting", session:{id:"meeting"}, view:"table", filePanelOpen:true};
+  const start = studio.indexOf("  let reviewOpenRequest =");
+  const end = studio.indexOf("  function closeChanges(", start);
+  const open = vm.runInNewContext(studio.slice(start, end) + "\nopenChanges", {
+    $, state, document:{activeElement:null}, CustomEvent: class {},
+    window:{SciShellLayout:{loadViewAssets:()=>new Promise(resolve => waits.push(resolve))}, dispatchEvent(){}},
+    allChanges:()=>["first", "second"], chatPosition(){}, restoreChatPosition(){},
+    showDiff:change=>shown.push(change), loadFiles:async()=>{}, showError:error=>{throw error;},
+  });
+  const first = open("first"), second = open("second");
+  waits[1](); await second;
+  waits[0](); await first;
+  assert.deepEqual(shown, ["second"]);
+  const again = open("first");
+  waits[2](); await again;
+  assert.deepEqual(shown, ["second", "first"]);
+});
+
+test("notice retries the failed Studio resource in the current room without reconnecting or clearing its draft", async () => {
+  const { $ } = fakeDOM();
+  const state = {selected:"meeting", session:{id:"meeting"}, view:"table"};
+  const features = [], opened = [], attachments = ["fixture.pdf"];
+  const failed = new Set(["files", "plugins"]);
+  let reconnects = 0;
+  const window = {
+    SciShellLayout:{async loadViewAssets(feature) {
+      features.push(feature);
+      if (failed.delete(feature)) throw Error("offline");
+    }},
+    RoundtablePlugins:{mount:()=>({updateSession(){}, openTools:()=>opened.push("plugins")})},
+    dispatchEvent(){},
+  };
+  const snippet = (from, to) => studio.slice(studio.indexOf(from), studio.indexOf(to, studio.indexOf(from)));
+  const bindings = vm.runInNewContext(
+    snippet("  let retryNotice =", "  async function api(") +
+    snippet("  let reviewOpenRequest =", "  function closeChanges(") +
+    "let pluginsUI;\n" + snippet("  async function openPluginTools()", '  $("plugin-tools-open").addEventListener') +
+    "({openChanges,openPluginTools,retryError,showError})",
+    {$, state, window, api(){}, CustomEvent:class {}, document:{activeElement:null},
+      allChanges:()=>["revision"], chatPosition(){}, restoreChatPosition(){}, showDiff:()=>opened.push("files"),
+      loadFiles:async()=>{}, boot:()=>{reconnects++; $("run-note").value=""; attachments.length = 0;}},
+  );
+  $("run-note").value = "Unsent question";
+  for (const [feature, open] of [["files", bindings.openChanges], ["plugins", bindings.openPluginTools]]) {
+    await open();
+    assert.equal($("notice").hidden, false);
+    await bindings.retryError();
+    assert.equal($("notice").hidden, true);
+    assert.equal(opened.at(-1), feature);
+    assert.equal($("run-note").value, "Unsent question");
+    assert.deepEqual(attachments, ["fixture.pdf"]);
+  }
+  assert.deepEqual(features, ["files", "files", "plugins", "plugins"]);
+  assert.equal(reconnects, 0);
+  failed.add("files");
+  await bindings.openChanges();
+  state.selected = "another meeting";
+  await bindings.retryError();
+  assert.deepEqual(features, ["files", "files", "plugins", "plugins", "files"]);
+  bindings.showError(Error("disconnected"));
+  await bindings.retryError();
+  assert.equal(reconnects, 1);
+});
 
 test("both clients only display a length warning above the Unicode code-point limit", () => {
   const { $, document } = fakeDOM();
@@ -501,6 +583,7 @@ test("create refuses a stale path and retains the current draft on a request fai
       },
       complete: () => { completions++; },
     },
+    prepareRoom: async () => {},
     api: async (endpoint, payload) => {
       calls.push({ endpoint, payload });
       if (failNext) {

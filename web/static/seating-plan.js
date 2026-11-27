@@ -102,7 +102,8 @@
     mark.append(svg("rect", {x:-9.6,y:-9.6,width:19.2,height:19.2,rx:6,class:"brand-tile"}));
     const image = svg("image", {x:-7.7,y:-7.7,width:15.4,height:15.4,preserveAspectRatio:"xMidYMid meet"});
     const neutral = svg("g", {class:"seat-model-icon", transform:"translate(-10 -10)"});
-    const svg = window.RoundtableIcons?.iconNode?.("model"); if (svg) neutral.replaceChildren(svg);
+    const modelIcon = window.RoundtableIcons.iconNode("model");
+    if (modelIcon) neutral.append(modelIcon);
     mark.append(image, neutral);
     figure.append(mark); group.append(title, figure);
     return {group, figure, mark, title, image, neutral, member, x:0, angle:0};

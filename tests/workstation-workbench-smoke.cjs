@@ -170,6 +170,14 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
   const historySidebar = "#workspace-session-sidebar";
   const globalToggle = "#workspace-nav-toggle";
   const historyToggle = "#workspace-session-toggle";
+  async function checkStudioResources(label, loaded, absent) {
+    const paths = await ui.evaluate(() => {
+      performance.setResourceTimingBufferSize(1000);
+      return performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname);
+    });
+    for (const name of loaded) assert.ok(paths.includes("/static/" + name), label + " did not load " + name);
+    for (const name of absent) assert.ok(!paths.includes("/static/" + name), label + " eagerly loaded " + name);
+  }
   async function checkAIShell(mode, compact, content) {
     const view = compact ? "Compact" : "Wide";
     const controls = [globalToggle,historyToggle,...(mode === "roundtable" ? ["#room-chat-toggle","#meeting-actions-toggle"] : [])];
@@ -592,6 +600,13 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       await ui.visible("#meeting-actions-toggle");
       await ui.visible("#room-chat-toggle");
       await checkAIShell("roundtable", false, "#studio-session-sidebar");
+      await checkStudioResources("Direct meeting", ["modules/studio/entry.js", "modules/studio/composer.js", "meeting-room.css", "meeting-board.js"],
+        ["studio-setup.css", "seating-plan.js", "studio-diff.css", "plugin-market.js"]);
+      await ui.click("#meeting-actions-toggle");
+      await ui.click("#plugin-tools-open");
+      await ui.visible("#plugin-tools-dialog[open]");
+      await checkStudioResources("Meeting tools", ["plugin-market.js", "plugin-market.css"], ["studio-diff.css"]);
+      await ui.click("#plugin-tools-close");
       await snapshot("10e-roundtable-two-nav-wide");
       if (!await visible("#room-tab-chat")) await ui.click("#room-chat-toggle");
       const draft = "Keep this question in the meeting.";
@@ -606,6 +621,20 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       check("An agenda item opens Conversation and focuses the preserved draft",
         selectedDraft.value === draft + "\n" + agendaTitle &&
         await ui.evaluate(() => document.activeElement === document.getElementById("run-note")));
+      // Feed the production meeting update handler a recorded legacy change, which
+      // read-only model rounds can no longer produce. The normal review control opens it.
+      const recorded = await app.request("/api/studio/sessions/" + meeting.id);
+      await ui.evaluate(session => {
+        session.rounds = [{number:1, created_at:session.created_at, turns:[{seat:session.members[0].id,
+          status:"done", finished_at:session.created_at, text:"Fixture revision",
+          changes:[{path:"fixture.md", before:"Original", after:"Revised", diff:"-Original\n+Revised"}]}]}];
+        window.dispatchEvent(new CustomEvent("meeting-agenda-updated", {detail:{session}}));
+        const toggle = document.getElementById("files-toggle");
+        if (toggle.hidden) throw Error("The stored change did not expose document review");
+        toggle.click();
+      }, recorded);
+      await ui.visible("#files-view");
+      await checkStudioResources("Document review", ["studio-diff.css"], []);
       await open("/studio?project=" + project.id);
       await ui.visible("#new-topic");
       const roundtable = await ui.evaluate(() => {
@@ -619,6 +648,19 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
         Math.abs(roundtable.paneCenter - roundtable.composerCenter) <= 3 && await reachable("#create-project") &&
         await reachable("#create-attach") && await reachable("#create-plugins"), roundtable);
       await snapshot("10f-roundtable-new-wide");
+      await checkStudioResources("New meeting", ["modules/studio/entry.js", "modules/studio/composer.js", "studio-setup.css", "seating-plan.js"],
+        ["studio-diff.css", "meeting-room.css", "meeting-board.js", "plugin-market.js", "cli-edit-review.js"]);
+      await ui.set("#new-topic", "Synthetic Studio resource transition");
+      await ui.click("#member-picker");
+      await ui.click("#member-options .model-option input:not(:checked)");
+      await ui.visible("#seating-room .seated-person");
+      await ui.click("#member-picker");
+      const timeOrigin = await ui.evaluate(() => performance.timeOrigin);
+      await ui.click("#create-submit");
+      await ui.visible("#chat-header");
+      assert.equal(await ui.evaluate(() => performance.timeOrigin), timeOrigin, "creating a meeting keeps the live document");
+      await checkStudioResources("Created meeting", ["meeting-room.css", "meeting-board.js"],
+        ["studio-diff.css", "plugin-market.js"]);
       await open(chat);
       await ui.visible("#question");
       await checkAIShell("single", false, "#lab-history");

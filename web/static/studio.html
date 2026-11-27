@@ -1,57 +1,91 @@
 {{define "head"}}
 <script defer src="/static/model-effort.js"></script>
-<script defer src="/static/model-read-review.js"></script>
-<link rel="stylesheet" href="/static/research-vendor/katex.min.css">
-<link rel="stylesheet" href="/static/scientific-markdown.css">
-<script defer src="/static/research-vendor/marked.min.js"></script>
-<script defer src="/static/research-vendor/dompurify.min.js"></script>
-<script defer src="/static/research-vendor/katex.min.js"></script>
-<script defer src="/static/scientific-markdown.js"></script>
+<template data-view-assets="room">
+  <script defer src="/static/model-read-review.js"></script>
+</template>
+<template data-view-assets="markdown">
+  <link rel="stylesheet" href="/static/research-vendor/katex.min.css">
+  <link rel="stylesheet" href="/static/scientific-markdown.css">
+  <script defer src="/static/research-vendor/marked.min.js"></script>
+  <script defer src="/static/research-vendor/dompurify.min.js"></script>
+  <script defer src="/static/research-vendor/katex.min.js"></script>
+  <script defer src="/static/scientific-markdown.js"></script>
+</template>
 <link rel="stylesheet" href="/static/studio.css" />
-    <link rel="stylesheet" href="/static/children-panel.css" />
-    <link rel="stylesheet" href="/static/studio-setup.css" />
-    <link rel="stylesheet" href="/static/projects.css" />
-    <link rel="stylesheet" href="/static/agenda.css" />
-    <link rel="stylesheet" href="/static/report-ui.css" />
-    <link rel="stylesheet" href="/static/studio-diff.css" />
-    <link rel="stylesheet" href="/static/plugin-market.css" />
-    <script src="/static/projects.js" defer></script>
-    <script src="/static/agenda.js" defer></script>
-    <script src="/static/seating-plan.js" defer></script>
-    <script src="/static/continuous-ui.js" defer></script>
-    <script src="/static/studio-setup.js" defer></script>
-    <script src="/static/session-recovery.js" defer></script>
-    <script src="/static/report-ui.js" defer></script>
-    <script src="/static/input-limit.js" defer></script>
-    <script src="/static/composer-input.js" defer></script>
-    <script src="/static/plugin-market.js" defer></script>
-    <link rel="stylesheet" href="/static/meeting-room.css" />
-    <link rel="stylesheet" href="/static/member-editor.css" />
-    <link rel="stylesheet" href="/static/seat-mention.css" />
-    <link rel="stylesheet" href="/static/composer-commands.css" />
-    <link rel="stylesheet" href="/static/meeting-materials.css" />
-    <script src="/static/meeting-actions.js" defer></script>
-    <script src="/static/seat-mention.js" defer></script>
-    <script src="/static/composer-commands.js" defer></script>
-    <script src="/static/meeting-materials.js" defer></script>
-    <link rel="stylesheet" href="/static/meeting-board.css" />
-    <link rel="stylesheet" href="/static/board-ink.css" />
-    <link rel="stylesheet" href="/static/board-edit.css" />
-    <link rel="stylesheet" href="/static/board-cursors.css" />
-    <link rel="stylesheet" href="/static/workspace-layout.css" />
-    <script src="/static/board-edit.js" defer></script>
-    <script src="/static/board-cursors.js" defer></script>
-    <script src="/static/meeting-board.js" defer></script>
-    <script src="/static/board-presence.js" defer></script>
-    <script src="/static/member-editor.js" defer></script>
-    <link rel="stylesheet" href="/static/science-meeting.css" />
-    <link rel="stylesheet" href="/static/cli-edit-review.css" />
-    <script src="/static/cli-edit-review.js" defer></script>
-    <script src="/static/science-meeting.js" defer></script>
-    <script src="/static/lab-handoff.js" defer></script>
-    <script src="/static/studio-mode-transfer.js" defer></script>
-    <script src="/static/children-panel.js" defer></script>
-    <script type="module" src="/static/modules/studio/entry.js"></script>
+<template data-view-assets="room">
+  <link rel="stylesheet" href="/static/children-panel.css" />
+</template>
+<template data-view-assets="setup">
+  <link rel="stylesheet" href="/static/studio-setup.css" />
+</template>
+<link rel="stylesheet" href="/static/projects.css" />
+<template data-view-assets="room">
+  <link rel="stylesheet" href="/static/agenda.css" />
+  <link rel="stylesheet" href="/static/report-ui.css" />
+</template>
+<template data-view-assets="files">
+  <link rel="stylesheet" href="/static/studio-diff.css" />
+</template>
+<template data-view-assets="plugins">
+  <link rel="stylesheet" href="/static/plugin-market.css" />
+</template>
+<script src="/static/projects.js" defer></script>
+<template data-view-assets="room">
+  <script src="/static/agenda.js" defer></script>
+</template>
+<template data-view-assets="setup">
+  <script src="/static/seating-plan.js" defer></script>
+</template>
+<script src="/static/continuous-ui.js" defer></script>
+<template data-view-assets="setup">
+  <script src="/static/studio-setup.js" defer></script>
+</template>
+<script src="/static/session-recovery.js" defer></script>
+<template data-view-assets="room">
+  <script src="/static/report-ui.js" defer></script>
+</template>
+<script src="/static/input-limit.js" defer></script>
+<script src="/static/composer-input.js" defer></script>
+<template data-view-assets="plugins">
+  <script src="/static/plugin-market.js" defer></script>
+</template>
+<template data-view-assets="room">
+  <link rel="stylesheet" href="/static/meeting-room.css" />
+  <link rel="stylesheet" href="/static/member-editor.css" />
+</template>
+<link rel="stylesheet" href="/static/seat-mention.css" />
+<link rel="stylesheet" href="/static/composer-commands.css" />
+<link rel="stylesheet" href="/static/meeting-materials.css" />
+<template data-view-assets="room">
+  <script src="/static/meeting-actions.js" defer></script>
+</template>
+<script src="/static/seat-mention.js" defer></script>
+<script src="/static/composer-commands.js" defer></script>
+<script src="/static/meeting-materials.js" defer></script>
+<template data-view-assets="room">
+  <link rel="stylesheet" href="/static/meeting-board.css" />
+  <link rel="stylesheet" href="/static/board-ink.css" />
+  <link rel="stylesheet" href="/static/board-edit.css" />
+  <link rel="stylesheet" href="/static/board-cursors.css" />
+</template>
+<link rel="stylesheet" href="/static/workspace-layout.css" />
+<template data-view-assets="room">
+  <script src="/static/board-edit.js" defer></script>
+  <script src="/static/board-cursors.js" defer></script>
+  <script src="/static/meeting-board.js" defer></script>
+  <script src="/static/board-presence.js" defer></script>
+  <script src="/static/member-editor.js" defer></script>
+  <link rel="stylesheet" href="/static/science-meeting.css" />
+  <link rel="stylesheet" href="/static/cli-edit-review.css" />
+  <script src="/static/cli-edit-review.js" defer></script>
+</template>
+<script src="/static/science-meeting.js" defer></script>
+<script src="/static/lab-handoff.js" defer></script>
+<script src="/static/studio-mode-transfer.js" defer></script>
+<script type="module" src="/static/modules/studio/entry.js"></script>
+<template data-view-assets="room">
+  <script src="/static/children-panel.js" defer></script>
+</template>
 {{end}}
 {{define "sidebar"}}
 <aside class="sidebar" id="studio-session-sidebar" aria-labelledby="studio-history-title">

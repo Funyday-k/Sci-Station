@@ -13,7 +13,7 @@
     "distinct_border_radii": 4,
     "distinct_numeric_z_indices": 0,
     "duplicate_custom_properties": 0,
-    "html_sinks": 11,
+    "html_sinks": 3,
     "base_control_rules_outside_components": 0
   },
   "html_entry_points": {

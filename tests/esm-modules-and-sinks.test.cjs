@@ -37,6 +37,9 @@ function makeDomEnv() {
       setAttribute(name, value) {
         attrs.set(name, String(value));
       },
+      classList: { toggle() {} },
+      addEventListener() {},
+      removeAttribute(name) { attrs.delete(name); },
       getAttribute(name) {
         return attrs.get(name) ?? null;
       },
@@ -162,7 +165,76 @@ test("studio and research ESM DOM helpers treat untrusted XSS strings as literal
   assert.equal(collectTags(box.replacedWith[2]).includes("SCRIPT"), false);
 });
 
-test("every remaining HTML sink in web/static has an adjacent html-sink justification comment", () => {
+test("a new Roundtable renders its first seat and neutral model icon", () => {
+  const {window, document, makeNode} = makeDomEnv();
+  const controls = new Map(["room", "scroll", "workspace", "pan", "left", "right"].map(id => ["seating-" + id, makeNode("div")]));
+  const props = makeNode("g"), people = makeNode("g");
+  const root = controls.get("seating-room");
+  root.querySelectorAll = () => [];
+  root.querySelector = selector => selector === ".table-objects" ? props : people;
+  document.getElementById = id => controls.get(id);
+  vm.runInNewContext(readStatic("seating-plan.js"), {
+    window, document, ResizeObserver:class { observe() {} }, requestAnimationFrame:() => 1, cancelAnimationFrame() {},
+  });
+  const member = {model:"fixture/unknown", label:"Researcher <A>"};
+  const plan = window.RoundtableSeating.mount(() => "");
+  plan.render([member], new Map());
+  assert.equal(people.children.length, 1);
+  assert.equal(people.children[0].querySelector("title").textContent, "首席 · Researcher <A>");
+  assert.ok(people.children[0].querySelector("svg-model"));
+});
+
+test("linked materials keep workspace paths as text and preserve preview and native actions", async () => {
+  const {window, document, makeNode} = makeDomEnv();
+  const name = "code/notes <sample>.py";
+  let dialogContent;
+  const calls = [];
+  function el(tag, attrs, ...children) {
+    const node = makeNode(tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    node.append(...children.flat(Infinity).map(item => typeof item === "string" ? document.createTextNode(item) : item));
+    return node;
+  }
+  const ui = {
+    state:{project:{id:"project"}}, enc:encodeURIComponent, el,
+    fragment:(...items) => el("#fragment", {}, items), bytes:() => "16 B", projectPath:path => "projects/project/" + path,
+    $:id => {
+      const nodes = [dialogContent];
+      while (nodes.length) {
+        const node = nodes.pop();
+        if (node.getAttribute?.("id") === id) return node;
+        nodes.push(...(node.children || []));
+      }
+    },
+    button:(title, action, {id} = {}) => el("button", {"data-action":action, "data-id":id || ""}, title),
+    dialog:(_title, content) => { dialogContent = content; },
+    request:async (path, options) => {
+      if (options) { calls.push(options.body); return {performed:true}; }
+      return path.endsWith("view=materials") ? [{path:name, kind:"python", size:16}] : {native:true};
+    },
+  };
+  window.SciResearch = ui;
+  vm.runInNewContext(readStatic("research-materials.js"), {window, document,
+    fetch:async () => ({ok:true, text:async () => "print('<example>')"})});
+  await ui.linkedMaterialsAction("linked-materials");
+  const items = dialogContent.replacedWith;
+  const fileButton = items.find(item => item.getAttribute("class") === "list").children[0];
+  assert.equal(fileButton.getAttribute("data-action"), "preview-linked-material");
+  assert.equal(fileButton.getAttribute("data-id"), name);
+  assert.equal(collectText(fileButton), name);
+  await ui.linkedMaterialsAction(fileButton.getAttribute("data-action"), fileButton.getAttribute("data-id"));
+  assert.ok(collectText(dialogContent).includes(name));
+  assert.ok(collectText(dialogContent).includes("print('<example>')"));
+  assert.ok(!collectTags(dialogContent).includes("EXAMPLE"));
+  await ui.linkedMaterialsAction("material-native", "reveal");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{project:"project", action:"reveal", path:name, runtime:"system"}]);
+});
+
+test("only the reviewed built-in SVG illustrations use HTML sinks", () => {
+  const illustrations = new Map([
+    ["seating-plan.js", ["figure.innerHTML =", "root.innerHTML = artwork;"]],
+    ["studio-setup.js", ["art.innerHTML ="]],
+  ]);
   const sinkRe = /\.\s*(?:innerHTML|outerHTML|insertAdjacentHTML)\b|\[\s*['"](?:innerHTML|outerHTML|insertAdjacentHTML)['"]\s*\]/;
   const missing = [];
 
@@ -179,7 +251,8 @@ test("every remaining HTML sink in web/static has an adjacent html-sink justific
           if (trimmed.startsWith("//") || trimmed.startsWith("*")) return;
           if (!sinkRe.test(line)) return;
           const prev = lines.slice(Math.max(0, idx - 3), idx + 1).join("\n");
-          if (!prev.includes("html-sink:")) {
+          const file = path.relative(STATIC_DIR, full);
+          if (!illustrations.get(file)?.some(prefix => trimmed.startsWith(prefix)) || !prev.includes("html-sink:")) {
             missing.push(`${path.relative(STATIC_DIR, full)}:${idx + 1}`);
           }
         });
