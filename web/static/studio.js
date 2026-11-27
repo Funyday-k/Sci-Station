@@ -3432,7 +3432,7 @@
       updateSession(session);
       if (!state.writing) schedulePoll();
     },
-    membersOf: sessionMembers, displayName: seatName, effortName: window.RoundtableSetup.effortName,
+    membersOf: sessionMembers, displayName: seatName,
   });
   const boardPresence = window.RoundtableBoardPresence.mount(snapshot => {
     if (!snapshot || state.selected === snapshot.session_id) board.setPresence(snapshot);
