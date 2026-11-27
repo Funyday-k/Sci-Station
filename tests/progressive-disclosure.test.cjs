@@ -174,6 +174,27 @@ test("MCP connectors structured array rows sync with raw JSON, auto-open Advance
   assert.equal(tokenCall.body.token, "secret-bearer-token");
 });
 
+test("collaboration settings use the fresh workspace seat limit when opening Advanced", async () => {
+  for (const [maxChildren, expected] of [[1, false], [2, true], [0, true]]) {
+    const controls = new Map();
+    const get = id => {
+      if (!controls.has(id)) controls.set(id, {value:"", open:false, dataset:{},
+        addEventListener() {}, setAttribute() {}, classList:{toggle() {}},
+        elements:{namedItem: () => get("color_theme")}});
+      return controls.get(id);
+    };
+    const settings = {max_children:maxChildren, max_steps:10, timeout:180};
+    vm.runInNewContext(read("settings.js"), {
+      window:{addEventListener() {}}, document:{getElementById:get, querySelectorAll:()=>[], querySelector:()=>null, addEventListener(){}},
+      URL, location:new URL("http://localhost/settings?section=collaboration"),
+      fetch:async url => ({ok:true, json:async () => url.endsWith("/settings") ? settings : {models:[]}})
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(get("setting-max-children").value, maxChildren);
+    assert.equal(get("collaboration-advanced").open, expected);
+  }
+});
+
 test("Discovery Advanced disclosure stays closed for defaults and opens automatically on non-default values or validation error", async () => {
   const controls = {};
   class Control {
@@ -187,7 +208,8 @@ test("Discovery Advanced disclosure stays closed for defaults and opens automati
     replaceChildren(...nodes) { this.children = nodes; }
     append(...nodes) { this.children.push(...nodes); }
     add(o) { this.children.push(o); }
-    addEventListener() {}
+    addEventListener(event, callback) { this[event] = callback; }
+    contains(control) { return control === controls.topK; }
     get selectedOptions() { return this.children.filter(c => c.selected); }
   }
   for (const m of read("science-tools.html").matchAll(/id="([^"]+)"/g)) controls[m[1]] = new Control();
@@ -200,11 +222,13 @@ test("Discovery Advanced disclosure stays closed for defaults and opens automati
   });
   vm.runInContext(read("discovery-view.js"), ctx);
 
-  let mode = "default";
+  let mode = "default", rejectSubmission;
   const disc = ctx.SciStationDiscovery.create({
     $: id => controls[id],
-    req: async route => {
+    req: async (route, body) => {
+      if (body) return new Promise((_, reject) => { rejectSubmission = () => reject(Object.assign(Error("Invalid category"), {status:400})); });
       if (route.startsWith("tools/discover")) {
+        if (mode === "history") return {id:"saved", source:"arxiv", ai_model:"saved/model", history:[], items:[]};
         return mode === "default"
           ? {source: "arxiv", query: "", defaults: {source: "arxiv", categories: [], cross_list: true, top_k: 24, max_daily_candidates: 100, library_recent_days: 60}, history: [], items: []}
           : {source: "arxiv", query: "gravitational", categories: ["astro-ph.HE"], cross_list: true, top_k: 40, defaults: {source: "arxiv", categories: ["astro-ph.HE"], cross_list: true, top_k: 40, max_daily_candidates: 100, library_recent_days: 60}, history: [], items: []};
@@ -226,6 +250,35 @@ test("Discovery Advanced disclosure stays closed for defaults and opens automati
   assert.equal(controls["discovery-advanced"].open, true);
   assert.equal(controls["discovery-error"].hidden, false);
   assert.match(controls["discovery-error"].textContent, /1 到 100/);
+
+  // The browser fires invalid in the capture phase instead of submitting an invalid number.
+  controls.topK.validationMessage = "Choose a value within range";
+  controls["discovery-advanced"].open = false;
+  controls.search.invalid({target:controls.topK});
+  assert.equal(controls["discovery-advanced"].open, true);
+  assert.equal(controls["discovery-error"].textContent, controls.topK.validationMessage);
+
+  controls.topK.value = "24";
+  controls.categories.value = "bad!";
+  controls["discovery-advanced"].open = false;
+  const rejected = controls.search.onsubmit({preventDefault() {}});
+  rejectSubmission();
+  await assert.rejects(rejected, /Invalid category/);
+  assert.equal(controls["discovery-advanced"].open, true);
+  assert.equal(controls["discovery-error"].textContent, "Invalid category");
+
+  const stale = controls.search.onsubmit({preventDefault() {}});
+  await disc.load("unrelated-project");
+  rejectSubmission();
+  await stale;
+  assert.equal(controls["discovery-advanced"].open, false);
+  assert.equal(controls["discovery-error"].textContent, "");
+
+  mode = "history";
+  await disc.load("p1", "saved");
+  assert.equal(controls.aiModel.value, "saved/model");
+  assert.ok(controls.aiModel.children.some(option => option.value === "saved/model"));
+  assert.equal(controls["discovery-advanced"].open, true);
 
   // Non-default run auto-opens Advanced.
   controls["discovery-advanced"].open = false;
