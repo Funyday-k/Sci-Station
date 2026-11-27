@@ -10,6 +10,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,19 +26,26 @@ type openAPIMedia struct {
 }
 
 type openAPISchema struct {
-	Ref      string           `json:"$ref"`
-	Type     string           `json:"type"`
-	Required []string         `json:"required"`
-	Items    *openAPISchema   `json:"items"`
-	AllOf    []*openAPISchema `json:"allOf"`
+	Ref                  string                    `json:"$ref"`
+	Type                 string                    `json:"type"`
+	Required             []string                  `json:"required"`
+	Properties           map[string]*openAPISchema `json:"properties"`
+	AdditionalProperties json.RawMessage           `json:"additionalProperties"`
+	Items                *openAPISchema            `json:"items"`
+	AllOf                []*openAPISchema          `json:"allOf"`
+	OneOf                []*openAPISchema          `json:"oneOf"`
 }
 
 // TestPublishedResearchOpenAPI follows the downloaded contract through the
-// ordinary desktop listener. It checks every documented research operation
-// against isolated state, without a provider or a native dialog.
+// ordinary desktop listener. It checks documented research operations and
+// Studio project compatibility against isolated state.
 func TestPublishedResearchOpenAPI(t *testing.T) {
 	const host = "http://127.0.0.1:8765"
 	dir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	prefs, err := openSettings(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +66,8 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	lab.SetPathValidator(func(path string) bool { return path == externalDir })
-	api := (&apiServer{prefs: prefs, research: lab, meetings: engine}).serve(8765)
+	server := &apiServer{prefs: prefs, research: lab, meetings: engine}
+	api := server.serve(8765)
 
 	guide := httptest.NewRecorder()
 	api.ServeHTTP(guide, httptest.NewRequest(http.MethodGet, host+"/api-docs", nil))
@@ -92,7 +102,7 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 	}](t, download.Body.Bytes())
 	published := make(map[string]operationContract)
 	for path, methods := range doc.Paths {
-		if !strings.HasPrefix(path, "/api/research/") {
+		if !strings.HasPrefix(path, "/api/research/") && !strings.HasPrefix(path, "/api/studio/projects") {
 			continue
 		}
 		for method, raw := range methods {
@@ -109,46 +119,74 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 			published[id] = operation
 		}
 	}
+	checked := make(map[string]bool, len(published))
 	t.Cleanup(func() {
 		if t.Failed() {
 			return
 		}
 		for id := range published {
-			t.Errorf("published operation lacks a live contract check: %s", id)
+			if !checked[id] {
+				t.Errorf("published operation lacks a live contract check: %s", id)
+			}
 		}
 	})
-	var validateShape func(any, *openAPISchema)
-	validateShape = func(value any, schema *openAPISchema) {
-		t.Helper()
+	var matchesShape func(any, *openAPISchema) bool
+	matchesShape = func(value any, schema *openAPISchema) bool {
 		if schema == nil {
-			t.Fatal("JSON response has no schema")
+			return false
 		}
-		if schema.Ref != "" {
-			validateShape(value, doc.Components.Schemas[strings.TrimPrefix(schema.Ref, "#/components/schemas/")])
+		if schema.Ref != "" && !matchesShape(value, doc.Components.Schemas[strings.TrimPrefix(schema.Ref, "#/components/schemas/")]) {
+			return false
 		}
 		for _, part := range schema.AllOf {
-			validateShape(value, part)
+			if !matchesShape(value, part) {
+				return false
+			}
+		}
+		if len(schema.OneOf) > 0 {
+			matches := 0
+			for _, option := range schema.OneOf {
+				if matchesShape(value, option) {
+					matches++
+				}
+			}
+			if matches != 1 {
+				return false
+			}
 		}
 		switch schema.Type {
 		case "object":
 			fields, ok := value.(map[string]any)
 			if !ok {
-				t.Fatalf("response is not a JSON object: %#v", value)
+				return false
 			}
 			for _, key := range schema.Required {
 				if _, present := fields[key]; !present {
-					t.Fatalf("documented response field %q absent in %#v", key, value)
+					return false
+				}
+			}
+			closed := string(schema.AdditionalProperties) == "false"
+			for key, field := range fields {
+				if property, known := schema.Properties[key]; known {
+					if !matchesShape(field, property) {
+						return false
+					}
+				} else if closed {
+					return false
 				}
 			}
 		case "array":
 			items, ok := value.([]any)
 			if !ok {
-				t.Fatalf("response is not a JSON array: %#v", value)
+				return false
 			}
 			for _, item := range items {
-				validateShape(item, schema.Items)
+				if !matchesShape(item, schema.Items) {
+					return false
+				}
 			}
 		}
+		return true
 	}
 
 	projectID, paperID, noteID, presetID := "", "", "", ""
@@ -158,7 +196,7 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing OpenAPI operation %s", id)
 		}
-		delete(published, id)
+		checked[id] = true
 		route := strings.NewReplacer("{project}", projectID, "{paper}", paperID, "{note}", noteID, "{preset}", presetID).Replace(operation.Path)
 		var requestBody io.Reader
 		var media string
@@ -182,6 +220,9 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 			encoded, err := json.Marshal(data)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if !matchesShape(scienceWorkflowDecode[any](t, encoded), operation.RequestBody.Content["application/json"].Schema) {
+				t.Fatalf("%s request does not match the documented JSON shape: %s", id, encoded)
 			}
 			requestBody, media = bytes.NewReader(encoded), "application/json"
 		}
@@ -226,7 +267,9 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 			t.Fatalf("%s: undocumented response media %q", id, w.Header().Get("Content-Type"))
 		}
 		if base == "application/json" {
-			validateShape(scienceWorkflowDecode[any](t, w.Body.Bytes()), format.Schema)
+			if !matchesShape(scienceWorkflowDecode[any](t, w.Body.Bytes()), format.Schema) {
+				t.Fatalf("%s response does not match the documented JSON shape: %s", id, w.Body)
+			}
 			return w.Body.Bytes()
 		}
 		return nil
@@ -284,17 +327,51 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 	project = fields(run("restoreResearchProject", 200, "", object{"revision": project["revision"].(float64) + 1}))
 	run("trashResearchProject", 204, "", object{"revision": project["revision"]})
 
-	// This route accepts an existing external directory grant, which is
-	// distinct from the managed directory created above.
-	req := httptest.NewRequest("POST", host+"/api/research/projects", strings.NewReader(`{"name":"External fixture","path":`+strconv.Quote(externalDir)+`}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Roundtable", "1")
-	w := httptest.NewRecorder()
-	api.ServeHTTP(w, req)
-	if w.Code != 201 {
-		t.Fatalf("create external project fixture: %d: %s", w.Code, w.Body)
+	// Use a real external project and a separate historical snapshot.
+	var projects struct{ Projects []research.Project }
+	projects = scienceWorkflowDecode[struct{ Projects []research.Project }](t,
+		run("registerStudioProject", 200, "", object{"path": externalDir}))
+	if len(projects.Projects) != 1 || projects.Projects[0].Path != externalDir {
+		t.Fatalf("unexpected active project list: %+v", projects)
 	}
-	external := fields(w.Body.Bytes())
-	projectID = external["id"].(string)
+	projectID = projects.Projects[0].ID
+	run("getStudioProjects", 200, "", nil)
+	writeProjectTestFile(t, externalDir, "AGENTS.md", "Local project-rule fixture.")
+	preview := fields(run("importStudioProjects", 200, "", object{"action": "preview", "paths": []string{externalDir}}))
+	row := preview["projects"].([]any)[0].(object)
+	if row["id"] != projectID {
+		t.Fatalf("preview did not include the active project ID: %+v", row)
+	}
+	rule := row["rules"].([]any)[0].(object)
+	ref := object{"path": rule["path"], "digest": rule["digest"]}
+	run("importStudioProjects", 200, "", object{"action": "apply", "selections": []object{
+		{"id": projectID, "path": externalDir, "rules": []object{ref}},
+	}})
+	activeQuery := "?id=" + projectID
+	run("getStudioProjectRules", 200, activeQuery, nil)
+	run("getStudioProjectRules", 200, "?path="+url.QueryEscape(externalDir), nil)
+	run("disableStudioProjectRule", 200, "", object{"id": projectID, "rule": ref})
+
+	archivePath := filepath.Join(dir, "legacy-fixture")
+	historical := object{archivePath: object{"path": archivePath, "rules": []object{}}}
+	archive, err := json.Marshal(historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(server.projectsFile(), archive, 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidates := fields(run("getProjectImportCandidates", 200, "", nil))
+	if legacy := candidates["legacy"].([]any); len(legacy) != 1 || legacy[0].(object)["path"] != archivePath {
+		t.Fatalf("unexpected legacy project summaries: %+v", candidates)
+	}
+	legacyQuery := "?legacy=1&path=" + url.QueryEscape(archivePath)
+	run("getStudioProjectRules", 200, legacyQuery, nil)
+	run("getStudioProjectRules", 400, legacyQuery+"&id="+projectID, nil)
+	run("disableStudioProjectRule", 405, legacyQuery, object{"id": projectID, "rule": ref})
+
+	external := fields(run("getResearchProject", 200, "", nil))
 	run("updateResearchProjectDirectory", 200, "", object{"revision": external["revision"], "path": ""})
+	run("getStudioProjectRules", 200, activeQuery, nil)
+	run("getStudioProjectRules", 404, "?path="+url.QueryEscape(externalDir), nil)
 }

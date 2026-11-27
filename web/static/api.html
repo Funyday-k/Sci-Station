@@ -120,11 +120,11 @@ X-Roundtable: 1
 
     <section aria-labelledby="projects">
       <h2 id="projects">本机项目与规则导入</h2>
-      <p><code>GET /api/studio/projects</code> 返回 <code>{"projects":[{"path":"…","name":"…","rule_count":0}]}</code>。对同一路径 POST <code>{"path":"/absolute/project"}</code> 可登记本机文件夹。返回完整项目列表。</p>
-      <p>项目列表和两种会话列表均含 <code>unreadable_sessions</code>，列出无法解析的存档路径与原因；单个坏档不会阻止其他会话显示。直接读取损坏会话返回 422 和 <code>unreadable_session</code> 明细。路径可复制后在 Finder 的“前往文件夹”中查看；接口不修复或改写坏档。</p>
-      <p><code>GET /api/studio/projects/import</code> 返回 <code>{"candidates":[{"path":"…","name":"…","sources":["Codex"]}]}</code>。候选来自圆桌、Codex、Claude Code、Cursor CLI 或 Cursor 桌面工作区的已知路径记录。</p>
-      <p>向 <code>POST /api/studio/projects/import</code> 提交 <code>{"action":"preview","paths":["/absolute/project"]}</code>，返回 <code>projects</code>。每项含 <code>path</code>、<code>name</code>、<code>rules</code> 和因预览限额省略的规则数量 <code>omitted</code>。规则含相对 <code>path</code>、<code>digest</code>、<code>source</code>、<code>text</code>、<code>imported</code>。提交 <code>{"action":"apply","selections":[{"path":"/absolute/project","rules":[{"path":"AGENTS.md","digest":"…"}]}]}</code> 可登记项目并保存明确选中的规则。文件变化返回 409 并要求重新预览。成功响应与 <code>GET /api/studio/projects</code> 一致。</p>
-      <p>规则是应用保存的文本副本，同项目同路径可重新导入以更新。应用在后续项目轮次读取这些副本。规则读取限于支持的文本路径，每次最多 12 个项目，每个项目保存至多 24 个文件和 64 KiB 规则上下文。<code>GET /api/studio/projects/rules?path=…</code> 读取已登记项目的启用规则，path 必须使用项目列表返回的绝对路径；原文件无需仍然存在。<code>POST /api/studio/projects/rules</code> 提交 <code>{"path":"/absolute/project","rule":{"path":"AGENTS.md","digest":"…"}}</code> 可停用指定导入版本；重复停用幂等，规则已被替换时返回 409，项目未登记返回 404。</p>
+      <p><code>GET /api/studio/projects</code> 返回当前科研工作区的活动项目，每项包含 <code>id</code>、<code>path</code>、<code>name</code> 和 <code>rule_count</code>。向同一接口 POST <code>{"path":"/absolute/project"}</code> 可登记选定目录，成功时返回活动项目列表。</p>
+      <p><code>GET /api/studio/projects/import</code> 返回可选目录及其来源 <code>candidates</code>，以及旧版路径登记的只读摘要 <code>legacy</code>。历史摘要含 <code>path</code>、<code>name</code> 和 <code>rule_count</code>。</p>
+      <p>向 <code>POST /api/studio/projects/import</code> 提交 <code>{"action":"preview","paths":["/absolute/project"]}</code>。预览返回 <code>projects</code>，每项含 <code>path</code>、<code>name</code>、<code>rules</code> 和因限额省略的规则数量 <code>omitted</code>；已有项目还返回 <code>id</code>。提交 <code>action:"apply"</code> 及 <code>selections</code>，每项用 <code>path</code> 指定目录、用 <code>rules</code> 提交选中规则的相对 <code>path</code> 和 <code>digest</code>。已有项目可同时带入预览中的 <code>id</code>。文件变化时返回 409，重新预览后再提交。</p>
+      <p><code>GET /api/studio/projects/rules?id=…</code> 读取保存的规则副本。<code>POST /api/studio/projects/rules</code> 提交 <code>{"id":"…","rule":{"path":"AGENTS.md","digest":"…"}}</code> 可停用指定版本。重复停用幂等，规则已有新版本时返回 409。兼容请求可以使用绝对项目 <code>path</code>，此时路径须唯一匹配当前已授权的活动项目；若同时提交 <code>id</code>，两者须对应同一项目。单次最多预览或导入 12 个项目，每个项目可保存至多 24 条规则和 64 KiB 规则上下文。</p>
+      <p>使用 <code>GET /api/studio/projects/rules?legacy=1&amp;path=…</code> 按历史摘要的原始绝对路径只读查看旧规则。此请求只使用路径，适用于旧记录查阅和恢复。</p>
       <p><code>POST /api/studio/open-rules</code> 接受 <code>{}</code>，生成只读的 <code>discussion-rules.md</code>，并用桌面默认文本编辑器打开。成功返回 <code>{"path":"…"}</code>；打开失败时响应可同时含 <code>path</code> 和 <code>error</code>。</p>
     </section>
 

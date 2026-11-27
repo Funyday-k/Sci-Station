@@ -1716,7 +1716,7 @@
         "tags": [
           "项目"
         ],
-        "description": "读取圆桌的项目登记和每个项目已导入规则的数量。",
+        "description": "列出当前科研工作区的活动项目，含稳定项目 ID 和已导入规则数量。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -1745,7 +1745,7 @@
         "tags": [
           "项目"
         ],
-        "description": "验证本机文件夹并登记绝对路径，可再次提交同一目录。返回完整项目列表。",
+        "description": "登记选定本机文件夹。重复登记当前已授权目录时复用项目 ID。返回活动项目列表。",
         "parameters": [
           {
             "$ref": "#/components/parameters/Roundtable"
@@ -1796,6 +1796,9 @@
           },
           "405": {
             "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -1807,7 +1810,7 @@
         "tags": [
           "项目"
         ],
-        "description": "从圆桌、Codex、Claude Code、Cursor CLI 和 Cursor 桌面工作区的已知记录查找可验证的本机项目目录。返回候选及来源。",
+        "description": "candidates 列出从圆桌、Codex、Claude Code、Cursor CLI 和 Cursor 桌面工作区发现的本机项目目录及来源。legacy 列出旧版保存的路径摘要，供查阅和恢复。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -1836,7 +1839,7 @@
         "tags": [
           "项目"
         ],
-        "description": "preview 接收路径并返回所识别规则的内容与摘要。apply 接收选中的项目及预览时的规则摘要，追加或更新已导入规则，并返回登记列表。项目文件保持原样；规则已变动返回 409。每个规则上限 32 KiB，每个项目已保存规则上限 24 个文件、64 KiB 上下文。",
+        "description": "preview 接收路径，返回规则内容、摘要及已登记项目的 id。apply 接收选中的项目和规则摘要；已有项目可传预览返回的 id 以核对项目与目录。成功时返回活动项目列表。规则已变动返回 409。每条规则最多 32 KiB；每个项目最多保存 24 条、共 64 KiB 规则上下文。",
         "parameters": [
           {
             "$ref": "#/components/parameters/Roundtable"
@@ -1898,25 +1901,40 @@
         "tags": [
           "项目"
         ],
-        "description": "path 必须是项目列表返回的已登记绝对路径。返回当前启用的规则副本；原规则文件无需仍然存在。",
+        "description": "使用当前活动项目的 id 获取保存的规则。提供 path 时会核对该绝对路径和当前目录授权；仅提供 path 时须唯一匹配一个当前已授权项目。历史快照使用 legacy=1 和原始绝对 path 只读查看，此时须省略 id。",
         "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "项目列表返回的稳定项目 ID。",
+            "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+          },
           {
             "name": "path",
             "in": "query",
-            "required": true,
-            "description": "项目登记绝对路径。",
+            "description": "兼容项目查询时传当前已授权的绝对目录；legacy=1 时传历史摘要中的原始目录。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
+          },
+          {
+            "name": "legacy",
+            "in": "query",
+            "description": "设为 1 时读取 path 对应的历史规则快照。",
+            "schema": {"type": "string", "const": "1"}
           }
         ],
         "responses": {
           "200": {
-            "description": "项目与当前启用规则。",
+            "description": "活动项目的规则快照，或 legacy=1 时的只读历史快照。",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectRulesResponse"
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/ProjectRulesResponse"},
+                    {"$ref": "#/components/schemas/LegacyProjectRulesResponse"}
+                  ]
                 }
               }
             }
@@ -1941,7 +1959,7 @@
         "tags": [
           "项目"
         ],
-        "description": "提交已导入规则的 path 与 digest 以停用该版本；重复停用幂等。若同路径已被替换为另一版本，返回 409。",
+        "description": "使用项目 id 和已导入规则的相对路径与 digest 停用指定版本。兼容的绝对项目 path 须匹配当前已授权目录；省略 id 时须唯一匹配。重复停用幂等，规则已有新版本时返回 409。",
         "parameters": [
           {
             "$ref": "#/components/parameters/Roundtable"
@@ -6753,9 +6771,20 @@
       "ProjectSummary": {
         "type": "object",
         "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "当前活动科研项目的稳定 ID。"},
+          "path": {"type": "string", "description": "项目登记的绝对目录。"},
+          "name": {"type": "string"},
+          "rule_count": {"type": "integer", "minimum": 0, "maximum": 24}
+        },
+        "required": ["id", "path", "name", "rule_count"],
+        "additionalProperties": false
+      },
+      "LegacyProjectSummary": {
+        "type": "object",
+        "properties": {
           "path": {
             "type": "string",
-            "description": "项目文件夹的绝对路径。"
+            "description": "旧版保存的绝对目录。"
           },
           "name": {
             "type": "string"
@@ -6821,10 +6850,16 @@
             "items": {
               "$ref": "#/components/schemas/ProjectCandidate"
             }
+          },
+          "legacy": {
+            "type": "array",
+            "description": "旧版路径登记的只读摘要。",
+            "items": {"$ref": "#/components/schemas/LegacyProjectSummary"}
           }
         },
         "required": [
-          "candidates"
+          "candidates",
+          "legacy"
         ],
         "additionalProperties": false
       },
@@ -6882,6 +6917,7 @@
       "ProjectPreview": {
         "type": "object",
         "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "已有项目的稳定 ID。尚未登记的目录省略此字段。"},
           "path": {
             "type": "string",
             "description": "项目文件夹的绝对路径。"
@@ -6928,6 +6964,7 @@
       "ProjectImportSelection": {
         "type": "object",
         "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "如果预览返回 id，可在应用时传入以核对同一项目。"},
           "path": {
             "type": "string",
             "description": "项目文件夹的绝对路径。"
@@ -7678,21 +7715,36 @@
         ],
         "additionalProperties": false
       },
+      "LegacyProjectRulesResponse": {
+        "type": "object",
+        "properties": {
+          "project": {"$ref": "#/components/schemas/LegacyProjectSummary"},
+          "rules": {"type": "array", "items": {"$ref": "#/components/schemas/ProjectRule"}}
+        },
+        "required": ["project", "rules"],
+        "additionalProperties": false
+      },
       "ProjectRuleDisableRequest": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "当前活动科研项目的稳定 ID。"
+          },
           "path": {
             "type": "string",
-            "description": "项目登记绝对路径，须与项目列表返回值一致。"
+            "minLength": 1,
+            "description": "兼容旧请求的绝对项目目录。提供时须和当前授权目录一致。"
           },
           "rule": {
             "$ref": "#/components/schemas/ProjectRuleReference"
           }
         },
         "required": [
-          "path",
           "rule"
         ],
+        "anyOf": [{"required": ["id"]}, {"required": ["path"]}],
         "additionalProperties": false
       },
       "UnreadableSessionError": {
