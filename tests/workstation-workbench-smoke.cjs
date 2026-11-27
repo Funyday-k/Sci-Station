@@ -176,9 +176,27 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
     check(`${view} ${mode} shows one AI toolbar`, result.active === mode && !result.horizontalOverflow && !result.stacked &&
       withinBar(modes) && result.controls.every(withinBar) && Math.abs(workspace.y - bar.bottom) <= 1 &&
       Math.abs((modes.x + modes.right) / 2 - (bar.x + bar.right) / 2) <= 2, result);
-    check(`${view} ${mode} separates global and conversation navigation`, result.distinct && (compact ||
-      (global.right > global.x && history.right > history.x && Math.abs(global.right - history.x) <= 1 &&
-        Math.abs(history.right - workspace.x) <= 1)), result);
+    if (compact) {
+      check(`${view} ${mode} separates global and conversation navigation`, result.distinct, result);
+      return;
+    }
+    const defaultSidebarWidth = (global.right - global.x) + (history.right - history.x);
+    check(`${view} ${mode} shows one sidebar by default (<= 260px)`,
+      result.distinct && global.right > global.x && history.right === history.x &&
+      defaultSidebarWidth <= 260 && Math.abs(global.right - workspace.x) <= 1,
+      {defaultSidebarWidth, ...result});
+    await ui.click(historyToggle);
+    await wait(() => visible(historySidebar), `${view} ${mode} session sidebar opens`);
+    const opened = await ui.evaluate(() => {
+      const rect = s => { const b = document.querySelector(s)?.getBoundingClientRect(); return b && {x:b.x,right:b.right}; };
+      return {global:rect("#workspace-sidebar"), history:rect("#workspace-session-sidebar"), workspace:rect(".workspace-region")};
+    });
+    check(`${view} ${mode} separates global and conversation navigation when expanded`,
+      opened.global.right > opened.global.x && opened.history.right > opened.history.x &&
+      Math.abs(opened.global.right - opened.history.x) <= 1 &&
+      Math.abs(opened.history.right - opened.workspace.x) <= 1, opened);
+    await ui.click(historyToggle);
+    await wait(() => ui.evaluate(() => document.getElementById("workspace-session-sidebar")?.hidden), `${view} ${mode} session sidebar collapses`);
   }
 
   async function checkNewChat(label) {
