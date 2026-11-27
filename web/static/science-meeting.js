@@ -110,10 +110,17 @@
   function update(next) {
     session = next || null;
     project = session && projects.find(item => item.id === session.project_id) || null;
-    if (!btnOpen && byId("chat-toolbar")) {
+    if (!btnOpen && (byId("meeting-menu-commands") || byId("chat-toolbar"))) {
       btnOpen = btn("科研记录", "science-meeting-open"); btnOpen.title = "核对论文原文、保存笔记或建立项目任务";
+      if (btnOpen.dataset) btnOpen.dataset.testid = "science-meeting-open";
       btnOpen.addEventListener("click", show);
-      byId("chat-toolbar").insertBefore(btnOpen, byId("meeting-actions"));
+      const menuCommands = byId("meeting-menu-commands");
+      if (menuCommands) {
+        btnOpen.dataset.meetingCommand = "";
+        menuCommands.insertBefore(btnOpen, menuCommands.firstChild || null);
+      } else {
+        byId("chat-toolbar").insertBefore(btnOpen, byId("meeting-actions"));
+      }
     }
     if (btnOpen) btnOpen.hidden = !project;
     if (project && session && url.searchParams.get("review") && !ui?.dialog.open && !fetchedReviewLink) {

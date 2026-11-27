@@ -1,21 +1,21 @@
 /* Local component aliases for shared workbench roles. */
 :root {
-  --bg: var(--workspace-paper);
-  --paper: var(--workspace-paper);
-  --side: var(--workspace-inset);
-  --surface: var(--workspace-surface);
-  --ink: var(--workspace-ink);
-  --soft: var(--workspace-muted);
-  --muted: var(--workspace-muted);
-  --line: var(--workspace-line);
-  --fill: var(--workspace-inset);
-  --accent: var(--workspace-accent);
-  --tint: var(--workspace-accent-soft);
-  --accent2: var(--workspace-accent);
-  --danger: var(--workspace-danger);
-  --shadow: var(--workspace-shadow);
-  --rad: 10px;
-  font: var(--workspace-text)/1.52 var(--workspace-font);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  font: var(--text-md)/1.52 var(--workspace-font);
 }
 
 * {
@@ -24,57 +24,22 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--ink);
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
   -webkit-font-smoothing: antialiased
 }
 
-button,
-input,
-select,
-textarea {
-  color: inherit;
-  font: inherit
-}
 
-button,
-select,
-a {
-  touch-action: manipulation
-}
 
-button {
-  cursor: pointer
-}
 
-button:disabled {
-  cursor: default;
-  opacity: .55
-}
 
 a {
   color: var(--accent);
   text-decoration: none
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px
-}
 
-button {
-  border: 0;
-  background: transparent
-}
 
-button,
-a {
-  -webkit-tap-highlight-color: transparent
-}
 
 h1,
 h2,
@@ -87,9 +52,6 @@ p {
   font-weight: 600
 }
 
-[hidden] {
-  display: none !important
-}
 
 .ui-icon {
   width: 18px;
@@ -101,18 +63,17 @@ p {
 .icon {
   display: inline-grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   min-width: 32px;
   height: 32px;
-  color: var(--soft);
-  font-size: 18px
-}
+  color: var(--ink-muted);
+  font-size: var(--text-lg)}
 
 .icon:hover,
 .navitem:hover,
 .bare:hover {
-  background: var(--fill);
-  color: var(--ink)
+  background: var(--bg-subtle);
+  color: var(--ink-primary)
 }
 
 #shell {
@@ -128,7 +89,7 @@ p {
   display: flex;
   flex-direction: column;
   padding: 23px 12px 15px;
-  background: var(--side);
+  background: var(--bg-subtle);
   border-right: 1px solid var(--line);
   overflow: auto
 }
@@ -137,7 +98,7 @@ p {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--ink);
+  color: var(--ink-primary);
   padding: 0 8px;
   margin-bottom: 30px
 }
@@ -147,9 +108,9 @@ p {
 }
 
 .brand span {
-  font-size: 22px;
+  font-size: var(--text-xl);
   letter-spacing: -1px;
-  font-weight: 600
+  font-weight: 600;
 }
 
 .navitem,
@@ -161,8 +122,8 @@ p {
   min-height: 37px;
   padding: 5px 10px;
   text-align: left;
-  color: var(--soft);
-  border-radius: 8px;
+  color: var(--ink-muted);
+  border-radius: var(--radius-md);
   font-weight: 400
 }
 
@@ -173,9 +134,9 @@ p {
 
 .navitem.active,
 .project-item.active {
-  background: var(--surface);
+  background: var(--bg-surface);
   color: var(--accent);
-  box-shadow: 0 1px 3px #27274412
+  box-shadow: var(--shadow-sm)
 }
 
 .navitem+.navitem,
@@ -188,12 +149,11 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--muted);
-  font-size: var(--workspace-text-small)
-}
+  color: var(--ink-muted);
+  font-size: var(--text-sm)}
 
 .project-item:not(.active) {
-  color: var(--ink)
+  color: var(--ink-primary)
 }
 
 .project-item span:last-child {
@@ -209,7 +169,7 @@ p {
 
 .sidebar-foot .navitem {
   border-top: 1px solid var(--line);
-  border-radius: 0;
+
   padding-top: 15px
 }
 
@@ -220,16 +180,16 @@ p {
 .workspace-region .research-load-status {
   position: sticky;
   top: var(--workspace-bar-height);
-  z-index: 1;
+  z-index: var(--z-sticky);
   padding-bottom: 0;
 }
 
 .research-load-status p {
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--rad);
-  background: var(--surface);
-  color: var(--ink);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -245,7 +205,7 @@ p {
   align-items: center;
   gap: 12px;
   padding: 8px clamp(16px, 3.5vw, 50px);
-  background: var(--bg)
+  background: var(--bg-canvas)
 }
 
 #crumb {
@@ -253,12 +213,11 @@ p {
   display: flex;
   gap: 8px;
   align-items: center;
-  color: var(--muted);
-  font-size: var(--workspace-text-small)
-}
+  color: var(--ink-muted);
+  font-size: var(--text-sm)}
 
 #crumb strong {
-  color: var(--ink);
+  color: var(--ink-primary);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -270,19 +229,19 @@ p {
   align-items: center;
   gap: 9px;
   margin-left: auto;
-  color: var(--muted);
-  border-radius: 8px;
+  color: var(--ink-muted);
+  border-radius: var(--radius-md);
   padding: 5px 7px
 }
 
 .search-open:hover {
-  background: var(--fill)
+  background: var(--bg-subtle)
 }
 
 kbd {
   font: 11px -apple-system, sans-serif;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 4px
 }
 
@@ -298,11 +257,11 @@ kbd {
 
 .initial,
 .subtle {
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
 .page-head p {
-  color: var(--soft);
+  color: var(--ink-muted);
   margin-top: 6px;
   white-space: pre-line;
   max-width: 72ch
@@ -327,26 +286,26 @@ kbd {
   gap: 7px;
   padding: 6px 10px;
   min-height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-weight: 500;
-  color: var(--ink);
+  color: var(--ink-primary);
   line-height: 1.3;
   text-align: center
 }
 
 .button {
-  background: var(--surface);
-  border: 1px solid var(--workspace-button-line)
+  background: var(--bg-surface);
+  border: 1px solid var(--border-button)
 }
 
 .button:hover:not(:disabled) {
-  background: var(--fill);
-  border-color: var(--workspace-control-line)
+  background: var(--bg-subtle);
+  border-color: var(--border-control)
 }
 
 .button.primary {
   background: var(--accent);
-  color: var(--workspace-accent-ink);
+  color: var(--accent-ink);
   border-color: var(--accent)
 }
 
@@ -362,28 +321,28 @@ kbd {
 }
 
 .bare {
-  font-size: var(--workspace-text-small);
-  color: var(--ink);
+  font-size: var(--text-sm);
+  color: var(--ink-primary);
   padding: 5px 7px;
   min-height: 30px
 }
 
 .chip {
-  color: var(--soft);
-  font-size: var(--workspace-text-small);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   padding: 4px 12px;
   min-height: 31px;
   border: 1px solid transparent
 }
 
 .chip.active {
-  background: var(--tint);
+  background: var(--accent-soft);
   color: var(--accent);
   border-color: var(--line)
 }
 
 .chip:hover {
-  background: var(--fill)
+  background: var(--bg-subtle)
 }
 
 .overview-intro {
@@ -394,26 +353,25 @@ kbd {
   padding: 18px 20px;
   margin-bottom: 20px;
   border: 1px solid var(--line);
-  border-radius: var(--rad);
-  background: var(--surface)
+  border-radius: var(--radius-md);
+  background: var(--bg-surface)
 }
 
 .overview-intro h2 {
-  font-size: 1.25rem
-}
+  font-size: var(--text-lg)}
 
 .overview-intro p,
 .empty p {
-  color: var(--soft);
+  color: var(--ink-muted);
   margin-top: 5px
 }
 
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: var(--surface);
+  background: var(--bg-surface);
   border: 1px solid var(--line);
-  border-radius: var(--rad);
+  border-radius: var(--radius-md);
   overflow: hidden;
   margin-bottom: 24px
 }
@@ -422,7 +380,7 @@ kbd {
   padding: 16px;
   text-align: left;
   position: relative;
-  color: var(--soft);
+  color: var(--ink-muted);
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 7px 6px;
@@ -434,19 +392,19 @@ kbd {
 }
 
 .metric strong {
-  color: var(--ink);
-  font-size: calc(24px + var(--workspace-text-increase));
+  color: var(--ink-primary);
+  font-size: var(--text-xl);
   line-height: 1.15;
   grid-column: 1/-1;
   letter-spacing: -.025em
 }
 
 .metric .ui-icon {
-  color: var(--soft)
+  color: var(--ink-muted)
 }
 
 .metric:hover {
-  background: var(--fill)
+  background: var(--bg-subtle)
 }
 
 .columns {
@@ -458,8 +416,8 @@ kbd {
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: var(--rad);
-  background: var(--surface);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
   overflow: hidden
 }
 
@@ -477,7 +435,7 @@ kbd {
 }
 
 .panel-header h2 {
-  font-size: calc(15px + var(--workspace-text-increase));
+  font-size: var(--text-md);
   letter-spacing: 0
 }
 
@@ -503,7 +461,7 @@ kbd {
   flex: 1;
   min-width: 0;
   padding: 2px 0;
-  color: var(--ink);
+  color: var(--ink-primary);
   text-align: left;
   display: block
 }
@@ -521,8 +479,8 @@ kbd {
 
 .meta {
   display: block;
-  color: var(--muted);
-  font-size: var(--workspace-text-small);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   font-weight: 400;
   margin-top: 3px;
   overflow-wrap: anywhere
@@ -530,7 +488,7 @@ kbd {
 
 .row-facts {
   display: block;
-  color: var(--ink);
+  color: var(--ink-primary);
   margin-top: 3px;
   overflow-wrap: anywhere;
 }
@@ -541,37 +499,35 @@ kbd {
   display: grid;
   place-items: center;
   flex: none;
-  background: var(--fill);
-  color: var(--soft);
-  border-radius: 6px
-}
+  background: var(--bg-subtle);
+  color: var(--ink-muted);
+  border-radius: var(--radius-sm)}
 
 .tag {
   display: inline-block;
   padding: 2px 7px;
-  background: var(--fill);
+  background: var(--bg-subtle);
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
-  color: var(--soft);
-  font-size: var(--workspace-text-small)
-}
+  color: var(--ink-muted);
+  font-size: var(--text-sm)}
 
 .tag.status-tag {
-  color: var(--ink);
-  background: var(--fill);
-  font-size: var(--workspace-text);
+  color: var(--ink-primary);
+  background: var(--bg-subtle);
+  font-size: var(--text-md);
   font-weight: 400;
 }
 
 .empty {
   padding: 20px 16px;
-  color: var(--soft)
+  color: var(--ink-muted)
 }
 
 .empty h3 {
-  color: var(--ink);
-  font-size: 1rem;
+  color: var(--ink-primary);
+  font-size: var(--text-lg);
   font-weight: 500
 }
 
@@ -624,11 +580,11 @@ kbd {
   accent-color: var(--accent)
 }
 
-dialog:has([data-library-paper]) .dialog-head {
+#modal:has([data-library-paper]) .dialog-head {
   position: sticky;
-  z-index: 1;
+  z-index: var(--z-sticky);
   top: 0;
-  background: var(--surface)
+  background: var(--bg-surface)
 }
 
 [data-library-paper] .project-choices {
@@ -647,10 +603,10 @@ dialog:has([data-library-paper]) .dialog-head {
 .library-table th, .library-table td { padding: .65rem .75rem; border-bottom: 1px solid var(--line); }
 .library-paper-marks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .library-table tbody tr:last-child > * { border-bottom: 0; }
-.library-table thead th { white-space: nowrap; font-size: var(--workspace-text-small); font-weight: 500; }
+.library-table thead th { white-space: nowrap; font-size: var(--text-sm); font-weight: 500; }
 .library-table th[aria-sort="ascending"] .bare::after { content: " ↑"; }
 .library-table th[aria-sort="descending"] .bare::after { content: " ↓"; }
-.library-paper-title { color: var(--ink); font-weight: 500; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
+.library-paper-title { color: var(--ink-primary); font-weight: 500; display: inline-block; min-width: 12rem; overflow-wrap: anywhere; }
 .library-paper-title:hover { color: var(--accent); }
 .library-table .paper-tags { max-width: 12rem; }
 .library-table-actions { display: flex; gap: .3rem; white-space: nowrap; }
@@ -659,15 +615,15 @@ dialog:has([data-library-paper]) .dialog-head {
 
 .query,
 .field input,
-select,
+.workspace-page select,
 .graph-picker input,
 .field textarea,
 .query-input {
-  color: var(--ink);
-  font-size: var(--workspace-text);
-  background: var(--surface);
-  border: 1px solid var(--workspace-control-line);
-  border-radius: 8px;
+  color: var(--ink-primary);
+  font-size: var(--text-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
   padding: 9px 11px;
   min-width: 0
 }
@@ -680,7 +636,7 @@ select,
 }
 
 :is(input, textarea)::placeholder {
-  color: var(--muted);
+  color: var(--ink-muted);
   opacity: 1
 }
 
@@ -694,28 +650,25 @@ select,
 
 .muted-box {
   padding: 16px;
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
-dialog {
+#modal {
   width: min(565px, calc(100% - 28px));
   max-height: 88vh;
   overflow: auto;
   padding: 0;
-  background: var(--surface);
-  color: var(--ink);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 20px 90px #19192d38
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg)
 }
 
-dialog.wide {
+#modal.wide {
   width: min(875px, calc(100% - 28px))
 }
 
-dialog::backdrop {
-  background: #1717255e
-}
 
 .dialog-head {
   display: flex;
@@ -726,8 +679,7 @@ dialog::backdrop {
 }
 
 .dialog-head h2 {
-  font-size: 1.18rem
-}
+  font-size: var(--text-lg)}
 
 #dialog-content {
   padding: 20px
@@ -738,9 +690,8 @@ dialog::backdrop {
   flex-direction: column;
   gap: 5px;
   margin-bottom: 13px;
-  color: var(--soft);
-  font-size: var(--workspace-text-small)
-}
+  color: var(--ink-muted);
+  font-size: var(--text-sm)}
 
 .field span:first-child {
   font-weight: 500
@@ -756,9 +707,8 @@ dialog::backdrop {
   padding: 0;
   margin: 0 0 13px;
   border: 0;
-  color: var(--soft);
-  font-size: var(--workspace-text-small)
-}
+  color: var(--ink-muted);
+  font-size: var(--text-sm)}
 
 .task-picker legend {
   margin-bottom: 5px;
@@ -770,8 +720,7 @@ dialog::backdrop {
   overflow: auto;
   padding: 7px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px
-}
+  border-radius: var(--radius-md)}
 
 .task-options label {
   display: flex;
@@ -800,10 +749,10 @@ dialog::backdrop {
   display: inline-block;
   max-width: 100%;
   padding: 2px 7px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--task-label-bg);
   color: var(--task-label-fg);
-  font-size: var(--workspace-text-small);
+  font-size: var(--text-sm);
   text-align: left;
   overflow-wrap: anywhere
 }
@@ -831,14 +780,14 @@ dialog::backdrop {
 
 .task-tag-directory button[aria-pressed="true"] {
   border-color: var(--accent);
-  background: var(--tint)
+  background: var(--accent-soft)
 }
 
 .task-tag-preview {
   min-height: 1.6rem
 }
 
-@media(max-width: 540px) {
+@container (max-width: 540px) {
   .task-tag-layout { grid-template-columns: minmax(0, 1fr) }
   .task-tag-directory { max-height: 7rem }
 }
@@ -874,7 +823,7 @@ dialog::backdrop {
   gap: 8px;
   align-items: center;
   margin: 9px 0;
-  color: var(--soft)
+  color: var(--ink-muted)
 }
 
 .check input {
@@ -887,7 +836,7 @@ dialog::backdrop {
 }
 
 .status {
-  color: var(--soft)
+  color: var(--ink-muted)
 }
 
 .error:empty,
@@ -900,38 +849,38 @@ dialog::backdrop {
   bottom: 22px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--ink);
-  color: var(--surface);
-  border-radius: 9px;
+  background: var(--ink-primary);
+  color: var(--bg-surface);
+  border-radius: var(--radius-md);
   padding: 9px 15px;
-  z-index: 10;
-  box-shadow: var(--shadow);
+  z-index: var(--z-sticky);
+  box-shadow: var(--shadow-md);
   max-width: 80%
 }
 
 .task-check {
   width: 22px;
   height: 22px;
-  border: 1.5px solid var(--workspace-control-line);
+  border: 1.5px solid var(--border-control);
   color: var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   flex: none;
   display: grid;
   place-items: center
 }
 
 .task-check.done {
-  background: var(--tint);
+  background: var(--accent-soft);
   border-color: var(--accent)
 }
 
 .completed .title {
   text-decoration: line-through;
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
 .dot-before {
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
 .calendar-head {
@@ -949,8 +898,8 @@ dialog::backdrop {
 .weekday {
   padding: 7px;
   text-align: center;
-  color: var(--muted);
-  font-size: var(--workspace-text-small);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   border-top: 1px solid var(--line)
 }
 
@@ -959,8 +908,7 @@ dialog::backdrop {
   padding: 5px;
   border-top: 1px solid var(--line);
   border-right: 1px solid var(--line);
-  font-size: .85rem
-}
+  font-size: var(--text-sm)}
 
 .day:nth-child(7n) {
   border-right: 0
@@ -970,8 +918,8 @@ dialog::backdrop {
   display: inline-grid;
   place-items: center;
   color: var(--accent);
-  background: var(--tint);
-  border-radius: 50%;
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
   width: 23px;
   height: 23px
 }
@@ -983,13 +931,12 @@ dialog::backdrop {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  border-radius: 4px;
-  background: var(--tint);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
   color: var(--accent);
   padding: 2px 4px;
   margin: 2px 0;
-  font-size: var(--workspace-text-small)
-}
+  font-size: var(--text-sm)}
 
 .day-task.completed {
   text-decoration: line-through
@@ -1018,8 +965,8 @@ dialog::backdrop {
 
 .note-preview pre,
 .note-preview code {
-  background: var(--fill);
-  border-radius: 4px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
   padding: .1em .3em
 }
 
@@ -1027,7 +974,7 @@ dialog::backdrop {
   margin-left: 0;
   padding-left: 13px;
   border-left: 3px solid var(--accent);
-  color: var(--soft)
+  color: var(--ink-muted)
 }
 
 .note-preview table {
@@ -1113,8 +1060,8 @@ dialog::backdrop {
 }
 
 .form-help {
-  color: var(--muted);
-  font-size: var(--workspace-text-small);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   margin: 4px 0 10px
 }
 
@@ -1141,8 +1088,8 @@ dialog::backdrop {
 .subheading {
   margin: 19px 0 8px;
   font-weight: 600;
-  font-size: .91rem;
-  color: var(--muted)
+  font-size: var(--text-sm);
+  color: var(--ink-muted)
 }
 
 .search-result {
@@ -1151,12 +1098,12 @@ dialog::backdrop {
   text-align: left;
   padding: 10px;
   border-bottom: 1px solid var(--line);
-  border-radius: 5px;
-  color: var(--ink)
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary)
 }
 
 .search-result:hover {
-  background: var(--fill)
+  background: var(--bg-subtle)
 }
 
 .search-results {
@@ -1179,7 +1126,7 @@ dialog::backdrop {
 .file-drop {
   padding: 13px;
   border: 1px dashed var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin: 10px 0 15px
 }
 
@@ -1194,7 +1141,7 @@ dialog::backdrop {
   height: 15px
 }
 
-@media(max-width:1050px) {
+@container (max-width: 820px) {
   #shell {
     grid-template-columns: 190px minmax(0, 1fr)
   }
@@ -1229,8 +1176,8 @@ dialog::backdrop {
     inset: calc(58px + var(--workspace-bar-height)) auto 0 0;
     width: 215px;
     max-height: calc(100dvh - 58px - var(--workspace-bar-height));
-    z-index: 5;
-    box-shadow: var(--shadow)
+    z-index: var(--z-sticky);
+    box-shadow: var(--shadow-md)
   }
 
   #workarea {
@@ -1238,7 +1185,7 @@ dialog::backdrop {
   }
 }
 
-@media(max-width:760px) {
+@container (max-width: 700px) {
   .columns {
     grid-template-columns: 1fr
   }
@@ -1277,7 +1224,7 @@ dialog::backdrop {
   }
 }
 
-@media(max-width:460px) {
+@container (max-width: 460px) {
   .topbar {
     padding: 8px 12px
   }
@@ -1313,7 +1260,7 @@ dialog::backdrop {
   align-items: end;
   gap: 12px;
   margin: 14px 16px;
-  color: var(--soft)
+  color: var(--ink-muted)
 }
 
 .graph-picker label {
@@ -1327,12 +1274,12 @@ dialog::backdrop {
 }
 
 .graph-picker select {
-  color: var(--ink)
+  color: var(--ink-primary)
 }
 
 .graph-picker input {
   max-width: 7rem;
-  color: var(--ink)
+  color: var(--ink-primary)
 }
 
 .graph-workflow-findings {
@@ -1360,12 +1307,12 @@ dialog::backdrop {
 }
 
 .graph-diagram rect {
-  fill: var(--tint);
+  fill: var(--accent-soft);
   stroke: var(--line)
 }
 
 .graph-diagram text {
-  fill: var(--ink);
+  fill: var(--ink-primary);
   font: 13px system-ui, sans-serif
 }
 
@@ -1378,7 +1325,7 @@ dialog::backdrop {
 }
 
 .graph-layers > li > span {
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
 .graph-layers ul, .graph-entries {
@@ -1416,7 +1363,7 @@ dialog::backdrop {
 
 .graph-source-status {
   margin-inline-start: 8px;
-  color: var(--muted)
+  color: var(--ink-muted)
 }
 
 .project-choice {
@@ -1426,9 +1373,8 @@ dialog::backdrop {
 }
 
 .project-choice .check:last-child {
-  color: var(--muted);
-  font-size: .85rem
-}
+  color: var(--ink-muted);
+  font-size: var(--text-sm)}
 
 .relation:has(.danger) {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto
@@ -1455,8 +1401,8 @@ details>summary {
   scrollbar-width: thin;
 }
 #project-modules[hidden] { display: none; }
-#project-modules a { white-space: nowrap; color: var(--soft); padding: 6px 9px; border-radius: 5px; }
-#project-modules a:hover, #project-modules a[aria-current="page"] { color: var(--accent); background: var(--fill); }
+#project-modules a { white-space: nowrap; color: var(--ink-muted); padding: 6px 9px; border-radius: var(--radius-sm); }
+#project-modules a:hover, #project-modules a[aria-current="page"] { color: var(--accent); background: var(--bg-subtle); }
 
 .inspire-picker, .inspire-actions, .inspire-columns, .inspire-seeds {
   display: flex;
@@ -1479,10 +1425,10 @@ details>summary {
   min-width: 0;
   max-width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px;
-  background: var(--surface);
-  color: var(--ink);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
 }
 
 .inspire-seeds {
@@ -1493,7 +1439,7 @@ details>summary {
 .inspire-seeds li {
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .inspire-seeds button, .inspire-columns li button {
@@ -1523,13 +1469,12 @@ details>summary {
   overflow-wrap: anywhere;
 }
 
-
 .project-badge {
   display: inline-grid;
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--project-color) 42%, transparent);
   flex-shrink: 0;
 }
@@ -1562,8 +1507,8 @@ h1 > .project-badge {
 
 .project-swatches button,
 .project-symbols button {
-  border: 1px solid #8886;
-  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   padding: 5px;
@@ -1573,7 +1518,7 @@ h1 > .project-badge {
   width: 26px;
   height: 26px;
   background: var(--project-color);
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
 }
 
 .project-design button[aria-pressed="true"] {
@@ -1585,11 +1530,9 @@ h1 > .project-badge {
   padding: 9px 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  .project-badge img,
-  .project-symbols img {
-    filter: invert(1);
-  }
+:root[data-theme="dark"] .project-badge img,
+:root[data-theme="dark"] .project-symbols img {
+  filter: invert(1);
 }
 
 .more-actions {
@@ -1616,7 +1559,7 @@ h1 > .project-badge {
 
 .more-action-items {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-sticky);
   inset-block-start: calc(100% + 6px);
   inset-inline-start: 0;
   inline-size: max-content;
@@ -1625,8 +1568,8 @@ h1 > .project-badge {
   gap: 2px;
   padding: 5px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
 }
 
 .more-action-items > span:not([hidden]) {
@@ -1672,7 +1615,7 @@ h1 > .project-badge {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--muted);
+  color: var(--ink-muted);
 }
 
 .paper-import-or::before,

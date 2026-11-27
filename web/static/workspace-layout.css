@@ -1,5 +1,5 @@
 /* The home document and its conversation scroll independently. */
-#table-view { flex-direction: row; isolation: isolate; }
+#table-view { --room-compact-layout: 0; flex-direction: row; isolation: isolate; }
 #setup-scroll { width: 100%; }
 .board-workspace {
   display: grid;
@@ -7,7 +7,7 @@
   grid-template: "context chat" auto "board chat" minmax(0, 1fr) / minmax(0, 1fr) clamp(325px, 29vw, 440px);
   min-width: 0;
   min-height: 0;
-  background: var(--surface);
+  background: var(--bg-surface);
 }
 #table-view[data-chat="off"] .board-workspace {
   grid-template: "context" auto "board" minmax(0, 1fr) / minmax(0, 1fr);
@@ -16,42 +16,53 @@
   grid-template: "context" auto "chat" minmax(0, 1fr) / minmax(0, 1fr);
 }
 #meeting-board { grid-area: board; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.board-workspace .room-context { grid-area: context; max-height: 40dvh; background: var(--surface); }
+.board-workspace .room-context { grid-area: context; max-height: 40dvh; background: var(--bg-surface); }
 .board-workspace .room-context-bar, .board-workspace .context-drawer { width: calc(100% - 36px); max-width: none; }
-.board-workspace .context-trigger:hover { background: var(--editor); }
-#room-chat { --chat-inset: 12px; grid-area: chat; min-width: 0; min-height: 0; border-inline-start: 1px solid var(--line); background: var(--editor); }
-.rail-heading { flex: none; display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 0 16px; border-bottom: 1px solid var(--line); }
-.rail-heading h2 { font-size: 13px; line-height: 1.45; margin: 0; }
-#rail-to-board { color: var(--text); font-size: 12px; }
+.board-workspace .context-trigger:hover { background: var(--bg-subtle); }
+#room-chat { --chat-inset: 12px; grid-area: chat; min-width: 0; min-height: 0; border-inline-start: 1px solid var(--line); background: var(--bg-subtle); }
+.rail-heading { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 41px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.room-panel-tabs { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.room-panel-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 9px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-muted); font: inherit; font-size: var(--text-sm); font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+}
+.room-panel-tab:hover { color: var(--ink-primary); background: var(--bg-surface); }
+.room-panel-tab[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.room-panel-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.room-panel-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.room-panel-body[hidden] { display: none; }
+#rail-to-board { color: var(--ink-muted); font-size: var(--text-sm); }
 .rail-toggle[aria-expanded=true] { color: var(--accent); background: var(--accent-soft); }
 #room-chat #table-scroll { padding: 14px var(--chat-inset) 8px; min-width: 0; scroll-behavior: auto; }
 #room-chat :is(.session-content, .composer-surface) { width: 100%; max-width: none; }
 #room-chat .message { gap: 7px; width: fit-content; max-width: clamp(min(100%, 26rem), 84%, 56rem); margin: 0 auto 18px 0; }
-#room-chat .message-avatar { width: 24px; height: 24px; border-radius: 7px; padding: 3px; }
+#room-chat .message-avatar { width: 24px; height: 24px; border-radius: var(--radius-sm); padding: 3px; }
 #room-chat .message-header { gap: 4px 6px; margin-bottom: 4px; min-height: 20px; }
-#room-chat .message-header strong { font-size: 12px; }
-#room-chat .message-body { font-size: 13px; line-height: 1.72; padding: 4px 10px 10px; }
+#room-chat .message-header strong { font-size: var(--text-sm); }
+#room-chat .message-body { font-size: var(--text-sm); line-height: 1.72; padding: 4px 10px 10px; }
 #room-chat .message-body p { margin-top: 6px; }
 #room-chat .host-message { margin-inline: auto 0; }
-#room-chat .round-discussion-context { color: var(--text); }
+#room-chat .round-discussion-context { color: var(--ink-muted); }
 #room-chat .round-discussion-context > summary { width: fit-content; margin: 0 auto; padding: 3px 8px; cursor: pointer; }
 #room-chat .round-discussion-context[open] > summary { margin-bottom: 3px; }
 #room-chat .round-discussion-context > summary:hover { color: var(--accent); }
 #room-chat .composer { padding: 7px var(--chat-inset) 11px; padding-inline-end: calc(var(--chat-inset) + var(--chat-scrollbar, 0px)); }
-#room-chat .input-limit { font-size: 10px; }
+#room-chat .input-limit { font-size: var(--text-xs); }
 #room-chat .latest-message { inset-inline: auto 16px; }
 #table-view[data-board="empty"] #room-chat {
   --chat-inset: clamp(12px, 2.2vw, 28px);
   border-inline-start: 0;
 }
-#table-view[data-board="empty"] .rail-heading { display: none; }
-#table-view > .files-page, #table-view > .children-panel, #table-view > .meeting-opinions {
-  position: absolute; z-index: 20; inset: 0 0 0 auto;
+#table-view > .files-page, #table-view > .children-panel {
+  position: absolute; z-index: var(--z-drawer); inset: 0 0 0 auto;
   width: min(440px,100%); max-height: none; margin: 0;
-  border-radius: 0; border-width: 0 0 0 1px; box-shadow: -6px 0 18px #10132512;
+   border-width: 0 0 0 1px; box-shadow: var(--shadow-md);
 }
 #table-view > .files-page { width: min(640px,100%); }
-@media(max-width:1000px) {
+@container workspace (max-width: 900px) {
+  #table-view { --room-compact-layout: 1; }
   #table-view[data-chat="on"] .board-workspace {
     grid-template: "context" auto "chat" minmax(0, 1fr) / minmax(0, 1fr);
   }
@@ -61,7 +72,6 @@
   #table-view[data-chat="paired"] #room-chat { border-block-start: 1px solid var(--line); }
   #room-chat { border-inline-start: 0; }
 }
-@media(max-width:800px) {
-  #table-view > .meeting-opinions { z-index: 45; }
+@container workspace (max-width: 800px) {
   .board-workspace .room-context-bar,.board-workspace .context-drawer { width: calc(100% - 16px); }
 }

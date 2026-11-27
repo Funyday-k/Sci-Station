@@ -319,6 +319,20 @@ box["innerHTML"] = `${target.innerHTML = "nested"}`;
         self.assertEqual(code, 1)
         self.assertIn("missing required key", stderr.getvalue())
 
+    def test_base_control_allowlist_blocks_bare_controls_outside_components(self) -> None:
+        self.write(
+            "web/static/components.css",
+            "button { cursor: pointer; }\ndialog { padding: 0; }\n",
+        )
+        self.write(
+            "web/static/page.css",
+            ".toolbar button { padding: 4px; }\ninput[type='text'] { width: 100%; }\nbutton:disabled { opacity: 0.5; }\n",
+        )
+        report = metrics.collect_metrics(self.root, ["tokens.css"], ["components.css"])
+        self.assertEqual(len(report.base_control_rules_outside_components), 2)
+        details = [occ.detail for occ in report.base_control_rules_outside_components]
+        self.assertEqual(details, ["input[type='text']", "button:disabled"])
+
     def test_repository_baseline_and_ci_wiring_are_intact(self) -> None:
         report, failures, _improvements, _allowlist = metrics.check_metrics(ROOT)
         self.assertEqual(failures, [], metrics.format_failures(failures))

@@ -795,9 +795,13 @@
       paper = await fetchJSON(apiRoot);
       document.title = paper.title + ' · Sci-Station';
       by('title').textContent = paper.title;
-      by('byline').textContent = [
+      by('title').title = paper.title;
+      const bylineText = [
         (paper.authors || []).join('、'), paper.year || '', paper.doi || paper.arxiv || ''
       ].filter(Boolean).join(' · ');
+      by('byline').textContent = bylineText;
+      by('byline').title = bylineText;
+      by('byline').hidden = !bylineText;
       by('bib').href = apiRoot + '/bibtex';
       by('bib').hidden = false;
       savedNote = paper.notes || '';
@@ -1037,6 +1041,89 @@
       e.returnValue = '';
     }
   });
+  const moreButton = by('readerMoreButton');
+  const moreMenu = by('readerMoreMenu');
+  let dispatchingCommand = false;
+  function moreItems() {
+    return ['citation', 'exportMarkdown', 'bib', 'original']
+      .map(id => by(id))
+      .filter(item => item && !item.hidden);
+  }
+  function setMoreOpen(open, focusIndex) {
+    if (!moreButton || !moreMenu) return;
+    moreMenu.hidden = !open;
+    moreButton.setAttribute('aria-expanded', String(open));
+    if (open && focusIndex !== undefined) {
+      const items = moreItems();
+      if (items.length) {
+        const index = ((focusIndex % items.length) + items.length) % items.length;
+        items[index].focus?.();
+      }
+    }
+  }
+  if (moreButton && moreMenu) {
+    moreButton.addEventListener('click', () => {
+      const next = Boolean(moreMenu.hidden);
+      setMoreOpen(next, next ? 0 : undefined);
+    });
+    moreButton.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setMoreOpen(true, 0);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMoreOpen(true, -1);
+      } else if (e.key === 'Escape' && !moreMenu.hidden) {
+        e.preventDefault();
+        setMoreOpen(false);
+      }
+    });
+    moreMenu.addEventListener('keydown', e => {
+      const items = moreItems();
+      const current = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMoreOpen(true, current < 0 ? 0 : current + 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMoreOpen(true, current < 0 ? -1 : current - 1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setMoreOpen(true, 0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setMoreOpen(true, -1);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setMoreOpen(false);
+        moreButton.focus?.();
+      } else if (e.key === 'Tab') {
+        setMoreOpen(false);
+      }
+    });
+    document.addEventListener?.('click', e => {
+      if (!moreMenu.hidden && !e.target?.closest?.('.reader-more-wrap')) {
+        setMoreOpen(false);
+      }
+    });
+    by('citation')?.addEventListener('click', () => setMoreOpen(false));
+    by('exportMarkdown')?.addEventListener('click', () => setMoreOpen(false));
+    by('bib')?.addEventListener('click', e => {
+      setMoreOpen(false);
+      if (!dispatchingCommand && typeof window.SciStationNav?.command === 'function') {
+        e.preventDefault?.();
+        window.SciStationNav.command('bibtex');
+      }
+    });
+    by('original')?.addEventListener('click', e => {
+      setMoreOpen(false);
+      if (!dispatchingCommand && document.body?.dataset?.nativeWorkspace !== undefined &&
+          typeof window.SciStationNav?.command === 'function') {
+        e.preventDefault?.();
+        window.SciStationNav.command('externalPDF');
+      }
+    });
+  }
   window.addEventListener('scistation:command', e => {
     const command = e.detail;
     if (command === 'find' && nativeAvailable)
@@ -1052,9 +1139,14 @@
     else if (command === 'inspector') {
       window.SciContextRail?.show('inspector');
       focusInspector();
-    } else if (command === 'bibtex' && !by('bib').hidden)
-      by('bib').click();
-    else if ((command === 'externalPDF' || command === 'reveal') && paper?.has_pdf) {
+    } else if (command === 'bibtex' && !by('bib').hidden) {
+      dispatchingCommand = true;
+      try {
+        by('bib').click();
+      } finally {
+        dispatchingCommand = false;
+      }
+    } else if ((command === 'externalPDF' || command === 'reveal') && paper?.has_pdf) {
       const action = command === 'reveal' ? 'reveal' : 'open';
       void fetchJSON(apiRoot + '/native-file', 'POST', {action}).catch(e => message(errorText(e)));
     } else

@@ -2,13 +2,13 @@
   width: min(42rem, calc(100vw - 2rem));
   max-height: 90vh;
   padding: 1rem;
-  background: var(--surface, Canvas);
-  color: var(--ink, CanvasText);
+  background: var(--bg-surface, Canvas);
+  color: var(--ink-primary, CanvasText);
   border: 1px solid var(--line, GrayText);
-  border-radius: .75rem;
+  border-radius: var(--radius-md);
 }
 .sci-citations::backdrop { background: rgb(0 0 0 / .32); }
-.sci-citations h2 { margin: 0 0 .75rem; font-size: 1.2rem; }
+.sci-citations h2 { margin: 0 0 .75rem; font-size: var(--text-xl); }
 .sci-citations textarea {
   width: 100%;
   box-sizing: border-box;
@@ -22,6 +22,6 @@
 .sci-citations button, .sci-citations select {
   padding: .4rem .65rem;
   border: 1px solid var(--line, GrayText);
-  border-radius: .35rem;
-  background: var(--fill, ButtonFace);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle, ButtonFace);
 }

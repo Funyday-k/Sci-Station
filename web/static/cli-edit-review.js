@@ -50,6 +50,82 @@
         typeof change.diff === "string" && change.diff.trim().length);
   }
 
+  // Share the highlighting budget across all files in a single proposal.
+  const maxHighlightedLines = 300;
+
+  function parseDiffLines(source, limit = maxHighlightedLines) {
+    const lines = source.split(/\r?\n/, limit + 1);
+    if (lines.length > limit) return null;
+    let oldRemaining = 0, newRemaining = 0;
+    return lines.map(line => {
+      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+      if (hunk) {
+        oldRemaining = Number(hunk[1] ?? 1);
+        newRemaining = Number(hunk[2] ?? 1);
+        return {kind: "header", gutter: "", text: line};
+      }
+      if (/^(?:diff --git |index |@@ |\\ )/.test(line) ||
+          (!oldRemaining && !newRemaining && /^(?:--- |\+\+\+ )/.test(line))) {
+        return {kind: "header", gutter: "", text: line};
+      }
+      if (line.startsWith("+")) {
+        if (newRemaining) newRemaining--;
+        return {kind: "add", gutter: "+", text: line.slice(1)};
+      }
+      if (line.startsWith("-")) {
+        if (oldRemaining) oldRemaining--;
+        return {kind: "remove", gutter: "−", text: line.slice(1)};
+      }
+      if (line.startsWith(" ")) {
+        if (oldRemaining) oldRemaining--;
+        if (newRemaining) newRemaining--;
+        return {kind: "context", gutter: " ", text: line.slice(1)};
+      }
+      return {kind: "context", gutter: " ", text: line};
+    });
+  }
+
+  function diffLabel(zh, en) {
+    return globalThis.window?.SciStationI18n?.text(zh, en) ?? zh;
+  }
+
+  function renderDiffView(diffText, doc, budget = {remaining: maxHighlightedLines}) {
+    const pre = doc.createElement("pre");
+    pre.className = "diff-view";
+    const raw = typeof diffText === "string" && diffText.length ? diffText : "CLI 未提供此文件的差异。";
+    const lines = parseDiffLines(raw, budget.remaining);
+    if (!lines) {
+      pre.textContent = raw;
+      pre.tabIndex = 0;
+      pre.setAttribute("aria-description", diffLabel(
+        "统一差异。加号表示新增行，减号表示删除行。",
+        "Unified diff. A leading plus marks an addition and a leading minus marks a removal."
+      ));
+      return pre;
+    }
+    budget.remaining -= lines.length;
+    for (const entry of lines) {
+      const row = doc.createElement("span");
+      row.className = "diff-line diff-" + entry.kind;
+      const gutter = doc.createElement("span");
+      gutter.className = "diff-gutter";
+      if (entry.kind === "add" || entry.kind === "remove") {
+        const label = entry.kind === "add" ? diffLabel("新增行", "Added line") : diffLabel("删除行", "Removed line");
+        gutter.setAttribute("role", "img");
+        gutter.setAttribute("aria-label", label);
+      } else {
+        gutter.setAttribute("aria-hidden", "true");
+      }
+      gutter.textContent = entry.gutter;
+      const body = doc.createElement("span");
+      body.className = "diff-text";
+      body.textContent = entry.text;
+      row.append(gutter, body);
+      pre.append(row);
+    }
+    return pre;
+  }
+
   function mount() {
     const el = id => document.getElementById("cli-edit-" + id);
     const dialog = el("dialog");
@@ -122,18 +198,20 @@
     function showProposal(run) {
       const item = run?.status === "pending" ? run.pending : null;
       el("proposal").hidden = !item;
+      const decisionActions = el("decision-actions");
+      if (decisionActions) decisionActions.hidden = !item;
       const signature = JSON.stringify([run?.id, item]);
       if (proposalSignature !== signature) {
         proposalSignature = signature;
         el("reason").textContent = item?.reason || "";
         const files = Array.isArray(item?.changes) ? item.changes : [];
+        const lineBudget = {remaining: maxHighlightedLines};
         el("changes").replaceChildren(...files.map(change => {
           const section = document.createElement("section");
           const name = document.createElement("h4");
-          const diff = document.createElement("pre");
           const kind = {add:"新增", update:"修改", delete:"删除", create:"新增", remove:"删除"}[change.kind];
           name.textContent = [change.path, kind || change.kind].filter(Boolean).join(" · ");
-          diff.textContent = change.diff || "CLI 未提供此文件的差异。";
+          const diff = renderDiffView(change.diff, document, lineBudget);
           section.append(name, diff);
           return section;
         }));
@@ -255,8 +333,20 @@
         send({action:"cancel", projectId:scope.projectId, runId:run.id});
       }
     };
-    el("open").onclick = () => { dialog.showModal(); refresh(); };
+    // Focus order and Escape contract:
+    // - Opening moves focus to Close (never auto-focusing Approve) so keyboard users
+    //   inspect the diff before tabbing through Refresh -> Cancel -> Deny -> Approve.
+    // - Escape or Close dismisses the modal without issuing any POST decision and
+    //   restores focus to #cli-edit-open.
+    el("open").onclick = () => {
+      dialog.showModal();
+      el("close").focus?.();
+      refresh();
+    };
     el("close").onclick = () => dialog.close();
+    dialog.addEventListener?.("close", () => {
+      if (!el("open").hidden) el("open").focus?.();
+    });
     el("refresh").onclick = refresh;
     el("provider").onchange = render;
     document.addEventListener("visibilitychange", () => {
@@ -276,6 +366,8 @@
     window.addEventListener("pageshow", event => { if (event.persisted) refresh(); });
     return {setSession};
   }
-  if (typeof module !== "undefined" && module.exports) module.exports = {meetingScope, unpack, pendingDecision, canAccept};
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {meetingScope, unpack, pendingDecision, canAccept, parseDiffLines, renderDiffView};
+  }
   if (typeof window !== "undefined") window.SciCLIEdit = mount();
 })();

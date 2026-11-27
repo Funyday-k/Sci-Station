@@ -1,51 +1,11 @@
 .meeting-opinions {
-  display: flex;
-  flex: 0 0 clamp(280px, 29%, 370px);
-  flex-direction: column;
-  min-width: 280px;
-  min-height: 0;
-  margin: 0;
+  color: var(--ink-primary);
+  background: var(--bg-subtle);
   overflow: hidden;
-  border: 0;
-  border-inline-start: 1px solid var(--line);
-  color: var(--ink);
-  background: var(--surface);
-
 }
-.meeting-opinions[hidden] { display: none !important; }
-.meeting-opinions-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: .65rem;
-  padding: 0 16px;
-  min-height: 42px;
-  border-bottom: 1px solid var(--line);
-}
-.meeting-opinions-heading { min-width: 0; margin: 0; font-size: 1rem; font-weight: 650; }
-.meeting-opinions-close {
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: .4rem;
-  padding: .4rem .55rem;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-.meeting-opinions-close:hover { background: var(--editor); }
-.meeting-opinions button:focus-visible,
-#opinions-toggle:focus-visible {
+.meeting-opinions button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-.meeting-opinions-count {
-  margin-inline-start: .45rem;
-  color: var(--text);
-  font-size: .87em;
-  font-weight: 400;
 }
 
 .meeting-opinions-scroll {
@@ -57,13 +17,13 @@
 }
 
 .meeting-opinions-scroll > p {
-  margin: 0 0 .35rem 1rem;
+  margin: 12px 0 .35rem;
 }
 
 .meeting-opinion {
   padding: 13px 0 12px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--bg-surface);
 }
 
 .meeting-opinion > summary {
@@ -73,12 +33,12 @@
   font-weight: 600;
 }
 
-.point-tally { display:block; margin:3px 0 0 13px; font-size:12px; font-weight:400; color:var(--text); }
+.point-tally { display:block; margin:3px 0 0 13px; font-size: var(--text-sm); font-weight:400; color:var(--ink-muted); }
 .meeting-opinion[open] .point-tally { display:none; }
 
-.meeting-opinion-group { color:var(--text); padding:1px 5px; border-radius:4px; font-size:12px; }
-.meeting-opinion-group-support { color:var(--success); background:color-mix(in srgb,var(--success) 9%,var(--surface)); }
-.meeting-opinion-group-oppose { color:var(--danger); background:color-mix(in srgb,var(--danger) 9%,var(--surface)); }
+.meeting-opinion-group { color:var(--ink-muted); padding:1px 5px; border-radius: var(--radius-sm); font-size: var(--text-sm); }
+.meeting-opinion-group-support { color:var(--success); background:color-mix(in srgb,var(--success) 9%,var(--bg-surface)); }
+.meeting-opinion-group-oppose { color:var(--danger); background:color-mix(in srgb,var(--danger) 9%,var(--bg-surface)); }
 
 .meeting-opinion-positions {
   display: grid;
@@ -87,7 +47,7 @@
   align-items: start;
   margin: 12px 0 4px;
   padding: 0;
-  color: var(--text);
+  color: var(--ink-muted);
 }
 
 .meeting-opinion-positions dt { font-weight: 600; }
@@ -129,14 +89,14 @@
 .meeting-source-focus:focus {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
-  border-radius: .3rem;
+  border-radius: var(--radius-sm);
 }
 
 .meeting-report-return {
   position: fixed;
-  z-index: 1200;
+  z-index: var(--z-toast);
   inset: auto 1rem 1rem auto;
-  box-shadow: 0 4px 18px #0004;
+  box-shadow: var(--shadow-md);
 }
 
 .meeting-report-dialog {
@@ -144,13 +104,13 @@
   max-height: calc(100% - 2rem);
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: .9rem;
-  color: var(--ink);
-  background: var(--surface);
-  box-shadow: 0 16px 65px #0004;
+  border-radius: var(--radius-lg);
+  color: var(--ink-primary);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
 }
 
-.meeting-report-dialog::backdrop { background: #15152155; }
+.meeting-report-dialog::backdrop { background: var(--scrim); }
 
 .meeting-report-frame {
   display: flex;
@@ -173,7 +133,7 @@
 
 .meeting-report-header h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--text-lg);
   font-weight: 650;
 }
 
@@ -208,14 +168,14 @@
 .meeting-report-status[data-report-status="failed"],
 .meeting-report-error { color: var(--danger); }
 
-.meeting-report-meta { color: var(--text); }
+.meeting-report-meta { color: var(--ink-muted); }
 
 .meeting-report-content {
   margin-top: 1rem;
   padding-top: .65rem;
   border-top: 1px solid var(--line);
-  color: var(--text);
-  font-size: 1.06rem;
+  color: var(--ink-muted);
+  font-size: var(--text-lg);
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -227,14 +187,14 @@
 .meeting-report-content h5,
 .meeting-report-content h6 {
   margin: 1.5rem 0 .4rem;
-  color: var(--ink);
+  color: var(--ink-primary);
   line-height: 1.4;
 }
 
-.meeting-report-content h3 { font-size: 1.4rem; }
-.meeting-report-content h4 { font-size: 1.18rem; }
+.meeting-report-content h3 { font-size: var(--text-2xl); }
+.meeting-report-content h4 { font-size: var(--text-xl); }
 .meeting-report-content h5,
-.meeting-report-content h6 { font-size: 1.06rem; }
+.meeting-report-content h6 { font-size: var(--text-lg); }
 
 .meeting-report-content ol,
 .meeting-report-content ul {
@@ -253,7 +213,7 @@
   max-width: 100%;
   overflow: auto;
   padding: .7rem;
-  background: var(--editor);
+  background: var(--bg-subtle);
 }
 
 .meeting-report-content blockquote {
@@ -274,12 +234,12 @@
   margin-block: 1rem;
   padding: .45rem .65rem;
   border: 1px solid var(--line);
-  border-radius: .35rem;
+  border-radius: var(--radius-sm);
 }
 
 .meeting-report-citations > summary {
   cursor: pointer;
-  font-size: .95rem;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -326,36 +286,23 @@
 }
 
 .meeting-report-guidance-label span {
-  color: var(--text);
-  font-size: .9em;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 .meeting-report-guidance-list .meeting-report-guidance-text {
   margin-top: .28rem;
   padding: .45rem .65rem;
   border-left: 2px solid var(--line);
-  background: var(--editor);
+  background: var(--bg-subtle);
   white-space: pre-wrap;
 }
 
-@media (max-width: 620px) {
+@container (max-width: 620px) {
   .topbar #chat-toolbar { gap: 4px; }
   .topbar #session-status { display: none; }
   .topbar #chat-toolbar .button { white-space: nowrap; }
   .meeting-report-scroll,
   .meeting-report-header,
   .meeting-report-footer { padding-inline: .95rem; }
-}
-
-@media (max-width: 800px) {
-  .meeting-opinions {
-    position: fixed;
-    z-index: 41;
-    inset: 0 0 0 auto;
-    width: min(370px, 96vw);
-    min-width: 0;
-    margin: 0;
-    border-radius: 0;
-    box-shadow: -6px 0 36px #10101835;
-  }
 }

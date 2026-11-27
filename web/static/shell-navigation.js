@@ -106,7 +106,7 @@
   const primaryToggle = document.getElementById("workspace-nav-toggle");
   const sessions = document.getElementById("workspace-session-sidebar");
   const sessionToggle = document.getElementById("workspace-session-toggle");
-  let compactPanel = null, settingsMode = document.body.classList.contains("settings-mode");
+  let compactPanel = null, settingsMode = document.body.dataset.workspaceSurface === "settings";
   let settingsExpanded = true, sessionsExpanded = false;
 
   function setExpanded(panel, toggle, expanded) {
@@ -123,7 +123,6 @@
       settingsExpanded = true;
       settingsMode = settings;
     }
-    document.body.classList.toggle("settings-mode", settings);
     const treeOpen = narrow.matches ? compactPanel === primary : settings ? settingsExpanded : state?.treeExpanded !== false;
     const sessionsAvailable = sessions && !settings && window.SciStationNav.aiAvailable(url.searchParams.get("project"));
     const sessionPersisted = state ? state.sessionSidebar === true : sessionsExpanded;

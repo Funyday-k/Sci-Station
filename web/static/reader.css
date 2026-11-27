@@ -1,14 +1,14 @@
 :root {
   color-scheme:light dark;
-  --bg:var(--workspace-paper);
-  --surface:var(--workspace-surface);
-  --fg:var(--workspace-ink);
-  --muted:var(--workspace-muted);
-  --edge:var(--workspace-line);
-  --accent:var(--workspace-accent);
-  --pale:var(--workspace-accent-soft);
-  --desk:var(--workspace-inset);
-  font:var(--workspace-text)/1.5 var(--workspace-font);
+
+
+  --fg:var(--ink-primary);
+
+  --edge:var(--line);
+
+
+  --desk:var(--bg-subtle);
+  font:var(--text-md)/1.5 var(--workspace-font);
 }
 
 * {
@@ -18,23 +18,11 @@
 body {
   margin:0;
   color:var(--fg);
-  background:var(--bg);
+  background:var(--bg-canvas);
 }
 
 :where(h1, h2, h3, h4, h5, h6, strong, b) {
   font-weight:600;
-}
-
-[hidden] {
-  display:none!important;
-}
-
-button,a,input,select,textarea {
-  font:inherit;
-}
-
-button,select,input,textarea {
-  color:var(--fg);
 }
 
 a {
@@ -46,47 +34,29 @@ a:hover {
   text-decoration:underline;
 }
 
-button,select,input,textarea {
-  background:var(--surface);
-  border:1px solid var(--workspace-control-line);
-  border-radius:6px;
+:where(.toolbar, .foot, #reader-inspector, #handoffDialog) :is(button, select, input, textarea) {
+  color:var(--fg);
+  background:var(--bg-surface);
+  border:1px solid var(--border-control);
+  border-radius: var(--radius-sm);
 }
 
-button,select {
-  cursor:pointer;
-}
-
-button {
+:where(.toolbar, .foot, #reader-inspector, #handoffDialog) button {
   min-height:32px;
   padding:5px 10px;
-  border-color:var(--workspace-button-line);
+  border-color:var(--border-button);
   font-weight:400;
 }
 
-:is(input, textarea)::placeholder {
-  color:var(--muted);
-  opacity:1;
-}
-
-button:disabled {
-  opacity:.42;
-  cursor:default;
-}
-
-button:hover:enabled {
+:where(.toolbar, .foot, #reader-inspector, #handoffDialog) button:hover:enabled {
   background:var(--desk);
-  border-color:var(--workspace-control-line);
-}
-
-a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible {
-  outline:2px solid var(--accent);
-  outline-offset:2px;
+  border-color:var(--border-control);
 }
 
 .primary {
   background:var(--accent);
   border-color:var(--accent);
-  color:var(--workspace-accent-ink);
+  color:var(--accent-ink);
   font-weight:500;
 }
 
@@ -100,61 +70,51 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,
   flex:1;
 }
 
-.reader-header,.titlebar,.toolbar,.panel-title,.foot,.actions {
+.toolbar,.panel-title,.foot,.actions {
   display:flex;
   align-items:center;
   gap:10px;
 }
 
-.reader-header {
-  padding:11px 26px;
-  background:var(--surface);
-  border-bottom:1px solid var(--edge);
-}
-
-.reader-header>a:not(.brand) {
-  font-size:var(--workspace-text-small);
-}
-
-.brand {
-  display:inline-flex;
-  align-items:center;
+.reader-bar-title {
+  display:flex;
+  align-items:baseline;
   gap:8px;
-  color:var(--fg);
-  font-weight:600;
-  letter-spacing:-.02em;
+  min-width:0;
+  overflow:hidden;
 }
 
-.brand img {
-  width:27px;
-  height:27px;
-  border-radius:5px;
+.reader-back {
+  flex:none;
+  font-size: var(--text-sm);
+  white-space:nowrap;
 }
 
-.breadcrumb {
-  border-left:1px solid var(--edge);
-  padding-left:12px;
-  color:var(--muted);
-  font-size:var(--workspace-text-small);
+.reader-bar-sep {
+  flex:none;
+  color:var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
-.titlebar {
-  padding:15px 26px;
-  background:var(--surface);
-}
-
-h1 {
-  font-size:calc(clamp(20px,2vw,24px) + var(--workspace-text-increase));
-  line-height:1.22;
+.reader-title {
+  font-size: var(--text-md);
+  line-height:1.3;
   margin:0;
-  letter-spacing:-.025em;
-  overflow-wrap:anywhere;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 
-#byline {
-  color:var(--muted);
-  margin:4px 0 0;
-  font-size:var(--workspace-text-small);
+#byline,
+.reader-byline {
+  color:var(--ink-muted);
+  margin:0;
+  font-size: var(--text-sm);
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 
 .layout {
@@ -171,19 +131,83 @@ h1 {
   flex-flow:column;
   min-width:0;
   overflow:hidden;
-  background:var(--surface);
+  background:var(--bg-surface);
 }
 
 .toolbar,.foot {
   flex:none;
   padding:7px 15px;
-  background:var(--surface);
+  background:var(--bg-surface);
   white-space:nowrap;
   gap:5px;
 }
 
+.toolbar {
+  position:relative;
+  border-bottom:1px solid var(--edge);
+}
+
+.foot {
+  flex-wrap:nowrap;
+  overflow:hidden;
+  border-top:1px solid var(--edge);
+}
+
+#pageStatus {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size: var(--text-sm);
+  color:var(--ink-muted);
+}
+
+.reader-more-wrap {
+  position:relative;
+  flex:none;
+}
+
+.reader-more-menu {
+  position:absolute;
+  inset-inline-end:0;
+  inset-block-start:calc(100% + 4px);
+  z-index: var(--z-modal);
+  min-width:190px;
+  padding:4px;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  background:var(--bg-surface);
+  border:1px solid var(--edge);
+  border-radius: var(--radius-md);
+  box-shadow:var(--shadow-md);
+}
+
+.reader-more-menu > :is(button, a) {
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  width:100%;
+  min-height:32px;
+  padding:5px 10px;
+  border:0;
+  border-radius: var(--radius-sm);
+  background:transparent;
+  color:var(--fg);
+  font-size: var(--text-sm);
+  text-align:start;
+  text-decoration:none;
+  white-space:nowrap;
+}
+
+.reader-more-menu > :is(button, a):hover,
+.reader-more-menu > :is(button, a):focus-visible {
+  background:var(--desk);
+  text-decoration:none;
+}
+
 .toolbar button {
-  font-size:var(--workspace-text-small);
+  font-size: var(--text-sm);
   min-width:32px;
 }
 
@@ -195,8 +219,8 @@ h1 {
 }
 
 .page-input,#count,.foot {
-  font-size:var(--workspace-text-small);
-  color:var(--muted);
+  font-size: var(--text-sm);
+  color:var(--ink-muted);
 }
 
 .page-input input {
@@ -220,7 +244,7 @@ h1 {
   max-width:1050px;
   aspect-ratio:1/1.3;
   background:white;
-  box-shadow:0 3px 15px #22392e27;
+  box-shadow: var(--shadow-md);
   overflow:hidden;
 }
 
@@ -263,21 +287,21 @@ h1 {
 
 .mark {
   position:absolute;
-  background:#eece4b73;
+  background: var(--highlight-yellow);
   mix-blend-mode:multiply;
 }
 
 .mark.underline {
   background:transparent;
-  border-bottom:2px solid #dcaa00;
+  border-bottom: 2px solid var(--warning);
 }
 
 .mark.note {
-  background:#75b98a65;
+  background: var(--highlight-green);
 }
 
 .mark.found {
-  background:#ec872875;
+  background: var(--highlight-pink);
 }
 
 .foot {
@@ -285,11 +309,11 @@ h1 {
 }
 
 .foot button {
-  font-size:var(--workspace-text-small);
+  font-size: var(--text-sm);
 }
 
 .empty {
-  color:var(--muted);
+  color:var(--ink-muted);
   text-align:center;
   padding:65px 12px;
 }
@@ -300,13 +324,13 @@ h1 {
 }
 
 .muted {
-  color:var(--muted);
-  font-size:var(--workspace-text-small);
+  color:var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 aside {
   overflow:auto;
-  background:var(--surface);
+  background:var(--bg-surface);
   padding:0 18px 20px;
 }
 
@@ -320,10 +344,10 @@ aside {
 .tabs button {
   padding:12px 0 10px;
   border:0;
-  border-radius:0;
+
   background:none;
   border-bottom:2px solid transparent;
-  color:var(--muted);
+  color:var(--ink-muted);
 }
 
 .tabs button[aria-selected=true] {
@@ -338,18 +362,18 @@ aside {
 }
 
 h2,h3 {
-  font-size:calc(16px + var(--workspace-text-increase));
+  font-size: var(--text-lg);
   line-height:1.4;
   margin:0;
 }
 
 h3 {
-  font-size:var(--workspace-text);
+  font-size: var(--text-md);
 }
 
 #annotationCount {
-  font-size:var(--workspace-text-small);
-  color:var(--muted);
+  font-size: var(--text-sm);
+  color:var(--ink-muted);
 }
 
 .ann-card {
@@ -364,7 +388,7 @@ h3 {
 .ann-card blockquote,blockquote {
   margin:9px 0;
   padding:3px 9px;
-  border-left:3px solid #b6a04e;
+  border-left: 3px solid var(--warning);
   white-space:pre-wrap;
   overflow-wrap:anywhere;
   max-height:150px;
@@ -385,7 +409,7 @@ h3 {
 
 .ann-actions button {
   padding:2px 6px;
-  font-size:var(--workspace-text-small);
+  font-size: var(--text-sm);
 }
 
 .ann-actions .where {
@@ -398,7 +422,7 @@ h3 {
   margin-top:9px;
 }
 
-textarea {
+:where(#reader-inspector, #handoffDialog) textarea {
   display:block;
   width:100%;
   padding:9px;
@@ -408,8 +432,8 @@ textarea {
 
 label:not(.page-input) {
   display:block;
-  color:var(--muted);
-  font-size:var(--workspace-text-small);
+  color:var(--ink-muted);
+  font-size: var(--text-sm);
   margin:12px 0 4px;
 }
 
@@ -429,7 +453,7 @@ label:not(.page-input) {
 
 #message {
   margin-top:12px;
-  font-size:var(--workspace-text-small);
+  font-size: var(--text-sm);
   color:var(--accent);
   white-space:pre-wrap;
 }
@@ -458,26 +482,23 @@ label:not(.page-input) {
 #findResults button {
   display:block;
   border:0;
-  font-size:var(--workspace-text-small);
+  font-size: var(--text-sm);
   text-align:left;
   width:100%;
   padding:3px 0;
   color:var(--accent);
 }
 
-dialog {
+#handoffDialog {
   width:min(440px,92vw);
-  background:var(--surface);
+  background:var(--bg-surface);
   color:var(--fg);
   border:1px solid var(--edge);
-  border-radius:10px;
+  border-radius: var(--radius-md);
   padding:20px;
-  box-shadow:0 12px 55px #18231f40;
+  box-shadow: var(--shadow-lg);
 }
 
-dialog::backdrop {
-  background:#17221e6b;
-}
 
 dialog select {
   width:100%;
@@ -488,12 +509,9 @@ dialog .actions {
   justify-content:flex-end;
 }
 
-@media(max-width:720px) {
+@container (max-width: 720px) {
   aside {
     padding-bottom:24px;
-  }
-  .reader-header,.titlebar {
-    padding-inline:13px;
   }
   .toolbar {
     padding-inline:7px;
@@ -501,19 +519,16 @@ dialog .actions {
   .viewport {
     padding:8px;
   }
-  .reader-header>a:not(.brand) {
-    font-size:var(--workspace-text-small);
-  }
-  .titlebar .primary {
-    flex-shrink:0;
+  .reader-byline {
+    display:none;
   }
 }
 
 #sourceNotice,
 #graphCitation {
-  padding:8px 26px;
-  background:#f5df9a;
-  color:#3d3118;
+  padding:8px 15px;
+  background:var(--warning-soft);
+  color:var(--warning);
 }
 
 .empty .actions {
@@ -526,7 +541,7 @@ dialog .actions {
 }
 
 .empty .actions button {
-  font-size:var(--workspace-text-small);
+  font-size: var(--text-sm);
 }
 
 .page-surface.region-mode {
@@ -540,13 +555,13 @@ dialog .actions {
 
 .region-draft {
   position:absolute;
-  border:1.5px dashed #318e75;
-  background:#45a37a29;
+  border: 1.5px dashed var(--line);
+  background: var(--scrim);
   pointer-events:none;
-  z-index:3;
+  z-index: var(--z-sticky);
 }
 
 #regionButton[aria-pressed=true] {
-  background:var(--pale);
+  background:var(--accent-soft);
   color:var(--accent);
 }

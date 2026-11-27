@@ -48,7 +48,8 @@
     return link;
   }
   function isSettings(url) {
-    return url.pathname === "/studio" && ["settings", "plugins"].includes(url.searchParams.get("view"));
+    return url.pathname === "/settings" ||
+      (url.pathname === "/studio" && ["settings", "plugins"].includes(url.searchParams.get("view")));
   }
   function aiMode(url) {
     if (url.pathname === "/lab") return "single";
@@ -111,9 +112,8 @@
   function destinations(url) {
     const project = url.searchParams.get("project");
     const view = url.searchParams.get("view");
-    const active = url.pathname === "/api-docs" ? "settings"
+    const active = url.pathname === "/api-docs" || isSettings(url) ? "settings"
       : aiMode(url) ? "lab"
-      : url.pathname === "/studio" ? "settings"
       : project || view === "projects" ? "projects"
       : url.pathname === "/reader" || view === "papers" ? "library"
       : view === "tasks" || url.searchParams.get("tab") === "calendar" ? "calendar"
@@ -124,7 +124,7 @@
       ["library", local("routeLibrary","文献库","Library"), research("papers")],
       ["calendar", local("routeCalendar","日历与任务","Calendar"), research("calendar")],
       ["lab", "AI", modeURL("single")],
-      ["settings", local("routeSettings","设置","Settings"), route("/studio",{view:"settings",project})]
+      ["settings", local("routeSettings","设置","Settings"), route("/settings",{project})]
     ].map(([key,name,href]) => ({key,name,href,active:active===key}));
   }
   const globalSections={projects:"projects",library:"paper-library",calendar:"calendar",lab:"ai-lab"};
@@ -181,7 +181,10 @@
     }
     updateModes(url);
     const returnToTable = document.getElementById("back-to-table");
-    if (returnToTable) returnToTable.hidden = url.searchParams.get("view") !== "plugins" || !aiAvailable(url.searchParams.get("project"));
+    if (returnToTable) {
+      const pluginsOpen = url.searchParams.get("section") === "plugins" || url.searchParams.get("view") === "plugins";
+      returnToTable.hidden = !pluginsOpen || !aiAvailable(url.searchParams.get("project"));
+    }
     const visible = destinations(url).filter(item=>enabled(globalModules,globalSections[item.key]));
     const links=window.SciShellLayout?.top(visible) || visible;
     const signature = JSON.stringify([links,project]);
@@ -242,14 +245,16 @@
       rootAction({openWorkspace:"open",createWorkspace:"create",revealWorkspace:"reveal",renameWorkspace:"rename",forgetWorkspace:"forget"}[key]);return true;
     }
     const url=currentURL();
-    if (["settings","roundtable","plugins"].includes(key) && url.pathname === "/studio" &&
-        (key !== "roundtable" || !url.searchParams.has("project"))) {
-      const view={roundtable:"table",settings:"settings",plugins:"plugins"}[key];
-      if (!window.dispatchEvent(new CustomEvent("roundtable:navigate",{detail:view,cancelable:true}))) return true;
+    if (key === "plugins" && isSettings(url) && window.RoundtableSettingsNav) {
+      window.RoundtableSettingsNav.select("plugins");
+      return true;
+    }
+    if (key === "roundtable" && url.pathname === "/studio" && !isSettings(url) && !url.searchParams.has("project")) {
+      if (!window.dispatchEvent(new CustomEvent("roundtable:navigate",{detail:"table",cancelable:true}))) return true;
     }
     let destination=destinations(url).find(link=>link.key===key)?.href;
     if (key === "roundtable") destination = modeURL("roundtable");
-    if (key === "plugins") destination=route("/studio",{view:"plugins",project:url.searchParams.get("project")});
+    if (key === "plugins") destination=route("/settings",{section:"plugins",project:url.searchParams.get("project")});
     if (["newProject","importIdentifier","importPDF","find"].includes(key)) {
       const view=key==="newProject"?"projects":key==="find"?"overview":"papers";
       destination=route("/research",{view,project:key==="newProject"?null:url.searchParams.get("project"),command:key});

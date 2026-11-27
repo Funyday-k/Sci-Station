@@ -29,6 +29,7 @@ var workspaceSurfaces = func() map[string]workspaceSurface {
 	surfaces := map[string]workspaceSurface{
 		"/research": {name: "research", title: "科研工作台"},
 		"/studio":   {name: "studio", title: "科研圆桌", pane: true},
+		"/settings": {name: "settings", title: "设置"},
 		"/reader":   {name: "reader", title: "论文阅读", pane: true},
 		"/lab":      {name: "lab", title: "AI", pane: true},
 		"/tools":    {name: "science-tools", title: "科研工具"},
@@ -75,12 +76,15 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, resolved, http.StatusTemporaryRedirect)
 		return true
 	}
+	if path == "/studio" && (r.URL.Query().Get("view") == "settings" || r.URL.Query().Get("view") == "plugins") {
+		surface = workspaceSurfaces["/settings"]
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method != http.MethodHead {
 		var storage storageLocations
 		if archive != nil {
 			surface = workspaceSurface{name: "session-transcript", title: "会话记录", page: transcriptPage}
-		} else if surface.name == "studio" {
+		} else if surface.name == "settings" {
 			storage = a.storageLocations()
 		}
 		_ = surface.page.Execute(w, struct {
@@ -91,7 +95,7 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 		}{
 			Title: surface.title, Surface: surface.name, Desktop: a.desktop, Pane: surface.pane,
 			AI:       surface.name == "lab" || surface.name == "studio",
-			Settings: surface.name == "studio" && (r.URL.Query().Get("view") == "settings" || r.URL.Query().Get("view") == "plugins"),
+			Settings: surface.name == "settings",
 			Storage:  storage, Archive: archive,
 		})
 	}
@@ -245,7 +249,7 @@ func workspaceLocation(raw string) (*url.URL, error) {
 				err != nil || date.Year() < 1 || date.Format(time.DateOnly) != value {
 				q.Del(key)
 			}
-		case "project", "view", "session", "paper", "page", "annotation", "fingerprint", "quote",
+		case "project", "view", "section", "session", "paper", "page", "annotation", "fingerprint", "quote",
 			"start", "end", "offset", "ocr", "note", "material", "task", "tab",
 			"citation", "ordinal", "line", "column", "endLine", "revision", "run", "review", "scope":
 		default:

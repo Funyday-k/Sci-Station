@@ -46,13 +46,27 @@ async function mount(suffix = "", options = {}) {
     selectionStart:0,selectionEnd:8};
   const calls = [], memory = new Map();
   let destination, route, projectReads=0;
+  let activeElement = null;
+  const dispatchedCommands = [];
+  for (const el of ids.values()) {
+    el.focus = function() { this.focused = true; activeElement = this; };
+    el.click = function() { this.dispatchEvent(new Event("click")); };
+  }
   const browser = new EventTarget();
   browser.getSelection = () => null;
-  browser.SciStationNav = {update() {}};
+  browser.SciStationNav = {
+    update() {},
+    command(key) {
+      dispatchedCommands.push(key);
+      return !browser.dispatchEvent(new CustomEvent("scistation:command", {detail: key, cancelable: true}));
+    }
+  };
   browser.SciStationModules = {load:async()=>({}),isEnabled:()=>true};
   const railActions = [];
   get("reader-inspector").hidden = true;
   get("notesPanel").hidden = true;
+  get("readerMoreMenu").hidden = true;
+  get("readerMoreButton").setAttribute("aria-expanded", "false");
   browser.SciContextRail = {
     update() {},
     show(mode) { railActions.push(["show",mode]); get("reader-inspector").hidden = mode !== "inspector"; },
@@ -60,9 +74,10 @@ async function mount(suffix = "", options = {}) {
     close() { railActions.push(["close"]); get("reader-inspector").hidden = true; },
     pin() { railActions.push(["pin"]); }
   };
+  const body = {dataset: options.nativeWorkspace ? {nativeWorkspace: ""} : {}};
   const env = {
     document:{getElementById:get,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),
-      createTextNode:text=>text},
+      createTextNode:text=>text, body, get activeElement(){ return activeElement; }},
     getComputedStyle:()=>({paddingLeft:"8px"}),
     Image:class {async decode() {}},
     Option:class {constructor(text,value){this.text=text;this.value=value;}},
@@ -113,6 +128,7 @@ async function mount(suffix = "", options = {}) {
         {id:"round",title:"Round",project:"/old-path",project_id:"project"},
         {id:"other",title:"Other",project:"/new-path",project_id:"other"}
       ]};
+      else if(url.endsWith("/native-file")) return {ok:true,status:204};
       else throw Error("unexpected fetch "+url);
       return {ok:true,status:200,json:async()=>data};
     }
@@ -148,7 +164,7 @@ async function mount(suffix = "", options = {}) {
   }
   vm.runInNewContext(script,env);
   await nextTurn();
-  return {get,calls,memory,paper,browser,railActions,document:env.document,getDestination:()=>destination,getRoute:()=>route};
+  return {get,calls,memory,paper,browser,railActions,dispatchedCommands,getActiveElement:()=>activeElement,document:env.document,getDestination:()=>destination,getRoute:()=>route};
 }
 
 test("editing an annotation on another PDF page keeps explicitly opened details visible", async () => {
@@ -398,4 +414,56 @@ test("reader details open explicitly and closing them preserves the unsaved note
   assert.equal(get("notesTab").focused, true);
   get("reader-pin").onclick();
   assert.deepEqual(railActions.at(-1), ["pin"]);
+});
+
+test("reader consolidates headers to two rows with semantic warning tokens and single primary action", () => {
+  const css = readFileSync(join(__dirname, "../web/static/reader.css"), "utf8");
+  assert.equal(html.includes('class="reader-header"'), false);
+  assert.equal(html.includes('class="titlebar"'), false);
+  assert.match(html, /\{\{define "breadcrumb"\}\}[\s\S]*id="home"[\s\S]*id="title"[\s\S]*id="byline"/);
+  const toolbar = html.slice(html.indexOf('<div class="toolbar"'), html.indexOf('<div id="findBar"'));
+  assert.match(toolbar, /id="handoff" class="primary"/);
+  assert.equal((toolbar.match(/class="primary"/g) || []).length, 1);
+  assert.match(toolbar, /id="readerMoreMenu"[\s\S]*id="citation"[\s\S]*id="exportMarkdown"[\s\S]*id="bib"[\s\S]*id="original"/);
+  assert.match(css, /#sourceNotice,\s*#graphCitation[\s\S]*var\(--warning-soft\)[\s\S]*var\(--warning\)/);
+  assert.equal(css.includes("#f5df9a"), false);
+  assert.equal(css.includes("#3d3118"), false);
+});
+
+test("reader More menu supports arrow-key navigation, Escape restore, and native command parity", async () => {
+  const {get,calls,dispatchedCommands,getActiveElement} = await mount("", {nativeWorkspace: true});
+  const moreBtn = get("readerMoreButton");
+  const menu = get("readerMoreMenu");
+  assert.equal(menu.hidden, true);
+  assert.equal(moreBtn.getAttribute("aria-expanded"), "false");
+
+  const key = (target, k) => {
+    const ev = new Event("keydown", {cancelable: true});
+    ev.key = k;
+    target.dispatchEvent(ev);
+  };
+
+  key(moreBtn, "ArrowDown");
+  assert.equal(menu.hidden, false);
+  assert.equal(moreBtn.getAttribute("aria-expanded"), "true");
+  assert.equal(getActiveElement(), get("citation"));
+
+  key(menu, "ArrowDown");
+  assert.equal(getActiveElement(), get("exportMarkdown"));
+  key(menu, "End");
+  assert.equal(getActiveElement(), get("original"));
+  key(menu, "ArrowDown");
+  assert.equal(getActiveElement(), get("citation"));
+  key(menu, "Escape");
+  assert.equal(menu.hidden, true);
+  assert.equal(moreBtn.getAttribute("aria-expanded"), "false");
+  assert.equal(getActiveElement(), moreBtn);
+
+  // Command parity: BibTeX and Open original dispatch native command IDs.
+  get("bib").click();
+  assert.deepEqual(dispatchedCommands, ["bibtex"]);
+  get("original").click();
+  await nextTurn();
+  assert.deepEqual(dispatchedCommands, ["bibtex", "externalPDF"]);
+  assert.ok(calls.some(c => c.url.endsWith("/native-file") && c.opts.method === "POST"));
 });

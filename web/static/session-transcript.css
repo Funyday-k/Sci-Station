@@ -1,18 +1,18 @@
 body[data-workspace-surface="session-transcript"] {
   margin: 0;
-  color: var(--workspace-ink);
-  background: var(--workspace-paper);
-  font: var(--workspace-text)/1.6 var(--workspace-font);
+  color: var(--ink-primary);
+  background: var(--bg-canvas);
+  font: var(--text-md)/1.6 var(--workspace-font);
 }
 body[data-workspace-surface="session-transcript"] .workspace-page { max-width: 920px; }
 .session-transcript .workspace-page-heading { align-items: baseline; }
-.session-transcript .workspace-page-heading p, .transcript-turn small { color: var(--workspace-muted); }
+.session-transcript .workspace-page-heading p, .transcript-turn small { color: var(--ink-muted); }
 .transcript-export {
-  padding: 5px 12px; border: 1px solid var(--workspace-line); border-radius: 6px;
-  color: var(--workspace-accent); background: var(--workspace-surface); text-decoration: none;
+  padding: 5px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--accent); background: var(--bg-surface); text-decoration: none;
 }
-.transcript-round { margin-top: 24px; border-top: 1px solid var(--workspace-line); }
-.transcript-round h2 { font-size: calc(18px + var(--workspace-text-increase)); }
+.transcript-round { margin-top: 24px; border-top: 1px solid var(--line); }
+.transcript-round h2 { font-size: var(--text-lg); }
 .transcript-turn { margin-block: 16px; }
 .transcript-turn h3 { margin-bottom: 4px; font-size: inherit; overflow-wrap: anywhere; }
 .transcript-message { margin-top: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

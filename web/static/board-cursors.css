@@ -1,11 +1,11 @@
 #meeting-board .board-collab-lane {
-  --board-collab-ink: var(--board-collab-light, var(--accent));
+  --board-collab-ink: var(--board-collab-light);
   --board-collab-tint: color-mix(in srgb, var(--board-collab-ink) 12%, transparent);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 :root[data-theme="dark"] #meeting-board .board-collab-lane {
-  --board-collab-ink: var(--board-collab-dark, var(--accent));
+  --board-collab-ink: var(--board-collab-dark);
 }
 
 #meeting-board .board-collab-body:empty,
@@ -16,8 +16,8 @@
 
 #meeting-board .board-collab-body > .board-collab-overlay,
 #meeting-board .board-collab-note-body {
-  color: var(--text);
-  font-size: 14px;
+  color: var(--ink-muted);
+  font-size: var(--text-md);
   line-height: 1.65;
 }
 
@@ -25,8 +25,8 @@
   display: block;
   margin-block-start: .36em;
   padding-block-start: .33em;
-  border-block-start: 1px dashed var(--board-outline);
-  font-size: min(1em, 15px);
+  border-block-start: 1px dashed var(--line);
+  font-size: var(--text-md);
 }
 
 #meeting-board .board-collab-change {
@@ -56,7 +56,7 @@
   margin-inline: 1px 4px;
   padding-inline-start: 2px;
   border-inline-start: 2px solid var(--board-collab-ink);
-  border-radius: 1px;
+  border-radius: var(--radius-sm);
   vertical-align: baseline;
   white-space: normal;
 }
@@ -65,8 +65,8 @@
 #meeting-board .board-collab-passive {
   color: var(--board-collab-ink);
   background: var(--board-collab-tint);
-  border-radius: 3px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   font-weight: 660;
   line-height: 1.2;
   letter-spacing: 0;
@@ -86,20 +86,20 @@
 #meeting-board .board-collab-note {
   margin-block: 12px;
   padding: 10px 13px 12px;
-  border: 1px dashed var(--board-outline);
-  border-radius: 8px;
-  background: var(--board-card);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
 }
 
 #meeting-board .board-collab-note-status {
   margin: 0 0 4px;
-  color: var(--board-muted);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 #meeting-board .board-collab-note-title {
-  color: var(--ink);
-  font-size: 16px;
+  color: var(--ink-primary);
+  font-size: var(--text-lg);
   font-weight: 650;
   line-height: 1.45;
 }

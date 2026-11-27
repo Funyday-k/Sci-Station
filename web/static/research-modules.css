@@ -22,8 +22,8 @@
 .module-settings-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
 .module-settings-heading h3 { margin: 0; font-size: inherit; }
 .module-settings-main p, .module-settings-details p { margin: 5px 0 0; }
-.module-settings-label, .module-settings-dependencies, .module-settings-details { color: var(--muted); }
-.module-settings-blocked { color: var(--text); }
+.module-settings-label, .module-settings-dependencies, .module-settings-details { color: var(--ink-muted); }
+.module-settings-blocked { color: var(--ink-muted); }
 .module-settings-dependencies,
 .module-settings-details { grid-column: 1 / -1; }
 .module-settings-details summary { width: fit-content; cursor: pointer; }
@@ -33,15 +33,15 @@
 #module-settings-confirm {
   max-width: min(420px, 90%);
   padding: 22px;
-  color: var(--text);
-  background: var(--surface);
+  color: var(--ink-muted);
+  background: var(--bg-surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 #module-settings-confirm::backdrop { background: rgb(0 0 0 / 35%); }
 #module-settings-confirm p { margin: 0 0 16px; }
 .module-settings-confirm-actions { justify-content: flex-end; }
-@media (max-width: 620px) {
+@container (max-width: 620px) {
   .module-settings-row { grid-template-columns: minmax(0, 1fr); }
   .module-settings-controls { justify-content: flex-start; }
 }
