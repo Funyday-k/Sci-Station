@@ -8,6 +8,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Highlight added, removed and context lines with `+`/`−` gutters in the CLI file-edit approval dialog using a shared `diff-view` component and unified dialog footer.
 - Align Home and project widgets to shared grid rows. Browse conversations in a separate sidebar and switch between single chat and Roundtable in one toolbar. The new-chat composer groups the project, files, plugins, model and supported reasoning levels. Research tools have individual views with a back action.
 - Manage the shared data and paper location in Settings. A fresh desktop installation starts with a per-user Application Support folder, while existing installations reopen their selected data directory.
 

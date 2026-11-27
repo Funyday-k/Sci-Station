@@ -19,22 +19,33 @@ function mount(handler, proof="fixture-proof") {
   const elements = new Map();
   const callbacks = {};
   const calls = [];
+  let focused = null;
   class Element {
-    value=""; textContent=""; children=[]; hidden=false; disabled=false; open=false;
-    constructor(id) {this.id=id;}
-    replaceChildren(...items){this.children=items;}
+    value=""; _text=""; children=[]; hidden=false; disabled=false; open=false; className=""; attributes={}; listeners={};
+    constructor(id, tag="") {this.id=id; this.tagName=tag;}
+    get textContent(){
+      if (this.children.length) return this.children.map(c => c.textContent).join("");
+      return this._text;
+    }
+    set textContent(v){ this._text = String(v); this.children = []; }
+    set innerHTML(_v){ throw new Error("CLI edit diff must never write innerHTML"); }
+    setAttribute(name, value){ this.attributes[name] = String(value); }
+    addEventListener(name, fn){ (this.listeners[name] ||= []).push(fn); }
+    dispatchEvent(name){ for (const fn of this.listeners[name] || []) fn(); }
+    focus(){ focused = this; }
+    replaceChildren(...items){this.children=items; this._text="";}
     append(...items){this.children.push(...items);}
-    cloneNode(){return new Element(this.id);}
+    cloneNode(){const copyEl = new Element(this.id, this.tagName); copyEl.className = this.className; return copyEl;}
     replaceWith(e){elements.set(this.id,e);}
     reset(){}
     showModal(){this.open=true;}
-    close(){this.open=false;}
+    close(){const wasOpen = this.open; this.open=false; if (wasOpen) this.dispatchEvent("close");}
   }
   for (const match of staticFile("studio.html").matchAll(/id="(cli-edit-[^"]+)"/g)) elements.set(match[1],new Element(match[1]));
   const get = id => elements.get("cli-edit-"+id);
   const document = {
     hidden:false,
-    createElement:()=>new Element(),
+    createElement:tag=>new Element("", tag),
     getElementById:id=>{assert.ok(elements.has(id),id);return elements.get(id);},
     addEventListener:(name,fn)=>{callbacks[name]=fn;}
   };
@@ -50,7 +61,7 @@ function mount(handler, proof="fixture-proof") {
     window,document,fetch,Option:class{constructor(text,value){this.textContent=text;this.value=value;}},
     setTimeout:()=>1,clearTimeout(){}
   });
-  return {ui:window.SciCLIEdit,get,calls,callbacks,window};
+  return {ui:window.SciCLIEdit,get,calls,callbacks,window,getFocused:()=>focused};
 }
 
 test("project, round, CLI request identities and every file diff must match before acceptance", () => {
@@ -68,7 +79,7 @@ test("project, round, CLI request identities and every file diff must match befo
 
 test("starting and reviewing from the meeting requires one explicit click per request", async () => {
   let current=null;
-  const {ui,get,calls}=mount((method,action)=>{
+  const {ui,get,calls,getFocused}=mount((method,action)=>{
     if (method==="POST" && action.action==="start") current=copy(run);
     if (method==="POST" && action.action==="accept") current={...run,status:"responded",pending:null};
     return {providers,run:current};
@@ -76,6 +87,7 @@ test("starting and reviewing from the meeting requires one explicit click per re
   ui.setSession(session,"Known project"); await tick();
   get("open").onclick();await tick();
   assert.equal(get("dialog").open,true);
+  assert.equal(getFocused().id,"cli-edit-close");
   assert.match(get("scope").textContent,/Known project \(p\)/);
   assert.match(get("capabilities").children[0].textContent,/No per-file approval/);
   get("paths").value="notes.md"; get("prompt").value="Edit the fixture title";
@@ -86,7 +98,16 @@ test("starting and reviewing from the meeting requires one explicit click per re
   assert.equal(requests.length,1);
   assert.deepEqual(requests[0],{url:"/api/studio/sessions/m/cli-edits",method:"POST",payload:{
     action:"start",projectId:"p",meetingRound:3,provider:"codex",prompt:"Edit the fixture title",paths:["notes.md"]}});
-  assert.equal(get("changes").children[0].children[1].textContent,run.pending.changes[0].diff);
+  const diffPre = get("changes").children[0].children[1];
+  assert.equal(diffPre.className, "diff-view");
+  assert.equal(diffPre.children.length, 2);
+  assert.equal(diffPre.children[0].className, "diff-line diff-remove");
+  assert.equal(diffPre.children[0].children[0].textContent, "−");
+  assert.equal(diffPre.children[0].children[1].textContent, "old");
+  assert.equal(diffPre.children[1].className, "diff-line diff-add");
+  assert.equal(diffPre.children[1].children[0].textContent, "+");
+  assert.equal(diffPre.children[1].children[1].textContent, "new <section>");
+  assert.equal(get("decision-actions").hidden, false);
   const obsolete=get("accept");
   current={...run,pending:{...run.pending,requestId:"next",changes:[{path:"notes.md",kind:"update",diff:"+correct"}]}};
   get("refresh").onclick();await tick();
@@ -97,6 +118,29 @@ test("starting and reviewing from the meeting requires one explicit click per re
   assert.equal(calls.at(-1).payload.requestId,"next");
   assert.match(get("run-title").textContent,/等待执行结果/);
   assert.equal(get("proposal").hidden,true);
+  assert.equal(get("decision-actions").hidden,true);
+});
+
+test("diff parser distinguishes headers, additions, removals and context with +/- gutters", () => {
+  const parsed = helpers.parseDiffLines("@@ -1,2 +1,2 @@\n keep\n-before\n+after <script>alert(1)</script>");
+  assert.deepEqual(parsed, [
+    {kind: "header", gutter: "", text: "@@ -1,2 +1,2 @@"},
+    {kind: "context", gutter: " ", text: "keep"},
+    {kind: "remove", gutter: "−", text: "before"},
+    {kind: "add", gutter: "+", text: "after <script>alert(1)</script>"},
+  ]);
+});
+
+test("unified dialog footer places tertiary actions leading and primary Approve trailing", () => {
+  const html = staticFile("studio.html");
+  const dialogHtml = html.slice(html.indexOf('<dialog id="cli-edit-dialog"'));
+  const footer = dialogHtml.slice(dialogHtml.indexOf('<footer class="dialog-footer">'));
+  const idxRefresh = footer.indexOf('id="cli-edit-refresh"');
+  const idxCancel = footer.indexOf('id="cli-edit-cancel"');
+  const idxDecline = footer.indexOf('id="cli-edit-decline"');
+  const idxAccept = footer.indexOf('id="cli-edit-accept"');
+  assert.ok(idxRefresh > 0 && idxCancel > idxRefresh && idxDecline > idxCancel && idxAccept > idxDecline);
+  assert.equal(dialogHtml.indexOf('id="cli-edit-accept"'), dialogHtml.lastIndexOf('id="cli-edit-accept"'));
 });
 
 test("disconnect, session switch and restart cannot replay an approval or redirect it to the new meeting", async () => {
@@ -127,14 +171,16 @@ test("disconnect, session switch and restart cannot replay an approval or redire
   assert.match(fresh.get("status").textContent,/没有待审核/);
 });
 
-test("closing the dialog leaves a task running and cancel sends only this run identity", async () => {
+test("closing the dialog leaves a task running, restores focus, and cancel sends only this run identity", async () => {
   let current=run;
-  const {ui,get,calls}=mount((method,payload)=>{
+  const {ui,get,calls,getFocused}=mount((method,payload)=>{
     if(method==="POST") current={...run,status:"cancelled",pending:null};
     return {providers,run:current};
   });
   ui.setSession(session,"Project");await tick();get("open").onclick();await tick();
-  get("close").onclick();assert.equal(calls.some(item=>item.method==="POST"),false);
+  get("close").onclick();
+  assert.equal(calls.some(item=>item.method==="POST"),false);
+  assert.equal(getFocused().id,"cli-edit-open");
   get("open").onclick();await tick();get("cancel").onclick();await tick();
   assert.deepEqual(calls.at(-1).payload,{action:"cancel",projectId:"p",runId:"run-1"});
   assert.match(get("run-title").textContent,/已取消/);
@@ -157,5 +203,6 @@ test("browser sessions can read the meeting but require a native window to revie
   window.sciStationCLIEditSession="";
   callbacks["scistation:cli-edit-session"]();await tick();
   assert.equal(get("proposal").hidden,true);
+  assert.equal(get("decision-actions").hidden,true);
   assert.equal(get("accept").disabled,true);
 });

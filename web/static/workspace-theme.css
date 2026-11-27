@@ -27,6 +27,12 @@
   --workspace-accent-soft: var(--palette-soft, light-dark(#eeedfd, #30324e));
   --workspace-accent-ink: light-dark(#fff, #1b1d21);
   --workspace-danger: light-dark(#a52f42, #ff9cae);
+  --workspace-diff-add-ink: light-dark(#14532d, #bbf7d0);
+  --workspace-diff-add-bg: light-dark(#eaf7ee, #123524);
+  --workspace-diff-add-gutter: light-dark(#15803d, #86efac);
+  --workspace-diff-remove-ink: light-dark(#881337, #fecdd3);
+  --workspace-diff-remove-bg: light-dark(#fdecef, #421923);
+  --workspace-diff-remove-gutter: light-dark(#be123c, #fda4af);
   --workspace-shadow: 0 4px 20px light-dark(#20242b0d, #00000033);
   --workspace-page-top: 24px;
   --workspace-page-inset: clamp(16px, 3vw, 32px);

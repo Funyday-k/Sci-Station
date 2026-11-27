@@ -50,6 +50,45 @@
         typeof change.diff === "string" && change.diff.trim().length);
   }
 
+  function parseDiffLines(diffText) {
+    const raw = typeof diffText === "string" && diffText.length ? diffText : "CLI 未提供此文件的差异。";
+    return raw.split(/\r?\n/).map(line => {
+      if (/^(?:diff --git |index |--- |\+\+\+ |@@ |\\ )/.test(line)) {
+        return {kind: "header", gutter: "", text: line};
+      }
+      if (line.startsWith("+")) {
+        return {kind: "add", gutter: "+", text: line.slice(1)};
+      }
+      if (line.startsWith("-")) {
+        return {kind: "remove", gutter: "−", text: line.slice(1)};
+      }
+      if (line.startsWith(" ")) {
+        return {kind: "context", gutter: " ", text: line.slice(1)};
+      }
+      return {kind: "context", gutter: " ", text: line};
+    });
+  }
+
+  function renderDiffView(diffText, doc) {
+    const pre = doc.createElement("pre");
+    pre.className = "diff-view";
+    const lines = parseDiffLines(diffText);
+    for (const entry of lines) {
+      const row = doc.createElement("span");
+      row.className = "diff-line diff-" + entry.kind;
+      const gutter = doc.createElement("span");
+      gutter.className = "diff-gutter";
+      gutter.setAttribute?.("aria-hidden", "true");
+      gutter.textContent = entry.gutter;
+      const body = doc.createElement("span");
+      body.className = "diff-text";
+      body.textContent = entry.text;
+      row.append(gutter, body);
+      pre.append(row);
+    }
+    return pre;
+  }
+
   function mount() {
     const el = id => document.getElementById("cli-edit-" + id);
     const dialog = el("dialog");
@@ -122,6 +161,8 @@
     function showProposal(run) {
       const item = run?.status === "pending" ? run.pending : null;
       el("proposal").hidden = !item;
+      const decisionActions = el("decision-actions");
+      if (decisionActions) decisionActions.hidden = !item;
       const signature = JSON.stringify([run?.id, item]);
       if (proposalSignature !== signature) {
         proposalSignature = signature;
@@ -130,10 +171,9 @@
         el("changes").replaceChildren(...files.map(change => {
           const section = document.createElement("section");
           const name = document.createElement("h4");
-          const diff = document.createElement("pre");
           const kind = {add:"新增", update:"修改", delete:"删除", create:"新增", remove:"删除"}[change.kind];
           name.textContent = [change.path, kind || change.kind].filter(Boolean).join(" · ");
-          diff.textContent = change.diff || "CLI 未提供此文件的差异。";
+          const diff = renderDiffView(change.diff, document);
           section.append(name, diff);
           return section;
         }));
@@ -255,8 +295,20 @@
         send({action:"cancel", projectId:scope.projectId, runId:run.id});
       }
     };
-    el("open").onclick = () => { dialog.showModal(); refresh(); };
+    // Focus order and Escape contract:
+    // - Opening moves focus to Close (never auto-focusing Approve) so keyboard users
+    //   inspect the diff before tabbing through Refresh -> Cancel -> Deny -> Approve.
+    // - Escape or Close dismisses the modal without issuing any POST decision and
+    //   restores focus to #cli-edit-open.
+    el("open").onclick = () => {
+      dialog.showModal();
+      el("close").focus?.();
+      refresh();
+    };
     el("close").onclick = () => dialog.close();
+    dialog.addEventListener?.("close", () => {
+      if (!el("open").hidden) el("open").focus?.();
+    });
     el("refresh").onclick = refresh;
     el("provider").onchange = render;
     document.addEventListener("visibilitychange", () => {
@@ -276,6 +328,8 @@
     window.addEventListener("pageshow", event => { if (event.persisted) refresh(); });
     return {setSession};
   }
-  if (typeof module !== "undefined" && module.exports) module.exports = {meetingScope, unpack, pendingDecision, canAccept};
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {meetingScope, unpack, pendingDecision, canAccept, parseDiffLines, renderDiffView};
+  }
   if (typeof window !== "undefined") window.SciCLIEdit = mount();
 })();

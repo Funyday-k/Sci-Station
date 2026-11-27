@@ -981,17 +981,17 @@
         <h3 id="cli-edit-proposal-title">CLI 请求本次修改</h3>
         <p id="cli-edit-reason"></p>
         <div id="cli-edit-changes"></div>
-        <div class="cli-edit-actions">
-          <button id="cli-edit-accept" type="button" class="button primary">仅允许本次修改</button>
-          <button id="cli-edit-decline" type="button" class="button secondary">拒绝本次修改</button>
-        </div>
       </section>
     </section>
-    <footer>
-      <p id="cli-edit-status" role="status" aria-live="polite"></p>
-      <div class="cli-edit-actions">
-        <button id="cli-edit-refresh" type="button" class="button secondary small">刷新状态</button>
-        <button id="cli-edit-cancel" type="button" class="button secondary small" hidden>取消 CLI 任务</button>
+    <p id="cli-edit-status" role="status" aria-live="polite"></p>
+    <footer class="dialog-footer">
+      <div class="dialog-footer-leading">
+        <button id="cli-edit-refresh" type="button" class="button secondary small cli-edit-tertiary">刷新状态</button>
+        <button id="cli-edit-cancel" type="button" class="button secondary small cli-edit-tertiary" hidden>取消 CLI 任务</button>
+      </div>
+      <div id="cli-edit-decision-actions" class="dialog-footer-trailing" hidden>
+        <button id="cli-edit-decline" type="button" class="button secondary">拒绝本次修改</button>
+        <button id="cli-edit-accept" type="button" class="button primary">仅允许本次修改</button>
       </div>
     </footer>
   </dialog>
