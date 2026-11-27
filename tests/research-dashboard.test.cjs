@@ -108,8 +108,8 @@ test("Home and Overview render durable draft counts and keep widget order, size 
     "projects/a/reviews": reviews.filter(r => r.projectId === "a")})[url];
   const ui = {
     esc: String, heading: (title, info, buttons) => `<h1>${title}</h1>${info}${buttons}`, button: String,
-    link: (label, href) => `<a href="${href}">${label}</a>`, panel: (title, body) => `<h2>${title}</h2>${body}`,
-    paperRows: () => "", taskRows: () => "", meetingRows: () => "", viewURL: require("../web/static/workspace-nav.js").research, studio: String, fmtDate: String,
+    link: (label, href, kind = "button") => `<a class="${kind}" href="${href}">${label}</a>`, panel: (title, body) => `<section class="panel"><h2>${title}</h2>${body}</section>`,
+    paperRows: () => "", taskRows: items => items.map(t => `<span class="task-row">${t.title}</span>`).join(""), meetingRows: () => "", viewURL: require("../web/static/workspace-nav.js").research, studio: String, fmtDate: String,
     row: (_glyph, title, _meta, control) => `${title} ${control}`, rowAction: String, list: rows => rows.join(""),
     empty: String, reader: String, toolsPage: String
   };
@@ -118,17 +118,20 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   state.dashboardData = await app.load(request, null, config);
   const now = new Date(2026, 10, 25);
   const first = app.markup(state, ui, now);
-  const widgets = html => Array.from(html.matchAll(/class="dashboard-widget dashboard-(\w+)" data-dashboard-widget="(\w+)"/g),
+  const widgets = html => Array.from(html.matchAll(/class="dashboard-widget dashboard-(\w+)[^"]*" data-dashboard-widget="(\w+)"/g),
     ([, size, id]) => [id, size]);
   assert.match(first, /class="dashboard-grid dashboard-home-grid"/);
   assert.deepEqual(widgets(first).slice(0, 4), [["today", "medium"], ["active_projects", "medium"], ["ai_review", "medium"], ["calendar", "large"]]);
   const [month, agenda] = first.split('<div class="dashboard-calendar-agenda">');
   assert.match(month, /class="dashboard-calendar-month">.*data-dashboard-control="next-month".*class="dashboard-month">/s);
-  assert.match(agenda, /class="dashboard-calendar-links"><a href="\/research\?view=tasks&tab=calendar">打开日历<\/a>/);
+  assert.match(agenda, /class="dashboard-calendar-links"><a class="action-link" href="\/research\?view=tasks&tab=calendar">打开日历<\/a>/);
   assert.match(first, /<h1>首页<\/h1>/);
   assert.match(first, /<b>2<\/b> 项待审核/);
   assert.match(first, /Pending beta/);
   assert.doesNotMatch(first, /Rejected note/);
+  assert.match(first, /data-dashboard-widget="today" data-card-variant="primary"/);
+  assert.match(first, /class="action-link" href="\/research\?view=tasks">查看任务<\/a>/);
+  assert.match(first, /class="action-link" href="\/research\?view=projects">全部项目<\/a>/);
 
   const root = {id: "dashboard-view", ownerDocument: {getElementById: () => null}};
   app.mount(root, state, () => {}, assert.fail);
@@ -160,11 +163,20 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   state.project = alpha;
   state.dashboardData = await app.load(request, alpha.id, config);
   const overview = app.markup(state, ui, now);
-  assert.match(overview, /class="dashboard-grid"/);
-  assert.deepEqual(widgets(overview).slice(0, 3), [["project_status", "small"], ["research_questions", "small"], ["project_brief", "medium"]]);
+  assert.match(overview, /class="dashboard-overview-summary"/);
+  assert.deepEqual(widgets(overview), [["project_status", "small"], ["recent_activity", "medium"]]);
+  assert.match(overview, /class="dashboard-quick-add quick-add-row"/);
+  assert.match(overview, /data-quick-add-module="core_papers"/);
   assert.match(overview, /data-stage="drafting"/);
   assert.match(overview, /<b>1<\/b> 项待审核/);
   assert.doesNotMatch(overview, /Pending beta/);
+
+  // Modules disabled in workspace settings stay hidden from both the primary grid and Quick add.
+  state.dashboardData = {...state.dashboardData, modules: {modules: moduleIDs.map(id => ({id, effective: id !== "materials" && id !== "paper-library"}))}};
+  const restrictedOverview = app.markup(state, ui, now);
+  assert.doesNotMatch(restrictedOverview, /data-quick-add-module="materials"/);
+  assert.doesNotMatch(restrictedOverview, /data-quick-add-module="core_papers"/);
+  assert.match(restrictedOverview, /data-quick-add-module="current_tasks"/);
 
   const failure = async path => {
     if (path.startsWith("dashboard/projects") || path.endsWith("reviews")) throw new Error("Unavailable fixture");
@@ -184,9 +196,62 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   assert.doesNotMatch(unavailableHome, /暂无待审核草稿/);
 
   state.dashboardData = await app.load(path => path === "reviews" ? Promise.resolve([]) : request(path), null, config);
-  assert.match(app.markup(state, ui, now), /暂无待审核草稿/);
+  const clearHome = app.markup(state, ui, now);
+  assert.match(clearHome, /data-dashboard-widget="ai_review" data-card-variant="empty" data-compact-empty="true"/);
+  assert.match(clearHome, /class="panel card card--empty empty-row"[^>]*>.*暂无待审核草稿/s);
   await assert.rejects(app.load(async path => {
     if (path === "/api/workspace") throw new Error("Workspace fixture unavailable");
     return request(path);
   }), /Workspace fixture unavailable/);
+});
+
+test("Home deduplicates today's tasks between Today and Calendar while preserving other dates", () => {
+  const window = {SciStationNav: {route: (path, params) => path + "?" + new URLSearchParams(params)}};
+  const moduleIDs = ["projects", "tasks", "calendar", "wiki", "materials", "paper-library", "ai-lab"];
+  window.SciStationModules = {
+    isEnabled: require("../web/static/research-modules.js").isEnabled
+  };
+  const js = fs.readFileSync(require.resolve("../web/static/research-dashboard.js"), "utf8");
+  vm.runInNewContext(js, {window, localStorage: {getItem: () => null, setItem: () => {}}});
+  const app = window.SciStationDashboard;
+  const now = new Date(2026, 10, 25);
+  const state = {
+    projects: [{id: "p1", name: "Study"}],
+    papers: [],
+    meetings: [],
+    notes: [],
+    materials: [],
+    tasks: [
+      {id: "t1", projectId: "p1", status: "open", dueDate: "2026-11-25", title: "Submit camera-ready"},
+      {id: "t2", projectId: "p1", status: "open", dueDate: "2026-11-28", title: "Draft appendix"}
+    ],
+    dashboardData: {
+      workspace: {id: "dedup-root"},
+      facts: {p1: {noteCount: 0, gapCount: 0, artifactKinds: []}},
+      reviews: [],
+      modules: {modules: moduleIDs.map(id => ({id, effective: true}))}
+    }
+  };
+  const ui = {
+    esc: String, heading: (t, i, b) => `<h1>${t}</h1>${i}${b}`, button: String,
+    link: (l, h, k = "button") => `<a class="${k}" href="${h}">${l}</a>`,
+    panel: (t, b) => `<section class="panel"><h2>${t}</h2>${b}</section>`,
+    paperRows: () => "", taskRows: items => items.map(t => `<span class="task-row">${t.title}</span>`).join(""),
+    meetingRows: () => "", viewURL: require("../web/static/workspace-nav.js").research, studio: String, fmtDate: String,
+    row: (_g, t, _m, c) => `${t} ${c}`, rowAction: String, list: rows => rows.join(""),
+    empty: String, reader: String, toolsPage: String
+  };
+  const html = app.markup(state, ui, now);
+  const [beforeAgenda, agenda] = html.split('<div class="dashboard-calendar-agenda">');
+  assert.match(beforeAgenda, /Submit camera-ready/);
+  assert.doesNotMatch(agenda, /Submit camera-ready/, "task already shown in Today must not repeat in Calendar agenda");
+  assert.match(agenda, /今日任务已显示在「今日」中/);
+
+  // Selecting another date displays tasks on that day normally.
+  const root = {id: "dashboard-view", ownerDocument: {getElementById: () => null}};
+  app.mount(root, state, () => {}, assert.fail);
+  root.onclick({target: {closest: () => ({dataset: {dashboardControl: "pick-day"}, value: "2026-11-28", closest: () => null})}});
+  const picked = app.markup(state, ui, now);
+  const [, pickedAgenda] = picked.split('<div class="dashboard-calendar-agenda">');
+  assert.match(pickedAgenda, /Draft appendix/);
 });

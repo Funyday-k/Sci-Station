@@ -1,0 +1,135 @@
+/* Shared UI components (pilot slice seeded by #33; expanded in #40). */
+
+/* 1. Card variants: primary, secondary, compact, empty */
+.card {
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.card--primary {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-control);
+  box-shadow: var(--shadow-card);
+}
+
+.card--secondary {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.card--compact {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  padding: var(--space-3) var(--space-4);
+}
+
+.card--empty {
+  background: var(--bg-subtle);
+  border: 1px dashed var(--border-subtle);
+}
+
+/* 2. Compact empty status row (<= 56px tall) */
+.empty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.empty-row__title {
+  margin: 0;
+  color: var(--ink-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.empty-row__meta {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* 3. Navigation action link (accent color + arrow + focus-visible) */
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--brand-accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action-link::after {
+  content: "→";
+  display: inline-block;
+  font-size: var(--text-sm);
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.action-link:hover {
+  background: var(--brand-accent-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.action-link:hover::after {
+  transform: translateX(2px);
+}
+
+.action-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* 4. Quick add strip for collapsed empty modules */
+.quick-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+}
+
+.quick-add-row__label {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.quick-add-row__items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-link::after {
+    transition: none;
+  }
+  .action-link:hover::after {
+    transform: none;
+  }
+}

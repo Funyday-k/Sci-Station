@@ -1,0 +1,41 @@
+/* Design-system semantic tokens (pilot slice seeded by #33; expanded in #39). */
+:root {
+  /* Semantic surfaces and inks */
+  --bg-canvas: var(--workspace-paper);
+  --bg-surface: var(--workspace-surface);
+  --bg-subtle: var(--workspace-inset);
+  --ink-primary: var(--workspace-ink);
+  --ink-muted: var(--workspace-muted);
+  --border-subtle: var(--workspace-line);
+  --border-control: var(--workspace-button-line);
+  --brand-accent: var(--workspace-accent);
+  --brand-accent-soft: var(--workspace-accent-soft);
+  --brand-accent-ink: var(--workspace-accent-ink);
+  --focus-ring: var(--workspace-accent);
+
+  /* Elevation and overlay scrims */
+  --shadow-card: var(--workspace-shadow);
+  --shadow-subtle: 0 1px 3px light-dark(#27274412, #00000033);
+  --shadow-dialog: 0 20px 60px light-dark(#19192d38, #00000066);
+  --backdrop-scrim: light-dark(#1717255e, #0000007a);
+  --border-hairline: light-dark(#8886, #ffffff26);
+
+  /* Three border radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* 4px spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Semantic type ramp */
+  --text-sm: var(--workspace-text-small);
+  --text-md: var(--workspace-text);
+  --text-lg: calc(16px + var(--workspace-text-increase));
+  --text-xl: var(--workspace-title-size);
+}

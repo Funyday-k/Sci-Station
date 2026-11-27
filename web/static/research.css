@@ -105,7 +105,7 @@ p {
   min-width: 32px;
   height: 32px;
   color: var(--soft);
-  font-size: 18px
+  font-size: var(--text-lg)
 }
 
 .icon:hover,
@@ -147,9 +147,9 @@ p {
 }
 
 .brand span {
-  font-size: 22px;
+  font-size: var(--text-xl);
   letter-spacing: -1px;
-  font-weight: 600
+  font-weight: 600;
 }
 
 .navitem,
@@ -175,7 +175,7 @@ p {
 .project-item.active {
   background: var(--surface);
   color: var(--accent);
-  box-shadow: 0 1px 3px #27274412
+  box-shadow: var(--shadow-subtle)
 }
 
 .navitem+.navitem,
@@ -227,7 +227,7 @@ p {
 .research-load-status p {
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--rad);
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--ink);
   font-weight: 500;
@@ -394,12 +394,12 @@ kbd {
   padding: 18px 20px;
   margin-bottom: 20px;
   border: 1px solid var(--line);
-  border-radius: var(--rad);
+  border-radius: var(--radius-md);
   background: var(--surface)
 }
 
 .overview-intro h2 {
-  font-size: 1.25rem
+  font-size: var(--text-lg)
 }
 
 .overview-intro p,
@@ -413,7 +413,7 @@ kbd {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--rad);
+  border-radius: var(--radius-md);
   overflow: hidden;
   margin-bottom: 24px
 }
@@ -435,7 +435,7 @@ kbd {
 
 .metric strong {
   color: var(--ink);
-  font-size: calc(24px + var(--workspace-text-increase));
+  font-size: var(--text-xl);
   line-height: 1.15;
   grid-column: 1/-1;
   letter-spacing: -.025em
@@ -458,7 +458,7 @@ kbd {
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: var(--rad);
+  border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden
 }
@@ -477,7 +477,7 @@ kbd {
 }
 
 .panel-header h2 {
-  font-size: calc(15px + var(--workspace-text-increase));
+  font-size: var(--text-md);
   letter-spacing: 0
 }
 
@@ -705,8 +705,8 @@ dialog {
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 20px 90px #19192d38
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dialog)
 }
 
 dialog.wide {
@@ -714,7 +714,7 @@ dialog.wide {
 }
 
 dialog::backdrop {
-  background: #1717255e
+  background: var(--backdrop-scrim)
 }
 
 .dialog-head {
@@ -726,7 +726,7 @@ dialog::backdrop {
 }
 
 .dialog-head h2 {
-  font-size: 1.18rem
+  font-size: var(--text-lg)
 }
 
 #dialog-content {
@@ -959,7 +959,7 @@ dialog::backdrop {
   padding: 5px;
   border-top: 1px solid var(--line);
   border-right: 1px solid var(--line);
-  font-size: .85rem
+  font-size: var(--text-sm)
 }
 
 .day:nth-child(7n) {
@@ -1141,7 +1141,7 @@ dialog::backdrop {
 .subheading {
   margin: 19px 0 8px;
   font-weight: 600;
-  font-size: .91rem;
+  font-size: var(--text-sm);
   color: var(--muted)
 }
 
@@ -1427,7 +1427,7 @@ dialog::backdrop {
 
 .project-choice .check:last-child {
   color: var(--muted);
-  font-size: .85rem
+  font-size: var(--text-sm)
 }
 
 .relation:has(.danger) {
@@ -1562,8 +1562,8 @@ h1 > .project-badge {
 
 .project-swatches button,
 .project-symbols button {
-  border: 1px solid #8886;
-  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   padding: 5px;

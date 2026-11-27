@@ -109,15 +109,35 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
     const layout = await ui.evaluate(ids => {
       const measure = element => {
         const rect = element?.getBoundingClientRect();
-        return rect && {left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom};
+        return rect && {left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom, height:rect.height};
       };
-      const widget = id => measure(document.querySelector(`[data-dashboard-widget="${id}"] > .panel`));
-      return {cards:ids.map(widget), calendar:widget("calendar"), grid:measure(document.querySelector(".dashboard-grid"))};
+      const widget = id => {
+        const node = document.querySelector(`[data-dashboard-widget="${id}"]`);
+        const rect = measure(node?.querySelector(":scope > .panel"));
+        return rect && {...rect, compact: node?.dataset.compactEmpty === "true"};
+      };
+      const compactAI = document.querySelector('[data-dashboard-widget="ai_review"][data-compact-empty="true"] > .panel');
+      return {
+        cards: ids.map(widget),
+        calendar: widget("calendar"),
+        compactAI: compactAI ? measure(compactAI) : null,
+        summary: measure(document.querySelector(".dashboard-overview-summary [data-dashboard-widget='project_status'] > .panel")),
+        quickAdd: measure(document.querySelector(".dashboard-quick-add")),
+        grid: measure(document.querySelector(".dashboard-grid"))
+      };
     }, widgetIDs);
-    const {cards, calendar, grid} = layout;
-    const aligned = cards.every((box, index) => box && Math.abs(box.top - cards[0].top) <= 1 &&
-      Math.abs(box.bottom - cards[0].bottom) <= 1 && (index === 0 || box.left > cards[index - 1].right));
-    check(label + " cards share top and bottom edges", aligned, layout);
+    const {cards, calendar, compactAI, summary, quickAdd, grid} = layout;
+    if (summary) {
+      check(label + " summary strip sits above primary work area and Quick add", Boolean(summary && (!grid || summary.bottom <= grid.top + 1) &&
+        (!quickAdd || summary.bottom <= quickAdd.top + 1)), layout);
+    } else {
+      const aligned = cards.every((box, index) => box && Math.abs(box.top - cards[0].top) <= 1 &&
+        (box.compact || Math.abs(box.bottom - cards[0].bottom) <= 1) && (index === 0 || box.left > cards[index - 1].right));
+      check(label + " cards share top edges and full cards share bottom edges", aligned, layout);
+    }
+    if (compactAI) {
+      check(label + " empty AI Review renders as a compact status row", compactAI.height <= 56, compactAI);
+    }
     if (withCalendar) {
       check(label + " calendar spans the dashboard width", calendar && grid &&
         Math.abs(calendar.left - grid.left) <= 1 && Math.abs(calendar.right - grid.right) <= 1, {calendar,grid});
