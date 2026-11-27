@@ -63,7 +63,30 @@ async function main() {
     async function recovery(driver) {
       await eventually(() => driver.ui.evaluate(() => location.pathname === "/welcome" &&
         !!document.querySelector('[role="alert"]')?.textContent &&
-        !!document.querySelector('[data-setup="default-storage"]')), "workspace recovery");
+        !!document.querySelector('[data-setup="default-storage"]')?.textContent), "workspace recovery");
+      const borderColors = [];
+      for (const mode of ["light", "dark"]) {
+        const styles = await driver.ui.evaluate(mode => {
+          window.RoundtableAppearance.setMode(mode);
+          const root = getComputedStyle(document.documentElement);
+          const button = getComputedStyle(document.querySelector('[data-setup="default-storage"]'));
+          return {
+            scheme: root.colorScheme,
+            heading: getComputedStyle(document.querySelector(".root-welcome h1")).fontSize,
+            radius: button.borderTopLeftRadius,
+            tokenRadius: root.getPropertyValue("--radius-sm").trim(),
+            border: [button.borderTopStyle, button.borderTopWidth],
+            borderColor: button.borderTopColor,
+          };
+        }, mode);
+        assert.equal(styles.scheme, mode);
+        assert.equal(styles.heading, "24px");
+        assert.ok(parseFloat(styles.tokenRadius) > 0);
+        assert.equal(styles.radius, styles.tokenRadius);
+        assert.deepEqual(styles.border, ["solid", "1px"]);
+        borderColors.push(styles.borderColor);
+      }
+      assert.notEqual(borderColors[0], borderColors[1], "the chooser border follows the active palette");
     }
     async function switched(driver, previousOrigin) {
       await eventually(() => driver.ui.evaluate(previous =>

@@ -363,13 +363,14 @@ a {
   font-weight: 500;
   margin-bottom: 10px;
 }
-.app-shell :is(input, textarea, select) {
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
+:where(.workspace-pane) :is(input, textarea, select) {
   padding: 9px 11px;
   min-width: 0;
   font-size: var(--text-md);
+}
+:where(.workspace-pane) textarea {
+  width: 100%;
+  line-height: 1.75;
 }
 .setup-panel textarea {
   margin: 0 0 25px;

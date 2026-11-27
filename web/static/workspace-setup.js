@@ -44,6 +44,7 @@
       message(label("已清除最近工作区。", "Recent workspace cleared."));
       return;
     }
+    if (!welcome()) await window.SciShellLayout.loadAsset("/static/workspace-setup.css");
     if (document.querySelector(".root-wizard")) return;
     const dialog = el("dialog");
     dialog.className = "root-wizard";

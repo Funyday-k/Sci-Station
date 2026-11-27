@@ -357,6 +357,18 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       settings.library === path.join(dataDir,"research","library") && settings.defaultPath === defaultDir &&
       settings.useDefault && await reachable("#storage-choose") && await reachable("#storage-use-default"),settings);
     await snapshot("10j-settings-storage-wide");
+    await ui.click("#settings-tab-prompts");
+    await ui.visible("#prompt-body");
+    const promptFields = await ui.evaluate(() => ["prompt-system", "prompt-body"].map(id => {
+      const field = document.getElementById(id);
+      const style = getComputedStyle(field);
+      return {
+        id, padding:style.padding, leading:parseFloat(style.lineHeight) / parseFloat(style.fontSize),
+        fits:Math.abs(field.getBoundingClientRect().width - field.parentElement.clientWidth) <= 1,
+      };
+    }));
+    check("Workspace prompt fields retain their text inset, leading and usable width", promptFields.every(field =>
+      field.padding === "9px 11px" && Math.abs(field.leading - 1.75) < 0.01 && field.fits), promptFields);
     await ui.click("#workspace-settings-back");
     await wait(() => ui.evaluate(path => location.pathname + location.search === path,from),"Settings returns to its originating screen");
     await ui.visible("#question");
@@ -380,6 +392,20 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       check("The ordinary workspace footer offers only Settings", footer.entries.length === 1 && footer.entries[0] === "settings" &&
         footer.inPrimaryFooter && footer.workspace === 0, footer);
       await checkDashboard("Wide Home", ["today","active_projects","ai_review"], true);
+      const variants = await ui.evaluate(() => {
+        const style = variant => getComputedStyle(document.querySelector(`.dashboard-widget > .card--${variant}`));
+        const primary = style("primary"), secondary = style("secondary"), compact = style("compact"), empty = style("empty");
+        return {
+          primaryBorder: primary.borderTopColor, secondaryBorder: secondary.borderTopColor,
+          primaryShadow: primary.boxShadow, surface: secondary.backgroundColor,
+          inset: compact.backgroundColor, emptyBackground: empty.backgroundColor, emptyBorder: empty.borderTopStyle,
+          compactPadding: parseFloat(compact.paddingTop), normalPadding: parseFloat(secondary.paddingTop)
+        };
+      });
+      check("Home cards show primary emphasis, inset compact cards and dashed empty states",
+        variants.primaryBorder !== variants.secondaryBorder && variants.primaryShadow !== "none" &&
+        variants.inset !== variants.surface && variants.emptyBackground === variants.inset &&
+        variants.emptyBorder === "dashed" && variants.compactPadding < variants.normalPadding, variants);
       await checkDashboardPreferences();
     }
     const calendar = '#dashboard-view .dashboard-calendar-links a[href*="view=tasks"]';
@@ -567,6 +593,19 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       await ui.visible("#room-chat-toggle");
       await checkAIShell("roundtable", false, "#studio-session-sidebar");
       await snapshot("10e-roundtable-two-nav-wide");
+      if (!await visible("#room-tab-chat")) await ui.click("#room-chat-toggle");
+      const draft = "Keep this question in the meeting.";
+      await ui.set("#run-note", draft);
+      await ui.click("#room-tab-opinions");
+      await ui.visible("#meeting-opinions");
+      await ui.click("#agenda-toggle");
+      const agendaTitle = "Verify the cited source";
+      await ui.click("#meeting-agenda .ag-title", agendaTitle);
+      await ui.visible('#room-tab-chat[aria-selected="true"]');
+      const selectedDraft = await ui.visible("#run-note");
+      check("An agenda item opens Conversation and focuses the preserved draft",
+        selectedDraft.value === draft + "\n" + agendaTitle &&
+        await ui.evaluate(() => document.activeElement === document.getElementById("run-note")));
       await open("/studio?project=" + project.id);
       await ui.visible("#new-topic");
       const roundtable = await ui.evaluate(() => {

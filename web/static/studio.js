@@ -275,8 +275,8 @@
   function scrollAnchor() {
     const target = document.getElementById(location.hash.slice(1));
     if (target && $("rounds").contains(target)) {
-      setChatVisible(true);
-      scrollToMessage(target);
+      openRoomTab("chat");
+      requestAnimationFrame(() => scrollToMessage(target));
     }
   }
   const normalizeNewlines = (text) => String(text).replace(/\r\n|\r/g, "\n");
@@ -1760,9 +1760,13 @@
       state.session.status === "closed" || state.session.agenda_draft_status === "drafting" ||
       runMaterials.busy() || runMaterials.failed();
   }
-  const narrowWorkspace = matchMedia("(max-width: 1000px)");
+  const tableView = $("table-view");
+  function roomIsCompact() {
+    return getComputedStyle(tableView).getPropertyValue("--room-compact-layout").trim() === "1";
+  }
+  let compactWorkspace = roomIsCompact();
   const hasBoard = session => session?.board?.state === "published";
-  let chatVisible = !narrowWorkspace.matches;
+  let chatVisible = !compactWorkspace;
   let pairedChat = false;
   let boardSourceOpener = null;
   let roomTab = "chat";
@@ -1819,11 +1823,10 @@
     const loaded = Boolean(state.session);
     const published = hasBoard(state.session);
     const showChat = loaded && (!published || chatVisible);
-    const showBoth = published && showChat && narrowWorkspace.matches && pairedChat;
-    const table = $("table-view");
-    table.dataset.board = !loaded ? "absent" : published ? "published" : "empty";
-    table.dataset.chat = showBoth ? "paired" : showChat ? "on" : "off";
-    $("meeting-board").hidden = !published || (narrowWorkspace.matches && showChat && !showBoth);
+    const showBoth = published && showChat && compactWorkspace && pairedChat;
+    tableView.dataset.board = !loaded ? "absent" : published ? "published" : "empty";
+    tableView.dataset.chat = showBoth ? "paired" : showChat ? "on" : "off";
+    $("meeting-board").hidden = !published || (compactWorkspace && showChat && !showBoth);
     $("room-chat").hidden = !showChat;
     $("rail-to-board").hidden = !published;
     $("room-chat-toggle").hidden = !published;
@@ -1836,14 +1839,15 @@
     pairedChat = paired;
     paintChatLayout();
   }
+  function openRoomTab(tab, { focus = false } = {}) {
+    closeChanges(false);
+    window.RoundtableChildren?.close({ restoreFocus: false });
+    setRoomTab(tab);
+    setChatVisible(true);
+    if (focus) (tab === "opinions" ? $("room-tab-opinions") : $("run-form").hidden ? $("room-tab-chat") : $("run-note"))?.focus({ preventScroll: true });
+  }
   window.RoundtableRoomPanel = Object.freeze({
-    openTab(tab, { focus = false } = {}) {
-      closeChanges(false);
-      window.RoundtableChildren?.close({ restoreFocus: false });
-      setRoomTab(tab, { focus: false });
-      setChatVisible(true);
-      if (focus) (tab === "opinions" ? $("room-tab-opinions") : $("run-form").hidden ? $("room-tab-chat") : $("run-note"))?.focus({ preventScroll: true });
-    },
+    openTab: openRoomTab,
     setTab: setRoomTab,
     activeTab: () => roomTab,
   });
@@ -1854,15 +1858,18 @@
     $("board-workspace").hidden = true;
     $("setup-scroll").hidden = !state.draftOpen;
     setRoomTab("chat");
-    setChatVisible(!narrowWorkspace.matches);
+    setChatVisible(!compactWorkspace);
     window.SciContextRail?.update?.();
   }
-  narrowWorkspace.addEventListener("change", () => {
+  new ResizeObserver(() => {
+    const compact = roomIsCompact();
+    if (compact === compactWorkspace) return;
+    compactWorkspace = compact;
     const keepChat = conversationInUse();
-    setChatVisible(!narrowWorkspace.matches || keepChat, {paired: keepChat && board.isDrawing()});
-  });
+    setChatVisible(!compactWorkspace || keepChat, {paired: keepChat && board.isDrawing()});
+  }).observe(tableView.closest(".workspace-region"));
   function returnToBoard() {
-    if (narrowWorkspace.matches || !boardSourceOpener) setChatVisible(false);
+    if (compactWorkspace || !boardSourceOpener) setChatVisible(false);
     board.focusTrigger(boardSourceOpener);
     boardSourceOpener = null;
   }
@@ -1882,8 +1889,8 @@
     const firstBoard = hasBoard(session) && (animateInitial || (current?.id === session.id && !hasBoard(current)));
     const hadChatFocus = $("room-chat").contains(document.activeElement);
     if (firstBoard) {
-      pairedChat = narrowWorkspace.matches && conversationInUse();
-      chatVisible = !narrowWorkspace.matches || pairedChat;
+      pairedChat = compactWorkspace && conversationInUse();
+      chatVisible = !compactWorkspace || pairedChat;
     }
     if (state.session?.id !== session.id) {
       resetRoomDisclosures();
@@ -2824,8 +2831,9 @@
       note.value = lines.join("\n");
       state.agendaNote = entered ? "" : title;
     }
-    setChatVisible(true);
-    paintDiscussionControls(); paintTextLimit("run-note"); note.focus();
+    paintDiscussionControls();
+    paintTextLimit("run-note");
+    openRoomTab("chat", { focus: true });
   });
   async function cancelRun() {
     if (state.writing || !state.selected) return;
@@ -3443,11 +3451,10 @@
     reveal(target, agenda) {
       if (state.view !== "table") switchView("table");
       if (agenda) {
-        if (narrowWorkspace.matches) setChatVisible(false);
+        if (compactWorkspace) setChatVisible(false);
         showRoomDrawer("agenda-toggle");
       } else {
-        window.RoundtableOpinions?.close({restoreFocus:false});
-        setChatVisible(true);
+        openRoomTab("chat");
       }
       requestAnimationFrame(() => {
         if (!target.isConnected) return;

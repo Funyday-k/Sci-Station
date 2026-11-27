@@ -26,17 +26,20 @@ test("opening a Roundtable source replaces the anchor and keeps the history posi
   vm.runInNewContext(read("workspace-nav.js"), {window,document,history,location,URL,URLSearchParams});
   const { $ } = fakeDOM();
   const target = {id:"round-2-codex",isConnected:true,classList:{add(){}},focus(){}};
+  let selectedTab = "opinions";
   let scrolled;
   const start = studio.indexOf("    reveal(target, agenda) {");
   const end = studio.indexOf("\n  });", start);
   const reveal = vm.runInNewContext("({" + studio.slice(start, end) + "}).reveal", {
     $, window, history, location, URL, state:{view:"table"},
-    setChatVisible(){}, requestAnimationFrame: callback=>callback(), scrollToMessage: el=>{scrolled=el;}
+    openRoomTab(tab) { selectedTab = tab; },
+    requestAnimationFrame: callback=>callback(), scrollToMessage: el=>{scrolled=el;}
   });
   reveal(target, false);
   assert.equal(location.hash, "#round-2-codex");
   assert.equal(location.search, "?project=fixture&session=meeting");
   assert.deepEqual(plain(history.state), original);
+  assert.equal(selectedTab, "chat");
   assert.equal(scrolled, target);
 });
 
