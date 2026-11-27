@@ -58,6 +58,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Fixed
 
+- When you confirm a different project directory, single chats, Roundtables and their drafts start fresh. Shared papers, project notes and files in the old and new folders stay available in their original locations.
 - Roundtable uses the research project ID and its current directory for project operations. Project and paper records adopt version 1 on a normal save.
 - Honor the AI module setting for both chat modes, show pending and failed research loads, and defer optional rendering and assistant scripts until first use.
 - Resume a known MinerU submission after restarting the app. Check an uncertain batch before explicitly starting another one.
