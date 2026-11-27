@@ -57,7 +57,7 @@
     {{end}}
   </aside>
   {{if .AI}}
-  <aside id="workspace-session-sidebar" class="workspace-sidebar session-sidebar" aria-label="会话管理" data-en-aria-label="Conversations"{{if .Settings}} hidden inert{{end}}>
+  <aside id="workspace-session-sidebar" class="workspace-sidebar session-sidebar" aria-label="会话管理" data-en-aria-label="Conversations" hidden inert>
     <button id="workspace-session-close" class="workspace-icon" type="button" aria-label="关闭会话栏" data-en-aria-label="Close conversations"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button>
     <div class="workspace-sidebar-scroll">
       {{template "sidebar" .}}
@@ -68,7 +68,7 @@
   <header class="workspace-bar">
     <div class="workspace-bar-start">
       <button id="workspace-nav-toggle" class="workspace-icon" type="button" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="切换导航" title="切换导航" data-l10n-title="toggleNavigation" data-l10n-aria-label="toggleNavigation"><svg class="ui-icon" data-ui-icon="sidebar" aria-hidden="true"></svg></button>
-      {{if .AI}}<button id="workspace-session-toggle" class="workspace-icon" type="button" aria-controls="workspace-session-sidebar" aria-expanded="true" aria-label="切换会话栏" data-en-aria-label="Toggle conversations"{{if .Settings}} hidden{{end}}><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>{{end}}
+      {{if .AI}}<button id="workspace-session-toggle" class="workspace-icon" type="button" aria-controls="workspace-session-sidebar" aria-expanded="false" aria-label="切换会话栏" data-en-aria-label="Toggle conversations"{{if .Settings}} hidden{{end}}><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>{{end}}
       <div class="workspace-history">
         <button type="button" class="workspace-icon" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back"><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg></button>
         <button type="button" class="workspace-icon" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward"><svg class="ui-icon" data-ui-icon="chevronRight" aria-hidden="true"></svg></button>
