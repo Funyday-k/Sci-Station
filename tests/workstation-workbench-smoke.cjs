@@ -485,11 +485,21 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
     await snapshot("10-library-compact");
 
     const meeting = await app.request("/api/studio/sessions", "POST", {
-      topic:"Check the compact Roundtable side panel", project_id:project.id, seats:["codex"]
+      topic:"Compare the solar interpolation with the published model", project_id:project.id,
+      ...(baseline ? {seats:["codex"]} : {
+        members:[{model:reasoningModel},{model:automaticModel}], preset:"work", start_agenda_draft:true
+      })
     }, 201);
+    if (!baseline) {
+      await wait(async () => (await app.request("/api/studio/sessions/" + meeting.id)).board?.state === "published",
+        "published two-seat Roundtable fixture");
+    }
     await open("/studio?session=" + meeting.id);
     await ui.visible("#meeting-actions-toggle");
-    if (!baseline) await checkAIShell("roundtable", true, "#studio-session-sidebar");
+    if (!baseline) {
+      await ui.visible("#room-chat-toggle");
+      await checkAIShell("roundtable", true, "#studio-session-sidebar");
+    }
     await ui.click("#shell-assist");
     await ui.visible("#rail-prompt");
     // The WK click helper bypasses hit testing. Check that the session toolbar
@@ -517,6 +527,7 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       await resize(1440, wideHeight);
       await open("/studio?session=" + meeting.id);
       await ui.visible("#meeting-actions-toggle");
+      await ui.visible("#room-chat-toggle");
       await checkAIShell("roundtable", false, "#studio-session-sidebar");
       await snapshot("10e-roundtable-two-nav-wide");
       await open("/studio?project=" + project.id);
@@ -540,7 +551,8 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       await checkToolsRoundTrip();
       await checkSettings();
       assert.deepEqual(gateway.errors, []);
-      check("Navigation, tool browsing and model selection make no model calls", gateway.calls.length === 0, gateway.calls.length);
+      const modelCalls = gateway.calls.map(call => call.kind);
+      check("Navigation, tool browsing and model selection submit no conversation messages", !modelCalls.includes("statement"), modelCalls);
     }
 
     async function appearance(mode, size, color) {
