@@ -12,6 +12,8 @@
   "routeGraph": {"en": "Graph", "zh-Hans": "图谱"},
   "routeTasks": {"en": "Tasks", "zh-Hans": "任务"},
   "routeOverview": {"en": "Overview", "zh-Hans": "概览"},
+  "roundtableTopicPlaceholder": {"en": "What should this roundtable resolve? Enter @ to select the chair who will draft the agenda.", "zh-Hans": "这次圆桌要解决什么问题？输入 @ 可指定首席起草议程。"},
+  "roundtableCLIEdit": {"en": "CLI file editing", "zh-Hans": "CLI 文件编辑"},
   "toolbarWorkspace": {"en": "Workspace", "zh-Hans": "工作区"},
   "toolbarCreateWorkspace": {"en": "Create Workspace", "zh-Hans": "创建工作区"},
   "toolbarOpenWorkspace": {"en": "Open Workspace", "zh-Hans": "打开工作区"},

@@ -7,8 +7,10 @@
     ["prioritize", "优先级排序", "比较标准，排列次序", '<circle cx="12" cy="10" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="30" r="2"/><path d="M19 10h48M19 20h34M19 30h18m39-22v23m-5-5 5 5 5-5"/>'],
     ["forum", "多方权衡", "比较立场，保留分歧", '<path d="m22 10 20 7m-20 13 20-7m-1-15 4 6m7 6 17-2m-18 6 14 7"/><circle cx="17" cy="8" r="5"/><circle cx="17" cy="32" r="5"/><circle cx="38" cy="6" r="3"/><circle cx="47" cy="20" r="6"/><circle cx="75" cy="17" r="5"/><circle cx="70" cy="33" r="3"/>'],
   ];
-  const effortNames = {auto:"自动",minimal:"极低",low:"低",medium:"中",high:"高",xhigh:"极高",max:"最大",ultra:"超高",none:"无"};
-  const effortName = (value) => Object.hasOwn(effortNames, value) ? effortNames[value] : value;
+  const effortName = (value) => window.SciModelEffort.label(value);
+  const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
+  // Auto uses the provider default and is valid for every available model.
+  const availableEfforts = model => model ? ["auto", ...(model.efforts || [])] : [];
   const make = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -100,7 +102,7 @@
         row.append(modelIcon(source));
         const identity = make("div", "chosen-identity");
         const picker = make("select", "chosen-model-select");
-        picker.setAttribute("aria-label", `第 ${index + 1} 席的模型`);
+        picker.setAttribute("aria-label", text(`第 ${index + 1} 席的模型`, `Seat ${index + 1} model`));
         if (!model) picker.add(new Option(name, member.model));
         for (const candidate of models)
           picker.add(new Option(candidate.label || candidate.id, candidate.id));
@@ -109,12 +111,11 @@
         picker.addEventListener("change", () => {
           const candidate = modelIndex.get(picker.value);
           if (!candidate) return;
-          const efforts = candidate.efforts || [];
+          const efforts = availableEfforts(candidate);
           member.model = candidate.id;
           member.label = candidate.label;
           member.source = candidate.source;
-          member.effort = efforts.includes(member.effort) ? member.effort :
-            efforts.includes("auto") ? "auto" : efforts[0] || "auto";
+          if (!efforts.includes(member.effort)) member.effort = "auto";
           selectionTouched = true;
           save();
           paintMembers(member);
@@ -134,16 +135,39 @@
           });
           row.append(chief);
         }
-        const level = make("label", "effort-field");
-        level.append(make("span", "", "思考"));
-        const select = make("select");
-        select.setAttribute("aria-label", name + " 的思考程度");
-        const values = [...new Set(["auto", ...(model?.efforts || []), member.effort])];
-        for (const value of values) select.add(new Option(effortName(value), value));
-        select.value = member.effort;
-        select.disabled = values.length === 1 || !model;
-        select.addEventListener("change", () => { member.effort = select.value; selectionTouched = true; save(); paintStatus(); });
-        level.append(select); row.append(level);
+        const level = make("div", "effort-field");
+        const levelLabel = make("label", "", text("思考", "Effort"));
+        const control = make("div", "model-effort-control");
+        const slider = make("input");
+        const output = make("output");
+        slider.id = levelLabel.htmlFor = "draft-seat-effort-" + member.draftSeat;
+        slider.setAttribute("aria-label", text(`第 ${index + 1} 席的思考程度`, `Seat ${index + 1} reasoning effort`));
+        function selectEffort(value) {
+          member.effort = value;
+          selectionTouched = true;
+          save();
+          paintStatus();
+        }
+        const effort = window.SciModelEffort.bind(slider, output, value => {
+          selectEffort(value);
+          resetEffort?.remove();
+        });
+        const selected = effort.setOptions(availableEfforts(model), member.effort);
+        control.append(slider, output);
+        level.append(levelLabel, control);
+        let resetEffort;
+        if (model && selected !== member.effort) {
+          const fallback = effortName(selected);
+          resetEffort = make("button", "text-button reset-effort", text(`改用${fallback}`, `Use ${fallback}`));
+          resetEffort.type = "button";
+          resetEffort.addEventListener("click", () => {
+            selectEffort(selected);
+            (slider.disabled ? picker : slider).focus({preventScroll:true});
+            resetEffort.remove();
+          });
+          level.append(resetEffort);
+        }
+        row.append(level);
         const duplicate = make("button", "icon-button duplicate-member");
         duplicate.type = "button";
         duplicate.title = "复制席位";
@@ -155,7 +179,7 @@
           save();
           paintMembers(members[index + 1]);
           const row = $("chosen-members").children[index + 1];
-          const effort = row.querySelector(".effort-field select");
+          const effort = row.querySelector(".effort-field input");
           (effort.disabled ? row.querySelector(".duplicate-member") : effort).focus({preventScroll:true});
         });
         row.append(duplicate);
@@ -346,6 +370,7 @@
       directoryLoaded = false;
       if (!$("table-view").hidden && !form.hidden) refresh();
     });
+    window.addEventListener("sci:language", () => { if (draftKey !== null) paintMembers(); });
     return { open, suspend, complete, setBusy, payload, canSubmit, mentionMembers, applyLabPreset,
       materialsChanged() { save(); paintStatus(); },
       resume:() => { if (!directoryLoaded && !loading) refresh(); } };

@@ -2983,7 +2983,10 @@
     else openChanges(null, $("meeting-actions-toggle"));
   });
   $("close-changes").addEventListener("click", () => closeChanges());
-  $("back-to-table").addEventListener("click", () => switchView("table"));
+  $("back-to-table").addEventListener("click", () => {
+    switchView("table");
+    if (state.draftOpen && !$("create-form").hidden) $("create-plugins").focus({preventScroll:true});
+  });
   $("file-filter").addEventListener("input", renderFiles);
   $("refresh-files").addEventListener("click", refreshWorkspace);
   for (const button of document.querySelectorAll(".view-tab"))
@@ -3023,6 +3026,11 @@
   window.addEventListener("blur", () => closeHistoryMenu(false));
   $("new-session").addEventListener("click", () => openDraft());
   $("create-project").addEventListener("change", event => openDraft(event.target.value));
+  $("create-attach").addEventListener("click", () => createMaterials.pick("file"));
+  $("create-plugins").addEventListener("click", () => {
+    switchView("plugins");
+    $("settings-tab-plugins").focus();
+  });
   $("draft-clear-project").addEventListener("click", () => openDraft("@global"));
   $("dismiss-notice").addEventListener("click", clearError);
   $("toggle-sidebar").addEventListener("click", () =>
@@ -3453,7 +3461,11 @@
   window.addEventListener("pagehide", boardPresence.stop);
   window.addEventListener("pageshow", syncBoardPresence);
   window.addEventListener("sci:language", () => {
-    if (["settings", "plugins"].includes(state.view)) renderHeading();
+    if (state.draftOpen) {
+      const global = $("create-project").options[0];
+      if (global) global.text = window.SciStationI18n.text("不关联项目", "No project");
+    }
+    renderHeading();
   });
   window.addEventListener("roundtable:settings-page", (event) => {
     if (!["settings", "plugins"].includes(state.view)) return;

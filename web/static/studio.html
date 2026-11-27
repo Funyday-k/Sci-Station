@@ -89,6 +89,46 @@
                 <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
               </nav>
 {{end}}
+{{define "tools"}}
+  <div id="chat-toolbar" class="heading-actions" hidden>
+    <span id="session-status" class="session-status" hidden></span>
+    <button id="room-chat-toggle" class="workspace-icon rail-toggle" type="button" aria-controls="room-chat" aria-expanded="false" aria-label="会议对话" title="会议对话"><svg class="ui-icon" data-ui-icon="chat" width="17" height="17" aria-hidden="true"></svg></button>
+    <button id="cli-edit-open" class="science-meeting-open" type="button" aria-haspopup="dialog" aria-controls="cli-edit-dialog" aria-label="CLI 文件编辑" data-en-aria-label="CLI file editing" data-l10n-title="roundtableCLIEdit" hidden><span data-en="CLI file editing">CLI 文件编辑</span><svg class="ui-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg></button>
+    <div id="meeting-actions" class="meeting-actions">
+      <button id="meeting-actions-toggle" class="icon-button" type="button" aria-label="会议操作" title="会议操作" data-en-aria-label="Meeting actions" aria-controls="meeting-actions-panel" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <div id="meeting-actions-panel" aria-label="会议操作" hidden>
+        <div id="round-settings" class="meeting-menu-settings">
+          <label class="meeting-menu-field" for="run-preset"><span>讨论模式</span>
+            <select id="run-preset">
+              <option value="work">项目协作</option><option value="review">方案评审</option>
+              <option value="prioritize">优先级排序</option><option value="forum">多方权衡</option>
+            </select></label>
+          <label id="run-phase-field" class="meeting-menu-field" for="run-phase" hidden><span>当前阶段</span><select id="run-phase"></select></label>
+          <div id="run-continuous" class="continuous-panel meeting-continuous-settings" data-continuous-prefix="run">
+              <label class="continuous-toggle" for="run-continuous-enabled"><input id="run-continuous-enabled" type="checkbox" aria-controls="run-continuous-options" />持续推进</label>
+              <div id="run-continuous-options" class="continuous-options" hidden>
+                <details><summary>参数</summary><div class="continuous-fields">
+                  <label>推进目标<input id="run-continuous-goal" type="text" placeholder="默认使用会议议题" /></label>
+                  <label>验收条件（可选）<textarea id="run-continuous-criteria" rows="2" placeholder="达到什么结果后停止"></textarea></label>
+                  <label>最多轮数<input id="run-continuous-max-rounds" type="number" min="1" max="60" step="1" value="12" required /></label>
+                  <label>每几轮摘要<input id="run-continuous-summary-every" type="number" min="2" max="12" step="1" value="4" required /></label>
+                </div></details>
+              </div>
+            </div>
+        </div>
+        <div class="meeting-menu-commands">
+          <button id="files-toggle" type="button" data-meeting-command aria-controls="files-view" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h7l2 3h7v13H4z"/><path d="M8 12h8m-8 4h5"/></svg>文件改动 <span id="change-count" aria-hidden="true"></span></button>
+          <button id="plugin-tools-open" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="plugin-tools-dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 5v8l-8 5-8-5V8zM4 8l8 5 8-5m-8 5v8"/></svg>插件工具</button>
+          <a id="export-session" data-meeting-command download hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>导出记录</a>
+          <button id="meeting-report" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="meeting-report-dialog" hidden>完成会议</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <button id="back-to-table" class="button secondary small" data-en="Back to Roundtable" hidden>
+    返回圆桌
+  </button>
+{{end}}
 {{define "content"}}
 <div class="app workspace-pane">
       <button
@@ -98,7 +138,6 @@
         tabindex="-1"
       ></button>
       <main class="main">
-        <header class="topbar">
           <div class="topbar-start">
             <button
               id="toggle-sidebar"
@@ -108,52 +147,9 @@
               aria-expanded="true"
             ></button>
           </div>
-          <div class="room-heading">
-            <h1 id="view-title" class="view-title">新建圆桌</h1>
-            <span id="meeting-mode-status" class="mode-status" hidden><span class="sr-only">讨论模式：</span><span id="meeting-mode-label"></span><span aria-hidden="true"> · </span><span class="sr-only">，文件权限：</span><span id="meeting-mode-access"></span></span>
-          </div>
-          <div id="chat-toolbar" class="heading-actions" hidden>
-            <span id="session-status" class="session-status" hidden></span>
-            <button id="room-chat-toggle" class="icon-button rail-toggle" type="button" aria-controls="room-chat" aria-expanded="false" aria-label="会议对话" title="会议对话"><svg class="ui-icon" data-ui-icon="chat" width="17" height="17" aria-hidden="true"></svg></button>
-            <button id="cli-edit-open" class="science-meeting-open" type="button" aria-haspopup="dialog" aria-controls="cli-edit-dialog" hidden>CLI 文件编辑</button>
-            <div id="meeting-actions" class="meeting-actions">
-              <button id="meeting-actions-toggle" class="icon-button" type="button" aria-label="会议操作" aria-controls="meeting-actions-panel" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-              <div id="meeting-actions-panel" aria-label="会议操作" hidden>
-                <div id="round-settings" class="meeting-menu-settings">
-                  <label class="meeting-menu-field" for="run-preset"><span>讨论模式</span>
-                    <select id="run-preset">
-                      <option value="work">项目协作</option><option value="review">方案评审</option>
-                      <option value="prioritize">优先级排序</option><option value="forum">多方权衡</option>
-                    </select></label>
-                  <label id="run-phase-field" class="meeting-menu-field" for="run-phase" hidden><span>当前阶段</span><select id="run-phase"></select></label>
-                  <div id="run-continuous" class="continuous-panel meeting-continuous-settings" data-continuous-prefix="run">
-                <label class="continuous-toggle" for="run-continuous-enabled"><input id="run-continuous-enabled" type="checkbox" aria-controls="run-continuous-options" />持续推进</label>
-                <div id="run-continuous-options" class="continuous-options" hidden>
-                  <details><summary>参数</summary><div class="continuous-fields">
-                    <label>推进目标<input id="run-continuous-goal" type="text" placeholder="默认使用会议议题" /></label>
-                    <label>验收条件（可选）<textarea id="run-continuous-criteria" rows="2" placeholder="达到什么结果后停止"></textarea></label>
-                    <label>最多轮数<input id="run-continuous-max-rounds" type="number" min="1" max="60" step="1" value="12" required /></label>
-                    <label>每几轮摘要<input id="run-continuous-summary-every" type="number" min="2" max="12" step="1" value="4" required /></label>
-                  </div></details>
-                </div>
-                    </div>
-                </div>
-                <div class="meeting-menu-commands">
-                  <button id="files-toggle" type="button" data-meeting-command aria-controls="files-view" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h7l2 3h7v13H4z"/><path d="M8 12h8m-8 4h5"/></svg>文件改动 <span id="change-count" aria-hidden="true"></span></button>
-                  <button id="plugin-tools-open" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="plugin-tools-dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 5v8l-8 5-8-5V8zM4 8l8 5 8-5m-8 5v8"/></svg>插件工具</button>
-                  <a id="export-session" data-meeting-command download hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>导出记录</a>
-                  <button id="meeting-report" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="meeting-report-dialog" hidden>完成会议</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <button id="back-to-table" class="button secondary small" data-en="Back to Roundtable" hidden>
-            返回圆桌
-          </button>
           <span id="connection-status" class="connection-status sr-only"
             >本机服务</span
           >
-        </header>
         <div id="notice" class="notice" role="alert" hidden>
           <span id="notice-text"></span
           ><button id="retry-connect" class="text-button">重新连接</button
@@ -174,10 +170,6 @@
                   </div>
                 </div>
                 <form id="create-form" class="setup-panel" hidden>
-                  <div class="setup-section setup-project">
-                    <label for="create-project" data-en="Project (optional)">项目（可选）</label>
-                    <select id="create-project" aria-describedby="create-project-access"></select>
-                  </div>
                   <section id="studio-mode-import" class="setup-section" aria-labelledby="studio-mode-import-title" hidden>
                     <h2 id="studio-mode-import-title" data-en="From single chat">从单人对话转来</h2>
                     <a id="studio-mode-source" data-en="Open original chat" hidden>查看原会话</a>
@@ -191,25 +183,31 @@
                     <button id="studio-mode-dismiss" class="text-button" type="button" data-en="Dismiss">忽略</button>
                   </section>
                   <section id="create-composer" class="setup-section">
-                    <label for="new-topic">会议议题</label>
-                    <div id="create-materials"></div>
+                    <label for="new-topic" data-en="Discussion topic">会议议题</label>
                     <div class="composer-surface">
+                      <div id="create-materials"></div>
                       <div class="mention-field">
-                        <textarea id="new-topic" data-enter-submit="create-submit" rows="2" aria-describedby="new-topic-limit new-topic-mention-status" placeholder="这次圆桌要解决什么问题？输入 @ 可指定首席起草议程。" required></textarea>
+                        <textarea id="new-topic" data-enter-submit="create-submit" rows="3" data-l10n-placeholder="roundtableTopicPlaceholder" aria-describedby="new-topic-limit new-topic-mention-status" placeholder="这次圆桌要解决什么问题？输入 @ 可指定首席起草议程。" required></textarea>
                         <div id="new-topic-mention-list" hidden></div>
                       </div>
                       <span id="new-topic-mention-status" class="composer-recipient" role="status"></span>
                       <small id="new-topic-limit" class="input-limit" hidden></small>
                       <div class="composer-bottom">
-                        <button id="create-commands" type="button" aria-label="议题工具" title="议题工具"></button>
+                        <div class="setup-project">
+                          <label for="create-project" data-en="Project">项目</label>
+                          <select id="create-project" aria-describedby="create-project-access"></select>
+                        </div>
+                        <button id="create-attach" class="create-composer-tool" type="button"><svg class="ui-icon" data-ui-icon="file" width="16" height="16" aria-hidden="true"></svg><span data-en="Attach file">添加文件</span></button>
+                        <button id="create-plugins" class="create-composer-tool" type="button"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 5v8l-8 5-8-5V8zM4 8l8 5 8-5m-8 5v8"/></svg><span data-en="Plugins">插件</span></button>
+                        <button id="create-commands" type="button" aria-label="议题工具" data-en-aria-label="Topic tools" title="议题工具"></button>
                       </div>
                     </div>
                   </section>
                   <section class="setup-section" aria-labelledby="member-title">
                     <div class="setup-section-heading">
-                      <h2 id="member-title">参会成员</h2>
+                      <h2 id="member-title" data-en="Seats">席位配置</h2>
                       <div class="member-actions">
-                        <button type="button" class="button secondary small" id="member-picker" aria-controls="member-directory" aria-expanded="false"><svg class="ui-icon" data-ui-icon="plus" width="14" height="14" aria-hidden="true"></svg>添加型号</button>
+                        <button type="button" class="button secondary small" id="member-picker" aria-controls="member-directory" aria-expanded="false"><svg class="ui-icon" data-ui-icon="plus" width="14" height="14" aria-hidden="true"></svg><span data-en="Add model">添加模型</span></button>
                       </div>
                     </div>
                     <div id="member-directory" hidden>
@@ -260,6 +258,10 @@
           <section id="board-workspace" class="board-workspace" aria-label="会议工作区" hidden>
             <div class="room-context" id="chat-header" hidden>
               <div class="room-context-bar">
+                <div class="room-heading">
+                  <h1 id="view-title" class="view-title"></h1>
+                  <span id="meeting-mode-status" class="mode-status" hidden><span class="sr-only">讨论模式：</span><span id="meeting-mode-label"></span><span aria-hidden="true"> · </span><span class="sr-only">，文件权限：</span><span id="meeting-mode-access"></span></span>
+                </div>
                 <button type="button" class="context-trigger" id="participants-toggle" aria-expanded="false" aria-controls="participants-panel"><span id="member-orbit" class="context-avatars" aria-hidden="true"></span><span id="seats-label">席位</span></button>
                 <button type="button" class="context-trigger agenda-trigger" id="agenda-toggle" aria-controls="agenda-drawer" aria-expanded="false"><svg class="ui-icon" data-ui-icon="agenda" width="16" height="16" aria-hidden="true"></svg><span>议程</span><span class="context-count" id="agenda-summary"></span></button>
                 <button id="progress-toggle" class="context-trigger progress-trigger" type="button" aria-controls="progress-drawer" aria-expanded="false" hidden>推进记录</button>
