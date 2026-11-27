@@ -23,10 +23,11 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Reject generated artifacts and oversized tracked files
         run: Tools/scripts/check-repository-hygiene.sh
-      - name: Check documentation, version sources, and governance
+      - name: Check documentation, version sources, frontend metrics, and governance
         run: |
           python3 Tools/scripts/check-docs-hygiene.py
           python3 Tools/scripts/check-version-consistency.py
+          python3 Tools/scripts/check-frontend-metrics.py
           python3 -m unittest discover -s Tools/tests -v
       - name: Validate release scripts and historical build numbers
         run: |
