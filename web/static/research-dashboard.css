@@ -116,6 +116,17 @@
   color: var(--soft);
 }
 
+.dashboard-calendar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.dashboard-calendar-month {
+  max-inline-size: 32rem;
+}
+
 .dashboard-calendar-head,
 .dashboard-calendar-links {
   display: flex;
@@ -126,11 +137,18 @@
   margin-bottom: 8px;
 }
 
+.dashboard-calendar-head {
+  min-block-size: 30px;
+}
+
+.dashboard-calendar-head h3 {
+  font-size: var(--workspace-text-small);
+}
+
 .dashboard-month {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
-  max-width: 32rem;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -252,6 +270,11 @@
     .dashboard-large { grid-column: span 3; }
     .dashboard-home-grid > .dashboard-large { grid-column: span 4; }
   }
+}
+
+@container dashboard-card (min-width: 860px) {
+  .dashboard-calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-calendar-month { max-inline-size: none; }
 }
 
 @container dashboard-card (max-width: 460px) {

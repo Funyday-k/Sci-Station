@@ -322,8 +322,8 @@
       const dateFormat = new Intl.DateTimeFormat(locale(), {dateStyle: "long"});
       const calendarTasks = isEnabled("tasks") ? state.tasks : [];
       const events = tasksOn(calendarTasks, selected);
-      const controls = '<div class="dashboard-calendar-head"><b>' +
-        new Intl.DateTimeFormat(locale(), {year: "numeric", month: "long"}).format(display) + '</b>' +
+      const controls = '<div class="dashboard-calendar-head"><h3>' +
+        esc(new Intl.DateTimeFormat(locale(), {year: "numeric", month: "long"}).format(display)) + '</h3>' +
         '<div><button type="button" class="bare" data-dashboard-control="prev-month" aria-label="' + esc(text("上一月", "Previous month")) + '">‹</button>' +
         '<button type="button" class="bare" data-dashboard-control="today">' + esc(local("homeWidgetToday", "今天", "Today")) + '</button>' +
         '<button type="button" class="bare" data-dashboard-control="next-month" aria-label="' + esc(text("下一月", "Next month")) + '">›</button></div></div>';
@@ -341,9 +341,14 @@
           '" aria-label="' + esc(label) + '" aria-pressed="' + (key === selected) + '"' + (key === today ? ' aria-current="date"' : '') +
           '>' + date.getDate() + '</button>';
       }).join("");
-      return controls + '<div class="dashboard-month">' + weekdays + days + '</div>' + subhead(dateFormat.format(selectedDate)) +
-        callout(events.slice(0, limit), taskRows, text("当天没有任务", "No tasks on this day")) + '<div class="dashboard-calendar-links">' + link(text("打开日历", "Open calendar"), calendar, "bare") +
-        link(text("系统日历", "System calendar"), ui.toolsPage("calendar"), "bare") + '</div>';
+      const month = '<div class="dashboard-calendar-month">' + controls +
+        '<div class="dashboard-month">' + weekdays + days + '</div></div>';
+      const agenda = '<div class="dashboard-calendar-agenda"><div class="dashboard-calendar-head"><h3>' +
+        esc(dateFormat.format(selectedDate)) + '</h3></div>' +
+        callout(events.slice(0, limit), taskRows, text("当天没有任务", "No tasks on this day")) +
+        '<div class="dashboard-calendar-links">' + link(text("打开日历", "Open calendar"), calendar, "bare") +
+        link(text("系统日历", "System calendar"), ui.toolsPage("calendar"), "bare") + '</div></div>';
+      return '<div class="dashboard-calendar">' + month + agenda + '</div>';
     }
 
     function projectSections() {
