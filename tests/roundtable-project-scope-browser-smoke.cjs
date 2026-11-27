@@ -226,12 +226,11 @@ async function main() {
     // An existing multi-seat template is reviewable in Lab and changes the
     // Roundtable setup only on explicit Apply.
     const template = {title:"Three-seat fixture", mode:"forum", seats:3, prompt:"Compare all three fixture views."};
-    await app.request("/api/research/lab/presets","POST",template,201);
+    const storedTemplate = await app.request("/api/research/lab/presets","POST",template,201);
     await ui.navigate(app.origin+"/lab?project="+b.id);
     await ui.click("#lab-tools");
-    await ui.click("#lab-legacy-templates > summary");
-    await ui.click("#lab-legacy-template-list summary",template.title);
-    await ui.click("#lab-legacy-template-list details[open] button:first-of-type");
+    await ui.click('[data-lab-tool="roundtable-templates"]');
+    await ui.click(`[data-template-id="${storedTemplate.id}"][data-template-action="review"]`);
     await ui.visible("#lab-transfer-dialog");
     assert.match((await ui.visible("#lab-transfer-context")).value,/Compare all three fixture views/);
     await ui.click("#lab-transfer-apply");

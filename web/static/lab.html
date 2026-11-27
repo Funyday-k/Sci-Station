@@ -7,6 +7,8 @@
 <script defer src="/static/scientific-markdown.js"></script>
 <script defer src="/static/paper-body-preview.js"></script>
 <link rel="stylesheet" href="/static/lab.css">
+<link rel="stylesheet" href="/static/lab-tools.css">
+  <script defer src="/static/lab-tools.js"></script>
   <script defer src="/static/lab-evidence.js"></script>
   <script defer src="/static/lab-run-audit.js"></script>
   <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-connectors.js"></script><script defer src="/static/lab-artifacts.js"></script><script defer src="/static/lab.js"></script>
@@ -125,10 +127,28 @@
   <footer><p data-lab-status role="status"></p><button type="button" data-lab-close data-en="Done">完成</button></footer>
 </dialog>
 <dialog id="lab-tools-dialog" class="lab-dialog" aria-labelledby="lab-tools-title">
-  <header><h2 id="lab-tools-title" data-en="Research tools">科研工具</h2><button type="button" class="workspace-icon" data-lab-close aria-label="关闭" data-en-aria-label="Close"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button></header>
+  <header>
+    <div class="lab-tools-heading">
+      <button type="button" class="workspace-icon" id="lab-tool-back" aria-label="返回" data-en-aria-label="Back" hidden><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg></button>
+      <h2 id="lab-tools-title" tabindex="-1">插件与科研工具</h2>
+    </div>
+    <button type="button" class="workspace-icon" data-lab-close aria-label="关闭" data-en-aria-label="Close"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button>
+  </header>
   <div class="lab-dialog-content">
-  <a id="discovery-link" href="/tools?tab=discover&amp;trigger=lab" data-en="Literature discovery">文献推荐</a>
-  <details id="project-graph"><summary data-en="Project graph">读取项目图谱</summary>
+  <nav id="lab-tools-directory" data-lab-tool-page="directory" data-zh-title="插件与科研工具" data-en-title="Plugins and research tools" aria-labelledby="lab-tools-title">
+    <button type="button" data-lab-tool="discovery"><svg class="ui-icon" data-ui-icon="search" aria-hidden="true"></svg><span><strong data-en="Literature recommendations">文献推荐</strong><small data-en="Search papers and review recommendations">检索论文并查看推荐</small></span></button>
+    <button type="button" data-lab-tool="graph"><svg class="ui-icon" data-ui-icon="subagent" aria-hidden="true"></svg><span><strong data-en="Project graph">项目图谱</strong><small data-en="Find connections and attach evidence">查看关联并附加证据</small></span></button>
+    <button type="button" data-lab-tool="skills"><svg class="ui-icon" data-ui-icon="file" aria-hidden="true"></svg><span><strong data-en="Project skills">项目技能</strong><small data-en="Select or import Markdown instructions">选择或导入 Markdown 工作指引</small></span></button>
+    <button type="button" data-lab-tool="connectors"><svg class="ui-icon" data-ui-icon="tools" aria-hidden="true"></svg><span><strong data-en="Research connectors (MCP)">科研连接（MCP）</strong><small data-en="Review and run read-only operations">逐次批准并执行只读操作</small></span></button>
+    <button type="button" data-lab-tool="templates"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg><span><strong data-en="Answer templates">单人回答模板</strong><small data-en="Choose instructions for the first message">为首条消息选择工作指引</small></span></button>
+    <button type="button" data-lab-tool="roundtable-templates"><svg class="ui-icon" data-ui-icon="agenda" aria-hidden="true"></svg><span><strong data-en="Roundtable templates">圆桌模板</strong><small data-en="Review a template before opening it in Roundtable">复核模板后转到圆桌</small></span></button>
+  </nav>
+  <section id="lab-tool-page-discovery" data-lab-tool-page="discovery" data-zh-title="文献推荐" data-en-title="Literature recommendations" hidden>
+    <p data-en="Find papers using arXiv, your library, or a daily feed. Your chat draft stays available when you return.">从 arXiv、馆藏或每日文献中查找论文，返回时可继续编辑当前草稿。</p>
+    <a id="discovery-link" class="lab-tool-open" href="/tools?tab=discover&amp;trigger=lab"><span data-en="Open literature recommendations">打开文献推荐</span><svg class="ui-icon" data-ui-icon="arrowUpRight" aria-hidden="true"></svg></a>
+  </section>
+  <section id="lab-tool-page-graph" data-lab-tool-page="graph" data-zh-title="项目图谱" data-en-title="Project graph" hidden>
+<p class="hint" data-lab-project-tool-note hidden data-en="Select a research project in the chat to use the project graph.">请在对话中选择科研项目，再读取项目图谱。</p>
 <div class="actions"><button type="button" id="graph-nodes" data-en="Load graph items">读取项目条目</button></div>
 <div id="graph-controls" hidden>
 <label><span data-en="Query">查询</span><select id="graph-operation"><option value="reading" data-en="Paper reading order">论文阅读顺序</option><option value="missing-core" data-en="Unlinked references of core papers">核心论文引用的未关联文献</option><option value="stale-citations" data-en="Find stale citations">查找待核对的陈旧引文</option><option value="unsupported-claims" data-en="Find claims that need evidence">查找需核对证据的声明</option><option value="stale-artifacts" data-en="Find outcomes to review">查找待复核的保存成果</option><option value="method-lineage" data-en="Method lineage">方法沿革</option><option value="bridge" data-en="Shortest relationship path">最短关系路径</option></select></label>
@@ -141,15 +161,18 @@
 <div id="graph-preview-panel" hidden>
 <label><span data-en="Graph excerpt">图谱资料</span><textarea id="graph-preview-text" rows="6" readonly></textarea></label>
 <button type="button" id="use-graph-preview" data-en="Attach to message">加入当前消息</button>
-</div></details>
-<details id="lab-skills" hidden><summary data-en="Project Markdown skills">项目 Markdown 技能</summary>
+</div></section>
+<section id="lab-tool-page-skills" data-lab-tool-page="skills" data-zh-title="项目技能" data-en-title="Project skills" hidden>
+<p class="hint" data-lab-project-tool-note hidden data-en="Select a research project in the chat to use project skills.">请在对话中选择科研项目，再使用项目技能。</p>
+<div id="lab-skills" hidden>
 <label><span data-en="Skill for new chats">启动新工作流时使用的技能</span><select id="lab-skill-selected"></select></label>
 <label><span data-en="Find project skills">查找项目技能</span><input id="lab-skill-query" type="search" placeholder="技能名、简介、作者或能力"></label>
 <ul id="lab-skill-list"></ul>
 <label><span data-en="Import Markdown skill">导入 Markdown 技能</span><input type="file" id="lab-skill-file" accept=".md,.markdown,text/markdown"></label>
 <div id="lab-skill-review" hidden><p id="lab-skill-summary"></p><label><span data-en="Skill contents">技能正文</span><textarea id="lab-skill-body" rows="7" readonly></textarea></label><button type="button" id="lab-skill-install" hidden data-en="Confirm import">确认导入</button></div>
-<p class="hint">项目技能作为工作指引随本次工作流提交。技能需要启用和信任，文件中的工具声明不授予权限。</p></details>
-<details id="mcp" hidden><summary data-en="Research connectors (MCP)">科研连接（MCP）</summary><label><span data-en="Public HTTPS endpoint">公开 HTTPS 服务地址</span><input id="endpoint" type="url" placeholder="https://…/mcp" autocomplete="off"></label>
+<p class="hint">项目技能作为工作指引随本次工作流提交。技能需要启用和信任，文件中的工具声明不授予权限。</p></div></section>
+<section id="lab-tool-page-connectors" data-lab-tool-page="connectors" data-zh-title="科研连接（MCP）" data-en-title="Research connectors (MCP)" hidden>
+<div id="mcp" hidden><label><span data-en="Public HTTPS endpoint">公开 HTTPS 服务地址</span><input id="endpoint" type="url" placeholder="https://…/mcp" autocomplete="off"></label>
 <div id="lab-mcp-settings"><label><input type="checkbox" id="lab-mcp-enabled"><span data-en="Enable in this project">在当前项目启用</span></label><button type="button" id="lab-mcp-save" data-en="Save project service settings">保存项目服务设置</button></div>
 <div class="actions"><button type="button" id="list" data-en="List resources">列出资源</button></div><div id="resource-panel" hidden><label><span data-en="Available resources">可读资源</span><select id="resources"></select></label><button type="button" id="read" data-en="Preview source">预览原文</button></div>
 <fieldset id="lab-connections" hidden><legend data-en="Project research connectors">项目科研连接</legend>
@@ -173,21 +196,21 @@
 <div id="connector-tools-panel" hidden><label>只读工具<select id="connector-tool"></select></label><pre id="connector-schema"></pre>
 <label>本次参数（JSON 对象）<textarea id="connector-args" rows="3">{}</textarea></label>
 <button type="button" id="connector-call" data-en="Review and run once">复核并调用一次</button></div></div></fieldset>
-<div id="preview-panel" hidden><label><span data-en="Source preview">原文预览</span><textarea id="resource-text" rows="5" readonly></textarea></label><p>在上框选中至多 2,000 字，再加入当前消息。</p><button type="button" id="select-excerpt" data-en="Attach excerpt">加入选段</button></div></details>
+<div id="preview-panel" hidden><label><span data-en="Source preview">原文预览</span><textarea id="resource-text" rows="5" readonly></textarea></label><p>在上框选中至多 2,000 字，再加入当前消息。</p><button type="button" id="select-excerpt" data-en="Attach excerpt">加入选段</button></div></div></section>
 
-  <details id="lab-template-settings" class="lab-disclosure"><summary data-en="Answer templates">回答模板</summary>
+  <section id="lab-tool-page-templates" data-lab-tool-page="templates" data-zh-title="单人回答模板" data-en-title="Answer templates" hidden>
     <p class="hint" data-en="Apply a template to the first message in a new chat.">模板用于新对话的首条消息。</p>
-    <nav id="presets" aria-label="回答模板" data-en-aria-label="Answer templates"></nav>
-    <details id="lab-template-editor" class="lab-disclosure"><summary data-en="Edit personal templates">编辑个人模板</summary>
+    <ul id="presets" class="lab-tool-templates" aria-label="回答模板" data-en-aria-label="Answer templates"></ul>
+    <button id="new" type="button" data-en="New personal template">新建个人模板</button>
+  </section>
+  <section id="lab-tool-page-roundtable-templates" data-lab-tool-page="roundtable-templates" data-zh-title="圆桌模板" data-en-title="Roundtable templates" hidden>
+    <ul id="lab-legacy-template-list" class="lab-tool-templates" aria-labelledby="lab-tools-title"></ul>
+  </section>
+  <section id="lab-template-editor" data-lab-tool-page="template-edit" data-zh-title="编辑模板" data-en-title="Edit template" hidden>
       <label><span data-en="Template name">模板名称</span><input id="title" maxlength="72" required></label>
       <label><span data-en="Instructions">工作指引</span><textarea id="prompt" rows="5" maxlength="6500"></textarea></label>
-      <div class="actions"><button id="new" type="button" data-en="New personal template">新建个人模板</button><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden data-en="Save a copy">另存副本</button><button id="delete" type="button" hidden data-en="Delete">删除模板</button></div>
-    </details>
-  </details>
-  <details id="lab-legacy-templates" class="lab-disclosure" hidden>
-    <summary data-en="Roundtable templates">圆桌模板</summary>
-    <div id="lab-legacy-template-list"></div>
-  </details>
+      <div class="actions"><button id="save" type="button">保存为个人模板</button><button id="fork" type="button" hidden data-en="Save a copy">另存副本</button><button id="delete" type="button" hidden data-en="Delete">删除模板</button></div>
+  </section>
   </div>
   <footer><p data-lab-status role="status"></p><button type="button" data-lab-close data-en="Done">完成</button></footer>
 </dialog>

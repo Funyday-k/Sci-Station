@@ -164,6 +164,23 @@ async function main(binary) {
     await page.goto(app.origin + "/lab?project=" + encodeURIComponent(project.id));
     const start = page.locator("#lab-start");
     const question = page.locator("#question");
+    const toolsDialog = page.locator("#lab-tools-dialog");
+    const tool = name => toolsDialog.locator(`[data-lab-tool="${name}"]`);
+    const toolBack = toolsDialog.locator("#lab-tool-back");
+    const closeTools = toolsDialog.locator("header [data-lab-close]");
+    async function roundTripRecommendations() {
+      await page.locator("#lab-tools").click();
+      await tool("discovery").click();
+      await page.locator("#discovery-link").click();
+      const back = page.locator("#discovery-return-lab");
+      await back.waitFor();
+      assert.equal(new URL(page.url()).pathname,"/tools");
+      await back.click();
+      await page.locator("#lab-tool-page-discovery").waitFor();
+      assert.equal(new URL(page.url()).pathname,"/lab");
+      assert.equal(await page.locator("#project").inputValue(),project.id);
+      await closeTools.click();
+    }
     await start.waitFor();
     assert.equal(await page.locator("#seats,#lab-run-mode,#session").count(), 0);
     assert.ok(await question.isVisible());
@@ -171,6 +188,20 @@ async function main(binary) {
     assert.ok(await page.locator("#presets").isHidden());
     const box = await start.boundingBox();
     assert.ok(box.y + box.height <= 620, "Send remains above the bottom of a short window");
+    await page.locator("#question:enabled").waitFor();
+    await roundTripRecommendations();
+    assert.equal(await question.inputValue(),"");
+    assert.equal(new URL(page.url()).searchParams.has("run"),false);
+    await page.locator("#lab-tools").click();
+    assert.equal(await tool("graph").locator("svg").count(),1);
+    await tool("graph").click();
+    await page.locator("#graph-nodes").click();
+    await page.locator("#graph-operation").waitFor();
+    await page.keyboard.press("Escape");
+    assert.equal(await tool("graph").evaluate(el=>document.activeElement===el),true);
+    await page.keyboard.press("Escape");
+    await toolsDialog.waitFor({state:"hidden"});
+    await page.waitForFunction(()=>document.activeElement.id==="lab-tools");
     async function attachExcerpt(title) {
       await page.locator("#lab-attach").click();
       const record = page.locator("#local-record");
@@ -187,13 +218,18 @@ async function main(binary) {
     }
     await attachExcerpt("Capture");
     await page.locator("#lab-tools").click();
-    await page.locator("#lab-template-settings > summary").click();
+    await tool("templates").click();
     await page.locator('#presets [data-id="research-question"]').waitFor();
     assert.equal(await page.locator('#presets [data-id="independent-check"]').count(), 0);
-    await page.locator("#lab-legacy-templates > summary").click();
-    await page.locator("#lab-legacy-template-list summary").filter({hasText: "双席独立复核"}).waitFor();
-    const savedPreset = page.locator("#lab-legacy-template-list details").filter({hasText: preset.title});
-    await savedPreset.locator("summary").click();
+    const editSingle = page.locator('#presets [data-template-id="research-question"][data-template-action="edit"]');
+    await editSingle.click();
+    assert.match(await page.locator("#title").inputValue(), /研究问答/);
+    await page.keyboard.press("Escape");
+    assert.equal(await editSingle.evaluate(el=>document.activeElement===el),true);
+    await toolBack.click();
+    await tool("roundtable-templates").click();
+    await page.locator("#lab-legacy-template-list h3").filter({hasText: "双席独立复核"}).waitFor();
+    const savedPreset = page.locator(`#lab-legacy-template-list > li[data-template-id="${preset.id}"]`);
     assert.match(await savedPreset.innerText(), /3 个席位.*多方权衡/);
     await savedPreset.getByRole("button", {name: "编辑模板"}).click();
     await page.locator("#prompt").fill("Updated research assumptions.");
@@ -203,7 +239,7 @@ async function main(binary) {
     const updatedPreset = updatedPresets.find(item => item.id === preset.id);
     assert.deepEqual([updatedPreset.mode, updatedPreset.seats, updatedPreset.prompt], ["forum", 3, "Updated research assumptions."]);
     await page.locator("#prompt").fill("Unsaved edit stays here if I cancel.");
-    await savedPreset.locator("summary").click();
+    await toolBack.click();
     await savedPreset.getByRole("button", {name: "复核后转到圆桌"}).click();
     const templateReview = page.locator("#lab-transfer-dialog");
     await templateReview.waitFor();
@@ -259,6 +295,11 @@ async function main(binary) {
     assert.deepEqual(gateway.calls.filter(call => call.kind === "statement").length, 1);
 
     await attachExcerpt("Evaporation");
+    const savedThread = new URL(page.url()).searchParams.get("run");
+    await roundTripRecommendations();
+    assert.equal(new URL(page.url()).searchParams.get("run"),savedThread);
+    await page.locator("#local-list").getByText("Evaporation", {exact: true}).waitFor();
+    assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
     const sourceChatURL = page.url();
     const transferCheckURL = app.origin + "/api/studio/materials/transfer-check";
     async function rejectChangedRevision(transfer) {
@@ -319,7 +360,7 @@ async function main(binary) {
     const newChatURL = app.origin + "/lab?project=" + encodeURIComponent(project.id);
     await page.goto(newChatURL);
     await page.locator("#lab-tools").click();
-    await page.locator("#lab-template-settings > summary").click();
+    await tool("templates").click();
     const gapPlanning = page.locator('#presets [data-id="gap-planning"]');
     await gapPlanning.click();
     await page.locator("#lab-tools-dialog footer [data-lab-close]").click();

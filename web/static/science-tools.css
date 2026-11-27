@@ -204,3 +204,4 @@ select:focus-visible {
 #dailyFeedField[hidden] {
   display: none
 }
+#discovery-return-lab:not([hidden]) {display:inline-flex; align-items:center; gap:5px; margin-bottom:12px;}
