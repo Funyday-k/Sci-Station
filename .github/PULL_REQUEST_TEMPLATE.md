@@ -8,7 +8,7 @@ Link the actual Issue (`Closes #...`), accepted RFC/ADR or anchored backlog item
 
 ## Validation
 
-List the commands run and their results, including relevant failure-path checks. For UI changes include the tested interaction and screenshots where useful. Explain any local limitations.
+List the commands run and their results, including relevant failure-path checks. For UI changes include the tested interaction and attach before/after visual baseline screenshot pairs (from `tests/workbench-visual-baselines-smoke.cjs` or the CI `workbench-visual-baselines` artifact) covering the affected screens, window sizes, themes and locales. Explain any local limitations.
 
 ## Compatibility and recovery
 
