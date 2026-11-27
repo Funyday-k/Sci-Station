@@ -116,6 +116,52 @@ test("lazy document review follows the latest requested revision even when the s
   assert.deepEqual(shown, ["second", "first"]);
 });
 
+test("notice retries the failed Studio resource in the current room without reconnecting or clearing its draft", async () => {
+  const { $ } = fakeDOM();
+  const state = {selected:"meeting", session:{id:"meeting"}, view:"table"};
+  const features = [], opened = [], attachments = ["fixture.pdf"];
+  const failed = new Set(["files", "plugins"]);
+  let reconnects = 0;
+  const window = {
+    SciShellLayout:{async loadViewAssets(feature) {
+      features.push(feature);
+      if (failed.delete(feature)) throw Error("offline");
+    }},
+    RoundtablePlugins:{mount:()=>({updateSession(){}, openTools:()=>opened.push("plugins")})},
+    dispatchEvent(){},
+  };
+  const snippet = (from, to) => studio.slice(studio.indexOf(from), studio.indexOf(to, studio.indexOf(from)));
+  const bindings = vm.runInNewContext(
+    snippet("  let retryNotice =", "  async function api(") +
+    snippet("  let reviewOpenRequest =", "  function closeChanges(") +
+    "let pluginsUI;\n" + snippet("  async function openPluginTools()", '  $("plugin-tools-open").addEventListener') +
+    "({openChanges,openPluginTools,retryError,showError})",
+    {$, state, window, api(){}, CustomEvent:class {}, document:{activeElement:null},
+      allChanges:()=>["revision"], chatPosition(){}, restoreChatPosition(){}, showDiff:()=>opened.push("files"),
+      loadFiles:async()=>{}, boot:()=>{reconnects++; $("run-note").value=""; attachments.length = 0;}},
+  );
+  $("run-note").value = "Unsent question";
+  for (const [feature, open] of [["files", bindings.openChanges], ["plugins", bindings.openPluginTools]]) {
+    await open();
+    assert.equal($("notice").hidden, false);
+    await bindings.retryError();
+    assert.equal($("notice").hidden, true);
+    assert.equal(opened.at(-1), feature);
+    assert.equal($("run-note").value, "Unsent question");
+    assert.deepEqual(attachments, ["fixture.pdf"]);
+  }
+  assert.deepEqual(features, ["files", "files", "plugins", "plugins"]);
+  assert.equal(reconnects, 0);
+  failed.add("files");
+  await bindings.openChanges();
+  state.selected = "another meeting";
+  await bindings.retryError();
+  assert.deepEqual(features, ["files", "files", "plugins", "plugins", "files"]);
+  bindings.showError(Error("disconnected"));
+  await bindings.retryError();
+  assert.equal(reconnects, 1);
+});
+
 test("both clients only display a length warning above the Unicode code-point limit", () => {
   const { $, document } = fakeDOM();
   const paint = inputLimit(document);

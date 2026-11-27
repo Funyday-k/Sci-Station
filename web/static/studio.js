@@ -132,12 +132,23 @@
     } catch (_) {}
   }
   const appearance = window.RoundtableAppearance;
-  function showError(error) {
+  let retryNotice = null;
+  function showError(error, retry = null) {
+    retryNotice = retry;
+    $("retry-connect").textContent = retry
+      ? (window.SciStationI18n?.text("重试", "Retry") ?? "重试")
+      : (window.SciStationI18n?.text("重新连接", "Reconnect") ?? "重新连接");
     $("notice-text").textContent = error.message || String(error);
     $("notice").hidden = false;
   }
   function clearError() {
+    retryNotice = null;
     $("notice").hidden = true;
+  }
+  function retryError() {
+    const retry = retryNotice || boot;
+    clearError();
+    return retry();
   }
   async function api(path, body, poll = null) {
     const response = await fetch(`/api/studio${path}`, {
@@ -419,7 +430,9 @@
     try {
       await window.SciShellLayout.loadViewAssets("files");
     } catch (error) {
-      showError(error);
+      if (request === reviewOpenRequest && state.selected === id) showError(error, () => {
+        if (request === reviewOpenRequest && state.selected === id) return openChanges(change, opener);
+      });
       return;
     }
     if (request !== reviewOpenRequest || state.selected !== id || !state.session || !allChanges().length) return;
@@ -3146,7 +3159,7 @@
     },
     onRetry() { window.MeetingAgenda.retry(); },
   });
-  $("plugin-tools-open").addEventListener("click", async () => {
+  async function openPluginTools() {
     if (pluginsUI || !state.session) return;
     const id = state.selected;
     try {
@@ -3155,8 +3168,13 @@
       pluginsUI ??= window.RoundtablePlugins.mount({api});
       pluginsUI.updateSession(state.session);
       await pluginsUI.openTools();
-    } catch (error) { showError(error); }
-  });
+    } catch (error) {
+      if (state.selected === id) showError(error, () => {
+        if (state.selected === id) return openPluginTools();
+      });
+    }
+  }
+  $("plugin-tools-open").addEventListener("click", openPluginTools);
   const mountSeatEditor = () => window.RoundtableMemberEditor.mount({
     loadModels: () => api("/models"),
     write: (id, payload) => api(`/sessions/${encodeURIComponent(id)}/members`, payload),
@@ -3274,6 +3292,6 @@
     $("run-note").value = "";
   });
   $("draft-retry-projects").addEventListener("click", boot);
-  $("retry-connect").addEventListener("click", boot);
+  $("retry-connect").addEventListener("click", retryError);
   boot();
 })();
