@@ -7,7 +7,7 @@
   --dashboard-columns: 1;
   grid-template-columns: repeat(var(--dashboard-columns), minmax(0, 1fr));
   align-items: stretch;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .dashboard-widget {
@@ -17,8 +17,39 @@
   container: dashboard-card / inline-size;
 }
 
+.dashboard-widget--compact-row {
+  align-self: start;
+}
+
 .dashboard-grid > .dashboard-large[data-dashboard-widget="calendar"] {
   grid-column: 1 / -1;
+}
+
+.dashboard-overview-summary {
+  margin-bottom: var(--space-4);
+}
+
+.dashboard-overview-summary .dashboard-widget > .panel {
+  padding: var(--space-3) var(--space-4);
+}
+
+.dashboard-overview-summary .panel-header {
+  margin-bottom: var(--space-2);
+}
+
+.dashboard-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.dashboard-summary-row .dashboard-stats {
+  margin: 0;
+}
+
+.dashboard-quick-add {
+  margin-top: var(--space-4);
 }
 
 .dashboard-edit-layout {
@@ -34,20 +65,24 @@
 
 .dashboard-widget > .panel {
   margin: 0;
-  padding: 14px;
+  padding: var(--space-4);
+}
+
+.dashboard-widget > .panel.empty-row {
+  padding: var(--space-2) var(--space-4);
 }
 
 .dashboard-load-warning {
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 
 .dashboard-load-warning .dashboard-muted {
-  padding: 10px 16px;
+  padding: 10px var(--space-4);
 }
 
 .dashboard-widget .panel-header {
   padding: 0;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-3);
   border-bottom: 0;
   align-items: flex-start;
 }
@@ -70,65 +105,65 @@
   flex-shrink: 0;
 }
 
-.dashboard-widget .list + .bare,
-.dashboard-widget .dashboard-muted + .bare,
-.dashboard-widget .dashboard-stats + .bare,
-.dashboard-widget .dashboard-brief + .bare {
-  display: inline-block;
-  margin-top: 6px;
+.dashboard-widget .list + .action-link,
+.dashboard-widget .dashboard-muted + .action-link,
+.dashboard-widget .dashboard-stats + .action-link,
+.dashboard-widget .dashboard-brief + .action-link {
+  margin-top: var(--space-2);
 }
 
 .dashboard-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px 12px;
-  margin: 8px 0;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0;
 }
 
 .dashboard-stat {
-  color: var(--soft);
-  font-size: var(--workspace-text-small);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
 .dashboard-stat b {
-  color: var(--ink);
-  font-size: var(--workspace-text);
+  color: var(--ink-primary);
+  font-size: var(--text-md);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
 .dashboard-muted {
-  color: var(--soft);
+  color: var(--ink-muted);
   margin: 0;
   overflow-wrap: anywhere;
 }
 
 .dashboard-subhead {
-  color: var(--soft);
-  font-size: var(--workspace-text-small);
-  margin-top: 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-3);
 }
 
 .dashboard-stage {
   display: inline-block;
-  padding: 3px 10px;
-  background: var(--tint);
-  color: var(--accent2);
-  border-radius: 1rem;
+  padding: var(--space-1) var(--space-3);
+  background: var(--brand-accent-soft);
+  color: var(--brand-accent);
+  border-radius: 20px;
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
 .dashboard-stage[data-stage="on_hold"] {
-  background: var(--fill);
-  color: var(--soft);
+  background: var(--bg-subtle);
+  color: var(--ink-muted);
 }
 
 .dashboard-calendar {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .dashboard-calendar-month {
@@ -141,8 +176,8 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .dashboard-calendar-head {
@@ -150,7 +185,7 @@
 }
 
 .dashboard-calendar-head h3 {
-  font-size: var(--workspace-text-small);
+  font-size: var(--text-sm);
 }
 
 .dashboard-month {
@@ -162,24 +197,24 @@
 }
 
 .dashboard-month > span {
-  color: var(--soft);
+  color: var(--ink-muted);
 }
 
 .dashboard-day {
   position: relative;
   min-height: 29px;
   padding: 0 0 3px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .dashboard-day:hover,
 .dashboard-day[aria-pressed="true"] {
-  color: var(--accent2);
-  background: var(--tint);
+  color: var(--brand-accent);
+  background: var(--brand-accent-soft);
 }
 
 .dashboard-day[aria-current="date"] {
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--brand-accent);
   font-weight: 600;
 }
 
@@ -190,13 +225,14 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--brand-accent);
   transform: translateX(50%);
 }
 
 .dashboard-calendar-links {
   justify-content: flex-start;
-  margin-top: 10px;
+  margin-top: var(--space-3);
+  gap: var(--space-3);
 }
 
 .dashboard-layout select {
@@ -216,7 +252,7 @@
 .dashboard-brief:not(.scientific-content) { white-space: pre-wrap; }
 .dashboard-brief > * { margin: 0; }
 .dashboard-brief > * + * { margin-top: 6px; }
-.dashboard-brief :is(h3, h4, h5, h6) { font-size: var(--workspace-text); }
+.dashboard-brief :is(h3, h4, h5, h6) { font-size: var(--text-md); }
 .dashboard-brief :is(ul, ol) { padding-inline-start: 1.3em; }
 
 .dashboard-questions {
@@ -230,15 +266,15 @@
 }
 
 .dashboard-layout {
-  padding: 12px 16px;
-  margin-block-end: 14px;
+  padding: var(--space-3) var(--space-4);
+  margin-block-end: var(--space-4);
 }
 
 .dashboard-layout-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
-  gap: 8px 14px;
-  margin-bottom: 12px;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .dashboard-layout-row {
@@ -256,11 +292,11 @@
 
 .dashboard-drag {
   flex: none;
-  font-size: 1.2rem;
+  font-size: var(--text-lg);
   padding: 0 7px;
-  border-radius: 5px;
-  color: var(--soft);
-  background: var(--fill);
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  background: var(--bg-subtle);
   cursor: grab;
   user-select: none;
 }
@@ -272,11 +308,12 @@
 
 @media (min-width: 1000px) {
   @container dashboard (min-width: 840px) {
-    .dashboard-grid { --dashboard-columns: 4; }
     .dashboard-home-grid { --dashboard-columns: 6; }
-    .dashboard-wide, .dashboard-medium { grid-column: span 2; }
-    .dashboard-large { grid-column: span 3; }
+    .dashboard-home-grid > .dashboard-wide,
+    .dashboard-home-grid > .dashboard-medium { grid-column: span 2; }
     .dashboard-home-grid > .dashboard-large { grid-column: span 4; }
+    .dashboard-overview-grid { --dashboard-columns: 2; }
+    .dashboard-overview-grid > .dashboard-large { grid-column: span 2; }
   }
 }
 
