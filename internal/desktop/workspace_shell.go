@@ -30,7 +30,7 @@ var workspaceSurfaces = func() map[string]workspaceSurface {
 		"/research": {name: "research", title: "科研工作台"},
 		"/studio":   {name: "studio", title: "科研圆桌", pane: true},
 		"/reader":   {name: "reader", title: "论文阅读", pane: true},
-		"/lab":      {name: "lab", title: "AI 实验室", pane: true},
+		"/lab":      {name: "lab", title: "AI", pane: true},
 		"/tools":    {name: "science-tools", title: "科研工具"},
 		"/api-docs": {name: "api", title: "本机 API"},
 	}

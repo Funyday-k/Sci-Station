@@ -38,6 +38,10 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Changed
 
+- Open AI once, then choose a single research chat or a multi-seat Roundtable. Work without a project or select one explicitly. Review transferred questions, recent public messages and attachments in a draft before sending.
+- Edit a project from its sidebar context menu and independently collapse its modules. Home and project overview place cards using their content height and share a compact layout control.
+- Start a paper import with a publication link or local PDF. Additional catalog fields are available on demand. Research, AI, Tools and Reader now share the shell layout and panel space.
+
 - Use one shared sidebar for workspaces, projects and page navigation. Project modules sit beneath the active project, settings stay at the bottom, and compact windows open navigation on demand. The top bar keeps history, location and contextual tools.
 - Open object details, reader annotations or AI explicitly, and pin a panel when it should remain open across views. Selecting a paper no longer opens details, and closing a panel returns focus to its entry point. The global Inspector button has been removed.
 - Use neutral backgrounds and quieter buttons across the workbench, with color reserved for primary actions and meaningful status. Shared text sizes, lighter headings and familiar action icons reduce visual density; the PDF reader follows the selected appearance. Dashboard cards follow their content height.

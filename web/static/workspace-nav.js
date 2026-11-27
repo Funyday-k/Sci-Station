@@ -157,13 +157,6 @@
       nav.dataset.signature = signature;
       nav.replaceChildren(...links.filter(link=>link.key!=="settings").map(destinationLink));
       document.querySelector("[data-workspace-settings]")?.replaceChildren(...links.filter(link=>link.key==="settings").map(destinationLink));
-      const back = document.querySelector("[data-project-back]");
-      back.hidden = !project || document.body.dataset.workspaceSurface==="research";
-      back.href = research("overview",project);
-      const backLabel=local("projectSpaceBackToProjects","返回当前项目","Back to project");
-      back.innerHTML=window.RoundtableIcons?.icon("chevronLeft") || "";
-      const caption=document.createElement("span");caption.textContent=backLabel;back.append(caption);
-      back.setAttribute("aria-label",backLabel);
       const locationLabel=document.querySelector("[data-workspace-location]");
       if(locationLabel)locationLabel.textContent=links.find(link=>link.active)?.name || "Sci-Station";
     }

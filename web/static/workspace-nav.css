@@ -24,7 +24,7 @@ body.workspace-nav-collapsed { --workspace-sidebar-width: 0px; }
 .workspace-sidebar a, .workspace-bar a { color: inherit; text-decoration: none; }
 .workspace-sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 16px; scrollbar-width: thin; }
 nav[data-workspace-nav], nav[data-workspace-settings] { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; }
-nav[data-workspace-nav] a, nav[data-workspace-settings] a, .workspace-sidebar [data-project-back] {
+nav[data-workspace-nav] a, nav[data-workspace-settings] a {
   display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px; margin: 0;
   padding: 7px 10px; border: 0; border-radius: 7px; background: transparent;
   color: var(--workspace-muted); font: inherit; font-weight: 400; text-align: left; cursor: pointer;
@@ -42,8 +42,6 @@ nav[data-workspace-nav] a[aria-current="page"], nav[data-workspace-settings] a[a
   outline: 2px solid var(--workspace-accent); outline-offset: -2px;
 }
 .workspace-sidebar-footer { flex: none; padding: 10px; border-top: 1px solid var(--workspace-line); }
-.workspace-sidebar [data-project-back] { margin-top: 18px; font-size: var(--workspace-text-small); }
-.workspace-sidebar [data-project-back][hidden] { display: none; }
 .workspace-context { margin-top: 22px; min-width: 0; }
 .workspace-context:empty { display: none; }
 #workspace-context > :is(aside,#sidebar) {
@@ -86,6 +84,7 @@ nav[data-workspace-nav] a[aria-current="page"], nav[data-workspace-settings] a[a
 #workspace-context h2, #workspace-context .history-label h2 {
   margin: 0 8px 8px; padding: 0; font-size: var(--workspace-text-small); font-weight: 500; color: var(--workspace-muted);
 }
+#workspace-context > :not([hidden]) + #workspace-projects { margin-top: 16px; }
 #workspace-context #presets { display: grid; gap: 3px; }
 #workspace-context #presets button, #workspace-context [data-tab] {
   display: block; width: 100%; min-height: 36px; padding: 8px 10px; border: 0; border-radius: 7px;

@@ -34,8 +34,8 @@
     </div>
     <div class="workspace-sidebar-scroll">
       <nav data-workspace-nav aria-label="工作区" data-l10n-aria-label="toolbarWorkspace"></nav>
-      <a data-project-back hidden href="/research"></a>
       <div id="workspace-context" class="workspace-context">
+        {{block "sidebar" .}}{{end}}
         <section id="workspace-projects" aria-label="科研项目" data-l10n-aria-label="projectNavigation">
           <div class="project-heading">
             <strong data-l10n-text="myProjects">我的项目</strong>
@@ -44,7 +44,6 @@
           </div>
           <nav id="projectnav" aria-label="科研项目" data-l10n-aria-label="projectNavigation"></nav>
         </section>
-        {{block "sidebar" .}}{{end}}
       </div>
     </div>
     <div class="workspace-sidebar-footer">

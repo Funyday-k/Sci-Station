@@ -300,8 +300,9 @@
       '" data-dashboard-control="edit" aria-expanded="' + board.editing + '" aria-controls="dashboard-layout"' +
       ' aria-label="' + esc(editLabel) + '" title="' + esc(editLabel) + '">' +
       (board.editing ? esc(editLabel) : window.RoundtableIcons?.icon("sliders") || "") + '</button>';
-    const projectActions = project && isEnabled("ai-lab") ?
-      link(text("进入圆桌", "Open Roundtable"), studio(), board.editing ? "button" : "button primary", "chat") : "";
+    const aiHome = url(isEnabled("ai-lab") ? "/lab" : "/studio", project ? {project: project.id} : {scope: "global"});
+    const projectActions = project ? link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome,
+      board.editing ? "button" : "button primary", "chat") : "";
     const available = new Map(descriptors.filter(([, , , required]) => isEnabled(required)).map(d => [d[0], d]));
     const visible = board.items.filter(item => item.visible && available.has(item.id));
     const widget = item => {
@@ -359,7 +360,7 @@
           message(text("暂无活跃项目", "No active projects"))) + dashboardNav(text("全部项目", "All projects"), "projects"),
         quick_actions: () => '<div class="actions">' + [isEnabled("projects") && button(local("toolbarNewProject", "新建项目", "New Project"), "new-project"),
           isEnabled("paper-library") && button(text("导入文献", "Import papers"), "new-paper"), isEnabled("tasks") && button(text("添加任务", "New task"), "new-task"),
-          isEnabled("ai-lab") && link(local("routeAILab", "AI 实验室", "AI Lab"), url("/lab"))].filter(Boolean).join("") + '</div>',
+          link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome)].filter(Boolean).join("") + '</div>',
         meetings: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, text("暂无圆桌", "No Roundtables yet")) + link(local("openRoundtable", "打开圆桌", "Open Roundtable"), studio(), "bare")
       };
     }
@@ -433,7 +434,7 @@
         recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)), text("暂无近期活动", "No recent activity")),
         project_documents: limit => callout(notes.slice(0, limit), noteRows, "暂无项目文档") + dashboardNav("全部文档", "notes"),
         workflow: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, "暂无项目圆桌") +
-          link("AI 工作流", url("/lab", {project: project.id}), "bare") + dashboardNav("全部圆桌", "meetings")
+          dashboardNav(text("查看项目会话", "View project sessions"), "meetings")
       };
     }
   }
