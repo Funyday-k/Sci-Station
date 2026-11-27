@@ -288,10 +288,10 @@ async function main(binary) {
     await page.reload();
     await reply.waitFor();
     assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
-    await page.locator("#workspace-nav-toggle").click();
+    await page.locator("#workspace-session-toggle").click();
     await page.locator("#lab-history button").filter({hasText:original}).waitFor();
     await page.keyboard.press("Escape");
-    await page.locator("#workspace-sidebar").waitFor({state: "hidden"});
+    await page.locator("#workspace-session-sidebar").waitFor({state: "hidden"});
     assert.deepEqual(gateway.calls.filter(call => call.kind === "statement").length, 1);
 
     await attachExcerpt("Evaporation");
