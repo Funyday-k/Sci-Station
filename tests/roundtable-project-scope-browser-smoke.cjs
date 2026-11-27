@@ -275,16 +275,20 @@ async function main() {
     await ui.visible("#chat-header");
     await ui.click("[data-ai-mode='single']");
     await ui.visible("#studio-mode-overflow-summary","13");
-    const afterCancel = await ui.evaluate(async () => {
+    await ui.evaluate(() => {
       const dialog = document.querySelector("#studio-mode-overflow");
       dialog.querySelector('button[value="cancel"]').click();
       const closed = !dialog.open;
       const session = new URL(location.href).searchParams.get("session");
       // Retry after the submit handler can settle, before the queued close event.
-      await Promise.resolve();
-      document.querySelector("[data-ai-mode='single']").click();
-      return {closed,session,reopened:dialog.open};
+      queueMicrotask(() => {
+        document.querySelector("[data-ai-mode='single']").click();
+        window.studioOverflowRetryResult = {closed,session,reopened:dialog.open};
+      });
+      return true;
     });
+    const afterCancel = await eventually(() => ui.evaluate(() => window.studioOverflowRetryResult ?? null),
+      "read the Roundtable overflow retry measured before the close event");
     assert.deepEqual(afterCancel,{closed:true,session:templateRoom.id,reopened:true});
     await ui.visible("#studio-mode-overflow-summary","13");
     await ui.click('#studio-mode-overflow button[value="text-only"]');
