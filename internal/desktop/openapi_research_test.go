@@ -65,7 +65,7 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lab.SetPathValidator(func(path string) bool { return path == externalDir })
+	lab.SetPathValidator(func(path string, _ research.DirectoryGrant) bool { return path == externalDir })
 	server := &apiServer{prefs: prefs, research: lab, meetings: engine}
 	api := server.serve(8765)
 

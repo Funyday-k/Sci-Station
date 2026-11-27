@@ -109,19 +109,20 @@ type Material struct {
 }
 
 type projectData struct {
-	Trashed     bool                     `json:"trashed,omitempty"`
-	Reviews     map[string]MeetingReview `json:"reviews,omitempty"`
-	Project     Project                  `json:"project"`
-	Archived    bool                     `json:"archived,omitempty"`
-	Notes       map[string]Note          `json:"notes"`
-	Tasks       map[string]Task          `json:"tasks"`
-	Materials   map[string]Material      `json:"materials"`
-	NoteKeys    map[string]string        `json:"noteKeys"`
-	TaskKeys    map[string]string        `json:"taskKeys"`
-	Relations   map[string]GraphRelation `json:"relations,omitempty"`
-	disk        json.RawMessage
-	WikiFolders []string     `json:"wikiFolders,omitempty"`
-	Lab         *LabSettings `json:"lab,omitempty"`
+	RoundtableRules []RoundtableRule         `json:"roundtableRules,omitempty"`
+	Trashed         bool                     `json:"trashed,omitempty"`
+	Reviews         map[string]MeetingReview `json:"reviews,omitempty"`
+	Project         Project                  `json:"project"`
+	Archived        bool                     `json:"archived,omitempty"`
+	Notes           map[string]Note          `json:"notes"`
+	Tasks           map[string]Task          `json:"tasks"`
+	Materials       map[string]Material      `json:"materials"`
+	NoteKeys        map[string]string        `json:"noteKeys"`
+	TaskKeys        map[string]string        `json:"taskKeys"`
+	Relations       map[string]GraphRelation `json:"relations,omitempty"`
+	disk            json.RawMessage
+	WikiFolders     []string     `json:"wikiFolders,omitempty"`
+	Lab             *LabSettings `json:"lab,omitempty"`
 }
 
 // Published project snapshots are immutable. Each mutation copies only its own map
@@ -133,7 +134,7 @@ type Service struct {
 	mu              sync.RWMutex
 	projects        map[string]projectData
 	workspaceTasks  workspaceTaskData
-	pathValidator   func(string) bool
+	pathValidator   func(string, DirectoryGrant) bool
 	newTaskReminder func(Task) (string, error)
 	retrievalWorker chan struct{}
 
@@ -232,8 +233,8 @@ func New(dir string) (*Service, error) {
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
-// SetPathValidator is set by the desktop host after the native project registry is open.
-func (s *Service) SetPathValidator(allowed func(string) bool) {
+// SetPathValidator is set by the desktop host to verify the exact folder selected in its native picker.
+func (s *Service) SetPathValidator(allowed func(string, DirectoryGrant) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pathValidator = allowed
@@ -379,9 +380,9 @@ func (s *Service) listProjects(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []Project{}
-	archived := r.URL.Query().Get("archived") == "1"
+	archived, trashed := r.URL.Query().Get("archived") == "1", r.URL.Query().Get("trashed") == "1"
 	for _, d := range s.projects {
-		if d.Trashed == (r.URL.Query().Get("trashed") == "1") && (d.Trashed || d.Archived == archived) {
+		if d.Trashed == trashed && (d.Trashed || d.Archived == archived) {
 			out = append(out, d.Project)
 		}
 	}
@@ -392,6 +393,13 @@ func (s *Service) listProjects(w http.ResponseWriter, r *http.Request) {
 		return out[i].Name < out[j].Name
 	})
 	jsonReply(w, 200, out)
+}
+
+func (s *Service) ActiveProject(id string) (Project, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d, ok := s.projects[id]
+	return d.Project, ok && !d.Archived
 }
 
 type projectInput struct {
@@ -434,10 +442,6 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		path := *in.Path
-		if !filepath.IsAbs(path) || filepath.Clean(path) != path || s.pathValidator == nil || !s.pathValidator(path) {
-			jsonFail(w, 403, "请先在圆桌登记所选项目文件夹")
-			return
-		}
 		grant, err := s.externalDirectory(path)
 		if err != nil {
 			jsonFail(w, 400, "项目文件夹不可用")
@@ -448,6 +452,10 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 				jsonFail(w, 409, "这个文件夹已关联科研项目")
 				return
 			}
+		}
+		if s.pathValidator == nil || !s.pathValidator(path, grant) {
+			jsonFail(w, 403, "请重新选择授权文件夹")
+			return
 		}
 		p.Path = path
 		p.DirectoryGrant = &grant

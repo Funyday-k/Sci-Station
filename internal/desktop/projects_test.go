@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"scistation.local/desktop/internal/meeting"
+	"scistation.local/desktop/internal/research"
 )
 
 func projectTestDir(t *testing.T) string {
@@ -30,13 +31,30 @@ func projectTestDir(t *testing.T) string {
 
 func projectContextForTest(t *testing.T, server *apiServer, path string) string {
 	t.Helper()
-	snapshot, err := server.projectRuleSnapshot(path)
+	project, ok := server.research.ProjectForDirectory(path)
+	if !ok {
+		return ""
+	}
+	snapshot, err := server.projectRuleSnapshot(meeting.ProjectScope{ID: project.ID, Directory: path})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return snapshot.Guidance
 }
 
+func testMeetingProject(t *testing.T, api *apiServer, dir string) meeting.ProjectScope {
+	t.Helper()
+	lab := api.research
+	grant, err := research.IdentifyDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := lab.RegisterDirectoryProject(dir, "", grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return meeting.ProjectScope{ID: p.ID, Directory: dir}
+}
 func writeProjectTestFile(t *testing.T, root, path, content string) string {
 	t.Helper()
 	absolute := filepath.Join(root, filepath.FromSlash(path))
@@ -80,7 +98,7 @@ func TestProjectRegisterAndSelectiveImport(t *testing.T) {
 	dir := projectTestDir(t)
 	project := projectTestDir(t)
 	other := projectTestDir(t)
-	server := &apiServer{prefs: &settingsStore{file: filepath.Join(dir, "settings.json")}}
+	server := openNavigationFixture(t, dir)
 	handler := server.serve(8765)
 
 	writeProjectTestFile(t, project, "AGENTS.md", "test-only-agent-policy")
@@ -122,7 +140,7 @@ func TestProjectRegisterAndSelectiveImport(t *testing.T) {
 	refs := []projectRuleRef{}
 	for _, rule := range preview.Projects[0].Rules {
 		if rule.Path == "AGENTS.md" || rule.Path == ".cursor/rules/test.mdc" {
-			refs = append(refs, rule.projectRuleRef)
+			refs = append(refs, rule.RoundtableRuleVersion)
 		}
 	}
 	selection := projectImportRequest{Action: "apply", Selections: []projectImportSelection{{Path: project, Rules: refs}}}
@@ -131,7 +149,7 @@ func TestProjectRegisterAndSelectiveImport(t *testing.T) {
 	if len(list.Projects) != 2 {
 		t.Fatalf("registration not idempotent: %+v", list)
 	}
-	reopened := &apiServer{prefs: &settingsStore{file: filepath.Join(dir, "settings.json")}}
+	reopened := openNavigationFixture(t, dir)
 	context := projectContextForTest(t, reopened, project)
 	if !strings.Contains(context, "test-only-agent-policy") || !strings.Contains(context, "globs: '*.go'") ||
 		strings.Contains(context, "unselected") || strings.Contains(context, "sentinel-") || projectContextForTest(t, reopened, other) != "" {
@@ -148,9 +166,9 @@ func TestProjectRegisterAndSelectiveImport(t *testing.T) {
 	if updated.Path != "AGENTS.md" || updated.Imported {
 		t.Fatalf("expected an updated rule to reimport: %+v", updated)
 	}
-	selection.Selections[0].Rules = []projectRuleRef{updated.projectRuleRef}
+	selection.Selections[0].Rules = []projectRuleRef{updated.RoundtableRuleVersion}
 	projectTestRequest(t, handler, http.MethodPost, "/import", selection, 200, nil)
-	if got := projectContextForTest(t, reopened, project); !strings.Contains(got, "updated agent rule") || strings.Contains(got, "test-only-agent-policy") || !strings.Contains(got, "a cursor project rule") {
+	if got := projectContextForTest(t, openNavigationFixture(t, dir), project); !strings.Contains(got, "updated agent rule") || strings.Contains(got, "test-only-agent-policy") || !strings.Contains(got, "a cursor project rule") {
 		t.Fatalf("unexpected context after update: %s", got)
 	}
 }
@@ -167,7 +185,7 @@ func TestProjectRejectsOutOfScopePaths(t *testing.T) {
 			t.Errorf("accepted unsafe project path %q", input)
 		}
 	}
-	server := &apiServer{prefs: &settingsStore{file: filepath.Join(projectTestDir(t), "settings.json")}}
+	server := openNavigationFixture(t, projectTestDir(t))
 	if _, err := server.applyProjectSelections([]projectImportSelection{
 		{Path: outside},
 		{Path: project, Rules: []projectRuleRef{{Path: ".claude/rules/../../secret.md"}}},
@@ -184,14 +202,14 @@ func TestProjectConcurrentRegistrationAndImport(t *testing.T) {
 	project := projectTestDir(t)
 	first := writeProjectTestFile(t, project, "AGENTS.md", "first rule")
 	second := writeProjectTestFile(t, project, "CLAUDE.md", "second rule")
-	preview, err := previewProjects([]string{project}, nil)
+	preview, err := previewProjects(openNavigationFixture(t, projectTestDir(t)).research, []string{project})
 	if err != nil || len(preview[0].Rules) != 2 {
 		t.Fatalf("could not preview test project: %+v %v", preview, err)
 	}
-	api := &apiServer{prefs: &settingsStore{file: filepath.Join(projectTestDir(t), "settings.json")}}
+	api := openNavigationFixture(t, projectTestDir(t))
 	requests := make([]projectImportSelection, 0, 5)
 	for _, rule := range preview[0].Rules {
-		requests = append(requests, projectImportSelection{Path: project, Rules: []projectRuleRef{rule.projectRuleRef}})
+		requests = append(requests, projectImportSelection{Path: project, Rules: []projectRuleRef{rule.RoundtableRuleVersion}})
 	}
 	requests = append(requests, projectImportSelection{Path: project}, projectImportSelection{Path: projectTestDir(t)})
 	var pending sync.WaitGroup
@@ -209,9 +227,14 @@ func TestProjectConcurrentRegistrationAndImport(t *testing.T) {
 	if !strings.Contains(got, filepath.Base(first)) || !strings.Contains(got, filepath.Base(second)) {
 		t.Fatalf("concurrent additions lost a rule: %s", got)
 	}
-	records, err := api.projectRecords()
-	if err != nil || len(records) != 2 || len(records[project].Rules) != 2 {
-		t.Fatalf("concurrent writes lost a project or added duplicate rules: %+v %v", records, err)
+	records, err := api.activeProjectSummaries()
+	if err != nil || len(records) != 2 {
+		t.Fatalf("incomplete project catalog: %+v %v", records, err)
+	}
+	for _, p := range records {
+		if p.Path == project && p.RuleCount != 2 {
+			t.Fatal(p)
+		}
 	}
 }
 
@@ -265,13 +288,13 @@ func TestProjectDiscoveryMetadataOnly(t *testing.T) {
 
 func TestProjectImportedReferencesReachOnlyMatchingMeeting(t *testing.T) {
 	project, other := projectTestDir(t), projectTestDir(t)
-	api := &apiServer{prefs: &settingsStore{file: filepath.Join(projectTestDir(t), "settings.json")}}
+	api := openNavigationFixture(t, projectTestDir(t))
 	writeProjectTestFile(t, project, "AGENTS.md", "agent-rule-reference-probe")
-	preview, err := previewProjects([]string{project}, nil)
+	preview, err := previewProjects(openNavigationFixture(t, projectTestDir(t)).research, []string{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.applyProjectSelections([]projectImportSelection{{Path: project, Rules: []projectRuleRef{preview[0].Rules[0].projectRuleRef}}}); err != nil {
+	if _, err := api.applyProjectSelections([]projectImportSelection{{Path: project, Rules: []projectRuleRef{preview[0].Rules[0].RoundtableRuleVersion}}}); err != nil {
 		t.Fatal(err)
 	}
 	prompts := make(chan string, 2)
@@ -284,6 +307,7 @@ func TestProjectImportedReferencesReachOnlyMatchingMeeting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.SetProjectAccess(api.research.WithProjectDirectory)
 	engine.SetProjectRuleSnapshot(api.projectRuleSnapshot)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -293,7 +317,8 @@ func TestProjectImportedReferencesReachOnlyMatchingMeeting(t *testing.T) {
 		}
 	})
 	for _, dir := range []string{project, other} {
-		session, err := engine.Create("Verify local rules", dir, []string{"codex"})
+		scope := testMeetingProject(t, api, dir)
+		session, err := engine.CreateScopedWithMaterials("Verify local rules", scope, []string{"codex"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

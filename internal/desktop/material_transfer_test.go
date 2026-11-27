@@ -20,11 +20,11 @@ func TestAITransferChecksPendingAndCommittedMaterials(t *testing.T) {
 	aDirectory, bDirectory, replacement := projectTestDir(t), projectTestDir(t), projectTestDir(t)
 	root := t.TempDir()
 	projects := meetingProjectService(t, aDirectory, bDirectory, replacement)
-	projectA, err := projects.EnsureDirectoryProject(aDirectory)
+	projectA, err := registerFixtureDirectory(projects, aDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectB, err := projects.EnsureDirectoryProject(bDirectory)
+	projectB, err := registerFixtureDirectory(projects, bDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}

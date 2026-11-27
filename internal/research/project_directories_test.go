@@ -1,6 +1,7 @@
 package research
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -64,8 +65,12 @@ func TestExternalDirectoryGrantIdentityAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := newResearch(t, dir)
-	s.SetPathValidator(func(path string) bool { return path == ext })
-	p, err := s.EnsureDirectoryProject(ext)
+	s.SetPathValidator(func(path string, _ DirectoryGrant) bool { return path == ext })
+	grant, err := IdentifyDirectory(ext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.RegisterDirectoryProject(ext, "", grant)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +78,7 @@ func TestExternalDirectoryGrantIdentityAndRevocation(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("external fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if q, err := s.EnsureDirectoryProject(ext); err != nil || p.ID != q.ID {
+	if q, err := s.RegisterDirectoryProject(ext, "", grant); err != nil || p.ID != q.ID {
 		t.Fatal(q, err)
 	}
 	s = newResearch(t, dir)
@@ -85,8 +90,8 @@ func TestExternalDirectoryGrantIdentityAndRevocation(t *testing.T) {
 	if _, err := s.ProjectDirectory(p.ID); !errors.Is(err, os.ErrPermission) {
 		t.Fatal(err)
 	}
-	s.SetPathValidator(func(path string) bool { return path == ext })
-	if _, err := s.EnsureDirectoryProject(ext); !errors.Is(err, os.ErrPermission) {
+	s.SetPathValidator(func(path string, _ DirectoryGrant) bool { return path == ext })
+	if _, err := s.RegisterDirectoryProject(ext, "", grant); !errors.Is(err, os.ErrPermission) {
 		t.Fatal(err)
 	}
 	callResearch(t, s, "POST", base+"/directory", map[string]any{"revision": 2, "path": ext}, 200)
@@ -148,5 +153,59 @@ func TestProjectUpdateRefusesReplacedRecordsDirectory(t *testing.T) {
 	saved := decodeResearch[Project](t, callResearch(t, reopened, "GET", "/projects/"+p.ID, nil, 200))
 	if saved.Name != "Before" || saved.Revision != 1 {
 		t.Fatal(saved)
+	}
+}
+
+func TestRoundtableManagedFolderRulesKeepVersionedProjectData(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "research")
+	service := newResearch(t, dir)
+	project := decodeResearch[Project](t, callResearch(t, service, "POST", "/projects", map[string]string{"name": "Synthetic managed project"}, 201))
+	makeRule := func(name, text string) RoundtableRule {
+		return RoundtableRule{RoundtableRuleVersion: RoundtableRuleVersion{Path: name, Digest: RoundtableRuleDigest(text)}, Source: RoundtableRuleSource(name), Text: text}
+	}
+	first := makeRule("AGENTS.md", "original instructions")
+	grant, err := IdentifyDirectory(project.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := service.RegisterDirectoryProject(project.Path, project.ID, grant, first)
+	if err != nil || owner.ID != project.ID {
+		t.Fatal(owner, err)
+	}
+	file := service.recordPath(project.ID)
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	record["roundtableRules"].([]any)[0].(map[string]any)["future"] = true
+	raw, err = json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	service = newResearch(t, dir)
+	_, err = service.RegisterDirectoryProject(project.Path, project.ID, grant, makeRule("CLAUDE.md", "second instruction"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	if len(record["roundtableRules"].([]any)) != 2 || record["roundtableRules"].([]any)[0].(map[string]any)["future"] != true {
+		t.Fatal("unrelated rule metadata was lost")
+	}
+	rules, err := service.RoundtableRules(project.ID, project.Path)
+	if err != nil || len(rules) != 2 {
+		t.Fatal(rules, err)
 	}
 }

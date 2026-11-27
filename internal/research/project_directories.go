@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -122,48 +123,116 @@ func (s *Service) ProjectDirectory(id string) (string, error) {
 func (s *Service) ProjectForDirectory(path string) (Project, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	var match Project
 	for _, d := range s.projects {
-		if !d.Archived && d.Project.Path == path {
-			if _, err := s.directory(d); err == nil {
-				return d.Project, true
+		if d.Archived || d.Project.Path != path {
+			continue
+		}
+		if _, err := s.directory(d); err == nil {
+			if match.ID != "" {
+				return Project{}, false
 			}
+			match = d.Project
 		}
 	}
-	return Project{}, false
+	return match, match.ID != ""
+
 }
 
 func newProjectData(p Project) projectData {
 	return projectData{Project: p, Notes: map[string]Note{}, Tasks: map[string]Task{}, Materials: map[string]Material{}, NoteKeys: map[string]string{}, TaskKeys: map[string]string{}}
 }
 
-// Register a folder explicitly picked/imported by the user. A revoked or
-// archived identity cannot be implicitly reactivated by an old meeting.
-func (s *Service) EnsureDirectoryProject(path string) (Project, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	archived := false
+// Resolve an explicit Add/Import selection. A prior project at this path
+// must pass its current grant; historical rows cannot reactivate it.
+func (s *Service) selectedRuleFolder(path, expectedID string) (projectData, DirectoryGrant, error) {
+	var owner projectData
+	known := false
 	for _, d := range s.projects {
-		if d.Project.Path == path {
-			if d.Archived {
-				archived = true
-				continue
-			}
-			if _, err := s.directory(d); err != nil {
-				return Project{}, err
-			}
-			return d.Project, nil
+		if d.Project.Path != path {
+			continue
 		}
+		known = true
+		if d.Archived || (expectedID != "" && d.Project.ID != expectedID) {
+			continue
+		}
+		if owner.Project.ID != "" {
+			return projectData{}, DirectoryGrant{}, fmt.Errorf("%w: 请选择明确的科研项目", workspace.ErrConflict)
+		}
+		owner = d
 	}
-	if archived {
-		return Project{}, os.ErrNotExist
+	if owner.Project.ID != "" {
+		current, err := s.directory(owner)
+		if err != nil {
+			return projectData{}, DirectoryGrant{}, err
+		}
+		if !s.isManaged(owner.Project) {
+			return owner, *owner.Project.DirectoryGrant, nil
+		}
+		grant, err := IdentifyDirectory(current)
+		return owner, grant, err
+	}
+	if known || expectedID != "" {
+		return projectData{}, DirectoryGrant{}, os.ErrNotExist
 	}
 	grant, err := s.externalDirectory(path)
-	if err != nil || s.pathValidator == nil || !s.pathValidator(path) {
+	return projectData{}, grant, err
+}
+
+// Hold the current authorization during an explicit preview or import. The
+// file reader gets a pinned directory, scoped only to this invocation.
+func (s *Service) WithRuleImportDirectory(path, id string, read func(*os.Root, string, DirectoryGrant, []RoundtableRule) error) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d, grant, err := s.selectedRuleFolder(path, id)
+	if err != nil {
+		return err
+	}
+	root, err := workspace.ManagedOpenDirectory(path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	if grant.Device != uint64(stat.Dev) || grant.Inode != uint64(stat.Ino) {
+		return os.ErrPermission
+	}
+	return read(root, d.Project.ID, grant, slices.Clone(d.RoundtableRules))
+}
+
+func (s *Service) RegisterDirectoryProject(path, id string, selected DirectoryGrant, rules ...RoundtableRule) (Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, grant, err := s.selectedRuleFolder(path, id)
+	if err != nil {
+		return Project{}, err
+	}
+	if grant != selected {
 		return Project{}, os.ErrPermission
 	}
-	p := Project{Entity: fresh(), Name: filepath.Base(path), Path: path, DirectoryGrant: &grant}
-	err = s.commit(newProjectData(p))
-	return p, err
+	combined, err := combineRoundtableRules(d.RoundtableRules, rules)
+	if err != nil {
+		return Project{}, err
+	}
+	if d.Project.ID == "" {
+		p := newProject()
+		p.Name, p.Path, p.DirectoryGrant = filepath.Base(path), path, &grant
+		d = newProjectData(p)
+	} else {
+		if slices.Equal(combined, d.RoundtableRules) {
+			return d.Project, nil
+		}
+		d.Project.bump()
+	}
+	d.RoundtableRules = combined
+	if err := s.commit(d); err != nil {
+		return Project{}, err
+	}
+	return d.Project, nil
 }
 
 // Recover the data directory if a filesystem move completed before its record
@@ -270,7 +339,7 @@ func (s *Service) changeDirectory(w http.ResponseWriter, r *http.Request) {
 		d.Project.DirectoryGrant = nil
 	} else {
 		grant, err := s.externalDirectory(in.Path)
-		if err != nil || s.pathValidator == nil || !s.pathValidator(in.Path) {
+		if err != nil {
 			jsonFail(w, 403, "请重新选择授权文件夹")
 			return
 		}
@@ -279,6 +348,10 @@ func (s *Service) changeDirectory(w http.ResponseWriter, r *http.Request) {
 				jsonFail(w, 409, "已有活动项目关联此文件夹")
 				return
 			}
+		}
+		if s.pathValidator == nil || !s.pathValidator(in.Path, grant) {
+			jsonFail(w, 403, "请重新选择授权文件夹")
+			return
 		}
 		d.Project.Path = in.Path
 		d.Project.DirectoryGrant = &grant

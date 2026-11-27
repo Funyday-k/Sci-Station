@@ -421,8 +421,12 @@ func TestLabConnectorRejectsRevokedProjectBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := f.api.research
-	srv.SetPathValidator(func(path string) bool { return path == dir })
-	p, err := srv.EnsureDirectoryProject(dir)
+	srv.SetPathValidator(func(path string, _ research.DirectoryGrant) bool { return path == dir })
+	grant, err := research.IdentifyDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := srv.RegisterDirectoryProject(dir, "", grant)
 	if err != nil {
 		t.Fatal(err)
 	}

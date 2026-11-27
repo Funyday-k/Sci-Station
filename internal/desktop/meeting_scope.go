@@ -16,10 +16,10 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 		return meeting.ProjectScope{}, fmt.Errorf("请选择一个科研项目或全局圆桌")
 	}
 	projects := a.research
+	if projects == nil {
+		return meeting.ProjectScope{}, fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
+	}
 	if id != "" {
-		if projects == nil {
-			return meeting.ProjectScope{}, fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
-		}
 		dir, err := projects.ProjectDirectory(id)
 		if err != nil {
 			return meeting.ProjectScope{}, err
@@ -33,18 +33,9 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 	if err != nil {
 		return meeting.ProjectScope{}, err
 	}
-	if projects == nil {
-		return meeting.ProjectScope{Directory: dir}, nil
-	}
 	project, found := projects.ProjectForDirectory(dir)
 	if !found {
-		if !a.approvedResearchPath(dir) {
-			return meeting.ProjectScope{}, fmt.Errorf("%w: 请先选择并登记项目目录", os.ErrPermission)
-		}
-		project, err = projects.EnsureDirectoryProject(dir)
-		if err != nil {
-			return meeting.ProjectScope{}, err
-		}
+		return meeting.ProjectScope{}, fmt.Errorf("%w: 请先选择并登记项目目录", os.ErrPermission)
 	}
 	dir, err = projects.ProjectDirectory(project.ID)
 	return meeting.ProjectScope{ID: project.ID, Directory: dir}, err

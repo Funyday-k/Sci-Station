@@ -272,7 +272,9 @@ func TestStudioModelMembersThroughHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer engine.Shutdown(context.Background())
-	api := (&apiServer{prefs: store, meetings: engine}).serve(8765)
+	host := openNavigationFixture(t, t.TempDir())
+	host.meetings, host.prefs = engine, store
+	api := host.serve(8765)
 	do := func(method, path string, body any, want int) []byte {
 		t.Helper()
 		data, err := json.Marshal(body)
@@ -298,6 +300,7 @@ func TestStudioModelMembersThroughHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	do("GET", "models", nil, 200)
+	testMeetingProject(t, host, dir)
 	b := map[string]any{"topic": "Update this note", "project": dir, "preset": "work", "members": []map[string]string{{"model": model, "effort": "high", "label": "spoofed"}, {"model": model}}}
 	var s meeting.Session
 	if err = json.Unmarshal(do("POST", "sessions", b, 201), &s); err != nil {

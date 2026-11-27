@@ -153,7 +153,7 @@ func TestRevokedDirectoryBlocksPreviewEditingAndDesktopHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lab.SetPathValidator(func(path string) bool { return path == directory })
+	lab.SetPathValidator(func(path string, _ research.DirectoryGrant) bool { return path == directory })
 	a := &apiServer{research: lab, materialActions: &projectMaterialActions{}}
 	handler := a.serve(18765)
 	body, err := json.Marshal(map[string]string{"name": "External", "path": directory})

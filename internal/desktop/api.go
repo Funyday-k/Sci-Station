@@ -652,19 +652,8 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *apiServer) approvedResearchPath(path string) bool {
-	path = filepath.Clean(path)
-	actual, err := research.IdentifyDirectory(path)
-	if err != nil {
-		return false
-	}
-	if selected, ok := a.selectedPaths.Load(path); ok && selected == actual {
-		return true
-	}
-	if a.prefs == nil {
-		return false
-	}
-	records, err := a.projectRecords()
-	entry, ok := records[path]
-	return err == nil && ok && entry.DirectoryGrant != nil && *entry.DirectoryGrant == actual
+// A picker result belongs to this live root. A successful grant consumes the
+// selection so revocation or reassignment always requires a new user action.
+func (a *apiServer) approvedResearchPath(path string, grant research.DirectoryGrant) bool {
+	return a.selectedPaths.CompareAndDelete(path, grant)
 }

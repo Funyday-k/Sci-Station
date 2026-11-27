@@ -221,7 +221,9 @@ func TestStudioMaterialBindingAndPromptContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer e.Shutdown(context.Background())
-	api := (&apiServer{meetings: e, prefs: store}).serve(8765)
+	host := openNavigationFixture(t, t.TempDir())
+	host.meetings, host.prefs = e, store
+	api := host.serve(8765)
 	do := func(r *http.Request, status int) []byte {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -275,6 +277,7 @@ func TestStudioMaterialBindingAndPromptContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testMeetingProject(t, host, project)
 	create := map[string]any{
 		"topic": "Review the measurements", "project": project, "preset": "work",
 		"members": []map[string]string{{"model": "one/model"}}, "material_ids": []string{initial},

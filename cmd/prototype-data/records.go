@@ -213,22 +213,34 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		}
 	}
 	for _, record := range paths.meetings {
-		newPath := relocate(record.path)
-		projectID := managed[record.path]
-		if projectID == "" {
-			projectID = projectByPath[record.path]
-		}
-		if newPath == record.path && projectID == "" {
-			continue
-		}
 		var document map[string]json.RawMessage
 		if err := readJSON(stage, record.file, &document); err != nil {
 			return err
 		}
-		document["project"], _ = json.Marshal(newPath)
-		if projectID != "" {
-			document["project_id"], _ = json.Marshal(projectID)
+		var id string
+		if raw := document["project_id"]; raw != nil {
+			if err := json.Unmarshal(raw, &id); err != nil {
+				return err
+			}
 		}
+		// An explicit identity survives even if another project now owns the
+		// old path. Only a legacy meeting with no ID needs inference.
+		if id == "" {
+			id = projectByPath[record.path]
+			if id != "" {
+				document["project_id"], _ = json.Marshal(id)
+			}
+		}
+		newPath := ""
+		if id != "" && id == managed[record.path] {
+			newPath = relocate(record.path)
+		}
+		if id == "" && record.path != "" {
+			// Preserve an unbound historical session as such. An empty path
+			// and no ID would incorrectly convert it into a global session.
+			newPath = record.path
+		}
+		document["project"], _ = json.Marshal(newPath)
 		if err := writeJSON(stage, record.file, document); err != nil {
 			return err
 		}
@@ -239,12 +251,16 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		for path, record := range paths.registry {
 			newPath := relocate(path)
 			if newPath == "" {
-				continue
+				newPath = path
+			}
+			if _, exists := registry[newPath]; exists {
+				return errors.New("conflicting restored rule snapshot paths")
 			}
 			var fields map[string]json.RawMessage
 			if err := json.Unmarshal(record, &fields); err != nil || fields == nil {
 				return errors.New("cannot restore the project registry")
 			}
+			delete(fields, "directoryGrant")
 			fields["path"], _ = json.Marshal(newPath)
 			registry[newPath], err = json.Marshal(fields)
 			if err != nil {

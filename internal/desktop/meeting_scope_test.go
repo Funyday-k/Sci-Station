@@ -25,8 +25,16 @@ func meetingProjectService(t *testing.T, approvedPaths ...string) *research.Serv
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.SetPathValidator(func(path string) bool { return slices.Contains(approvedPaths, path) })
+	service.SetPathValidator(func(path string, _ research.DirectoryGrant) bool { return slices.Contains(approvedPaths, path) })
 	return service
+}
+
+func registerFixtureDirectory(service *research.Service, dir string) (research.Project, error) {
+	grant, err := research.IdentifyDirectory(dir)
+	if err != nil {
+		return research.Project{}, err
+	}
+	return service.RegisterDirectoryProject(dir, "", grant)
 }
 
 func changeMeetingProjectDirectory(t *testing.T, host *apiServer, project research.Project, path string) research.Project {
@@ -47,7 +55,7 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	projects := meetingProjectService(t, dir, other)
-	project, err := projects.EnsureDirectoryProject(dir)
+	project, err := registerFixtureDirectory(projects, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

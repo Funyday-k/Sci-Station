@@ -261,7 +261,7 @@ type Engine struct {
 	previousRoots       []string
 	readReviews         readReviewQueue
 	presence            boardPresenceHub
-	projectRuleSnapshot func(string) (ProjectRuleSnapshot, error)
+	projectRuleSnapshot func(ProjectScope) (ProjectRuleSnapshot, error)
 	projectAccess       func(string, func(string) error) error
 	pluginGuidance      func() ([]PluginGuidance, error)
 	dir                 string
@@ -917,7 +917,7 @@ func (e *Engine) loadRoundRules(s *Session) (ProjectRuleSnapshot, error) {
 	if e.projectRuleSnapshot == nil {
 		return ProjectRuleSnapshot{}, nil
 	}
-	rules, err := e.projectRuleSnapshot(s.Project)
+	rules, err := e.projectRuleSnapshot(ProjectScope{ID: s.ProjectID, Directory: s.Project})
 	if err != nil {
 		return rules, fmt.Errorf("无法读取本轮项目规则：%w", err)
 	}
@@ -1460,13 +1460,13 @@ func (e *Engine) SetProjectContext(f func(string) string) {
 		e.SetProjectRuleSnapshot(nil)
 		return
 	}
-	e.SetProjectRuleSnapshot(func(project string) (ProjectRuleSnapshot, error) {
-		return ProjectRuleSnapshot{Guidance: f(project)}, nil
+	e.SetProjectRuleSnapshot(func(scope ProjectScope) (ProjectRuleSnapshot, error) {
+		return ProjectRuleSnapshot{Guidance: f(scope.Directory)}, nil
 	})
 }
 
 // SetProjectRuleSnapshot installs the project rule reader during startup.
-func (e *Engine) SetProjectRuleSnapshot(f func(string) (ProjectRuleSnapshot, error)) {
+func (e *Engine) SetProjectRuleSnapshot(f func(ProjectScope) (ProjectRuleSnapshot, error)) {
 	e.projectRuleSnapshot = f
 }
 

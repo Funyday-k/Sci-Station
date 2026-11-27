@@ -7,16 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"unicode"
-	"unicode/utf8"
 
 	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/research"
@@ -24,34 +21,24 @@ import (
 )
 
 const (
-	maxProjectSelections  = 12
-	maxProjectRules       = 24
-	maxRuleBytes          = 32 << 10
-	maxProjectContext     = 64 << 10
+	maxProjectSelections = 12
+	maxProjectRules      = research.MaxRoundtableRules
+	maxRuleBytes         = research.MaxRoundtableRuleBytes
+
 	maxRegisteredProjects = 256
 )
 
-type projectRuleRef = meeting.ProjectRuleVersion
-
-type projectRule struct {
-	projectRuleRef
-	Source string `json:"source"`
-	Text   string `json:"text"`
-}
+type projectRuleRef = research.RoundtableRuleVersion
+type projectRule = research.RoundtableRule
 
 type projectRecord struct {
-	disk           json.RawMessage
-	DirectoryGrant *research.DirectoryGrant `json:"directoryGrant,omitempty"`
-	Path           string                   `json:"path"`
-	Rules          []projectRule            `json:"rules"`
+	selectedGrant research.DirectoryGrant
+	projectID     string
+	Path          string        `json:"path"`
+	Rules         []projectRule `json:"rules"`
 }
 
-type projectSummary struct {
-	ID        string `json:"id,omitempty"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	RuleCount int    `json:"rule_count"`
-}
+type projectSummary = research.RoundtableProjectSummary
 
 type projectRulePreview struct {
 	projectRule
@@ -59,6 +46,7 @@ type projectRulePreview struct {
 }
 
 type projectPreview struct {
+	ID      string               `json:"id,omitempty"`
 	Path    string               `json:"path"`
 	Name    string               `json:"name"`
 	Rules   []projectRulePreview `json:"rules"`
@@ -66,6 +54,7 @@ type projectPreview struct {
 }
 
 type projectImportSelection struct {
+	ID    string           `json:"id,omitempty"`
 	Path  string           `json:"path"`
 	Rules []projectRuleRef `json:"rules"`
 }
@@ -81,7 +70,6 @@ type projectRulesView struct {
 	Rules   []projectRule  `json:"rules"`
 }
 
-var projectsMu sync.RWMutex
 var errProjectRuleChanged = errors.New("规则文件已更新，请重新预览后再导入。")
 
 func (a *apiServer) projectsFile() string {
@@ -108,84 +96,13 @@ func loadProjectRecords(file string) (map[string]projectRecord, error) {
 		if !registeredProjectPath(path) || project.Path != path || project.Rules == nil || len(project.Rules) > maxProjectRules {
 			return nil, invalid
 		}
-		seen := make(map[string]bool, len(project.Rules))
-		for _, rule := range project.Rules {
-			if seen[rule.Path] || rule.Source == "" || rule.Source != projectRuleSource(rule.Path) ||
-				!validProjectRuleText(rule.Text) || rule.Digest != projectRuleDigest(rule.Text) {
-				return nil, invalid
-			}
-			seen[rule.Path] = true
-		}
-		if len(projectContextText(project.Rules)) > maxProjectContext {
+		if !research.ValidRoundtableRules(project.Rules) {
 			return nil, invalid
 		}
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	for path, project := range projects {
-		project.disk = raw[path]
-		projects[path] = project
 	}
 	return projects, nil
 }
 
-func saveProjectRecords(file string, projects map[string]projectRecord) error {
-	updated := make(map[string]json.RawMessage, len(projects))
-	for path, record := range projects {
-		data, err := marshalProjectRecord(record)
-		if err != nil {
-			return err
-		}
-		updated[path] = data
-	}
-	body, err := json.MarshalIndent(updated, "", "  ")
-	if err != nil {
-		return err
-	}
-	return atomicFile(file, body)
-}
-
-// Keep unrecognized registry fields when updating approved rule snapshots.
-func marshalProjectRecord(record projectRecord) (json.RawMessage, error) {
-	if record.disk == nil {
-		return json.Marshal(record)
-	}
-	var out map[string]json.RawMessage
-	if err := json.Unmarshal(record.disk, &out); err != nil {
-		return nil, err
-	}
-	var originals []json.RawMessage
-	if err := json.Unmarshal(out["rules"], &originals); err != nil {
-		return nil, err
-	}
-	byPath := map[string]json.RawMessage{}
-	for _, raw := range originals {
-		var old projectRule
-		if err := json.Unmarshal(raw, &old); err != nil {
-			return nil, err
-		}
-		byPath[old.Path] = raw
-	}
-	rules := make([]json.RawMessage, 0, len(record.Rules))
-	for _, rule := range record.Rules {
-		raw, err := overlayFields(byPath[rule.Path], rule)
-		if err != nil {
-			return nil, err
-		}
-		rules = append(rules, raw)
-	}
-	out["rules"], _ = json.Marshal(rules)
-	if record.DirectoryGrant != nil {
-		raw, err := overlayFields(out["directoryGrant"], record.DirectoryGrant)
-		if err != nil {
-			return nil, err
-		}
-		out["directoryGrant"] = raw
-	}
-	return json.Marshal(out)
-}
 func overlayFields(raw json.RawMessage, value any) (json.RawMessage, error) {
 	known, err := json.Marshal(value)
 	if err != nil || len(raw) == 0 {
@@ -208,8 +125,6 @@ func overlayFields(raw json.RawMessage, value any) (json.RawMessage, error) {
 }
 
 func (a *apiServer) projectRecords() (map[string]projectRecord, error) {
-	projectsMu.RLock()
-	defer projectsMu.RUnlock()
 	return loadProjectRecords(a.projectsFile())
 }
 
@@ -333,49 +248,8 @@ func readProjectRegular(root *os.Root, filename string, limit int) ([]byte, erro
 	return data, nil
 }
 
-func projectRuleSource(path string) string {
-	switch path {
-	case "AGENTS.md":
-		return "AGENTS.md"
-	case "AGENTS.override.md":
-		return "Codex"
-	case "CLAUDE.md", ".claude/CLAUDE.md":
-		return "Claude Code"
-	case ".cursorrules":
-		return "Cursor"
-	}
-	if len(path) > 1024 || !fs.ValidPath(path) || path == "." || strings.ContainsRune(path, '\\') || strings.IndexFunc(path, unicode.IsControl) >= 0 {
-		return ""
-	}
-	parts := strings.Split(path, "/")
-	if len(parts) < 3 || len(parts) > 7 {
-		return ""
-	}
-	for _, part := range parts[2:] {
-		if strings.HasPrefix(part, ".") {
-			return ""
-		}
-	}
-	switch {
-	case strings.HasPrefix(path, ".claude/rules/") && filepath.Ext(path) == ".md":
-		return "Claude Code"
-	case strings.HasPrefix(path, ".cursor/rules/") && filepath.Ext(path) == ".mdc":
-		return "Cursor"
-	}
-	return ""
-}
-
-func validProjectRuleText(text string) bool {
-	return len(text) <= maxRuleBytes && utf8.ValidString(text) && !strings.ContainsRune(text, 0) && strings.TrimSpace(text) != ""
-}
-
-func projectRuleDigest(text string) string {
-	digest := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(digest[:])
-}
-
 func readProjectRule(root *os.Root, path string) (projectRule, error) {
-	source := projectRuleSource(path)
+	source := research.RoundtableRuleSource(path)
 	if source == "" {
 		return projectRule{}, errors.New("不支持这个规则文件")
 	}
@@ -394,13 +268,13 @@ func readProjectRule(root *os.Root, path string) (projectRule, error) {
 		return projectRule{}, err
 	}
 	text := string(data)
-	if !validProjectRuleText(text) {
+	if !research.ValidRoundtableRuleText(text) {
 		return projectRule{}, errors.New("规则必须是非空 UTF-8 文本")
 	}
 	return projectRule{
-		projectRuleRef: projectRuleRef{Path: path, Digest: projectRuleDigest(text)},
-		Source:         source,
-		Text:           text,
+		RoundtableRuleVersion: projectRuleRef{Path: path, Digest: research.RoundtableRuleDigest(text)},
+		Source:                source,
+		Text:                  text,
 	}, nil
 }
 
@@ -431,7 +305,7 @@ func projectRulePaths(root *os.Root) []string {
 					walk(child, path, depth+1, budget)
 					child.Close()
 				}
-			} else if entry.Type().IsRegular() && projectRuleSource(path) != "" {
+			} else if entry.Type().IsRegular() && research.RoundtableRuleSource(path) != "" {
 				paths = append(paths, path)
 			}
 		}
@@ -448,7 +322,7 @@ func projectRulePaths(root *os.Root) []string {
 	return paths
 }
 
-func previewProjects(paths []string, records map[string]projectRecord) ([]projectPreview, error) {
+func previewProjects(lab *research.Service, paths []string) ([]projectPreview, error) {
 	if len(paths) == 0 || len(paths) > maxProjectSelections {
 		return nil, errors.New("每次可预览 1–12 个项目")
 	}
@@ -463,33 +337,34 @@ func previewProjects(paths []string, records map[string]projectRecord) ([]projec
 			continue
 		}
 		seen[project] = true
-		root, err := openProjectDirectory(project)
+		err = lab.WithRuleImportDirectory(project, "", func(root *os.Root, id string, _ research.DirectoryGrant, rules []projectRule) error {
+			preview := projectPreview{ID: id, Path: project, Name: filepath.Base(project), Rules: []projectRulePreview{}}
+			imported := make(map[projectRuleRef]bool)
+			for _, rule := range rules {
+				imported[rule.RoundtableRuleVersion] = true
+			}
+			remaining := 256 << 10
+			for _, path := range projectRulePaths(root) {
+				if rule, err := readProjectRule(root, path); err == nil {
+					if len(rule.Text) > remaining || len(preview.Rules) >= 64 {
+						preview.Omitted++
+						continue
+					}
+					remaining -= len(rule.Text)
+					preview.Rules = append(preview.Rules, projectRulePreview{projectRule: rule, Imported: imported[rule.RoundtableRuleVersion]})
+				}
+			}
+			previews = append(previews, preview)
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		preview := projectPreview{Path: project, Name: filepath.Base(project), Rules: []projectRulePreview{}}
-		imported := make(map[projectRuleRef]bool)
-		for _, rule := range records[project].Rules {
-			imported[rule.projectRuleRef] = true
-		}
-		remaining := 256 << 10
-		for _, path := range projectRulePaths(root) {
-			if rule, err := readProjectRule(root, path); err == nil {
-				if len(rule.Text) > remaining || len(preview.Rules) >= 64 {
-					preview.Omitted++
-					continue
-				}
-				remaining -= len(rule.Text)
-				preview.Rules = append(preview.Rules, projectRulePreview{projectRule: rule, Imported: imported[rule.projectRuleRef]})
-			}
-		}
-		root.Close()
-		previews = append(previews, preview)
 	}
 	return previews, nil
 }
 
-func collectProjectImports(selections []projectImportSelection) ([]projectRecord, error) {
+func collectProjectImports(lab *research.Service, selections []projectImportSelection) ([]projectRecord, error) {
 	if len(selections) == 0 || len(selections) > maxProjectSelections {
 		return nil, errors.New("每次可导入 1–12 个项目")
 	}
@@ -503,224 +378,156 @@ func collectProjectImports(selections []projectImportSelection) ([]projectRecord
 			return nil, errors.New("每个项目最多选择 24 个规则文件")
 		}
 		record := projectRecord{Path: path, Rules: []projectRule{}}
-		root, err := openProjectDirectory(path)
+		err = lab.WithRuleImportDirectory(path, selection.ID, func(root *os.Root, id string, grant research.DirectoryGrant, _ []projectRule) error {
+			record.selectedGrant = grant
+			record.projectID = id
+			for _, ref := range selection.Rules {
+				if research.RoundtableRuleSource(ref.Path) == "" {
+					return errors.New("只能导入项目下支持的规则文件")
+				}
+				rule, err := readProjectRule(root, ref.Path)
+				if err != nil || rule.Digest != ref.Digest {
+					return errProjectRuleChanged
+				}
+				record.Rules = append(record.Rules, rule)
+			}
+			records = append(records, record)
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		for _, ref := range selection.Rules {
-			if projectRuleSource(ref.Path) == "" {
-				root.Close()
-				return nil, errors.New("只能导入项目下支持的规则文件")
-			}
-			rule, err := readProjectRule(root, ref.Path)
-			if err != nil || rule.Digest != ref.Digest {
-				root.Close()
-				return nil, errProjectRuleChanged
-			}
-			record.Rules = append(record.Rules, rule)
-		}
-		root.Close()
-		records = append(records, record)
 	}
 	return records, nil
 }
 
-func projectContextText(rules []projectRule) string {
-	var context strings.Builder
-	for _, rule := range rules {
-		fmt.Fprintf(&context, "Source: %s (%s)\n%s\n\n", rule.Path, rule.Source, rule.Text)
-	}
-	return context.String()
-}
-
 func (a *apiServer) applyProjectSelections(selections []projectImportSelection) ([]projectSummary, error) {
 	lab := a.research
-	if lab != nil {
-		for _, item := range selections {
-			if err := lab.ValidateExternalDirectory(item.Path); err != nil {
-				return nil, err
-			}
-		}
-	}
-	list, err := a.recordProjectSelections(selections)
-	if err != nil || lab == nil {
-		return list, err
-	}
-	// Never call into research with the registry lock held. Its grant validator
-	// takes the registry read lock while writing the research record.
-	for _, item := range selections {
-		if _, err := lab.EnsureDirectoryProject(item.Path); err != nil {
-			return nil, err
-		}
-	}
-	return a.identifySummaries(list), nil
-}
-func (a *apiServer) identifySummaries(list []projectSummary) []projectSummary {
-	lab := a.research
 	if lab == nil {
-		return list
+		return nil, fmt.Errorf("%w: 科研项目服务不可用", os.ErrPermission)
 	}
-	out := make([]projectSummary, 0, len(list))
-	for _, item := range list {
-		if p, ok := lab.ProjectForDirectory(item.Path); ok {
-			item.ID = p.ID
-			item.Name = p.Name
-			out = append(out, item)
-		}
-	}
-	return out
-}
-func (a *apiServer) recordProjectSelections(selections []projectImportSelection) ([]projectSummary, error) {
-	projectsMu.Lock()
-	defer projectsMu.Unlock()
-	entries, err := collectProjectImports(selections)
+	entries, err := collectProjectImports(lab, selections)
 	if err != nil {
 		return nil, err
 	}
-	file := a.projectsFile()
-	records, err := loadProjectRecords(file)
-	if err != nil {
-		return nil, err
-	}
-	changed := false
 	for _, entry := range entries {
-		current, exists := records[entry.Path]
-		if !exists {
-			current = projectRecord{Path: entry.Path, Rules: []projectRule{}}
-			changed = true
-		}
-		grant, err := research.IdentifyDirectory(entry.Path)
-		if err != nil {
+		if _, err := lab.RegisterDirectoryProject(entry.Path, entry.projectID, entry.selectedGrant, entry.Rules...); err != nil {
 			return nil, err
 		}
-		if current.DirectoryGrant == nil || *current.DirectoryGrant != grant {
-			current.DirectoryGrant = &grant
-			changed = true
-		}
-		index := make(map[string]int, len(current.Rules))
-		for n, rule := range current.Rules {
-			index[rule.Path] = n
-		}
-		for _, rule := range entry.Rules {
-			if n, found := index[rule.Path]; found {
-				if current.Rules[n].Digest != rule.Digest {
-					current.Rules[n] = rule
-					changed = true
-				}
-			} else {
-				index[rule.Path] = len(current.Rules)
-				current.Rules = append(current.Rules, rule)
-				changed = true
-			}
-		}
-		if len(current.Rules) > maxProjectRules || len(projectContextText(current.Rules)) > maxProjectContext {
-			return nil, errors.New("项目规则超出 24 个文件或 64 KiB 的限制，请缩小选择范围")
-		}
-		sort.Slice(current.Rules, func(i, j int) bool { return current.Rules[i].Path < current.Rules[j].Path })
-		records[entry.Path] = current
+		a.selectedPaths.CompareAndDelete(entry.Path, entry.selectedGrant)
 	}
-	if len(records) > maxRegisteredProjects {
-		return nil, errors.New("项目数量超出限制")
-	}
-	if changed {
-		if err := saveProjectRecords(file, records); err != nil {
-			return nil, err
-		}
-	}
-	return projectSummaries(records), nil
+	return a.activeProjectSummaries()
 }
 
-func (a *apiServer) projectRuleSnapshot(projectPath string) (meeting.ProjectRuleSnapshot, error) {
-	snapshot := meeting.ProjectRuleSnapshot{Versions: []meeting.ProjectRuleVersion{}}
-	if projectPath == "" || a.prefs == nil {
-		return snapshot, nil
+func (a *apiServer) activeProjectSummaries() ([]projectSummary, error) {
+	lab := a.research
+	if lab == nil {
+		return nil, os.ErrPermission
 	}
-	records, err := a.projectRecords()
+	return lab.RoundtableProjects(), nil
+}
+
+func (a *apiServer) projectRuleSnapshot(scope meeting.ProjectScope) (meeting.ProjectRuleSnapshot, error) {
+	snapshot := meeting.ProjectRuleSnapshot{Versions: []meeting.ProjectRuleVersion{}}
+	lab := a.research
+	if lab == nil || scope.ID == "" {
+		return snapshot, os.ErrPermission
+	}
+	rules, err := lab.RoundtableRules(scope.ID, scope.Directory)
 	if err != nil {
 		return snapshot, err
 	}
-	rules := records[filepath.Clean(projectPath)].Rules
 	for _, rule := range rules {
-		snapshot.Versions = append(snapshot.Versions, rule.projectRuleRef)
+		snapshot.Versions = append(snapshot.Versions, meeting.ProjectRuleVersion(rule.RoundtableRuleVersion))
 	}
-	snapshot.Guidance = projectContextText(rules)
+	snapshot.Guidance = research.RoundtableRuleText(rules)
 	return snapshot, nil
 }
 
-func (a *apiServer) disableProjectRule(path string, ref projectRuleRef) (projectRecord, error) {
-	projectsMu.Lock()
-	defer projectsMu.Unlock()
-	file := a.projectsFile()
-	records, err := loadProjectRecords(file)
-	if err != nil {
-		return projectRecord{}, err
-	}
-	project, exists := records[path]
-	if !exists {
-		return projectRecord{}, os.ErrNotExist
-	}
-	for i, rule := range project.Rules {
-		if rule.Path != ref.Path {
-			continue
-		}
-		if rule.Digest != ref.Digest {
-			return projectRecord{}, fmt.Errorf("%w: 这条规则已有新版本，请重新查看", meeting.ErrConflict)
-		}
-		project.Rules = append(project.Rules[:i], project.Rules[i+1:]...)
-		records[path] = project
-		if err := saveProjectRecords(file, records); err != nil {
-			return projectRecord{}, err
-		}
-		break
-	}
-	return project, nil
-}
-
 func (a *apiServer) projectRulesHandler(w http.ResponseWriter, r *http.Request) {
-	var project projectRecord
-	var err error
-	switch r.Method {
-	case http.MethodGet:
-		path := r.URL.Query().Get("path")
-		if !registeredProjectPath(path) {
-			reject(w, http.StatusBadRequest, "请选择已添加的项目")
-			return
-		}
-		var records map[string]projectRecord
-		records, err = a.projectRecords()
-		project = records[path]
-	case http.MethodPost:
-		var request struct {
-			Path string         `json:"path"`
-			Rule projectRuleRef `json:"rule"`
-		}
-		if !jsonBody(w, r, &request) {
-			return
-		}
-		if !registeredProjectPath(request.Path) {
-			reject(w, http.StatusBadRequest, "请选择已添加的项目")
-			return
-		}
-		digest, decodeErr := hex.DecodeString(request.Rule.Digest)
-		if projectRuleSource(request.Rule.Path) == "" || decodeErr != nil || len(digest) != sha256.Size {
-			reject(w, http.StatusBadRequest, "请选择有效的项目规则版本")
-			return
-		}
-		project, err = a.disableProjectRule(request.Path, request.Rule)
-	default:
-		w.Header().Set("Allow", "GET, POST")
-		reject(w, http.StatusMethodNotAllowed, "不支持这个操作")
+	lab := a.research
+	if lab == nil {
+		fail(w, os.ErrPermission)
 		return
 	}
-	if errors.Is(err, os.ErrNotExist) || (err == nil && project.Path == "") {
-		reject(w, http.StatusNotFound, "这个项目尚未添加")
+	var input struct {
+		ID   string         `json:"id"`
+		Path string         `json:"path"`
+		Rule projectRuleRef `json:"rule"`
+	}
+	if r.URL.Query().Get("legacy") == "1" && r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		reject(w, http.StatusMethodNotAllowed, "历史规则快照仅供查看")
 		return
+	}
+	if r.Method == http.MethodGet {
+		input.ID = r.URL.Query().Get("id")
+		input.Path = r.URL.Query().Get("path")
+		if r.URL.Query().Get("legacy") == "1" {
+			if input.ID != "" || !registeredProjectPath(input.Path) {
+				reject(w, http.StatusBadRequest, "请选择历史规则的来源路径")
+				return
+			}
+			records, err := a.projectRecords()
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			record, found := records[input.Path]
+			if !found {
+				fail(w, os.ErrNotExist)
+				return
+			}
+			reply(w, 200, projectRulesView{Project: record.summary(), Rules: record.Rules})
+			return
+		}
+	} else if r.Method == http.MethodPost {
+		if !jsonBody(w, r, &input) {
+			return
+		}
+		digest, err := hex.DecodeString(input.Rule.Digest)
+		if research.RoundtableRuleSource(input.Rule.Path) == "" || err != nil || len(digest) != sha256.Size {
+			reject(w, 400, "请选择有效的项目规则版本")
+			return
+		}
+	} else {
+		w.Header().Set("Allow", "GET, POST")
+		reject(w, 405, "不支持这个操作")
+		return
+	}
+	var project research.Project
+	if input.ID != "" {
+		var found bool
+		project, found = lab.ActiveProject(input.ID)
+		if !found || (input.Path != "" && project.Path != input.Path) {
+			fail(w, os.ErrNotExist)
+			return
+		}
+
+	} else {
+		if !registeredProjectPath(input.Path) {
+			reject(w, 400, "请选择已添加的项目")
+			return
+		}
+		var found bool
+		project, found = lab.ProjectForDirectory(input.Path)
+		if !found {
+			fail(w, os.ErrNotExist)
+			return
+		}
+	}
+	var rules []projectRule
+	var err error
+	if r.Method == http.MethodPost {
+		rules, err = lab.DisableRoundtableRule(project.ID, input.Path, input.Rule)
+	} else {
+		rules, err = lab.RoundtableRules(project.ID, input.Path)
 	}
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, projectRulesView{Project: project.summary(), Rules: project.Rules})
+	reply(w, 200, projectRulesView{Project: projectSummary{ID: project.ID, Name: project.Name, Path: project.Path, RuleCount: len(rules)}, Rules: rules})
 }
 
 func (a *apiServer) projectsHandler(w http.ResponseWriter, r *http.Request) {
@@ -736,9 +543,7 @@ func (a *apiServer) projectsHandler(w http.ResponseWriter, r *http.Request) {
 	var summaries []projectSummary
 	var err error
 	if r.Method == http.MethodGet {
-		var records map[string]projectRecord
-		records, err = a.projectRecords()
-		summaries = a.identifySummaries(projectSummaries(records))
+		summaries, err = a.activeProjectSummaries()
 	} else {
 		var request struct {
 			Path string `json:"path"`
@@ -762,7 +567,7 @@ func (a *apiServer) projectImportHandler(w http.ResponseWriter, r *http.Request)
 			fail(w, err)
 			return
 		}
-		reply(w, http.StatusOK, map[string]any{"candidates": discoverProjects(records)})
+		reply(w, http.StatusOK, map[string]any{"candidates": discoverProjects(records), "legacy": projectSummaries(records)})
 		return
 	}
 	var request projectImportRequest
@@ -771,20 +576,12 @@ func (a *apiServer) projectImportHandler(w http.ResponseWriter, r *http.Request)
 	}
 	switch request.Action {
 	case "preview":
-		if lab := a.research; lab != nil {
-			for _, path := range request.Paths {
-				if err := lab.ValidateExternalDirectory(path); err != nil {
-					fail(w, err)
-					return
-				}
-			}
-		}
-		records, err := a.projectRecords()
-		if err != nil {
-			fail(w, err)
+		lab := a.research
+		if lab == nil {
+			fail(w, os.ErrPermission)
 			return
 		}
-		previews, err := previewProjects(request.Paths, records)
+		previews, err := previewProjects(lab, request.Paths)
 		if err != nil {
 			fail(w, err)
 			return

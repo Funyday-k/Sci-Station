@@ -143,8 +143,9 @@ func TestRecoveryReopensIsolatedData(t *testing.T) {
 	if err := json.Unmarshal([]byte(getFile(t, destination, projectDirectory+"/"+externalProjectID+".json")), &restored); err != nil || restored.Project.Path != "" {
 		t.Fatalf("external project is still accessible: %+v %v", restored, err)
 	}
-	if strings.TrimSpace(getFile(t, destination, registryFile)) != "{}" {
-		t.Fatal("external folder grant was replayed")
+	var historical map[string]map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(getFile(t, destination, registryFile)), &historical); err != nil || len(historical) != 1 || historical[filepath.Join(parent, "external")]["rules"] == nil || historical[filepath.Join(parent, "external")]["directoryGrant"] != nil {
+		t.Fatal("external rule archive or grant cleanup changed", historical, err)
 	}
 	if restoredSettings := getFile(t, destination, "settings.json"); strings.Contains(restoredSettings, "cli_paths") || !strings.Contains(restoredSettings, "future") {
 		t.Fatal("local executable override was replayed or unknown settings were lost")
@@ -358,4 +359,38 @@ func TestRecoveryRequiresAnIndependentDestination(t *testing.T) {
 		t.Fatal("published through an alias")
 	}
 	absent(t, filepath.Join(actual, "restored"))
+}
+
+func TestRestoreKeepsRecordedMeetingOwnerAcrossFolderRebinding(t *testing.T) {
+	parent := testParent(t)
+	prototype := fixture(t, parent)
+	archive := filepath.Join(parent, "backup")
+	restored := filepath.Join(parent, "restored")
+	file := "studio/" + externalMeetingID + ".json"
+	var session map[string]any
+	if err := json.Unmarshal([]byte(getFile(t, prototype, file)), &session); err != nil {
+		t.Fatal(err)
+	}
+	// The project ID is historical. Later the directory belongs to a
+	// different project, just as after a user's explicit folder change.
+	session["project_id"] = externalProjectID
+	session["project"] = managedPath(prototype, projectID)
+	data, err := json.Marshal(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putFile(t, prototype, file, string(data))
+	var out bytes.Buffer
+	if err := run([]string{"backup", "-source", prototype, "-destination", archive}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"restore", "-source", archive, "-destination", restored}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(getFile(t, restored, file)), &session); err != nil {
+		t.Fatal(err)
+	}
+	if session["project_id"] != externalProjectID || session["project"] != "" {
+		t.Fatal("restored meeting changed project ownership", session["project_id"], session["project"])
+	}
 }
