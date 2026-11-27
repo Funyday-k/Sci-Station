@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"scistation.local/desktop/internal/cliedit"
+	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/research"
 )
 
@@ -215,6 +218,141 @@ func TestWorkspaceResolutionFallsBackBeforeDomainLoads(t *testing.T) {
 		t.Fatal(dest)
 	}
 
+}
+
+func TestWorkspaceAIScopesFollowModuleSettings(t *testing.T) {
+	instance, err := startWorkspace(t.TempDir(), 0, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.close()
+	api := instance.api
+	p := scienceWorkflowDecode[research.Project](t, navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Module fixture"}`, 201).Body.Bytes())
+	room := scienceWorkflowDecode[struct{ ID string }](t, navigationRequest(t, api, "POST", "/api/studio/sessions",
+		`{"topic":"Synthetic project discussion","seats":["codex"],"project_id":"`+p.ID+`"}`, 201).Body.Bytes())
+	global := scienceWorkflowDecode[struct{ ID string }](t, navigationRequest(t, api, "POST", "/api/studio/sessions",
+		`{"topic":"Synthetic global discussion","seats":["codex"],"scope":"global"}`, 201).Body.Bytes())
+	set := func(project string, enabled bool) {
+		t.Helper()
+		path := "/api/research/modules"
+		if project != "" {
+			path += "?project=" + project
+		}
+		config := scienceWorkflowDecode[struct{ Revision string }](t, navigationRequest(t, api, "GET", path, "", 200).Body.Bytes())
+		navigationRequest(t, api, "PATCH", path, `{"action":"set","id":"ai-lab","enabled":`+strconv.FormatBool(enabled)+`,"revision":"`+config.Revision+`"}`, 200)
+	}
+	check := func(path, expected string) {
+		t.Helper()
+		target, err := url.Parse(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := api.resolveWorkspaceRoute(target)
+		if err != nil || result != expected {
+			t.Fatalf("%s: got %q, %v; want %q", path, result, err, expected)
+		}
+	}
+	editScope := cliedit.Scope{ProjectID: p.ID, Directory: p.Path, MeetingID: room.ID}
+	if err := api.checkEditScope(editScope); err != nil {
+		t.Fatal(err)
+	}
+	set(p.ID, false)
+	if err := api.checkEditScope(editScope); !errors.Is(err, meeting.ErrAIDisabled) {
+		t.Fatalf("disabled project edit: %v", err)
+	}
+	for _, path := range []string{"/studio?project=" + p.ID, "/lab?project=" + p.ID, "/lab?run=" + room.ID, "/studio?session=" + room.ID} {
+		check(path, "/research?project="+p.ID)
+	}
+	check("/studio?session="+global.ID, "/studio?session="+global.ID)
+	check("/studio?view=settings&project="+p.ID, "/studio?view=settings&project="+p.ID)
+	check("/studio?view=plugins", "/studio?view=plugins")
+	navigationRequest(t, api, "POST", "/api/studio/sessions/"+room.ID+"/run", `{"expected_round":0}`, 409)
+	navigationRequest(t, api, "POST", "/api/studio/sessions", `{"topic":"Synthetic project discussion","project_id":"`+p.ID+`","seats":["codex"]}`, 409)
+	set("", false)
+	for _, path := range []string{"/studio", "/lab", "/studio?scope=global", "/lab?run=" + global.ID} {
+		check(path, "/research")
+	}
+	set(p.ID, true)
+	check("/studio?session="+room.ID, "/studio?project="+p.ID+"&session="+room.ID)
+	check("/lab?run="+room.ID, "/lab?project="+p.ID+"&run="+room.ID)
+}
+
+func TestPathOnlyTranscriptUsesSavedSpeechWithoutChangingTheArchive(t *testing.T) {
+	root := t.TempDir()
+	instance, err := startWorkspace(root, 0, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.close()
+	const id = "00000000000000000000000000000abc"
+	const message = "保存的发言 <sample>"
+	dir := filepath.Join(root, "unavailable-project")
+	record := meeting.Session{ID: id, Title: "历史讨论", Topic: "历史议题", Status: "running", Project: dir, Seats: []string{"codex"},
+		Rounds: []meeting.Round{{Number: 1, Note: "主持人原文", Turns: []meeting.Turn{{Seat: "codex", Model: "sample-model", Text: message, Status: "done"}}}}}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "studio", id+".json")
+	if err := os.WriteFile(file, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	instance, err = startWorkspace(root, 0, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.close()
+	api := instance.api
+	link := "/studio?session=" + id
+	page := navigationRequest(t, api, "GET", link, "", 200).Body.String()
+	for _, want := range []string{`data-workspace-surface="session-transcript"`, "只读会话记录", "保存的发言 &lt;sample&gt;", "主持人原文", "sample-model",
+		`id="round-1-codex"`, `href="/api/studio/sessions/` + id + `/export.md"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("transcript is missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{`src="/static/studio.js"`, `id="shell-assist"`, `id="run-form"`, dir} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("unexpected transcript content %q", forbidden)
+		}
+	}
+	if dest := navigationRequest(t, api, "GET", "/lab?run="+id, "", 307).Header().Get("Location"); dest != link {
+		t.Fatal(dest)
+	}
+	export := "/api/studio/sessions/" + id + "/export.md"
+	if !strings.Contains(navigationRequest(t, api, "GET", export, "", 200).Body.String(), message) {
+		t.Fatal("missing saved speech in export")
+	}
+	navigationRequest(t, api, "POST", "/api/studio/sessions/"+id+"/agenda", `{}`, 403)
+	navigationRequest(t, api, "GET", "/api/studio/sessions/"+id+"/files", "", 403)
+	cfg := scienceWorkflowDecode[struct{ Revision string }](t, navigationRequest(t, api, "GET", "/api/research/modules", "", 200).Body.Bytes())
+	navigationRequest(t, api, "PATCH", "/api/research/modules", `{"id":"ai-lab","action":"set","enabled":false,"revision":"`+cfg.Revision+`"}`, 200)
+	for _, path := range []string{link, "/lab?run=" + id} {
+		if dest := navigationRequest(t, api, "GET", path, "", 307).Header().Get("Location"); dest != "/research" {
+			t.Fatal(dest)
+		}
+	}
+	navigationRequest(t, api, "GET", export, "", 409)
+	if strings.Contains(navigationRequest(t, api, "GET", "/api/studio/sessions", "", 200).Body.String(), id) {
+		t.Fatal("disabled workspace listed an unscoped historical record")
+	}
+	deleted := "00000000000000000000000000000def"
+	p := scienceWorkflowDecode[research.Project](t, navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Existing project"}`, 201).Body.Bytes())
+	for _, stale := range []string{"/studio?session=" + deleted, "/lab?run=" + deleted} {
+		if dest := navigationRequest(t, api, "GET", stale, "", 307).Header().Get("Location"); dest != "/research" {
+			t.Fatal(dest)
+		}
+		if dest := navigationRequest(t, api, "GET", stale+"&project="+p.ID, "", 307).Header().Get("Location"); dest != "/research?project="+p.ID {
+			t.Fatal(dest)
+		}
+	}
+	after, err := os.ReadFile(file)
+	if err != nil || string(after) != string(data) {
+		t.Fatalf("changed historical record: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("unexpected historical directory: %v", err)
+	}
 }
 
 func TestNavigationRestoresEvidenceLocatorsWithoutReplayingCommands(t *testing.T) {

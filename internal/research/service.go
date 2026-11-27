@@ -35,10 +35,12 @@ type Entity struct {
 }
 
 type Project struct {
-	ColorHex         string          `json:"colorHex,omitempty"`
-	IconName         string          `json:"iconName,omitempty"`
-	ManagedDirectory bool            `json:"managedDirectory,omitempty"`
-	DirectoryGrant   *DirectoryGrant `json:"directoryGrant,omitempty"`
+	ConversationGeneration   uint64          `json:"conversationGeneration,omitempty"`
+	ConversationResetPending bool            `json:"conversationResetPending,omitempty"`
+	ColorHex                 string          `json:"colorHex,omitempty"`
+	IconName                 string          `json:"iconName,omitempty"`
+	ManagedDirectory         bool            `json:"managedDirectory,omitempty"`
+	DirectoryGrant           *DirectoryGrant `json:"directoryGrant,omitempty"`
 	Entity
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -109,35 +111,41 @@ type Material struct {
 }
 
 type projectData struct {
-	Trashed     bool                     `json:"trashed,omitempty"`
-	Reviews     map[string]MeetingReview `json:"reviews,omitempty"`
-	Project     Project                  `json:"project"`
-	Archived    bool                     `json:"archived,omitempty"`
-	Notes       map[string]Note          `json:"notes"`
-	Tasks       map[string]Task          `json:"tasks"`
-	Materials   map[string]Material      `json:"materials"`
-	NoteKeys    map[string]string        `json:"noteKeys"`
-	TaskKeys    map[string]string        `json:"taskKeys"`
-	Relations   map[string]GraphRelation `json:"relations,omitempty"`
-	disk        json.RawMessage
-	WikiFolders []string     `json:"wikiFolders,omitempty"`
-	Lab         *LabSettings `json:"lab,omitempty"`
+	PreviousDirectoryIdentity *DirectoryGrant          `json:"previousDirectoryIdentity,omitempty"`
+	RoundtableRules           []RoundtableRule         `json:"roundtableRules,omitempty"`
+	Trashed                   bool                     `json:"trashed,omitempty"`
+	Reviews                   map[string]MeetingReview `json:"reviews,omitempty"`
+	Project                   Project                  `json:"project"`
+	Archived                  bool                     `json:"archived,omitempty"`
+	Notes                     map[string]Note          `json:"notes"`
+	Tasks                     map[string]Task          `json:"tasks"`
+	Materials                 map[string]Material      `json:"materials"`
+	NoteKeys                  map[string]string        `json:"noteKeys"`
+	TaskKeys                  map[string]string        `json:"taskKeys"`
+	Relations                 map[string]GraphRelation `json:"relations,omitempty"`
+	disk                      json.RawMessage
+	WikiFolders               []string     `json:"wikiFolders,omitempty"`
+	Lab                       *LabSettings `json:"lab,omitempty"`
 }
 
 // Published project snapshots are immutable. Each mutation copies only its own map
 // and installs the new snapshot after the single on-disk replacement succeeds.
 type Service struct {
-	dir             string
-	mux             *http.ServeMux
-	papers          *PaperLibrary
-	mu              sync.RWMutex
-	projects        map[string]projectData
-	workspaceTasks  workspaceTaskData
-	pathValidator   func(string) bool
-	newTaskReminder func(Task) (string, error)
-	retrievalWorker chan struct{}
+	inspectConversationHistory func(string, func(bool) error) error
+	directoryChanges           sync.Mutex
+	pendingConversationResets  int
+	resetConversations         func(string, func() error) error
+	dir                        string
+	mux                        *http.ServeMux
+	papers                     *PaperLibrary
+	mu                         sync.RWMutex
+	projects                   map[string]projectData
+	workspaceTasks             workspaceTaskData
+	pathValidator              func(string, DirectoryGrant) bool
+	newTaskReminder            func(Task) (string, error)
+	retrievalWorker            chan struct{}
 
-	onInterfaceLanguageChanged func()
+	onWorkspaceMenuChanged func()
 }
 
 func New(dir string) (*Service, error) {
@@ -176,7 +184,10 @@ func New(dir string) (*Service, error) {
 			return nil, err
 		}
 		var d projectData
-		if err = json.Unmarshal(b, &d); err != nil || d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil || d.Tasks == nil || d.Materials == nil || d.NoteKeys == nil || d.TaskKeys == nil {
+		if err = DecodeRecordJSON(b, &d); err != nil {
+			return nil, fmt.Errorf("科研项目文件无法读取 %q: %w", name, err)
+		}
+		if d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil || d.Tasks == nil || d.Materials == nil || d.NoteKeys == nil || d.TaskKeys == nil {
 			return nil, fmt.Errorf("科研项目文件无法读取 %q", name)
 		}
 		d.disk = b
@@ -184,6 +195,9 @@ func New(dir string) (*Service, error) {
 			return nil, err
 		}
 		s.projects[id] = d
+		if d.Project.ConversationResetPending {
+			s.pendingConversationResets++
+		}
 	}
 	if err = s.loadWorkspaceTasks(); err != nil {
 		return nil, err
@@ -229,8 +243,8 @@ func New(dir string) (*Service, error) {
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
-// SetPathValidator is set by the desktop host after the native project registry is open.
-func (s *Service) SetPathValidator(allowed func(string) bool) {
+// SetPathValidator is set by the desktop host to verify the exact folder selected in its native picker.
+func (s *Service) SetPathValidator(allowed func(string, DirectoryGrant) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pathValidator = allowed
@@ -262,7 +276,7 @@ func (s *Service) commit(d projectData) error {
 	if (exists && !bytes.Equal(old.disk, disk)) || (!exists && err == nil) {
 		return errProjectRecordChanged
 	}
-	b, err := json.Marshal(d)
+	b, err := json.Marshal(projectRecord{SchemaVersion: researchRecordSchemaVersion, projectData: d})
 	if err != nil {
 		return err
 	}
@@ -277,6 +291,13 @@ func (s *Service) commit(d projectData) error {
 		return err
 	}
 	d.disk = b
+	if d.Project.ConversationResetPending != old.Project.ConversationResetPending {
+		if d.Project.ConversationResetPending {
+			s.pendingConversationResets++
+		} else {
+			s.pendingConversationResets--
+		}
+	}
 	s.projects[d.Project.ID] = d
 	return nil
 }
@@ -376,9 +397,9 @@ func (s *Service) listProjects(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []Project{}
-	archived := r.URL.Query().Get("archived") == "1"
+	archived, trashed := r.URL.Query().Get("archived") == "1", r.URL.Query().Get("trashed") == "1"
 	for _, d := range s.projects {
-		if d.Trashed == (r.URL.Query().Get("trashed") == "1") && (d.Trashed || d.Archived == archived) {
+		if d.Trashed == trashed && (d.Trashed || d.Archived == archived) {
 			out = append(out, d.Project)
 		}
 	}
@@ -389,6 +410,13 @@ func (s *Service) listProjects(w http.ResponseWriter, r *http.Request) {
 		return out[i].Name < out[j].Name
 	})
 	jsonReply(w, 200, out)
+}
+
+func (s *Service) ActiveProject(id string) (Project, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d, ok := s.projects[id]
+	return d.Project, ok && !d.Archived
 }
 
 type projectInput struct {
@@ -431,10 +459,6 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		path := *in.Path
-		if !filepath.IsAbs(path) || filepath.Clean(path) != path || s.pathValidator == nil || !s.pathValidator(path) {
-			jsonFail(w, 403, "请先在圆桌登记所选项目文件夹")
-			return
-		}
 		grant, err := s.externalDirectory(path)
 		if err != nil {
 			jsonFail(w, 400, "项目文件夹不可用")
@@ -445,6 +469,10 @@ func (s *Service) createProject(w http.ResponseWriter, r *http.Request) {
 				jsonFail(w, 409, "这个文件夹已关联科研项目")
 				return
 			}
+		}
+		if s.pathValidator == nil || !s.pathValidator(path, grant) {
+			jsonFail(w, 403, "请重新选择授权文件夹")
+			return
 		}
 		p.Path = path
 		p.DirectoryGrant = &grant

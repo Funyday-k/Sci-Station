@@ -13,6 +13,26 @@
   const memo = new Map();
   const maxCachedFragments = 32;
   let cachedCharacters = 0;
+  const deferMath = document.currentScript?.hasAttribute("data-defer-math");
+  let mathStylesReady = !deferMath;
+
+  function renderExpression(placeholder, token) {
+    try {
+      window.katex.render(token.expression, placeholder, {
+        displayMode:token.display, trust:false, throwOnError:true, strict:"ignore", maxExpand:500, maxSize:24,
+      });
+    } catch {
+      placeholder.textContent = token.raw.trim();
+    }
+  }
+
+  function loadMath() {
+    const {loadAsset} = window.SciShellLayout;
+    return Promise.all([
+      loadAsset("/static/research-vendor/katex.min.js"),
+      loadAsset("/static/research-vendor/katex.min.css"),
+    ]).then(() => { mathStylesReady = true; });
+  }
 
   function escapedAt(text, index) {
     let backslashes = 0;
@@ -53,7 +73,7 @@
       const plain = document.createElement("pre");
       plain.textContent = source;
       fragment.append(plain);
-      return fragment;
+      return {fragment, cacheable:false};
     }
 
     const expressions = [];
@@ -128,21 +148,23 @@
         anchor.replaceWith(...anchor.childNodes);
       }
     }
+    const pending = [];
     for (const placeholder of template.content.querySelectorAll("span[data-sci-expression]")) {
       const token = expressions[Number(placeholder.dataset.sciExpression)];
       placeholder.removeAttribute("data-sci-expression");
       if (!token) continue;
       placeholder.textContent = token.raw.trim();
-      if (!window.katex) continue;
-      try {
-        window.katex.render(token.expression, placeholder, {
-          displayMode:token.display, trust:false, throwOnError:true, strict:"ignore", maxExpand:500, maxSize:24,
-        });
-      } catch {
-        placeholder.textContent = token.raw.trim();
-      }
+      if (window.katex && mathStylesReady) renderExpression(placeholder, token);
+      else if (deferMath) pending.push([placeholder, token]);
     }
-    return template.content;
+    if (pending.length) {
+      // Keep the sanitized Markdown and its raw formulas visible while the
+      // typesetter loads. Render into the original fragment's placeholders.
+      loadMath().then(() => {
+        for (const [placeholder, token] of pending) renderExpression(placeholder, token);
+      }, () => {});
+    }
+    return {fragment:template.content, cacheable:!pending.length};
   }
 
   function render(host, value, options = {}) {
@@ -152,10 +174,13 @@
     host.classList.add("scientific-content");
     try {
       let content = key && memo.get(key);
+      let clone = Boolean(content);
       if (!content) {
-        content = makeFragment(source, options);
-        if (key) {
+        const {fragment, cacheable} = makeFragment(source, options);
+        content = fragment;
+        if (key && cacheable) {
           memo.set(key, content);
+          clone = true;
           cachedCharacters += key.length;
           while (memo.size > maxCachedFragments || cachedCharacters > 256000) {
             const oldest = memo.keys().next().value;
@@ -164,7 +189,7 @@
           }
         }
       }
-      host.replaceChildren(key ? content.cloneNode(true) : content);
+      host.replaceChildren(clone ? content.cloneNode(true) : content);
     } catch {
       const plain = document.createElement("pre");
       plain.textContent = source;

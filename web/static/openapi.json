@@ -3,7 +3,7 @@
   "info": {
     "title": "Sci-Station · 本机 API",
     "version": "1.0.0",
-    "description": "Sci-Station 本地圆桌服务。科研工作区入口为 /api/research/。"
+    "description": "Sci-Station 本机接口。科研契约包括项目、Wiki 页面读取和创建、模块设置、共享文献与 AI 实验室模板、草稿、项目配置和原文材料准备。辅助接口清单见 [本机 API 页面](/api-docs#research-api)。新增科研 JSON 请求如需单个项目 ID，使用 projectId；既有查询参数 project 和文献关联字段沿用原有名称。"
   },
   "servers": [
     {
@@ -47,9 +47,1083 @@
     },
     {
       "name": "导出"
-    }
+    },
+    {"name": "科研项目"},
+    {"name": "工作区模块"},
+    {"name": "共享文献"},
+    {"name": "AI 实验室"}
   ],
   "paths": {
+    "/api/research/projects": {
+      "get": {
+        "operationId": "listResearchProjects",
+        "summary": "列出科研项目",
+        "tags": ["科研项目"],
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "设为 1 时读取归档记录。",
+            "schema": {"type": "string", "const": "1"}
+          },
+          {
+            "name": "trashed",
+            "in": "query",
+            "description": "设为 1 时只列出项目废纸篓，优先于 archived。",
+            "schema": {"type": "string", "const": "1"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目列表。",
+            "content": {
+              "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/ResearchProject"}}}
+            }
+          },
+          "403": {"$ref": "#/components/responses/Research403"}
+        }
+      },
+      "post": {
+        "operationId": "createResearchProject",
+        "summary": "创建科研项目",
+        "tags": ["科研项目"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ResearchProjectCreate"},
+              "example": {"name": "Local API example"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "新项目。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProject"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/projects/{project}": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProject"}],
+      "get": {
+        "operationId": "getResearchProject",
+        "summary": "读取活动科研项目",
+        "tags": ["科研项目"],
+        "description": "创建项目会话或读取、保存 AI 实验室项目草稿前读取 conversationGeneration，缺省表示 0。conversationResetPending 为 true 时，目录变更后的会话清理尚未完成。",
+        "responses": {
+          "200": {
+            "description": "当前项目。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProject"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      },
+      "patch": {
+        "operationId": "updateResearchProject",
+        "summary": "修改项目资料",
+        "tags": ["科研项目"],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProjectPatch"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "修改后的项目。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProject"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "428": {"$ref": "#/components/responses/Research428"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      },
+      "delete": {
+        "operationId": "archiveResearchProject",
+        "summary": "归档科研项目",
+        "tags": ["科研项目"],
+        "parameters": [
+          {"$ref": "#/components/parameters/Roundtable"},
+          {"$ref": "#/components/parameters/Origin"},
+          {"$ref": "#/components/parameters/ResearchRevision"}
+        ],
+        "responses": {
+          "204": {"description": "项目已归档。"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "428": {"$ref": "#/components/responses/Research428"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      }
+    },
+    "/api/research/projects/{project}/restore": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProject"}],
+      "post": {
+        "operationId": "restoreResearchProject",
+        "summary": "恢复已归档或移入废纸篓的科研项目",
+        "tags": ["科研项目"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {"revision": {"type": "integer", "minimum": 1}},
+                "required": ["revision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "恢复后的项目。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProject"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "428": {"$ref": "#/components/responses/Research428"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/projects/{project}/trash": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProject"}],
+      "post": {
+        "operationId": "trashResearchProject",
+        "summary": "将科研项目移入废纸篓",
+        "tags": ["科研项目"],
+        "description": "受管项目的目录随项目移入工作区废纸篓；外部目录保留原位。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {"revision": {"type": "integer", "minimum": 1}},
+                "required": ["revision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "项目已移入废纸篓。"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "428": {"$ref": "#/components/responses/Research428"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/projects/{project}/directory": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProject"}],
+      "post": {
+        "operationId": "updateResearchProjectDirectory",
+        "summary": "更新活动项目的外部目录授权",
+        "tags": ["科研项目"],
+        "description": "仅适用于外部目录。提供桌面选择器新登记的绝对目录，或传空 path 撤销授权。替换为不同目录前先提交 revision 和 path；收到 409 且 code 为 confirmation_required 后，向用户确认，再提交 resetConversations: true。确认后保留项目 ID，清除此项目的单席会话、圆桌历史、未发送草稿、旧会话审核提案和回执，以及从原目录导入的圆桌规则快照，并增加 conversationGeneration。已采纳的 Wiki、任务、共享文献和原文、目录内的文件、其他项目与全局会话均保留。初次关联目录、重新批准同一目录或撤销目录授权无需确认，也不清理会话。若清理尚未完成，重新打开工作区会尝试恢复；也可先读取项目，再对同一目标重复提交已确认的请求。已清理的会话只能从变更前的完整工作区备份恢复。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {"type": "integer", "minimum": 1},
+                  "path": {"type": "string"},
+                  "resetConversations": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "用户明确确认清除项目旧会话和草稿后填 true。缺省或 false 时，替换目录只返回确认请求。"
+                  }
+                },
+                "required": ["revision", "path"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已更新的项目。目录替换时返回清理完成后的新 conversationGeneration。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchProject"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {
+            "description": "需要用户确认时返回 code 为 confirmation_required。项目版本已变化、目标已被使用或有正在进行的会话或文件编辑时返回冲突；先重新读取项目或结束活动操作。",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ResearchError"},
+                "example": {"error": "切换目录将清除此项目的旧对话和草稿，请确认后继续", "code": "confirmation_required"}
+              }
+            }
+          },
+          "428": {"$ref": "#/components/responses/Research428"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {
+            "description": "会话服务暂不可用，或目录已变更且清理尚未完成，后者返回 code 为 reset_pending。重新打开工作区，或重试同一已确认的目录变更。",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ResearchError"},
+                "example": {"error": "正在清理此项目的旧对话，请稍后重试", "code": "reset_pending"}
+              }
+            }
+          }
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/dashboard/projects": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProjectQuery"}],
+      "get": {
+        "operationId": "getResearchDashboardProjects",
+        "summary": "读取项目概况",
+        "tags": ["科研项目"],
+        "responses": {
+          "200": {
+            "description": "以活动项目 ID 为键的概况。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "noteCount": {"type": "integer", "minimum": 0},
+                      "gapCount": {"type": "integer", "minimum": 0},
+                      "artifactKinds": {"type": "array", "items": {"type": "string"}},
+                      "unsupportedClaimCount": {"type": "integer", "minimum": 0},
+                      "lastResearchActivity": {"type": "string", "format": "date-time"}
+                    },
+                    "required": ["noteCount", "gapCount", "artifactKinds", "unsupportedClaimCount"]
+                  }
+                }
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      }
+    },
+    "/api/research/projects/{project}/notes": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProject"}],
+      "get": {
+        "operationId": "listResearchNotes",
+        "summary": "列出项目 Wiki 页面",
+        "tags": ["科研项目"],
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "设为 1 时读取归档记录。",
+            "schema": {"type": "string", "const": "1"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 Wiki 页面列表。",
+            "content": {
+              "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/ResearchNote"}}}
+            }
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      },
+      "post": {
+        "operationId": "createResearchNote",
+        "summary": "创建项目 Wiki 页面",
+        "tags": ["科研项目"],
+        "description": "会议来源须通过会议审核添加。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ResearchNoteCreate"},
+              "example": {"title": "Local observation", "body": "A saved project source."}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "新页面。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchNote"}}}
+          },
+          "200": {
+            "description": "已成功处理相同 idempotencyKey 时的原页面。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchNote"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "410": {"$ref": "#/components/responses/Research410"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/projects/{project}/notes/{note}": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProject"}, {"$ref": "#/components/parameters/ResearchNote"}],
+      "get": {
+        "operationId": "getResearchNote",
+        "summary": "读取项目 Wiki 页面",
+        "tags": ["科研项目"],
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "设为 1 时读取归档记录。",
+            "schema": {"type": "string", "const": "1"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "所选页面。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchNote"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      }
+    },
+    "/api/research/modules": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchProjectQuery"}],
+      "get": {
+        "operationId": "getResearchModules",
+        "summary": "读取模块配置和生效状态",
+        "tags": ["工作区模块"],
+        "responses": {
+          "200": {
+            "description": "所选范围的模块及该范围当前的版本。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchModuleSnapshot"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      },
+      "patch": {
+        "operationId": "updateResearchModules",
+        "summary": "修改模块状态、固定顺序或目录",
+        "tags": ["工作区模块"],
+        "description": "使用相同 project 范围读到的 revision。set、enable-dependencies、pin、move 和 repair 需要模块 id。项目范围 set 可省略 enabled 或传 null 以继承工作区设置。pin 需要布尔值，move 需要从 0 开始的位置，repair 需要返回状态中可修复的目录 path。pin、move、reset 和 repair 仅适用于工作区范围。",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchModuleChange"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的模块状态。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchModuleSnapshot"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "428": {"$ref": "#/components/responses/Research428"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/papers": {
+      "get": {
+        "operationId": "listResearchPapers",
+        "summary": "筛选共享文献",
+        "tags": ["共享文献"],
+        "parameters": [
+          {"$ref": "#/components/parameters/ResearchProjectQuery"},
+          {"name": "q", "in": "query", "description": "检索词。", "schema": {"type": "string"}},
+          {"name": "status", "in": "query", "description": "阅读状态。", "schema": {"type": "string"}},
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "集合 ID，或 unfiled 表示未归类。",
+            "schema": {"type": "string"}
+          },
+          {"name": "tag", "in": "query", "description": "标签。", "schema": {"type": "string"}},
+          {
+            "name": "paper",
+            "in": "query",
+            "description": "重复传 paper 可选择多个文献 ID。",
+            "schema": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "筛选后的论文。",
+            "content": {
+              "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/ResearchPaper"}}}
+            }
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      },
+      "post": {
+        "operationId": "importResearchPaper",
+        "summary": "导入文献元数据或 PDF",
+        "tags": ["共享文献"],
+        "description": "可提交标题、已有标识符或 URL。JSON 路径可用 fetch_pdf 请求远程 PDF；allow_link_only 允许下载失败时保留可用链接。本地文件须以表单上传。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ResearchPaperImport"},
+              "example": {"title": "Local import example", "authors": ["A. Researcher"], "skip_metadata_lookup": true}
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {"type": "string", "format": "binary", "description": "PDF 文件，最大 256 MiB。"},
+                  "metadata": {"type": "string", "description": "可选 JSON 文本，字段同 application/json。"}
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "创建了共享文献。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaperImportResult"}}}
+          },
+          "200": {
+            "description": "匹配到已有共享文献。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaperImportResult"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "408": {"$ref": "#/components/responses/Research408"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "502": {"$ref": "#/components/responses/Research502"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/papers/preview": {
+      "post": {
+        "operationId": "previewResearchPaperImport",
+        "summary": "预览文献导入",
+        "tags": ["共享文献"],
+        "description": "预览不保存文献。JSON 请求在此步骤不下载 PDF。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ResearchPaperImport"},
+              "example": {"title": "Local import example", "authors": ["A. Researcher"], "skip_metadata_lookup": true}
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {"type": "string", "format": "binary", "description": "PDF 文件，最大 256 MiB。"},
+                  "metadata": {"type": "string", "description": "可选 JSON 文本，字段同 application/json。"}
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "解析后的元数据和可能匹配的已有文献。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaperImportPreview"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "408": {"$ref": "#/components/responses/Research408"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/papers/{paper}": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchPaper"}],
+      "get": {
+        "operationId": "getResearchPaper",
+        "summary": "读取共享文献",
+        "tags": ["共享文献"],
+        "responses": {
+          "200": {
+            "description": "所选文献。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaper"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      },
+      "patch": {
+        "operationId": "updateResearchPaper",
+        "summary": "更新共享文献元数据及项目关联",
+        "tags": ["共享文献"],
+        "description": "提供共享记录的 revision。project_ids 是项目关联列表，core_project_ids 标记其中的核心关联。project_links 使用以项目 ID 为键的部分更新。",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaperPatch"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的文献。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaper"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/papers/{paper}/removal": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchPaper"}],
+      "get": {
+        "operationId": "previewResearchPaperRemoval",
+        "summary": "预览从共享文献库删除的影响",
+        "tags": ["共享文献"],
+        "responses": {
+          "200": {
+            "description": "当前影响清单和确认值。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaperRemoval"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      },
+      "delete": {
+        "operationId": "confirmResearchPaperRemoval",
+        "summary": "确认删除共享文献",
+        "tags": ["共享文献"],
+        "description": "适用于整个共享文献库。只移除项目关联时，使用文献元数据更新。",
+        "parameters": [
+          {"$ref": "#/components/parameters/Roundtable"},
+          {"$ref": "#/components/parameters/Origin"},
+          {"$ref": "#/components/parameters/ResearchRevision"},
+          {
+            "name": "confirmation",
+            "in": "query",
+            "description": "删除预览返回的 confirmation。",
+            "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {"description": "共享文献已删除。"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      }
+    },
+    "/api/research/papers/bibtex": {
+      "get": {
+        "operationId": "exportResearchLibraryBibtex",
+        "summary": "导出筛选文献的 BibTeX",
+        "tags": ["共享文献"],
+        "parameters": [
+          {"$ref": "#/components/parameters/ResearchProjectQuery"},
+          {"name": "q", "in": "query", "description": "检索词。", "schema": {"type": "string"}},
+          {"name": "status", "in": "query", "description": "阅读状态。", "schema": {"type": "string"}},
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "集合 ID，或 unfiled 表示未归类。",
+            "schema": {"type": "string"}
+          },
+          {"name": "tag", "in": "query", "description": "标签。", "schema": {"type": "string"}},
+          {
+            "name": "paper",
+            "in": "query",
+            "description": "重复传 paper 可选择多个文献 ID。",
+            "schema": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}
+          }
+        ],
+        "responses": {
+          "200": {"description": "BibTeX 文件。", "content": {"application/x-bibtex": {"schema": {"type": "string"}}}},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      }
+    },
+    "/api/research/papers/{paper}/bibtex": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchPaper"}],
+      "get": {
+        "operationId": "exportResearchPaperBibtex",
+        "summary": "导出单篇文献的 BibTeX",
+        "tags": ["共享文献"],
+        "responses": {
+          "200": {"description": "BibTeX 文件。", "content": {"application/x-bibtex": {"schema": {"type": "string"}}}},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      }
+    },
+    "/api/research/papers/{paper}/citation": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchPaper"}],
+      "get": {
+        "operationId": "getResearchPaperCitation",
+        "summary": "获取单篇文献的引文文本",
+        "tags": ["共享文献"],
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "引文格式。",
+            "schema": {"type": "string", "enum": ["bibtex", "apa", "mla", "chicago", "ieee", "ris"], "default": "bibtex"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "引文格式及其纯文本。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"format": {"type": "string"}, "text": {"type": "string"}},
+                  "required": ["format", "text"]
+                }
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"}
+        }
+      }
+    },
+    "/api/research/papers/{paper}/pdf": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchPaper"}],
+      "get": {
+        "operationId": "getResearchPaperPDF",
+        "summary": "读取本机 PDF",
+        "tags": ["共享文献"],
+        "parameters": [
+          {"name": "Range", "in": "header", "schema": {"type": "string"}, "description": "可选 HTTP 字节范围。"},
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "schema": {"type": "string"},
+            "description": "可选缓存版本，使用上次响应的 ETag。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "本机 PDF 原文件。",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+            "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}}
+          },
+          "206": {
+            "description": "部分 PDF 内容，或多个请求范围组成的 multipart/byteranges 响应。",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+            "content": {
+              "application/pdf": {"schema": {"type": "string", "format": "binary"}},
+              "multipart/byteranges": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "304": {"description": "版本未变。"},
+          "416": {
+            "description": "所请求的字节范围无效。",
+            "content": {"text/plain": {"schema": {"type": "string"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "500": {"$ref": "#/components/responses/Research500"}
+        }
+      },
+      "head": {
+        "operationId": "inspectResearchPaperPDF",
+        "summary": "检查本机 PDF 响应头",
+        "tags": ["共享文献"],
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "schema": {"type": "string"},
+            "description": "可选缓存版本，使用上次响应的 ETag。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF 响应头，包括内容类型与版本。",
+            "headers": {"ETag": {"schema": {"type": "string"}}}
+          },
+          "304": {"description": "版本未变。"},
+          "403": {"description": "请求未通过本机来源检查。"},
+          "404": {"description": "文献或 PDF 不存在。"},
+          "500": {"description": "无法读取本机 PDF。"}
+        }
+      },
+      "post": {
+        "operationId": "attachResearchPaperPDF",
+        "summary": "为共享文献添加原始 PDF",
+        "tags": ["共享文献"],
+        "description": "发送本机 PDF 表单，或用 JSON 提供 PDF 链接。省略 URL 时可尝试从当前文献的元数据查找。已有 PDF 时返回 409。",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}}}},
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {"file": {"type": "string", "format": "binary"}},
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已添加 PDF 的文献。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchPaper"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "502": {"$ref": "#/components/responses/Research502"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/lab/presets": {
+      "get": {
+        "operationId": "listResearchLabPresets",
+        "summary": "列出 AI 实验室模板",
+        "tags": ["AI 实验室"],
+        "responses": {
+          "200": {
+            "description": "内置与个人模板。",
+            "content": {
+              "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/ResearchLabPreset"}}}
+            }
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        }
+      },
+      "post": {
+        "operationId": "createResearchLabPreset",
+        "summary": "创建个人 AI 实验室模板",
+        "tags": ["AI 实验室"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ResearchLabPresetCreate"},
+              "example": {"title": "Independent check", "mode": "review", "seats": 2, "prompt": "Review each assumption."}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "个人模板。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabPreset"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/lab/presets/{preset}": {
+      "parameters": [{"$ref": "#/components/parameters/ResearchPreset"}],
+      "put": {
+        "operationId": "updateResearchLabPreset",
+        "summary": "替换个人 AI 实验室模板",
+        "tags": ["AI 实验室"],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabPresetUpdate"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的模板。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabPreset"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      },
+      "delete": {
+        "operationId": "deleteResearchLabPreset",
+        "summary": "删除个人 AI 实验室模板",
+        "tags": ["AI 实验室"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {"revision": {"type": "integer", "minimum": 1}},
+                "required": ["revision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "模板已删除。"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/lab/draft": {
+      "parameters": [
+        {"name": "project", "in": "query", "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "description": "项目草稿使用活动项目 ID，scope 可省略或留空。"},
+        {"name": "scope", "in": "query", "schema": {"type": "string", "enum": ["global", ""]}, "description": "全局草稿传 global，此时 project 省略或留空。"},
+        {"name": "thread", "in": "query", "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "description": "提供已有单席会话 ID 时读写该会话的回复草稿；省略时读写新建会话的草稿。"},
+        {"name": "conversationGeneration", "in": "query", "schema": {"$ref": "#/components/schemas/ConversationGeneration"}, "description": "从活动科研项目读取的会话代次。省略视为 0；全局草稿不使用代次。"}
+      ],
+      "get": {
+        "operationId": "getResearchLabDraft",
+        "summary": "读取 AI 实验室的未发送草稿",
+        "tags": ["AI 实验室"],
+        "description": "没有草稿时返回空文本及版本 0。项目代次不符或尚未清理完毕时返回 409。重新读取项目，确认清理状态后，使用当前代次读取草稿；已清理的会话 ID 返回 404。",
+        "responses": {
+          "200": {
+            "description": "草稿及其当前版本。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabDraft"}}}
+          },
+          "400": {"$ref": "#/components/responses/Research400"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "405": {"$ref": "#/components/responses/MethodNotAllowed"},
+          "409": {"$ref": "#/components/responses/ResearchLabDraftConflict"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        }
+      },
+      "put": {
+        "operationId": "saveResearchLabDraft",
+        "summary": "保存 AI 实验室的未发送草稿",
+        "tags": ["AI 实验室"],
+        "description": "提交同一草稿的 revision，空文档可传空文本。目录变更后须重新读取项目和草稿，再保存；过时的代次或草稿版本返回 409。",
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabDraft"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "保存后的草稿及其版本。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabDraft"}}}
+          },
+          "400": {"$ref": "#/components/responses/Research400"},
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "405": {"$ref": "#/components/responses/MethodNotAllowed"},
+          "409": {"$ref": "#/components/responses/ResearchLabDraftConflict"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        }
+      }
+    },
+    "/api/research/lab/context": {
+      "get": {
+        "operationId": "getResearchLabContext",
+        "summary": "读取项目 AI 实验室配置",
+        "tags": ["AI 实验室"],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "description": "目标活动项目 ID。",
+            "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目配置摘要。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabContext"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        }
+      },
+      "patch": {
+        "operationId": "updateResearchLabContext",
+        "summary": "更新项目 AI 实验室配置",
+        "tags": ["AI 实验室"],
+        "description": "变更前确认项目和操作并提交当前 revision。mcp 使用 endpoint 和 value，并仅支持公开 HTTPS 地址。安装技能需要 id、digest 和 markdown；信任、启用或移除需要现有 id 和 digest，trust、enable 可使用 value 选择开关。",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabContextChange"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的项目配置摘要。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchLabContext"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/lab/sources/preview": {
+      "post": {
+        "operationId": "previewResearchLabSource",
+        "summary": "打开项目来源正文预览",
+        "tags": ["AI 实验室"],
+        "description": "line 目前用于 Markdown 正文，取 0 使用所提交的字符偏移。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                  "workflow": {"type": "string"},
+                  "location": {"$ref": "#/components/schemas/ResearchSourceLocation"},
+                  "line": {"type": "integer", "minimum": 0}
+                },
+                "required": ["projectId", "location"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "原文片段、所在位置及内容指纹。",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchSourcePreview"}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
+    "/api/research/lab/sources/prepare": {
+      "post": {
+        "operationId": "prepareResearchLabSourceMaterials",
+        "summary": "将已选正文核验为 AI 会话材料",
+        "tags": ["AI 实验室"],
+        "description": "使用预览的 hash 和匹配的原文开头，最多四段。精读需要一篇论文正文，相关工作比较需两篇，空缺分析需至少一段来源。全局范围无法选择项目引文。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "projectId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                      "scope": {"const": ""},
+                      "workflow": {"type": "string"},
+                      "citations": {
+                        "type": "array",
+                        "items": {"$ref": "#/components/schemas/ResearchCitationSelection"},
+                        "maxItems": 4
+                      }
+                    },
+                    "required": ["projectId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "scope": {"const": "global"},
+                      "projectId": {"const": ""},
+                      "workflow": {"type": "string"},
+                      "citations": {
+                        "type": "array",
+                        "items": {"$ref": "#/components/schemas/ResearchCitationSelection"},
+                        "maxItems": 0
+                      }
+                    },
+                    "required": ["scope"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "可用于会话或该轮 material_ids 的材料。",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Material"}}}}
+          },
+          "403": {"$ref": "#/components/responses/Research403"},
+          "400": {"$ref": "#/components/responses/Research400"},
+          "404": {"$ref": "#/components/responses/Research404"},
+          "409": {"$ref": "#/components/responses/Research409"},
+          "422": {"$ref": "#/components/responses/Research422"},
+          "500": {"$ref": "#/components/responses/Research500"},
+          "503": {"$ref": "#/components/responses/Research503"}
+        },
+        "parameters": [{"$ref": "#/components/parameters/Roundtable"}, {"$ref": "#/components/parameters/Origin"}]
+      }
+    },
     "/api/studio/cli-health": {
       "get": {
         "operationId": "getCLIHealth",
@@ -717,7 +1791,7 @@
         "tags": [
           "项目"
         ],
-        "description": "读取圆桌的项目登记和每个项目已导入规则的数量。",
+        "description": "列出当前科研工作区的活动项目，含稳定项目 ID 和已导入规则数量。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -746,7 +1820,7 @@
         "tags": [
           "项目"
         ],
-        "description": "验证本机文件夹并登记绝对路径，可再次提交同一目录。返回完整项目列表。",
+        "description": "登记选定本机文件夹。重复登记当前已授权目录时复用项目 ID。返回活动项目列表。",
         "parameters": [
           {
             "$ref": "#/components/parameters/Roundtable"
@@ -797,6 +1871,9 @@
           },
           "405": {
             "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -808,7 +1885,7 @@
         "tags": [
           "项目"
         ],
-        "description": "从圆桌、Codex、Claude Code、Cursor CLI 和 Cursor 桌面工作区的已知记录查找可验证的本机项目目录。返回候选及来源。",
+        "description": "candidates 列出从圆桌、Codex、Claude Code、Cursor CLI 和 Cursor 桌面工作区发现的本机项目目录及来源。legacy 列出旧版保存的路径摘要，供查阅和恢复。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -837,7 +1914,7 @@
         "tags": [
           "项目"
         ],
-        "description": "preview 接收路径并返回所识别规则的内容与摘要。apply 接收选中的项目及预览时的规则摘要，追加或更新已导入规则，并返回登记列表。项目文件保持原样；规则已变动返回 409。每个规则上限 32 KiB，每个项目已保存规则上限 24 个文件、64 KiB 上下文。",
+        "description": "preview 接收路径，返回规则内容、摘要及已登记项目的 id。apply 接收选中的项目和规则摘要；已有项目可传预览返回的 id 以核对项目与目录。成功时返回活动项目列表。规则已变动返回 409。每条规则最多 32 KiB；每个项目最多保存 24 条、共 64 KiB 规则上下文。",
         "parameters": [
           {
             "$ref": "#/components/parameters/Roundtable"
@@ -899,25 +1976,40 @@
         "tags": [
           "项目"
         ],
-        "description": "path 必须是项目列表返回的已登记绝对路径。返回当前启用的规则副本；原规则文件无需仍然存在。",
+        "description": "使用当前活动项目的 id 获取保存的规则。提供 path 时会核对该绝对路径和当前目录授权；仅提供 path 时须唯一匹配一个当前已授权项目。历史快照使用 legacy=1 和原始绝对 path 只读查看，此时须省略 id。",
         "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "项目列表返回的稳定项目 ID。",
+            "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+          },
           {
             "name": "path",
             "in": "query",
-            "required": true,
-            "description": "项目登记绝对路径。",
+            "description": "兼容项目查询时传当前已授权的绝对目录；legacy=1 时传历史摘要中的原始目录。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
+          },
+          {
+            "name": "legacy",
+            "in": "query",
+            "description": "设为 1 时读取 path 对应的历史规则快照。",
+            "schema": {"type": "string", "const": "1"}
           }
         ],
         "responses": {
           "200": {
-            "description": "项目与当前启用规则。",
+            "description": "活动项目的规则快照，或 legacy=1 时的只读历史快照。",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectRulesResponse"
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/ProjectRulesResponse"},
+                    {"$ref": "#/components/schemas/LegacyProjectRulesResponse"}
+                  ]
                 }
               }
             }
@@ -942,7 +2034,7 @@
         "tags": [
           "项目"
         ],
-        "description": "提交已导入规则的 path 与 digest 以停用该版本；重复停用幂等。若同路径已被替换为另一版本，返回 409。",
+        "description": "使用项目 id 和已导入规则的相对路径与 digest 停用指定版本。兼容的绝对项目 path 须匹配当前已授权目录；省略 id 时须唯一匹配。重复停用幂等，规则已有新版本时返回 409。",
         "parameters": [
           {
             "$ref": "#/components/parameters/Roundtable"
@@ -997,7 +2089,7 @@
         "tags": [
           "项目"
         ],
-        "description": "返回可读取会话摘要和 unreadable_sessions 坏档列表。坏档逐条隔离，不阻塞其他会话；列表级存档访问/锁/写入错误返回 500。",
+        "description": "返回可读取会话摘要和 unreadable_sessions 坏档列表。确认替换项目目录并完成清理后，旧会话从列表移除。坏档逐条隔离；列表级存档访问或写入失败返回 500。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -1032,7 +2124,7 @@
         "tags": [
           "项目"
         ],
-        "description": "按 project_id 关联当前科研项目，或使用 scope: global 创建无项目文件权限的圆桌。校验 Magpie 型号并保存会话。members 模式默认异步请求首席拟议程，可用 start_agenda_draft: false 跳过。201 表示会话已保存。四种讨论预设均可保存 continuous 配置；创建不会运行首轮。",
+        "description": "为 projectId 创建项目圆桌或单席会话，或用 scope: global 创建全局会话。项目会话使用从科研项目读取的 conversationGeneration，旧客户端省略时按 0 处理。代次不符或该项目仍在清理时返回 409；请重新读取项目并确认清理完成，再创建会话。members 模式校验 Magpie 型号，默认异步请求首席拟议程，可用 start_agenda_draft: false 跳过。201 表示会话已保存。创建可以保存 continuous 配置；首轮需要另行发起。",
         "responses": {
           "201": {
             "description": "成功。",
@@ -1080,7 +2172,7 @@
                   "summary": "使用 Magpie 型号的新圆桌",
                   "value": {
                     "topic": "讨论当前方案",
-                    "project_id": "workspace-project-id",
+                    "projectId": "workspace-project-id",
                     "members": [
                       {
                         "model": "provider/model",
@@ -1108,7 +2200,7 @@
         "tags": [
           "项目"
         ],
-        "description": "轮询此接口观察异步运行。记录包含私有子代理任务／结果、完整写入意图、文件内容快照及本机路径；分享前自行检查。发现中断时标记失败，不自动重放。",
+        "description": "轮询此接口观察异步运行。记录包含私有子代理任务／结果、完整写入意图、文件内容快照及本机路径；分享前自行检查。发现中断时标记失败，不自动重放。项目目录替换后已清理的会话返回 404。",
         "responses": {
           "200": {
             "description": "成功。",
@@ -3040,6 +4132,654 @@
   },
   "components": {
     "schemas": {
+      "ResearchError": {
+        "type": "object",
+        "properties": {"error": {"type": "string"}, "code": {"type": "string"}},
+        "required": ["error"]
+      },
+      "ConversationGeneration": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 18446744073709551615,
+        "description": "项目会话代次。缺省表示 0；每次确认替换为不同目录时递增。"
+      },
+      "ResearchProject": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "revision": {"type": "integer", "minimum": 1},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "path": {"type": "string"},
+          "colorHex": {"type": "string"},
+          "iconName": {"type": "string"},
+          "managedDirectory": {"type": "boolean"},
+          "conversationGeneration": {"$ref": "#/components/schemas/ConversationGeneration"},
+          "conversationResetPending": {"const": true, "description": "目录已变更，旧会话清理尚未完成。清理完成后省略。"},
+          "directoryGrant": {
+            "type": "object",
+            "properties": {"device": {"type": "integer", "minimum": 0}, "inode": {"type": "integer", "minimum": 0}},
+            "required": ["device", "inode"]
+          }
+        },
+        "required": ["id", "revision", "createdAt", "updatedAt", "name", "description", "path"]
+      },
+      "ResearchProjectCreate": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 200},
+          "description": {"type": "string"},
+          "colorHex": {"type": "string"},
+          "iconName": {"type": "string"},
+          "path": {"type": "string", "description": "省略或留空会创建工作区受管目录。外部目录须从桌面的项目选择器登记。"}
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "ResearchProjectPatch": {
+        "type": "object",
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1},
+          "name": {"type": "string", "minLength": 1, "maxLength": 200},
+          "description": {"type": "string"},
+          "colorHex": {"type": "string"},
+          "iconName": {"type": "string"},
+          "path": {"type": "string", "description": "可原样回传已登记的目录。变更外部目录使用专门的授权接口。"}
+        },
+        "required": ["revision"],
+        "additionalProperties": false
+      },
+      "ResearchEvidence": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "projectId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+              "kind": {"type": "string", "enum": ["note", "material", "paper-markdown"]},
+              "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+              "offset": {"type": "integer", "minimum": 0},
+              "end": {"type": "integer", "minimum": 0}
+            },
+            "required": ["projectId", "kind", "id", "offset", "end"]
+          },
+          "paperId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "page": {"type": "integer", "minimum": 1},
+          "quote": {"type": "string"},
+          "sourceHash": {"type": "string"},
+          "meetingId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "turnId": {"type": "string"},
+          "annotationId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "selectionStart": {"type": "integer", "minimum": 0},
+          "selectionEnd": {"type": "integer", "minimum": 0},
+          "ocr": {"type": "boolean"}
+        },
+        "required": ["quote"]
+      },
+      "ResearchNote": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "revision": {"type": "integer", "minimum": 1},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"},
+          "projectId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "title": {"type": "string"},
+          "namespace": {"type": "string"},
+          "aliases": {"type": "array", "items": {"type": "string"}},
+          "body": {"type": "string"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "paperId": {"type": "string"},
+          "evidence": {"type": "array", "items": {"$ref": "#/components/schemas/ResearchEvidence"}},
+          "sourceMeetingId": {"type": "string"},
+          "sourceTurnId": {"type": "string"},
+          "previousPaths": {"type": "array", "items": {"type": "string"}},
+          "archived": {"type": "boolean"},
+          "template": {"type": "string"}
+        },
+        "required": ["id", "revision", "createdAt", "updatedAt", "projectId", "title", "body", "tags", "evidence"]
+      },
+      "ResearchNoteCreate": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "namespace": {"type": "string"},
+          "aliases": {"type": "array", "items": {"type": "string"}},
+          "body": {"type": "string"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "paperId": {"type": "string"},
+          "evidence": {"type": "array", "items": {"$ref": "#/components/schemas/ResearchEvidence"}},
+          "sourceMeetingId": {"type": "string"},
+          "sourceTurnId": {"type": "string"},
+          "idempotencyKey": {"type": "string"}
+        },
+        "required": ["title"],
+        "additionalProperties": false
+      },
+      "ResearchModuleSnapshot": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "title": {"type": "string"},
+                "chineseTitle": {"type": "string"},
+                "dependencies": {"type": "array", "items": {"type": "string"}},
+                "placeholder": {"type": "boolean"},
+                "enabled": {"type": "boolean"},
+                "workspaceEnabled": {"type": "boolean"},
+                "effective": {"type": "boolean"},
+                "pinned": {"type": "boolean"},
+                "missing": {"type": "array", "items": {"type": "string"}},
+                "override": {"type": "boolean"},
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}, "exists": {"type": "boolean"}, "repairable": {"type": "boolean"}},
+                    "required": ["path", "exists", "repairable"]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "chineseTitle",
+                "dependencies",
+                "placeholder",
+                "enabled",
+                "workspaceEnabled",
+                "effective",
+                "pinned"
+              ]
+            }
+          },
+          "pinnedOrder": {"type": "array", "items": {"type": "string"}},
+          "revision": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "required": ["modules", "pinnedOrder", "revision"]
+      },
+      "ResearchModuleChange": {
+        "type": "object",
+        "properties": {
+          "revision": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "action": {"type": "string", "enum": ["set", "enable-dependencies", "pin", "move", "reset", "repair"]},
+          "id": {"type": "string"},
+          "enabled": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+          "position": {"type": "integer"},
+          "path": {"type": "string"}
+        },
+        "required": ["revision", "action"],
+        "additionalProperties": false
+      },
+      "ResearchPaperProjectLink": {
+        "type": "object",
+        "properties": {
+          "is_pinned": {"type": "boolean"},
+          "sort_order": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+          "folder_path": {"type": "string"},
+          "use_for": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]}
+        },
+        "additionalProperties": false
+      },
+      "ResearchPaperMetadata": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "authors": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "year": {"type": "integer", "minimum": 0},
+          "doi": {"type": "string"},
+          "arxiv": {"type": "string"},
+          "url": {"type": "string"},
+          "abstract": {"type": "string"},
+          "tags": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "project_ids": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "core_project_ids": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "citekey": {"type": "string"},
+          "status": {"type": "string", "enum": ["", "unread", "reading", "read"]},
+          "notes": {"type": "string"},
+          "references": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "priority": {"type": "integer"},
+          "rating": {"type": "integer"},
+          "collection_id": {"type": "string"},
+          "publication_title": {"type": "string"},
+          "publisher": {"type": "string"},
+          "volume": {"type": "string"},
+          "issue": {"type": "string"},
+          "pages": {"type": "string"},
+          "item_type": {"type": "string"},
+          "categories": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "bibtex": {"type": "string"},
+          "project_links": {
+            "type": "object",
+            "description": "以项目 ID 为键的独立文献阅读设置。",
+            "additionalProperties": {"$ref": "#/components/schemas/ResearchPaperProjectLink"}
+          },
+          "inspire_id": {"type": "string"},
+          "pdf_url": {"type": "string"},
+          "metadata_source": {"type": "string"}
+        },
+        "required": [
+          "title",
+          "authors",
+          "year",
+          "doi",
+          "arxiv",
+          "url",
+          "abstract",
+          "tags",
+          "project_ids",
+          "core_project_ids",
+          "citekey",
+          "status",
+          "notes",
+          "references",
+          "priority",
+          "rating"
+        ]
+      },
+      "ResearchPaperPatch": {
+        "type": "object",
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1},
+          "title": {"type": "string"},
+          "authors": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "year": {"type": "integer", "minimum": 0},
+          "doi": {"type": "string"},
+          "arxiv": {"type": "string"},
+          "url": {"type": "string"},
+          "abstract": {"type": "string"},
+          "tags": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "project_ids": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "core_project_ids": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "citekey": {"type": "string"},
+          "status": {"type": "string", "enum": ["", "unread", "reading", "read"]},
+          "notes": {"type": "string"},
+          "references": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "priority": {"type": "integer"},
+          "rating": {"type": "integer"},
+          "collection_id": {"type": "string"},
+          "publication_title": {"type": "string"},
+          "publisher": {"type": "string"},
+          "volume": {"type": "string"},
+          "issue": {"type": "string"},
+          "pages": {"type": "string"},
+          "item_type": {"type": "string"},
+          "categories": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "bibtex": {"type": "string"},
+          "project_links": {
+            "type": "object",
+            "description": "以项目 ID 为键的独立文献阅读设置。",
+            "additionalProperties": {"$ref": "#/components/schemas/ResearchPaperProjectLink"}
+          }
+        },
+        "required": ["revision"],
+        "additionalProperties": false
+      },
+      "ResearchPaperImport": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "authors": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "year": {"type": "integer", "minimum": 0},
+          "doi": {"type": "string"},
+          "arxiv": {"type": "string"},
+          "url": {"type": "string"},
+          "abstract": {"type": "string"},
+          "tags": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "project_ids": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "core_project_ids": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "citekey": {"type": "string"},
+          "status": {"type": "string", "enum": ["", "unread", "reading", "read"]},
+          "notes": {"type": "string"},
+          "references": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "priority": {"type": "integer"},
+          "rating": {"type": "integer"},
+          "collection_id": {"type": "string"},
+          "publication_title": {"type": "string"},
+          "publisher": {"type": "string"},
+          "volume": {"type": "string"},
+          "issue": {"type": "string"},
+          "pages": {"type": "string"},
+          "item_type": {"type": "string"},
+          "categories": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+          "bibtex": {"type": "string"},
+          "project_links": {
+            "type": "object",
+            "description": "以项目 ID 为键的独立文献阅读设置。",
+            "additionalProperties": {"$ref": "#/components/schemas/ResearchPaperProjectLink"}
+          },
+          "inspire_id": {"type": "string"},
+          "pdf_url": {"type": "string"},
+          "metadata_source": {"type": "string"},
+          "identifier": {"type": "string"},
+          "fetch_pdf": {"type": "boolean"},
+          "allow_link_only": {"type": "boolean"},
+          "skip_metadata_lookup": {"type": "boolean"}
+        }
+      },
+      "ResearchPaper": {
+        "allOf": [
+          {"$ref": "#/components/schemas/ResearchPaperMetadata"},
+          {
+            "type": "object",
+            "properties": {
+              "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+              "revision": {"type": "integer", "minimum": 1},
+              "created_at": {"type": "string", "format": "date-time"},
+              "updated_at": {"type": "string", "format": "date-time"},
+              "has_pdf": {"type": "boolean"},
+              "file_sha256": {"type": "string"},
+              "annotations": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                        "page": {"type": "integer", "minimum": 1},
+                        "kind": {"type": "string"},
+                        "selected_text": {"type": "string"},
+                        "note": {"type": "string"},
+                        "color": {"type": "string"},
+                        "rects": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {"type": "number"},
+                                  "y": {"type": "number"},
+                                  "width": {"type": "number"},
+                                  "height": {"type": "number"}
+                                },
+                                "required": ["x", "y", "width", "height"]
+                              }
+                            },
+                            {"type": "null"}
+                          ]
+                        },
+                        "created_at": {"type": "string", "format": "date-time"},
+                        "selectionStart": {"type": "integer", "minimum": 0},
+                        "selectionEnd": {"type": "integer", "minimum": 0},
+                        "ocr": {"type": "boolean"}
+                      },
+                      "required": ["id", "page", "kind", "selected_text", "note", "color", "rects", "created_at"]
+                    }
+                  },
+                  {"type": "null"}
+                ]
+              },
+              "reading_position": {
+                "type": "object",
+                "properties": {
+                  "sourceHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "page": {"type": "integer", "minimum": 1},
+                  "zoom": {"type": "number"},
+                  "scroll": {"type": "number"}
+                },
+                "required": ["sourceHash", "page", "zoom", "scroll"]
+              },
+              "markdown_source": {
+                "type": "object",
+                "properties": {
+                  "version": {"type": "integer", "minimum": 1},
+                  "revision": {"type": "integer", "minimum": 1},
+                  "blob_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "origin": {"type": "string"},
+                  "bytes": {"type": "integer", "minimum": 1},
+                  "pdf_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "assets_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                },
+                "required": ["version", "revision", "blob_id", "sha256", "origin", "bytes"]
+              }
+            },
+            "required": ["id", "revision", "created_at", "updated_at", "has_pdf", "file_sha256", "annotations"]
+          }
+        ]
+      },
+      "ResearchPaperImportPreview": {
+        "allOf": [
+          {"$ref": "#/components/schemas/ResearchPaperMetadata"},
+          {
+            "type": "object",
+            "properties": {
+              "existing_paper_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+              "existing_title": {"type": "string"},
+              "has_local_pdf": {"type": "boolean"},
+              "metadata_warning": {"type": "string"}
+            }
+          }
+        ]
+      },
+      "ResearchPaperImportResult": {
+        "allOf": [
+          {"$ref": "#/components/schemas/ResearchPaper"},
+          {
+            "type": "object",
+            "properties": {"import_warning": {"type": "string"}, "metadata_warning": {"type": "string"}}
+          }
+        ]
+      },
+      "ResearchPaperRemoval": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "revision": {"type": "integer", "minimum": 1},
+          "hasPDF": {"type": "boolean"},
+          "hasMarkdown": {"type": "boolean"},
+          "annotations": {"type": "integer", "minimum": 0},
+          "relatedTasks": {"type": "integer", "minimum": 0},
+          "projectIds": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "coreProjectIds": {"anyOf": [{"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}, {"type": "null"}]},
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "name": {"type": "string"},
+                "archived": {"type": "boolean"},
+                "trashed": {"type": "boolean"},
+                "member": {"type": "boolean"},
+                "wikiPages": {"type": "integer", "minimum": 0},
+                "archivedWikiPages": {"type": "integer", "minimum": 0}
+              },
+              "required": ["id", "name", "archived", "trashed", "member", "wikiPages", "archivedWikiPages"]
+            }
+          },
+          "confirmation": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "required": [
+          "title",
+          "revision",
+          "hasPDF",
+          "hasMarkdown",
+          "annotations",
+          "relatedTasks",
+          "projectIds",
+          "coreProjectIds",
+          "projects",
+          "confirmation"
+        ]
+      },
+      "ResearchLabDraft": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string", "maxLength": 2500, "description": "未发送草稿，可为空。"},
+          "revision": {"type": "integer", "minimum": 0, "description": "该草稿的版本，与项目会话代次分别核对。"}
+        },
+        "required": ["text", "revision"],
+        "additionalProperties": false
+      },
+      "ResearchLabPreset": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string", "minLength": 1, "maxLength": 72},
+          "mode": {"type": "string", "enum": ["review", "forum", "prioritize"]},
+          "seats": {"type": "integer", "minimum": 1, "maximum": 4},
+          "prompt": {"type": "string", "minLength": 1, "maxLength": 6500},
+          "revision": {"type": "integer", "minimum": 1},
+          "builtin": {"type": "boolean"}
+        },
+        "required": ["id", "title", "mode", "seats", "prompt", "revision", "builtin"]
+      },
+      "ResearchLabPresetCreate": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "minLength": 1, "maxLength": 72},
+          "mode": {"type": "string", "enum": ["review", "forum", "prioritize"]},
+          "seats": {"type": "integer", "minimum": 1, "maximum": 4},
+          "prompt": {"type": "string", "minLength": 1, "maxLength": 6500}
+        },
+        "required": ["title", "mode", "seats", "prompt"],
+        "additionalProperties": false
+      },
+      "ResearchLabPresetUpdate": {
+        "type": "object",
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1},
+          "title": {"type": "string", "minLength": 1, "maxLength": 72},
+          "mode": {"type": "string", "enum": ["review", "forum", "prioritize"]},
+          "seats": {"type": "integer", "minimum": 1, "maximum": 4},
+          "prompt": {"type": "string", "minLength": 1, "maxLength": 6500}
+        },
+        "required": ["revision", "title", "mode", "seats", "prompt"],
+        "additionalProperties": false
+      },
+      "ResearchLabContext": {
+        "type": "object",
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1},
+          "endpoint": {"type": "string"},
+          "mcpEnabled": {"type": "boolean"},
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "author": {"type": "string"},
+                "version": {"type": "string"},
+                "risk": {"type": "string"},
+                "capabilities": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+                "allowedTools": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+                "digest": {"type": "string"},
+                "enabled": {"type": "boolean"},
+                "trusted": {"type": "boolean"},
+                "invalid": {"type": "boolean"}
+              },
+              "required": [
+                "id",
+                "name",
+                "description",
+                "author",
+                "version",
+                "risk",
+                "capabilities",
+                "allowedTools",
+                "digest",
+                "enabled",
+                "trusted"
+              ]
+            }
+          }
+        },
+        "required": ["revision", "endpoint", "mcpEnabled", "skills"]
+      },
+      "ResearchLabContextChange": {
+        "type": "object",
+        "properties": {
+          "projectId": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "revision": {"type": "integer", "minimum": 1},
+          "operation": {"type": "string", "enum": ["mcp", "install", "trust", "enable", "remove"]},
+          "confirmed": {"const": true},
+          "endpoint": {"type": "string"},
+          "id": {"type": "string"},
+          "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "value": {"type": "boolean"},
+          "markdown": {"type": "string"}
+        },
+        "required": ["projectId", "revision", "operation", "confirmed"],
+        "additionalProperties": false
+      },
+      "ResearchSourceLocation": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "enum": ["note", "material", "paper", "paper-markdown"]},
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "page": {"type": "integer", "minimum": 0, "description": "PDF 使用从 1 开始的页号。其他来源用 0 或省略。"},
+          "offset": {"type": "integer", "minimum": 0, "description": "从 0 开始的 Unicode 字符偏移。"}
+        },
+        "required": ["kind", "id"],
+        "additionalProperties": false
+      },
+      "ResearchSourcePreview": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "enum": ["note", "material", "paper", "paper-markdown"]},
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "page": {"type": "integer", "minimum": 0, "description": "PDF 使用从 1 开始的页号。其他来源用 0 或省略。"},
+          "offset": {"type": "integer", "minimum": 0, "description": "从 0 开始的 Unicode 字符偏移。"},
+          "revision": {"type": "integer", "minimum": 1},
+          "line": {"type": "integer", "minimum": 1},
+          "heading": {"type": "string"},
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {"heading": {"type": "string"}, "line": {"type": "integer", "minimum": 1}},
+              "required": ["heading", "line"]
+            }
+          },
+          "figures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reference": {"type": "string"},
+                "assetId": {"type": "string"},
+                "label": {"type": "string"},
+                "line": {"type": "integer", "minimum": 1},
+                "offset": {"type": "integer", "minimum": 0},
+                "end": {"type": "integer", "minimum": 0},
+                "citeStart": {"type": "integer", "minimum": 0},
+                "citeEnd": {"type": "integer", "minimum": 0}
+              },
+              "required": ["reference", "line", "offset", "end", "citeStart", "citeEnd"]
+            }
+          },
+          "title": {"type": "string"},
+          "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "text": {"type": "string"},
+          "more": {"type": "boolean"}
+        },
+        "required": ["kind", "id", "title", "hash", "text", "more"]
+      },
+      "ResearchCitationSelection": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "enum": ["note", "material", "paper", "paper-markdown"]},
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "page": {"type": "integer", "minimum": 0, "description": "PDF 使用从 1 开始的页号。其他来源用 0 或省略。"},
+          "offset": {"type": "integer", "minimum": 0, "description": "从 0 开始的 Unicode 字符偏移。"},
+          "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "quote": {"type": "string", "minLength": 1, "maxLength": 1000}
+        },
+        "required": ["kind", "id", "hash", "quote"],
+        "additionalProperties": false
+      },
       "Error": {
         "type": "object",
         "properties": {
@@ -4086,19 +5826,26 @@
             "maxLength": 12000,
             "minLength": 1
           },
+          "projectId": {
+            "type": "string",
+            "description": "当前科研工作区的有效项目标识。创建全局会话时省略或传空字符串。"
+          },
           "project_id": {
             "type": "string",
-            "description": "当前科研工作区的有效项目标识。",
-            "minLength": 1
+            "deprecated": true,
+            "description": "兼容旧调用的项目 ID。与 projectId 同时提供时，两值必须完全一致，否则返回 400。"
           },
           "project": {
             "type": "string",
-            "minLength": 1,
-            "description": "兼容旧请求的已授权绝对目录。与 project_id 同时提交时必须与该项目的目录一致。"
+            "description": "兼容旧请求的已授权绝对目录。与项目 ID 同时提交时，须与该项目登记的目录一致。"
           },
           "scope": {
-            "const": "global",
-            "description": "显式创建无项目目录的全局圆桌；省略 project_id 和 project。"
+            "enum": ["global", ""],
+            "description": "global 显式创建无项目目录的全局圆桌；项目会话可省略此字段。"
+          },
+          "conversationGeneration": {
+            "$ref": "#/components/schemas/ConversationGeneration",
+            "description": "项目会话使用从该科研项目读取的当前代次，省略按 0 处理。全局会话忽略此字段。"
           },
           "start_agenda_draft": {
             "type": "boolean",
@@ -4179,16 +5926,17 @@
         },
         "required": ["topic"],
         "anyOf": [
-          { "required": ["project_id"] },
-          { "required": ["project"] },
-          { "required": ["scope"] }
+          { "required": ["projectId"], "properties": { "projectId": { "minLength": 1 } } },
+          { "required": ["project_id"], "properties": { "project_id": { "minLength": 1 } } },
+          { "required": ["project"], "properties": { "project": { "minLength": 1 } } },
+          { "required": ["scope"], "properties": { "scope": { "const": "global" } } }
         ],
         "additionalProperties": false,
         "description": "桌面创建提交 members，由 Magpie 目录校验型号和思考档位。按顺序分配席位，首项为首席。可用 agenda 提交既定事项作为首席草拟上下文，未提交时首席按议题拟议程。提交 members 时须省略 seats 或提供空列表；早期固定席位的请求不能指定非空 agenda 或 preset。 continuous 仅能与 members 配置席位模式一起提交；只预配置状态，不自动发起首轮。",
         "allOf": [
           {
-            "if": { "required": ["scope"] },
-            "then": { "not": { "anyOf": [{ "required": ["project_id"] }, { "required": ["project"] }] } }
+            "if": { "required": ["scope"], "properties": { "scope": { "const": "global" } } },
+            "then": { "properties": { "projectId": { "const": "" }, "project_id": { "const": "" }, "project": { "const": "" } } }
           },
           {
             "if": {
@@ -5119,9 +6867,20 @@
       "ProjectSummary": {
         "type": "object",
         "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "当前活动科研项目的稳定 ID。"},
+          "path": {"type": "string", "description": "项目登记的绝对目录。"},
+          "name": {"type": "string"},
+          "rule_count": {"type": "integer", "minimum": 0, "maximum": 24}
+        },
+        "required": ["id", "path", "name", "rule_count"],
+        "additionalProperties": false
+      },
+      "LegacyProjectSummary": {
+        "type": "object",
+        "properties": {
           "path": {
             "type": "string",
-            "description": "项目文件夹的绝对路径。"
+            "description": "旧版保存的绝对目录。"
           },
           "name": {
             "type": "string"
@@ -5187,10 +6946,16 @@
             "items": {
               "$ref": "#/components/schemas/ProjectCandidate"
             }
+          },
+          "legacy": {
+            "type": "array",
+            "description": "旧版路径登记的只读摘要。",
+            "items": {"$ref": "#/components/schemas/LegacyProjectSummary"}
           }
         },
         "required": [
-          "candidates"
+          "candidates",
+          "legacy"
         ],
         "additionalProperties": false
       },
@@ -5248,6 +7013,7 @@
       "ProjectPreview": {
         "type": "object",
         "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "已有项目的稳定 ID。尚未登记的目录省略此字段。"},
           "path": {
             "type": "string",
             "description": "项目文件夹的绝对路径。"
@@ -5294,6 +7060,7 @@
       "ProjectImportSelection": {
         "type": "object",
         "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "如果预览返回 id，可在应用时传入以核对同一项目。"},
           "path": {
             "type": "string",
             "description": "项目文件夹的绝对路径。"
@@ -6044,21 +7811,36 @@
         ],
         "additionalProperties": false
       },
+      "LegacyProjectRulesResponse": {
+        "type": "object",
+        "properties": {
+          "project": {"$ref": "#/components/schemas/LegacyProjectSummary"},
+          "rules": {"type": "array", "items": {"$ref": "#/components/schemas/ProjectRule"}}
+        },
+        "required": ["project", "rules"],
+        "additionalProperties": false
+      },
       "ProjectRuleDisableRequest": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "当前活动科研项目的稳定 ID。"
+          },
           "path": {
             "type": "string",
-            "description": "项目登记绝对路径，须与项目列表返回值一致。"
+            "minLength": 1,
+            "description": "兼容旧请求的绝对项目目录。提供时须和当前授权目录一致。"
           },
           "rule": {
             "$ref": "#/components/schemas/ProjectRuleReference"
           }
         },
         "required": [
-          "path",
           "rule"
         ],
+        "anyOf": [{"required": ["id"]}, {"required": ["path"]}],
         "additionalProperties": false
       },
       "UnreadableSessionError": {
@@ -7109,6 +8891,47 @@
       }
     },
     "parameters": {
+      "ResearchProject": {
+        "name": "project",
+        "in": "path",
+        "required": true,
+        "description": "科研项目 ID。",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "ResearchProjectQuery": {
+        "name": "project",
+        "in": "query",
+        "description": "科研项目 ID。省略时使用当前操作的工作区范围。",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "ResearchNote": {
+        "name": "note",
+        "in": "path",
+        "required": true,
+        "description": "Wiki 页面 ID。",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "ResearchPaper": {
+        "name": "paper",
+        "in": "path",
+        "required": true,
+        "description": "共享文献库 ID。",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "ResearchPreset": {
+        "name": "preset",
+        "in": "path",
+        "required": true,
+        "description": "个人 AI 实验室模板 ID。",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "ResearchRevision": {
+        "name": "revision",
+        "in": "query",
+        "description": "上次从目标记录读到的 revision。",
+        "schema": {"type": "integer", "minimum": 1},
+        "required": true
+      },
       "Roundtable": {
         "name": "X-Roundtable",
         "in": "header",
@@ -7149,6 +8972,54 @@
       }
     },
     "responses": {
+      "Research400": {
+        "description": "请求字段、格式、选择或操作无效。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research403": {
+        "description": "请求未通过本机标记、来源或内容类型检查，或当前操作没有所需授权或确认。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research404": {
+        "description": "目标记录、来源或文件不存在，或当前操作要求活动项目而目标已归档。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research408": {
+        "description": "导入已取消。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research409": {
+        "description": "当前记录、来源或关联已变化，模块已停用，或本次操作与现有记录冲突。先重新读取当前状态。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research410": {
+        "description": "使用相同幂等键创建的页面已被移除。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research422": {
+        "description": "无法使用当前来源、项目设置或文献数据。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research428": {
+        "description": "操作需要此前读到的 revision。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research500": {
+        "description": "无法读取或保存本机科研数据。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research502": {
+        "description": "上游 PDF 下载失败。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "ResearchLabDraftConflict": {
+        "description": "草稿版本或项目会话代次已过时、AI 实验室已停用，或项目会话清理尚未完成。重新读取项目与草稿状态。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
+      "Research503": {
+        "description": "当前工作区、存档、读取器或模块设置不可用。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResearchError"}}}
+      },
       "BadRequest": {
         "description": "参数、JSON、设置或项目文件输入不合法；Studio 常规单对象 JSON 上限 4 MiB，diagnostics 上限 64 KiB。",
         "content": {

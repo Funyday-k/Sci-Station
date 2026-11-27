@@ -33,7 +33,9 @@ func TestStudioRoundAccessAndUnicodeInputLimits(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	api := (&apiServer{prefs: store, meetings: engine}).serve(8765)
+	host := openNavigationFixture(t, t.TempDir())
+	host.meetings, host.prefs = engine, store
+	api := host.serve(8765)
 	post := func(path string, data map[string]any, want int) *httptest.ResponseRecorder {
 		t.Helper()
 		body, err := json.Marshal(data)
@@ -51,6 +53,7 @@ func TestStudioRoundAccessAndUnicodeInputLimits(t *testing.T) {
 		return w
 	}
 	limit := strings.Repeat("中😀", 6000)
+	testMeetingProject(t, host, project)
 	create := map[string]any{"topic": limit + "😀", "project": project, "seats": []string{"codex"}}
 	post("/sessions", create, http.StatusBadRequest)
 	create["topic"] = limit

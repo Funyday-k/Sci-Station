@@ -10,16 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
 	"scistation.local/desktop/internal/research"
 )
-
-// A token is used only on MinerU's fixed API origin. Signed file URLs receive
-// neither the token nor local metadata. Conversion begins on explicit upload.
-var minerBatchID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 type minerReply struct {
 	Code int    `json:"code"`
@@ -36,6 +31,11 @@ type minerReply struct {
 	} `json:"data"`
 }
 
+// These HTTP responses explicitly reject the request. Provider error codes
+// with undocumented commit semantics leave the submission unresolved.
+type minerRejection struct{ error }
+
+// Only requests to the fixed API origin carry the token.
 func minerAPI(ctx context.Context, token, method, suffix string, in any) (minerReply, error) {
 	var result minerReply
 	var reader io.Reader
@@ -58,7 +58,12 @@ func minerAPI(ctx context.Context, token, method, suffix string, in any) (minerR
 	}
 	defer res.Body.Close()
 	if res.StatusCode/100 != 2 {
-		return result, fmt.Errorf("MinerU 返回 HTTP %d", res.StatusCode)
+		err := fmt.Errorf("MinerU 返回 HTTP %d", res.StatusCode)
+		switch res.StatusCode {
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity, http.StatusTooManyRequests:
+			return result, minerRejection{err}
+		}
+		return result, err
 	}
 	if e = json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&result); e != nil {
 		return result, errors.New("MinerU 的响应无法解析")
@@ -89,6 +94,7 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		Paper              string `json:"paper"`
 		Token              string `json:"token"`
 		Batch              string `json:"batch"`
+		Recovery           string `json:"recovery"`
 		SaveSource         bool   `json:"saveSource"`
 		Revision           int    `json:"revision"`
 		ExpectedHash       string `json:"expectedHash"`
@@ -97,7 +103,7 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 	if !jsonBody(w, r, &input) {
 		return
 	}
-	if route != "mineru/start" && !minerBatchID.MatchString(input.Batch) {
+	if (route != "mineru/start" || input.Batch != "") && !research.ValidMinerBatchID(input.Batch) {
 		reject(w, 400, "任务编号无效")
 		return
 	}
@@ -122,41 +128,7 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	if route == "mineru/start" {
-		paper, pdf, readErr := lab.ConversionOriginal(ctx, input.Paper)
-		if readErr != nil {
-			reject(w, 422, "无法验证本地 PDF")
-			return
-		}
-		if len(pdf) > 200<<20 {
-			reject(w, 400, "MinerU 上传上限为 200 MiB")
-			return
-		}
-		res, e := minerAPI(ctx, token, "POST", "file-urls/batch", map[string]any{"files": []map[string]string{{"name": input.Paper + ".pdf", "data_id": minerSourceID(input.Paper, paper.FileSHA256)}}, "model_version": "vlm", "enable_formula": true, "enable_table": true})
-		if e != nil {
-			reject(w, 502, e.Error())
-			return
-		}
-		if !minerBatchID.MatchString(res.Data.Batch) || len(res.Data.Files) != 1 || !trustedMinerFile(res.Data.Files[0]) {
-			reject(w, 502, "MinerU 返回的上传地址无效")
-			return
-		}
-		req, e := http.NewRequestWithContext(ctx, "PUT", res.Data.Files[0], bytes.NewReader(pdf))
-		if e != nil {
-			reject(w, 502, "上传地址格式无效")
-			return
-		}
-		req.ContentLength = int64(len(pdf))
-		put, e := scientificHTTP.Do(req)
-		if e != nil {
-			reject(w, 502, "上传至 MinerU 失败")
-			return
-		}
-		put.Body.Close()
-		if put.StatusCode/100 != 2 {
-			reject(w, 502, fmt.Sprintf("MinerU 上传返回 HTTP %d", put.StatusCode))
-			return
-		}
-		reply(w, 201, map[string]string{"batch": res.Data.Batch})
+		a.startMinerConversion(ctx, lab, w, paper, token, input.Batch, input.Recovery)
 		return
 	}
 	res, e := minerAPI(ctx, token, "GET", "extract-results/batch/"+input.Batch, nil)
@@ -169,20 +141,27 @@ func (a *apiServer) mineruTool(lab *research.Service, w http.ResponseWriter, r *
 		if !bound && item.DataID != input.Paper && item.Name != input.Paper+".pdf" {
 			continue
 		}
+		status := map[string]string{"state": item.State}
+		if route == "mineru/status" && bound {
+			if err := lab.RememberMinerBatch(item.DataID, input.Batch); err != nil {
+				status["notice"] = "未能保存本机回执，请保留此任务编号。"
+			}
+		}
 		switch item.State {
 		case "failed":
 			reject(w, 422, "MinerU 转换失败，请在 MinerU 中查看错误详情。")
 			return
 		case "pending", "running", "converting", "waiting-file":
-			reply(w, 200, map[string]string{"state": item.State})
+			reply(w, 200, status)
 			return
 		case "done":
 		default:
-			reply(w, 200, map[string]string{"state": "pending"})
+			status["state"] = "pending"
+			reply(w, 200, status)
 			return
 		}
 		if route == "mineru/status" {
-			reply(w, 200, map[string]string{"state": "done"})
+			reply(w, 200, status)
 			return
 		}
 		if !trustedMinerFile(item.ZipURL) {

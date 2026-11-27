@@ -744,12 +744,13 @@
   let wikiRequest = 0, selectedWikiNote = null;
   E.openWikiNote = async function (id, locator) {
     const owner = state.project?.id;
-    if (!owner || !id) return;
+    const isCurrent = E.currentView();
+    if (!owner || !id || !isCurrent()) return;
     const token = ++wikiRequest;
     const base = projectPath("notes/" + enc(id), owner);
     const excerpt = locator?.citation ? await projectSourceExcerpt(owner, "note", id, locator.citation) : null;
     const n = await request(base);
-    if (token !== wikiRequest || state.project?.id !== owner) return;
+    if (token !== wikiRequest || !isCurrent() || state.project?.id !== owner) return;
     if (excerpt && excerpt.revision !== n.revision) throw Error("Wiki 页面已更新，请重新打开引用。");
     selectedWikiNote = n;
     window.SciContextRail?.selectObject("note", n.id);
@@ -1088,10 +1089,11 @@
   }
   E.openMaterialEvidence = async function (id, citation) {
     const owner = state.project?.id;
-    if (!owner || !id) return;
+    const isCurrent = E.currentView();
+    if (!owner || !id || !isCurrent()) return;
     const excerpt = await projectSourceExcerpt(owner, "material", id, citation);
     const material = await request(projectPath("materials/" + enc(id), owner));
-    if (state.project?.id !== owner) return;
+    if (!isCurrent() || state.project?.id !== owner) return;
     if (excerpt.revision !== material.revision) throw Error("材料已更新，请重新打开引用。");
     return readMaterial(material, excerpt);
   };
@@ -1337,6 +1339,7 @@
   E.libraryForm = {field, input, area, select, bindForm, formFooter, done, value};
   E.formAction = async function(action, id) {
     if (action === "close-dialog") return close();
+    if (state.loading || state.loadError) return;
     if (action === "new-project" || action === "edit-project") return window.SciProjectEditor.open(action === "edit-project" ? (id || state.project?.id) : null);
     if (action === "new-paper") return paperForm(null, {focus: id === "pdf" ? "pdf" : "identifiers"});
     if (action === "edit-paper") {

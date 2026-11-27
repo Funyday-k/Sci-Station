@@ -1,28 +1,13 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"scistation.local/desktop/internal/meeting"
-	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
 )
-
-type meetingProjects interface {
-	ProjectDirectory(id string) (string, error)
-	WithProjectDirectory(id string, use func(string) error) error
-	ProjectForDirectory(path string) (research.Project, bool)
-	EnsureDirectoryProject(path string) (research.Project, error)
-}
-
-func (a *apiServer) withMeetingProject(id string, use func(string) error) error {
-	projects, ok := a.research.(meetingProjects)
-	if !ok {
-		return fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
-	}
-	return projects.WithProjectDirectory(id, use)
-}
 
 func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, error) {
 	if scope == "global" && id == "" && path == "" {
@@ -31,11 +16,11 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 	if scope != "" {
 		return meeting.ProjectScope{}, fmt.Errorf("请选择一个科研项目或全局圆桌")
 	}
-	projects, hasResearch := a.research.(meetingProjects)
+	projects := a.research
+	if projects == nil {
+		return meeting.ProjectScope{}, fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
+	}
 	if id != "" {
-		if !hasResearch {
-			return meeting.ProjectScope{}, fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
-		}
 		dir, err := projects.ProjectDirectory(id)
 		if err != nil {
 			return meeting.ProjectScope{}, err
@@ -49,19 +34,20 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 	if err != nil {
 		return meeting.ProjectScope{}, err
 	}
-	if !hasResearch {
-		return meeting.ProjectScope{Directory: dir}, nil
-	}
 	project, found := projects.ProjectForDirectory(dir)
 	if !found {
-		if !a.approvedResearchPath(dir) {
-			return meeting.ProjectScope{}, fmt.Errorf("%w: 请先选择并登记项目目录", os.ErrPermission)
-		}
-		project, err = projects.EnsureDirectoryProject(dir)
-		if err != nil {
-			return meeting.ProjectScope{}, err
-		}
+		return meeting.ProjectScope{}, fmt.Errorf("%w: 请先选择并登记项目目录", os.ErrPermission)
 	}
 	dir, err = projects.ProjectDirectory(project.ID)
 	return meeting.ProjectScope{ID: project.ID, Directory: dir}, err
+}
+
+func (a *apiServer) resetProjectConversations(id string, begin func() error) error {
+	return a.cliEdits.jobs.ResetProject(id, func() error {
+		err := a.meetings.ResetProjectSessions(id, begin)
+		if errors.Is(err, meeting.ErrConflict) {
+			return fmt.Errorf("%w: %s", workspace.ErrConflict, err)
+		}
+		return err
+	})
 }

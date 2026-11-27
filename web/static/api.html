@@ -5,20 +5,47 @@
 {{define "content"}}
 <main class="workspace-page api-guide">
     <div class="intro">
-      <h1>Sci-Station 本机接口</h1><p>科研工作区通过 <code>/api/research/projects</code> 访问项目、笔记、任务、材料和图谱。共享文献与 PDF 使用 <code>/api/research/papers</code>。科研工具和 AI 模板分别位于 <code>/api/research/tools/</code>、<code>/api/research/lab/</code>。</p>
-      <p class="lead">macOS 桌面应用通过本机接口建立项目圆桌、读取 Magpie 模型和管理议程。以下契约供开发与本机验证使用。</p>
-      <a class="button" href="/openapi.json" download="roundtable-openapi.json">下载 OpenAPI 3.1 <span aria-hidden="true">↓</span></a>
+      <h1>Sci-Station 本机接口</h1>
+      <p class="lead">下载契约可查询科研项目、工作区模块、共享文献、AI 实验室和圆桌的请求字段、响应结构和状态码。</p>
+      <a class="button" href="/openapi.json" download="sci-station-openapi.json">下载 OpenAPI 3.1 <span aria-hidden="true">↓</span></a>
       <p class="caption">接口默认地址 <code>http://127.0.0.1:18765</code>；若更换启动端口，请同步修改导入工具的 server 变量。</p>
     </div>
 
     <section aria-labelledby="requests">
       <h2 id="requests">请求约定</h2>
       <div class="note">
-        <p><strong>所有 POST：</strong><code>Content-Type: application/json</code> 与 <code>X-Roundtable: 1</code>。通常传单个 JSON 对象；无参数操作建议传 <code>{}</code>。</p>
+        <p>写入请求须带 <code>X-Roundtable: 1</code>。JSON 请求使用 <code>Content-Type: application/json</code>，通常传单个对象。文件上传使用 <code>multipart/form-data</code>。科研接口允许无请求体的 DELETE 省略 Content-Type；删除 AI 实验室个人模板须用 JSON 传 <code>revision</code>。</p>
         <p><code>Host</code> 必须是当前服务端口的 <code>127.0.0.1</code> 或 <code>localhost</code>。若有 <code>Origin</code>，须精确匹配 <code>http://</code> 加当前 Host；<code>Sec-Fetch-Site: cross-site</code> 会被拒绝。无 Origin 的本机程序客户端可调用。</p>
-        <p><code>X-Roundtable</code> 是防跨站标记，并非账户密码。服务没有远程登录、远程 CORS 或面向互联网的使用方式。早期设置中的 <code>magpie_port</code> 为本机 Magpie 默认端口及兼容诊断端口。已注册 Agent 使用 Magpie 写入的连接配置。</p>
+        <p><code>X-Roundtable</code> 用于防跨站请求。本接口供本机客户端使用。早期设置中的 <code>magpie_port</code> 为本机 Magpie 默认端口及兼容诊断端口。已注册 Agent 使用 Magpie 写入的连接配置。</p>
       </div>
       <p>Studio 解析单个 JSON，常规请求上限 4 MiB；诊断请求上限 64 KiB。常规对象拒绝未知字段，设置补丁按已知键校验。Studio 新会话的 <code>topic</code> 与补充指令 <code>note</code> 最多 12,000 个 Unicode codepoints。JSON 错误形如 <code>{"error":"说明"}</code>。响应不缓存。</p>
+    </section>
+
+    <section aria-labelledby="research-api">
+      <h2 id="research-api">科研工作区</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>路径</th><th>下载契约中的操作</th></tr></thead>
+          <tbody>
+            <tr><td><code>/api/research/projects</code><br><code>/api/research/dashboard/projects</code></td><td>列出、创建、编辑、归档、恢复或丢弃项目，更新外部目录授权，读取项目概况。可列出、创建和读取项目 Wiki 页面。</td></tr>
+            <tr><td><code>/api/research/modules</code></td><td>读取或更新工作区／项目模块设置。提交同一范围读到的 <code>revision</code>。</td></tr>
+            <tr><td><code>/api/research/papers</code></td><td>筛选、读取、预览导入或导入共享文献，编辑元数据及项目关联，导出引文和 BibTeX，读取或添加 PDF，预览并确认共享删除。</td></tr>
+            <tr><td><code>/api/research/lab</code></td><td>读取内置与个人模板，管理个人模板，读写项目或全局会话草稿，读取或修改项目实验室配置，打开来源正文预览并准备已选原文材料。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>项目资源路径使用 <code>{project}</code>；共享文献筛选、模块范围和部分只读接口使用查询参数 <code>project</code>。需要单个项目 ID 的新科研 JSON 请求采用 <code>projectId</code>。圆桌创建接受 <code>projectId</code> 和旧字段 <code>project_id</code>；同时提交不同值时返回 400。圆桌响应和原有读取审批仍使用 <code>project_id</code>。共享文献元数据中的 <code>project_ids</code>、<code>core_project_ids</code> 和 <code>project_links</code> 沿用既有契约；删除预览用 <code>projectIds</code> 和 <code>coreProjectIds</code> 返回影响范围。</p>
+      <p>替换已关联的外部目录时，从 <code>POST /api/research/projects/{project}/directory</code> 收到 <code>409 confirmation_required</code> 后先征得用户确认，再提交 <code>resetConversations: true</code>。项目保留原 ID，旧单席会话、圆桌历史、草稿、会话审核记录和原目录的圆桌规则快照将被清理。已采纳的 Wiki、任务、共享文献和目录文件均保留。若收到 <code>503 reset_pending</code>，可重新打开工作区，或读取项目状态后重试同一已确认的目标目录。</p>
+      <p>创建项目会话及读写项目草稿前，从当前项目读取 <code>conversationGeneration</code>。创建请求写入 JSON，草稿 GET／PUT 使用同名查询参数。省略时使用 0。收到 409 后重新读取项目，等清理完成后再打开新草稿或新会话。要恢复已清理的会话，请在单独的数据目录打开目录变更前的完整工作区备份。</p>
+      <details>
+        <summary>下载契约未覆盖的科研接口</summary>
+        <ul>
+          <li>项目任务、材料和文件操作，图谱及来源摘录，Wiki 编辑、恢复、链接、模板、目录和片段，项目及全局审阅记录，界面与布局设置。</li>
+          <li>文献组织、文献库书目配置、推荐与图谱，阅读进度、标注、证据校验、正文与图件转换或导出，原生文件窗口和保存对话框。旧版直接删除及 PUT 更新仍可供现有调用方使用；新调用可使用删除预览与确认或 PATCH 更新。</li>
+          <li>AI 实验室的线程更名与归档，运行检查与重试、复盘和证据、来源检索和问题选段、技能预览与正文、连接器与资源调用。</li>
+          <li><code>/api/research/tools/</code> 下的文献发现、日历、提醒与 MinerU 转换工具。</li>
+        </ul>
+      </details>
     </section>
 
     <section aria-labelledby="workflow">
@@ -95,11 +122,11 @@ X-Roundtable: 1
 
     <section aria-labelledby="projects">
       <h2 id="projects">本机项目与规则导入</h2>
-      <p><code>GET /api/studio/projects</code> 返回 <code>{"projects":[{"path":"…","name":"…","rule_count":0}]}</code>。对同一路径 POST <code>{"path":"/absolute/project"}</code> 可登记本机文件夹。返回完整项目列表。</p>
-      <p>项目列表和两种会话列表均含 <code>unreadable_sessions</code>，列出无法解析的存档路径与原因；单个坏档不会阻止其他会话显示。直接读取损坏会话返回 422 和 <code>unreadable_session</code> 明细。路径可复制后在 Finder 的“前往文件夹”中查看；接口不修复或改写坏档。</p>
-      <p><code>GET /api/studio/projects/import</code> 返回 <code>{"candidates":[{"path":"…","name":"…","sources":["Codex"]}]}</code>。候选来自圆桌、Codex、Claude Code、Cursor CLI 或 Cursor 桌面工作区的已知路径记录。</p>
-      <p>向 <code>POST /api/studio/projects/import</code> 提交 <code>{"action":"preview","paths":["/absolute/project"]}</code>，返回 <code>projects</code>。每项含 <code>path</code>、<code>name</code>、<code>rules</code> 和因预览限额省略的规则数量 <code>omitted</code>。规则含相对 <code>path</code>、<code>digest</code>、<code>source</code>、<code>text</code>、<code>imported</code>。提交 <code>{"action":"apply","selections":[{"path":"/absolute/project","rules":[{"path":"AGENTS.md","digest":"…"}]}]}</code> 可登记项目并保存明确选中的规则。文件变化返回 409 并要求重新预览。成功响应与 <code>GET /api/studio/projects</code> 一致。</p>
-      <p>规则是应用保存的文本副本，同项目同路径可重新导入以更新。应用在后续项目轮次读取这些副本。规则读取限于支持的文本路径，每次最多 12 个项目，每个项目保存至多 24 个文件和 64 KiB 规则上下文。<code>GET /api/studio/projects/rules?path=…</code> 读取已登记项目的启用规则，path 必须使用项目列表返回的绝对路径；原文件无需仍然存在。<code>POST /api/studio/projects/rules</code> 提交 <code>{"path":"/absolute/project","rule":{"path":"AGENTS.md","digest":"…"}}</code> 可停用指定导入版本；重复停用幂等，规则已被替换时返回 409，项目未登记返回 404。</p>
+      <p><code>GET /api/studio/projects</code> 返回当前科研工作区的活动项目，每项包含 <code>id</code>、<code>path</code>、<code>name</code> 和 <code>rule_count</code>。向同一接口 POST <code>{"path":"/absolute/project"}</code> 可登记选定目录，成功时返回活动项目列表。</p>
+      <p><code>GET /api/studio/projects/import</code> 返回可选目录及其来源 <code>candidates</code>，以及旧版路径登记的只读摘要 <code>legacy</code>。历史摘要含 <code>path</code>、<code>name</code> 和 <code>rule_count</code>。</p>
+      <p>向 <code>POST /api/studio/projects/import</code> 提交 <code>{"action":"preview","paths":["/absolute/project"]}</code>。预览返回 <code>projects</code>，每项含 <code>path</code>、<code>name</code>、<code>rules</code> 和因限额省略的规则数量 <code>omitted</code>；已有项目还返回 <code>id</code>。提交 <code>action:"apply"</code> 及 <code>selections</code>，每项用 <code>path</code> 指定目录、用 <code>rules</code> 提交选中规则的相对 <code>path</code> 和 <code>digest</code>。已有项目可同时带入预览中的 <code>id</code>。文件变化时返回 409，重新预览后再提交。</p>
+      <p><code>GET /api/studio/projects/rules?id=…</code> 读取保存的规则副本。<code>POST /api/studio/projects/rules</code> 提交 <code>{"id":"…","rule":{"path":"AGENTS.md","digest":"…"}}</code> 可停用指定版本。重复停用幂等，规则已有新版本时返回 409。兼容请求可以使用绝对项目 <code>path</code>，此时路径须唯一匹配当前已授权的活动项目；若同时提交 <code>id</code>，两者须对应同一项目。单次最多预览或导入 12 个项目，每个项目可保存至多 24 条规则和 64 KiB 规则上下文。</p>
+      <p>使用 <code>GET /api/studio/projects/rules?legacy=1&amp;path=…</code> 按历史摘要的原始绝对路径只读查看旧规则。此请求只使用路径，适用于旧记录查阅和恢复。</p>
       <p><code>POST /api/studio/open-rules</code> 接受 <code>{}</code>，生成只读的 <code>discussion-rules.md</code>，并用桌面默认文本编辑器打开。成功返回 <code>{"path":"…"}</code>；打开失败时响应可同时含 <code>path</code> 和 <code>error</code>。</p>
     </section>
 

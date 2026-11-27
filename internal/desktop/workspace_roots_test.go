@@ -210,35 +210,25 @@ func TestStudioRegistrationUsesActiveRootResearchIdentity(t *testing.T) {
 	if path, err := lab.ProjectDirectory(id); err != nil || path != ext {
 		t.Fatal(path, err)
 	}
-	if repeated, err := lab.EnsureDirectoryProject(ext); err != nil || repeated.ID != id {
+	grant, err := research.IdentifyDirectory(ext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated, err := lab.RegisterDirectoryProject(ext, "", grant); err != nil || repeated.ID != id {
 		t.Fatal(repeated, err)
 	}
-	entries, err := loadProjectRecords(api.projectsFile())
-	if err != nil {
+	if _, err := os.Stat(api.projectsFile()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("canonical registration wrote to old registry", err)
+	}
+	legacy := []byte(fmt.Sprintf(`{%q:{"path":%q,"rules":[],"directoryGrant":{"device":%d,"inode":%d,"future":"keep"},"unknown":true}}`, ext, ext, grant.Device, grant.Inode))
+	if err := os.WriteFile(api.projectsFile(), legacy, 0600); err != nil {
 		t.Fatal(err)
 	}
-	original := entries[ext]
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(original.disk, &raw); err != nil {
-		t.Fatal(err)
+	projectTestRequest(t, api.serve(8765), "POST", "", map[string]string{"path": ext}, 200, &list)
+	if data, err := os.ReadFile(api.projectsFile()); err != nil || !bytes.Equal(data, legacy) {
+		t.Fatal("legacy metadata changed", err)
 	}
-	raw["future"] = json.RawMessage(`{"keep":true}`)
-	raw["directoryGrant"] = json.RawMessage(fmt.Sprintf(`{"device":%d,"inode":%d,"future":"keep"}`, original.DirectoryGrant.Device, original.DirectoryGrant.Inode))
-	original.disk, err = json.Marshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entries[ext] = original
-	if err := saveProjectRecords(api.projectsFile(), entries); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(api.projectsFile())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(data, []byte(`"keep": true`)) || !bytes.Contains(data, []byte(`"future": "keep"`)) {
-		t.Fatalf("registry metadata lost: %s", data)
-	}
+
 }
 
 func TestWorkspaceAcceptsOnlyOwnedRecordDirectories(t *testing.T) {

@@ -37,6 +37,14 @@
   padding: 14px;
 }
 
+.dashboard-load-warning {
+  margin-bottom: 14px;
+}
+
+.dashboard-load-warning .dashboard-muted {
+  padding: 10px 16px;
+}
+
 .dashboard-widget .panel-header {
   padding: 0;
   margin-bottom: 10px;

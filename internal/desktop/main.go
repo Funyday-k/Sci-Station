@@ -241,11 +241,11 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 	}
 	gateway := studioGateway(pref)
 	call := gatewayCall(gateway)
-	engine, e := meeting.New(filepath.Join(dir, "studio"), call, pref.meetingSettings)
+	lab, e := research.New(filepath.Join(dir, "research"))
 	if e != nil {
 		return nil, e
 	}
-	lab, e := research.New(filepath.Join(dir, "research"))
+	engine, e := meeting.NewWithProjectAccess(filepath.Join(dir, "studio"), call, pref.meetingSettings, lab.WithProjectDirectory)
 	if e != nil {
 		return nil, e
 	}
@@ -262,6 +262,7 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 			engine.SetResearchReads(api)
 		}
 	}
+	engine.SetAIAvailability(func(project string) (bool, error) { return lab.ModuleEnabled(project, "ai-lab") })
 	engine.SetManagedRootHistory(dir, binding.Paths)
 	lab.SetPathValidator(api.approvedResearchPath)
 	if marketErr == nil {
@@ -271,18 +272,18 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 		log.Printf("插件已暂停：%v", marketErr)
 	}
 	engine.SetProjectRuleSnapshot(api.projectRuleSnapshot)
-	instance := api.serveOwnedWorkspace(listener, guard, binding, 8*time.Second)
+	handler := api.serve(listener.Addr().(*net.TCPAddr).Port)
+	instance := api.serveOwnedWorkspace(listener, guard, binding, handler, 8*time.Second)
 	owned = true
 	return instance, nil
 }
 
 // The instance owns the listener and the exclusive workspace lock from here.
-func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, binding rootBinding, grace time.Duration) *workspaceInstance {
+func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, binding rootBinding, handler http.Handler, grace time.Duration) *workspaceInstance {
 	address := "http://" + listener.Addr().String()
 	requestContext, cancelRequests := context.WithCancel(context.Background())
 	var access sync.RWMutex
 	frozen := false
-	handler := api.serve(listener.Addr().(*net.TCPAddr).Port)
 	server := &http.Server{
 		BaseContext: func(net.Listener) context.Context { return requestContext },
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

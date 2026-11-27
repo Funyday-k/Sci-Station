@@ -372,7 +372,7 @@ func diagnoseCLI(ctx context.Context, seat string, p preferences, gateway diagno
 	if !info.Available {
 		return s
 	}
-	version, versionErr := diagnosticCommand(ctx, info.Path, "--version")
+	version, versionErr := diagnosticCommand(ctx, seat, info.Path, "--version")
 	if versionErr == nil {
 		s.Version = cleanDiagnosticVersion(version)
 	}
@@ -380,7 +380,7 @@ func diagnoseCLI(ctx context.Context, seat string, p preferences, gateway diagno
 	if seat == "cursor" {
 		args = []string{"status", "--format", "json"}
 	}
-	status, statusErr := diagnosticCommand(ctx, info.Path, args...)
+	status, statusErr := diagnosticCommand(ctx, seat, info.Path, args...)
 	if seat == "cursor" {
 		var auth struct {
 			Status          string `json:"status"`
@@ -473,23 +473,35 @@ func (b *diagnosticBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func diagnosticEnvironment() []string {
-	blocked := map[string]bool{"OPENAI_API_KEY": true, "CODEX_API_KEY": true, "CODEX_ACCESS_TOKEN": true, "OPENAI_BASE_URL": true, "OPENAI_API_BASE": true, "OPENAI_FEDERATION_RULE_ID": true, "OPENAI_IDENTITY_TOKEN_FILE": true, "CURSOR_API_KEY": true, "CURSOR_AUTH_TOKEN": true, "CURSOR_API_ENDPOINT": true, "CURSOR_API_BASE_URL": true, "CURSOR_API_URL": true, "CURSOR_WEBSITE_URL": true}
-	env := []string{}
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		if !blocked[key] {
-			env = append(env, entry)
+func diagnosticEnvironment(seat string) []string {
+	home, _ := os.UserHomeDir()
+	dirs := filepath.SplitList(os.Getenv("PATH"))
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"))
+	}
+	dirs = append(dirs, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin")
+	env := []string{"PATH=" + strings.Join(dirs, string(os.PathListSeparator)), "NO_COLOR=1", "NO_OPEN_BROWSER=1"}
+
+	// Status checks use the CLI's locally saved login. Inherit only runtime
+	// settings and paths needed to find that login.
+	keys := []string{"HOME", "CFFIXED_USER_HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"}
+	switch seat {
+	case "codex":
+		keys = append(keys, "CODEX_HOME")
+	case "cursor":
+		keys = append(keys, "CURSOR_CONFIG_DIR")
+	}
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
 		}
 	}
-	home, _ := os.UserHomeDir()
-	path := strings.Join([]string{os.Getenv("PATH"), filepath.Join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"}, string(os.PathListSeparator))
-	return append(env, "PATH="+path, "NO_COLOR=1", "NO_OPEN_BROWSER=1")
+	return env
 }
 
 // Only --version, codex login status, and cursor status are supplied by callers.
 // The user cannot supply command arguments; raw output stays in process memory.
-func diagnosticCommand(parent context.Context, executable string, args ...string) (string, error) {
+func diagnosticCommand(parent context.Context, seat, executable string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -502,7 +514,7 @@ func diagnosticCommand(parent context.Context, executable string, args ...string
 	defer os.RemoveAll(dir)
 	cmd := exec.Command(executable, args...)
 	cmd.Dir = dir
-	cmd.Env = diagnosticEnvironment()
+	cmd.Env = diagnosticEnvironment(seat)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = time.Second
 	var out diagnosticBuffer

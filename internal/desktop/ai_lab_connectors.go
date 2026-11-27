@@ -214,8 +214,8 @@ func (a *apiServer) serveLabConnector(w http.ResponseWriter, r *http.Request, pa
 	if !jsonBody(w, r, &in) {
 		return
 	}
-	lab, ok := a.research.(*research.Service)
-	if !ok {
+	lab := a.research
+	if lab == nil {
 		reject(w, 503, "未打开科研工作区")
 		return
 	}

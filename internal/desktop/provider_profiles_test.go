@@ -178,7 +178,8 @@ func TestDirectProviderUsesNormalMeetingAndModelCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer engine.Shutdown(context.Background())
-	host := &apiServer{desktop: true, minerCreds: newMinerCredentials(&mockMinerKeychain{}), prefs: prefs, meetings: engine}
+	host := openNavigationFixture(t, t.TempDir())
+	host.desktop, host.minerCreds, host.prefs, host.meetings = true, newMinerCredentials(&mockMinerKeychain{}), prefs, engine
 	api := host.serve(18765)
 	do := func(method, path string, input any, proof string, want int) []byte {
 		t.Helper()
@@ -226,6 +227,7 @@ func TestDirectProviderUsesNormalMeetingAndModelCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testMeetingProject(t, host, project)
 	s := scienceWorkflowDecode[meeting.Session](t, do("POST", "sessions", map[string]any{
 		"topic": "Check the fixture calculation", "project": project, "members": []meeting.Member{{Model: model, Effort: "auto"}},
 	}, "", 201))

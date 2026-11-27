@@ -39,6 +39,14 @@ A project record can contain a `reviews` object keyed by the operation ID. A ver
 
 Use a separate destination and a verified copy of the full research root and meeting store before moving between workstation versions. To roll back, reopen the last known-good copy with the version that created it. This preserves the new root's review history, historical passage locations and decision receipts for reopening with its matching version. An older workstation must not edit a root containing review records it cannot preserve.
 
+## Project records and MinerU receipts
+
+Project and paper files accept the original unversioned format and a top-level integer `schema_version` of 1. Opening an old record leaves it intact. The next ordinary save adds the version. Unsupported versions require a compatible app or a verified backup. Project and paper API responses and concurrency revisions keep their existing contracts.
+
+A project record may carry its conversation generation and an unfinished directory reassignment. Older projects begin at generation zero. The workstation completes pending cleanup before accepting new conversations for the reassigned project. Recover the project record and its meeting store together from the same backup.
+
+MinerU receipts live in `research/library/mineru/<data_id>.json` under the workstation root. Version 1 uses the existing paper identity and original PDF fingerprint for the filename. The record holds the attempt, submission state and known batch ID. Include the receipt directory in full-library backups. If submission status is uncertain, check the existing batch before requesting another. Earlier libraries can still look up a known batch number manually. See [RFC-0003](rfcs/RFC-0003-project-records-and-conversion-recovery.md).
+
 ## Preparing a release
 
 1. Update `VERSION`, the Chinese and English README version headers and the `CHANGELOG.md` release entry together. Commit a positive `BUILD_NUMBER` greater than the latest lower release's build number.

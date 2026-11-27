@@ -20,6 +20,9 @@ func (a *apiServer) report(w http.ResponseWriter, r *http.Request, id, route str
 			fail(w, err)
 			return
 		}
+		if s.PathOnly() && a.research != nil && !checkLabModule(w, a.research, "") {
+			return
+		}
 		if s.Report == nil {
 			reject(w, http.StatusConflict, "主持人尚未结束会议")
 			return

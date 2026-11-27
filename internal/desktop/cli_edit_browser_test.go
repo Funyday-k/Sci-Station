@@ -51,7 +51,7 @@ func TestCLIEditReviewBrowser(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		lab.SetPathValidator(func(path string) bool { return path == dir })
+		lab.SetPathValidator(func(path string, _ research.DirectoryGrant) bool { return path == dir })
 		engine, err := meeting.New(filepath.Join(root, "meetings"), func(context.Context, string, string, string, string) (string, error) {
 			return "", errors.New("offline fixture: no model is connected")
 		}, func() meeting.Settings { return prefs.get().Settings })
@@ -67,7 +67,7 @@ func TestCLIEditReviewBrowser(t *testing.T) {
 			return cliEditProvider{ID: id, Label: id, Reason: "Fixture has no per-file approval adapter"}
 		}
 		if phase == "review" {
-			project, err := lab.EnsureDirectoryProject(dir)
+			project, err := registerFixtureDirectory(lab, dir)
 			if err != nil {
 				t.Fatal(err)
 			}

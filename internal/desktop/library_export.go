@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 )
@@ -23,10 +22,8 @@ func (a *apiServer) saveLibraryBibtex(w http.ResponseWriter, r *http.Request) {
 		reject(w, http.StatusBadRequest, "请提交空对象")
 		return
 	}
-	library, ok := a.research.(interface {
-		LibraryBibtex(url.Values) (string, error)
-	})
-	if !ok {
+	library := a.research
+	if library == nil {
 		reject(w, http.StatusServiceUnavailable, "文献库不可用")
 		return
 	}

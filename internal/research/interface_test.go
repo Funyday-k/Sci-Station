@@ -53,7 +53,7 @@ func TestInterfaceLanguageRoundTripIsRootScoped(t *testing.T) {
 func TestInterfaceLanguageNotifiesDesktopAfterCommit(t *testing.T) {
 	s := newResearch(t, t.TempDir())
 	var updates []string
-	s.OnInterfaceLanguageChanged(func() {
+	s.OnWorkspaceMenuChanged(func() {
 		language, err := s.InterfaceLanguage()
 		if err != nil {
 			t.Fatal(err)

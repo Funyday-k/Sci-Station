@@ -32,8 +32,11 @@ func (e *Engine) Snapshot(id string, current func(string) bool) (*Session, strin
 	err := e.locked(func() error {
 		var err error
 		revision, err = e.diskRevision(id)
-		if err != nil || (current != nil && current(revision)) {
+		if err != nil {
 			return err
+		}
+		if current != nil && current(revision) {
+			return e.checkPollAccess(id)
 		}
 		result, err = e.load(id)
 		if err != nil {

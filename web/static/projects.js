@@ -185,6 +185,7 @@
       showDialog("导入项目配置", opener, true);
       const selected = new Set();
       let candidates = [];
+      let legacy = [];
       let manualPath = "";
       let requestId = 0;
       const controller = {
@@ -201,9 +202,8 @@
         body.replaceChildren();
         footer.replaceChildren();
         const combined = new Map(candidates.map((candidate) => [candidate.path, candidate]));
-        for (const path of legacyPaths) {
-          if (!combined.has(path))
-            combined.set(path, { path, name: pathName(path), sources: ["圆桌历史"] });
+        for (const item of legacy) {
+          if (!combined.has(item.path)) combined.set(item.path, {...item, sources: ["圆桌历史"]});
         }
         const caption = element("p", "quiet", "选择项目后，可预览并勾选项目规则。");
         body.append(caption);
@@ -228,6 +228,26 @@
             list.append(row);
           }
           body.append(list);
+        }
+        const saved = legacy.filter(item => item.rule_count > 0);
+        if (saved.length) {
+          const archive = element("details", "project-import-rules");
+          archive.append(element("summary", "", "查看历史规则快照"));
+          for (const item of saved) {
+            const group = element("details", "project-rule-details");
+            group.append(element("summary", "", item.path));
+            group.addEventListener("toggle", async () => {
+              if (!group.open || group.querySelector("pre")) return;
+              try {
+                const result = await api("/projects/rules?legacy=1&path=" + encodeURIComponent(item.path));
+                if (group.isConnected && !group.querySelector("pre")) {
+                  for (const rule of result.rules) group.append(element("strong", "", rule.path), element("pre", "", rule.text));
+                }
+              } catch (error) { if (group.isConnected) status.textContent = error.message; }
+            });
+            archive.append(group);
+          }
+          body.append(archive);
         }
         const manual = pathField("也可选择其他项目文件夹", manualPath);
         body.append(manual.container);
@@ -315,7 +335,7 @@
           status.textContent = "";
           const id = ++requestId;
           try {
-            const selections = [...choices].map(([path, rules]) => ({ path, rules: [...rules.values()] }));
+            const selections = projects.map(project => ({id: project.id, path: project.path, rules: [...choices.get(project.path).values()]}));
             await api("/projects/import", { action: "apply", selections });
             await load();
             if (useResult(id)) dialog.close();
@@ -339,6 +359,7 @@
         const result = await api("/projects/import");
         if (useResult(id)) {
           candidates = result.candidates || [];
+          legacy = result.legacy || [];
           const priorInput = body.querySelector("input[type=text]");
           const typing = document.activeElement === priorInput;
           const selection = typing ? [priorInput.selectionStart, priorInput.selectionEnd] : null;
@@ -361,7 +382,7 @@
       showDialog(`${project.name} 的项目规则`, button, true);
       const done = footerAction("完成", "secondary", () => dialog.close());
       const endpoint = "/projects/rules";
-      const query = `${endpoint}?path=${encodeURIComponent(project.path)}`;
+      const query = `${endpoint}?id=${encodeURIComponent(project.id)}`;
       const isCurrent = () => dialog.open && opener?.dataset.projectRules === project.path;
 
       function renderRules(result) {
@@ -387,9 +408,9 @@
             setBusy(true);
             try {
               const updated = await api(endpoint, {
-                path: project.path, rule: { path: rule.path, digest: rule.digest },
+                id: project.id, rule: { path: rule.path, digest: rule.digest },
               });
-              updateProjects({ projects: registered.map(item => item.path === project.path ? updated.project : item) });
+              updateProjects({ projects: registered.map(item => item.id === project.id ? updated.project : item) });
               opener = Array.from(history.querySelectorAll("[data-project-rules]"))
                 .find(item => item.dataset.projectRules === project.path) || opener;
               renderRules(updated);

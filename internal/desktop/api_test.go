@@ -30,7 +30,9 @@ func TestStudioSettingsAndVersionedFileThroughHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := (&apiServer{prefs: store, meetings: engine}).serve(8765)
+	host := openNavigationFixture(t, t.TempDir())
+	host.meetings, host.prefs = engine, store
+	api := host.serve(8765)
 	do := func(method, path, body string, trusted bool) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "http://127.0.0.1:8765"+path, strings.NewReader(body))
 		if trusted {
@@ -77,6 +79,7 @@ func TestStudioSettingsAndVersionedFileThroughHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(project)
+	testMeetingProject(t, host, project)
 	create, _ := json.Marshal(map[string]string{"topic": "Choose a project", "project": project})
 	w := do("POST", "/api/studio/sessions", string(create), true)
 	if w.Code != 201 {
@@ -117,7 +120,9 @@ func TestStudioTitleExplicitPOSTPersistsAndGETDoesNotGenerate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := (&apiServer{prefs: store, meetings: engine}).serve(8765)
+	host := openNavigationFixture(t, t.TempDir())
+	host.meetings, host.prefs = engine, store
+	api := host.serve(8765)
 	do := func(method, path, body string, trusted bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://127.0.0.1:8765"+path, strings.NewReader(body))
 		if trusted {
@@ -134,6 +139,7 @@ func TestStudioTitleExplicitPOSTPersistsAndGETDoesNotGenerate(t *testing.T) {
 	}
 	defer os.RemoveAll(project)
 	const topic = "Keep the complete original task, including its detailed constraints."
+	testMeetingProject(t, host, project)
 	body, _ := json.Marshal(map[string]any{"topic": topic, "project": project, "seats": []string{"cursor", "codex"}})
 	w := do("POST", "/api/studio/sessions", string(body), true)
 	if w.Code != 201 {

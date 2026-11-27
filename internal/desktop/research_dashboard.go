@@ -13,9 +13,9 @@ import (
 )
 
 func (a *apiServer) serveResearchDashboard(w http.ResponseWriter, r *http.Request) {
-	lab, ok := a.research.(*research.Service)
-	if !ok || a.meetings == nil {
-		a.research.ServeHTTP(w, r)
+	lab := a.research
+	if a.meetings == nil {
+		lab.ServeHTTP(w, r)
 		return
 	}
 	lab.ServeDashboardProjects(w, r, func(ctx context.Context, projects map[string]struct{}) (map[string]research.DashboardPublishedResearch, error) {

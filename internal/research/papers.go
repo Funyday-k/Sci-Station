@@ -241,7 +241,10 @@ func (s *PaperLibrary) PDFPath(id string) (string, error) {
 }
 func decodePaperRecord(id string, data []byte) (Paper, error) {
 	var p Paper
-	if err := json.Unmarshal(data, &p); err != nil || p.ID != id || p.Revision < 1 ||
+	if err := DecodeRecordJSON(data, &p); err != nil {
+		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json: %w", id, err)
+	}
+	if p.ID != id || p.Revision < 1 ||
 		(p.CollectionID != "" && !validID(p.CollectionID)) || validatePaperLinks(&p.PaperMetadata) != nil {
 		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json", id)
 	}
@@ -268,8 +271,10 @@ func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	}
 	for key, value := range next {
 		if prior, exists := old[key]; exists && original[key] != nil {
-			if (key == "annotations" || key == "connections") && (value[0] == '[' || bytes.Equal(value, []byte("null"))) && !bytes.Equal(prior, value) {
-				original[key] = mergeRecordArrayByID(original[key], prior, value)
+			if key == "roundtableRules" && !bytes.Equal(prior, value) {
+				original[key] = mergeRecordArray(original[key], prior, value, "path")
+			} else if (key == "annotations" || key == "connections") && (value[0] == '[' || bytes.Equal(value, []byte("null"))) && !bytes.Equal(prior, value) {
+				original[key] = mergeRecordArray(original[key], prior, value, "id")
 			} else {
 				original[key] = mergeRecordFields(original[key], prior, value)
 			}
@@ -281,10 +286,15 @@ func mergeRecordFields(disk, before, after json.RawMessage) json.RawMessage {
 	return merged
 }
 
-// Match array entries by stable ID to preserve unknown nested fields across edits.
-func mergeRecordArrayByID(disk, before, after json.RawMessage) json.RawMessage {
-	type annotationIdentity struct {
-		ID string `json:"id"`
+// Match array entries by stable ID or rule path to keep unknown nested fields.
+func mergeRecordArray(disk, before, after json.RawMessage, key string) json.RawMessage {
+	identity := func(entry json.RawMessage) string {
+		var fields map[string]json.RawMessage
+		var value string
+		if json.Unmarshal(entry, &fields) == nil {
+			_ = json.Unmarshal(fields[key], &value)
+		}
+		return value
 	}
 	index := func(data json.RawMessage) (map[string]json.RawMessage, bool) {
 		var entries []json.RawMessage
@@ -293,11 +303,11 @@ func mergeRecordArrayByID(disk, before, after json.RawMessage) json.RawMessage {
 		}
 		byID := make(map[string]json.RawMessage, len(entries))
 		for _, entry := range entries {
-			var identity annotationIdentity
-			if json.Unmarshal(entry, &identity) != nil || identity.ID == "" || byID[identity.ID] != nil {
+			id := identity(entry)
+			if id == "" || byID[id] != nil {
 				return nil, false
 			}
-			byID[identity.ID] = entry
+			byID[id] = entry
 		}
 		return byID, true
 	}
@@ -308,9 +318,9 @@ func mergeRecordArrayByID(disk, before, after json.RawMessage) json.RawMessage {
 		return after
 	}
 	for i, entry := range next {
-		var identity annotationIdentity
-		if json.Unmarshal(entry, &identity) == nil && original[identity.ID] != nil && old[identity.ID] != nil {
-			next[i] = mergeRecordFields(original[identity.ID], old[identity.ID], entry)
+		id := identity(entry)
+		if id != "" && original[id] != nil && old[id] != nil {
+			next[i] = mergeRecordFields(original[id], old[id], entry)
 		}
 	}
 	merged, _ := json.Marshal(next)
@@ -385,7 +395,7 @@ func (s *PaperLibrary) saveWithRecordLock(p Paper) error {
 			return fmt.Errorf("%w：文献集合不存在", errInvalidPaper)
 		}
 	}
-	body, err := json.Marshal(p)
+	body, err := json.Marshal(paperRecord{SchemaVersion: researchRecordSchemaVersion, Paper: p})
 	if err != nil {
 		return err
 	}

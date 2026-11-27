@@ -152,3 +152,48 @@ func (blockedSink) Approval(ctx context.Context, _ Request) (bool, error) {
 	<-ctx.Done()
 	return false, ctx.Err()
 }
+
+func TestResetProjectWaitsForItsOwnCLIAndClearsOnlyCompletedTranscripts(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "paper.md"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := new(Manager)
+	start := func(id string, finish <-chan struct{}) *Run {
+		t.Helper()
+		r, err := m.Start(Scope{Directory: dir, ProjectID: id, MeetingID: id, Paths: []string{"paper.md"}}, "fixture", "", func(ctx context.Context, _ string, _ Scope, _ Sink) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-finish:
+				return nil
+			}
+		}, func(Scope) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	first, second := make(chan struct{}), make(chan struct{})
+	a := start("A", first)
+	b := start("B", second)
+	defer m.Close(t.Context())
+	called := false
+	reset := func() error { called = true; return nil }
+	if err := m.ResetProject("A", reset); err == nil || called {
+		t.Fatal("active CLI allowed a reset", err)
+	}
+	close(first)
+	<-a.done
+	if err := m.ResetProject("A", reset); err != nil || !called {
+		t.Fatal(err)
+	}
+	if m.Get("A") != nil || m.Get("B") != b {
+		t.Fatal("wrong CLI transcript removed")
+	}
+	close(second)
+	<-b.done
+}

@@ -9,19 +9,16 @@
   <script src="/static/appearance.js"></script>
   <link rel="stylesheet" href="/static/workspace-theme.css">
   <script defer src="/static/interface-language.js"></script>
-  <script defer src="/static/model-effort.js"></script>
   <script defer src="/static/research-modules.js"></script>
   <script defer src="/static/workspace-setup.js"></script>
   <link rel="stylesheet" href="/static/workspace-setup.css">
   <script defer src="/static/ui-icons.js"></script>
   <script defer src="/static/workspace-nav.js"></script>
-  <script defer src="/static/model-read-review.js"></script>
   <script defer src="/static/research-evidence.js"></script>
-  <script defer src="/static/lab-run.js"></script>
   <script defer src="/static/shell-navigation.js"></script>
   <script defer src="/static/project-sidebar.js"></script>
   <script defer src="/static/project-editor.js"></script>
-  <script defer src="/static/context-rail.js"></script>
+  {{if not .Archive}}<script defer src="/static/context-rail.js"></script>{{end}}
   {{template "head" .}}
   <link rel="stylesheet" href="/static/workspace-nav.css">
   <link rel="stylesheet" href="/static/context-rail.css">
@@ -77,17 +74,17 @@
     </div>
     <div id="workspace-breadcrumb">{{block "breadcrumb" .}}<span data-workspace-location>{{.Title}}</span>{{end}}</div>
     {{if .AI}}<nav id="workspace-ai-modes" aria-label="AI 模式" data-en-aria-label="AI mode" hidden>
-      <a data-ai-mode="single" href="/lab" data-en="Chat">单人对话</a>
-      <a data-ai-mode="roundtable" href="/studio" data-en="Roundtable">圆桌讨论</a>
+      <a data-ai-mode="single" aria-disabled="true" data-en="Chat">单人对话</a>
+      <a data-ai-mode="roundtable" aria-disabled="true" data-en="Roundtable">圆桌讨论</a>
     </nav>{{end}}
     <div class="workspace-bar-end">
       <div id="workspace-tools">{{block "tools" .}}{{end}}</div>
-      <div class="shell-rail-controls">
-        <button id="shell-assist" class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
-      </div>
+      {{if not .Archive}}<div class="shell-rail-controls">
+        <button id="shell-assist" disabled class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
+      </div>{{end}}
     </div>
   </header>
-  <div class="workspace-region">{{template "content" .}}</div>
+  <div class="workspace-region"{{if and .AI (not .Settings)}} inert{{end}}>{{template "content" .}}</div>
   <div id="project-row-menu" class="project-row-menu" role="menu" popover="manual"></div>
   <dialog id="project-editor" aria-labelledby="project-editor-title">
     <form>
@@ -102,8 +99,10 @@
         <div class="project-editor-preview" data-preview></div>
         <details class="project-directory-settings"><summary data-en="Project folder and management">项目文件夹与管理</summary>
           <p data-path></p>
+          <p data-reset-pending role="status" hidden data-en="The folder was changed. Retry to finish clearing this project’s old conversations and drafts.">文件夹已切换。请重试，完成清理此项目的旧会话和草稿。</p>
           <div class="project-editor-actions">
             <button type="button" data-folder></button>
+            <button type="button" data-retry-reset hidden data-en="Retry cleanup">重试清理</button>
             <button type="button" data-revoke data-en="Revoke folder access">撤销文件夹授权</button>
             <button type="button" data-archive data-en="Archive project">归档项目</button>
             <button type="button" data-archived data-en="Archived projects">已归档项目</button>
@@ -113,6 +112,17 @@
       </div>
       <footer>
         <button type="button" data-cancel data-en="Cancel">取消</button><button type="submit" data-submit></button>
+      </footer>
+    </form>
+  </dialog>
+  <dialog id="project-directory-reset" aria-labelledby="project-directory-reset-title" aria-describedby="project-directory-reset-info project-directory-reset-path">
+    <form method="dialog">
+      <h2 id="project-directory-reset-title"></h2>
+      <p id="project-directory-reset-info" data-en="This permanently deletes this project’s old single chats, Roundtables, and unsent drafts. The new folder starts with an empty conversation history. Files in the old folder, shared papers, and other projects are kept.">将删除此项目的旧单人对话、圆桌会话和所有待发送草稿。新文件夹从空白对话开始。原文件夹的文件、共享论文及其他项目将保留。此清理无法撤销。</p>
+      <p id="project-directory-reset-path"></p>
+      <footer>
+        <button value="cancel" autofocus data-en="Cancel">取消</button>
+        <button value="reset" data-en="Switch folder and clear conversations">切换文件夹并清除会话</button>
       </footer>
     </form>
   </dialog>

@@ -44,7 +44,7 @@ func TestReviewedProjectSourceWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		service.SetPathValidator(func(string) bool { return true })
+		service.SetPathValidator(func(string, research.DirectoryGrant) bool { return true })
 		engine.SetProjectAccess(service.WithProjectDirectory)
 		api = (&apiServer{prefs: prefs, meetings: engine, research: service}).serve(8765)
 	}

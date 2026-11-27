@@ -47,12 +47,15 @@ F = G m_1 m_2 / r^2
   "<script>window.unsafeScientificFixture = true</script>",
 ].join("\n");
 
-test("all scientific surfaces use the same bundled rendering assets", () => {
-  for (const page of ["studio", "lab", "research"]) {
+test("scientific surfaces share bundled Markdown and the research surface defers math", () => {
+  for (const page of ["studio", "lab", "research", "science-tools"]) {
     const html = readFileSync(join(assets, page + ".html"), "utf8");
+    const eagerMath = page !== "research";
     for (const script of dependencies)
-      assert.equal(html.split('/static/' + script).length - 1, 1, `${page} must load ${script} once`);
-    assert.match(html, /\/static\/research-vendor\/katex\.min\.css/);
+      assert.equal(html.split('/static/' + script).length - 1, eagerMath || !script.includes("katex") ? 1 : 0,
+        `${page} has an unexpected load policy for ${script}`);
+    assert.equal(html.includes("/static/research-vendor/katex.min.css"), eagerMath);
+    assert.equal(html.includes('src="/static/scientific-markdown.js" data-defer-math'), !eagerMath);
   }
 });
 

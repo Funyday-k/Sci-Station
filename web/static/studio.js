@@ -53,6 +53,7 @@
     selected: null,
     session: null,
     activeProject: null,
+    rebinding: false,
     projectListStatus: "loading",
     draftOpen: false,
     view: "table",
@@ -447,6 +448,15 @@
     }
   }
   function switchView(view) {
+    if (!restoringRoute && view === "table" && ["settings", "plugins"].includes(state.view)) {
+      const url = new URL(location.href);
+      if (!window.SciStationNav.aiAvailable(url.searchParams.get("project"))) return;
+      if (!state.draftOpen && !state.session) {
+        url.searchParams.delete("view");
+        location.assign(url.href);
+        return;
+      }
+    }
     closeHistoryMenu(false);
     if ($("project-dialog").open) $("project-dialog").close();
     if (view === "files") {
@@ -514,7 +524,7 @@
       : state.sessions.find((item) => item.id === state.selected);
   }
   function renderHeading() {
-    $("back-to-table").hidden = state.view !== "plugins";
+    $("back-to-table").hidden = state.view !== "plugins" || !window.SciStationNav.aiAvailable(new URL(location.href).searchParams.get("project"));
     const projectName = state.draftOpen
       ? projects.available().find(project => project.id === state.activeProject)?.name
       : "";
@@ -2663,7 +2673,7 @@
   }
   $("create-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (state.writing || !state.draftOpen || $("create-form").hidden) return;
+    if (state.rebinding || state.writing || !state.draftOpen || $("create-form").hidden) return;
     if (!paintTextLimit("new-topic")) {
       $("new-topic").reportValidity();
       return;
@@ -2684,6 +2694,7 @@
     clearError();
     try {
       const session = await api("/sessions", { topic, ...payload });
+      if (state.rebinding) return;
       setup.complete();
       state.roundsKey = "";
       state.seatKeys = {};
@@ -2698,7 +2709,7 @@
     } finally {
       state.writing = false;
       updateControls();
-      schedulePoll();
+      if (!state.rebinding) schedulePoll();
     }
   });
   for (const id of ["new-topic", "run-note"]) {
@@ -3063,7 +3074,9 @@
     const session=url.searchParams.get("session") || null;
     const requestedView=url.searchParams.get("view") || "table";
     const draftProject=state.activeProject==="@global" ? "" : state.activeProject;
-    if (session!==state.selected || (!session && (url.searchParams.get("project") || "")!==draftProject)) {
+    if (requestedView === "table" && (!window.SciStationNav.aiAvailable(url.searchParams.get("project")) || !state.selected && !state.draftOpen)) {
+      location.reload();
+    } else if (session!==state.selected || (!session && (url.searchParams.get("project") || "")!==draftProject)) {
       location.reload();
     } else if (state.view!==requestedView) {
       restoringRoute=true;
@@ -3072,13 +3085,14 @@
   });
   window.addEventListener("hashchange", scrollAnchor);
   window.addEventListener("beforeunload", (event) => {
-    if (dirtyFile() || state.settingsDirty) {
+    if (!state.rebinding && (dirtyFile() || state.settingsDirty)) {
       event.preventDefault();
       event.returnValue = "";
     }
   });
   const modeTransfer = window.SciStudioModeTransfer;
   const modeFollowupKey = id => "sci-station.roundtable-followup.v1."+id;
+  const conversationGeneration = id => projects.available().find(project=>project.id===id)?.conversationGeneration || 0;
   const modeText = (zh, en) => window.SciStationI18n?.text(zh,en) ?? zh;
   const modeMaterialIDs = materials => materials.map(({id}) => id);
   const modeMaterialStamp = materials => JSON.stringify(modeMaterialIDs(materials));
@@ -3122,7 +3136,8 @@
   function restoreModeFollowup(room) {
     try {
       const saved = JSON.parse(sessionStorage.getItem(modeFollowupKey(room.id)));
-      if (!saved || saved.projectId !== (room.project_id || "") || room.status === "closed") return;
+      if (!saved || saved.projectId !== (room.project_id || "") ||
+          (saved.projectGeneration || 0) !== conversationGeneration(saved.projectId) || room.status === "closed") return;
       $("run-note").value = saved.note;
       runMaterials.set(saved.materials);
       $("run-note").dispatchEvent(new Event("input", {bubbles:true}));
@@ -3133,7 +3148,7 @@
   window.addEventListener("sci:change-ai-mode", async event => {
     if (event.detail?.mode !== "single" || state.view !== "table") return;
     event.preventDefault();
-    if (switchingToSingle) return;
+    if (switchingToSingle || state.rebinding) return;
     switchingToSingle = true;
     try {
       if (state.writing || !canLeaveFile()) return;
@@ -3143,6 +3158,7 @@
         "先将旧会话关联到科研项目，再切换模式带入上下文。", "Link this older meeting to a research project before transferring its context."));
       const chosenProject = room?.project_id || (room ? "" :
         projects.available().find(project=>project.id===state.activeProject)?.id) || "";
+      const projectGeneration = conversationGeneration(chosenProject);
       const next = {project:chosenProject, scope:chosenProject?"":"global"};
       const materials = room ? runMaterials : createMaterials;
       if (materials.busy() || materials.failed()) throw Error(modeText(
@@ -3153,7 +3169,8 @@
       const pendingStamp = modeMaterialStamp(ready);
       const boundStamp = modeMaterialStamp(room?.materials || []);
       const owner = state.activeProject;
-      const sameSource = () => state.activeProject === owner && state.session?.id === room?.id &&
+      const sameSource = () => !state.rebinding && conversationGeneration(chosenProject) === projectGeneration &&
+        state.activeProject === owner && state.session?.id === room?.id &&
         !state.writing && state.view === "table";
       const draftChanged = () => materials.busy() || materials.failed() || (box?.value || "") !== draft ||
         modeMaterialStamp(materials.ready()) !== pendingStamp || modeMaterialStamp(state.session?.materials || []) !== boundStamp;
@@ -3169,10 +3186,10 @@
         if (!sameSource()) return;
         if (draftChanged()) throw changedError();
         if (room && (draft || ready.length)) sessionStorage.setItem(modeFollowupKey(room.id), JSON.stringify({
-          projectId:chosenProject, note:draft, materials:ready
+          projectId:chosenProject, projectGeneration, note:draft, materials:ready
         }));
         else if (room) clearModeFollowup(room.id);
-        window.ScienceLabHandoff.writeModeTransfer("single", {...data,workspace,materials:verified});
+        window.ScienceLabHandoff.writeModeTransfer("single", {...data,workspace,projectGeneration,materials:verified});
         next.fromRoundtable = "1";
       }
       location.assign(window.SciStationNav.route("/lab",next));
@@ -3186,11 +3203,13 @@
     if (entry.searchParams.get("fromLab") !== "1" || state.selected || !state.draftOpen || $("create-form").hidden) return;
     const handoff = window.ScienceLabHandoff;
     const owner = state.activeProject, projectId = owner === "@global" ? "" : owner;
-    const scope = {workspace:await modeWorkspace(),projectId};
+    const projectGeneration = conversationGeneration(projectId);
+    const scope = {workspace:await modeWorkspace(),projectId,projectGeneration};
     const received = handoff.readModeTransfer("roundtable",scope);
     if (!received) return;
     const stamp = JSON.stringify(received);
-    const current = () => state.activeProject === owner && state.draftOpen && !state.selected &&
+    const current = () => !state.rebinding && conversationGeneration(projectId) === projectGeneration &&
+      state.activeProject === owner && state.draftOpen && !state.selected &&
       !state.writing && JSON.stringify(handoff.readModeTransfer("roundtable",scope)) === stamp;
     const data = {...received, materials:await checkModeMaterials(received,true)};
     if (!current()) return;
@@ -3263,7 +3282,8 @@
     clearError();
     state.projectListStatus = "loading";
     paintDraftProject();
-    const results = await Promise.allSettled([api("/settings"), loadHistory(), projects.load()]);
+    const settingsPage = ["settings", "plugins"].includes(requestedView);
+    const results = await Promise.allSettled(settingsPage ? [api("/settings")] : [api("/settings"), loadHistory(), projects.load()]);
     state.projectListStatus = results.slice(1).every(result => result.status === "fulfilled")
       ? "ready" : "failed";
     if (results[0].status === "fulfilled") {
@@ -3274,6 +3294,12 @@
     } else {
       $("connection-status").classList.add("offline");
       $("connection-status").textContent = "连接中断";
+    }
+    if (settingsPage) {
+      switchView(requestedView);
+      restoringRoute = false;
+      if (results[0].status === "rejected") showError(results[0].reason);
+      return;
     }
     const entry = new URL(location.href);
     const linked = entry.searchParams.get("session");
@@ -3530,6 +3556,14 @@
     rerender:() => { state.historyKey = ""; renderHistory(); },
   });
   window.addEventListener("sci:projects-changed", () => projects.load().catch(showError));
+  window.addEventListener("sci:project-conversations-reset", ({detail}) => {
+    if (state.activeProject !== detail.id && state.session?.project_id !== detail.id) return;
+    state.rebinding = true;
+    stopPoll();
+    setup.retire();
+    runMaterials.set([]);
+    $("run-note").value = "";
+  });
   $("draft-retry-projects").addEventListener("click", boot);
   $("retry-connect").addEventListener("click", boot);
   boot();

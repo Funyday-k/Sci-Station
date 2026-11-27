@@ -3,9 +3,6 @@ package desktop
 import (
 	"net/http"
 	"strings"
-	"time"
-
-	"scistation.local/desktop/internal/research"
 )
 
 type calendarItem struct {
@@ -21,12 +18,21 @@ type calendarItem struct {
 	Notes      string `json:"notes,omitempty"`
 }
 
-var scientificHTTP = &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
+// MinerU transfers share the operation context's deadline. Keep its normal TLS
+// and connection limits, and connect directly for both API and signed URLs.
+var scientificHTTP = func() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}()
 
 func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 	route := strings.TrimPrefix(r.URL.Path, "/api/research/tools/")
-	lab, ok := a.research.(*research.Service)
-	if !ok {
+	lab := a.research
+	if lab == nil {
 		reject(w, 503, "科研服务未启动")
 		return
 	}

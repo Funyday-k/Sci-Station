@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {compose,receive,key} = require("../web/static/lab-handoff.js");
 
-test("mode transfers are isolated by destination, workspace and project",()=>{
+test("mode transfers are isolated by destination, workspace, project and folder generation",()=>{
   const {writeModeTransfer,readModeTransfer,clearModeTransfer,scopeOwnsModeSource}=require("../web/static/lab-handoff.js");
   const cache=new Map(), previous=global.sessionStorage;
   global.sessionStorage={getItem:key=>cache.get(key),setItem:(key,value)=>cache.set(key,value),removeItem:key=>cache.delete(key)};
@@ -14,10 +14,16 @@ test("mode transfers are isolated by destination, workspace and project",()=>{
     assert.equal(readModeTransfer("roundtable",draft),null);
     assert.equal(readModeTransfer("single",{...draft,projectId:""}),null);
     assert.equal(readModeTransfer("single",{...draft,workspace:"other-root"}),null);
+    assert.equal(readModeTransfer("single",{...draft,projectGeneration:1}),null);
+    const rebound={...draft,sourceSessionId:"",projectGeneration:1,context:"Question from the newly bound folder."};
+    writeModeTransfer("single",rebound);
+    assert.equal(readModeTransfer("single",draft),null);
+    assert.deepEqual(readModeTransfer("single",rebound),rebound);
     assert.throws(()=>writeModeTransfer("single",{...draft,materials:[{id:"../file",name:"Other file"}]}));
     const preset={...draft,sourceSessionId:"",materials:[],context:"α".repeat(6500),roundtablePreset:{mode:"forum",seats:3}};
     writeModeTransfer("roundtable",preset);
     assert.deepEqual(readModeTransfer("roundtable",preset),preset);
+    assert.equal(readModeTransfer("roundtable",{...preset,projectGeneration:1}),null);
     assert.throws(()=>writeModeTransfer("single",preset));
     assert.throws(()=>writeModeTransfer("roundtable",{...preset,materials:draft.materials}));
     assert.throws(()=>writeModeTransfer("roundtable",{...preset,sourceSessionId:draft.sourceSessionId}));
@@ -39,6 +45,7 @@ test("a preset only enters the selected project and stays an unsent draft",async
  global.sessionStorage={getItem:k=>k===key?stored:null,removeItem:()=>{stored=null;}};
  const box={value:"原有问题",dispatchEvent(){},focus(){}};
  await receive({id:"wrong",path:"/tmp/q"},"",null,box,()=>{throw Error("wrong project")});assert.equal(box.value,"原有问题");
+ await receive({id:"p1",path:"/tmp/p",conversationGeneration:1},"",null,box,()=>{throw Error("old project folder")});assert.equal(box.value,"原有问题");
  await receive({id:"p1",path:"/tmp/p"},"",null,box,async(mode,seats)=>{assert.equal(mode,"review");assert.equal(seats,2);calls++});
  assert.equal(calls,1);assert.match(box.value,/原有问题/);assert.match(box.value,/检查近似/);assert.equal(stored,null);
  stored=JSON.stringify({...setup,sessionId:"s1"});

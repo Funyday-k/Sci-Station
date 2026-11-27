@@ -45,10 +45,11 @@ async function mount(suffix = "", options = {}) {
   const mark = {id:"ann",page:1,kind:"highlight",selected_text:"Evidence",rects:[],
     selectionStart:0,selectionEnd:8};
   const calls = [], memory = new Map();
-  let destination, route;
+  let destination, route, projectReads=0;
   const browser = new EventTarget();
   browser.getSelection = () => null;
   browser.SciStationNav = {update() {}};
+  browser.SciStationModules = {load:async()=>({}),isEnabled:()=>true};
   const railActions = [];
   get("reader-inspector").hidden = true;
   get("notesPanel").hidden = true;
@@ -103,8 +104,11 @@ async function mount(suffix = "", options = {}) {
           {text:"Evidence",start:0,end:8,box:box(.15)},
           {text:"Evidence",start:9,end:17,box:box(.75)}
         ]};
-      } else if(url==="/api/research/projects")data=[{id:"project",name:"Project",path:"/new-path"}];
-      else if(url.startsWith("/api/research/projects/"))data={id:url.split("/").at(-1),name:"Project"};
+      } else if(url==="/api/research/projects")data=[{id:"project",name:"Project",path:"/new-path",...options.project}];
+      else if(url.startsWith("/api/research/projects/")) {
+        if(++projectReads===1 && options.failFirstProjectRead)throw Error("Project lookup failed temporarily");
+        data={id:url.split("/").at(-1),name:"Project",...options.project};
+      }
       else if(url==="/api/studio/sessions")data={sessions:[
         {id:"round",title:"Round",project:"/old-path",project_id:"project"},
         {id:"other",title:"Other",project:"/new-path",project_id:"other"}
@@ -129,6 +133,7 @@ async function mount(suffix = "", options = {}) {
     };
     browser.SciStationModules = {load:async()=>({}),isEnabled:()=>false};
     browser.SciStationNav = {
+      aiAvailable: () => true,
       update() { browser.SciContextRail?.update(); },
       route(path, params) { return path + "?" + new URLSearchParams(params); },
       commitURL(url) {
@@ -180,6 +185,31 @@ test("AI stays open with its frozen draft while the same PDF changes page and so
   assert.equal(draft.context.paper, "P1");
   assert.equal(draft.context.project, "project");
   assert.equal(draft.context.page, 1);
+});
+
+test("the AI panel can retry a failed project lookup before opening a draft in its current generation", async () => {
+  const {get,calls,memory}=await mount("",{realRail:true,failFirstProjectRead:true,project:{conversationGeneration:3}});
+  const oldKey="sci.shell.draft."+JSON.stringify(["project","/reader","overview","P1","","",""]);
+  memory.set(oldKey,JSON.stringify({value:"Previous folder question",context:{project:"project",paper:"P1"}}));
+  get("shell-assist").onclick({currentTarget:get("shell-assist")});
+  assert.match(get("rail-status").textContent,/无法读取项目信息/);
+  assert.equal(get("rail-retry").hidden,false);
+  assert.equal(get("rail-prompt").disabled,true);
+  assert.equal(get("rail-send").disabled,true);
+
+  get("rail-retry").onclick();
+  assert.match(get("rail-status").textContent,/正在读取项目信息/);
+  assert.equal(get("rail-prompt").disabled,true);
+  await nextTurn();
+  assert.equal(get("rail-prompt").disabled,false);
+  assert.equal(get("rail-retry").hidden,true);
+  assert.equal(get("rail-prompt").value,"");
+  assert.equal(calls.filter(call=>call.url==="/api/research/projects/project").length,2);
+  get("rail-prompt").value="New folder question";
+  get("rail-prompt").oninput();
+  const newDraft=JSON.parse(memory.get("sci.shell.draft."+JSON.stringify(["project","/reader","overview","P1","","","",3])));
+  assert.equal(newDraft.context.projectGeneration,3);
+  assert.equal(newDraft.value,"New folder question");
 });
 
 test("reader panels still close across paper, project and surface boundaries", async () => {
@@ -246,6 +276,15 @@ test("sending an annotation hands a frozen quote and source identity to the chos
   assert.deepEqual(draft,{projectId:"project",paperId:"P1",title:"Paper",page:1,quote:"Evidence",
     fingerprint:"verified",annotationId:"ann",selectionStart:0,selectionEnd:8,sessionId:"round"});
   assert.equal(getDestination(),"http://localhost/studio?project=project&session=round");
+});
+
+test("a Reader excerpt is sent only to the chosen project folder generation",async()=>{
+  const {get,memory}=await mount("",{project:{conversationGeneration:2}});
+  const actions=get("annotations").children[0].children[0];
+  actions.children.find(b=>b.textContent==="入会").dispatchEvent(new Event("click"));
+  await nextTurn();
+  await get("submitHandoff").onclick();
+  assert.equal(JSON.parse(memory.get("sci-station.paper-handoff")).projectGeneration,2);
 });
 
 test("annotation edits send the original revision and preserve the draft on conflict",async()=>{

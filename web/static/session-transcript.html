@@ -1,0 +1,24 @@
+{{define "head"}}<link rel="stylesheet" href="/static/session-transcript.css">{{end}}
+{{define "breadcrumb"}}<a href="/studio" data-en="Back to Roundtable">返回圆桌</a>{{end}}
+{{define "content"}}
+<main class="workspace-page session-transcript" aria-labelledby="transcript-title">
+  <header class="workspace-page-heading">
+    <div><h1 id="transcript-title">{{or .Archive.Title .Archive.Topic}}</h1>
+      <p data-en="Read-only session record">只读会话记录</p></div>
+    <a class="transcript-export" href="/api/studio/sessions/{{.Archive.ID}}/export.md" download data-en="Export Markdown">导出 Markdown</a>
+  </header>
+  {{if .Archive.Title}}<p class="transcript-message">{{.Archive.Topic}}</p>{{end}}
+  {{range $round := .Archive.Rounds}}
+    <section class="transcript-round" id="round-{{.Number}}">
+      <h2 data-en="Round {{.Number}}">第 {{.Number}} 轮</h2>
+      {{if .Note}}<div class="transcript-turn"><h3 data-en="Host">主持人</h3><p class="transcript-message">{{.Note}}</p></div>{{end}}
+      {{range .Turns}}{{if .Text}}
+        <article class="transcript-turn" id="round-{{$round.Number}}-{{.Seat}}">
+          <h3>{{or .ModelLabel .Seat}}{{with $round.RecordedTurnModel .}} <small>{{.}}</small>{{end}}</h3>
+          <p class="transcript-message">{{.Text}}</p>
+        </article>
+      {{end}}{{end}}
+    </section>
+  {{else}}<p data-en="No saved rounds.">暂无已保存的轮次。</p>{{end}}
+</main>
+{{end}}

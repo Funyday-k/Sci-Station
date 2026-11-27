@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -143,8 +144,9 @@ func TestRecoveryReopensIsolatedData(t *testing.T) {
 	if err := json.Unmarshal([]byte(getFile(t, destination, projectDirectory+"/"+externalProjectID+".json")), &restored); err != nil || restored.Project.Path != "" {
 		t.Fatalf("external project is still accessible: %+v %v", restored, err)
 	}
-	if strings.TrimSpace(getFile(t, destination, registryFile)) != "{}" {
-		t.Fatal("external folder grant was replayed")
+	var historical map[string]map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(getFile(t, destination, registryFile)), &historical); err != nil || len(historical) != 1 || historical[filepath.Join(parent, "external")]["rules"] == nil || historical[filepath.Join(parent, "external")]["directoryGrant"] != nil {
+		t.Fatal("external rule archive or grant cleanup changed", historical, err)
 	}
 	if restoredSettings := getFile(t, destination, "settings.json"); strings.Contains(restoredSettings, "cli_paths") || !strings.Contains(restoredSettings, "future") {
 		t.Fatal("local executable override was replayed or unknown settings were lost")
@@ -210,6 +212,172 @@ func TestRecoveryReopensIsolatedData(t *testing.T) {
 	}
 	if got := getFile(t, filepath.Join(parent, "external"), "external.md"); got != "synthetic external file" {
 		t.Fatalf("external fixture changed: %q", got)
+	}
+}
+
+func TestRecoveryKeepsOnlyRecordedExternalDirectoryIdentity(t *testing.T) {
+	for _, scenario := range []string{"recorded grant", "previous identity", "invalid grant", "legacy path only"} {
+		t.Run(scenario, func(t *testing.T) {
+			parent := testParent(t)
+			prototype := fixture(t, parent)
+			archive, destination := filepath.Join(parent, "archive"), filepath.Join(parent, "restored")
+			external := filepath.Join(parent, "external")
+			verified, err := research.IdentifyDirectory(external)
+			if err != nil {
+				t.Fatal(err)
+			}
+			recordPath := projectDirectory + "/" + externalProjectID + ".json"
+			var document, project map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(getFile(t, prototype, recordPath)), &document); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(document["project"], &project); err != nil {
+				t.Fatal(err)
+			}
+			var want *research.DirectoryGrant
+			switch scenario {
+			case "recorded grant":
+				want = &verified
+				project["directoryGrant"], _ = json.Marshal(verified)
+				document["previousDirectoryIdentity"] = json.RawMessage(`{"device":0,"inode":1}`)
+			case "previous identity":
+				want = &verified
+				document["previousDirectoryIdentity"], _ = json.Marshal(verified)
+			case "invalid grant":
+				project["directoryGrant"] = json.RawMessage(`{"device":42,"inode":0}`)
+			}
+			document["project"], _ = json.Marshal(project)
+			original, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			putFile(t, prototype, recordPath, string(original))
+			// The recorded path now belongs to a different directory. The
+			// offline tool must not treat its identity as project history.
+			if err := os.Rename(external, filepath.Join(parent, "formerly-external")); err != nil {
+				t.Fatal(err)
+			}
+			putFile(t, external, "replacement.md", "different directory")
+			occupied, err := research.IdentifyDirectory(external)
+			if err != nil || occupied == verified {
+				t.Fatalf("replacement did not have its own identity: %+v, %v", occupied, err)
+			}
+			if err := backup(prototype, archive); err != nil {
+				t.Fatal(err)
+			}
+			if err := restore(archive, destination); err != nil {
+				t.Fatal(err)
+			}
+			var restored struct {
+				Project                   research.Project
+				PreviousDirectoryIdentity *research.DirectoryGrant `json:"previousDirectoryIdentity"`
+			}
+			if err := json.Unmarshal([]byte(getFile(t, destination, recordPath)), &restored); err != nil {
+				t.Fatal(err)
+			}
+			if restored.Project.Path != "" || restored.Project.DirectoryGrant != nil {
+				t.Fatalf("restored project still has an external grant: %+v", restored.Project)
+			}
+			identity := restored.PreviousDirectoryIdentity
+			if (want == nil && identity != nil) || (want != nil && (identity == nil || *identity != *want)) {
+				t.Fatalf("restored identity %+v, want %+v", identity, want)
+			}
+			lab, err := research.New(filepath.Join(destination, "research"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if path, err := lab.ProjectDirectory(externalProjectID); path != "" || !errors.Is(err, os.ErrPermission) {
+				t.Fatalf("external directory is available in recovered copy: %q, %v", path, err)
+			}
+			if getFile(t, prototype, recordPath) != string(original) || getFile(t, archive, payloadName+"/"+recordPath) != string(original) {
+				t.Fatal("restoration changed the source or backup project record")
+			}
+		})
+	}
+}
+
+func TestRecoveryRetainsSupportedResearchRecordVersions(t *testing.T) {
+	for _, version := range []string{"legacy", "v1"} {
+		t.Run(version, func(t *testing.T) {
+			parent := testParent(t)
+			prototype := fixture(t, parent)
+			archive := filepath.Join(parent, "archive")
+			destination := filepath.Join(parent, "restored")
+			originals := make(map[string]string)
+			for _, path := range []string{projectPath, paperPath} {
+				raw := getFile(t, prototype, path)
+				if version == "v1" {
+					raw = strings.Replace(raw, "{", "{\n  \"schema_version\": 1,\n  ", 1)
+					putFile(t, prototype, path, raw)
+				}
+				originals[path] = raw
+			}
+			for _, args := range [][]string{
+				{"backup", "-source", prototype, "-destination", archive},
+				{"verify", "-source", archive},
+				{"restore", "-source", archive, "-destination", destination},
+			} {
+				if err := run(args, &bytes.Buffer{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := research.New(filepath.Join(destination, "research")); err != nil {
+				t.Fatalf("restored records did not open: %v", err)
+			}
+			for path, original := range originals {
+				if getFile(t, prototype, path) != original || getFile(t, archive, payloadName+"/"+path) != original {
+					t.Fatalf("original or backup record changed: %s", path)
+				}
+				var record map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(getFile(t, destination, path)), &record); err != nil {
+					t.Fatal(err)
+				}
+				want := ""
+				if version == "v1" {
+					want = "1"
+				}
+				if got := string(record["schema_version"]); got != want {
+					t.Fatalf("%s has version %q, want %q", path, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyAndRestoreRejectUnsupportedResearchRecordVersions(t *testing.T) {
+	for _, record := range []struct{ name, path string }{{"project", projectPath}, {"paper", paperPath}} {
+		for _, version := range []struct{ name, field string }{
+			{"future", `"schema_version":2`},
+			{"malformed", `"schema_version":null`},
+			{"duplicate", `"schema_version":1,"schema\u005fversion":1`},
+		} {
+			t.Run(record.name+"/"+version.name, func(t *testing.T) {
+				parent := testParent(t)
+				prototype := fixture(t, parent)
+				archive := filepath.Join(parent, "archive")
+				destination := filepath.Join(parent, "restored")
+				body := strings.Replace(getFile(t, prototype, record.path), "{", "{"+version.field+",", 1)
+				putFile(t, prototype, record.path, body)
+				if err := backup(prototype, archive); err != nil {
+					t.Fatalf("byte-preserving backup failed: %v", err)
+				}
+				savedManifest := getFile(t, archive, manifestName)
+				for _, args := range [][]string{
+					{"verify", "-source", archive},
+					{"restore", "-source", archive, "-destination", destination},
+				} {
+					err := run(args, &bytes.Buffer{})
+					if err == nil || !strings.Contains(err.Error(), "schema_version") || !strings.Contains(err.Error(), record.path) {
+						t.Fatalf("expected a schema error for %s, got %v", record.path, err)
+					}
+				}
+				absent(t, destination)
+				if getFile(t, prototype, record.path) != body || getFile(t, archive, payloadName+"/"+record.path) != body ||
+					getFile(t, archive, manifestName) != savedManifest {
+					t.Fatal("verification or restoration changed the original or the backup")
+				}
+			})
+		}
 	}
 }
 
@@ -358,4 +526,38 @@ func TestRecoveryRequiresAnIndependentDestination(t *testing.T) {
 		t.Fatal("published through an alias")
 	}
 	absent(t, filepath.Join(actual, "restored"))
+}
+
+func TestRestoreKeepsRecordedMeetingOwnerAcrossFolderRebinding(t *testing.T) {
+	parent := testParent(t)
+	prototype := fixture(t, parent)
+	archive := filepath.Join(parent, "backup")
+	restored := filepath.Join(parent, "restored")
+	file := "studio/" + externalMeetingID + ".json"
+	var session map[string]any
+	if err := json.Unmarshal([]byte(getFile(t, prototype, file)), &session); err != nil {
+		t.Fatal(err)
+	}
+	// The project ID is historical. Later the directory belongs to a
+	// different project, just as after a user's explicit folder change.
+	session["project_id"] = externalProjectID
+	session["project"] = managedPath(prototype, projectID)
+	data, err := json.Marshal(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putFile(t, prototype, file, string(data))
+	var out bytes.Buffer
+	if err := run([]string{"backup", "-source", prototype, "-destination", archive}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"restore", "-source", archive, "-destination", restored}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(getFile(t, restored, file)), &session); err != nil {
+		t.Fatal(err)
+	}
+	if session["project_id"] != externalProjectID || session["project"] != "" {
+		t.Fatal("restored meeting changed project ownership", session["project_id"], session["project"])
+	}
 }

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -46,13 +48,14 @@ type apiServer struct {
 	diag            diagnosticStore
 	prefs           *settingsStore
 	meetings        *meeting.Engine
-	research        http.Handler
+	research        *research.Service
 	selectedPaths   sync.Map
 	pickMu          sync.RWMutex
 	pick            func() (string, error)
 	projectAccess   sync.Once
 	materialActions *projectMaterialActions
 	minerCreds      *minerCredentials
+	minerUploads    sync.Map
 }
 
 func (a *apiServer) setPicker(p func() (string, error)) {
@@ -119,8 +122,22 @@ func replyUnreadableSession(w http.ResponseWriter, err error) bool {
 }
 
 func (a *apiServer) serve(port int) http.Handler {
-	if _, ok := a.research.(meetingProjects); a.meetings != nil && ok {
-		a.projectAccess.Do(func() { a.meetings.SetProjectAccess(a.withMeetingProject) })
+	if a.meetings != nil && a.research != nil {
+		a.projectAccess.Do(func() {
+			a.meetings.SetProjectAccess(a.research.WithProjectDirectory)
+			a.meetings.SetConversationGenerationCheck(a.research.CheckConversationGeneration)
+			a.meetings.SetConversationAccessCheck(func(id string) error {
+				if a.research.CheckConversationAccess(id) != nil {
+					return meeting.ErrConversationResetPending
+				}
+				return nil
+			}, a.research.AnyConversationResetPending)
+			a.research.SetConversationHistoryCheck(a.meetings.WithProjectConversationHistory)
+			a.research.SetConversationReset(a.resetProjectConversations)
+			if err := a.research.RecoverConversationResets(); err != nil {
+				log.Printf("项目对话清理等待恢复：%v", err)
+			}
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -343,7 +360,7 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				fail(w, err)
 				return
 			}
-			if lab, ok := a.research.(*research.Service); ok {
+			if lab := a.research; lab != nil {
 				if err := lab.ValidateExternalDirectory(selected); err != nil {
 					fail(w, err)
 					return
@@ -366,24 +383,42 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				reject(w, http.StatusInternalServerError, "无法访问圆桌存档目录，请检查目录和本机权限后重试。")
 				return
 			}
+			if a.research != nil {
+				allowed, err := a.research.ModuleEnabled("", "ai-lab")
+				if err != nil || !allowed {
+					list = slices.DeleteFunc(list, func(s meeting.Summary) bool { return s.ProjectID == "" && s.Project != "" })
+				}
+			}
 			reply(w, 200, map[string]any{"sessions": list, "unreadable_sessions": unreadable})
 			return
 		}
 		if r.Method == "POST" {
 			var b struct {
-				Topic, Project string
-				ProjectID      string `json:"project_id"`
-				Scope          string `json:"scope"`
-				Seats          []string
-				Members        []meeting.Member
-				Preset         string
-				Agenda         []json.RawMessage
-				Continuous     *meeting.ContinuousConfig `json:"continuous"`
-				MaterialIDs    []string                  `json:"material_ids"`
-				StartAgenda    *bool                     `json:"start_agenda_draft"`
+				Topic, Project         string
+				ProjectID              *string `json:"projectId"`
+				LegacyProjectID        *string `json:"project_id"`
+				ConversationGeneration uint64  `json:"conversationGeneration"`
+				Scope                  string  `json:"scope"`
+				Seats                  []string
+				Members                []meeting.Member
+				Preset                 string
+				Agenda                 []json.RawMessage
+				Continuous             *meeting.ContinuousConfig `json:"continuous"`
+				MaterialIDs            []string                  `json:"material_ids"`
+				StartAgenda            *bool                     `json:"start_agenda_draft"`
 			}
 			if !jsonBody(w, r, &b) {
 				return
+			}
+			if b.ProjectID != nil && b.LegacyProjectID != nil && *b.ProjectID != *b.LegacyProjectID {
+				reject(w, 400, "projectId 与 project_id 必须一致")
+				return
+			}
+			projectID := ""
+			if b.ProjectID != nil {
+				projectID = *b.ProjectID
+			} else if b.LegacyProjectID != nil {
+				projectID = *b.LegacyProjectID
 			}
 			if err := meeting.ValidateTopic(b.Topic); err != nil {
 				fail(w, err)
@@ -393,11 +428,16 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				reject(w, 400, "请仅使用本场圆桌的模型席位")
 				return
 			}
-			scope, e := a.meetingScope(b.ProjectID, b.Project, b.Scope)
+			scope, e := a.meetingScope(projectID, b.Project, b.Scope)
 			if e != nil {
 				fail(w, e)
 				return
 			}
+			if err := a.meetings.CheckAI(scope); err != nil {
+				fail(w, err)
+				return
+			}
+			scope.ConversationGeneration = b.ConversationGeneration
 			var s *meeting.Session
 			if b.Members != nil {
 				members, err := a.validateMembers(r.Context(), b.Members)
@@ -445,6 +485,34 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[1]
+	if len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "export.md" {
+		record, err := a.meetings.Stored(id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record.PathOnly() && a.research != nil && !checkLabModule(w, a.research, "") {
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="meeting-%s.md"`, url.PathEscape(id)))
+		_, _ = io.WriteString(w, record.Markdown())
+		return
+	}
+	// No session mutation is available for a historical record without a
+	// stable project identity, including actions dispatched to other services.
+	if len(parts) == 3 && r.Method == http.MethodPost && a.research != nil && a.meetings != nil {
+		record, err := a.meetings.Stored(id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record.PathOnly() {
+			reject(w, http.StatusForbidden, "旧会话仅支持查看和导出记录")
+			return
+		}
+	}
+
 	if len(parts) == 3 && parts[2] == "read-review" {
 		a.serveReadReview(w, r, id)
 		return
@@ -503,6 +571,8 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case errors.Is(err, os.ErrNotExist):
 				reject(w, http.StatusNotFound, "未找到圆桌")
+			case errors.Is(err, meeting.ErrAIDisabled):
+				fail(w, err)
 			case errors.Is(err, meeting.ErrConflict):
 				reject(w, http.StatusConflict, "圆桌正在关闭，请稍后重试")
 			default:
@@ -531,6 +601,9 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 			fail(w, err)
 			return
 		}
+		if session != nil && session.PathOnly() && a.research != nil && !checkLabModule(w, a.research, "") {
+			return
+		}
 		w.Header().Set("ETag", `W/"`+revision+`"`)
 		if session == nil {
 			w.WriteHeader(http.StatusNotModified)
@@ -554,15 +627,6 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 	}
 	route := r.Method + " " + parts[2]
 	switch route {
-	case "GET export.md":
-		content, e := a.meetings.Markdown(id)
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="meeting-%s.md"`, url.PathEscape(id)))
-		_, _ = io.WriteString(w, content)
 	case "GET files":
 		var files []string
 		e := a.meetings.WithProjectDirectory(s, func(dir string) error {
@@ -634,19 +698,8 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *apiServer) approvedResearchPath(path string) bool {
-	path = filepath.Clean(path)
-	actual, err := research.IdentifyDirectory(path)
-	if err != nil {
-		return false
-	}
-	if selected, ok := a.selectedPaths.Load(path); ok && selected == actual {
-		return true
-	}
-	if a.prefs == nil {
-		return false
-	}
-	records, err := a.projectRecords()
-	entry, ok := records[path]
-	return err == nil && ok && entry.DirectoryGrant != nil && *entry.DirectoryGrant == actual
+// A picker result belongs to this live root. A successful grant consumes the
+// selection so revocation or reassignment always requires a new user action.
+func (a *apiServer) approvedResearchPath(path string, grant research.DirectoryGrant) bool {
+	return a.selectedPaths.CompareAndDelete(path, grant)
 }

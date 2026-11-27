@@ -28,8 +28,8 @@
     if(url.searchParams.get("view")==="meetings")return "lab";
     return url.searchParams.get("tab")==="calendar" ? "calendar" : url.searchParams.get("view") || "overview";
   }
-  function moduleURL(key,id,config) {
-    if(key==="lab")return nav.route(nav.enabled(config,"ai-lab")?"/lab":"/studio",{project:id});
+  function moduleURL(key,id) {
+    if(key==="lab")return nav.route("/lab",{project:id});
     if(key==="recommendations")return nav.route("/tools",{project:id,tab:"discover"});
     return nav.research(key,id);
   }
@@ -37,21 +37,25 @@
     const id=group.dataset.moduleProject;
     try{
       if(!configs.has(id)){
-        if(!pending.has(id))pending.set(id,window.SciStationModules.load(id).finally(()=>pending.delete(id)));
+        if(!pending.has(id)){
+          const request=window.SciStationModules.load(id).finally(()=>{if(pending.get(id)===request)pending.delete(id);});
+          pending.set(id,request);
+        }
         const result=await pending.get(id);
+        if(!group.isConnected)return;
         if(!configs.has(id))configs.set(id,result);
       }
       if(!group.isConnected || group.hidden)return;
       const config=configs.get(id),url=new URL(location.href);
       const labels={...nav.projectNames, calendar:text("日历","Calendar"), recommendations:text("文献推荐","Recommendations"),lab:"AI"};
-      let keys=Object.keys(glyphs).filter(key=>key==="lab" || nav.enabled(config,nav.viewModules[key]));
+      let keys=Object.keys(glyphs).filter(key=>nav.enabled(config,nav.viewModules[key]));
       const hasOverview=keys.includes("overview");
-      keys=layout.ordered(keys,config.pinnedOrder || [],key=>nav.viewModules[key]);
+      keys=layout.ordered(keys,config?.pinnedOrder || [],key=>nav.viewModules[key]);
       keys=layout.ordered(keys.filter(key=>key!=="overview"),layout.state.tabOrder,key=>key);
       if(hasOverview)keys.unshift("overview");
       group.replaceChildren(...keys.map(key=>{
         const a=document.createElement("a"), caption=document.createElement("span");
-        a.dataset.tabKey=key;a.href=moduleURL(key,id,config);a.innerHTML=icon(glyphs[key]);caption.textContent=labels[key];a.append(caption);
+        a.dataset.tabKey=key;a.href=moduleURL(key,id);a.innerHTML=icon(glyphs[key]);caption.textContent=labels[key];a.append(caption);
         if(id===url.searchParams.get("project")){
           if(key===activeTab(url))a.setAttribute("aria-current","page");
           if(url.pathname==="/research" && key!=="calendar" && key!=="lab" && key!=="recommendations")a.dataset.view=key;
@@ -176,7 +180,8 @@
   window.SciProjectSidebar={render,refresh,setProjects};
   document.getElementById("new-project").onclick=()=>window.SciProjectEditor.open(null);
   window.addEventListener("sci:modules",e=>{
-    if(e.detail.project)configs.set(e.detail.project,e.detail.state);else configs.clear();
+    if(e.detail.project){pending.delete(e.detail.project);configs.set(e.detail.project,e.detail.state);}
+    else {pending.clear();configs.clear();}
     signature="";render();
   });
   if(document.body.dataset.workspaceSurface!=="research")refresh().catch(error=>{tree.textContent=error.message;});

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"scistation.local/desktop/internal/research"
+	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/workspace"
 	"scistation.local/desktop/web"
 )
@@ -41,6 +41,8 @@ var workspaceSurfaces = func() map[string]workspaceSurface {
 	return surfaces
 }()
 
+var transcriptPage = template.Must(template.ParseFS(web.Assets, "static/workspace-shell.html", "static/session-transcript.html"))
+
 func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 	if path == "/" {
@@ -64,7 +66,7 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 	}
 	link := *r.URL
 	link.Path = path
-	resolved, err := a.resolveWorkspaceRoute(&link)
+	resolved, archive, err := a.workspacePageRoute(&link)
 	if err != nil {
 		reject(w, http.StatusInternalServerError, "无法读取工作区导航设置")
 		return true
@@ -76,18 +78,21 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method != http.MethodHead {
 		var storage storageLocations
-		if surface.name == "studio" {
+		if archive != nil {
+			surface = workspaceSurface{name: "session-transcript", title: "会话记录", page: transcriptPage}
+		} else if surface.name == "studio" {
 			storage = a.storageLocations()
 		}
 		_ = surface.page.Execute(w, struct {
 			Title, Surface              string
 			Desktop, Pane, AI, Settings bool
 			Storage                     storageLocations
+			Archive                     *meeting.Session
 		}{
 			Title: surface.title, Surface: surface.name, Desktop: a.desktop, Pane: surface.pane,
 			AI:       surface.name == "lab" || surface.name == "studio",
 			Settings: surface.name == "studio" && (r.URL.Query().Get("view") == "settings" || r.URL.Query().Get("view") == "plugins"),
-			Storage:  storage,
+			Storage:  storage, Archive: archive,
 		})
 	}
 	return true
@@ -95,55 +100,87 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 
 // Scope and module checks also apply to a restored route or a copied link.
 func (a *apiServer) resolveWorkspaceRoute(link *url.URL) (string, error) {
+	route, _, err := a.workspacePageRoute(link)
+	return route, err
+}
+
+func (a *apiServer) workspacePageRoute(link *url.URL) (string, *meeting.Session, error) {
+	var archive *meeting.Session
 	q := link.Query()
 	project := q.Get("project")
-	service, _ := a.research.(*research.Service)
+	service := a.research
+	module := routeModule(link.Path, q.Get("view"), q.Get("tab"))
+	if module == "ai-lab" && service == nil {
+		return "", nil, errors.New("AI module settings unavailable")
+	}
 	if service != nil {
 		if project != "" && !service.HasActiveProject(project) {
-			return "/research?view=projects", nil
+			return "/research?view=projects", nil, nil
 		}
 		if id := q.Get("paper"); link.Path == "/reader" && id != "" && !service.HasWorkspacePaper(id, project) {
-			return libraryRoute(project), nil
+			return libraryRoute(project), nil, nil
 		}
-		// Workspace configurations can disable an entire module or a project
-		// override can hide it. Module state is owned by the research service.
-		module := routeModule(link.Path, q.Get("view"), q.Get("tab"))
+		sessionID := ""
+		if link.Path == "/studio" && module == "ai-lab" {
+			sessionID = q.Get("session")
+		} else if link.Path == "/lab" {
+			sessionID = q.Get("run")
+		}
+		canonical := *link
+		if sessionID != "" {
+			if a.meetings == nil {
+				return "", nil, errors.New("AI session archive unavailable")
+			}
+			session, err := a.meetings.Stored(sessionID)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return "", nil, err
+			}
+			if err != nil ||
+				project != "" && session.ProjectID != project || q.Get("scope") == "global" && (session.ProjectID != "" || session.PathOnly()) ||
+				link.Path == "/lab" && len(session.Seats) != 1 {
+				return researchFallback(project), nil, nil
+			}
+			if session.PathOnly() {
+				if link.Path == "/lab" {
+					canonical.Path = "/studio"
+					canonical.RawQuery = url.Values{"session": {sessionID}}.Encode()
+				}
+				archive = session
+			}
+			if project == "" && session.ProjectID != "" {
+				project = session.ProjectID
+				if !service.HasActiveProject(project) {
+					return "/research?view=projects", nil, nil
+				}
+				q.Set("project", project)
+				canonical.RawQuery = q.Encode()
+			}
+		}
 		if link.Path == "/research" && q.Get("view") == "" && project != "" {
 			module = "projects"
 		}
 		if module != "" {
 			enabled, err := service.ModuleEnabled(project, module)
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			if !enabled {
-				if project != "" && module != "projects" {
-					return "/research?project=" + url.QueryEscape(project), nil
+				if module == "projects" {
+					return "/research", nil, nil
 				}
-				return "/research", nil
+				return researchFallback(project), nil, nil
 			}
 		}
-		if sessionID := q.Get("session"); link.Path == "/studio" && sessionID != "" && a.meetings != nil {
-			session, err := a.meetings.Get(sessionID)
-			if errors.Is(err, os.ErrNotExist) || (err == nil && project != "" && session.ProjectID != project) {
-				fallback := url.Values{"view": {"meetings"}}
-				if project != "" {
-					fallback.Set("project", project)
-				}
-				return "/research?" + fallback.Encode(), nil
-			}
-			if err == nil && project == "" && session.ProjectID != "" {
-				if !service.HasActiveProject(session.ProjectID) {
-					return "/research?view=projects", nil
-				}
-				q.Set("project", session.ProjectID)
-				canonical := *link
-				canonical.RawQuery = q.Encode()
-				return canonical.RequestURI(), nil
-			}
-		}
+		return canonical.RequestURI(), archive, nil
 	}
-	return link.RequestURI(), nil
+	return link.RequestURI(), nil, nil
+}
+
+func researchFallback(project string) string {
+	if project != "" {
+		return "/research?project=" + url.QueryEscape(project)
+	}
+	return "/research"
 }
 
 func libraryRoute(project string) string {
@@ -157,6 +194,11 @@ func routeModule(path, view, tab string) string {
 	switch path {
 	case "/reader":
 		return "pdf-reader"
+	case "/studio":
+		if view == "settings" || view == "plugins" {
+			return ""
+		}
+		return "ai-lab"
 	case "/lab":
 		return "ai-lab"
 	case "/tools":
@@ -168,6 +210,9 @@ func routeModule(path, view, tab string) string {
 		}
 		return "recommendation"
 	case "/research":
+		if view == "meetings" {
+			return "ai-lab"
+		}
 		if view == "tasks" && tab == "calendar" {
 			return "calendar"
 		}

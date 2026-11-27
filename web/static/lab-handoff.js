@@ -82,6 +82,10 @@
         data.materials.some(m=>!recordID(m?.id) || typeof m?.name!=="string" || count(m.name)>240)) throw Error("Invalid AI mode transfer");
     const materials=[...new Map(data.materials.map(({id,name})=>[id,{id,name}])).values()];
     const transfer={workspace:data.workspace,projectId:data.projectId,sourceSessionId:data.sourceSessionId,context:data.context,materials};
+    if(data.projectGeneration!==undefined) {
+      if(!Number.isSafeInteger(data.projectGeneration) || data.projectGeneration<0 || (!data.projectId && data.projectGeneration)) throw Error("Invalid project conversation generation");
+      if(data.projectGeneration) transfer.projectGeneration=data.projectGeneration;
+    }
     if(preset!==undefined) {
       if(target!=="roundtable" || data.sourceSessionId || materials.length || !["review","forum","prioritize"].includes(preset?.mode) ||
           !Number.isInteger(preset.seats) || preset.seats<2 || preset.seats>4) throw Error("Invalid Roundtable template transfer");
@@ -93,11 +97,11 @@
     if (!Object.hasOwn(transferKeys,target)) throw Error("Unknown AI mode");
     sessionStorage.setItem(transferKeys[target],JSON.stringify(modeTransferPayload(data,target)));
   }
-  function readModeTransfer(target,{workspace,projectId}) {
+  function readModeTransfer(target,{workspace,projectId,projectGeneration=0}) {
     if (!Object.hasOwn(transferKeys,target)) return null;
     try {
       const data=modeTransferPayload(JSON.parse(sessionStorage.getItem(transferKeys[target])),target);
-      return data.workspace===workspace && data.projectId===projectId ? data : null;
+      return data.workspace===workspace && data.projectId===projectId && (data.projectGeneration || 0)===projectGeneration ? data : null;
     } catch { return null; }
   }
   function clearModeTransfer(target) {
@@ -109,7 +113,7 @@
   async function receive(project,linked,session,box,configure,materials) {
     let data;
     try { data=JSON.parse(sessionStorage.getItem(key)||"null"); } catch { return; }
-    if (!data || !project || data.projectId!==project.id || (data.sessionId||"")!==(linked||"")) return;
+    if (!data || !project || data.projectId!==project.id || (data.projectGeneration || 0)!==(project.conversationGeneration || 0) || (data.sessionId||"")!==(linked||"")) return;
     if (linked && (!session || session.id!==linked || session.project_id!==project.id || session.status==="closed")) throw Error("目标会议已结束或不属于此项目。");
     const text=compose(data);
     const prior=box.value.trim();

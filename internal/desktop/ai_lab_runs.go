@@ -9,7 +9,6 @@ import (
 
 	"scistation.local/desktop/internal/credentials"
 	"scistation.local/desktop/internal/meeting"
-	"scistation.local/desktop/internal/research"
 )
 
 type labRunConfiguration struct {
@@ -197,8 +196,8 @@ func (a *apiServer) serveLabRun(w http.ResponseWriter, r *http.Request, id strin
 			reject(w, 400, "需要当前轮号")
 			return
 		}
-		lab, ok := a.research.(*research.Service)
-		if !ok {
+		lab := a.research
+		if lab == nil {
 			reject(w, 503, "未打开科研工作区")
 			return
 		}

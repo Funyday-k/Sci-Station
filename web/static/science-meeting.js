@@ -147,7 +147,8 @@
     if (!context) return;
     let raw;
     try { raw = JSON.parse(sessionStorage.getItem(transferKey) || "null"); } catch { return; }
-    if (!raw || raw.projectId !== context.id || (raw.sessionId || "") !== (expectedSession || "")) return;
+    if (!raw || raw.projectId !== context.id || (raw.projectGeneration || 0) !== (context.conversationGeneration || 0) ||
+        (raw.sessionId || "") !== (expectedSession || "")) return;
     const source = reference(raw);
     if (!source) throw new Error("论文摘录无效，或超过 2,800 个字符，请回到阅读器重新选择。");
     if (expectedSession && (session?.project_id !== context.id || session?.status === "closed"))
@@ -194,7 +195,7 @@
   function rememberDraft() {
     const draft=currentDraft;
     if (!draft || !ui || !draft.items.length || ui.form.hidden) return;
-    const data={operationId:draft.operationId,output:ui.output.value,target:ui.target.value,title:ui.title.value,body:ui.body.value,
+    const data={projectGeneration:draft.projectGeneration,operationId:draft.operationId,output:ui.output.value,target:ui.target.value,title:ui.title.value,body:ui.body.value,
       revision:draft.base?.revision || 0};
     try {localStorage.setItem(draftKey(draft),JSON.stringify(data));} catch { /* editing remains available */ }
   }
@@ -202,7 +203,10 @@
     if (draft) try {localStorage.removeItem(draftKey(draft));} catch {}
   }
   function restoredDraft(draft) {
-    try {return JSON.parse(localStorage.getItem(draftKey(draft)) || "null");} catch {return null;}
+    try {
+      const saved=JSON.parse(localStorage.getItem(draftKey(draft)) || "null");
+      return (saved?.projectGeneration || 0)===draft.projectGeneration ? saved : null;
+    } catch {return null;}
   }
   function ensureDialog() {
     if (ui) return ui;
@@ -234,7 +238,8 @@
   function show() {
     if (!project || !session) return;
     const d = ensureDialog(), rows = outputs(session), refs=sources(session,project.id);
-    currentDraft={sessionId:session.id,projectId:project.id,snapshot:session,items:rows,refs,base:null,notes:[],busy:false};
+    currentDraft={sessionId:session.id,projectId:project.id,projectGeneration:project.conversationGeneration || 0,
+      snapshot:session,items:rows,refs,base:null,notes:[],busy:false};
     d.contextLine.textContent=project.name + " · " + short(session.title || session.topic, 100);
     d.evidence.replaceChildren();
     if (refs.length) {

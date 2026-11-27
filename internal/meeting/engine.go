@@ -255,12 +255,16 @@ type Summary struct {
 }
 
 type Engine struct {
+	conversationAccess  func(string) error
+	anyResetPending     func() bool
+	checkGeneration     func(string, uint64) error
+	aiEnabled           func(string) (bool, error)
 	researchReads       ResearchReads
 	managedRoot         string
 	previousRoots       []string
 	readReviews         readReviewQueue
 	presence            boardPresenceHub
-	projectRuleSnapshot func(string) (ProjectRuleSnapshot, error)
+	projectRuleSnapshot func(ProjectScope) (ProjectRuleSnapshot, error)
 	projectAccess       func(string, func(string) error) error
 	pluginGuidance      func() ([]PluginGuidance, error)
 	dir                 string
@@ -288,6 +292,11 @@ func newID() string {
 }
 
 func New(dir string, call func(context.Context, string, string, string, string) (string, error), settings func() Settings) (*Engine, error) {
+	return NewWithProjectAccess(dir, call, settings, nil)
+}
+
+// NewWithProjectAccess installs workspace authority before examining saved sessions.
+func NewWithProjectAccess(dir string, call func(context.Context, string, string, string, string) (string, error), settings func() Settings, access func(string, func(string) error) error) (*Engine, error) {
 	if call == nil || settings == nil {
 		return nil, errors.New("model call and settings getter are required")
 	}
@@ -298,7 +307,7 @@ func New(dir string, call func(context.Context, string, string, string, string) 
 	if err = workspace.ManagedMkdirAll(abs, 0700); err != nil {
 		return nil, err
 	}
-	e := &Engine{dir: abs, call: call, settings: settings, cancels: make(map[string]context.CancelFunc), activeRounds: make(map[string]int)}
+	e := &Engine{dir: abs, projectAccess: access, call: call, settings: settings, cancels: make(map[string]context.CancelFunc), activeRounds: make(map[string]int)}
 	if err := e.visitSessions(nil); err != nil {
 		return nil, err
 	}
@@ -341,6 +350,19 @@ func release(f *os.File) {
 	}
 }
 func (e *Engine) load(id string) (*Session, error) {
+	s, err := e.readArchive(id)
+	if err != nil {
+		return nil, err
+	}
+	if s.ProjectID != "" && e.conversationAccess != nil {
+		if err := e.conversationAccess(s.ProjectID); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+func (e *Engine) readArchive(id string) (*Session, error) {
 	var s Session
 	if err := sessionstore.Read(e.dir, id, &s); err != nil {
 		return nil, err
@@ -371,6 +393,9 @@ func (e *Engine) load(id string) (*Session, error) {
 	return &s, nil
 }
 func (e *Engine) save(s *Session) error {
+	if e.projectAccess != nil && s.PathOnly() {
+		return fmt.Errorf("%w: 旧会话记录为只读", os.ErrPermission)
+	}
 	ensureBoard(s)
 	s.UpdatedAt = now()
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -398,6 +423,9 @@ func clone(s *Session) *Session {
 }
 
 func (e *Engine) recover(s *Session) error {
+	if e.projectAccess != nil && s.PathOnly() {
+		return nil
+	}
 	if s.Report.active() {
 		return e.recoverReport(s)
 	}
@@ -543,6 +571,12 @@ func (e *Engine) create(topic string, scope ProjectScope, seats []string, member
 	}
 	addEvent(s, "created", "", "Created without sending a model request.")
 	err := e.locked(func() error {
+		if err := e.checkConversationGeneration(scope.ID, scope.ConversationGeneration); err != nil {
+			return err
+		}
+		if err := e.CheckAI(scope); err != nil {
+			return err
+		}
 		if _, err := e.bindMaterials(s, materialIDs); err != nil {
 			return err
 		}
@@ -553,6 +587,18 @@ func (e *Engine) create(topic string, scope ProjectScope, seats []string, member
 	})
 	return clone(s), err
 }
+
+// Stored reads the saved record without recovering workers or consulting a project directory.
+func (e *Engine) Stored(id string) (*Session, error) {
+	var s *Session
+	err := e.locked(func() error {
+		var err error
+		s, err = e.load(id)
+		return err
+	})
+	return s, err
+}
+
 func (e *Engine) Get(id string) (*Session, error) {
 	var result *Session
 	err := e.locked(func() error {
@@ -604,6 +650,9 @@ func (e *Engine) visitSessions(visit func(*Session, *sessionstore.Unreadable)) e
 		for _, id := range ids {
 			s, err := e.load(id)
 			if err != nil {
+				if errors.Is(err, ErrConversationResetPending) {
+					continue
+				}
 				var issue *sessionstore.Unreadable
 				if !errors.As(err, &issue) {
 					return err
@@ -624,6 +673,9 @@ func (e *Engine) visitSessions(visit func(*Session, *sessionstore.Unreadable)) e
 	})
 }
 func (e *Engine) snapshotSettings(session *Session) (Settings, error) {
+	if err := e.CheckAI(ProjectScope{ID: session.ProjectID, Global: session.isGlobal()}); err != nil {
+		return Settings{}, err
+	}
 	// Copy maps so configuration updates cannot mutate an active round.
 	configured := e.settings()
 	encoded, err := json.Marshal(configured)
@@ -910,7 +962,7 @@ func (e *Engine) loadRoundRules(s *Session) (ProjectRuleSnapshot, error) {
 	if e.projectRuleSnapshot == nil {
 		return ProjectRuleSnapshot{}, nil
 	}
-	rules, err := e.projectRuleSnapshot(s.Project)
+	rules, err := e.projectRuleSnapshot(ProjectScope{ID: s.ProjectID, Directory: s.Project})
 	if err != nil {
 		return rules, fmt.Errorf("无法读取本轮项目规则：%w", err)
 	}
@@ -1453,13 +1505,13 @@ func (e *Engine) SetProjectContext(f func(string) string) {
 		e.SetProjectRuleSnapshot(nil)
 		return
 	}
-	e.SetProjectRuleSnapshot(func(project string) (ProjectRuleSnapshot, error) {
-		return ProjectRuleSnapshot{Guidance: f(project)}, nil
+	e.SetProjectRuleSnapshot(func(scope ProjectScope) (ProjectRuleSnapshot, error) {
+		return ProjectRuleSnapshot{Guidance: f(scope.Directory)}, nil
 	})
 }
 
 // SetProjectRuleSnapshot installs the project rule reader during startup.
-func (e *Engine) SetProjectRuleSnapshot(f func(string) (ProjectRuleSnapshot, error)) {
+func (e *Engine) SetProjectRuleSnapshot(f func(ProjectScope) (ProjectRuleSnapshot, error)) {
 	e.projectRuleSnapshot = f
 }
 
@@ -2161,7 +2213,7 @@ func (e *Engine) UserWrite(id, path, text, version string) (workspace.Change, er
 	return result, err
 }
 func (e *Engine) Markdown(id string) (string, error) {
-	s, err := e.Get(id)
+	s, err := e.Stored(id)
 	if err != nil {
 		return "", err
 	}

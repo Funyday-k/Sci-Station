@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,8 +51,8 @@ func (a *apiServer) checkResearchConnection(lab *research.Service, project, expe
 }
 
 func (a *apiServer) ResearchConnections(scope meeting.ProjectScope) []meeting.ResearchConnection {
-	lab, ok := a.research.(*research.Service)
-	if !ok || !a.desktop || a.minerCreds == nil || a.labConnect.key == nil || scope.ID == "" || scope.Directory == "" {
+	lab := a.research
+	if lab == nil || !a.desktop || a.minerCreds == nil || a.labConnect.key == nil || scope.ID == "" || scope.Directory == "" {
 		return nil
 	}
 	cfg, err := lab.LabSettings(scope.ID)
@@ -97,28 +100,50 @@ func (s *researchRetryState) canAttempt(key string) error {
 	if !s.now().Before(item.until) {
 		return nil
 	}
-	item.attempts++
-	s.entries[key] = item
 	return fmt.Errorf("%w · %s · retry_count=%d · next_retry=%s", meeting.ErrResearchBackoff, item.last, item.attempts, item.until.UTC().Format(time.RFC3339Nano))
 }
 func (s *researchRetryState) failed(key string, err error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
 	if s.entries == nil {
 		s.entries = map[string]connectorRetry{}
 	}
 	item := s.entries[key]
-	item.attempts++
-	delay := time.Duration(min(1<<min(item.attempts, 6), 60)) * time.Second
-	item.until = s.now().Add(delay)
-	item.last = err.Error()
+	if !now.Before(item.until) {
+		item.attempts++
+		delay := time.Duration(min(1<<min(item.attempts, 6), 60)) * time.Second
+		item.until = now.Add(delay)
+		item.last = err.Error()
+	}
+	// Overlapping requests keep the first local deadline. A longer wait from an
+	// actual server response still applies to this connection.
+	var failure labTransportFailure
+	if errors.As(err, &failure) {
+		if deadline := labRetryAfter(now, failure.retryAfter); deadline.After(item.until) {
+			item.until = deadline
+			item.last = err.Error()
+		}
+	}
 	s.entries[key] = item
-	return fmt.Errorf("%s · retry_count=%d · next_retry=%s", item.last, item.attempts, item.until.UTC().Format(time.RFC3339Nano))
+	return fmt.Errorf("%w · retry_count=%d · next_retry=%s", err, item.attempts, item.until.UTC().Format(time.RFC3339Nano))
 }
 func (s *researchRetryState) success(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.entries, key)
+	// A success that overlaps a failure must not clear its active cooldown.
+	if !s.now().Before(s.entries[key].until) {
+		delete(s.entries, key)
+	}
+}
+
+func labRetryAfter(now time.Time, value string) time.Time {
+	value = strings.TrimSpace(value)
+	if seconds, err := strconv.ParseUint(value, 10, 64); err == nil && seconds <= uint64(math.MaxInt64/time.Second) {
+		return now.Add(time.Duration(seconds) * time.Second)
+	}
+	deadline, _ := http.ParseTime(value)
+	return deadline
 }
 
 // A discovery/transport failure can be retried after a delay. Credential
@@ -127,7 +152,10 @@ type labAuthFailure struct{ cause error }
 
 func (e labAuthFailure) Error() string { return e.cause.Error() }
 
-type labTransportFailure struct{ cause error }
+type labTransportFailure struct {
+	cause      error
+	retryAfter string
+}
 
 func (e labTransportFailure) Error() string { return e.cause.Error() }
 func canonicalReadArguments(raw json.RawMessage) (map[string]any, string, error) {
@@ -186,8 +214,8 @@ func checkArgumentValue(decoder *json.Decoder) error {
 }
 func (a *apiServer) PrepareResearchRead(scope meeting.ProjectScope, request meeting.ResearchRead) (meeting.ResearchProposal, error) {
 	var plan meeting.ResearchProposal
-	lab, ok := a.research.(*research.Service)
-	if !ok || !a.desktop || a.labConnect.key == nil || a.minerCreds == nil || scope.ID == "" || scope.Directory == "" {
+	lab := a.research
+	if lab == nil || !a.desktop || a.labConnect.key == nil || a.minerCreds == nil || scope.ID == "" || scope.Directory == "" {
 		return plan, noConnector
 	}
 	config, err := lab.LabSettings(scope.ID)

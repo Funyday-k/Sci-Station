@@ -26,6 +26,7 @@ type desktopHost struct {
 	session          rootSession
 	languageUpdate   atomic.Uint64
 	menuLanguage     atomic.Value
+	menuAIEnabled    bool // accessed on the main thread
 }
 
 func runDesktop(explicit string, port int) error {
@@ -90,7 +91,7 @@ func runDesktop(explicit string, port int) error {
 		}
 	})
 	configureNativeLaunch(h.app, h.window)
-	h.menu(language)
+	h.menu(language, h.session.active.globalAIEnabled())
 	h.app.Event.OnApplicationEvent(events.Mac.ApplicationDidBecomeActive, func(*application.ApplicationEvent) {
 		go h.refreshMenu()
 	})
@@ -258,8 +259,8 @@ func (h *desktopHost) installPickers(host *apiServer) {
 		return
 	}
 	app, window := h.app, h.window
-	if service, ok := host.research.(interface{ OnInterfaceLanguageChanged(func()) }); ok {
-		service.OnInterfaceLanguageChanged(func() { go h.refreshMenu() })
+	if service := host.research; service != nil {
+		service.OnWorkspaceMenuChanged(func() { go h.refreshMenu() })
 	}
 	configureMaterialDesktop(host, app, window, &h.panelMu)
 	host.pickMu.Lock()
@@ -317,8 +318,8 @@ func (h *desktopHost) installPickers(host *apiServer) {
 			PromptForSingleSelection()
 	})
 }
-func (h *desktopHost) menu(language string) {
-	if h.menuLanguage.Load() == language {
+func (h *desktopHost) menu(language string, aiEnabled bool) {
+	if h.menuLanguage.Load() == language && h.menuAIEnabled == aiEnabled {
 		return
 	}
 	copy := func(key string) string { return interfaceText(language, key) }
@@ -354,6 +355,9 @@ func (h *desktopHost) menu(language string) {
 	add := func(submenu *application.Menu, rows []entry) {
 		for _, row := range rows {
 			item := submenu.Add(row.label)
+			if row.command == "lab" {
+				item.SetEnabled(aiEnabled)
+			}
 			if row.key != "" {
 				item.SetAccelerator(row.key)
 			}
@@ -371,6 +375,7 @@ func (h *desktopHost) menu(language string) {
 	menu.AddRole(application.WindowMenu)
 	app.Menu.Set(menu)
 	h.menuLanguage.Store(language)
+	h.menuAIEnabled = aiEnabled
 }
 
 func (h *desktopHost) rename(expected *apiServer, name string) error {

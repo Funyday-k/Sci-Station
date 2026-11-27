@@ -195,14 +195,20 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		if err := json.Unmarshal(document["project"], &project); err != nil || project == nil {
 			return fmt.Errorf("cannot restore project %q", record.file)
 		}
-		delete(project, "directoryGrant")
 		newPath := ""
 		if record.path == managedPath(m.Source, record.id) {
 			newPath = managedPath(destination, record.id)
 			project["managedDirectory"] = json.RawMessage("true")
 		} else {
+			// Compare against the saved identity if the project is rebound.
+			// The old path may already refer to a different directory.
+			var grant research.DirectoryGrant
+			if json.Unmarshal(project["directoryGrant"], &grant) == nil && grant.Inode != 0 {
+				document["previousDirectoryIdentity"], _ = json.Marshal(grant)
+			}
 			delete(project, "managedDirectory")
 		}
+		delete(project, "directoryGrant")
 		project["path"], _ = json.Marshal(newPath)
 		document["project"], err = json.Marshal(project)
 		if err != nil {
@@ -213,22 +219,34 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		}
 	}
 	for _, record := range paths.meetings {
-		newPath := relocate(record.path)
-		projectID := managed[record.path]
-		if projectID == "" {
-			projectID = projectByPath[record.path]
-		}
-		if newPath == record.path && projectID == "" {
-			continue
-		}
 		var document map[string]json.RawMessage
 		if err := readJSON(stage, record.file, &document); err != nil {
 			return err
 		}
-		document["project"], _ = json.Marshal(newPath)
-		if projectID != "" {
-			document["project_id"], _ = json.Marshal(projectID)
+		var id string
+		if raw := document["project_id"]; raw != nil {
+			if err := json.Unmarshal(raw, &id); err != nil {
+				return err
+			}
 		}
+		// An explicit identity survives even if another project now owns the
+		// old path. Only a legacy meeting with no ID needs inference.
+		if id == "" {
+			id = projectByPath[record.path]
+			if id != "" {
+				document["project_id"], _ = json.Marshal(id)
+			}
+		}
+		newPath := ""
+		if id != "" && id == managed[record.path] {
+			newPath = relocate(record.path)
+		}
+		if id == "" && record.path != "" {
+			// Preserve an unbound historical session as such. An empty path
+			// and no ID would incorrectly convert it into a global session.
+			newPath = record.path
+		}
+		document["project"], _ = json.Marshal(newPath)
 		if err := writeJSON(stage, record.file, document); err != nil {
 			return err
 		}
@@ -239,12 +257,16 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		for path, record := range paths.registry {
 			newPath := relocate(path)
 			if newPath == "" {
-				continue
+				newPath = path
+			}
+			if _, exists := registry[newPath]; exists {
+				return errors.New("conflicting restored rule snapshot paths")
 			}
 			var fields map[string]json.RawMessage
 			if err := json.Unmarshal(record, &fields); err != nil || fields == nil {
 				return errors.New("cannot restore the project registry")
 			}
+			delete(fields, "directoryGrant")
 			fields["path"], _ = json.Marshal(newPath)
 			registry[newPath], err = json.Marshal(fields)
 			if err != nil {
@@ -276,6 +298,17 @@ func writeJSON(root *os.Root, path string, value any) error {
 	return writePrivate(root, path, append(body, '\n'))
 }
 
+func readResearchRecord(root *os.Root, path string, out any) error {
+	var data json.RawMessage
+	if err := readJSON(root, path, &data); err != nil {
+		return err
+	}
+	if err := research.DecodeRecordJSON(data, out); err != nil {
+		return fmt.Errorf("invalid research record %q: %w", path, err)
+	}
+	return nil
+}
+
 // Validate references to records and bytes owned by the prototype. Historical
 // note/task evidence can point to deliberately removed papers or meetings.
 func validateRecords(root *os.Root, m manifest) error {
@@ -283,7 +316,7 @@ func validateRecords(root *os.Root, m manifest) error {
 	for path := range m.Entries {
 		if id, ok := directJSON(projectDirectory, path); ok {
 			var d projectRecord
-			if err := readJSON(root, path, &d); err != nil {
+			if err := readResearchRecord(root, path, &d); err != nil {
 				return err
 			}
 			if !validID(id) || d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil ||
@@ -343,7 +376,7 @@ func validateRecords(root *os.Root, m manifest) error {
 func validatePaper(root *os.Root, entries map[string]treeEntry, path string, projects map[string]bool) error {
 	id, _ := directJSON(paperDirectory, path)
 	var p research.Paper
-	if err := readJSON(root, path, &p); err != nil {
+	if err := readResearchRecord(root, path, &p); err != nil {
 		return err
 	}
 	if !validID(id) || p.ID != id || p.Revision < 1 {

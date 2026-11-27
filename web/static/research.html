@@ -1,12 +1,10 @@
 {{define "head"}}
-<link rel="stylesheet" href="/static/research-vendor/katex.min.css">
 <link rel="stylesheet" href="/static/scientific-markdown.css">
   <link rel="stylesheet" href="/static/research.css">
   <link rel="stylesheet" href="/static/research-dashboard.css">
   <script defer src="/static/research-vendor/marked.min.js"></script>
   <script defer src="/static/research-vendor/dompurify.min.js"></script>
-  <script defer src="/static/research-vendor/katex.min.js"></script>
-  <script defer src="/static/scientific-markdown.js"></script>
+  <script defer src="/static/scientific-markdown.js" data-defer-math></script>
   <script defer src="/static/research-graph.js"></script>
   <script defer src="/static/research-inspire-graph.js"></script>
   <script defer src="/static/research-dashboard.js"></script>
@@ -19,14 +17,15 @@
   <link rel="stylesheet" href="/static/citation-panel.css">
 {{end}}
 {{define "breadcrumb"}}<div id="crumb"><span data-l10n-text="sidebarResearchShell">科研工作台</span></div>{{end}}
-{{define "tools"}}<button id="search-open" class="search-open"><span data-icon="search"></span><span data-l10n-text="searchWorkspace">搜索工作区</span><kbd>⌘ K</kbd></button>{{end}}
+{{define "tools"}}<button id="search-open" class="search-open" disabled><span data-icon="search"></span><span data-l10n-text="searchWorkspace">搜索工作区</span><kbd>⌘ K</kbd></button>{{end}}
 {{define "content"}}
 <div id="shell">
     <div id="workarea">
 
-      <main id="main" class="workspace-page" tabindex="-1" aria-busy="true">
-        <p class="initial" data-l10n-text="loadingWorkspace">正在读取工作区…</p>
-      </main>
+      <div id="research-loading" class="workspace-page research-load-status">
+        <p id="research-loading-message" role="status" data-l10n-text="loadingWorkspace">正在读取工作区…</p>
+      </div>
+      <main id="main" class="workspace-page" tabindex="-1" aria-busy="true" inert></main>
     </div>
   </div>
   <div id="toast" role="status" hidden></div>

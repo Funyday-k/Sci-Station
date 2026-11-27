@@ -122,7 +122,7 @@
           const context=[template.title,template.prompt].join("\n\n");
           const roundtablePreset={mode:template.mode,seats:template.seats};
           $("lab-tools-dialog").close();
-          showTransfer("out",{workspace,projectId:owner,sourceSessionId:"",context,materials:[],roundtablePreset},description);
+          showTransfer("out",{workspace,projectId:owner,projectGeneration:scopeGeneration(owner),sourceSessionId:"",context,materials:[],roundtablePreset},description);
           $("lab-transfer-dialog").addEventListener("close",()=>{
             if(!handingOff) toolPanel.open("roundtable-templates",findTemplateAction(template.id,"review") || undefined);
           },{once:true});
@@ -170,6 +170,7 @@
   }
   let previousScope=null;
   const projectId=()=>$("project").value==="@global" ? "" : $("project").value;
+  const scopeGeneration=id=>projects.find(item=>item.id===id)?.conversationGeneration || 0;
   function scopeAvailable(){
     const id=$("project").value;
     return id==="@global" || projects.some(p=>p.id===id);
@@ -225,7 +226,7 @@
   });}
   let pendingTransfer=null, transferReview=null, transferSequence=0;
   const draftPrefix=(owner,thread)=>"sci-station.lab-mode-draft.v1:"+encodeURIComponent(owner)+":"+encodeURIComponent(thread)+":";
-  const modeDraftKey=(workspace,owner,thread)=>draftPrefix(owner,thread)+encodeURIComponent(workspace);
+  const modeDraftKey=(workspace,owner,thread,generation)=>draftPrefix(owner,thread)+encodeURIComponent(workspace)+(generation ? ":"+generation : "");
   function workspaceForDraft() {
     if(draftWorkspace) return Promise.resolve(draftWorkspace);
     if(!workspaceLookup) workspaceLookup=req("/api/health").then(({workspace})=>draftWorkspace=workspace).finally(()=>{workspaceLookup=null;});
@@ -246,14 +247,14 @@
     if(!material || (revision && material.revision!==revision)) throw Error(text("草稿附件已更改。","A draft attachment changed."));
     return material;
   }
-  function restoreModeDraft(owner,thread) {
+  function restoreModeDraft(owner,thread,generation) {
     const prefix=draftPrefix(owner,thread);
     try {
       if(!Object.keys(sessionStorage).some(key=>key.startsWith(prefix))) return null;
     } catch { return null; }
     return (async()=>{
       const workspace=await workspaceForDraft();
-      const key=modeDraftKey(workspace,owner,thread), value=sessionStorage.getItem(key);
+      const key=modeDraftKey(workspace,owner,thread,generation), value=sessionStorage.getItem(key);
       if(!value) return null;
       const {ids=[],imports=ids.map(id=>({id})),resource,citations=[],templateId="",templateRevision,modelChoice}=JSON.parse(value);
       if(!Array.isArray(imports) || !Array.isArray(citations) || imports.length+citations.length>12 || citations.length>4 ||
@@ -272,9 +273,9 @@
       }};
     })();
   }
-  function rememberDraft(owner,thread,draft,workspace=draftWorkspace) {
+  function rememberDraft(owner,thread,draft,generation,workspace=draftWorkspace) {
     if(!workspace) return false;
-    const key=modeDraftKey(workspace,owner,thread);
+    const key=modeDraftKey(workspace,owner,thread,generation);
     const template=presets.find(item=>item.id===selectedTemplate && item.seats===1);
     const imports=draft.materials.map(({id,revision})=>({id,revision}));
     const citations=draft.citations.map(({citation:{kind,id,page,offset,hash,quote}})=>({kind,id,page,offset,hash,characters:Array.from(quote).length}));
@@ -293,7 +294,7 @@
       materials=importedIds.size ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:draft.materials}) : [];
     }
     if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
-    return rememberDraft(owner,thread,{...draft,materials:materials.filter(item=>importedIds.has(item.id))},workspace);
+    return rememberDraft(owner,thread,{...draft,materials:materials.filter(item=>importedIds.has(item.id))},scopeGeneration(owner),workspace);
   }
   function updateDiscoveryLink() {
     const owner=projectId(), thread=runs.activeThread();
@@ -348,7 +349,7 @@
     const owner=projectId();
     try {
       const {workspace}=await req("/api/health");
-      const input=handoff.readModeTransfer("single",{workspace,projectId:owner});
+      const input=handoff.readModeTransfer("single",{workspace,projectId:owner,projectGeneration:scopeGeneration(owner)});
       if(!input || ticket!==transferSequence) return;
       input.materials=await checkedMaterials(input);
       if(ticket!==transferSequence) return;
@@ -384,13 +385,15 @@
   }
   function reviewIsCurrent(review) {
     return transferReview===review && $("lab-transfer-dialog").open && review.epoch===transferSequence &&
-      review.originThread===runs.activeThread() && scopeAvailable() && review.input.projectId===projectId();
+      review.originThread===runs.activeThread() && scopeAvailable() && review.input.projectId===projectId() &&
+      (review.input.projectGeneration || 0)===scopeGeneration(review.input.projectId);
   }
   action("lab-transfer-preview",async()=>{
     const input=pendingTransfer, epoch=transferSequence, thread=runs.activeThread();
     if(!input) return;
     const materials=await checkedMaterials(input);
-    if(epoch===transferSequence && thread===runs.activeThread() && scopeAvailable() && input===pendingTransfer) {
+    if(epoch===transferSequence && thread===runs.activeThread() && scopeAvailable() && input===pendingTransfer &&
+        (input.projectGeneration || 0)===scopeGeneration(input.projectId)) {
       showTransfer("in",{...input,materials});
     }
   });
@@ -452,7 +455,7 @@
           "The preview contains the first 2,400 characters. The original chat keeps the full record."),
           overflow ? text("原对话和草稿的附件超过 12 份。本次只带入文字，附件留在原处。",
             "The original chat and draft have more than 12 attachments. This transfer carries text only and leaves all attachments in place.") : ""].filter(Boolean).join(" ");
-        const input={workspace,projectId:owner,sourceSessionId:room?.id || "",context,materials:overflow ? [] : materials};
+        const input={workspace,projectId:owner,projectGeneration:scopeGeneration(owner),sourceSessionId:room?.id || "",context,materials:overflow ? [] : materials};
         input.materials=await checkedMaterials(input);
         const ids=new Set(pending.map(item=>item.id));
         const retained=overflow && pending.length ? await checkedMaterials({...input,materials:pending}) :
@@ -586,5 +589,9 @@
       if(ticket!==scopeRefresh) return;
       projects=list;scopeOptions();showScopeStatus();runs.updateComposer();
     }).catch(error=>{if(ticket===scopeRefresh) tell(error.message);});
+  });
+  window.addEventListener("sci:project-conversations-reset",event=>{
+    if(projectId()!==event.detail.id)return;
+    handingOff=true;transferSequence++;runs.retireProject(event.detail.id);
   });
 })();

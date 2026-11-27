@@ -54,8 +54,8 @@ type projectMaterialCapabilities struct {
 }
 
 func (a *apiServer) serveProjectMaterial(w http.ResponseWriter, r *http.Request) {
-	lab, ok := a.research.(*research.Service)
-	if !ok {
+	lab := a.research
+	if lab == nil {
 		reject(w, 503, "科研服务未启动")
 		return
 	}

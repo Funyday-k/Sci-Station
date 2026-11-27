@@ -172,9 +172,10 @@
   }
 
   function enabled(modules, id) {
-    if (!id || !modules) return true;
+    if (!id) return true;
+    if (!modules) return id !== "ai-lab";
     return window.SciStationModules?.isEnabled(modules, id) ??
-      (modules.modules || []).find(item => item.id === id)?.effective !== false;
+      (modules.modules || []).find(item => item.id === id)?.effective === true;
   }
 
   const scopeKey = (rootID, projectID) => JSON.stringify([rootID || "", projectID || ""]);
@@ -201,22 +202,23 @@
     return true;
   }
 
-  async function load(request, projectID) {
-    const dataOrUnavailable = promise => promise.catch(() => null);
-    const moduleService = window.SciStationModules;
-    const [workspace, facts, reviews, modules] = await Promise.all([
-      dataOrUnavailable(request("/api/workspace")), dataOrUnavailable(request("dashboard/projects" +
-        (projectID ? "?project=" + encodeURIComponent(projectID) : ""))),
-      dataOrUnavailable(request(projectID ? "projects/" + encodeURIComponent(projectID) + "/reviews" : "reviews")),
-      moduleService ? dataOrUnavailable(moduleService.load(projectID)) : null
+  async function load(request, projectID, modules) {
+    const project = projectID ? encodeURIComponent(projectID) : "";
+    const [workspace, [facts, reviews]] = await Promise.all([
+      request("/api/workspace"),
+      Promise.allSettled([
+        request("dashboard/projects" + (project ? "?project=" + project : "")),
+        enabled(modules, "ai-lab") ? request(project ? "projects/" + project + "/reviews" : "reviews") : []
+      ])
     ]);
-    return {workspace, facts, reviews, modules};
+    return {workspace, facts: facts.value, reviews: reviews.value, modules,
+      failures: {facts: facts.status === "rejected", reviews: reviews.status === "rejected"}};
   }
 
   function markup(state, ui, now = new Date()) {
     const {esc, heading, button, link, panel, paperRows, taskRows, meetingRows, viewURL, studio, fmtDate, row, rowAction, list} = ui;
     const project = state.project;
-    const {facts, reviews, modules} = state.dashboardData || {};
+    const {facts, reviews, modules, failures = {}} = state.dashboardData || {};
     const descriptors = project ? projectWidgets : homeWidgets;
     const board = preference(state, descriptors);
     const isEnabled = id => enabled(modules, id);
@@ -236,6 +238,13 @@
     const subhead = text => '<h3 class="dashboard-subhead">' + esc(text) + '</h3>';
     const metric = (value, label) => value ? '<span class="dashboard-stat"><b>' + esc(value) + '</b> ' + esc(label) + '</span>' : "";
     const groupedMetrics = (...metrics) => metrics.some(Boolean) ? '<div class="dashboard-stats">' + metrics.filter(Boolean).join("") + '</div>' : "";
+    const unavailable = [
+      failures.facts && text("项目统计", "Project statistics"),
+      failures.reviews && text("审核队列", "Review queue")
+    ].filter(Boolean);
+    const warning = unavailable.length ? '<div class="dashboard-load-warning" role="alert">' +
+      panel(text("部分数据加载失败", "Some dashboard data could not be loaded"), message(unavailable.join(text("、", ", "))),
+        button(local("homeRetry", "重试", "Retry"), "reload")) + '</div>' : "";
     const callout = (items, render, fallback) => items.length ? render(items) : message(fallback);
     const dateLabel = item => [dateStr(item.dueDate || timestamp(item)), item.dueTime].filter(Boolean).join(" · ");
     const noteRows = items => list(items.map(n => row("file", n.title, fmtDate(n.updatedAt), rowAction("read-note", n.id))));
@@ -248,8 +257,8 @@
       '" data-dashboard-control="edit" aria-expanded="' + board.editing + '" aria-controls="dashboard-layout"' +
       ' aria-label="' + esc(editLabel) + '" title="' + esc(editLabel) + '">' +
       (board.editing ? esc(editLabel) : window.RoundtableIcons?.icon("sliders") || "") + '</button>';
-    const aiHome = url(isEnabled("ai-lab") ? "/lab" : "/studio", project ? {project: project.id} : {scope: "global"});
-    const projectActions = project ? link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome,
+    const aiHome = url("/lab", project ? {project: project.id} : {scope: "global"});
+    const projectActions = project && isEnabled("ai-lab") ? link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome,
       board.editing ? "button" : "button primary", "chat") : "";
     const available = new Map(descriptors.filter(([, , , required]) => isEnabled(required)).map(d => [d[0], d]));
     const visible = board.items.filter(item => item.visible && available.has(item.id));
@@ -280,7 +289,8 @@
     const gridClass = project ? "dashboard-grid" : "dashboard-grid dashboard-home-grid";
     const widgets = visible.length ? '<div class="' + gridClass + '">' + visible.map(widget).join("") + '</div>' :
       ui.empty(local("homeNoEnabledWidgets", "没有显示的组件", "No widgets are enabled."));
-    return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit, project) + gallery + widgets + '</div>';
+    return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit, project) +
+      warning + gallery + widgets + '</div>';
 
     function homeSections() {
       const reading = state.papers.filter(p => p.status === "unread" || p.status === "reading")
@@ -310,7 +320,7 @@
           message(text("暂无活跃项目", "No active projects"))) + dashboardNav(text("全部项目", "All projects"), "projects"),
         quick_actions: () => '<div class="actions">' + [isEnabled("projects") && button(local("toolbarNewProject", "新建项目", "New Project"), "new-project"),
           isEnabled("paper-library") && button(text("导入文献", "Import papers"), "new-paper"), isEnabled("tasks") && button(text("添加任务", "New task"), "new-task"),
-          link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome)].filter(Boolean).join("") + '</div>',
+          isEnabled("ai-lab") && link(local("openAIWorkspace", "打开 AI", "Open AI"), aiHome)].filter(Boolean).join("") + '</div>',
         meetings: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, text("暂无圆桌", "No Roundtables yet")) + link(local("openRoundtable", "打开圆桌", "Open Roundtable"), studio(), "bare")
       };
     }
@@ -386,7 +396,8 @@
         materials: limit => callout(materials.slice(0, limit), items => list(items.map(m => row("file", m.name, fmtDate(m.updatedAt),
           rowAction("read-material", m.id)))), text("暂无材料", "No materials")) + dashboardNav("全部材料", "materials"),
         knowledge_gaps: limit => callout(gaps.slice(0, limit), noteRows, "没有登记的研究缺口") + dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes"),
-        recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)), text("暂无近期活动", "No recent activity")),
+        recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)),
+          failures.reviews ? text("无法读取审核活动", "Could not load review activity") : text("暂无近期活动", "No recent activity")),
         project_documents: limit => callout(notes.slice(0, limit), noteRows, "暂无项目文档") + dashboardNav("全部文档", "notes"),
         workflow: limit => callout(state.meetings.slice().sort(recent).slice(0, limit), meetingRows, "暂无项目圆桌") +
           dashboardNav(text("查看项目会话", "View project sessions"), "meetings")

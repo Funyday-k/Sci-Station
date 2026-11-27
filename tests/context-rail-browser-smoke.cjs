@@ -29,6 +29,9 @@ async function main(binary) {
     const paper=await api("/api/research/papers","POST",upload,201);
     const task=await api("/api/research/projects/"+a.id+"/tasks","POST",{title:"Check fixture timing",status:"open",dueDate:"2026-02-10",description:"Compare the observation windows."},201);
     const note=await api("/api/research/projects/"+a.id+"/notes","POST",{title:"Fixture observation",body:"Compare the two fixture spectra.",tags:["fixture"]},201);
+    await api("/api/research/projects/"+a.id+"/notes","POST",{
+      title:"Synthetic overview", body:"**Fixture formula:** $E=mc^2$", tags:["project_brief"]
+    },201);
     browser=await chromium.launch({headless:true,executablePath:process.env.SCI_STATION_SMOKE_CHROME});
     page=await browser.newPage({locale:"zh-CN",viewport:{width:1440,height:900}});
     page.setDefaultTimeout(10000);
@@ -45,6 +48,24 @@ async function main(binary) {
         await page.screenshot({path:path.join(process.env.SCI_STATION_SHELL_SCREENSHOTS,name+".png")});
       }
     }
+    await goto("/research");
+    const eagerAssets=()=>page.evaluate(() => Boolean(window.katex || window.SciLabRun || window.SciStationReadReview || window.SciModelEffort));
+    assert.equal(await eagerAssets(),false);
+    const mathAsset="/static/research-vendor/katex.min.js";
+    await page.route("**"+mathAsset,route=>route.abort(),{times:1});
+    const failedMath=page.waitForEvent("requestfailed",request=>request.url().endsWith(mathAsset));
+    await goto("/research?project="+a.id);
+    await failedMath;
+    const brief=page.locator(".dashboard-brief");
+    assert.equal(await brief.locator("strong").textContent(),"Fixture formula:");
+    assert.match(await brief.textContent(),/\$E=mc\^2\$/);
+    await page.evaluate(()=>window.SciResearch.refresh());
+    await brief.locator(".katex").waitFor();
+    await page.evaluate(()=>window.SciResearch.refresh());
+    await brief.locator(".katex").waitFor();
+    assert.equal(await page.locator('script[src="'+mathAsset+'"]').count(),1);
+    assert.equal(await page.locator('link[href*="katex.min.css"]').count(),1);
+
     const width=async selector=>(await page.locator(selector).boundingBox()).width;
     const readerInspector=page.locator("#reader-inspector");
     for(const readerWidth of [900,1440]){
@@ -129,7 +150,7 @@ async function main(binary) {
     await projectLink(b.id).press("ArrowRight");await modulesFor(b.id).waitFor();
     await modulesFor(a.id).locator('[data-tab-key="lab"][aria-current="page"]').waitFor();
     assert.equal(await modulesFor(a.id).locator('[data-tab-key="meetings"]').count(),0);
-    assert.equal(await modulesFor(b.id).locator('[data-tab-key="lab"]').getAttribute("href"),"/studio?project="+b.id);
+    assert.equal(await modulesFor(b.id).locator('[data-tab-key="lab"]').count(),0);
     await page.setViewportSize({width:900,height:620});
     await page.locator("#workspace-nav-toggle").click();await projectLink(b.id).waitFor();
     await projectRow(b.id).locator(".project-more").click();
@@ -286,6 +307,11 @@ async function main(binary) {
     await mode("ai");
     assert.equal(await page.locator("#rail-prompt").inputValue(),"Explain this fixture's scope without changing any files.");
     await page.locator("#rail-excerpt").filter({hasText:quote}).waitFor();
+    assert.equal(await eagerAssets(),false);
+    await page.route("**/static/lab-run.js",route=>route.abort(),{times:1});
+    await page.locator("#rail-send").click();
+    await page.locator("#rail-status").filter({hasText:/请重试|try again/i}).waitFor();
+    assert.equal(await page.locator("#rail-prompt").inputValue(),"Explain this fixture's scope without changing any files.");
     await page.locator("#rail-send").click();
     await page.locator("#rail-transcript").getByText(/first seat traced/i).waitFor({timeout:25000});
     const link=new URL(await page.locator("#rail-lab").getAttribute("href"),host.origin);
@@ -305,9 +331,11 @@ async function main(binary) {
     await page.locator("#shell-pin").click();
     await page.waitForFunction(()=>window.SciShellLayout.state.panelPinned);
     await page.goto(host.origin+"/research?project="+b.id);
-    await page.waitForFunction(()=>document.body.dataset.railMode==="ai" && !!document.querySelector("#project-modules a"));
-    assert.equal(await page.locator("#rail-transcript").innerText(),"");
-    assert.equal(new URL(await page.locator("#rail-lab").getAttribute("href"),host.origin).searchParams.get("run"),null);
+    await page.waitForFunction(()=>document.body.dataset.railMode==="hidden" && !!document.querySelector("#project-modules a"));
+    assert.equal(await page.locator("#shell-assist").isVisible(), false);
+    assert.equal(await page.locator("#context-rail").isVisible(), false);
+    await page.goto(host.origin+"/research?project="+a.id);
+    await mode("ai");
     await page.setViewportSize({width:900,height:700});
     await page.locator("#context-rail").waitFor();
     await page.locator("#projectnav").waitFor({state:"hidden"});
@@ -340,14 +368,39 @@ async function main(binary) {
       await page.goto(host.origin+"/studio?project="+id);
       await response;
       const chat = page.locator("#workspace-ai-modes [data-ai-mode=single]");
-      await chat.waitFor();
       if (available) {
+        await chat.waitFor();
         await page.waitForFunction(id => document.querySelector("[data-ai-mode=single]")?.getAttribute("href") === "/lab?project="+id, id);
       } else {
-        assert.equal(await chat.getAttribute("aria-disabled"), "true");
-        assert.equal(await chat.getAttribute("href"), null);
-        assert.equal(await page.locator("[data-ai-mode=roundtable]").getAttribute("aria-current"), "page");
+        assert.equal(new URL(page.url()).pathname, "/research");
+        assert.equal(new URL(page.url()).searchParams.get("project"), id);
+        assert.equal(await chat.count(), 0);
       }
+    }
+    const archive = {id:"00000000000000000000000000000abc", title:"旧格式科研讨论", topic:"原始议题",
+      project:path.join(base,"previous-directory"), seats:["codex"], status:"ready",
+      rounds:[{number:1,note:"请检查第一轮记录",turns:[{seat:"codex",status:"done",model:"fixture",text:"从旧会话保存的发言读取数据。"}]}]};
+    await writeFile(path.join(base,"root","studio",archive.id+".json"), JSON.stringify(archive));
+    for (const [width,height] of [[1440,900],[900,620]]) {
+      await page.setViewportSize({width,height});
+      await page.goto(host.origin+"/studio");
+      if (width<1000) await page.locator("#workspace-session-toggle").click();
+      await page.locator("#history-open-"+archive.id).click();
+      await page.locator('body[data-workspace-surface="session-transcript"]').waitFor();
+      await page.getByRole("heading",{name:archive.title}).waitFor();
+      await page.getByText(archive.rounds[0].turns[0].text,{exact:true}).waitFor();
+      assert.equal(await page.locator("#run-form,#shell-assist,#studio-mode-import").count(),0);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth),true);
+      const downloaded = page.waitForEvent("download");
+      await page.getByRole("link",{name:"导出 Markdown"}).click();
+      const download = await downloaded;
+      assert.equal(download.suggestedFilename(),"meeting-"+archive.id+".md");
+      const chunks = [];
+      for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+      assert.ok(Buffer.concat(chunks).toString().includes(archive.rounds[0].turns[0].text));
+      await capture("archive-"+width);
+      await page.getByRole("link",{name:"返回圆桌"}).click();
+      await page.locator("#create-form").waitFor();
     }
     assert.deepEqual(errors,[]);assert.deepEqual(gateway.errors,[]);
     console.log("Shell inspector, reader inspector, project tree, width, tab order, narrow layout, scoped single-seat AI and restart passed.");

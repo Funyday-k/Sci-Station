@@ -4,13 +4,32 @@
   const url="/api/research/interface/layout";
   let state=null, writes=Promise.resolve();
   const narrow=matchMedia("(max-width:999px)");
+  const assets=new Map();
+  function loadAsset(path) {
+    if(assets.has(path))return assets.get(path);
+    const stylesheet=path.endsWith(".css");
+    const element=document.createElement(stylesheet ? "link" : "script");
+    if(stylesheet){element.rel="stylesheet";element.href=path;}
+    else element.src=path;
+    const ready=new Promise((resolve,reject)=>{
+      element.onload=resolve;
+      element.onerror=()=>{
+        assets.delete(path);
+        element.remove();
+        reject(Error(text("无法加载界面资源，请重试。","Could not load an interface resource. Please try again.")));
+      };
+      document.head.append(element);
+    });
+    assets.set(path,ready);
+    return ready;
+  }
   async function request(path,method="GET",body) {
     const options={method,cache:"no-store",headers:{Accept:"application/json"}};
     if(body!==undefined){options.headers["Content-Type"]="application/json";options.headers["X-Roundtable"]="1";options.body=JSON.stringify(body);}
     const response=await fetch(path,options);
     if(response.status===204)return null;
     const result=await response.json();
-    if(!response.ok){const error=Error(result.error?.message || result.error || text("本机服务未能完成操作","Local service request failed"));error.status=response.status;throw error;}
+    if(!response.ok){const error=Error(result.error?.message || result.error || text("本机服务未能完成操作","Local service request failed"));error.status=response.status;error.code=result.code;throw error;}
     return result;
   }
   function updated(value) {
@@ -107,13 +126,14 @@
     }
     document.body.classList.toggle("settings-mode", settings);
     const treeOpen = narrow.matches ? compactPanel === primary : settings ? settingsExpanded : state?.treeExpanded !== false;
-    const chatsOpen = Boolean(sessions && !settings && (narrow.matches ? compactPanel === sessions : sessionsExpanded));
+    const sessionsAvailable = sessions && !settings && window.SciStationNav.aiAvailable(url.searchParams.get("project"));
+    const chatsOpen = Boolean(sessionsAvailable && (narrow.matches ? compactPanel === sessions : sessionsExpanded));
     document.body.classList.toggle("workspace-nav-collapsed", !narrow.matches && !treeOpen);
     document.body.classList.toggle("workspace-nav-open", narrow.matches && treeOpen);
     document.body.classList.toggle("workspace-session-expanded", chatsOpen);
     setExpanded(primary, primaryToggle, treeOpen);
     if (sessions) {
-      sessionToggle.hidden = settings;
+      sessionToggle.hidden = !sessionsAvailable;
       setExpanded(sessions, sessionToggle, chatsOpen);
     }
     document.getElementById("workspace-nav-scrim").hidden = !narrow.matches || !compactPanel;
@@ -174,7 +194,7 @@
     if (!compactPanel) return;
     if (event.target.closest("#presets button,[data-settings-page]")) {
       dismissPanel(compactPanel, true);
-    } else if (!event.target.closest("#workspace-sidebar,#workspace-session-sidebar,#workspace-nav-toggle,#workspace-session-toggle,#project-row-menu,#project-editor,#history-menu")) {
+    } else if (!event.target.closest("#workspace-sidebar,#workspace-session-sidebar,#workspace-nav-toggle,#workspace-session-toggle,#project-row-menu,#history-menu,dialog")) {
       dismissPanel(compactPanel, false);
     }
   });
@@ -192,6 +212,6 @@
   });
   updateNavigation();
   function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
-  window.SciShellLayout={request,ready,save,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
+  window.SciShellLayout={request,ready,save,loadAsset,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();

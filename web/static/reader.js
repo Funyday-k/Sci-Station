@@ -574,6 +574,17 @@
       message('请先在文献库中将论文加入一个科研项目。');
       return;
     }
+    const allowed = await Promise.all(projects.map(async project => {
+      try {
+        const modules = await window.SciStationModules.load(project.id);
+        return window.SciStationModules.isEnabled(modules, "ai-lab");
+      } catch { return false; }
+    }));
+    projects = projects.filter((_, index) => allowed[index]);
+    if (!projects.length) {
+      message(text("此论文的项目均未启用 AI。", "AI is unavailable for this paper’s projects."));
+      return;
+    }
     handoffSelection = a;
     by('handoffQuote').textContent = a.selected_text;
     const select = by('projectSelect');
@@ -614,6 +625,8 @@
       ocr: handoffSelection.ocr || undefined,
       sessionId
     };
+    const projectGeneration=projects.find(project=>project.id===projectId)?.conversationGeneration;
+    if(projectGeneration) payload.projectGeneration=projectGeneration;
     const dialog = by('handoffDialog');
     submit.disabled = true;
     try {
