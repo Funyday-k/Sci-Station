@@ -11,6 +11,7 @@ import (
 
 	"scistation.local/desktop/internal/cli"
 	"scistation.local/desktop/internal/cliedit"
+	"scistation.local/desktop/internal/meeting"
 )
 
 type cliEditProvider struct {
@@ -108,6 +109,9 @@ func (a *apiServer) checkEditScope(scope cliedit.Scope) error {
 	s, err := a.meetings.Get(scope.MeetingID)
 	if err != nil || s.ProjectID != scope.ProjectID || s.Project != scope.Directory || s.Status == "closed" || s.Status == "running" || len(s.Rounds) != scope.MeetingRound {
 		return errors.New("会议、项目或回合已经改变")
+	}
+	if err := a.meetings.CheckAI(meeting.ProjectScope{ID: s.ProjectID}); err != nil {
+		return err
 	}
 	return a.meetings.WithProjectDirectory(s, func(path string) error {
 		if path != scope.Directory {

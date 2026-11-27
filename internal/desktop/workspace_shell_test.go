@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"scistation.local/desktop/internal/cliedit"
+	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/research"
 )
 
@@ -249,7 +252,14 @@ func TestWorkspaceAIScopesFollowModuleSettings(t *testing.T) {
 			t.Fatalf("%s: got %q, %v; want %q", path, result, err, expected)
 		}
 	}
+	editScope := cliedit.Scope{ProjectID: p.ID, Directory: p.Path, MeetingID: room.ID}
+	if err := api.checkEditScope(editScope); err != nil {
+		t.Fatal(err)
+	}
 	set(p.ID, false)
+	if err := api.checkEditScope(editScope); !errors.Is(err, meeting.ErrAIDisabled) {
+		t.Fatalf("disabled project edit: %v", err)
+	}
 	for _, path := range []string{"/studio?project=" + p.ID, "/lab?project=" + p.ID, "/lab?run=" + room.ID, "/studio?session=" + room.ID} {
 		check(path, "/research?project="+p.ID)
 	}
