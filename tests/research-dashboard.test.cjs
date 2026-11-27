@@ -117,7 +117,7 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   assert.match(first, /class="dashboard-grid dashboard-home-grid"/);
   assert.deepEqual(widgets(first).slice(0, 4), [["today", "medium"], ["active_projects", "medium"], ["ai_review", "medium"], ["calendar", "large"]]);
   assert.ok(first.includes('<a href="/research?view=tasks&tab=calendar">打开日历</a>'));
-  assert.match(first, /<h1>Workspace One<\/h1>/);
+  assert.match(first, /<h1>首页<\/h1>/);
   assert.match(first, /<b>2<\/b> 项待审核/);
   assert.match(first, /Pending beta/);
   assert.doesNotMatch(first, /Rejected note/);

@@ -216,7 +216,7 @@
   function markup(state, ui, now = new Date()) {
     const {esc, heading, button, link, panel, paperRows, taskRows, meetingRows, viewURL, studio, fmtDate, row, rowAction, list} = ui;
     const project = state.project;
-    const {workspace, facts, reviews, modules} = state.dashboardData || {};
+    const {facts, reviews, modules} = state.dashboardData || {};
     const descriptors = project ? projectWidgets : homeWidgets;
     const board = preference(state, descriptors);
     const isEnabled = id => enabled(modules, id);
@@ -242,7 +242,7 @@
     const pending = (reviews || []).filter(r => r.status === "pending" && (!project || r.projectId === project.id)).sort(recent);
     const paperLimit = size => ({small: 1, wide: 2, tall: 3, medium: 4, large: 6})[size];
     const sections = project ? projectSections() : homeSections();
-    const title = project ? project.name : (workspace?.name || local("routeHome", "首页", "Home"));
+    const title = project ? project.name : local("routeHome", "首页", "Home");
     const editLabel = board.editing ? local("homeDoneEditing", "完成布局", "Done") : local("homeEditLayout", "编辑布局", "Edit Layout");
     const edit = '<button type="button" class="' + (board.editing ? 'button primary' : 'button dashboard-edit-layout') +
       '" data-dashboard-control="edit" aria-expanded="' + board.editing + '" aria-controls="dashboard-layout"' +
