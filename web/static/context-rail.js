@@ -58,7 +58,7 @@
       [text("标签","Tags"),note.tags?.join(", ")],
       [text("别名","Aliases"),note.aliases?.join(", ")]
     ] : [];
-    const item=data?.project || projectRecords.get(project);
+    const item=data?.project || projectRecords.get(project)?.item;
     return {project,projectGeneration:project ? item ? item.conversationGeneration || 0 : null : 0,
       projectName:item?.name || "",facts:facts.filter(([,value])=>Boolean(value)), path:url.pathname,view, paper:paper?.id || "",
       visiblePaperIds:project && data?.view==="papers" ? window.SciResearch.library?.visiblePaperIds?.() : undefined,
@@ -95,16 +95,23 @@
     const active = requestedMode || (state.panelPinned ? state.mode : "hidden");
     return active === "ai" && !window.SciStationNav.aiAvailable(context?.project) ? "hidden" : active;
   }
+  function loadProject(id) {
+    if(projectRecords.has(id)) return;
+    const lookup={};
+    projectRecords.set(id,lookup);
+    req("/api/research/projects/"+encodeURIComponent(id)).then(item=>{
+      const version=item?.conversationGeneration ?? 0;
+      if(item?.id!==id || !Number.isSafeInteger(version) || version<0) throw Error("Invalid project record");
+      lookup.item=item;
+    }).catch(()=>{lookup.failed=true;}).finally(()=>{
+      if(context?.project===id && projectRecords.get(id)===lookup)update();
+    });
+  }
   function update() {
     const next=contextOf(), nextKey=draftKey(next);
     const route=panelRoute();
     if(requestedRoute!==route){requestedMode=null;requestedRoute=route;returnFocus=null;}
-    if(next.projectGeneration===null && !projectRecords.has(next.project)){
-      projectRecords.set(next.project,null);
-      req("/api/research/projects/"+encodeURIComponent(next.project)).then(p=>{
-        projectRecords.set(next.project,p);if(context?.project===next.project)update();
-      }).catch(()=>{});
-    }
+    if(next.projectGeneration===null)loadProject(next.project);
     const changedScope=context?.project!==next.project || context.projectGeneration!==next.projectGeneration;
     if(nextKey!==key){
       rememberDraft(); key=nextKey;draftContext=null;node("rail-prompt").value="";
@@ -145,7 +152,13 @@
     node("rail-inspect").hidden=active!=="inspector";
     node("rail-ai").hidden=active!=="ai";
     if(active==="inspector" && !nativeInspector)drawInspector();
-    if(active==="ai"){drawAI();loadScope();}
+    if(active==="ai"){
+      drawAI();
+      if(next.projectGeneration===null) {
+        const failed=projectRecords.get(next.project)?.failed;
+        status(failed ? text("无法读取项目信息。","Could not load the project.") : text("正在读取项目信息…","Loading project…"),failed);
+      } else loadScope();
+    }
   }
   function drawInspector() {
     const c=context, items=[];
@@ -354,7 +367,12 @@
   node("rail-prompt").onkeydown=e=>{if(e.key==="Enter" && (e.metaKey || e.ctrlKey)){e.preventDefault();send();}};
   node("rail-model").onchange=()=>{effortOptions();drawAI();};
   node("rail-send").onclick=send;
-  node("rail-retry").onclick=()=>{catalogScope="";status("");loadScope();};
+  node("rail-retry").onclick=()=>{
+    if(context.projectGeneration===null) {
+      projectRecords.delete(context.project);
+      update();
+    } else {catalogScope="";status("");loadScope();}
+  };
   node("rail-new").onclick=()=>{clearTimeout(poll);runLookup="";room=null;roomPointer(context,"");status("");drawAI();};
   node("rail-stop").onclick=async()=>{
     if(!room || busy)return;
