@@ -112,12 +112,12 @@ img.context-avatar { background:var(--bg-canvas); }
 .mention-insert { background:transparent; color:var(--ink-muted); border:0; border-radius: var(--radius-sm); font:600 17px/1 system-ui; padding:3px 7px; min-height:27px; }
 .mention-insert:hover { color:var(--accent); background:var(--accent-soft); }
 .conversation-pane .latest-message { bottom:112px; }
-@media(max-width:800px){
+@container (max-width: 800px){
   .room-context-bar,.context-drawer { width:calc(100% - 20px); }
   .room-context-bar { gap:4px; }
   .conversation-pane .composer { padding:5px 10px 8px; }
 }
-@media(max-width:550px){
+@container (max-width: 550px){
   .room-heading { gap:4px; }
   .mode-status { font-size: var(--text-xs); }
   .composer .composer-actions .input-limit { font-size: var(--text-xs); }

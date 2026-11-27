@@ -612,6 +612,117 @@ async function runVisualBaselines(binary, outputArg) {
         theme: step.theme,
         colorTheme: step.colorTheme,
       });
+
+      if (
+        step.locale === "zh" &&
+        step.theme === "light" &&
+        step.colorTheme === DEFAULT_COLOR_THEME &&
+        ["home", "project-overview", "roundtable-room", "reader"].includes(step.screen)
+      ) {
+        const checkLayout = () =>
+          session.evaluate(() => {
+            const region = document.querySelector(".workspace-region");
+            const rail = document.querySelector("#context-rail");
+            const visibleControls = selector => {
+              const bar = document.querySelector(selector);
+              if (!bar) return [];
+              const barRect = bar.getBoundingClientRect();
+              if (barRect.width === 0 || barRect.height === 0) return [];
+              const items = Array.from(bar.querySelectorAll("a, button, summary, select")).filter(el => {
+                if (el.hidden || el.closest("[hidden]")) return false;
+                const style = getComputedStyle(el);
+                if (style.display === "none" || style.visibility === "hidden") return false;
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              });
+              const issues = [];
+              for (const el of items) {
+                const r = el.getBoundingClientRect();
+                if (r.right > window.innerWidth + 1 || r.left < -1) {
+                  issues.push({
+                    kind: "clipped",
+                    selector,
+                    id: el.id || el.textContent.trim().slice(0, 24),
+                    left: Math.round(r.left),
+                    right: Math.round(r.right),
+                    vw: window.innerWidth,
+                  });
+                }
+              }
+              for (let i = 0; i < items.length; i++) {
+                const a = items[i].getBoundingClientRect();
+                for (let j = i + 1; j < items.length; j++) {
+                  const b = items[j].getBoundingClientRect();
+                  const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+                  const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                  if (overlapX > 2 && overlapY > 2) {
+                    issues.push({
+                      kind: "overlap",
+                      selector,
+                      a: items[i].id || items[i].textContent.trim().slice(0, 20),
+                      b: items[j].id || items[j].textContent.trim().slice(0, 20),
+                      overlapX: Math.round(overlapX),
+                      overlapY: Math.round(overlapY),
+                    });
+                  }
+                }
+              }
+              return issues;
+            };
+            const overflowX = document.documentElement.scrollWidth - window.innerWidth;
+            return {
+              regionContainer: region ? getComputedStyle(region).containerType : "",
+              railContainer: rail ? getComputedStyle(rail).containerType : "",
+              railVisible: Boolean(rail && !rail.hidden),
+              overflowX,
+              issues: [
+                ...visibleControls(".workspace-bar"),
+                ...visibleControls(".room-context-bar"),
+              ],
+            };
+          });
+
+        const closedState = await checkLayout();
+        assert.equal(closedState.regionContainer, "inline-size", `${step.screen}@${step.viewport} .workspace-region container-type`);
+        assert.equal(closedState.railContainer, "inline-size", `${step.screen}@${step.viewport} #context-rail container-type`);
+        assert.ok(closedState.overflowX <= 1, `${step.screen}@${step.viewport} rail-closed horizontal overflow: ${closedState.overflowX}px`);
+        assert.deepEqual(closedState.issues, [], `${step.screen}@${step.viewport} rail-closed control overlap/clipping`);
+
+        const canToggle = await session.evaluate(() => {
+          const btn = document.getElementById("shell-assist");
+          if (!btn || btn.disabled) return false;
+          btn.click();
+          return true;
+        });
+        if (canToggle) {
+          await eventually(
+            () => session.evaluate(() => {
+              const rail = document.getElementById("context-rail");
+              return Boolean(rail && !rail.hidden);
+            }),
+            `context rail open on ${step.screen}@${step.viewport}`,
+            5000
+          );
+          await delay(120);
+          const openState = await checkLayout();
+          assert.equal(openState.railVisible, true, `${step.screen}@${step.viewport} context rail should be open`);
+          assert.ok(openState.overflowX <= 1, `${step.screen}@${step.viewport} rail-open horizontal overflow: ${openState.overflowX}px`);
+          assert.deepEqual(openState.issues, [], `${step.screen}@${step.viewport} rail-open control overlap/clipping`);
+          await session.screenshot(path.join(outputDir, `${step.screen}__${step.viewport}__rail-open.png`));
+          await session.evaluate(() => {
+            const btn = document.getElementById("shell-assist");
+            if (btn && btn.getAttribute("aria-pressed") === "true") btn.click();
+          });
+          await eventually(
+            () => session.evaluate(() => {
+              const rail = document.getElementById("context-rail");
+              return Boolean(!rail || rail.hidden);
+            }),
+            `context rail closed on ${step.screen}@${step.viewport}`,
+            5000
+          );
+        }
+      }
     }
 
     assert.deepEqual(session.errors, [], "Unexpected page errors during visual baseline capture");

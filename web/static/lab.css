@@ -171,7 +171,7 @@ body[data-workspace-surface="lab"] .member-editor button.primary { color:var(--a
 #lab-rename-dialog h2 { margin-bottom:12px; }
 #lab-rename-error { color:var(--danger); }
 #lab-rename-error:empty { display:none; }
-@media (max-width:560px) {
+@container (max-width: 560px) {
   .lab-workspace { --lab-gutter:12px; }
   .lab-timeline > .lab-transcript-width { padding-block:14px; }
   .lab-composer-dock { padding-bottom:8px; }

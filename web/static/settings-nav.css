@@ -60,7 +60,7 @@
   color: var(--ink-muted);
   font-size: var(--text-xs);
 }
-@media (max-width: 760px) {
+@container (max-width: 760px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; }
   .settings-nav {
     position: static;

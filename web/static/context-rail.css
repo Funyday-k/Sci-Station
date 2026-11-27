@@ -5,6 +5,7 @@
 #context-rail {
   box-sizing:border-box; position:fixed; z-index: var(--z-sticky); right:0; top:var(--workspace-bar-height); bottom:0;
   width:var(--shell-panel-width, 360px); overflow:auto; overscroll-behavior:contain; padding:16px;
+  container-type: inline-size; container-name: context-rail;
   background:var(--bg-subtle); color:var(--ink-primary);
   font:var(--text-md)/1.55 var(--workspace-font);
 }

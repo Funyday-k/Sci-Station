@@ -61,7 +61,7 @@
    border-width: 0 0 0 1px; box-shadow: var(--shadow-md);
 }
 #table-view > .files-page { width: min(640px,100%); }
-@media(max-width:1000px) {
+@container workspace (max-width: 900px) {
   #table-view[data-chat="on"] .board-workspace {
     grid-template: "context" auto "chat" minmax(0, 1fr) / minmax(0, 1fr);
   }
@@ -71,6 +71,6 @@
   #table-view[data-chat="paired"] #room-chat { border-block-start: 1px solid var(--line); }
   #room-chat { border-inline-start: 0; }
 }
-@media(max-width:800px) {
+@container workspace (max-width: 800px) {
   .board-workspace .room-context-bar,.board-workspace .context-drawer { width: calc(100% - 16px); }
 }

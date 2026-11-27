@@ -81,7 +81,7 @@
 }
 .ag-editor input { flex: 1; }
 .ag-message:not(:empty) { padding: .2rem .4rem; color: var(--danger); }
-@media (max-width: 540px) {
+@container (max-width: 540px) {
   .ag-item { flex-wrap: wrap; column-gap: .3rem; }
   .ag-item .ag-title { min-width: 7rem; }
 }

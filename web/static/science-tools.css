@@ -117,7 +117,7 @@ details>summary {
 .bar select {
   font-size: var(--text-sm)}
 
-@media(max-width:700px) {
+@container (max-width: 700px) {
   .line { flex-wrap: wrap; }
 }
 

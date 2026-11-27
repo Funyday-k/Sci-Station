@@ -8,7 +8,7 @@
   "metrics": {
     "hex_colors_outside_palette": 0,
     "important_lines": 13,
-    "distinct_media_widths": 24,
+    "distinct_media_widths": 3,
     "distinct_font_sizes": 7,
     "distinct_border_radii": 4,
     "distinct_numeric_z_indices": 0,

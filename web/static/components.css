@@ -209,6 +209,10 @@ input[role="switch"]:checked::before {
 /* ── 3. Dialog and unified dialog footer ── */
 dialog {
   box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  container-type: inline-size;
+  container-name: dialog;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);

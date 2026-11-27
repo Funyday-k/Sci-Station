@@ -139,7 +139,7 @@
   .setup-panel .setup-section { padding-block: 11px; }
   .setup-panel .preset-section { padding-top: 0; margin-top: 11px; }
 }
-@media (max-width: 780px) {
+@container (max-width: 700px) {
   #preset-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chosen-identity { display: grid; gap: 0; }
   .continuous-fields { grid-template-columns: 1fr; }
@@ -150,7 +150,7 @@
 .chat-header #meeting-agenda { flex: 0 0 auto; width: 100%; max-width: 960px; max-height: 20vh; overflow: auto; overscroll-behavior: contain; margin: 6px auto 0; }
 .chat-header #meeting-agenda .ag-list { max-height: min(130px, 16vh); }
 
-@media (max-width: 1020px) {
+@container (max-width: 820px) {
   .chat-header .compact-seats { grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr)); }
 }
 
@@ -238,7 +238,7 @@
   min-width: 24px; height: 24px; padding: 0; border: 1px solid var(--line);
   background: var(--bg-surface); color: var(--ink-primary); border-radius: var(--radius-sm);
 }
-@media (max-width: 1020px) {
+@container (max-width: 820px) {
   .seating-workspace { grid-template-columns: minmax(175px, .75fr) minmax(0, 1.65fr); gap: 8px; }
   .seating-plan { --room-height: 158px; }
   .seating-workspace .chosen-member { column-gap: 4px; }

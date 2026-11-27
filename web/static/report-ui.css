@@ -298,7 +298,7 @@
   white-space: pre-wrap;
 }
 
-@media (max-width: 620px) {
+@container (max-width: 620px) {
   .topbar #chat-toolbar { gap: 4px; }
   .topbar #session-status { display: none; }
   .topbar #chat-toolbar .button { white-space: nowrap; }

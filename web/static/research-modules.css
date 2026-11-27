@@ -41,7 +41,7 @@
 #module-settings-confirm::backdrop { background: rgb(0 0 0 / 35%); }
 #module-settings-confirm p { margin: 0 0 16px; }
 .module-settings-confirm-actions { justify-content: flex-end; }
-@media (max-width: 620px) {
+@container (max-width: 620px) {
   .module-settings-row { grid-template-columns: minmax(0, 1fr); }
   .module-settings-controls { justify-content: flex-start; }
 }

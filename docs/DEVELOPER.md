@@ -83,6 +83,16 @@ UI changes and reviews apply these layout and interaction rules across all deskt
 
 Tests and smokes should select interactive targets using stable `id` or `data-*` / `data-testid` attributes rather than styling classes.
 
+### Responsive containers and shell breakpoints
+
+Page and component layouts respond to their owning container's inline size (`@container`) rather than the viewport width, because sidebars and the context rail change the content width inside a 900×620 or 1380×900 native window:
+
+- **Shell containers (`container-type: inline-size`):** `.workspace-region` (`workspace`), `#context-rail` (`context-rail`), and `dialog` (`dialog`), alongside widget containers (`dashboard`, `dashboard-card`, `.room-context`, `#create-form`, `#meeting-board`).
+- **Viewport `@media` widths (3 shell-level values maximum):**
+  - `680px` (`max-width: 680px`) — compact global `.workspace-bar` utility controls;
+  - `999px` (`max-width: 999px`) — switch sidebars and the context rail from docked columns into overlay drawers;
+  - `1000px` (`min-width: 1000px`) — dock the context rail beside `.workspace-region` and enable multi-column desktop dashboard tracks.
+
 ## Work within the domain boundaries
 
 - Put persistence and validation in the owning service or repository. The shell coordinates navigation and dispatch, and the frontend presents state. Share one paper and PDF, with per-project state kept as an association. Use test fixtures with conflicting revisions, missing references or partially completed operations when changing state transitions.

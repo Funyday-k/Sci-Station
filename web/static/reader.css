@@ -509,7 +509,7 @@ dialog .actions {
   justify-content:flex-end;
 }
 
-@media(max-width:720px) {
+@container (max-width: 720px) {
   aside {
     padding-bottom:24px;
   }

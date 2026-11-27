@@ -32,4 +32,4 @@
 #lab-tools-dialog #presets .lab-template-choice.active {color:var(--accent); border-color:var(--accent);}
 #lab-tools-dialog :is(#lab-skills,#mcp) {border:0; margin:0; padding:0;}
 #lab-tool-page-graph #graph-controls {margin-top:12px;}
-@media (max-width:470px) {#lab-tools-directory {grid-template-columns:1fr;}}
+@container (max-width: 470px) {#lab-tools-directory {grid-template-columns:1fr;}}

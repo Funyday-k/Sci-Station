@@ -1215,7 +1215,7 @@ a {
   border-top: 1px solid var(--line);
   padding-top: 14px;
 }
-@media (max-width: 480px) {
+@container (max-width: 480px) {
   .model-source-row,
   .model-agent-row,
   .client-row {
@@ -1244,7 +1244,7 @@ a {
     opacity: 1;
   }
 }
-@media (max-width: 1100px) {
+@container (max-width: 880px) {
   .app {
     grid-template-columns: 190px minmax(0, 1fr);
   }
@@ -1278,7 +1278,7 @@ a {
     margin-top: 0;
   }
 }
-@media (max-width: 800px) {
+@container (max-width: 760px) {
   .app {
     grid-template-columns: 1fr;
   }
@@ -1481,7 +1481,7 @@ a {
     padding: 9px 12px;
   }
 }
-@media (max-width: 400px) {
+@container (max-width: 400px) {
   .view-tab {
     font-size: var(--text-xs);
     padding: 0 9px;
@@ -1509,20 +1509,22 @@ a {
     display: none;
   }
 }
-@media (max-height: 600px) and (max-width: 800px) {
-  .composer textarea {
-    min-height: 42px;
-    height: 42px;
-  }
-  .composer {
-    padding-top: 9px;
-    padding-bottom: 10px;
-  }
-  .composer-bottom {
-    margin-top: 8px;
-  }
-  .latest-message {
-    bottom: 137px;
+@media (max-height: 600px) {
+  @container (max-width: 760px) {
+    .composer textarea {
+      min-height: 42px;
+      height: 42px;
+    }
+    .composer {
+      padding-top: 9px;
+      padding-bottom: 10px;
+    }
+    .composer-bottom {
+      margin-top: 8px;
+    }
+    .latest-message {
+      bottom: 137px;
+    }
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1579,7 +1581,7 @@ a {
 .round-checkpoint > summary { cursor: pointer; color: var(--ink-primary); font-weight: 500; }
 .round-checkpoint ul { margin: 8px 0 2px; padding-inline-start: 19px; }
 .round-checkpoint li { margin: 5px 0; line-height: 1.55; }
-@media (max-width: 640px) {
+@container (max-width: 640px) {
   .continuous-run-panel { flex-wrap: wrap; gap: 5px 8px; }
   .continuous-status { flex-basis: 100%; order: 3; }
   .continuous-checkpoint { flex: 1 1 100%; order: 4; }
@@ -1681,7 +1683,7 @@ a {
 .message-work-inner > .turn-error:first-child {
   padding-top: 0;
 }
-@media (max-width: 800px) {
+@container (max-width: 760px) {
   .chat-header {
     padding: 12px 17px 10px;
   }
@@ -1879,7 +1881,7 @@ a {
 .chat-header .session-heading {
   gap: 12px;
 }
-@media (max-width: 1100px) {
+@container (max-width: 880px) {
   .table-page {
     flex-direction: column;
   }
@@ -1907,7 +1909,7 @@ a {
     max-height: 190px;
   }
 }
-@media (max-width: 800px) {
+@container (max-width: 760px) {
   .files-page {
     margin: 0 10px 10px;
     max-height: 48%;
@@ -1957,39 +1959,41 @@ a {
     bottom: 158px;
   }
 }
-@media (max-height: 650px) and (max-width: 1100px) {
-  .files-page {
-    flex-basis: 50%;
-    max-height: 50%;
-  }
-  .conversation-pane {
-    min-height: 160px;
-  }
-  .conversation-pane .chat-header .project-disclosure {
-    display: none;
-  }
-  .conversation-pane .composer textarea {
-    min-height: 40px;
-    height: 40px;
-  }
-  .conversation-pane .composer {
-    padding-top: 8px;
-    padding-bottom: 9px;
-  }
-  .conversation-pane .composer-bottom {
-    margin-top: 7px;
-  }
-  .chat-header .participants-panel > summary {
-    min-height: 35px;
-  }
-  .chat-header .mini-roundtable {
-    height: 29px;
-    transform: scale(0.85);
-    transform-origin: left center;
-  }
-  .chat-header {
-    padding-top: 8px;
-    padding-bottom: 8px;
+@media (max-height: 650px) {
+  @container (max-width: 880px) {
+    .files-page {
+      flex-basis: 50%;
+      max-height: 50%;
+    }
+    .conversation-pane {
+      min-height: 160px;
+    }
+    .conversation-pane .chat-header .project-disclosure {
+      display: none;
+    }
+    .conversation-pane .composer textarea {
+      min-height: 40px;
+      height: 40px;
+    }
+    .conversation-pane .composer {
+      padding-top: 8px;
+      padding-bottom: 9px;
+    }
+    .conversation-pane .composer-bottom {
+      margin-top: 7px;
+    }
+    .chat-header .participants-panel > summary {
+      min-height: 35px;
+    }
+    .chat-header .mini-roundtable {
+      height: 29px;
+      transform: scale(0.85);
+      transform-origin: left center;
+    }
+    .chat-header {
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
   }
 }
 
@@ -2050,7 +2054,7 @@ a {
   max-height: 300px;
   overflow: auto;
 }
-@media (max-width: 800px) {
+@container (max-width: 760px) {
   .review-controls {
     gap: 7px;
   }
@@ -2257,7 +2261,7 @@ body {
   height: 20px;
   flex-shrink: 0;
 }
-@media (max-width: 1100px) {
+@container (max-width: 880px) {
   .conversation-pane {
     min-height: 0;
   }
@@ -2269,7 +2273,7 @@ body {
     min-height: 0;
   }
 }
-@media (max-width: 800px) {
+@container (max-width: 760px) {
   .sidebar {
     height: 100%;
     min-height: 0;
@@ -2573,7 +2577,7 @@ body {
   font-size: var(--text-sm);
   line-height: 1.6;
 }
-@media (max-width: 800px) {
+@container (max-width: 760px) {
   .topbar {
     gap: 9px;
   }
@@ -2713,7 +2717,7 @@ body {
   text-align: start;
   overflow-wrap: anywhere;
 }
-@media (max-width: 480px) {
+@container (max-width: 480px) {
   .composer-bottom { flex-wrap: wrap; }
   .discussion-controls { flex-wrap: wrap; gap: 5px; }
   .discussion-controls select { font-size: var(--text-xs); padding-left: 7px; }

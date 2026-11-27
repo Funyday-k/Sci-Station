@@ -110,11 +110,11 @@
 .button[data-child-entry-state="complete"] { color: var(--ink-muted); }
 .button[data-child-entry-state="failed"] { color: var(--danger); }
 .button[data-child-entry-state="interrupted"] { color: var(--warning); }
-@media (max-width: 1100px) {
+@container (max-width: 900px) {
   .children-panel { flex: 0 0 47%; max-height: 47%; margin: 0 12px 12px; }
   .children-panel-heading { padding: 9px 12px; }
 }
-@media (max-width: 520px) {
+@container (max-width: 520px) {
   .children-panel { margin: 0 8px 8px; }
   .children-task-option { padding: 7px; }
   .children-task-detail { padding: 13px 13px 22px; }

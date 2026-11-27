@@ -150,7 +150,13 @@ body.settings-mode #workspace-settings-nav {
 .workspace-bar .shell-rail-controls { margin-left: 0; }
 /* The shell owns available space. A document grows with its content; a pane
    receives the remaining viewport and scrolls its own transcript or PDF. */
-.workspace-region { margin-left: calc(var(--workspace-sidebar-width) + var(--workspace-session-width)); min-width: 0; isolation: isolate; }
+.workspace-region {
+  margin-left: calc(var(--workspace-sidebar-width) + var(--workspace-session-width));
+  min-width: 0;
+  isolation: isolate;
+  container-type: inline-size;
+  container-name: workspace;
+}
 body[data-workspace-layout="pane"] {
   position: relative; display: flex; flex-direction: column; inset: auto;
   width: 100%; height: 100dvh; min-height: 0; margin: 0; overflow: hidden;
@@ -221,7 +227,7 @@ body.settings-mode .shell-rail-controls { display: none; }
   #workspace-tools .search-open > span:not(:first-child), #workspace-tools .search-open kbd { display: none; }
   #workspace-tools .search-open { width: 32px; height: 32px; padding: 7px; }
 }
-@media (max-width: 600px) {
+@media (max-width: 680px) {
   body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]):not(.settings-mode) .workspace-history { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {

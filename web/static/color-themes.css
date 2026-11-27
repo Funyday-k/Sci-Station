@@ -83,7 +83,7 @@
   content: "";
 }
 
-@media (max-width: 600px) {
+@container (max-width: 600px) {
   .theme-choices {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
