@@ -146,17 +146,13 @@
   </header>
   <div class="lab-dialog-content">
   <nav id="lab-tools-directory" data-lab-tool-page="directory" data-zh-title="插件与科研工具" data-en-title="Plugins and research tools" aria-labelledby="lab-tools-title">
-    <button type="button" data-lab-tool="discovery"><svg class="ui-icon" data-ui-icon="search" aria-hidden="true"></svg><span><strong data-en="Literature recommendations">文献推荐</strong><small data-en="Search papers and review recommendations">检索论文并查看推荐</small></span></button>
+    <button type="button" data-lab-tool="discovery" data-lab-tool-route="/tools?tab=discover&amp;trigger=lab"><svg class="ui-icon" data-ui-icon="search" aria-hidden="true"></svg><span><strong data-en="Literature recommendations">文献推荐</strong><small data-en="Search papers and review recommendations">检索论文并查看推荐</small></span><svg class="ui-icon lab-tool-nav-arrow" data-ui-icon="arrowUpRight" aria-hidden="true"></svg></button>
     <button type="button" data-lab-tool="graph"><svg class="ui-icon" data-ui-icon="subagent" aria-hidden="true"></svg><span><strong data-en="Project graph">项目图谱</strong><small data-en="Find connections and attach evidence">查看关联并附加证据</small></span></button>
     <button type="button" data-lab-tool="skills"><svg class="ui-icon" data-ui-icon="file" aria-hidden="true"></svg><span><strong data-en="Project skills">项目技能</strong><small data-en="Select or import Markdown instructions">选择或导入 Markdown 工作指引</small></span></button>
     <button type="button" data-lab-tool="connectors"><svg class="ui-icon" data-ui-icon="tools" aria-hidden="true"></svg><span><strong data-en="Research connectors (MCP)">科研连接（MCP）</strong><small data-en="Review and run read-only operations">逐次批准并执行只读操作</small></span></button>
     <button type="button" data-lab-tool="templates"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg><span><strong data-en="Answer templates">单人回答模板</strong><small data-en="Choose instructions for the first message">为首条消息选择工作指引</small></span></button>
     <button type="button" data-lab-tool="roundtable-templates"><svg class="ui-icon" data-ui-icon="agenda" aria-hidden="true"></svg><span><strong data-en="Roundtable templates">圆桌模板</strong><small data-en="Review a template before opening it in Roundtable">复核模板后转到圆桌</small></span></button>
   </nav>
-  <section id="lab-tool-page-discovery" data-lab-tool-page="discovery" data-zh-title="文献推荐" data-en-title="Literature recommendations" hidden>
-    <p data-en="Find papers using arXiv, your library, or a daily feed. Your chat draft stays available when you return.">从 arXiv、馆藏或每日文献中查找论文，返回时可继续编辑当前草稿。</p>
-    <a id="discovery-link" class="lab-tool-open" href="/tools?tab=discover&amp;trigger=lab"><span data-en="Open literature recommendations">打开文献推荐</span><svg class="ui-icon" data-ui-icon="arrowUpRight" aria-hidden="true"></svg></a>
-  </section>
   <section id="lab-tool-page-graph" data-lab-tool-page="graph" data-zh-title="项目图谱" data-en-title="Project graph" hidden>
 <p class="hint" data-lab-project-tool-note hidden data-en="Select a research project in the chat to use the project graph.">请在对话中选择科研项目，再读取项目图谱。</p>
 <div class="actions"><button type="button" id="graph-nodes" data-en="Load graph items">读取项目条目</button></div>

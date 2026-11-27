@@ -4,7 +4,11 @@
   const handoff=window.ScienceLabHandoff;
   const api="/api/research/lab/";
   const text=(zh,en)=>window.SciStationI18n?.text(zh,en) || zh;
-  const toolPanel=window.SciLabTools.mount({dialog:$("lab-tools-dialog"),trigger:$("lab-tools")});
+  const toolPanel=window.SciLabTools.mount({
+    dialog:$("lab-tools-dialog"),
+    trigger:$("lab-tools"),
+    onNavigate:(id)=> { if(id==="discovery") openDiscoveryTool(); }
+  });
   let presets=[], projects=[], sessions=[], current=null, original=null, preview=null, source=null, selectedTemplate=null;
   let draftWorkspace="", workspaceLookup=null;
   let graphOwner="", graphPreview=null, graphGeneration=0, graphNodes=[];
@@ -207,7 +211,6 @@
     runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
     showScopeStatus();
     void showPendingTransfer();
-    updateDiscoveryLink();
   }
   window.addEventListener("popstate",()=>{
     const route=new URL(location.href).searchParams;
@@ -296,22 +299,17 @@
     if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
     return rememberDraft(owner,thread,{...draft,materials:materials.filter(item=>importedIds.has(item.id))},scopeGeneration(owner),workspace);
   }
-  function updateDiscoveryLink() {
+  function discoveryRoute() {
     const owner=projectId(), thread=runs.activeThread();
     const query=new URLSearchParams({tab:"discover",trigger:"lab",labProject:owner});
     if(owner) query.set("project",owner);
     if(thread) query.set("labRun",thread);
     if(new URL(location.href).searchParams.get("fromRoundtable")==="1") query.set("labFromRoundtable","1");
-    const link=$("discovery-link");
-    link.href="/tools?"+query;
-    return link.href;
+    return "/tools?"+query;
   }
   let leavingForDiscovery=false;
-  document.querySelector('[data-lab-tool="discovery"]').addEventListener("click",updateDiscoveryLink);
-  $("discovery-link").addEventListener("click",async event=>{
-    const destination=updateDiscoveryLink();
-    if(event.button!==0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-    event.preventDefault();
+  async function openDiscoveryTool() {
+    const destination=discoveryRoute();
     if(leavingForDiscovery || !scopeAvailable() || !canLeave()) return;
     if(runs.restoringDraft()) {
       tell(text("草稿正在恢复，请稍后再打开文献推荐。","Wait for the draft to finish restoring before opening recommendations."));
@@ -319,21 +317,24 @@
     }
     leavingForDiscovery=true;
     const owner=projectId(), thread=runs.activeThread();
-    const onDiscovery=()=>$("lab-tools-dialog").open && toolPanel.active()==="discovery" &&
+    const onCatalog=()=>$("lab-tools-dialog").open && toolPanel.active()==="directory" &&
       owner===projectId() && thread===runs.activeThread();
     try {
       const {workspace}=await req("/api/health");
-      if(!onDiscovery()) return;
+      if(!onCatalog()) return;
       await runs.saveDraft();
-      if(!onDiscovery() || !await retainModeDraft(workspace,owner,thread) || !onDiscovery()) return;
+      if(!onCatalog() || !await retainModeDraft(workspace,owner,thread) || !onCatalog()) return;
       const from=new URL(location.href);
       from.searchParams.set("tools","discovery");
-      window.SciStationNav.commitURL(from,"replace");
       handingOff=true;
-      location.assign(destination);
-    } catch(error) {if(onDiscovery()) tell(error.message);}
+      if(window.SciShellLayout?.navigate) window.SciShellLayout.navigate(destination,{from});
+      else {
+        window.SciStationNav.commitURL(from,"replace");
+        location.assign(destination);
+      }
+    } catch(error) {if(onCatalog()) tell(error.message);}
     finally {leavingForDiscovery=false;}
-  });
+  }
   function restoreDiscoveryPanel() {
     const from=new URL(location.href);
     if(from.searchParams.get("tools")!=="discovery") return;
