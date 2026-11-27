@@ -309,3 +309,61 @@ func TestProjectResetPreservesUnreadableArchives(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoredProjectHistoryIncludesDraftWithoutSessions(t *testing.T) {
+	e, dir := engine(t, func(context.Context, string, string, string, string) (string, error) {
+		t.Fatal("probing restored history called a model")
+		return "", nil
+	})
+	e.SetProjectAccess(func(_ string, use func(string) error) error { return use(dir) })
+	check := func(want bool) {
+		t.Helper()
+		called := false
+		err := e.WithProjectConversationHistory("restored", func(hasHistory bool) error {
+			called = true
+			if hasHistory != want {
+				t.Errorf("history = %t, want %t", hasHistory, want)
+			}
+			// This separate descriptor is what another Engine/process would
+			// have to lock before a session or draft could be published.
+			if err := requireIdleLease(filepath.Join(e.dir, ".meeting.lock")); !errors.Is(err, ErrConflict) {
+				t.Fatalf("binding callback did not hold meeting lock: %v", err)
+			}
+			return nil
+		})
+		if err != nil || !called {
+			t.Fatalf("history check %t: %v", called, err)
+		}
+	}
+	for _, scope := range []LabScope{{Global: true}, {ProjectID: "other"}} {
+		if _, err := e.LabDraft(scope, "", &LabDraft{Text: "unrelated draft"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(false)
+	project := LabScope{ProjectID: "restored"}
+	if _, err := e.LabDraft(project, "", &LabDraft{Text: "project draft without a thread"}); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	declined := errors.New("declined")
+	if err := e.WithProjectConversationHistory("restored", func(bool) error { return declined }); !errors.Is(err, declined) {
+		t.Fatal(err)
+	}
+	if draft, err := e.LabDraft(project, "", nil); err != nil || draft.Text != "project draft without a thread" {
+		t.Fatalf("declined binding changed draft: %+v %v", draft, err)
+	}
+	if err := e.ResetProjectSessions("restored", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	room, err := e.CreateScopedWithMaterials("Synthetic archived room", ProjectScope{ID: "restored", Directory: dir}, []string{"codex"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := 0
+	if _, err := e.ChangeLabThread(project, room.ID, LabThreadChange{Action: "archive", Revision: &revision}); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+}

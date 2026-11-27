@@ -14,6 +14,36 @@ import (
 	"scistation.local/desktop/internal/workspace"
 )
 
+// WithProjectConversationHistory inspects a restored project before the host
+// binds its first known directory. The callback may commit that binding while
+// the meeting store still excludes concurrent session creation and draft edits.
+// It must not call back into the engine.
+func (e *Engine) WithProjectConversationHistory(projectID string, use func(bool) error) error {
+	if strings.TrimSpace(projectID) == "" || use == nil {
+		return errors.New("需要明确的科研项目和目录登记操作")
+	}
+	return e.locked(func() error {
+		// A new-chat draft has a known project-scoped address even when
+		// the restored store has no session files. Thread drafts require
+		// an existing owned session at the time they are written.
+		draft, err := workspace.ManagedOpenFile(e.labDraftPath(projectID, ""), os.O_RDONLY, 0)
+		if err == nil {
+			if err := draft.Close(); err != nil {
+				return err
+			}
+			return use(true)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		sessions, _, err := e.projectHistory(projectID)
+		if err != nil {
+			return err
+		}
+		return use(len(sessions) > 0)
+	})
+}
+
 // ResetProjectSessions runs the host's durable grant transition and the purge
 // under the same storage lock as session creation, draft edits and workers.
 // The host must keep the new grant unavailable until cleanup succeeds. On
