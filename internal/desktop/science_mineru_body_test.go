@@ -20,8 +20,9 @@ import (
 	"scistation.local/desktop/internal/research"
 )
 
-func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
-	lab, err := research.New(t.TempDir())
+func minerPaperFixture(t *testing.T, dir string) (*research.Service, research.Paper, []byte) {
+	t.Helper()
+	lab, err := research.New(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,11 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("upload %d %s", w.Code, w.Body.String())
 	}
-	p := scienceWorkflowDecode[research.Paper](t, w.Body.Bytes())
+	return lab, scienceWorkflowDecode[research.Paper](t, w.Body.Bytes()), pdf
+}
+
+func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
+	lab, p, pdf := minerPaperFixture(t, t.TempDir())
 	const raw = "# Converted\r\nThe detector counts independent events.\r\n\r\n![Detector](images/detector.png)"
 	archive := func(shade uint8) []byte {
 		var zipData bytes.Buffer
@@ -108,7 +113,7 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(reply))}, nil
 	})}
 	api := apiServer{}
-	in := map[string]any{"paper": p.ID, "token": "fixture-value", "batch": "batch"}
+	in := map[string]any{"paper": p.ID, "token": "fixture-value"}
 	run := func(route string, want int) []byte {
 		body, err := json.Marshal(in)
 		if err != nil {
@@ -122,6 +127,7 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 		return w.Body.Bytes()
 	}
 	run("mineru/start", 201)
+	in["batch"] = "batch"
 	if dataID == p.ID || len(dataID) != 32 {
 		t.Fatal("provider result not bound to the uploaded version")
 	}
@@ -151,7 +157,7 @@ func TestMinerUAdoptsOnlyPreviewedBodyBoundToUploadedPDF(t *testing.T) {
 	if rec.Markdown == nil || rec.Markdown.Origin != "mineru" || rec.Markdown.PDFHash != p.FileSHA256 || rec.Markdown.AssetsHash != preview.AssetsHash {
 		t.Fatal(rec)
 	}
-	if _, _, err = lab.ConversionOriginal(context.Background(), p.ID); err != nil {
+	if _, _, err := lab.ConversionOriginal(context.Background(), p.ID); err != nil {
 		t.Fatal(err)
 	}
 }

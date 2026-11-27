@@ -37,11 +37,16 @@
     const response = await fetch(apiBase + route, options);
     if (!response.ok) {
       const raw = await response.text();
-      let msg = raw;
+      let detail;
       try {
-        msg = JSON.parse(raw).error || raw;
+        detail = JSON.parse(raw);
       } catch {}
-      throw Error(msg || "请求失败");
+      const error = Error(detail?.error || raw || "请求失败");
+      if (route === "tools/mineru/start") {
+        error.recovery = detail?.recovery;
+        error.batch = detail?.batch;
+      }
+      throw error;
     }
     return response[format]();
   }
@@ -292,12 +297,20 @@
       const v = remoteData(),
         seq = ++conversionSequence;
       if (!v.token.trim() && !minerSession) throw Error("请输入 MinerU API Token");
-      if (!confirm("将这篇 PDF 上传到 MinerU 进行转换？")) return;
+      if (!confirm("继续此 PDF 的 MinerU 转换？首次提交会上传原始 PDF。")) return;
       tell("正在上传…");
-      const s = await minerReq("start", v);
+      let s;
+      try {
+        s = await minerReq("start", v);
+      } catch (e) {
+        if (seq !== conversionSequence || v.paper !== $("paper").value) return;
+        if (e.batch) $("batch").value = e.batch;
+        if (!e.recovery || !confirm(e.message + "\n若已核对，并确定需要创建新任务，请确认。")) throw e;
+        s = await minerReq("start", {...v, batch:e.batch || "", recovery:e.recovery});
+      }
       if (seq !== conversionSequence || v.paper !== $("paper").value) return;
       $("batch").value = s.batch;
-      tell("已提交转换。任务编号可用于稍后查看进度。");
+      tell(s.message || "已提交转换。任务编号可用于稍后查看进度。");
     });
     $("checkBatch").onclick = () => busy($("checkBatch"), async () => {
       const p = selectedPaper(),
@@ -310,7 +323,8 @@
         renderResult(output.markdown, p, seq, {
           kind:"mineru", batch:d.batch, bound:output.bound, hash:output.sha256, assetsHash:output.assetsSha256
         }, output.quality);
-      } else tell("MinerU 任务状态：" + s.state);
+        if (s.notice && seq === conversionSequence) tell("转换已完成。" + s.notice);
+      } else tell("MinerU 任务状态：" + s.state + (s.notice ? "。" + s.notice : ""));
     });
     $("getZip").onclick = () => busy($("getZip"), async () => {
       const d = remoteData(),

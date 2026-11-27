@@ -124,6 +124,8 @@ test("conversion uses an offline credential status, clears saved input, and send
   const changes = [];
   let configured = false;
   let savingFails = false;
+  let needsReconciliation = false;
+  let allowReplacement = false;
   const fetch = async (url, options) => {
     const route = url.replace("/api/research/", "");
     if (route === "projects") return Response.json([]);
@@ -131,7 +133,12 @@ test("conversion uses an offline credential status, clears saved input, and send
     assert.equal(options.headers["X-Sci-Station-Credential-Session"], "fixture-desktop-session");
     const body = options.body && JSON.parse(options.body);
     changes.push({route, body});
-    if (route === "tools/mineru/start") return Response.json({batch:"fixture-batch"});
+    if (route === "tools/mineru/start") {
+      if (needsReconciliation && body.recovery !== "current-attempt") {
+        return Response.json({error:"请核对已有任务", batch:"fixture-batch", recovery:"current-attempt"}, {status:409});
+      }
+      return Response.json({batch:needsReconciliation ? "replacement-batch" : "fixture-batch"});
+    }
     assert.equal(route, "tools/mineru/credential");
     if (body?.action === "save") {
       if (savingFails) return Response.json({error:"Keychain denied"}, {status:503});
@@ -143,7 +150,8 @@ test("conversion uses an offline credential status, clears saved input, and send
   vm.runInNewContext(script, {
     document:{getElementById:id=>controls[id],querySelectorAll:()=>[]},
     window:nativeWindow, Option:class{constructor(text,value){this.value=value;}},
-    location:{search:"?tab=convert"}, URLSearchParams, fetch, confirm:()=>true
+    location:{search:"?tab=convert"}, URLSearchParams, fetch,
+    confirm:message=>!message.includes("确定需要创建新任务") || allowReplacement
   });
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(controls.minerCredentialActions.hidden, true);
@@ -166,6 +174,17 @@ test("conversion uses an offline credential status, clears saved input, and send
   await controls.remote.onclick();
   assert.deepEqual(changes.at(-1), {route:"tools/mineru/start", body:{paper:"A", token:"", batch:""}});
   assert.equal(controls.batch.value, "fixture-batch");
+  needsReconciliation = true;
+  const prior = changes.length;
+  await controls.remote.onclick();
+  assert.equal(changes.length, prior+1);
+  assert.equal(controls.batch.value, "fixture-batch");
+  assert.equal(controls.status.textContent, "请核对已有任务");
+  allowReplacement = true;
+  await controls.remote.onclick();
+  assert.equal(changes.length, prior+3);
+  assert.deepEqual(changes.at(-1).body, {paper:"A", token:"", batch:"fixture-batch", recovery:"current-attempt"});
+  assert.equal(controls.batch.value, "replacement-batch");
   await controls.minerClear.onclick();
   assert.equal(controls.minerClear.disabled, true);
   assert.deepEqual(changes.at(-1), {route:"tools/mineru/credential", body:{action:"clear"}});

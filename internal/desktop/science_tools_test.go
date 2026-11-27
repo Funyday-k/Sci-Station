@@ -47,6 +47,16 @@ func TestDiscoveryFeedbackSurvivesRelaunch(t *testing.T) {
 type conversionTransport func(*http.Request) (*http.Response, error)
 
 func (f conversionTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func TestMinerUTransportUsesDirectConnectionsAndOperationDeadline(t *testing.T) {
+	transport, ok := scientificHTTP.Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil || scientificHTTP.Timeout != 0 {
+		t.Fatal("MinerU requires a direct transport bounded by its request context")
+	}
+	if scientificHTTP.CheckRedirect == nil || scientificHTTP.CheckRedirect(nil, nil) != http.ErrUseLastResponse {
+		t.Fatal("MinerU redirects must be handled as responses")
+	}
+}
+
 func TestMinerURequestAndMarkdownDecoding(t *testing.T) {
 	orig := scientificHTTP
 	t.Cleanup(func() { scientificHTTP = orig })

@@ -53,6 +53,7 @@ type apiServer struct {
 	projectAccess   sync.Once
 	materialActions *projectMaterialActions
 	minerCreds      *minerCredentials
+	minerUploads    sync.Map
 }
 
 func (a *apiServer) setPicker(p func() (string, error)) {
