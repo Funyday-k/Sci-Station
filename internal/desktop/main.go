@@ -272,18 +272,18 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 		log.Printf("插件已暂停：%v", marketErr)
 	}
 	engine.SetProjectRuleSnapshot(api.projectRuleSnapshot)
-	instance := api.serveOwnedWorkspace(listener, guard, binding, 8*time.Second)
+	handler := api.serve(listener.Addr().(*net.TCPAddr).Port)
+	instance := api.serveOwnedWorkspace(listener, guard, binding, handler, 8*time.Second)
 	owned = true
 	return instance, nil
 }
 
 // The instance owns the listener and the exclusive workspace lock from here.
-func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, binding rootBinding, grace time.Duration) *workspaceInstance {
+func (api *apiServer) serveOwnedWorkspace(listener net.Listener, guard *os.File, binding rootBinding, handler http.Handler, grace time.Duration) *workspaceInstance {
 	address := "http://" + listener.Addr().String()
 	requestContext, cancelRequests := context.WithCancel(context.Background())
 	var access sync.RWMutex
 	frozen := false
-	handler := api.serve(listener.Addr().(*net.TCPAddr).Port)
 	server := &http.Server{
 		BaseContext: func(net.Listener) context.Context { return requestContext },
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

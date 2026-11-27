@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,74 +19,38 @@ import (
 	"scistation.local/desktop/internal/research"
 )
 
-// This fixture provides the project-directory authority independently of the
-// session engine. The router, sessions, plugin registry and model workflow use
-// their ordinary implementations.
-type meetingProjectsFixture struct {
-	http.Handler
-	mu       sync.RWMutex
-	projects map[string]string
-}
-
-func (p *meetingProjectsFixture) ProjectDirectory(id string) (string, error) {
-	var result string
-	err := p.WithProjectDirectory(id, func(dir string) error { result = dir; return nil })
-	return result, err
-}
-
-func (p *meetingProjectsFixture) WithProjectDirectory(id string, use func(string) error) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	path, valid := p.projects[id]
-	if !valid {
-		return os.ErrNotExist
+func meetingProjectService(t *testing.T, approvedPaths ...string) *research.Service {
+	t.Helper()
+	service, err := research.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if path == "" {
-		return os.ErrPermission
-	}
-	return use(path)
+	service.SetPathValidator(func(path string) bool { return slices.Contains(approvedPaths, path) })
+	return service
 }
 
-func (p *meetingProjectsFixture) ProjectForDirectory(path string) (research.Project, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	for id, dir := range p.projects {
-		if dir == path {
-			return research.Project{Entity: research.Entity{ID: id}, Path: dir}, true
-		}
-	}
-	return research.Project{}, false
-}
-
-func (p *meetingProjectsFixture) EnsureDirectoryProject(string) (research.Project, error) {
-	return research.Project{}, os.ErrPermission
-}
-
-func (p *meetingProjectsFixture) setDirectory(id, dir string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.projects[id] = dir
+func changeMeetingProjectDirectory(t *testing.T, host *apiServer, project research.Project, path string) research.Project {
+	t.Helper()
+	var updated research.Project
+	rootFixtureRequest(t, host, http.MethodPost, "/api/research/projects/"+project.ID+"/directory",
+		map[string]any{"revision": project.Revision, "path": path}, http.StatusOK, &updated)
+	return updated
 }
 
 func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 	const (
-		projectID = "research-fixture"
-		point     = "r1-s1-p1"
-		document  = "measurement.txt"
+		point    = "r1-s1-p1"
+		document = "measurement.txt"
 	)
-	mkdir := func() string {
-		t.Helper()
-		p, err := filepath.EvalSymlinks(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	dir, other := mkdir(), mkdir()
+	dir, other := projectTestDir(t), projectTestDir(t)
 	if err := os.WriteFile(filepath.Join(dir, document), []byte("Isolated input only"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	projects := &meetingProjectsFixture{projects: map[string]string{projectID: dir, "other": other}}
+	projects := meetingProjectService(t, dir, other)
+	project, err := projects.EnsureDirectoryProject(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sessionsDir, pluginsDir := t.TempDir(), t.TempDir()
 	call := func(_ context.Context, seat, _, prompt, _ string) (string, error) {
 		switch {
@@ -116,7 +80,7 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 			return "", fmt.Errorf("unexpected model request by %s", seat)
 		}
 	}
-	open := func(fn func(context.Context, string, string, string, string) (string, error)) (*meeting.Engine, http.Handler) {
+	open := func(fn func(context.Context, string, string, string, string) (string, error)) (*apiServer, http.Handler) {
 		t.Helper()
 		engine, err := meeting.New(sessionsDir, fn, func() meeting.Settings {
 			return meeting.Settings{Models: map[string]string{"codex": "fixture-lead", "cursor": "fixture-peer"}, Timeout: 2, MaxSteps: 2}
@@ -131,9 +95,9 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 		}
 		api := &apiServer{meetings: engine, research: projects, plugins: market}
 		engine.SetPluginGuidance(api.pluginGuidance)
-		return engine, api.serve(8765)
+		return api, api.serve(8765)
 	}
-	engine, handler := open(call)
+	host, handler := open(call)
 	request := func(method, path string, payload any, want int) []byte {
 		t.Helper()
 		body, err := json.Marshal(payload)
@@ -160,13 +124,13 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 		}, 200)
 	}
 	request("POST", "/sessions", map[string]any{"topic": "Unknown project", "projectId": "missing"}, 404)
-	request("POST", "/sessions", map[string]any{"topic": "Wrong directory", "project_id": projectID, "project": other}, 403)
-	request("POST", "/sessions", map[string]any{"topic": "Conflicting IDs", "projectId": projectID, "project_id": "other"}, 400)
-	request("POST", "/sessions", map[string]any{"topic": "Conflicting empty ID", "projectId": "", "project_id": projectID}, 400)
-	request("POST", "/sessions", map[string]any{"topic": "Unselected directory", "project": mkdir()}, 403)
+	request("POST", "/sessions", map[string]any{"topic": "Wrong directory", "project_id": project.ID, "project": other}, 403)
+	request("POST", "/sessions", map[string]any{"topic": "Conflicting IDs", "projectId": project.ID, "project_id": "other"}, 400)
+	request("POST", "/sessions", map[string]any{"topic": "Conflicting empty ID", "projectId": "", "project_id": project.ID}, 400)
+	request("POST", "/sessions", map[string]any{"topic": "Unselected directory", "project": projectTestDir(t)}, 403)
 	session := scienceWorkflowDecode[meeting.Session](t, request("POST", "/sessions",
-		map[string]any{"topic": "Review the measurement", "projectId": projectID, "project_id": projectID, "seats": []string{"codex", "cursor"}}, 201))
-	if session.ProjectID != projectID || session.Project != dir {
+		map[string]any{"topic": "Review the measurement", "projectId": project.ID, "project_id": project.ID, "seats": []string{"codex", "cursor"}}, 201))
+	if session.ProjectID != project.ID || session.Project != dir {
 		t.Fatalf("wrong session scope: %q %q", session.ProjectID, session.Project)
 	}
 	path := "/sessions/" + session.ID
@@ -214,15 +178,15 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 	if session.Report.Status != "ready" || session.Report.ReviewMode != "peer" || session.Board.Title != "Host measurement board" {
 		t.Fatalf("reviewed meeting report or host board missing: %+v / %+v", session.Report, session.Board)
 	}
-	if err := engine.Shutdown(t.Context()); err != nil {
+	if err := host.meetings.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	_, handler = open(func(context.Context, string, string, string, string) (string, error) {
+	host, handler = open(func(context.Context, string, string, string, string) (string, error) {
 		t.Error("reading an archived meeting must not call a model")
 		return "", fmt.Errorf("fixture is offline")
 	})
 	list := scienceWorkflowDecode[struct{ Sessions []meeting.Summary }](t, request("GET", "/sessions", nil, 200))
-	if len(list.Sessions) != 1 || list.Sessions[0].ProjectID != projectID || list.Sessions[0].ID != session.ID {
+	if len(list.Sessions) != 1 || list.Sessions[0].ProjectID != project.ID || list.Sessions[0].ID != session.ID {
 		t.Fatalf("restart lost project identity: %+v", list.Sessions)
 	}
 	if report := string(request("GET", path+"/report.md", nil, 200)); report != session.Report.Markdown || !strings.Contains(report, "Check the measurement") {
@@ -245,9 +209,9 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 	if !strings.Contains(string(action), "codex") || !strings.Contains(string(action), "cursor") {
 		t.Fatalf("plugin result lost the two seats: %s", action)
 	}
-	projects.setDirectory(projectID, other)
+	project = changeMeetingProjectDirectory(t, host, project, other)
 	request("GET", path+"/files", nil, 403)
-	projects.setDirectory(projectID, "")
+	changeMeetingProjectDirectory(t, host, project, "")
 	request("GET", path+"/file?path="+document, nil, 403)
 	request("GET", path+"/export.md", nil, 200)
 }

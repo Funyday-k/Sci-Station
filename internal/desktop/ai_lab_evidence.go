@@ -231,8 +231,8 @@ func (a *apiServer) serveLabEvidence(w http.ResponseWriter, r *http.Request, id 
 		http.NotFound(w, r)
 		return
 	}
-	lab, ok := a.research.(*research.Service)
-	if !ok || a.meetings == nil {
+	lab := a.research
+	if lab == nil || a.meetings == nil {
 		reject(w, 503, "未打开科研工作区")
 		return
 	}

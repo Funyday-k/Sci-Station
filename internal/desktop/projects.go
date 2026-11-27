@@ -534,7 +534,7 @@ func projectContextText(rules []projectRule) string {
 }
 
 func (a *apiServer) applyProjectSelections(selections []projectImportSelection) ([]projectSummary, error) {
-	lab, _ := a.research.(*research.Service)
+	lab := a.research
 	if lab != nil {
 		for _, item := range selections {
 			if err := lab.ValidateExternalDirectory(item.Path); err != nil {
@@ -556,8 +556,8 @@ func (a *apiServer) applyProjectSelections(selections []projectImportSelection) 
 	return a.identifySummaries(list), nil
 }
 func (a *apiServer) identifySummaries(list []projectSummary) []projectSummary {
-	lab, ok := a.research.(*research.Service)
-	if !ok {
+	lab := a.research
+	if lab == nil {
 		return list
 	}
 	out := make([]projectSummary, 0, len(list))
@@ -771,7 +771,7 @@ func (a *apiServer) projectImportHandler(w http.ResponseWriter, r *http.Request)
 	}
 	switch request.Action {
 	case "preview":
-		if lab, ok := a.research.(*research.Service); ok {
+		if lab := a.research; lab != nil {
 			for _, path := range request.Paths {
 				if err := lab.ValidateExternalDirectory(path); err != nil {
 					fail(w, err)

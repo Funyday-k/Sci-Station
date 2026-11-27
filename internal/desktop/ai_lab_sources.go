@@ -39,8 +39,8 @@ func (a *apiServer) serveLabSources(w http.ResponseWriter, r *http.Request, path
 		reject(w, 405, "请提交项目和来源")
 		return
 	}
-	lab, ok := a.research.(*research.Service)
-	if !ok || a.meetings == nil {
+	lab := a.research
+	if lab == nil || a.meetings == nil {
 		reject(w, 503, "未打开科研工作区")
 		return
 	}

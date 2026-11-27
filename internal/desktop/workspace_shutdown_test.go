@@ -53,17 +53,18 @@ func TestSwitchBackWaitsForWorkspaceWritersPastCloseDeadline(t *testing.T) {
 			}
 			record := filepath.Join(dir, "fixture.txt")
 			persist := func() error { return os.WriteFile(record, []byte(writer), 0600) }
-			api := &apiServer{workspaceDir: dir, meetings: engine, research: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			api := &apiServer{workspaceDir: dir, meetings: engine}
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				waitForRelease(r.Context())
 				if err := persist(); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
-			})}
+			})
 			listener, err := net.Listen("tcp4", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
 			}
-			a := api.serveOwnedWorkspace(listener, guard, rootBinding{}, 40*time.Millisecond)
+			a := api.serveOwnedWorkspace(listener, guard, rootBinding{}, handler, 40*time.Millisecond)
 			session := rootSession{active: a}
 			defer session.shutdown()
 			defer release()

@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
 	"scistation.local/desktop/web"
 )
@@ -97,7 +96,7 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 func (a *apiServer) resolveWorkspaceRoute(link *url.URL) (string, error) {
 	q := link.Query()
 	project := q.Get("project")
-	service, _ := a.research.(*research.Service)
+	service := a.research
 	module := routeModule(link.Path, q.Get("view"), q.Get("tab"))
 	if module == "ai-lab" && service == nil {
 		return "", errors.New("AI module settings unavailable")

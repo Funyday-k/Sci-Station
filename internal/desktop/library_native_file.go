@@ -20,8 +20,8 @@ func (a *apiServer) openLibraryPDF(w http.ResponseWriter, r *http.Request) {
 		reject(w, http.StatusNotImplemented, "此操作需要 macOS 桌面应用")
 		return
 	}
-	library, ok := a.research.(interface{ PaperPDFPath(string) (string, error) })
-	if !ok {
+	library := a.research
+	if library == nil {
 		reject(w, http.StatusServiceUnavailable, "文献库不可用")
 		return
 	}

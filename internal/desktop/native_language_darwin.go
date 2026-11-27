@@ -48,7 +48,7 @@ func (instance *workspaceInstance) interfaceChoice() string {
 		return "system"
 	}
 	if instance.api != nil {
-		if service, ok := instance.api.research.(interface{ InterfaceLanguage() (string, error) }); ok {
+		if service := instance.api.research; service != nil {
 			if value, err := service.InterfaceLanguage(); err == nil {
 				return value
 			}

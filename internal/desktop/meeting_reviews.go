@@ -136,8 +136,8 @@ func recordedProjectEvidence(text, project string) (research.Evidence, error) {
 }
 
 func (a *apiServer) meetingReviews(w http.ResponseWriter, r *http.Request, id string) {
-	lab, ok := a.research.(*research.Service)
-	if !ok || a.meetings == nil {
+	lab := a.research
+	if lab == nil || a.meetings == nil {
 		reject(w, 503, "科研或会议服务不可用")
 		return
 	}

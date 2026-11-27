@@ -46,7 +46,7 @@ type apiServer struct {
 	diag            diagnosticStore
 	prefs           *settingsStore
 	meetings        *meeting.Engine
-	research        http.Handler
+	research        *research.Service
 	selectedPaths   sync.Map
 	pickMu          sync.RWMutex
 	pick            func() (string, error)
@@ -120,8 +120,8 @@ func replyUnreadableSession(w http.ResponseWriter, err error) bool {
 }
 
 func (a *apiServer) serve(port int) http.Handler {
-	if _, ok := a.research.(meetingProjects); a.meetings != nil && ok {
-		a.projectAccess.Do(func() { a.meetings.SetProjectAccess(a.withMeetingProject) })
+	if a.meetings != nil && a.research != nil {
+		a.projectAccess.Do(func() { a.meetings.SetProjectAccess(a.research.WithProjectDirectory) })
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -344,7 +344,7 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				fail(w, err)
 				return
 			}
-			if lab, ok := a.research.(*research.Service); ok {
+			if lab := a.research; lab != nil {
 				if err := lab.ValidateExternalDirectory(selected); err != nil {
 					fail(w, err)
 					return

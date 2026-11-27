@@ -259,7 +259,7 @@ func (h *desktopHost) installPickers(host *apiServer) {
 		return
 	}
 	app, window := h.app, h.window
-	if service, ok := host.research.(interface{ OnWorkspaceMenuChanged(func()) }); ok {
+	if service := host.research; service != nil {
 		service.OnWorkspaceMenuChanged(func() { go h.refreshMenu() })
 	}
 	configureMaterialDesktop(host, app, window, &h.panelMu)

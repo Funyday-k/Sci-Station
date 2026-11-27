@@ -33,7 +33,7 @@ type modelReadFixture struct {
 
 func startModelReadTest(t *testing.T, f *connectorFixture, model func(context.Context, string, string, string, string) (string, error)) *modelReadFixture {
 	t.Helper()
-	service := f.api.research.(*research.Service)
+	service := f.api.research
 	dir, err := service.ProjectDirectory(f.project)
 	if err != nil {
 		t.Fatal(err)
@@ -506,7 +506,7 @@ func TestModelResearchChecksCooldownAgainAfterApproval(t *testing.T) {
 
 func TestModelResearchRejectsMalformedOrUnregisteredOperations(t *testing.T) {
 	f, _ := modelRegisteredStdio(t)
-	s := f.api.research.(*research.Service)
+	s := f.api.research
 	dir, _ := s.ProjectDirectory(f.project)
 	scope := meeting.ProjectScope{ID: f.project, Directory: dir}
 	for _, req := range []meeting.ResearchRead{
@@ -563,7 +563,7 @@ func TestModelResearchCredentialRotationAndAuthFailure(t *testing.T) {
 	f.post("set-token", op, 200)
 	op.Token = ""
 	f.post("trust", op, 200)
-	s := f.api.research.(*research.Service)
+	s := f.api.research
 	dir, _ := s.ProjectDirectory(f.project)
 	scope := meeting.ProjectScope{ID: f.project, Directory: dir}
 	plan, err := f.api.PrepareResearchRead(scope, meeting.ResearchRead{Connection: "papers", Operation: "resources/list"})

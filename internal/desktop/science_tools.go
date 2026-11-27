@@ -3,8 +3,6 @@ package desktop
 import (
 	"net/http"
 	"strings"
-
-	"scistation.local/desktop/internal/research"
 )
 
 type calendarItem struct {
@@ -33,8 +31,8 @@ var scientificHTTP = func() *http.Client {
 
 func (a *apiServer) serveScienceTools(w http.ResponseWriter, r *http.Request) {
 	route := strings.TrimPrefix(r.URL.Path, "/api/research/tools/")
-	lab, ok := a.research.(*research.Service)
-	if !ok {
+	lab := a.research
+	if lab == nil {
 		reject(w, 503, "科研服务未启动")
 		return
 	}

@@ -17,17 +17,18 @@ import (
 )
 
 func TestAITransferChecksPendingAndCommittedMaterials(t *testing.T) {
-	const a, b = "project-a", "project-b"
-	projectDirectory := func() string {
-		t.Helper()
-		dir, err := filepath.EvalSymlinks(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		return dir
+	aDirectory, bDirectory, replacement := projectTestDir(t), projectTestDir(t), projectTestDir(t)
+	root := t.TempDir()
+	projects := meetingProjectService(t, aDirectory, bDirectory, replacement)
+	projectA, err := projects.EnsureDirectoryProject(aDirectory)
+	if err != nil {
+		t.Fatal(err)
 	}
-	aDirectory, bDirectory, root := projectDirectory(), projectDirectory(), t.TempDir()
-	projects := &meetingProjectsFixture{projects: map[string]string{a: aDirectory, b: bDirectory}}
+	projectB, err := projects.EnsureDirectoryProject(bDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := projectA.ID, projectB.ID
 	engine, err := meeting.New(root, func(context.Context, string, string, string, string) (string, error) {
 		t.Error("mode transfer made a model request")
 		return "", nil
@@ -35,7 +36,8 @@ func TestAITransferChecksPendingAndCommittedMaterials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := (&apiServer{research: projects, meetings: engine}).serve(8765)
+	host := &apiServer{research: projects, meetings: engine}
+	server := host.serve(8765)
 	store := func(name, value string) meeting.Material {
 		t.Helper()
 		m, err := engine.StoreMaterial(name+".txt", strings.NewReader(value))
@@ -149,7 +151,7 @@ func TestAITransferChecksPendingAndCommittedMaterials(t *testing.T) {
 	updated.Excerpt = excerpt(b)
 	changeRecord(updated)
 	check(403, room.ID, a, old.ID)
-	projects.setDirectory(a, t.TempDir())
+	changeMeetingProjectDirectory(t, host, projectA, replacement)
 	check(403, room.ID, a, neutral.ID)
 
 	unchanged, err := engine.Get(room.ID)

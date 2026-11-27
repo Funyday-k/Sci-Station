@@ -5,24 +5,8 @@ import (
 	"os"
 
 	"scistation.local/desktop/internal/meeting"
-	"scistation.local/desktop/internal/research"
 	"scistation.local/desktop/internal/workspace"
 )
-
-type meetingProjects interface {
-	ProjectDirectory(id string) (string, error)
-	WithProjectDirectory(id string, use func(string) error) error
-	ProjectForDirectory(path string) (research.Project, bool)
-	EnsureDirectoryProject(path string) (research.Project, error)
-}
-
-func (a *apiServer) withMeetingProject(id string, use func(string) error) error {
-	projects, ok := a.research.(meetingProjects)
-	if !ok {
-		return fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
-	}
-	return projects.WithProjectDirectory(id, use)
-}
 
 func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, error) {
 	if scope == "global" && id == "" && path == "" {
@@ -31,9 +15,9 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 	if scope != "" {
 		return meeting.ProjectScope{}, fmt.Errorf("请选择一个科研项目或全局圆桌")
 	}
-	projects, hasResearch := a.research.(meetingProjects)
+	projects := a.research
 	if id != "" {
-		if !hasResearch {
+		if projects == nil {
 			return meeting.ProjectScope{}, fmt.Errorf("%w: 科研工作区不可用", os.ErrPermission)
 		}
 		dir, err := projects.ProjectDirectory(id)
@@ -49,7 +33,7 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 	if err != nil {
 		return meeting.ProjectScope{}, err
 	}
-	if !hasResearch {
+	if projects == nil {
 		return meeting.ProjectScope{Directory: dir}, nil
 	}
 	project, found := projects.ProjectForDirectory(dir)

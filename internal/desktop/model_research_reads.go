@@ -51,8 +51,8 @@ func (a *apiServer) checkResearchConnection(lab *research.Service, project, expe
 }
 
 func (a *apiServer) ResearchConnections(scope meeting.ProjectScope) []meeting.ResearchConnection {
-	lab, ok := a.research.(*research.Service)
-	if !ok || !a.desktop || a.minerCreds == nil || a.labConnect.key == nil || scope.ID == "" || scope.Directory == "" {
+	lab := a.research
+	if lab == nil || !a.desktop || a.minerCreds == nil || a.labConnect.key == nil || scope.ID == "" || scope.Directory == "" {
 		return nil
 	}
 	cfg, err := lab.LabSettings(scope.ID)
@@ -214,8 +214,8 @@ func checkArgumentValue(decoder *json.Decoder) error {
 }
 func (a *apiServer) PrepareResearchRead(scope meeting.ProjectScope, request meeting.ResearchRead) (meeting.ResearchProposal, error) {
 	var plan meeting.ResearchProposal
-	lab, ok := a.research.(*research.Service)
-	if !ok || !a.desktop || a.labConnect.key == nil || a.minerCreds == nil || scope.ID == "" || scope.Directory == "" {
+	lab := a.research
+	if lab == nil || !a.desktop || a.labConnect.key == nil || a.minerCreds == nil || scope.ID == "" || scope.Directory == "" {
 		return plan, noConnector
 	}
 	config, err := lab.LabSettings(scope.ID)

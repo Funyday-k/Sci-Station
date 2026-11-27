@@ -312,8 +312,8 @@ func (a *apiServer) serveLabResources(w http.ResponseWriter, r *http.Request, pa
 		reject(w, 403, "访问公共资源前请明确确认")
 		return
 	}
-	lab, ok := a.research.(*research.Service)
-	if !ok {
+	lab := a.research
+	if lab == nil {
 		reject(w, 503, "未打开科研工作区")
 		return
 	}
