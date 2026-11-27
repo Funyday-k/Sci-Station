@@ -34,8 +34,8 @@
   }
 
   async function action(kind) {
-    if (kind === "open") {
-      await request("open", {});
+    if (kind === "open" || kind === "default-storage" || kind === "choose-storage") {
+      await request(kind, {});
       return;
     }
     if (kind === "forget") {

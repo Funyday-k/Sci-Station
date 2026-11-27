@@ -288,7 +288,7 @@ func (r desktopRoots) writeRecent(path string, binding rootBinding) error {
 
 func (r desktopRoots) refreshRecent(choice rootChoice, instance *workspaceInstance) error {
 	prior := choice.recent
-	if prior.Path == "" || (prior.Bound && prior.Path == instance.dir) {
+	if (prior.Path == "" && !choice.rememberDefault) || (prior.Bound && prior.Path == instance.dir) {
 		return nil
 	}
 	return r.withRecentLock(func() error {
@@ -359,10 +359,56 @@ func (r desktopRoots) forget(expected string, stamp ...string) error {
 func rootID(dir string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(dir))) }
 
 type rootChoice struct {
-	dir      string
-	create   bool
-	expected rootBinding
-	recent   recentWorkspace
+	dir             string
+	create          bool
+	expected        rootBinding
+	recent          recentWorkspace
+	rememberDefault bool
+}
+
+type storageLocations struct {
+	Data, Library, Default string
+	AtDefault              bool
+}
+
+func (a *apiServer) storageLocations() storageLocations {
+	locations := storageLocations{Data: a.workspaceDir}
+	if locations.Data != "" {
+		locations.Library = filepath.Join(locations.Data, "research", "library")
+	}
+	roots, err := rootRegistry()
+	if err == nil {
+		locations.Default = roots.defaultDataDir()
+		locations.AtDefault = roots.isDefaultDataDir(a.workspaceDir)
+	}
+	return locations
+}
+
+func (r desktopRoots) defaultDataDir() string { return filepath.Join(r.dir, "Data") }
+
+func (r desktopRoots) isDefaultDataDir(dir string) bool {
+	current, err := os.Lstat(dir)
+	defaultDir, issue := os.Lstat(r.defaultDataDir())
+	return err == nil && issue == nil && os.SameFile(current, defaultDir)
+}
+
+func (r desktopRoots) windowTitle(instance *workspaceInstance) string {
+	if r.isDefaultDataDir(instance.dir) {
+		return "Sci-Station"
+	}
+	return "Sci-Station · " + instance.displayName()
+}
+
+// Only desktop first launch selects a default. An unreadable or missing
+// remembered folder goes to recovery without initializing another directory.
+func (r desktopRoots) desktopInitial(explicit string) (rootChoice, error) {
+	choice, err := r.initial(explicit)
+	if err != nil || choice.dir != "" {
+		return choice, err
+	}
+	choice, err = r.initial(r.defaultDataDir())
+	choice.rememberDefault = true
+	return choice, err
 }
 
 func (r desktopRoots) initial(explicit string) (rootChoice, error) {
@@ -385,12 +431,17 @@ func (r desktopRoots) initial(explicit string) (rootChoice, error) {
 	if err := workspace.ManagedMkdirAll(explicit, 0700); err != nil {
 		return rootChoice{}, err
 	}
-	entries, err := workspace.ManagedReadDir(explicit)
+	return storageFolderChoice(explicit)
+}
+
+// A user-selected folder must still exist after the native picker closes.
+func storageFolderChoice(path string) (rootChoice, error) {
+	entries, err := workspace.ManagedReadDir(path)
 	if err != nil {
 		return rootChoice{}, err
 	}
 	create := len(entries) == 0 || len(entries) == 1 && entries[0].Name() == ".DS_Store"
-	return rootChoice{dir: explicit, create: create}, nil
+	return rootChoice{dir: path, create: create}, nil
 }
 
 // A new selection invalidates older pending loads. The live service and origin
@@ -475,9 +526,26 @@ func (a *apiServer) workspaceAPI(w http.ResponseWriter, r *http.Request) {
 	a.pickMu.RLock()
 	choose := a.chooseWorkspace
 	reveal := a.revealWorkspace
+	changeStorage := a.changeStorage
 	create, forget, rename := a.createWorkspace, a.forgetWorkspace, a.renameWorkspace
 	a.pickMu.RUnlock()
 	switch r.URL.Path {
+	case "/api/workspace/choose-storage", "/api/workspace/default-storage":
+		var body struct{}
+		if !jsonBody(w, r, &body) {
+			return
+		}
+		if changeStorage == nil {
+			reject(w, 409, "请在桌面应用中更改数据位置 / Change the data location in the desktop app")
+			return
+		}
+		opened, err := changeStorage(r.Context(), r.URL.Path == "/api/workspace/default-storage")
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, 200, map[string]bool{"opened": opened})
+		return
 	case "/api/workspace/setup":
 		var d rootSetup
 		if !jsonBody(w, r, &d) {

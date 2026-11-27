@@ -75,10 +75,15 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method != http.MethodHead {
+		var storage storageLocations
+		if surface.name == "studio" {
+			storage = a.storageLocations()
+		}
 		_ = surface.page.Execute(w, struct {
 			Title, Surface    string
 			Desktop, Pane, AI bool
-		}{surface.title, surface.name, a.desktop, surface.pane, surface.name == "lab" || surface.name == "studio"})
+			Storage           storageLocations
+		}{surface.title, surface.name, a.desktop, surface.pane, surface.name == "lab" || surface.name == "studio", storage})
 	}
 	return true
 }

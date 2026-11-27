@@ -17,6 +17,18 @@ static WKWebView *findWebView(NSView *view) {
     return nil;
 }
 
+static NSButton *storageConfirmButton(NSView *view) {
+    if ([view isKindOfClass:NSButton.class]) {
+        NSButton *button = (NSButton *)view;
+        if ([button.title isEqualToString:@"Use default location"] || [button.title isEqualToString:@"使用默认位置"]) return button;
+    }
+    for (NSView *child in view.subviews) {
+        NSButton *found = storageConfirmButton(child);
+        if (found) return found;
+    }
+    return nil;
+}
+
 static WKWebView *visibleWebView(void) {
     for (NSWindow *window in NSApp.orderedWindows) {
         if (!window.visible || window.alphaValue < 0.999) continue;
@@ -180,11 +192,17 @@ static void pollRequest(NSString *mailbox) {
             }];
         } else if ([request[@"homeMenu"] isEqual:@YES]) {
             respond(responseFile, requestID, @(menuKey(webView.window,@"1",18)), nil);
-        } else if ([request[@"openSecondRoot"] isEqual:@YES]) {
+        } else if ([request[@"openSecondRoot"] isEqual:@YES] || [request[@"armSecondRoot"] isEqual:@YES]) {
             const char *folder=getenv("SCI_STATION_WORKFLOW_SECOND_ROOT");
             if (!folder) { respond(responseFile,requestID,nil,@"Missing fixture root"); return; }
             selectFixtureRoot(webView.window,[NSURL fileURLWithPath:[NSString stringWithUTF8String:folder] isDirectory:YES]);
-            respond(responseFile, requestID, @(menuKey(webView.window,@"o",31)), nil);
+            respond(responseFile, requestID, @([request[@"armSecondRoot"] isEqual:@YES] || menuKey(webView.window,@"o",31)), nil);
+        } else if ([request[@"windowTitle"] isEqual:@YES]) {
+            respond(responseFile, requestID, webView.window.title, nil);
+        } else if ([request[@"confirmDefaultLocation"] isEqual:@YES]) {
+            NSButton *accept = storageConfirmButton(webView.window.attachedSheet.contentView);
+            if (accept) [accept performClick:nil];
+            respond(responseFile, requestID, @(accept != nil), nil);
         } else if ([request[@"captureProof"] isEqual:@YES]) {
             if (!trustedStudio(webView.URL)) { respond(responseFile, requestID, nil, @"Expected the fixture Studio"); return; }
             priorWindowPort = webView.URL.port;
