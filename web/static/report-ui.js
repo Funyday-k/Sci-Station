@@ -266,9 +266,7 @@
     );
     reviewNotes.after(guidance);
     const opinions = $("meeting-opinions");
-    const opinionToggle = $("opinions-toggle");
     const opinionToggleCount = $("opinions-toggle-count");
-    const opinionClose = $("opinions-close");
     const opinionCount = $("meeting-opinions-count");
     const opinionList = $("meeting-opinions-list");
     const opinionEmpty = $("meeting-opinions-empty");
@@ -281,62 +279,18 @@
     let guidanceKey = "";
     let hasPublished = false;
     let returnPoint = null;
-    let opinionsOpen = false;
-    const narrowOpinions = window.matchMedia("(max-width: 800px)");
-    function syncOpinionRole() {
-      if (opinionsOpen && narrowOpinions.matches) {
-        opinions.setAttribute("role", "dialog");
-        opinions.setAttribute("aria-modal", "true");
-      } else {
-        opinions.removeAttribute("role");
-        opinions.removeAttribute("aria-modal");
-      }
-    }
-    narrowOpinions.addEventListener("change", syncOpinionRole);
 
-    function setOpinionsOpen(open, { restoreFocus = true } = {}) {
+    function setOpinionsOpen(open, { restoreFocus = false } = {}) {
       if (!opinions || !session) return;
-      opinionsOpen = Boolean(open);
-      syncOpinionRole();
-      opinions.classList.toggle("is-open", opinionsOpen);
-      if (opinionsOpen && opinionList.children.length === 1) opinionList.firstElementChild.open = true;
-      opinions.hidden = !opinionsOpen;
-      $("opinions-scrim").hidden = !opinionsOpen;
-      document.body.classList.toggle("opinions-panel-open", opinionsOpen);
-      opinionToggle?.setAttribute("aria-expanded", String(opinionsOpen));
-      if (restoreFocus) (opinionsOpen ? opinionClose : opinionToggle)?.focus({ preventScroll: true });
+      if (open) {
+        if (opinionList.children.length === 1) opinionList.firstElementChild.open = true;
+        if (window.RoundtableRoomPanel) window.RoundtableRoomPanel.openTab("opinions", { focus: restoreFocus });
+        else opinions.hidden = false;
+      } else {
+        if (window.RoundtableRoomPanel) window.RoundtableRoomPanel.setTab("chat", { focus: restoreFocus });
+        else opinions.hidden = true;
+      }
     }
-
-    opinionToggle?.addEventListener("click", () => {
-      if (opinionsOpen) setOpinionsOpen(false);
-      else {
-        window.dispatchEvent(new CustomEvent("roundtable:sidepanel-open", { detail: "opinions" }));
-        setOpinionsOpen(true);
-      }
-    });
-    opinionClose.addEventListener("click", () => setOpinionsOpen(false));
-    $("opinions-scrim").addEventListener("click", () => setOpinionsOpen(false));
-    window.addEventListener("roundtable:sidepanel-open", event => {
-      if (event.detail !== "opinions" && opinionsOpen) setOpinionsOpen(false, { restoreFocus: false });
-    });
-    document.addEventListener("keydown", event => {
-      if (opinionsOpen && event.key === "Escape" && !event.defaultPrevented && !document.querySelector("dialog[open]") && $("meeting-actions-panel").hidden) {
-        event.preventDefault();
-        setOpinionsOpen(false);
-      }
-    });
-
-    opinions.addEventListener("keydown", event => {
-      if (event.key !== "Tab" || !narrowOpinions.matches) return;
-      const controls = [...opinions.querySelectorAll("button:not(:disabled), summary")].filter(el => el.getClientRects().length);
-      if (!controls.length) return;
-      const first = controls[0], last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault(); last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault(); first.focus();
-      }
-    });
 
     function clearReturnPoint() {
       returnPoint = null;
@@ -390,8 +344,7 @@
 
     function jump(round, seat, model) {
       if (!findTurn(session, round, seat, model)) return false;
-      if (narrowOpinions.matches && opinionsOpen)
-        setOpinionsOpen(false, { restoreFocus: false });
+      setOpinionsOpen(false, { restoreFocus: false });
       return navigate({ id: messageId(round, seat) }, session.id);
     }
 
@@ -497,9 +450,10 @@
       session = next;
       const published = publishedTurns(next);
       hasPublished = published.length > 0;
-      opinions.hidden = !next || !opinionsOpen;
-      opinionToggle && (opinionToggle.hidden = !next);
-      if (next) {
+      if (!next) {
+        if (opinionToggleCount) opinionToggleCount.textContent = "0";
+        if (opinionCount) opinionCount.textContent = "";
+      } else {
         const points = collectPoints(published);
         const key = JSON.stringify([next.id, next.members, next.seats, points.map(point => [
           point.id, point.text, point.source.round, point.source.turn.seat, point.source.turn.model,
@@ -514,7 +468,7 @@
             ? { point: document.activeElement.closest(".meeting-opinion")?.dataset.point,
                 citation: document.activeElement.dataset.citation }
             : null;
-          opinionCount.textContent = `${points.length} 项`;
+          if (opinionCount) opinionCount.textContent = `${points.length} 项`;
           if (opinionToggleCount) opinionToggleCount.textContent = String(points.length);
           opinionEmpty.hidden = points.length > 0;
           opinionList.hidden = !points.length;
@@ -574,7 +528,10 @@
     confirm.addEventListener("click", () => request("finish"));
     retry.addEventListener("click", () => request("retry"));
     window.RoundtableReferences = Object.freeze({ jump });
-    window.RoundtableOpinions = Object.freeze({ close: options => setOpinionsOpen(false, options) });
+    window.RoundtableOpinions = Object.freeze({
+      open: options => setOpinionsOpen(true, options),
+      close: options => setOpinionsOpen(false, options),
+    });
     return {
       update,
       setBusy,

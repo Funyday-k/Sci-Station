@@ -8,6 +8,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Consolidate the Roundtable room to two header bars (global bar plus a single page bar holding title, status, seats, agenda, stance summary, and CLI file editing), move Research Records into the meeting overflow menu, combine conversation and viewpoints into tabs of one in-room side panel, and scope global Ask AI to the active meeting.
 - Align Home and project widgets to shared grid rows. Browse conversations in a separate sidebar and switch between single chat and Roundtable in one toolbar. The new-chat composer groups the project, files, plugins, model and supported reasoning levels. Research tools have individual views with a back action.
 - Manage the shared data and paper location in Settings. A fresh desktop installation starts with a per-user Application Support folder, while existing installations reopen their selected data directory.
 

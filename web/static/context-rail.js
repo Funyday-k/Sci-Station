@@ -30,7 +30,9 @@
     return reader() ? JSON.stringify([url.pathname,url.searchParams.get("project") || "",url.searchParams.get("paper") || ""]) : url.href;
   }
   function contextOf() {
-    const url=new URL(location.href), params=url.searchParams, project=params.get("project") || "";
+    const url=new URL(location.href), params=url.searchParams;
+    const meeting=document.body.dataset.workspaceSurface==="studio" ? window.SciShellMeeting?.() || null : null;
+    const project=meeting?.project || params.get("project") || "";
     const research=window.SciResearch?.state;
     const matchesProject=(research?.project?.id || "")===project;
     const data=matchesProject && !research?.loading && !research?.loadError ? research:null;
@@ -42,9 +44,10 @@
     const paper=reader()?window.SciShellReader?.():inspectedPaper || (selection.length===1?selection[0]:null);
     const note=data?.notes?.find(n=>n.id===(selectedObject ? selectedObject.note : params.get("note")));
     const task=data?.tasks?.find(t=>t.id===(selectedObject ? selectedObject.task : params.get("task")));
-    const title=(!inspectedPaper && selection.length>1 ? text("已选 "+selection.length+" 篇文献",selection.length+" papers selected") : "") || paper?.title || note?.title || task?.title || document.getElementById("view-title")?.textContent ||
+    const title=(!inspectedPaper && selection.length>1 ? text("已选 "+selection.length+" 篇文献",selection.length+" papers selected") : "") || paper?.title || note?.title || task?.title || meeting?.title || document.getElementById("view-title")?.textContent ||
       (data?.project && view==="overview" ? data.project.name : document.title.split(" · ")[0]);
     const noteExcerpt=note ? Array.from((note.body || "").replace(/\r\n?/g,"\n")).slice(0,1000).join("").trim() : "";
+    const meetingExcerpt=meeting?.topic ? Array.from(meeting.topic.replace(/\r\n?/g,"\n")).slice(0,1000).join("").trim() : "";
     const facts=paper ? [
       [text("作者","Authors"),paper.authors?.join(", ")],[text("年份","Year"),paper.year],["DOI",paper.doi],["arXiv",paper.arxiv],
       [text("阅读状态","Reading status"),window.SciResearch?.statusLabel[paper.status] || paper.status]
@@ -57,13 +60,18 @@
       [text("目录","Folder"),note.namespace],
       [text("标签","Tags"),note.tags?.join(", ")],
       [text("别名","Aliases"),note.aliases?.join(", ")]
+    ] : meeting ? [
+      [text("讨论模式","Mode"),meeting.mode],
+      [text("文件权限","File access"),meeting.access],
+      [text("状态","Status"),meeting.status],
+      [text("席位","Seats"),meeting.seats?.join("、")]
     ] : [];
     const item=data?.project || projectRecords.get(project)?.item;
     return {project,projectGeneration:project ? item ? item.conversationGeneration || 0 : null : 0,
       projectName:item?.name || "",facts:facts.filter(([,value])=>Boolean(value)), path:url.pathname,view, paper:paper?.id || "",
       visiblePaperIds:project && data?.view==="papers" ? window.SciResearch.library?.visiblePaperIds?.() : undefined,
-      note:note?.id || "",task:task?.id || "",meeting:params.get("session") || "", title:title || "",
-      page:paper?.page || 0, quote:paper?.quote || noteExcerpt, citation:paper?.citation || null};
+      note:note?.id || "",task:task?.id || "",meeting:meeting?.id || params.get("session") || "", title:title || "",
+      page:paper?.page || 0, quote:paper?.quote || noteExcerpt || meetingExcerpt, citation:paper?.citation || null};
   }
   function draftKey(c){
     if(c.projectGeneration===null)return "";

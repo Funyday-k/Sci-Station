@@ -96,9 +96,7 @@
 {{end}}
 {{define "tools"}}
   <div id="chat-toolbar" class="heading-actions" hidden>
-    <span id="session-status" class="session-status" hidden></span>
-    <button id="room-chat-toggle" class="workspace-icon rail-toggle" type="button" aria-controls="room-chat" aria-expanded="false" aria-label="会议对话" title="会议对话"><svg class="ui-icon" data-ui-icon="chat" width="17" height="17" aria-hidden="true"></svg></button>
-    <button id="cli-edit-open" class="science-meeting-open" type="button" aria-haspopup="dialog" aria-controls="cli-edit-dialog" aria-label="CLI 文件编辑" data-en-aria-label="CLI file editing" data-l10n-title="roundtableCLIEdit" hidden><span data-en="CLI file editing">CLI 文件编辑</span><svg class="ui-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg></button>
+    <button id="room-chat-toggle" class="workspace-icon rail-toggle" type="button" aria-controls="room-chat" aria-expanded="false" aria-label="会议对话与观点" data-en-aria-label="Conversation and viewpoints" title="会议对话与观点"><svg class="ui-icon" data-ui-icon="chat" width="17" height="17" aria-hidden="true"></svg></button>
     <div id="meeting-actions" class="meeting-actions">
       <button id="meeting-actions-toggle" class="icon-button" type="button" aria-label="会议操作" title="会议操作" data-en-aria-label="Meeting actions" aria-controls="meeting-actions-panel" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
       <div id="meeting-actions-panel" aria-label="会议操作" hidden>
@@ -121,7 +119,7 @@
               </div>
             </div>
         </div>
-        <div class="meeting-menu-commands">
+        <div id="meeting-menu-commands" class="meeting-menu-commands">
           <button id="files-toggle" type="button" data-meeting-command aria-controls="files-view" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h7l2 3h7v13H4z"/><path d="M8 12h8m-8 4h5"/></svg>文件改动 <span id="change-count" aria-hidden="true"></span></button>
           <button id="plugin-tools-open" type="button" data-meeting-command aria-haspopup="dialog" aria-controls="plugin-tools-dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 5v8l-8 5-8-5V8zM4 8l8 5 8-5m-8 5v8"/></svg>插件工具</button>
           <a id="export-session" data-meeting-command download hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>导出记录</a>
@@ -251,12 +249,13 @@
                 <div class="room-heading">
                   <h1 id="view-title" class="view-title"></h1>
                   <span id="meeting-mode-status" class="mode-status" hidden><span class="sr-only">讨论模式：</span><span id="meeting-mode-label"></span><span aria-hidden="true"> · </span><span class="sr-only">，文件权限：</span><span id="meeting-mode-access"></span></span>
+                  <span id="session-status" class="session-status" hidden></span>
                 </div>
                 <button type="button" class="context-trigger" id="participants-toggle" aria-expanded="false" aria-controls="participants-panel"><span id="member-orbit" class="context-avatars" aria-hidden="true"></span><span id="seats-label">席位</span></button>
                 <button type="button" class="context-trigger agenda-trigger" id="agenda-toggle" aria-controls="agenda-drawer" aria-expanded="false"><svg class="ui-icon" data-ui-icon="agenda" width="16" height="16" aria-hidden="true"></svg><span>议程</span><span class="context-count" id="agenda-summary"></span></button>
                 <button id="progress-toggle" class="context-trigger progress-trigger" type="button" aria-controls="progress-drawer" aria-expanded="false" hidden>推进记录</button>
                 <span class="context-state" id="table-center-state"></span>
-                <button type="button" class="context-trigger viewpoints-trigger" id="opinions-toggle" aria-controls="meeting-opinions" aria-expanded="false"><svg class="ui-icon" data-ui-icon="chat" width="16" height="16" aria-hidden="true"></svg><span>讨论观点</span><span class="context-count" id="opinions-toggle-count">0</span></button>
+                <button id="cli-edit-open" class="context-trigger cli-edit-trigger" type="button" aria-haspopup="dialog" aria-controls="cli-edit-dialog" aria-label="CLI 文件编辑" data-en-aria-label="CLI file editing" data-l10n-title="roundtableCLIEdit" hidden><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg><span data-en="CLI file editing">CLI 文件编辑</span></button>
               </div>
               <section class="model-read-review" id="studio-read-review" aria-live="polite" hidden></section>
               <section aria-label="圆桌席位" class="context-drawer" id="participants-panel" hidden>
@@ -269,11 +268,15 @@
               </section>
             </div>
             <article id="meeting-board" tabindex="-1" aria-label="共享议题板" hidden></article>
-            <section id="room-chat" class="conversation-pane room-chat" aria-label="会议对话" hidden>
+            <section id="room-chat" class="conversation-pane room-chat" aria-label="会议对话与观点" data-en-aria-label="Conversation and viewpoints" hidden>
             <header class="rail-heading">
-              <h2>会议对话</h2>
-              <button id="rail-to-board" class="text-button" type="button">返回议题板</button>
+              <div class="room-panel-tabs" role="tablist" aria-label="会议视图" data-en-aria-label="Meeting views">
+                <button id="room-tab-chat" class="room-panel-tab" type="button" role="tab" aria-selected="true" aria-controls="room-panel-chat" tabindex="0"><span data-en="Conversation">会议对话</span></button>
+                <button id="room-tab-opinions" class="room-panel-tab" type="button" role="tab" aria-selected="false" aria-controls="meeting-opinions" tabindex="-1"><span data-en="Viewpoints">讨论观点</span><span id="opinions-toggle-count" class="context-count">0</span></button>
+              </div>
+              <button id="rail-to-board" class="text-button" type="button" data-en="Back to board">返回议题板</button>
             </header>
+            <div id="room-panel-chat" class="room-panel-body" role="tabpanel" aria-labelledby="room-tab-chat">
             <div class="page-scroll" id="table-scroll" tabindex="-1">
               <div class="session-content" id="session-content" hidden>
                 <div id="chat-board-status"></div>
@@ -320,18 +323,14 @@
                 </div>
               </div>
             </form>
+            </div>
+            <div id="meeting-opinions" class="room-panel-body meeting-opinions" role="tabpanel" aria-labelledby="room-tab-opinions" hidden>
+              <div class="meeting-opinions-scroll"><div id="meeting-opinions-list"></div>
+                <p id="meeting-opinions-empty" class="quiet" hidden data-en="No published viewpoints yet.">暂无已公开的观点。</p>
+              </div>
+            </div>
             </section>
           </section>
-          <button id="opinions-scrim" type="button" tabindex="-1" aria-label="关闭讨论观点" hidden></button>
-          <aside id="meeting-opinions" class="meeting-opinions" aria-labelledby="opinions-title" hidden>
-            <div class="meeting-opinions-header">
-              <h2 id="opinions-title" class="meeting-opinions-heading">讨论观点 <span id="meeting-opinions-count" class="meeting-opinions-count"></span></h2>
-              <button id="opinions-close" type="button" class="meeting-opinions-close icon-button" aria-label="关闭讨论观点"><svg class="ui-icon" data-ui-icon="close" width="16" height="16" aria-hidden="true"></svg></button>
-            </div>
-            <div class="meeting-opinions-scroll"><div id="meeting-opinions-list"></div>
-              <p id="meeting-opinions-empty" class="quiet" hidden>暂无已公开的观点。</p>
-            </div>
-          </aside>
           <section
             id="files-view"
             class="files-page"
