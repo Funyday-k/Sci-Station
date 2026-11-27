@@ -1,43 +1,138 @@
+/* Shared diff-view component (lifted from studio.css; consolidated into components.css in #40). */
+.diff-view {
+  margin: 0;
+  overflow: auto;
+  max-height: 28vh;
+  padding: 6px 0;
+  border: 1px solid var(--workspace-line, var(--line));
+  border-radius: 6px;
+  background: var(--workspace-inset, var(--editor, Canvas));
+  font: 12px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+.diff-line,
+.diff-add,
+.diff-remove,
+.diff-header {
+  display: block;
+  min-width: max-content;
+}
+.diff-view .diff-line {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 10px;
+}
+.diff-gutter {
+  user-select: none;
+  text-align: center;
+  font-weight: 600;
+}
+.diff-text {
+  white-space: pre;
+}
+.diff-context {
+  color: var(--workspace-ink, var(--ink));
+}
+.diff-context .diff-gutter {
+  color: var(--workspace-muted, var(--muted));
+}
+.diff-add {
+  color: var(--workspace-diff-add-ink);
+  background: var(--workspace-diff-add-bg);
+}
+.diff-add .diff-gutter {
+  color: var(--workspace-diff-add-gutter);
+}
+.diff-remove {
+  color: var(--workspace-diff-remove-ink);
+  background: var(--workspace-diff-remove-bg);
+}
+.diff-remove .diff-gutter {
+  color: var(--workspace-diff-remove-gutter);
+}
+.diff-header {
+  color: var(--workspace-muted, var(--muted));
+  background: var(--workspace-inset, var(--editor));
+  font-weight: 600;
+}
+
+/* CLI edit approval dialog (independent of studio.css). */
 #cli-edit-dialog {
   width: min(740px, 94vw);
   max-height: 88dvh;
   overflow: auto;
   box-sizing: border-box;
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line);
+  background: var(--workspace-surface, var(--surface));
+  color: var(--workspace-ink, var(--ink));
+  border: 1px solid var(--workspace-line, var(--line));
   border-radius: 14px;
   padding: 22px;
 }
-#cli-edit-dialog::backdrop { background: #191a2566; }
+#cli-edit-dialog::backdrop { background: rgb(25 26 37 / 40%); }
 #cli-edit-dialog [hidden] { display: none !important; }
-#cli-edit-dialog header, #cli-edit-dialog footer, .cli-edit-actions {
+#cli-edit-dialog header,
+#cli-edit-dialog .dialog-footer,
+.dialog-footer-leading,
+.dialog-footer-trailing {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-#cli-edit-dialog header, #cli-edit-dialog footer { justify-content: space-between; }
+#cli-edit-dialog header,
+#cli-edit-dialog .dialog-footer {
+  justify-content: space-between;
+}
+#cli-edit-dialog .dialog-footer-trailing {
+  margin-inline-start: auto;
+}
 #cli-edit-dialog h2, #cli-edit-dialog h3 { margin: 0; }
 #cli-edit-dialog h2 { font-size: 20px; }
 #cli-edit-dialog h3 { font-size: 15px; }
 #cli-edit-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
-#cli-edit-scope, #cli-edit-dialog small { color: var(--muted); font-size: 13px; }
+#cli-edit-scope, #cli-edit-dialog small { color: var(--workspace-muted, var(--muted)); font-size: 13px; }
 #cli-edit-start { display: grid; gap: 7px; }
 #cli-edit-start label { margin-top: 7px; font-weight: 600; }
 #cli-edit-start select, #cli-edit-start textarea {
-  font: inherit; background: var(--editor, Canvas); color: inherit;
-  border-radius: 6px; border: 1px solid var(--line); padding: 8px; width: 100%;
+  font: inherit;
+  background: var(--workspace-inset, var(--editor, Canvas));
+  color: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--workspace-line, var(--line));
+  padding: 8px;
+  width: 100%;
 }
 #cli-edit-start textarea { resize: vertical; }
 #cli-edit-start button { justify-self: start; margin-top: 6px; }
-#cli-edit-capabilities { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
-#cli-edit-proposal, #cli-edit-dialog footer { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 13px; }
+#cli-edit-capabilities { margin: 0; padding-left: 18px; font-size: 13px; color: var(--workspace-muted, var(--muted)); }
+#cli-edit-proposal { margin-top: 15px; border-top: 1px solid var(--workspace-line, var(--line)); padding-top: 13px; }
 #cli-edit-changes section { margin: 10px 0 12px; }
 #cli-edit-changes h4 { font: 600 13px ui-monospace, monospace; margin: 0 0 4px; overflow-wrap: anywhere; }
-#cli-edit-changes pre {
-  margin: 0; overflow: auto; max-height: 28vh; padding: 10px; border: 1px solid var(--line);
-  border-radius: 6px; background: var(--editor, Canvas); font: 12px/1.5 ui-monospace, monospace;
-  direction: ltr; text-align: left; unicode-bidi: plaintext;
+#cli-edit-status {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--workspace-muted, var(--muted));
 }
-#cli-edit-dialog footer p { flex: 1 1 180px; font-size: 13px; margin: 0; }
+#cli-edit-dialog .dialog-footer {
+  margin-top: 12px;
+  border-top: 1px solid var(--workspace-line, var(--line));
+  padding-top: 13px;
+}
+#cli-edit-dialog .cli-edit-tertiary {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--workspace-muted, var(--muted));
+}
+#cli-edit-dialog .cli-edit-tertiary:hover:not(:disabled) {
+  background: var(--workspace-inset, var(--editor));
+  color: var(--workspace-ink, var(--ink));
+}
+#cli-edit-dialog button:focus-visible,
+#cli-edit-dialog select:focus-visible,
+#cli-edit-dialog textarea:focus-visible {
+  outline: 2px solid var(--workspace-accent, var(--accent));
+  outline-offset: 2px;
+}

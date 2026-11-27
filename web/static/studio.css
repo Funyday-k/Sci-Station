@@ -1091,31 +1091,6 @@ textarea::placeholder {
   overflow: auto;
   margin: 0;
 }
-.diff-add,
-.diff-remove,
-.diff-header {
-  display: block;
-  min-width: max-content;
-}
-.diff-add {
-  color: #206338;
-  background: #edf7e9;
-}
-.diff-remove {
-  color: #a13d30;
-  background: #fcf0ec;
-}
-.diff-header {
-  color: var(--text);
-}
-[data-theme="dark"] .diff-add {
-  color: #8be0ac;
-  background: #1e3a2b;
-}
-[data-theme="dark"] .diff-remove {
-  color: #ffa49d;
-  background: #45272a;
-}
 .settings-page .page-scroll {
   padding-top: 24px;
   padding-bottom: 30px;
