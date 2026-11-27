@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"mime"
 	"net/http"
 	"net/url"
@@ -122,7 +123,20 @@ func replyUnreadableSession(w http.ResponseWriter, err error) bool {
 
 func (a *apiServer) serve(port int) http.Handler {
 	if a.meetings != nil && a.research != nil {
-		a.projectAccess.Do(func() { a.meetings.SetProjectAccess(a.research.WithProjectDirectory) })
+		a.projectAccess.Do(func() {
+			a.meetings.SetProjectAccess(a.research.WithProjectDirectory)
+			a.meetings.SetConversationGenerationCheck(a.research.CheckConversationGeneration)
+			a.meetings.SetConversationAccessCheck(func(id string) error {
+				if a.research.CheckConversationAccess(id) != nil {
+					return meeting.ErrConversationResetPending
+				}
+				return nil
+			}, a.research.AnyConversationResetPending)
+			a.research.SetConversationReset(a.resetProjectConversations)
+			if err := a.research.RecoverConversationResets(); err != nil {
+				log.Printf("项目对话清理等待恢复：%v", err)
+			}
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -379,17 +393,18 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "POST" {
 			var b struct {
-				Topic, Project  string
-				ProjectID       *string `json:"projectId"`
-				LegacyProjectID *string `json:"project_id"`
-				Scope           string  `json:"scope"`
-				Seats           []string
-				Members         []meeting.Member
-				Preset          string
-				Agenda          []json.RawMessage
-				Continuous      *meeting.ContinuousConfig `json:"continuous"`
-				MaterialIDs     []string                  `json:"material_ids"`
-				StartAgenda     *bool                     `json:"start_agenda_draft"`
+				Topic, Project         string
+				ProjectID              *string `json:"projectId"`
+				LegacyProjectID        *string `json:"project_id"`
+				ConversationGeneration uint64  `json:"conversationGeneration"`
+				Scope                  string  `json:"scope"`
+				Seats                  []string
+				Members                []meeting.Member
+				Preset                 string
+				Agenda                 []json.RawMessage
+				Continuous             *meeting.ContinuousConfig `json:"continuous"`
+				MaterialIDs            []string                  `json:"material_ids"`
+				StartAgenda            *bool                     `json:"start_agenda_draft"`
 			}
 			if !jsonBody(w, r, &b) {
 				return
@@ -421,6 +436,7 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				fail(w, err)
 				return
 			}
+			scope.ConversationGeneration = b.ConversationGeneration
 			var s *meeting.Session
 			if b.Members != nil {
 				members, err := a.validateMembers(r.Context(), b.Members)

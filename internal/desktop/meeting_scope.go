@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -39,4 +40,14 @@ func (a *apiServer) meetingScope(id, path, scope string) (meeting.ProjectScope, 
 	}
 	dir, err = projects.ProjectDirectory(project.ID)
 	return meeting.ProjectScope{ID: project.ID, Directory: dir}, err
+}
+
+func (a *apiServer) resetProjectConversations(id string, begin func() error) error {
+	return a.cliEdits.jobs.ResetProject(id, func() error {
+		err := a.meetings.ResetProjectSessions(id, begin)
+		if errors.Is(err, meeting.ErrConflict) {
+			return fmt.Errorf("%w: %s", workspace.ErrConflict, err)
+		}
+		return err
+	})
 }

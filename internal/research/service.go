@@ -35,10 +35,12 @@ type Entity struct {
 }
 
 type Project struct {
-	ColorHex         string          `json:"colorHex,omitempty"`
-	IconName         string          `json:"iconName,omitempty"`
-	ManagedDirectory bool            `json:"managedDirectory,omitempty"`
-	DirectoryGrant   *DirectoryGrant `json:"directoryGrant,omitempty"`
+	ConversationGeneration   uint64          `json:"conversationGeneration,omitempty"`
+	ConversationResetPending bool            `json:"conversationResetPending,omitempty"`
+	ColorHex                 string          `json:"colorHex,omitempty"`
+	IconName                 string          `json:"iconName,omitempty"`
+	ManagedDirectory         bool            `json:"managedDirectory,omitempty"`
+	DirectoryGrant           *DirectoryGrant `json:"directoryGrant,omitempty"`
 	Entity
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -109,34 +111,38 @@ type Material struct {
 }
 
 type projectData struct {
-	RoundtableRules []RoundtableRule         `json:"roundtableRules,omitempty"`
-	Trashed         bool                     `json:"trashed,omitempty"`
-	Reviews         map[string]MeetingReview `json:"reviews,omitempty"`
-	Project         Project                  `json:"project"`
-	Archived        bool                     `json:"archived,omitempty"`
-	Notes           map[string]Note          `json:"notes"`
-	Tasks           map[string]Task          `json:"tasks"`
-	Materials       map[string]Material      `json:"materials"`
-	NoteKeys        map[string]string        `json:"noteKeys"`
-	TaskKeys        map[string]string        `json:"taskKeys"`
-	Relations       map[string]GraphRelation `json:"relations,omitempty"`
-	disk            json.RawMessage
-	WikiFolders     []string     `json:"wikiFolders,omitempty"`
-	Lab             *LabSettings `json:"lab,omitempty"`
+	PreviousDirectoryIdentity *DirectoryGrant          `json:"previousDirectoryIdentity,omitempty"`
+	RoundtableRules           []RoundtableRule         `json:"roundtableRules,omitempty"`
+	Trashed                   bool                     `json:"trashed,omitempty"`
+	Reviews                   map[string]MeetingReview `json:"reviews,omitempty"`
+	Project                   Project                  `json:"project"`
+	Archived                  bool                     `json:"archived,omitempty"`
+	Notes                     map[string]Note          `json:"notes"`
+	Tasks                     map[string]Task          `json:"tasks"`
+	Materials                 map[string]Material      `json:"materials"`
+	NoteKeys                  map[string]string        `json:"noteKeys"`
+	TaskKeys                  map[string]string        `json:"taskKeys"`
+	Relations                 map[string]GraphRelation `json:"relations,omitempty"`
+	disk                      json.RawMessage
+	WikiFolders               []string     `json:"wikiFolders,omitempty"`
+	Lab                       *LabSettings `json:"lab,omitempty"`
 }
 
 // Published project snapshots are immutable. Each mutation copies only its own map
 // and installs the new snapshot after the single on-disk replacement succeeds.
 type Service struct {
-	dir             string
-	mux             *http.ServeMux
-	papers          *PaperLibrary
-	mu              sync.RWMutex
-	projects        map[string]projectData
-	workspaceTasks  workspaceTaskData
-	pathValidator   func(string, DirectoryGrant) bool
-	newTaskReminder func(Task) (string, error)
-	retrievalWorker chan struct{}
+	directoryChanges          sync.Mutex
+	pendingConversationResets int
+	resetConversations        func(string, func() error) error
+	dir                       string
+	mux                       *http.ServeMux
+	papers                    *PaperLibrary
+	mu                        sync.RWMutex
+	projects                  map[string]projectData
+	workspaceTasks            workspaceTaskData
+	pathValidator             func(string, DirectoryGrant) bool
+	newTaskReminder           func(Task) (string, error)
+	retrievalWorker           chan struct{}
 
 	onWorkspaceMenuChanged func()
 }
@@ -188,6 +194,9 @@ func New(dir string) (*Service, error) {
 			return nil, err
 		}
 		s.projects[id] = d
+		if d.Project.ConversationResetPending {
+			s.pendingConversationResets++
+		}
 	}
 	if err = s.loadWorkspaceTasks(); err != nil {
 		return nil, err
@@ -281,6 +290,13 @@ func (s *Service) commit(d projectData) error {
 		return err
 	}
 	d.disk = b
+	if d.Project.ConversationResetPending != old.Project.ConversationResetPending {
+		if d.Project.ConversationResetPending {
+			s.pendingConversationResets++
+		} else {
+			s.pendingConversationResets--
+		}
+	}
 	s.projects[d.Project.ID] = d
 	return nil
 }

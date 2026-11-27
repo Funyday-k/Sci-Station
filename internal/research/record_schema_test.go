@@ -154,8 +154,9 @@ func TestProjectRecordSchemaAllowsLegacyDirectoryRebind(t *testing.T) {
 	legacy := legacyRecordFixture(t, path)
 	s = newResearch(t, s.dir)
 	s.SetPathValidator(allowed)
+	s.SetConversationReset(func(_ string, begin func() error) error { return begin() })
 	assertRecordBytes(t, path, legacy)
-	callResearch(t, s, "POST", "/projects/"+project.ID+"/directory", map[string]any{"revision": 1, "path": second}, 200)
+	callResearch(t, s, "POST", "/projects/"+project.ID+"/directory", map[string]any{"revision": 1, "path": second, "resetConversations": true}, 200)
 	assertVersionedRecordFixture(t, path)
 	s = newResearch(t, s.dir)
 	if dir, err := s.ProjectDirectory(project.ID); err != nil || dir != second {

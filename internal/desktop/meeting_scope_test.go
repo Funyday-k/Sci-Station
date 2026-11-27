@@ -41,7 +41,7 @@ func changeMeetingProjectDirectory(t *testing.T, host *apiServer, project resear
 	t.Helper()
 	var updated research.Project
 	rootFixtureRequest(t, host, http.MethodPost, "/api/research/projects/"+project.ID+"/directory",
-		map[string]any{"revision": project.Revision, "path": path}, http.StatusOK, &updated)
+		map[string]any{"revision": project.Revision, "path": path, "resetConversations": true}, http.StatusOK, &updated)
 	return updated
 }
 
@@ -218,10 +218,10 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 		t.Fatalf("plugin result lost the two seats: %s", action)
 	}
 	project = changeMeetingProjectDirectory(t, host, project, other)
-	request("GET", path+"/files", nil, 403)
+	request("GET", path+"/files", nil, 404)
 	changeMeetingProjectDirectory(t, host, project, "")
-	request("GET", path+"/file?path="+document, nil, 403)
-	request("GET", path+"/export.md", nil, 200)
+	request("GET", path+"/file?path="+document, nil, 404)
+	request("GET", path+"/export.md", nil, 404)
 }
 
 func TestGlobalRoundtableHasNoDirectoryGrant(t *testing.T) {

@@ -168,11 +168,14 @@ func TestRoundCapturesProjectRuleVersionsAndRejectsBrokenRegistry(t *testing.T) 
 	settleRound()
 }
 
-func TestRoundtableRulesFollowExplicitProjectAcrossFolderChanges(t *testing.T) {
+func TestRebindingProjectClearsPreviousFolderRules(t *testing.T) {
 	root := t.TempDir()
 	server := openNavigationFixture(t, root)
 	lab := server.research
 	lab.SetPathValidator(server.approvedResearchPath)
+	// This fixture has no meeting archive; the directory transaction still
+	// atomically updates the project and removes its folder-specific rules.
+	lab.SetConversationReset(func(_ string, begin func() error) error { return begin() })
 	old, next := projectTestDir(t), projectTestDir(t)
 	legacyRule := research.RoundtableRule{RoundtableRuleVersion: research.RoundtableRuleVersion{Path: "AGENTS.md", Digest: research.RoundtableRuleDigest("old instruction")}, Source: "AGENTS.md", Text: "old instruction"}
 	legacy, err := json.Marshal(map[string]any{old: map[string]any{"path": old, "rules": []research.RoundtableRule{legacyRule}, "future": "keep"}})
@@ -190,7 +193,7 @@ func TestRoundtableRulesFollowExplicitProjectAcrossFolderChanges(t *testing.T) {
 	if len(archive.Rules) != 1 || archive.Rules[0].Text != "old instruction" {
 		t.Fatal(archive)
 	}
-	newRule := importTestProjectRule(t, server, old, "current instructions")
+	importTestProjectRule(t, server, old, "current instructions")
 	owner, err := server.meetingScope("", old, "")
 	if err != nil || owner.ID == "" {
 		t.Fatal(owner, err)
@@ -207,7 +210,7 @@ func TestRoundtableRulesFollowExplicitProjectAcrossFolderChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.selectedPaths.Store(next, grant)
-	rootFixtureRequest(t, server, "POST", base+"/directory", map[string]any{"revision": initial.Revision, "path": next}, 200, &initial)
+	rootFixtureRequest(t, server, "POST", base+"/directory", map[string]any{"revision": initial.Revision, "path": next, "resetConversations": true}, 200, &initial)
 	if initial.ID != owner.ID {
 		t.Fatal(initial)
 	}
@@ -219,7 +222,7 @@ func TestRoundtableRulesFollowExplicitProjectAcrossFolderChanges(t *testing.T) {
 		t.Fatal(updated, err)
 	}
 	snapshot, err := server.projectRuleSnapshot(updated)
-	if err != nil || len(snapshot.Versions) != 1 || snapshot.Versions[0].Digest != newRule.Digest {
+	if err != nil || len(snapshot.Versions) != 0 {
 		t.Fatal(snapshot, err)
 	}
 	replacement := testMeetingProject(t, server, old)

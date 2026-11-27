@@ -80,6 +80,9 @@ func (s *Service) externalDirectory(path string) (DirectoryGrant, error) {
 }
 
 func (s *Service) directory(d projectData) (string, error) {
+	if d.Project.ConversationResetPending {
+		return "", errResetPending
+	}
 	if s.isManaged(d.Project) {
 		path := s.managedDirectory(d.Project.ID, false)
 		if _, err := IdentifyDirectory(path); err != nil {
@@ -314,51 +317,6 @@ func (s *Service) trashProject(w http.ResponseWriter, r *http.Request) {
 	d.Project.bump()
 	if s.moveLifecycle(w, d, true) {
 		w.WriteHeader(204)
-	}
-}
-
-func (s *Service) changeDirectory(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Revision int    `json:"revision"`
-		Path     string `json:"path"`
-	}
-	if !payload(w, r, &in) {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	d, ok := s.loadProject(w, r.PathValue("project"))
-	if !ok || !revisionOK(w, d.Project.Revision, in.Revision) {
-		return
-	}
-	if s.isManaged(d.Project) {
-		jsonFail(w, 400, "受管项目目录由工作区管理")
-		return
-	}
-	if in.Path == "" {
-		d.Project.DirectoryGrant = nil
-	} else {
-		grant, err := s.externalDirectory(in.Path)
-		if err != nil {
-			jsonFail(w, 403, "请重新选择授权文件夹")
-			return
-		}
-		for _, other := range s.projects {
-			if other.Project.ID != d.Project.ID && !other.Archived && other.Project.Path == in.Path {
-				jsonFail(w, 409, "已有活动项目关联此文件夹")
-				return
-			}
-		}
-		if s.pathValidator == nil || !s.pathValidator(in.Path, grant) {
-			jsonFail(w, 403, "请重新选择授权文件夹")
-			return
-		}
-		d.Project.Path = in.Path
-		d.Project.DirectoryGrant = &grant
-	}
-	d.Project.bump()
-	if s.save(w, d) {
-		jsonReply(w, 200, d.Project)
 	}
 }
 

@@ -70,9 +70,11 @@ type Run struct {
 	done     chan struct{}
 }
 type Manager struct {
-	mu     sync.Mutex
-	runs   map[string]*Run
-	closed bool
+	// Coordinate admitting CLI processes with a project history reset.
+	admission sync.RWMutex
+	mu        sync.Mutex
+	runs      map[string]*Run
+	closed    bool
 }
 
 func key() string { var b [16]byte; rand.Read(b[:]); return hex.EncodeToString(b[:]) }
@@ -105,6 +107,8 @@ func selectedFile(dir, path string) (workspace.File, error) {
 	return f, nil
 }
 func (m *Manager) Start(scope Scope, provider, executable string, adapter Adapter, guard Guard) (*Run, error) {
+	m.admission.RLock()
+	defer m.admission.RUnlock()
 	if err := guard(scope); err != nil {
 		return nil, err
 	}
@@ -350,4 +354,35 @@ func (m *Manager) Busy() bool {
 		}
 	}
 	return false
+}
+
+// ResetProject refuses to invalidate a running adapter's directory. Completed
+// CLI transcripts are in memory and belong to the old project conversations.
+func (m *Manager) ResetProject(id string, reset func() error) error {
+	m.admission.Lock()
+	defer m.admission.Unlock()
+	m.mu.Lock()
+	for _, r := range m.runs {
+		if r.scope.ProjectID != id {
+			continue
+		}
+		select {
+		case <-r.done:
+		default:
+			m.mu.Unlock()
+			return fmt.Errorf("%w: 请等待此项目的 CLI 编辑结束或取消后重试", workspace.ErrConflict)
+		}
+	}
+	m.mu.Unlock()
+	if err := reset(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for meeting, r := range m.runs {
+		if r.scope.ProjectID == id {
+			delete(m.runs, meeting)
+		}
+	}
+	return nil
 }

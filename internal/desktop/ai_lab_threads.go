@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"scistation.local/desktop/internal/meeting"
@@ -36,6 +37,14 @@ func (a *apiServer) serveLabThreads(w http.ResponseWriter, r *http.Request, path
 		return
 	}
 	if path == "draft" {
+		if scope.ProjectID != "" && query.Has("conversationGeneration") {
+			generation, err := strconv.ParseUint(query.Get("conversationGeneration"), 10, 64)
+			if err != nil || len(query["conversationGeneration"]) != 1 {
+				reject(w, 400, "项目对话版本无效")
+				return
+			}
+			scope.ConversationGeneration = generation
+		}
 		var edit *meeting.LabDraft
 		switch r.Method {
 		case http.MethodGet:
