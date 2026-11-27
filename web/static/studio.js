@@ -3095,11 +3095,22 @@
   const modeTransfer = window.SciStudioModeTransfer;
   const modeFollowupKey = id => "sci-station.roundtable-followup.v1."+id;
   const modeText = (zh, en) => window.SciStationI18n?.text(zh,en) ?? zh;
+  const modeMaterialIDs = materials => materials.map(({id}) => id);
+  const modeMaterialStamp = materials => JSON.stringify(modeMaterialIDs(materials));
+  let switchingToSingle = false;
   async function modeWorkspace() {
     const response = await fetch("/api/health", {cache:"no-store"});
     const info = response.ok && await response.json();
     if (!info?.workspace) throw Error(modeText("无法确认当前工作区。", "Could not identify the current workspace."));
     return info.workspace;
+  }
+  async function checkModeMaterials(data, fromSingle = false) {
+    const result = await api("/materials/transfer-check", {
+      sessionId:data.sourceSessionId, projectId:data.projectId, materialIds:modeMaterialIDs(data.materials)
+    });
+    if (fromSingle && data.sourceSessionId && !result.sourceIsSingle)
+      throw Error(modeText("原会话不属于当前范围。", "The original chat is outside this scope."));
+    return result.materials;
   }
   function clearModeFollowup(id) {
     try { sessionStorage.removeItem(modeFollowupKey(id)); } catch {}
@@ -3118,6 +3129,8 @@
   window.addEventListener("sci:change-ai-mode", async event => {
     if (event.detail?.mode !== "single" || state.view !== "table") return;
     event.preventDefault();
+    if (switchingToSingle) return;
+    switchingToSingle = true;
     try {
       if (state.writing || !canLeaveFile()) return;
       const room = state.session;
@@ -3130,23 +3143,30 @@
       const materials = room ? runMaterials : createMaterials;
       if (materials.busy() || materials.failed()) throw Error(modeText(
         "请等附件上传完成，或移除上传失败的附件后重试。", "Wait for attachments to finish uploading or remove failed uploads and try again."));
-      const draft = room ? $("run-note").value : state.draftOpen ? $("new-topic").value : "";
+      const box = room ? $("run-note") : state.draftOpen ? $("new-topic") : null;
+      const draft = box?.value || "";
       const ready = materials.ready();
-      if (room && (draft || ready.length)) sessionStorage.setItem(modeFollowupKey(room.id), JSON.stringify({
-        projectId:chosenProject, note:draft, materials:ready
-      }));
-      else if (room) clearModeFollowup(room.id);
-      const data = modeTransfer.roundtableTransfer({room,projectId:chosenProject,draft,
-        materials:room ? room.materials || [] : ready});
+      const pendingStamp = modeMaterialStamp(ready);
+      const boundStamp = modeMaterialStamp(room?.materials || []);
+      const data = modeTransfer.roundtableTransfer({room,projectId:chosenProject,draft,materials:ready});
       if (data.context) {
         const owner = state.activeProject;
-        const workspace = await modeWorkspace();
-        if (state.activeProject !== owner || state.session?.id !== room?.id || state.writing) return;
-        window.ScienceLabHandoff.writeModeTransfer("single", {...data,workspace});
+        const [workspace, verified] = await Promise.all([modeWorkspace(), checkModeMaterials(data)]);
+        if (state.activeProject !== owner || state.session?.id !== room?.id || state.writing || state.view !== "table") return;
+        if (materials.busy() || materials.failed() || (box?.value || "") !== draft ||
+            modeMaterialStamp(materials.ready()) !== pendingStamp || modeMaterialStamp(state.session?.materials || []) !== boundStamp) {
+          throw Error(modeText("草稿已更改，请重新切换模式。", "The draft changed. Try the mode switch again."));
+        }
+        if (room && (draft || ready.length)) sessionStorage.setItem(modeFollowupKey(room.id), JSON.stringify({
+          projectId:chosenProject, note:draft, materials:ready
+        }));
+        else if (room) clearModeFollowup(room.id);
+        window.ScienceLabHandoff.writeModeTransfer("single", {...data,workspace,materials:verified});
         next.fromRoundtable = "1";
       }
       location.assign(window.SciStationNav.route("/lab",next));
     } catch (error) { showError(error); }
+    finally { switchingToSingle = false; }
   });
 
   async function showLabModeImport(entry) {
@@ -3161,21 +3181,23 @@
     const stamp = JSON.stringify(received);
     const current = () => state.activeProject === owner && state.draftOpen && !state.selected &&
       !state.writing && JSON.stringify(handoff.readModeTransfer("roundtable",scope)) === stamp;
-    const data = {...received};
+    const data = {...received, materials:await checkModeMaterials(received,true)};
+    if (!current()) return;
     const link = $("studio-mode-source");
     link.hidden = !data.sourceSessionId;
     if (data.sourceSessionId) {
-      const source = await api("/sessions/"+encodeURIComponent(data.sourceSessionId));
-      if (source.seats?.length !== 1 || !handoff.scopeOwnsModeSource(source,projectId))
-        throw Error(modeText("原会话不属于当前范围。", "The original chat is outside this scope."));
-      const rows = new Map((source.materials || []).map(material=>[material.id,material]));
-      data.materials = data.materials.map(item => rows.get(item.id));
-      if (data.materials.some(item=>!item)) throw Error(modeText("原会话的附件已无法读取。", "An attachment in the original chat is unavailable."));
-      const route = window.SciStationNav.route("/lab", {project:projectId,scope:projectId?"":"global",run:source.id});
+      const route = window.SciStationNav.route("/lab", {project:projectId,scope:projectId?"":"global",run:data.sourceSessionId});
       link.href = route;
       data.context += "\n\n"+modeText("原单人会话", "Original single chat")+" "+route;
     }
-    if (!current()) return;
+    const preset = data.roundtablePreset;
+    const presetNote = $("studio-mode-preset");
+    presetNote.hidden = !preset;
+    if (preset) {
+      const labels = {review:"Proposal review", forum:"Multiple perspectives", prioritize:"Prioritization"};
+      presetNote.textContent = modeText(`${discussionPresets[preset.mode].label} · ${preset.seats} 个席位`,
+        `${labels[preset.mode]} · ${preset.seats} seats`);
+    }
     $("studio-mode-context").textContent = data.context;
     $("studio-mode-attachments").replaceChildren(...data.materials.map(item => {
       const li = document.createElement("li");
@@ -3191,19 +3213,37 @@
       window.SciStationNav.commitURL(url,"replace");
     }
     $("studio-mode-dismiss").onclick = () => { if (current()) finish(); };
-    $("studio-mode-apply").onclick = () => {
-      if (!current()) return;
+    const apply = $("studio-mode-apply");
+    apply.onclick = async () => {
+      if (!current() || apply.disabled) return;
+      apply.disabled = true;
       try {
+        const verified = await checkModeMaterials(received,true);
+        if (!current()) return;
+        if (JSON.stringify(verified) !== JSON.stringify(data.materials)) throw Error(modeText(
+          "附件已更改，请重新打开转换预览。", "The attachments changed. Open the transfer preview again."));
         if (createMaterials.busy() || createMaterials.failed()) throw Error(modeText(
           "请等附件处理完成后重试。", "Wait for attachments to finish and try again."));
         const box = $("new-topic");
-        const draft = modeTransfer.appendTransfer(box.value, createMaterials.ready(), data);
+        const topic = box.value, materials = createMaterials.ready();
+        const materialStamp = modeMaterialStamp(materials);
+        const draft = modeTransfer.appendTransfer(topic, materials, data);
+        if (preset) {
+          const stillCurrent = () => current() && box.value === topic && !createMaterials.busy() &&
+            !createMaterials.failed() && modeMaterialStamp(createMaterials.ready()) === materialStamp;
+          if (!await setup.applyLabPreset(preset.mode,preset.seats,stillCurrent) || !stillCurrent()) {
+            if (current()) throw Error(modeText("无法应用圆桌预设，请核对草稿和可用席位后重试。",
+              "Could not apply the Roundtable preset. Check the draft and available seats, then try again."));
+            return;
+          }
+        }
         box.value = draft.topic;
         createMaterials.set(draft.materials);
         box.dispatchEvent(new Event("input", {bubbles:true}));
         finish();
         box.focus();
       } catch (error) { showError(error); }
+      finally { apply.disabled = false; }
     };
     panel.hidden = false;
   }

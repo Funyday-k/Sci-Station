@@ -20,10 +20,11 @@ test("Roundtable transfer keeps its own project and includes completed public me
     ],
     materials:[first],
   };
-  const data = roundtableTransfer({room,projectId:room.project_id,draft:"Unsent follow-up fixture",materials:room.materials});
+  const pending = {id:"b".repeat(32), name:"Pending follow-up attachment"};
+  const data = roundtableTransfer({room,projectId:room.project_id,draft:"Unsent follow-up fixture",materials:[first,pending]});
   assert.equal(data.sourceSessionId, room.id);
   assert.equal(data.projectId, "fixture-project");
-  assert.deepEqual(data.materials, [first]);
+  assert.deepEqual(data.materials, [first,pending]);
   assert.match(data.context, /Compare the estimate/);
   assert.match(data.context, /Unsent follow-up fixture/);
   assert.match(data.context, /第 1 轮 · First seat/);
@@ -31,6 +32,11 @@ test("Roundtable transfer keeps its own project and includes completed public me
   assert.ok(data.context.indexOf("Initial completed response") < data.context.indexOf("Follow-up response"));
   assert.doesNotMatch(data.context, /Private work|Unfinalized stream|Errored text/);
   assert.equal(room.rounds[0].turns.length, 3);
+});
+
+test("the Roundtable cannot silently drop attachments when switching modes", () => {
+  const room = {materials:Array.from({length:12}, (_,i) => ({id:"m"+i,name:"Attachment "+i}))};
+  assert.throws(() => roundtableTransfer({room,projectId:"",draft:"Pending",materials:[{id:"pending",name:"Unsent"}]}), /12 份附件/);
 });
 
 test("an unscoped source draft is preserved as an optional, bounded excerpt", () => {

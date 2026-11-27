@@ -149,6 +149,11 @@ func (e *Engine) OpenMaterial(id string) (*os.File, error) {
 	if _, err := e.FindMaterial(id); err != nil {
 		return nil, err
 	}
+	return e.openMaterial(id)
+}
+
+// openMaterial expects an ID already validated by FindMaterial.
+func (e *Engine) openMaterial(id string) (*os.File, error) {
 	return workspace.ManagedOpenFile(filepath.Join(e.dir, "materials", id, "original"), os.O_RDONLY, 0)
 }
 

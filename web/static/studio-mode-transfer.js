@@ -9,6 +9,10 @@
   }
 
   function roundtableTransfer({room, projectId, draft, materials}) {
+    const selected = new Map((room?.materials || []).concat(materials).map(({id,name}) => [id,{id,name}]));
+    if (selected.size > 12) throw Error(text(
+      "切换模式最多可带入 12 份附件。请移除草稿中不需要的附件，或从新草稿切换。",
+      "A mode switch can carry up to 12 attachments. Remove unused draft attachments or switch from a new draft."));
     let context = "";
     if (room) {
       context = text("圆桌议题", "Roundtable topic")+"\n"+excerpt(room.topic || "", 570);
@@ -29,9 +33,9 @@
     } else if (draft.trim()) {
       context = text("未发送的圆桌议题", "Unsent Roundtable topic")+"\n"+excerpt(draft, 1750);
     }
-    if (!context && materials.length) context = text("从圆桌草稿选取的附件", "Attachments selected from the Roundtable draft");
+    if (!context && selected.size) context = text("从圆桌草稿选取的附件", "Attachments selected from the Roundtable draft");
     return {projectId, sourceSessionId:room?.id || "", context,
-      materials:materials.slice(-12).map(({id,name})=>({id,name}))};
+      materials:[...selected.values()]};
   }
 
   function appendTransfer(input, materials, incoming) {

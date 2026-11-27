@@ -18,6 +18,45 @@ const materialUploadPath = "/api/studio/materials"
 const maxMaterialUploadRequest = meeting.MaxMaterialBytes + (64 << 10)
 const desktopUserAgent = "SciStationDesktop/1.0"
 
+func (a *apiServer) checkMaterialTransfer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		reject(w, http.StatusMethodNotAllowed, "请从 AI 工作区核对转入附件")
+		return
+	}
+	if a.meetings == nil {
+		reject(w, http.StatusServiceUnavailable, "未打开会话存档")
+		return
+	}
+	var request *struct {
+		SessionID   string   `json:"sessionId"`
+		ProjectID   string   `json:"projectId"`
+		MaterialIDs []string `json:"materialIds"`
+	}
+	if !jsonBody(w, r, &request) {
+		return
+	}
+	if request == nil {
+		reject(w, http.StatusBadRequest, "请提交要带入的附件")
+		return
+	}
+	result, err := a.meetings.CheckMaterialTransfer(request.SessionID, request.ProjectID, request.MaterialIDs)
+	if err != nil {
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+				reject(w, http.StatusForbidden, "无法确认当前项目授权")
+			} else {
+				reject(w, http.StatusInternalServerError, "无法核对要带入的附件")
+			}
+			return
+		}
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, result)
+}
+
 func (a *apiServer) uploadMaterial(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
