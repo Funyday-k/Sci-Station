@@ -133,8 +133,17 @@ func (e *Engine) titleLocked(ctx context.Context, fn func() error) error {
 }
 
 func (e *Engine) titleLease(ctx context.Context, id string) (*os.File, error) {
-	f, err := workspace.ManagedOpenFile(filepath.Join(e.dir, id+".title.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
+	var f *os.File
+	// A reset may have removed the session since the caller's first read.
+	// Opening its lease under the store lock prevents recreating that sidecar.
+	if err := e.titleLocked(ctx, func() error {
+		if _, err := e.diskRevision(id); err != nil {
+			return err
+		}
+		var err error
+		f, err = workspace.ManagedOpenFile(filepath.Join(e.dir, id+".title.lock"), os.O_CREATE|os.O_RDWR, 0600)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	ticker := time.NewTicker(20 * time.Millisecond)
@@ -144,7 +153,7 @@ func (e *Engine) titleLease(ctx context.Context, id string) (*os.File, error) {
 			f.Close()
 			return nil, err
 		}
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
 			return f, nil
 		}

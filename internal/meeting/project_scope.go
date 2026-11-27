@@ -10,8 +10,42 @@ import (
 // ProjectScope binds a new session to a research project and the approved
 // directory used for its file tools. Global sessions have no file tools.
 type ProjectScope struct {
-	ID, Directory string
-	Global        bool
+	ID, Directory          string
+	Global                 bool
+	ConversationGeneration uint64
+}
+
+// SetConversationGenerationCheck installs the managed project's reset barrier.
+// Callers supply the generation the editor saw, including zero for older clients.
+func (e *Engine) SetConversationGenerationCheck(check func(string, uint64) error) {
+	e.checkGeneration = check
+}
+
+func (e *Engine) checkConversationGeneration(projectID string, generation uint64) error {
+	if projectID != "" && e.checkGeneration != nil {
+		return e.checkGeneration(projectID, generation)
+	}
+	return nil
+}
+
+var ErrConversationResetPending = fmt.Errorf("%w: 正在清除此项目的旧对话，请稍后重试", ErrConflict)
+
+// SetConversationAccessCheck hides pending archives from ordinary readers.
+// anyPending lets unchanged-session and cursor polls avoid decoding transcripts
+// while all projects are available. Both callbacks run under the storage lock.
+func (e *Engine) SetConversationAccessCheck(check func(string) error, anyPending ...func() bool) {
+	e.conversationAccess = check
+	if len(anyPending) > 0 {
+		e.anyResetPending = anyPending[0]
+	}
+}
+
+func (e *Engine) checkPollAccess(id string) error {
+	if e.conversationAccess == nil || (e.anyResetPending != nil && !e.anyResetPending()) {
+		return nil
+	}
+	_, err := e.load(id)
+	return err
 }
 
 // PathOnly reports an older session whose archive has no stable project identity.

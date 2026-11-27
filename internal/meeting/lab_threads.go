@@ -26,8 +26,9 @@ type LabThread struct {
 }
 
 type LabScope struct {
-	ProjectID string
-	Global    bool
+	ProjectID              string
+	Global                 bool
+	ConversationGeneration uint64
 }
 
 func (s LabScope) owns(room *Session) bool {
@@ -123,6 +124,11 @@ func validLabDraftText(text string) bool {
 	return utf8.ValidString(text) && utf8.RuneCountInString(text) <= 2500 && !strings.ContainsRune(text, 0)
 }
 
+func (e *Engine) labDraftPath(projectID, id string) string {
+	digest := sha256.Sum256([]byte(projectID + "\x00" + id))
+	return filepath.Join(e.dir, "lab-drafts", hex.EncodeToString(digest[:])+".json")
+}
+
 func readLabDraft(path string) (LabDraft, error) {
 	data, err := workspace.ManagedReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -162,14 +168,15 @@ func (e *Engine) LabDraft(scope LabScope, id string, edit *LabDraft) (LabDraft, 
 	}
 	var result LabDraft
 	err := e.locked(func() error {
+		if err := e.checkConversationGeneration(scope.ProjectID, scope.ConversationGeneration); err != nil {
+			return err
+		}
 		if id != "" {
 			if _, err := e.scopedLabThread(scope, id); err != nil {
 				return err
 			}
 		}
-		digest := sha256.Sum256([]byte(scope.ProjectID + "\x00" + id))
-		dir := filepath.Join(e.dir, "lab-drafts")
-		path := filepath.Join(dir, hex.EncodeToString(digest[:])+".json")
+		path := e.labDraftPath(scope.ProjectID, id)
 		current, err := readLabDraft(path)
 		if err != nil {
 			return err
@@ -189,7 +196,7 @@ func (e *Engine) LabDraft(scope LabScope, id string, edit *LabDraft) (LabDraft, 
 		if err != nil {
 			return err
 		}
-		if err = workspace.ManagedMkdirAll(dir, 0700); err != nil {
+		if err = workspace.ManagedMkdirAll(filepath.Dir(path), 0700); err != nil {
 			return err
 		}
 		return workspace.ManagedAtomicWrite(path, append(data, '\n'))

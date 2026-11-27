@@ -255,6 +255,9 @@ type Summary struct {
 }
 
 type Engine struct {
+	conversationAccess  func(string) error
+	anyResetPending     func() bool
+	checkGeneration     func(string, uint64) error
 	aiEnabled           func(string) (bool, error)
 	researchReads       ResearchReads
 	managedRoot         string
@@ -347,6 +350,19 @@ func release(f *os.File) {
 	}
 }
 func (e *Engine) load(id string) (*Session, error) {
+	s, err := e.readArchive(id)
+	if err != nil {
+		return nil, err
+	}
+	if s.ProjectID != "" && e.conversationAccess != nil {
+		if err := e.conversationAccess(s.ProjectID); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+func (e *Engine) readArchive(id string) (*Session, error) {
 	var s Session
 	if err := sessionstore.Read(e.dir, id, &s); err != nil {
 		return nil, err
@@ -555,6 +571,9 @@ func (e *Engine) create(topic string, scope ProjectScope, seats []string, member
 	}
 	addEvent(s, "created", "", "Created without sending a model request.")
 	err := e.locked(func() error {
+		if err := e.checkConversationGeneration(scope.ID, scope.ConversationGeneration); err != nil {
+			return err
+		}
 		if err := e.CheckAI(scope); err != nil {
 			return err
 		}
@@ -631,6 +650,9 @@ func (e *Engine) visitSessions(visit func(*Session, *sessionstore.Unreadable)) e
 		for _, id := range ids {
 			s, err := e.load(id)
 			if err != nil {
+				if errors.Is(err, ErrConversationResetPending) {
+					continue
+				}
 				var issue *sessionstore.Unreadable
 				if !errors.As(err, &issue) {
 					return err

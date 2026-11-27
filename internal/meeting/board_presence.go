@@ -84,7 +84,7 @@ func (p *boardPresenceHub) room(id string) *presenceRoom {
 }
 
 func (p *boardPresenceHub) release(id string, r *presenceRoom) {
-	if r.waiters != 0 || len(r.requests) != 0 {
+	if r.waiters != 0 || len(r.requests) != 0 || p.rooms[id] != r {
 		return
 	}
 	delete(p.rooms, id)
@@ -106,6 +106,17 @@ func (p *boardPresenceHub) release(id string, r *presenceRoom) {
 		delete(p.last, oldest)
 	}
 	p.last[id] = r.seq
+}
+
+func (p *boardPresenceHub) forget(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if r := p.rooms[id]; r != nil {
+		clear(r.requests)
+		p.notify(r)
+		delete(p.rooms, id)
+	}
+	delete(p.last, id)
 }
 
 func (p *boardPresenceHub) notify(r *presenceRoom) {
@@ -289,7 +300,12 @@ func (e *Engine) BoardPresence(ctx context.Context, id string, after *uint64) (B
 	if err := ctx.Err(); err != nil {
 		return BoardPresence{}, err
 	}
-	if _, err := e.diskRevision(id); err != nil {
+	if err := e.locked(func() error {
+		if _, err := e.diskRevision(id); err != nil {
+			return err
+		}
+		return e.checkPollAccess(id)
+	}); err != nil {
 		return BoardPresence{}, err
 	}
 	p := &e.presence
