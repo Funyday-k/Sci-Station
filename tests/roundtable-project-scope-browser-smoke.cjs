@@ -37,6 +37,8 @@ async function main() {
     const a = await app.request(projects, "POST", {name:"Project A fixture"}, 201);
     const b = await app.request(projects, "POST", {name:"Project B fixture"}, 201);
     const note = await app.request(projects+"/"+a.id+"/notes", "POST", {title:"A original", body:"A project source never leaves A."}, 201);
+    const pendingNote = "Pending single-chat excerpt";
+    await app.request(projects+"/"+a.id+"/notes", "POST", {title:pendingNote, body:"This source has not been sent to the provider."}, 201);
     const citation = await app.request("/api/research/lab/sources/preview", "POST", {
       projectId:a.id, location:{kind:"note", id:note.id}
     });
@@ -103,6 +105,16 @@ async function main() {
       if (!project) assert.equal(room.project, "");
       return room;
     }
+    async function pasteFile(target, list, name, body) {
+      await ui.evaluate(({target,name,body}) => {
+        const clipboardData = new DataTransfer();
+        clipboardData.items.add(new File([body],name,{type:"text/plain"}));
+        document.querySelector(target).dispatchEvent(new ClipboardEvent("paste",{clipboardData,bubbles:true}));
+      }, {target,name,body});
+      const selector = `${list} a[download="${name}"]`;
+      await ui.visible(selector);
+      return ui.evaluate(selector => new URL(document.querySelector(selector).href).pathname.split("/").at(-1),selector);
+    }
     const unscoped = await create("Discussion without a project", "", []);
     await ui.navigate(aRoute);
     await checkDraft(a.id, aDraft, true);
@@ -142,18 +154,51 @@ async function main() {
     if (!await ui.evaluate(() => !!document.querySelector("#run-note")?.getClientRects().length))
       await ui.click("#room-chat-toggle");
     await ui.set("#run-note",pending);
+    const pendingFile = "roundtable-unsent.txt";
+    await pasteFile("#run-note","#run-materials",pendingFile,"This Roundtable attachment is still in the composer.");
     await ui.click("[data-ai-mode='single']");
     await ui.click("#lab-transfer-preview");
     const preview = (await ui.visible("#lab-transfer-context")).value;
     assert.ok(preview.includes(firstMessage) && preview.includes(pending));
     await ui.visible("#lab-transfer-materials","A original");
+    await ui.visible("#lab-transfer-materials",pendingFile);
     await ui.click("#lab-transfer-apply");
     await eventually(async () => (await ui.visible("#question")).value.includes(firstMessage), "Roundtable excerpt added to chat");
     await ui.visible("#local-list","A original");
+    await ui.visible("#local-list",pendingFile);
     assert.equal(statements(),before);
+
+    // Create a single chat explicitly, then select another source in its
+    // follow-up composer without adding a second round.
+    await ui.click("#lab-start");
+    const single = await eventually(async () => {
+      const id = await ui.evaluate(() => new URL(location.href).searchParams.get("run"));
+      if (!id) return null;
+      const saved = await app.request(sessions+"/"+id);
+      return saved.status === "ready" && saved.rounds[0]?.turns.some(turn=>turn.status==="done") && saved;
+    }, "single chat created and first reply completed");
+    assert.equal(statements(),before+1);
+    assert.deepEqual(single.materials.map(item=>item.name), ["A original.txt",pendingFile]);
+    const pendingReply = "Keep this unsent single-chat follow-up.";
+    await ui.set("#lab-reply",pendingReply);
+    await ui.click("#lab-attach");
+    const option = await eventually(() => ui.evaluate(title => [...document.querySelector("#local-record").options]
+      .find(item=>item.text.includes(title))?.value, pendingNote), "pending note is in the project source picker");
+    await ui.set("#local-record",option);
+    await ui.click("#local-preview");
+    await ui.visible("#local-text");
+    await ui.evaluate(() => {
+      const source = document.querySelector("#local-text");
+      source.setSelectionRange(0,source.value.trimEnd().length);
+    });
+    await ui.click("#local-add");
+    await ui.click("#lab-materials-dialog footer [data-lab-close]");
+    await ui.visible("#local-list",pendingNote);
 
     await ui.click(roundtable);
     await ui.visible("#lab-transfer-dialog");
+    await ui.visible("#lab-transfer-materials",pendingNote);
+    assert.match((await ui.visible("#lab-transfer-context")).value,/Keep this unsent single-chat follow-up\./);
     await ui.click("#lab-transfer-apply");
     await ui.visible("#studio-mode-import");
     await checkDraft(a.id,"",true);
@@ -162,15 +207,88 @@ async function main() {
     await eventually(async () => (await ui.visible(composer)).value.includes(firstMessage), "single chat excerpt appended to Roundtable");
     assert.match((await ui.visible(composer)).value,/^This is a separate Roundtable draft\./);
     await ui.visible("#create-materials","A original");
-    assert.equal(statements(),before);
-    assert.equal((await app.request(sessions)).sessions.length,3);
+    await ui.visible("#create-materials",pendingFile);
+    await ui.visible("#create-materials",pendingNote);
+    assert.equal(statements(),before+1);
+    assert.equal((await app.request(sessions)).sessions.length,4);
+    const unmodifiedSingle = await app.request(sessions+"/"+single.id);
+    assert.equal(unmodifiedSingle.rounds.length,1);
+    assert.deepEqual(unmodifiedSingle.materials.map(item=>item.id),single.materials.map(item=>item.id));
 
     await ui.navigate(aSession);
     await ui.visible("#chat-header");
     if (!await ui.evaluate(() => !!document.querySelector("#run-note")?.getClientRects().length))
       await ui.click("#room-chat-toggle");
     assert.equal((await ui.visible("#run-note")).value,pending);
+    await ui.visible("#run-materials",pendingFile);
     assert.equal((await app.request(aSaved)).rounds[0].turns[0].text,completed.rounds[0].turns[0].text);
+
+    // An existing multi-seat template is reviewable in Lab and changes the
+    // Roundtable setup only on explicit Apply.
+    const template = {title:"Three-seat fixture", mode:"forum", seats:3, prompt:"Compare all three fixture views."};
+    await app.request("/api/research/lab/presets","POST",template,201);
+    await ui.navigate(app.origin+"/lab?project="+b.id);
+    await ui.click("#lab-tools");
+    await ui.click("#lab-legacy-templates > summary");
+    await ui.click("#lab-legacy-template-list summary",template.title);
+    await ui.click("#lab-legacy-template-list details[open] button:first-of-type");
+    await ui.visible("#lab-transfer-dialog");
+    assert.match((await ui.visible("#lab-transfer-context")).value,/Compare all three fixture views/);
+    await ui.click("#lab-transfer-apply");
+    const presetNote = await ui.visible("#studio-mode-preset");
+    assert.match(presetNote.text,/3 (?:个席位|seats)/);
+    assert.equal(await ui.evaluate(() => document.querySelector("#preset-forum").checked),false);
+    await ui.set(composer,"Keep the text already in the Roundtable draft.");
+    const templateAttachment = await pasteFile(composer,"#create-materials","existing-draft.txt","Keep this attachment on Apply.");
+    await ui.click("#studio-mode-apply");
+    await eventually(() => ui.evaluate(() => document.querySelector("#preset-forum").checked &&
+      document.querySelectorAll(".chosen-member").length===3),"explicit Apply configured three seats and the forum preset");
+    const applied = (await ui.visible(composer)).value;
+    assert.match(applied,/^Keep the text already in the Roundtable draft\./);
+    assert.match(applied,/Compare all three fixture views/);
+    await ui.visible("#create-materials","existing-draft.txt");
+    assert.equal(statements(),before+1);
+    const templateRoom = await create(undefined,b.id,[templateAttachment]);
+    assert.equal(templateRoom.preset,"forum");
+    assert.equal(templateRoom.seats.length,3);
+
+    // A long-lived source can have up to 48 attachments. After an explicit
+    // cancellation, choose a text-only transfer and leave all 13 bound here.
+    const add = async i => {
+      const data = new FormData();
+      data.set("file",new Blob(["Synthetic content "+i],{type:"text/plain"}),`overflow-${i}.txt`);
+      return (await app.request("/api/studio/materials","POST",data,201)).id;
+    };
+    const extra = await Promise.all(Array.from({length:12},(_,i)=>add(i+1)));
+    const templateSaved = sessions+"/"+templateRoom.id;
+    await eventually(async () => {
+      const saved = await app.request(templateSaved);
+      return saved.status==="ready" && !["pending","drafting"].includes(saved.agenda_draft_status);
+    }, "template Roundtable ready for an explicit round");
+    await app.request(templateSaved+"/run","POST",{expected_round:0,allow_edits:false,material_ids:extra},202);
+    await eventually(async () => {
+      const saved = await app.request(templateSaved);
+      return ["ready","partial"].includes(saved.status) && saved.rounds[0]?.turns.some(turn=>turn.status==="done") && saved.materials.length===13;
+    }, "13 attachments have been committed to the source Roundtable");
+    const beforeOverflow = statements();
+    await ui.navigate(app.origin+"/studio?"+new URLSearchParams({project:b.id,session:templateRoom.id}));
+    await ui.visible("#chat-header");
+    await ui.click("[data-ai-mode='single']");
+    await ui.visible("#studio-mode-overflow-summary","13");
+    await ui.click('#studio-mode-overflow button[value="cancel"]');
+    await eventually(() => ui.evaluate(() => !document.querySelector("#studio-mode-overflow").open),"cancel left the source in place");
+    assert.equal(await ui.evaluate(() => new URL(location.href).searchParams.get("session")),templateRoom.id);
+    await ui.click("[data-ai-mode='single']");
+    await ui.visible("#studio-mode-overflow-summary","13");
+    await ui.click('#studio-mode-overflow button[value="text-only"]');
+    await ui.click("#lab-transfer-preview");
+    assert.match((await ui.visible("#lab-transfer-context")).value,/Compare all three fixture views/);
+    assert.equal(await ui.evaluate(() => document.querySelector("#lab-transfer-materials").childElementCount),0);
+    const overflowAfter = await app.request(templateSaved);
+    assert.deepEqual(overflowAfter.materials.map(item=>item.id),[templateAttachment,...extra]);
+    assert.equal(statements(),beforeOverflow);
+    await ui.click("#lab-transfer-dialog footer [data-lab-close]");
+    await ui.click("#lab-transfer-dismiss");
 
     await enterUnscopedRoundtable();
     await checkDraft(optional,"",false);
@@ -181,11 +299,11 @@ async function main() {
     await ui.click("#lab-transfer-apply");
     await eventually(async () => (await ui.visible("#question")).value.includes("Unscoped draft travels"),"unscoped draft in single chat");
     assert.equal(new URL(await ui.evaluate(() => location.href)).searchParams.has("project"),false);
-    assert.equal(statements(),before);
+    assert.equal(statements(),beforeOverflow);
 
     if (browser.errors) assert.deepEqual(browser.errors, []);
     assert.deepEqual(gateway.errors, []);
-    console.log("Roundtable project selection, isolated drafts, saved sessions, and no-send conversion in both directions verified.");
+    console.log("Roundtable project scope, pending attachments in both mode switches, explicit template Apply, and over-limit text-only review verified.");
   } finally {
     await browser?.close();
     await app?.close();
