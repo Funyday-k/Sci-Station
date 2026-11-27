@@ -1,6 +1,6 @@
 # RFC-0003 — Research record versions and conversion recovery
 
-Accepted by the maintainer on 2026-11-27 for [Issue #27](https://github.com/Funyday-k/Sci-Station/issues/27). The maintainer chose local MinerU submission receipts and version 1 on the next normal save of project and paper records. The maintainer also chose a fresh conversation history when an existing project is assigned to a different directory.
+Accepted by the maintainer on 2026-11-27 for [Issue #27](https://github.com/Funyday-k/Sci-Station/issues/27). The maintainer chose local MinerU submission receipts and version 1 on the next normal save of project and paper records. The maintainer also chose a fresh conversation history when an existing project is assigned to a different directory. [Decision and implementation PR #28](https://github.com/Funyday-k/Sci-Station/pull/28).
 
 ## Project and paper records
 
