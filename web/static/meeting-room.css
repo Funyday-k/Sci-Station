@@ -1,7 +1,19 @@
-/* The meeting title, context strip and composer each occupy a single band. */
-.topbar { position:relative; z-index:18; }
-.room-heading { display:flex; flex:1; align-items:center; min-width:0; gap:9px; }
-.topbar .room-heading .view-title { flex:0 1 auto; }
+/* Meeting controls use the workspace toolbar. The title shares the context strip. */
+#workspace-tools #chat-toolbar { gap: 6px; }
+#workspace-tools #cli-edit-open svg { display: none; }
+#workspace-tools #back-to-table { white-space: nowrap; }
+.room-heading { display:flex; flex:1 1 14rem; align-items:baseline; min-width:0; gap:9px; }
+.room-heading .view-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--workspace-text-small);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .mode-status {
   flex: none;
   color: var(--text-secondary, #60616c);
@@ -11,11 +23,15 @@
 }
 :root[data-theme="dark"] .mode-status { color: #b6b6bf; }
 
-.room-context { flex:0 1 auto; min-width:0; min-height:0; overflow:auto; max-height:40%; border-bottom:1px solid var(--line); }
+.room-context { container-type:inline-size; flex:0 1 auto; min-width:0; min-height:0; overflow:auto; max-height:40%; border-bottom:1px solid var(--line); }
 .room-context-bar,.context-drawer {
   width:calc(100% - 40px); max-width:960px; margin:0 auto;
 }
 .room-context-bar { display:flex; align-items:center; gap:6px; min-height:41px; }
+@container (max-width: 620px) {
+  .room-context-bar { flex-wrap: wrap; padding-block-end: 3px; }
+  .room-heading { flex-basis: 100%; margin-block-start: 7px; }
+}
 .context-trigger {
   display:inline-flex; align-items:center; gap:5px; flex:none; padding:4px 7px;
   min-height:29px; background:transparent; border:0; border-radius:6px; color:var(--text); font:inherit; font-size:12px;
@@ -104,4 +120,10 @@ body.opinions-panel-open .table-page { flex-direction:row; }
   .context-trigger { padding-inline:4px; gap:3px; }
   .context-avatars { display:none; }
   .composer .composer-actions .input-limit { font-size:10px; }
+}
+@media (max-width:680px) {
+  #workspace-tools #chat-toolbar { gap: 3px; }
+  #workspace-tools #session-status, #workspace-tools #cli-edit-open span { display: none; }
+  #workspace-tools #cli-edit-open { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; }
+  #workspace-tools #cli-edit-open svg { display: block; }
 }

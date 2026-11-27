@@ -10,7 +10,7 @@ async function main(origin,project,other,program,script,log){
     await page.addInitScript(fs.readFileSync(0,"utf8"));
     await page.goto(origin+"/lab?project="+project);
     await page.locator("#lab-tools").click();
-    await page.locator("#mcp summary").click();
+    await page.locator('[data-lab-tool="connectors"]').click();
     await page.locator("#connector-transport").selectOption("stdio");
     await page.locator("#connector-id").fill("fixture");
     await page.locator("#connector-program").fill(program);
@@ -40,6 +40,7 @@ async function main(origin,project,other,program,script,log){
     assert.equal(await page.locator("#source").isVisible(),true);
     await page.locator("#project").selectOption(other);
     await page.locator("#lab-tools").click();
+    await page.locator('[data-lab-tool="connectors"]').click();
     await page.waitForFunction(()=>document.querySelector("#connector-select").options.length===1);
     assert.equal(await page.locator("#source").isVisible(),false);
     assert.equal(await page.locator("#connector-token").inputValue(),"");

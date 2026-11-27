@@ -47,9 +47,12 @@
     if(active)link.setAttribute("aria-current","page");
     return link;
   }
+  function isSettings(url) {
+    return url.pathname === "/studio" && ["settings", "plugins"].includes(url.searchParams.get("view"));
+  }
   function aiMode(url) {
     if (url.pathname === "/lab") return "single";
-    if (url.pathname === "/studio" && !["settings", "plugins"].includes(url.searchParams.get("view"))) return "roundtable";
+    if (url.pathname === "/studio" && !isSettings(url)) return "roundtable";
     return "";
   }
 
@@ -144,10 +147,21 @@
       if (saved === route) saved = "";
     });
   }
+  function settingsReturnRoute() {
+    const source = history.state?.settingsReturn;
+    if (source) {
+      const url = new URL(source, location.href);
+      if (url.origin === location.origin && !isSettings(url)) return url.href;
+    }
+    return "/research";
+  }
   function update() {
     const nav = document.querySelector("[data-workspace-nav]");
     if (!nav) return;
     const url = currentURL();
+    const back = document.getElementById("workspace-settings-back");
+    if (back && isSettings(url)) back.href = settingsReturnRoute();
+    window.SciShellLayout?.updateNavigation();
     updateModes(url);
     const visible = destinations(url).filter(item=>!globalModules || enabled(globalModules,globalSections[item.key]));
     const links=window.SciShellLayout?.top(visible) || visible;
@@ -170,7 +184,15 @@
     if (url.origin !== location.origin || !["push","replace"].includes(mode)) throw Error("无效的工作区导航");
     if (url.href !== location.href) {
       if (mode === "push") position++;
-      history[mode+"State"]({...history.state, workspacePosition:position},"",url);
+      const next = {...history.state, workspacePosition:position};
+      if (isSettings(url) && !isSettings(currentURL())) {
+        next.settingsReturn = location.href;
+        next.settingsReturnPosition = mode === "push" ? position - 1 : null;
+      } else if (!isSettings(url)) {
+        delete next.settingsReturn;
+        delete next.settingsReturnPosition;
+      }
+      history[mode+"State"](next,"",url);
     }
     update();
   }
@@ -182,7 +204,7 @@
     historyGuard = guard;
   }
   async function rootAction(action) {
-    if (["create","open","rename"].includes(action) && !mayDiscard()) return;
+    if (["create","open","rename","choose-storage","default-storage"].includes(action) && !mayDiscard()) return;
     if (window.SciWorkspaceSetup && ["create","rename","forget"].includes(action))return window.SciWorkspaceSetup.run(action);
     try {
       const res = await fetch("/api/workspace/"+action,{
@@ -214,7 +236,15 @@
       destination=route("/research",{view,project:key==="newProject"?null:url.searchParams.get("project"),command:key});
     }
     if (!destination) return false;
-    if (new URL(destination,url).href!==url.href) location.assign(destination);
+    const nextURL = new URL(destination, url);
+    if (nextURL.href !== url.href) {
+      // Workstation pages omit referrers. Carry the exact source, including
+      // its evidence anchor, across this navigation in the same window.
+      if (isSettings(nextURL) && !isSettings(url)) {
+        try { sessionStorage.setItem("sci.settings.entry", JSON.stringify({from:url.href, to:nextURL.href})); } catch {}
+      }
+      location.assign(destination);
+    }
     return true;
   }
   function keyCommand(event) {
@@ -224,7 +254,7 @@
     if (event.shiftKey) return "";
     return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
   }
-  const nav=Object.freeze({projectNames,projectBadge,route,research,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
+  const nav=Object.freeze({projectNames,projectBadge,route,research,isSettings,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;
@@ -239,16 +269,36 @@
       if (window.dispatchEvent(change)) location.assign(link.href);
     });
     position = history.state?.workspacePosition || 0;
-    history.replaceState({...history.state, workspacePosition:position},"");
+    const initial = {...history.state, workspacePosition:position};
+    try {
+      const entry = JSON.parse(sessionStorage.getItem("sci.settings.entry"));
+      sessionStorage.removeItem("sci.settings.entry");
+      if (entry?.to === location.href && isSettings(currentURL())) {
+        initial.settingsReturn = entry.from;
+        initial.settingsReturnPosition = -1;
+      }
+    } catch {}
+    history.replaceState(initial,"");
+    const settingsBack = document.getElementById("workspace-settings-back");
+    settingsBack?.addEventListener("click", event => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      const from = history.state?.settingsReturnPosition;
+      if (Number.isInteger(from) && from < position) history.go(from - position);
+      else location.assign(settingsReturnRoute());
+    });
     document.addEventListener("click",event=>{
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const rootButton = event.target.closest("[data-root-action]");
+      if (rootButton) {
+        event.preventDefault();
+        rootAction(rootButton.dataset.rootAction);
+        return;
+      }
       if (!event.target.closest(".workspace-bar,#workspace-sidebar")) return;
-      const target=event.target.closest("[data-command],[data-section],[data-root-action]");
+      const target=event.target.closest("[data-command],[data-section]");
       if (!target) return;
-      if (target.dataset.rootAction) {
-        target.closest("details").open=false;
-        rootAction(target.dataset.rootAction);
-      } else if (command(target.dataset.command || target.dataset.section)) {
+      if (command(target.dataset.command || target.dataset.section)) {
         event.preventDefault();
         window.SciShellLayout?.dismissProjectNav();
       }

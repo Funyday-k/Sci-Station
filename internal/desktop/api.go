@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ type apiServer struct {
 	forgetWorkspace func() error
 	renameWorkspace func(string) error
 	revealWorkspace func() error
+	changeStorage   func(context.Context, bool) (bool, error)
 	savePick        func(filename, extension string) (string, error)
 	saveDialog      sync.Mutex
 	plugins         *plugins.Store
@@ -162,7 +164,7 @@ func (a *apiServer) serve(port int) http.Handler {
 			a.serveNavigation(w, r)
 		case path == "/api/health" && r.Method == "GET":
 			reply(w, 200, map[string]any{"name": "sci-station", "version": 2, "desktop": "wails-v3", "workspace": a.rootIdentity()})
-		case path == "/api/workspace" || path == "/api/workspace/open" || path == "/api/workspace/create" || path == "/api/workspace/reveal" || path == "/api/workspace/templates" || path == "/api/workspace/setup" || path == "/api/workspace/forget" || path == "/api/workspace/rename":
+		case path == "/api/workspace" || path == "/api/workspace/open" || path == "/api/workspace/create" || path == "/api/workspace/reveal" || path == "/api/workspace/templates" || path == "/api/workspace/setup" || path == "/api/workspace/forget" || path == "/api/workspace/rename" || path == "/api/workspace/choose-storage" || path == "/api/workspace/default-storage":
 			a.workspaceAPI(w, r)
 		case strings.HasPrefix(path, "/api/research/lab/"):
 			a.serveAILab(w, r)

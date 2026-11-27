@@ -6,23 +6,19 @@
   display: grid;
   --dashboard-columns: 1;
   grid-template-columns: repeat(var(--dashboard-columns), minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 14px;
 }
 
-.dashboard-grid-packed {
-  display: block;
-  position: relative;
-}
-
 .dashboard-widget {
-  --dashboard-span: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   container: dashboard-card / inline-size;
 }
 
-.dashboard-grid-packed .dashboard-widget {
-  position: absolute;
+.dashboard-grid > .dashboard-large[data-dashboard-widget="calendar"] {
+  grid-column: 1 / -1;
 }
 
 .dashboard-edit-layout {
@@ -36,8 +32,7 @@
   height: 17px;
 }
 
-.dashboard-widget .panel {
-  width: 100%;
+.dashboard-widget > .panel {
   margin: 0;
   padding: 14px;
 }
@@ -121,6 +116,17 @@
   color: var(--soft);
 }
 
+.dashboard-calendar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.dashboard-calendar-month {
+  max-inline-size: 32rem;
+}
+
 .dashboard-calendar-head,
 .dashboard-calendar-links {
   display: flex;
@@ -131,11 +137,18 @@
   margin-bottom: 8px;
 }
 
+.dashboard-calendar-head {
+  min-block-size: 30px;
+}
+
+.dashboard-calendar-head h3 {
+  font-size: var(--workspace-text-small);
+}
+
 .dashboard-month {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
-  max-width: 32rem;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -246,15 +259,22 @@
 
 @container dashboard (min-width: 560px) {
   .dashboard-grid { --dashboard-columns: 2; }
-  .dashboard-large { --dashboard-span: 2; grid-column: span 2; }
+  .dashboard-large { grid-column: span 2; }
 }
 
 @media (min-width: 1000px) {
   @container dashboard (min-width: 840px) {
     .dashboard-grid { --dashboard-columns: 4; }
-    .dashboard-wide, .dashboard-medium { --dashboard-span: 2; grid-column: span 2; }
-    .dashboard-large { --dashboard-span: 3; grid-column: span 3; }
+    .dashboard-home-grid { --dashboard-columns: 6; }
+    .dashboard-wide, .dashboard-medium { grid-column: span 2; }
+    .dashboard-large { grid-column: span 3; }
+    .dashboard-home-grid > .dashboard-large { grid-column: span 4; }
   }
+}
+
+@container dashboard-card (min-width: 860px) {
+  .dashboard-calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-calendar-month { max-inline-size: none; }
 }
 
 @container dashboard-card (max-width: 460px) {

@@ -3,10 +3,8 @@
 <meta name="color-scheme" content="light dark"><title>Sci-Station</title>
 <link rel="stylesheet" href="/static/workspace-setup.css"><script defer src="/static/workspace-setup.js"></script></head>
 <body class="root-welcome"><main><img src="/static/roundtable-mark.png" width="54" height="54" alt=""><h1>Sci-Station</h1>
-<p data-zh="打开已有研究工作区，或选择位置创建新工作区。" data-en="Open an existing research workspace or select a location to create one."></p>
+<p data-zh="请选择已有数据文件夹、空文件夹或默认位置。" data-en="Choose an existing data folder, an empty folder or the default location."></p>
 {{if .Message}}<p role="alert">{{.Message}}</p>{{end}}
-<div class="root-controls"><button type="button" data-setup="create" data-zh="创建工作区…" data-en="Create workspace…"></button>
-<button type="button" data-setup="open" data-zh="打开工作区…" data-en="Open workspace…"></button>
-<button type="button" data-setup="sample" data-zh="创建示例工作区…" data-en="Create sample workspace…"></button></div>
+<div class="root-controls"><button type="button" data-setup="default-storage" data-zh="使用默认位置" data-en="Use default location"></button><button type="button" data-setup="choose-storage" data-zh="选择数据文件夹…" data-en="Choose data folder…"></button></div>
 {{if .Message}}<button type="button" data-setup="forget" data-zh="清除最近工作区" data-en="Forget recent workspace"></button>{{end}}
 <p role="status" data-root-status></p></main></body></html>

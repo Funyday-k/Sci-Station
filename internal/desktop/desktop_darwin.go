@@ -46,7 +46,7 @@ func runDesktop(explicit string, port int) error {
 			}
 			return false
 		}, Mac: application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true}})
-	choice, issue := roots.initial(explicit)
+	choice, issue := roots.desktopInitial(explicit)
 	options := application.WebviewWindowOptions{Hidden: true, Name: "Sci-Station", Title: "Sci-Station", Width: 1380, Height: 900, MinWidth: 900, MinHeight: 620,
 		BackgroundColour: application.NewRGB(246, 247, 249), Mac: application.MacWindow{WebviewPreferences: application.MacWebviewPreferences{ApplicationNameForUserAgent: desktopUserAgent}}}
 	if issue == nil && choice.dir != "" {
@@ -55,7 +55,7 @@ func runDesktop(explicit string, port int) error {
 		if issue == nil {
 			h.session.active = instance
 			options.URL = instance.address + "/resume"
-			options.Title = "Sci-Station · " + instance.displayName()
+			options.Title = roots.windowTitle(instance)
 		}
 	}
 	language := resolveInterfaceLanguage(h.session.active.interfaceChoice(), preferredSystemLanguage())
@@ -137,31 +137,10 @@ func (h *desktopHost) selectWorkspace(create bool, expected *apiServer, setup *r
 	if err != nil || path == "" || h.closing.Load() {
 		return false, err
 	}
-	var dir string
-	var selected rootBinding
 	if setup == nil {
-		dir, _, err = inspectRoot(path, create)
-		if err != nil {
-			return false, err
-		}
-		if !create {
-			selected, err = folderIdentity(dir)
-			if err != nil {
-				return false, err
-			}
-			h.session.mu.Lock()
-			same := h.session.active != nil && h.session.active.dir == dir && h.session.active.binding.matches(selected)
-			h.session.mu.Unlock()
-			if same {
-				return true, nil
-			}
-		}
+		return h.openSelectedRoot(token, rootChoice{dir: path, create: create})
 	}
-	opened := false
-	err = h.session.switchTo(token, func() (*workspaceInstance, error) {
-		if setup == nil {
-			return h.start(rootChoice{dir: dir, create: create, expected: selected}, 0)
-		}
+	return h.switchRoot(token, func() (*workspaceInstance, error) {
 		dir, err := prepareWorkspaceTarget(path, *setup)
 		if err != nil {
 			return nil, err
@@ -173,7 +152,85 @@ func (h *desktopHost) selectWorkspace(create bool, expected *apiServer, setup *r
 			_ = workspace.ManagedRemove(dir)
 		}
 		return next, err
-	}, func(next *workspaceInstance) error {
+	})
+}
+
+func (h *desktopHost) changeDataLocation(ctx context.Context, host *apiServer, useDefault bool) (bool, error) {
+	token := h.session.beginFor(host)
+	if token == 0 {
+		return false, nil
+	}
+	lang := h.currentLanguage()
+	copy := func(key string) string { return interfaceText(lang, key) }
+	var choice rootChoice
+	var err error
+	// A loopback request may prompt, but only a native user decision can
+	// change the remembered location. Requests never supply a filesystem path.
+	h.panelMu.Lock()
+	if h.closing.Load() {
+		h.panelMu.Unlock()
+		return false, nil
+	}
+	if useDefault {
+		answer := make(chan bool, 1)
+		panel := h.app.Dialog.Question().AttachToWindow(h.window).SetTitle(copy("storageUseDefault"))
+		panel.SetMessage(h.roots.defaultDataDir() + "\n\n" + copy("storageSwitchHint"))
+		panel.AddButton(copy("storageCancel")).SetAsCancel().OnClick(func() { answer <- false })
+		panel.AddButton(copy("storageUseDefault")).SetAsDefault().OnClick(func() { answer <- true })
+		panel.Show()
+		var confirmed bool
+		select {
+		case confirmed = <-answer:
+		case <-ctx.Done():
+		}
+		h.panelMu.Unlock()
+		if !confirmed || h.closing.Load() {
+			return false, nil
+		}
+		choice, err = h.roots.initial(h.roots.defaultDataDir())
+	} else {
+		path, issue := h.app.Dialog.OpenFile().AttachToWindow(h.window).
+			CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(true).
+			SetTitle(copy("storageChoose")).SetMessage(copy("storageChooseHint")).
+			SetButtonText(copy("chooseFolder")).PromptForSingleSelection()
+		h.panelMu.Unlock()
+		if issue != nil || path == "" || h.closing.Load() {
+			return false, issue
+		}
+		choice, err = storageFolderChoice(path)
+	}
+	if err != nil {
+		return false, err
+	}
+	return h.openSelectedRoot(token, choice)
+}
+
+func (h *desktopHost) openSelectedRoot(token uint64, choice rootChoice) (bool, error) {
+	dir, _, err := inspectRoot(choice.dir, choice.create)
+	if err != nil {
+		return false, err
+	}
+	choice.dir = dir
+	if !choice.create {
+		choice.expected, err = folderIdentity(dir)
+		if err != nil {
+			return false, err
+		}
+		h.session.mu.Lock()
+		current := h.session.active
+		if !h.session.closed && token == h.session.generation && current != nil && current.dir == dir && current.binding.matches(choice.expected) {
+			err = h.roots.remember(dir, current.binding)
+			h.session.mu.Unlock()
+			return err == nil, err
+		}
+		h.session.mu.Unlock()
+	}
+	return h.switchRoot(token, func() (*workspaceInstance, error) { return h.start(choice, 0) })
+}
+
+func (h *desktopHost) switchRoot(token uint64, open func() (*workspaceInstance, error)) (bool, error) {
+	opened := false
+	err := h.session.switchTo(token, open, func(next *workspaceInstance) error {
 		if err := h.roots.remember(next.dir, next.binding); err != nil {
 			return err
 		}
@@ -192,7 +249,7 @@ func (h *desktopHost) selectWorkspace(create bool, expected *apiServer, setup *r
 
 func (h *desktopHost) presentRoot(next *workspaceInstance) {
 	h.installPickers(next.api)
-	title := "Sci-Station · " + next.displayName()
+	title := h.roots.windowTitle(next)
 	application.InvokeAsync(func() { h.window.SetTitle(title); h.window.SetURL(next.address + "/resume") })
 }
 
@@ -206,6 +263,9 @@ func (h *desktopHost) installPickers(host *apiServer) {
 	}
 	configureMaterialDesktop(host, app, window, &h.panelMu)
 	host.pickMu.Lock()
+	host.changeStorage = func(ctx context.Context, useDefault bool) (bool, error) {
+		return h.changeDataLocation(ctx, host, useDefault)
+	}
 	host.createWorkspace = func(d rootSetup) (bool, error) { return h.selectWorkspace(true, host, &d) }
 	startupStamp := h.roots.recentStamp()
 	host.forgetWorkspace = func() error {

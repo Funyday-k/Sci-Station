@@ -81,3 +81,9 @@
 .prompt-patch-review .meeting-report-scroll { max-height: 62vh; overflow: auto; }
 .prompt-patch-versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
 .prompt-patch-versions pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.storage-settings { padding: 14px; }
+.storage-locations { display: grid; gap: 12px; margin: 0; }
+.storage-locations dt { font-weight: 600; }
+.storage-locations dd { margin: 3px 0 0; overflow-wrap: anywhere; user-select: text; }
+.storage-actions { display: flex; flex-wrap: wrap; gap: 8px; }

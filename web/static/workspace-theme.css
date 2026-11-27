@@ -1,4 +1,18 @@
 /* Neutral workbench surfaces. Color themes change accents, not the canvas. */
+.model-effort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.model-effort-control input[type="range"] {
+  flex: 1 1 80px;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--workspace-accent);
+}
+.model-effort-control output { color: var(--workspace-ink); white-space: nowrap; }
+
 :root {
   color-scheme: light dark;
   --workspace-paper: light-dark(#f7f7f8, #1b1d21);

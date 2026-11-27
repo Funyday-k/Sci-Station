@@ -213,7 +213,7 @@ func startWorkspaceWelcome(roots desktopRoots, language, message string) (*works
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			_ = page.Execute(w, struct{ Language, Message string }{language, message})
-		case "/static/workspace-setup.js", "/static/workspace-setup.css", "/static/roundtable-mark.png", "/api/workspace", "/api/workspace/templates", "/api/workspace/open", "/api/workspace/setup", "/api/workspace/forget":
+		case "/static/workspace-setup.js", "/static/workspace-setup.css", "/static/roundtable-mark.png", "/api/workspace", "/api/workspace/templates", "/api/workspace/open", "/api/workspace/setup", "/api/workspace/forget", "/api/workspace/default-storage", "/api/workspace/choose-storage":
 			base.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)

@@ -12,7 +12,7 @@
     return node;
   }
 
-  function mount({loadModels, write, acceptSession, membersOf, displayName, effortName}) {
+  function mount({loadModels, write, acceptSession, membersOf, displayName}) {
     const dialog = element("dialog", "member-editor");
     dialog.setAttribute("aria-labelledby", "member-editor-heading");
     const form = element("form", "member-editor-form");
@@ -28,9 +28,13 @@
     modelField.append(modelLabel, model);
     const effortField = element("div", "member-editor-field");
     const effortLabel = element("label", "", "思考程度");
-    const effort = element("select");
-    effort.id = effortLabel.htmlFor = "member-editor-effort";
-    effortField.append(effortLabel, effort);
+    const effortControl = element("div", "model-effort-control");
+    const slider = element("input");
+    slider.id = effortLabel.htmlFor = "member-editor-effort";
+    const valueLabel = element("output");
+    effortControl.append(slider, valueLabel);
+    effortField.append(effortLabel, effortControl);
+    const effort = window.SciModelEffort.bind(slider, valueLabel, () => { failure = ""; buttons(); });
     const impact = element("p", "member-editor-impact");
     impact.setAttribute("aria-live", "polite");
     const status = element("p", "member-editor-status");
@@ -68,8 +72,8 @@
       const locked = !canEdit(current) || appBusy;
       const available = catalog.has(model.value);
       const changed = model.value !== original?.model || effort.value !== (original.effort || "auto");
-      model.disabled = effort.disabled = busy || loading || Boolean(catalogError) || locked || stale;
-      effort.disabled ||= !available || effort.options.length < 2;
+      model.disabled = busy || loading || Boolean(catalogError) || locked || stale;
+      effort.setDisabled(model.disabled || !available);
       save.disabled = busy || loading || locked || stale || !available || !effort.value || !changed;
       cancel.disabled = busy;
       reload.hidden = !stale;
@@ -89,10 +93,7 @@
     }
 
     function paintEfforts(desired) {
-      const options = catalog.get(model.value)?.efforts || [];
-      const values = options.length ? options : [original?.effort || "auto"];
-      effort.replaceChildren(...values.map(value => new Option(effortName(value), value)));
-      effort.value = values.includes(desired) ? desired : values.includes("auto") ? "auto" : values[0];
+      effort.setOptions(catalog.get(model.value)?.efforts, desired);
     }
 
     function paintModels() {
@@ -163,7 +164,6 @@
       paintEfforts(effort.value);
       buttons();
     });
-    effort.addEventListener("change", () => { failure = ""; buttons(); });
     retry.addEventListener("click", refresh);
     reload.addEventListener("click", () => {
       const next = latestMember();

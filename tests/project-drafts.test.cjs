@@ -81,6 +81,7 @@ function fakeDOM() {
 function continuous(window, document) {
   vm.runInNewContext(read("ui-icons.js"), { window, document });
   vm.runInNewContext(read("continuous-ui.js"), { window, document });
+  vm.runInNewContext(read("model-effort.js"), { window, document });
   return window.RoundtableContinuous;
 }
 
@@ -177,6 +178,40 @@ test("project switching restores only that project's draft and drops legacy path
   assert.equal($("new-topic").value, "");
   setup.open(two);
   assert.equal($("new-topic").value, "second project draft");
+});
+
+test("the draft seat slider sends the chosen catalog level and resets it when the model changes", async () => {
+  const { $, document } = fakeDOM();
+  const window = { addEventListener() {}, RoundtableSeating: { mount: () => ({ render() {} }) } };
+  continuous(window, document);
+  vm.runInNewContext(read("studio-setup.js"), {
+    window, document, Option: function(text, value) { this.text = text; this.value = value; },
+  });
+  const setup = window.RoundtableSetup.mount({
+    api: async () => ({
+      models: [{id:"first", efforts:["auto", "high", "low"]}, {id:"second", efforts:["auto"]}],
+      default_model: "first",
+    }),
+    assetFor: () => "",
+    storageGet: () => "",
+    storageSet() {},
+  });
+  const row = () => $("chosen-members").children[0];
+  const slider = () => row().children.find(node => node.className === "effort-field").children[1].children[0];
+  setup.open(one);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(slider().type, "range");
+  assert.equal(slider().max, "2");
+  slider().value = "2";
+  slider().listeners.input();
+  assert.deepEqual(plain(setup.payload().members), [{model:"first", effort:"high"}]);
+
+  const picker = row().children.find(node => node.className === "chosen-identity").children[0];
+  picker.value = "second";
+  picker.listeners.change();
+  assert.equal(slider().max, "0");
+  assert.equal(slider().disabled, true);
+  assert.deepEqual(plain(setup.payload().members), [{model:"second", effort:"auto"}]);
 });
 
 test("project attachments and a named chief survive switching drafts", async () => {

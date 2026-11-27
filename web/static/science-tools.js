@@ -256,6 +256,17 @@
 
   function initActions() {
     if (tab === "discover") discovery = SciStationDiscovery.create({$, req, make, button, busy, tell, trigger: qs.get("trigger") === "lab" ? "lab" : ""});
+    if (tab === "discover" && qs.get("trigger") === "lab" && qs.has("labProject")) {
+      const owner = qs.get("labProject"), thread = qs.get("labRun");
+      const route = new URLSearchParams({tools:"discovery"});
+      if (/^[a-zA-Z0-9_-]{1,100}$/.test(owner)) route.set("project",owner);
+      else route.set("scope","global");
+      if (/^[a-f0-9]{32}$/.test(thread)) route.set("run",thread);
+      if (qs.get("labFromRoundtable") === "1") route.set("fromRoundtable","1");
+      const back = $("discovery-return-lab");
+      back.href = "/lab?"+route;
+      back.hidden = false;
+    }
     $("project").onchange = () => {
       project = $("project").value;
       const l = new URL(location);

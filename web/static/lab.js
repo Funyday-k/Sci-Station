@@ -4,7 +4,9 @@
   const handoff=window.ScienceLabHandoff;
   const api="/api/research/lab/";
   const text=(zh,en)=>window.SciStationI18n?.text(zh,en) || zh;
+  const toolPanel=window.SciLabTools.mount({dialog:$("lab-tools-dialog"),trigger:$("lab-tools")});
   let presets=[], projects=[], sessions=[], current=null, original=null, preview=null, source=null, selectedTemplate=null;
+  let draftWorkspace="", workspaceLookup=null;
   let graphOwner="", graphPreview=null, graphGeneration=0, graphNodes=[];
   const graphPathOperations=["reading","method-lineage","bridge"];
   function tell(message){
@@ -15,11 +17,16 @@
     const opt={method,signal,cache:"no-store",keepalive:method==="PUT" && path.startsWith(api+"draft?"),headers:{"X-Roundtable":"1"}};
     if(path.startsWith(api+"connectors/") && window.sciStationConnectorSession)
       opt.headers["X-Sci-Station-Connector-Session"]=window.sciStationConnectorSession;
-    if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
+    if(data instanceof FormData) opt.body=data;
+    else if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
     const res=await fetch(path,opt);
     if(res.status===204)return;
     const x=await res.json().catch(()=>null);
-    if(!res.ok)throw Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
+    if(!res.ok){
+      const error=Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
+      error.session=x?.session;
+      throw error;
+    }
     return x;
   }
   async function checkedMaterials({sourceSessionId,projectId,materials}) {
@@ -38,7 +45,7 @@
   const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
     showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
   });
-  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, restoreModeDraft, restoreTemplate, skillForRun:projectContext.resolve,
+  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, rememberDraft, restoreModeDraft, restoreTemplate, resetTemplate, checkedMaterials, skillForRun:projectContext.resolve,
     currentResource:()=>source, consumeResource:used=>{if(source===used) markSource(null);},setResource:markSource,
     form:()=>{
       const template=selectedTemplate ? presets.find(p=>p.id===selectedTemplate) : defaultTemplate();
@@ -54,7 +61,7 @@
   function canLeave(){return !dirtyTemplate()||confirm(text("放弃尚未保存的模板更改？","Discard unsaved template changes?"));}
   let handingOff = false;
   window.addEventListener("beforeunload", event => {
-    if (!handingOff && (dirtyTemplate() || source || runs.hasDraft())) {
+    if (!handingOff && (dirtyTemplate() || runs.hasUnsavedInput() || (!runs.rememberComposition() && (source || runs.hasDraft())))) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -71,53 +78,63 @@
     "independent-check":["双席独立复核","Independent review"],"research-design":["多席研究方案评议","Research design review"],
     "research-priorities":["研究任务排序","Research priorities"]};
   const modeNames={review:["方案评审","Review"],forum:["多方权衡","Forum"],prioritize:["优先级排序","Prioritize"]};
+  const templateTitle=template=>builtinTitles[template.id] ? text(...builtinTitles[template.id]) : template.title;
+  function findTemplateAction(id,action) {
+    return $("lab-tools-dialog").querySelector(`[data-template-action="${action}"][data-template-id="${CSS.escape(id)}"]`);
+  }
+  function templateEditButton(template) {
+    const edit=document.createElement("button");
+    edit.type="button"; edit.dataset.templateId=template.id; edit.dataset.templateAction="edit";
+    edit.textContent=template.builtin ? text("作为个人模板编辑","Edit as a personal template") : text("编辑模板","Edit template");
+    edit.onclick=()=>{if(canLeave()) editTemplate(template,() => findTemplateAction(template.id,"edit"));};
+    return edit;
+  }
   function renderPresets(){
     const nav=$("presets");nav.replaceChildren();
     for(const p of presets.filter(p=>p.seats===1)){
-      const b=document.createElement("button"), active=(selectedTemplate || defaultTemplate()?.id)===p.id;
-      b.type="button";b.textContent=builtinTitles[p.id] ? text(...builtinTitles[p.id]) : p.title;b.dataset.id=p.id;
+      const row=document.createElement("li"), b=document.createElement("button"), active=(selectedTemplate || defaultTemplate()?.id)===p.id;
+      b.type="button";b.textContent=templateTitle(p);b.dataset.id=p.id;b.className="lab-template-choice";
       b.classList.toggle("active",active); b.setAttribute("aria-pressed",String(active));
       b.onclick=()=>{if(canLeave()){selectedTemplate=p.id;select(p);renderPresets();nav.querySelector(`[data-id="${CSS.escape(p.id)}"]`)?.focus();}};
-      nav.append(b);
+      row.append(b,templateEditButton(p));nav.append(row);
     }
     renderRoundtableTemplates();
   }
   function renderRoundtableTemplates() {
     const legacy=presets.filter(p=>p.seats>1);
-    $("lab-legacy-templates").hidden=!legacy.length;
     $("lab-legacy-template-list").replaceChildren(...legacy.map(template=>{
-      const entry=document.createElement("details"), title=document.createElement("summary"), metadata=document.createElement("p"),
-        prompt=document.createElement("blockquote"), actions=document.createElement("div"),
-        open=document.createElement("button"), edit=document.createElement("button");
-      entry.className="lab-disclosure";title.textContent=builtinTitles[template.id] ? text(...builtinTitles[template.id]) : template.title;
-      prompt.textContent=template.prompt;
+      const entry=document.createElement("li"), identity=document.createElement("div"), title=document.createElement("h3"),
+        metadata=document.createElement("p"), actions=document.createElement("div"), open=document.createElement("button");
+      entry.dataset.templateId=template.id;identity.className="lab-template-description";title.textContent=templateTitle(template);
       const mode=modeNames[template.mode] ? text(...modeNames[template.mode]) : template.mode;
       const description=text(`${template.seats} 个席位 · ${mode}`,`${template.seats} seats · ${mode}`);
       metadata.className="hint";metadata.textContent=description;
       actions.className="actions";
-      edit.type="button";edit.textContent=template.builtin ? text("作为个人模板编辑","Edit as a personal template") : text("编辑模板","Edit template");
-      edit.onclick=()=>{if(canLeave()) editTemplate(template);};
       open.type="button";open.textContent=text("复核后转到圆桌","Review and open Roundtable");
+      open.dataset.templateId=template.id;open.dataset.templateAction="review";
       open.onclick=async()=>{
         open.disabled=true;
         const owner=projectId();
         try{
           const {workspace}=await req("/api/health");
-          if(owner!==projectId() || !scopeAvailable() || !$("lab-tools-dialog").open || !open.isConnected) return;
+          if(owner!==projectId() || !scopeAvailable() || !$("lab-tools-dialog").open ||
+              toolPanel.active()!=="roundtable-templates" || !open.isConnected) return;
           const context=[template.title,template.prompt].join("\n\n");
           const roundtablePreset={mode:template.mode,seats:template.seats};
           $("lab-tools-dialog").close();
           showTransfer("out",{workspace,projectId:owner,sourceSessionId:"",context,materials:[],roundtablePreset},description);
+          $("lab-transfer-dialog").addEventListener("close",()=>{
+            if(!handingOff) toolPanel.open("roundtable-templates",findTemplateAction(template.id,"review") || undefined);
+          },{once:true});
         } catch(error){tell(error.message);}
         finally{open.disabled=false;}
       };
-      actions.append(open,edit);entry.append(title,metadata,prompt,actions);return entry;
+      identity.append(title,metadata);actions.append(open,templateEditButton(template));entry.append(identity,actions);return entry;
     }));
   }
-  function editTemplate(template) {
+  function editTemplate(template,opener) {
     select(template);
-    $("lab-template-settings").open=true;
-    $("lab-template-editor").open=true;
+    toolPanel.enter("template-edit",opener);
     $("title").focus();
   }
   function restoreTemplate(id,revision) {
@@ -129,6 +146,12 @@
     }
     selectedTemplate=template.id;
     if(!dirtyTemplate()) select(template);
+    renderPresets();
+  }
+  function resetTemplate() {
+    if(!selectedTemplate) return;
+    selectedTemplate=null;
+    if(!dirtyTemplate()) select(defaultTemplate() || null);
     renderPresets();
   }
   async function refresh(selected){
@@ -162,13 +185,9 @@
   const transferQuery=id=>new URLSearchParams(id ? {project:id} : {scope:"global"});
   function projectSelection(commit = false){
     const id=$("project").value,p=projects.find(v=>v.id===id);
-    const discovery = $("discovery-link");
-    if (discovery) {
-      const query = new URLSearchParams({tab: "discover", trigger: "lab"});
-      if (p) query.set("project", p.id);
-      discovery.href = "/tools?" + query;
-    }
-    if(previousScope!==null && previousScope!==id) {markSource(null);resetResource();}
+    $("graph-nodes").disabled=!p;
+    for(const note of document.querySelectorAll("[data-lab-project-tool-note]")) note.hidden=Boolean(p);
+    if(previousScope!==null && previousScope!==id) resetResource();
     previousScope=id;
     if (graphOwner!==id) {
       graphOwner=id;
@@ -176,7 +195,6 @@
       graphNodes=[];
       $("graph-controls").hidden=true;
       clearGraphPreview();
-      if (source?.kind==="project-graph" && source.projectId!==id) markSource(null);
     }
     const url=new URL(location.href);
     if(p)url.searchParams.set("project",id);else url.searchParams.delete("project");
@@ -188,6 +206,7 @@
     runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
     showScopeStatus();
     void showPendingTransfer();
+    updateDiscoveryLink();
   }
   window.addEventListener("popstate",()=>{
     const route=new URL(location.href).searchParams;
@@ -207,12 +226,25 @@
   let pendingTransfer=null, transferReview=null, transferSequence=0;
   const draftPrefix=(owner,thread)=>"sci-station.lab-mode-draft.v1:"+encodeURIComponent(owner)+":"+encodeURIComponent(thread)+":";
   const modeDraftKey=(workspace,owner,thread)=>draftPrefix(owner,thread)+encodeURIComponent(workspace);
-  async function verifyDraftCitation(owner,selection) {
-    const {kind,id,page,offset,hash,quote}=selection.citation;
+  function workspaceForDraft() {
+    if(draftWorkspace) return Promise.resolve(draftWorkspace);
+    if(!workspaceLookup) workspaceLookup=req("/api/health").then(({workspace})=>draftWorkspace=workspace).finally(()=>{workspaceLookup=null;});
+    return workspaceLookup;
+  }
+  async function verifyDraftCitation(owner,reference) {
+    const {kind,id,page,offset,hash,characters}=reference.citation || reference;
     const original=await req(api+"sources/preview","POST",{projectId:owner,location:{kind,id,page,offset}});
-    if(original.hash!==hash || !original.text.startsWith(quote)) throw Error(text(
+    const length=characters ?? Array.from(reference.citation?.quote || "").length;
+    const excerpt=Array.from(original.text).slice(0,length);
+    if(!Number.isInteger(length) || length<1 || length>1000 || original.hash!==hash || (original.offset || 0)!==offset || excerpt.length!==length ||
+       (reference.citation?.quote && excerpt.join("")!==reference.citation.quote)) throw Error(text(
       "草稿中的原文已更改，请重新选择选段。","A source in the draft changed. Select the excerpt again."));
-    return {title:original.title,citation:{kind,id,page,offset,hash,quote}};
+    return {title:original.title,citation:{kind,id,page,offset,hash,quote:excerpt.join("")}};
+  }
+  async function verifyDraftFile(owner,thread,{id,revision}) {
+    const [material]=await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:[{id}]});
+    if(!material || (revision && material.revision!==revision)) throw Error(text("草稿附件已更改。","A draft attachment changed."));
+    return material;
   }
   function restoreModeDraft(owner,thread) {
     const prefix=draftPrefix(owner,thread);
@@ -220,36 +252,95 @@
       if(!Object.keys(sessionStorage).some(key=>key.startsWith(prefix))) return null;
     } catch { return null; }
     return (async()=>{
-      const {workspace}=await req("/api/health");
+      const workspace=await workspaceForDraft();
       const key=modeDraftKey(workspace,owner,thread), value=sessionStorage.getItem(key);
       if(!value) return null;
-      const {ids,resource,citations=[],templateId="",templateRevision}=JSON.parse(value);
-      if(!Array.isArray(ids) || ids.length>12 || ids.some(id=>typeof id!=="string" || !/^[a-f0-9]{32}$/.test(id))) return null;
-      if(!Array.isArray(citations) || citations.length>4) return null;
-      const [materials,selected]=await Promise.all([
-        ids.length ? checkedMaterials({sourceSessionId:thread,projectId:owner,materials:ids.map(id=>({id}))}) : [],
-        Promise.all(citations.map(citation=>verifyDraftCitation(owner,citation)))
+      const {ids=[],imports=ids.map(id=>({id})),resource,citations=[],templateId="",templateRevision,modelChoice}=JSON.parse(value);
+      if(!Array.isArray(imports) || !Array.isArray(citations) || imports.length+citations.length>12 || citations.length>4 ||
+        imports.some(item=>!item || typeof item.id!=="string" || !/^[a-f0-9]{32}$/.test(item.id))) return null;
+      const [files,sources]=await Promise.all([
+        Promise.allSettled(imports.map(item=>verifyDraftFile(owner,thread,item))),
+        Promise.allSettled(citations.map(citation=>verifyDraftCitation(owner,citation)))
       ]);
-      return {materials,selected,templateId,templateRevision,resource:handoff.retainExcerpt(resource,owner),consume(){
+      const valid=items=>items.flatMap(result=>result.status==="fulfilled" ? [result.value] : []);
+      const warning=[...files,...sources].some(result=>result.status==="rejected") ? text(
+        "部分草稿附件已更改或不可用。请核对并重新添加缺失的材料。",
+        "Some draft attachments changed or are unavailable. Review the draft and attach any missing materials again.") : "";
+      return {materials:valid(files),selected:valid(sources),templateId,templateRevision,modelChoice,warning,
+        resource:handoff.retainExcerpt(resource,owner),consume(){
         if(sessionStorage.getItem(key)===value) sessionStorage.removeItem(key);
       }};
     })();
   }
-  async function retainModeDraft(workspace,owner,thread,materials) {
-    const {citations,importedIds}=runs.modeDraftSelections();
-    if(!materials) {
-      materials=importedIds.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:importedIds.map(id=>({id}))}) : [];
-    }
-    if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
-    const key=modeDraftKey(workspace,owner,thread), resource=handoff.retainExcerpt(source,owner);
-    const ids=materials.filter(item=>importedIds.includes(item.id)).map(item=>item.id);
+  function rememberDraft(owner,thread,draft,workspace=draftWorkspace) {
+    if(!workspace) return false;
+    const key=modeDraftKey(workspace,owner,thread);
     const template=presets.find(item=>item.id===selectedTemplate && item.seats===1);
-    if(ids.length || citations.length || resource || template) {
-      sessionStorage.setItem(key,JSON.stringify({ids,citations,resource,templateId:template?.id,templateRevision:template?.revision}));
-    }
-    else sessionStorage.removeItem(key);
+    const imports=draft.materials.map(({id,revision})=>({id,revision}));
+    const citations=draft.citations.map(({citation:{kind,id,page,offset,hash,quote}})=>({kind,id,page,offset,hash,characters:Array.from(quote).length}));
+    // External excerpts were explicitly selected. Keep this exact approved text in the tab without opening the connection again.
+    const resource=handoff.retainExcerpt(draft.resource,owner);
+    const {modelChoice}=draft;
+    if(imports.length || citations.length || resource || template || modelChoice) {
+      sessionStorage.setItem(key,JSON.stringify({imports,citations,resource,templateId:template?.id,templateRevision:template?.revision,modelChoice}));
+    } else sessionStorage.removeItem(key);
     return true;
   }
+  async function retainModeDraft(workspace,owner,thread,materials) {
+    const draft=runs.compositionState();
+    const importedIds=new Set(draft.materials.map(item=>item.id));
+    if(!materials) {
+      materials=importedIds.size ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:draft.materials}) : [];
+    }
+    if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
+    return rememberDraft(owner,thread,{...draft,materials:materials.filter(item=>importedIds.has(item.id))},workspace);
+  }
+  function updateDiscoveryLink() {
+    const owner=projectId(), thread=runs.activeThread();
+    const query=new URLSearchParams({tab:"discover",trigger:"lab",labProject:owner});
+    if(owner) query.set("project",owner);
+    if(thread) query.set("labRun",thread);
+    if(new URL(location.href).searchParams.get("fromRoundtable")==="1") query.set("labFromRoundtable","1");
+    const link=$("discovery-link");
+    link.href="/tools?"+query;
+    return link.href;
+  }
+  let leavingForDiscovery=false;
+  document.querySelector('[data-lab-tool="discovery"]').addEventListener("click",updateDiscoveryLink);
+  $("discovery-link").addEventListener("click",async event=>{
+    const destination=updateDiscoveryLink();
+    if(event.button!==0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+    if(leavingForDiscovery || !scopeAvailable() || !canLeave()) return;
+    if(runs.restoringDraft()) {
+      tell(text("草稿正在恢复，请稍后再打开文献推荐。","Wait for the draft to finish restoring before opening recommendations."));
+      return;
+    }
+    leavingForDiscovery=true;
+    const owner=projectId(), thread=runs.activeThread();
+    const onDiscovery=()=>$("lab-tools-dialog").open && toolPanel.active()==="discovery" &&
+      owner===projectId() && thread===runs.activeThread();
+    try {
+      const {workspace}=await req("/api/health");
+      if(!onDiscovery()) return;
+      await runs.saveDraft();
+      if(!onDiscovery() || !await retainModeDraft(workspace,owner,thread) || !onDiscovery()) return;
+      const from=new URL(location.href);
+      from.searchParams.set("tools","discovery");
+      window.SciStationNav.commitURL(from,"replace");
+      handingOff=true;
+      location.assign(destination);
+    } catch(error) {if(onDiscovery()) tell(error.message);}
+    finally {leavingForDiscovery=false;}
+  });
+  function restoreDiscoveryPanel() {
+    const from=new URL(location.href);
+    if(from.searchParams.get("tools")!=="discovery") return;
+    from.searchParams.delete("tools");
+    window.SciStationNav.commitURL(from,"replace");
+    toolPanel.open("discovery");
+  }
+  window.addEventListener("popstate",restoreDiscoveryPanel);
   async function showPendingTransfer() {
     const ticket=++transferSequence;
     pendingTransfer=null;$("lab-transfer-notice").hidden=true;
@@ -374,7 +465,7 @@
       finally {openingTransfer=false;}
     })();
   });
-  action("new",()=>{if(canLeave()) editTemplate(null);});
+  action("new",()=>{if(canLeave()) editTemplate(null,() => $("new"));});
   action("save",()=>save(false));action("fork",()=>save(true));
   action("delete",async()=>{if(!current||current.builtin||!confirm("删除个人模板「"+current.title+"」？"))return;
     await req(api+"presets/"+encodeURIComponent(current.id),"DELETE",{revision:current.revision});await refresh();tell("模板已删除。");});
@@ -460,14 +551,17 @@
   });
   action("remove",()=>markSource(null));
   $("project").onchange=()=>projectSelection(true);
-  for (const [trigger,dialog] of [["lab-attach","lab-materials-dialog"],["lab-tools","lab-tools-dialog"],
+  for (const [trigger,dialog] of [["lab-attach","lab-materials-dialog"],
     ["lab-model-trigger","lab-model-dialog"],["lab-draft-trigger","lab-draft-dialog"]]) {
-    $(trigger).addEventListener("click",()=>{$("status").textContent="";$(dialog).showModal();});
+    $(trigger).addEventListener("click",()=>{
+      $("status").textContent="";$(dialog).showModal();
+      if(trigger==="lab-model-trigger") runs.ensureModels();
+    });
   }
   for (const close of document.querySelectorAll("[data-lab-close]")) close.addEventListener("click",()=>close.closest("dialog").close());
   function scopeOptions(id=$("project").value || "@global") {
     const scope=$("project"), prior=scope.selectedOptions[0];
-    scope.replaceChildren(new Option(text("全局会话","Global"),"@global"),...projects.map(p=>new Option(p.name,p.id)));
+    scope.replaceChildren(new Option(text("不关联项目","No project"),"@global"),...projects.map(p=>new Option(p.name,p.id)));
     if(id!=="@global" && !projects.some(p=>p.id===id)) {
       const name=prior?.value===id ? prior.dataset.projectName || prior.textContent : id;
       const unavailable=new Option(text("项目不可用 · ","Project unavailable · ")+name,id);
@@ -479,10 +573,11 @@
   $("endpoint").oninput=projectContext.clearResource;
   $("resources").onchange=resetResource;
   const initialScope=(async()=>{
-    const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh()]);
+    const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh(),workspaceForDraft().catch(()=>{})]);
     projects=list;sessions=Array.isArray(rooms)?rooms:rooms.sessions||[];
     scopeOptions(new URLSearchParams(location.search).get("project") || "@global");
     projectSelection();
+    restoreDiscoveryPanel();
   })().catch(e=>tell(e.message));
   let scopeRefresh=0;
   window.addEventListener("sci:projects-changed",()=>{

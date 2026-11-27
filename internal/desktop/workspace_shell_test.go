@@ -56,9 +56,30 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 		if !(contextStart >= 0 && contextStart < toolbar && toolbar < content) {
 			t.Fatalf("%s: unexpected shell order", route)
 		}
-		for _, id := range map[string][]string{"studio": {"new-session", "settings-tab-models"}, "science-tools": {"workspace-context"}}[surface.name] {
-			if !strings.Contains(page[contextStart:toolbar], `id="`+id+`"`) {
-				t.Errorf("%s: %s is outside sidebar", route, id)
+		sessions := strings.Index(page, `id="workspace-session-sidebar"`)
+		switch surface.name {
+		case "lab", "studio":
+			if sessions < contextStart || sessions > toolbar {
+				t.Fatalf("%s: missing independent conversation sidebar", route)
+			}
+			first := page[contextStart:sessions]
+			second := page[sessions:toolbar]
+			if !strings.Contains(first, `id="workspace-projects"`) || strings.Contains(second, `id="workspace-projects"`) {
+				t.Errorf("%s: project tree must stay in primary navigation", route)
+			}
+			history := `id="lab-history"`
+			if surface.name == "studio" {
+				history = `id="studio-session-sidebar"`
+				if !strings.Contains(first, `id="settings-tab-models"`) || strings.Contains(second, `class="settings-nav"`) {
+					t.Error("settings categories must stay outside conversation navigation")
+				}
+			}
+			if !strings.Contains(second, history) || strings.Contains(first, history) {
+				t.Errorf("%s: conversation history must be in the second sidebar", route)
+			}
+		default:
+			if sessions >= 0 {
+				t.Errorf("%s: unexpected conversation sidebar", route)
 			}
 		}
 		if surface.name == "research" && !strings.Contains(page[toolbar:content], `id="search-open"`) {
@@ -72,6 +93,13 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 		}
 		if strings.Contains(page, `id="shell-inspect"`) || strings.Contains(page, `id="nav-toggle"`) {
 			t.Errorf("%s: obsolete global inspector or duplicate navigation toggle", route)
+		}
+	}
+	for _, view := range []string{"settings", "plugins"} {
+		page := navigationRequest(t, api, "GET", "/studio?view="+view, "", 200).Body.String()
+		if !strings.Contains(page, `<body class="settings-mode"`) ||
+			!strings.Contains(page, `data-en-aria-label="Conversations" hidden inert>`) {
+			t.Errorf("%s: settings mode must be active before scripts load", view)
 		}
 	}
 	old := navigationRequest(t, api, "GET", "/static/reader.html?paper=abc", "", http.StatusTemporaryRedirect)

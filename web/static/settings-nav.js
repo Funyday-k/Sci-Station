@@ -2,10 +2,6 @@
 (() => {
   const nav = document.querySelector(".settings-nav");
   if (!nav) return;
-  const compact = matchMedia("(max-width: 760px)");
-  const updateDirection = () => nav.setAttribute("aria-orientation", compact.matches ? "horizontal" : "vertical");
-  updateDirection();
-  compact.addEventListener("change", updateDirection);
   const buttons = [...nav.querySelectorAll("[data-settings-page]")];
   function select(key, focus = false) {
     const selected = buttons.find((button) => button.dataset.settingsPage === key) || buttons[0];

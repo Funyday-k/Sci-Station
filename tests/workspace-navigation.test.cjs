@@ -14,7 +14,8 @@ test("every desktop surface mounts the same workspace navigation", () => {
   assert.equal(shell.match(/<nav data-workspace-nav /g).length, 1);
   const sidebar = shell.slice(shell.indexOf('<aside id="workspace-sidebar"'), shell.indexOf('</aside>'));
   assert.match(sidebar, /<nav data-workspace-nav /);
-  assert.match(sidebar, /<nav data-workspace-settings /);
+  assert.match(sidebar, /class="workspace-sidebar-footer workspace-main-nav">\s*<nav data-workspace-settings /);
+  assert.doesNotMatch(shell, /class="workspace-roots"/);
   assert.match(sidebar, /id="workspace-context"/);
   assert.match(sidebar, /id="workspace-projects"/);
   assert.match(sidebar, /id="projectnav"/);
