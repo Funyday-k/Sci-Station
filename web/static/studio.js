@@ -3112,6 +3112,17 @@
       throw Error(modeText("原会话不属于当前范围。", "The original chat is outside this scope."));
     return result.materials;
   }
+  function chooseModeTextOnly(count) {
+    const dialog = $("studio-mode-overflow");
+    dialog.returnValue = "";
+    $("studio-mode-overflow-summary").textContent = modeText(
+      `当前共有 ${count} 份附件，切换时最多可带入 ${modeTransfer.materialLimit} 份。选择仅带入文本，附件会留在原圆桌和草稿。`,
+      `There are ${count} attachments. A mode switch can carry up to ${modeTransfer.materialLimit}. If you continue with text only, the attachments stay in the original Roundtable and its draft.`);
+    return new Promise(resolve => {
+      dialog.addEventListener("close", () => resolve(dialog.returnValue === "text-only"), {once:true});
+      dialog.showModal();
+    });
+  }
   function clearModeFollowup(id) {
     try { sessionStorage.removeItem(modeFollowupKey(id)); } catch {}
   }
@@ -3148,15 +3159,22 @@
       const ready = materials.ready();
       const pendingStamp = modeMaterialStamp(ready);
       const boundStamp = modeMaterialStamp(room?.materials || []);
-      const data = modeTransfer.roundtableTransfer({room,projectId:chosenProject,draft,materials:ready});
+      const owner = state.activeProject;
+      const sameSource = () => state.activeProject === owner && state.session?.id === room?.id &&
+        !state.writing && state.view === "table";
+      const draftChanged = () => materials.busy() || materials.failed() || (box?.value || "") !== draft ||
+        modeMaterialStamp(materials.ready()) !== pendingStamp || modeMaterialStamp(state.session?.materials || []) !== boundStamp;
+      const changedError = () => Error(modeText("草稿已更改，请重新切换模式。", "The draft changed. Try the mode switch again."));
+      const count = modeTransfer.roundtableMaterials(room,ready).length;
+      const textOnly = count > modeTransfer.materialLimit;
+      if (textOnly && !await chooseModeTextOnly(count)) return;
+      if (!sameSource()) return;
+      if (draftChanged()) throw changedError();
+      const data = modeTransfer.roundtableTransfer({room,projectId:chosenProject,draft,materials:ready,textOnly});
       if (data.context) {
-        const owner = state.activeProject;
         const [workspace, verified] = await Promise.all([modeWorkspace(), checkModeMaterials(data)]);
-        if (state.activeProject !== owner || state.session?.id !== room?.id || state.writing || state.view !== "table") return;
-        if (materials.busy() || materials.failed() || (box?.value || "") !== draft ||
-            modeMaterialStamp(materials.ready()) !== pendingStamp || modeMaterialStamp(state.session?.materials || []) !== boundStamp) {
-          throw Error(modeText("草稿已更改，请重新切换模式。", "The draft changed. Try the mode switch again."));
-        }
+        if (!sameSource()) return;
+        if (draftChanged()) throw changedError();
         if (room && (draft || ready.length)) sessionStorage.setItem(modeFollowupKey(room.id), JSON.stringify({
           projectId:chosenProject, note:draft, materials:ready
         }));

@@ -34,9 +34,16 @@ test("Roundtable transfer keeps its own project and includes completed public me
   assert.equal(room.rounds[0].turns.length, 3);
 });
 
-test("the Roundtable cannot silently drop attachments when switching modes", () => {
+test("an explicit text-only switch carries no attachments and preserves the original thread and draft", () => {
   const room = {materials:Array.from({length:12}, (_,i) => ({id:"m"+i,name:"Attachment "+i}))};
-  assert.throws(() => roundtableTransfer({room,projectId:"",draft:"Pending",materials:[{id:"pending",name:"Unsent"}]}), /12 份附件/);
+  const pending = [{id:"pending",name:"Unsent"}];
+  const input = {room,projectId:"",draft:"Pending",materials:pending};
+  assert.throws(() => roundtableTransfer(input), /12 份附件/);
+  const transfer = roundtableTransfer({...input,textOnly:true});
+  assert.deepEqual(transfer.materials, []);
+  assert.match(transfer.context, /Pending/);
+  assert.equal(room.materials.length, 12);
+  assert.equal(pending.length, 1);
 });
 
 test("an unscoped source draft is preserved as an optional, bounded excerpt", () => {

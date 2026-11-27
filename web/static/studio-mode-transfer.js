@@ -2,15 +2,20 @@
 (() => {
   const length = text => Array.from(text).length;
   const text = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
+  const materialLimit = 12;
 
   function excerpt(value, limit) {
     const chars = Array.from(value.trim());
     return chars.length <= limit ? chars.join("") : chars.slice(0, limit-1).join("")+"…";
   }
 
-  function roundtableTransfer({room, projectId, draft, materials}) {
-    const selected = new Map((room?.materials || []).concat(materials).map(({id,name}) => [id,{id,name}]));
-    if (selected.size > 12) throw Error(text(
+  function roundtableMaterials(room, materials) {
+    return [...new Map((room?.materials || []).concat(materials).map(({id,name}) => [id,{id,name}])).values()];
+  }
+
+  function roundtableTransfer({room, projectId, draft, materials, textOnly = false}) {
+    const selected = textOnly ? [] : roundtableMaterials(room,materials);
+    if (selected.length > materialLimit) throw Error(text(
       "切换模式最多可带入 12 份附件。请移除草稿中不需要的附件，或从新草稿切换。",
       "A mode switch can carry up to 12 attachments. Remove unused draft attachments or switch from a new draft."));
     let context = "";
@@ -33,9 +38,8 @@
     } else if (draft.trim()) {
       context = text("未发送的圆桌议题", "Unsent Roundtable topic")+"\n"+excerpt(draft, 1750);
     }
-    if (!context && selected.size) context = text("从圆桌草稿选取的附件", "Attachments selected from the Roundtable draft");
-    return {projectId, sourceSessionId:room?.id || "", context,
-      materials:[...selected.values()]};
+    if (!context && selected.length) context = text("从圆桌草稿选取的附件", "Attachments selected from the Roundtable draft");
+    return {projectId, sourceSessionId:room?.id || "", context, materials:selected};
   }
 
   function appendTransfer(input, materials, incoming) {
@@ -44,11 +48,11 @@
     if (length(next) > 12000) throw Error(text("合并后超过 12,000 字。请缩短当前议题后重试。", "The combined draft exceeds 12,000 characters. Shorten the current topic and try again."));
     const rows = new Map(materials.map(material=>[material.id,material]));
     for (const item of incoming.materials) if (!rows.has(item.id)) rows.set(item.id,item);
-    if (rows.size > 12) throw Error(text("合并后超过 12 个附件。请先移除不需要的附件。", "The combined draft exceeds 12 attachments. Remove unused attachments first."));
+    if (rows.size > materialLimit) throw Error(text("合并后超过 12 个附件。请先移除不需要的附件。", "The combined draft exceeds 12 attachments. Remove unused attachments first."));
     return {topic:next, materials:[...rows.values()]};
   }
 
-  const api = Object.freeze({roundtableTransfer,appendTransfer});
+  const api = Object.freeze({materialLimit,roundtableMaterials,roundtableTransfer,appendTransfer});
   if (typeof module === "object" && module.exports) module.exports=api;
   else window.SciStudioModeTransfer=api;
 })();
