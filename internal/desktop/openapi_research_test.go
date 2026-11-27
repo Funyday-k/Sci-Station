@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,14 +27,52 @@ type openAPIMedia struct {
 	Schema *openAPISchema `json:"schema"`
 }
 
+// OpenAPI 3.1 uses JSON Schema's string or array forms for type.
+type openAPITypes []string
+
+func (types *openAPITypes) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var name string
+		if err := json.Unmarshal(data, &name); err != nil {
+			return err
+		}
+		*types = openAPITypes{name}
+		return nil
+	}
+	return json.Unmarshal(data, (*[]string)(types))
+}
+
+func (types openAPITypes) match(value any) bool {
+	if len(types) == 0 {
+		return true
+	}
+	switch value := value.(type) {
+	case nil:
+		return slices.Contains(types, "null")
+	case string:
+		return slices.Contains(types, "string")
+	case bool:
+		return slices.Contains(types, "boolean")
+	case float64:
+		return slices.Contains(types, "number") || (math.Trunc(value) == value && slices.Contains(types, "integer"))
+	case map[string]any:
+		return slices.Contains(types, "object")
+	case []any:
+		return slices.Contains(types, "array")
+	default:
+		return false
+	}
+}
+
 type openAPISchema struct {
 	Ref                  string                    `json:"$ref"`
-	Type                 string                    `json:"type"`
+	Types                openAPITypes              `json:"type"`
 	Required             []string                  `json:"required"`
 	Properties           map[string]*openAPISchema `json:"properties"`
 	AdditionalProperties json.RawMessage           `json:"additionalProperties"`
 	Items                *openAPISchema            `json:"items"`
 	AllOf                []*openAPISchema          `json:"allOf"`
+	AnyOf                []*openAPISchema          `json:"anyOf"`
 	OneOf                []*openAPISchema          `json:"oneOf"`
 }
 
@@ -132,7 +172,7 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 	})
 	var matchesShape func(any, *openAPISchema) bool
 	matchesShape = func(value any, schema *openAPISchema) bool {
-		if schema == nil {
+		if schema == nil || !schema.Types.match(value) {
 			return false
 		}
 		if schema.Ref != "" && !matchesShape(value, doc.Components.Schemas[strings.TrimPrefix(schema.Ref, "#/components/schemas/")]) {
@@ -142,6 +182,11 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 			if !matchesShape(value, part) {
 				return false
 			}
+		}
+		if len(schema.AnyOf) > 0 && !slices.ContainsFunc(schema.AnyOf, func(part *openAPISchema) bool {
+			return matchesShape(value, part)
+		}) {
+			return false
 		}
 		if len(schema.OneOf) > 0 {
 			matches := 0
@@ -154,19 +199,15 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 				return false
 			}
 		}
-		switch schema.Type {
-		case "object":
-			fields, ok := value.(map[string]any)
-			if !ok {
-				return false
-			}
+		switch value := value.(type) {
+		case map[string]any:
 			for _, key := range schema.Required {
-				if _, present := fields[key]; !present {
+				if _, present := value[key]; !present {
 					return false
 				}
 			}
 			closed := string(schema.AdditionalProperties) == "false"
-			for key, field := range fields {
+			for key, field := range value {
 				if property, known := schema.Properties[key]; known {
 					if !matchesShape(field, property) {
 						return false
@@ -175,13 +216,9 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 					return false
 				}
 			}
-		case "array":
-			items, ok := value.([]any)
-			if !ok {
-				return false
-			}
-			for _, item := range items {
-				if !matchesShape(item, schema.Items) {
+		case []any:
+			for _, item := range value {
+				if schema.Items != nil && !matchesShape(item, schema.Items) {
 					return false
 				}
 			}
@@ -348,12 +385,22 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 		{"id": projectID, "path": externalDir, "rules": []object{ref}},
 	}})
 	activeQuery := "?id=" + projectID
-	run("getStudioProjectRules", 200, activeQuery, nil)
+	byID := fields(run("getStudioProjectRules", 200, activeQuery, nil))
+	saved := byID["rules"].([]any)
+	if byID["project"].(object)["id"] != projectID || len(saved) != 1 || saved[0].(object)["digest"] != ref["digest"] {
+		t.Fatalf("unexpected rule snapshot for project %s: %+v", projectID, byID)
+	}
 	run("getStudioProjectRules", 200, "?path="+url.QueryEscape(externalDir), nil)
-	run("disableStudioProjectRule", 200, "", object{"id": projectID, "rule": ref})
+	disabled := fields(run("disableStudioProjectRule", 200, "", object{"id": projectID, "rule": ref}))
+	if len(disabled["rules"].([]any)) != 0 {
+		t.Fatalf("disabled rule remains in the active snapshot: %+v", disabled)
+	}
 
 	archivePath := filepath.Join(dir, "legacy-fixture")
-	historical := object{archivePath: object{"path": archivePath, "rules": []object{}}}
+	const oldText = "Historical project-rule fixture."
+	historical := object{archivePath: object{"path": archivePath, "rules": []object{{
+		"path": "AGENTS.md", "source": "AGENTS.md", "text": oldText, "digest": research.RoundtableRuleDigest(oldText),
+	}}}}
 	archive, err := json.Marshal(historical)
 	if err != nil {
 		t.Fatal(err)
@@ -366,9 +413,13 @@ func TestPublishedResearchOpenAPI(t *testing.T) {
 		t.Fatalf("unexpected legacy project summaries: %+v", candidates)
 	}
 	legacyQuery := "?legacy=1&path=" + url.QueryEscape(archivePath)
-	run("getStudioProjectRules", 200, legacyQuery, nil)
 	run("getStudioProjectRules", 400, legacyQuery+"&id="+projectID, nil)
 	run("disableStudioProjectRule", 405, legacyQuery, object{"id": projectID, "rule": ref})
+	legacy := fields(run("getStudioProjectRules", 200, legacyQuery, nil))
+	oldRules := legacy["rules"].([]any)
+	if len(oldRules) != 1 || oldRules[0].(object)["text"] != oldText {
+		t.Fatalf("unexpected historical rule snapshot: %+v", legacy)
+	}
 
 	external := fields(run("getResearchProject", 200, "", nil))
 	run("updateResearchProjectDirectory", 200, "", object{"revision": external["revision"], "path": ""})
