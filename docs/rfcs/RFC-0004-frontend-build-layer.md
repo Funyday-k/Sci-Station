@@ -3,7 +3,7 @@
 - Status: Accepted
 - Requirement: [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46), part of [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29)
 - Design review: [PR #63](https://github.com/Funyday-k/Sci-Station/pull/63)
-- Decision PR: Recorded in [ADR-0006](../architecture/ADR-0006-frontend-build-layer.md) upon maintainer merge.
+- Decision PR: [PR #64](https://github.com/Funyday-k/Sci-Station/pull/64)
 
 ## Problem and acceptance criteria
 

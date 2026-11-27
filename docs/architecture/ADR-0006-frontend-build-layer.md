@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted on 2026-11-27. The maintainer accepted Option 2 from [RFC-0004](../rfcs/RFC-0004-frontend-build-layer.md) for [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46) (part of [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29)). [Design review in PR #63](https://github.com/Funyday-k/Sci-Station/pull/63).
+Accepted on 2026-11-27. The maintainer accepted Option 2 from [RFC-0004](../rfcs/RFC-0004-frontend-build-layer.md) for [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46) (part of [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29)). [Design review PR #63](https://github.com/Funyday-k/Sci-Station/pull/63) · [Decision PR #64](https://github.com/Funyday-k/Sci-Station/pull/64).
 
 ## Context
 
