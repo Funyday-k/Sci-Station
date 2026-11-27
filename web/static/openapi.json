@@ -2420,6 +2420,128 @@
         }
       }
     },
+    "/api/studio/materials/transfer-check": {
+      "post": {
+        "operationId": "checkAIModeTransferMaterials",
+        "summary": "在 AI 模式转换前核对材料",
+        "tags": [
+          "项目"
+        ],
+        "description": "按当前工作区和项目核对材料。每次接收或确认草稿时可重新校验 revision。此操作不新建会话或发起模型运行。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Roundtable"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "源会话 ID。未发送的草稿可传空字符串。"
+                  },
+                  "projectId": {
+                    "type": "string",
+                    "description": "项目 ID。未关联项目时传空字符串。"
+                  },
+                  "materialIds": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "当前范围下核对过的附件元数据。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "materials",
+                    "sourceIsSingle"
+                  ],
+                  "properties": {
+                    "materials": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "mime",
+                          "size",
+                          "revision"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "mime": {
+                            "type": "string"
+                          },
+                          "read_status": {
+                            "type": "string"
+                          },
+                          "revision": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    },
+                    "sourceIsSingle": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "description": "会话存档不可用。"
+          }
+        }
+      }
+    },
     "/api/studio/materials/{id}/save": {
       "post": {
         "operationId": "saveStudioMaterial",
