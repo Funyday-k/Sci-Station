@@ -171,12 +171,11 @@ async function main(binary) {
     async function roundTripRecommendations() {
       await page.locator("#lab-tools").click();
       await tool("discovery").click();
-      await page.locator("#discovery-link").click();
       const back = page.locator("#discovery-return-lab");
       await back.waitFor();
       assert.equal(new URL(page.url()).pathname,"/tools");
       await back.click();
-      await page.locator("#lab-tool-page-discovery").waitFor();
+      await page.locator("#lab-tools-directory").waitFor();
       assert.equal(new URL(page.url()).pathname,"/lab");
       assert.equal(await page.locator("#project").inputValue(),project.id);
       await closeTools.click();

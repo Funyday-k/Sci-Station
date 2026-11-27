@@ -173,3 +173,75 @@ test("a selected MCP excerpt carries the exact one-time consent into its project
   assert.deepEqual(retained,resource);
   assert.throws(()=>retainExcerpt(resource,"another"));
 });
+
+test("plugin catalog navigates directly for route-only entries and keeps inline configuration pages", () => {
+  const {readFileSync} = require("node:fs");
+  const path = require("node:path");
+  const labHtml = readFileSync(path.join(__dirname, "../web/static/lab.html"), "utf8");
+  assert.equal(labHtml.includes("lab-tool-page-discovery"), false);
+  assert.match(labHtml, /data-lab-tool="discovery"[^>]*data-lab-tool-route="\/tools\?tab=discover&amp;trigger=lab"/);
+  assert.match(labHtml, /data-lab-tool="discovery"[\s\S]*?lab-tool-nav-arrow[\s\S]*?data-ui-icon="arrowUpRight"/);
+
+  const {mount} = require("../web/static/lab-tools.js");
+  let focused = null;
+  const makeNode = (dataset = {}) => {
+    const listeners = {};
+    return {
+      dataset,
+      hidden: false,
+      open: false,
+      textContent: "",
+      scrollTop: 0,
+      focus() { focused = this; },
+      showModal() { this.open = true; },
+      addEventListener(name, fn) { (listeners[name] ||= []).push(fn); },
+      click() { for (const fn of listeners.click || []) fn({}); },
+      emit(name, ev = {}) { for (const fn of listeners[name] || []) fn(ev); },
+    };
+  };
+  const heading = makeNode();
+  const back = makeNode();
+  const body = makeNode();
+  const status = makeNode();
+  const directoryPage = makeNode({labToolPage: "directory", zhTitle: "插件与科研工具", enTitle: "Plugins and research tools"});
+  const graphPage = makeNode({labToolPage: "graph", zhTitle: "项目图谱", enTitle: "Project graph"});
+  const discoveryCard = makeNode({labTool: "discovery", labToolRoute: "/tools?tab=discover&trigger=lab"});
+  const graphCard = makeNode({labTool: "graph"});
+  const trigger = makeNode();
+  const dialog = makeNode();
+  dialog.querySelector = sel => ({
+    "#lab-tools-title": heading,
+    "#lab-tool-back": back,
+    ".lab-dialog-content": body,
+    "[data-lab-status]": status,
+  }[sel]);
+  dialog.querySelectorAll = sel => ({
+    "[data-lab-tool-page]": [directoryPage, graphPage],
+    "[data-lab-tool]": [discoveryCard, graphCard],
+  }[sel]);
+
+  const navigated = [];
+  const panel = mount({dialog, trigger, onNavigate: (id, card) => navigated.push({id, route: card.dataset.labToolRoute})});
+  trigger.click();
+  assert.equal(dialog.open, true);
+  assert.equal(panel.active(), "directory");
+
+  // Route-only entry invokes direct navigation instead of opening an empty sub-page.
+  discoveryCard.click();
+  assert.deepEqual(navigated, [{id: "discovery", route: "/tools?tab=discover&trigger=lab"}]);
+  assert.equal(panel.active(), "directory");
+
+  // Inline-config entry still enters its page and returns via Back.
+  graphCard.click();
+  assert.equal(panel.active(), "graph");
+  assert.equal(back.hidden, false);
+  back.click();
+  assert.equal(panel.active(), "directory");
+  assert.equal(focused, graphCard);
+
+  // Reopening with a route-only tool id restores directory focus onto that card.
+  dialog.open = false;
+  panel.open("discovery");
+  assert.equal(panel.active(), "directory");
+  assert.equal(focused, discoveryCard);
+});

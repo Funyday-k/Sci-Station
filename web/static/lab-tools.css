@@ -5,9 +5,19 @@
   display:grid; grid-template-columns:30px minmax(0,1fr); gap:10px;
   align-content:start; text-align:start; min-width:0; padding:12px;
 }
-#lab-tools-directory > button > .ui-icon {
+#lab-tools-directory > button[data-lab-tool-route] {
+  grid-template-columns:30px minmax(0,1fr) 16px;
+}
+#lab-tools-directory > button > .ui-icon:first-child {
   width:30px; height:30px; padding:6px; border-radius:7px;
   color:var(--workspace-accent); background:var(--workspace-inset);
+}
+#lab-tools-directory > button > .lab-tool-nav-arrow {
+  width:16px; height:16px; align-self:start; margin-block-start:2px;
+  color:var(--workspace-muted);
+}
+#lab-tools-directory > button[data-lab-tool-route]:is(:hover, :focus-visible) > .lab-tool-nav-arrow {
+  color:var(--workspace-accent);
 }
 #lab-tools-directory strong, #lab-tools-directory small {display:block; overflow-wrap:anywhere;}
 #lab-tools-directory small {margin-block-start:3px; color:var(--workspace-muted); font-size:var(--workspace-text-small);}

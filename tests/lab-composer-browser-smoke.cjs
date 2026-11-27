@@ -92,9 +92,16 @@ async function main(binary) {
 
     await $("lab-tools").click();
     await $("lab-tools-directory").waitFor();
+    assert.equal(await page.locator("#lab-tool-page-discovery").count(), 0);
+    await page.locator('[data-lab-tool="discovery"] .lab-tool-nav-arrow').waitFor();
     await page.locator('[data-lab-tool="templates"]').click();
     await $("presets").waitFor();
     await $("lab-tool-back").click();
+    await $("lab-tools-directory").waitFor();
+    await page.locator('[data-lab-tool="discovery"]').click();
+    await page.waitForURL(url => url.pathname === "/tools" && url.searchParams.get("tab") === "discover" && url.searchParams.get("trigger") === "lab");
+    await $("discovery-return-lab").click();
+    await page.waitForURL(url => url.pathname === "/lab");
     await $("lab-tools-directory").waitFor();
     await page.locator("#lab-tools-dialog footer [data-lab-close]").click();
     await page.waitForFunction(()=>document.activeElement?.id==="lab-tools");
