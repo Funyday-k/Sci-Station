@@ -59,6 +59,19 @@
     return boundedDraft([data.question].concat(contextBlocks(data,data.scope === "global")));
   }
 
+  function retainExcerpt(resource,projectId) {
+    if(!resource) return null;
+    const {kind,server,uri,sha256,excerpt,receipt}=resource;
+    if(!["project-graph","mcp-resource"].includes(kind) || resource.projectId!==projectId) throw Error("Invalid draft excerpt scope");
+    const copy={kind,server,uri,sha256,excerpt,projectId};
+    if(receipt) {
+      const {id,projectId,connection,time,operation,argumentsHash,configHash}=receipt;
+      copy.receipt={id,projectId,connection,time,operation,argumentsHash,configHash};
+    }
+    contextBlocks({resource:copy,projectId},projectId==="");
+    return copy;
+  }
+
   function modeTransferPayload(data,target) {
     const preset=data?.roundtablePreset;
     const limit=preset ? roundtablePresetContextLimit : modeContextLimit;
@@ -118,7 +131,7 @@
     sessionStorage.removeItem(key);
     box.focus();
   }
-  const exposed={key,compose,composeFollowup,receive,writeModeTransfer,readModeTransfer,clearModeTransfer,scopeOwnsModeSource,
+  const exposed={key,compose,composeFollowup,retainExcerpt,receive,writeModeTransfer,readModeTransfer,clearModeTransfer,scopeOwnsModeSource,
     modeContextLimit,roundtablePresetContextLimit};
   if(typeof module==="object" && module.exports){module.exports=exposed;return;}
   window.ScienceLabHandoff=exposed;

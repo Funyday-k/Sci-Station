@@ -32,7 +32,7 @@
   const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
     showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
   });
-  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, skillForRun:projectContext.resolve,
+  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, restoreModeDraft, skillForRun:projectContext.resolve,
     currentResource:()=>source, consumeResource:used=>{if(source===used) markSource(null);},setResource:markSource,
     form:()=>{
       const template=selectedTemplate ? presets.find(p=>p.id===selectedTemplate) : defaultTemplate();
@@ -61,7 +61,9 @@
     $("fork").hidden=!p||p.builtin;$("delete").hidden=!p||p.builtin;
   }
   const builtinTitles={"paper-reading":["精读论文","Read a paper"],"research-question":["研究问答","Research question"],
-    "related-work":["比较相关工作","Compare related work"],"gap-planning":["查找研究空缺","Identify research gaps"]};
+    "related-work":["比较相关工作","Compare related work"],"gap-planning":["查找研究空缺","Identify research gaps"],
+    "independent-check":["双席独立复核","Independent review"],"research-design":["多席研究方案评议","Research design review"],
+    "research-priorities":["研究任务排序","Research priorities"]};
   const modeNames={review:["方案评审","Review"],forum:["多方权衡","Forum"],prioritize:["优先级排序","Prioritize"]};
   function renderPresets(){
     const nav=$("presets");nav.replaceChildren();
@@ -81,7 +83,8 @@
       const entry=document.createElement("details"), title=document.createElement("summary"), metadata=document.createElement("p"),
         prompt=document.createElement("blockquote"), actions=document.createElement("div"),
         open=document.createElement("button"), edit=document.createElement("button");
-      entry.className="lab-disclosure";title.textContent=template.title;prompt.textContent=template.prompt;
+      entry.className="lab-disclosure";title.textContent=builtinTitles[template.id] ? text(...builtinTitles[template.id]) : template.title;
+      prompt.textContent=template.prompt;
       const mode=modeNames[template.mode] ? text(...modeNames[template.mode]) : template.mode;
       const description=text(`${template.seats} 个席位 · ${mode}`,`${template.seats} seats · ${mode}`);
       metadata.className="hint";metadata.textContent=description;
@@ -185,6 +188,36 @@
     try{await fn();}catch(e){tell(e.message||text("操作未完成","The action could not be completed."));}finally{button.disabled=false;}
   });}
   let pendingTransfer=null, transferReview=null, transferSequence=0;
+  const draftPrefix=(owner,thread)=>"sci-station.lab-mode-draft.v1:"+encodeURIComponent(owner)+":"+encodeURIComponent(thread)+":";
+  const modeDraftKey=(workspace,owner,thread)=>draftPrefix(owner,thread)+encodeURIComponent(workspace);
+  function restoreModeDraft(owner,thread) {
+    const prefix=draftPrefix(owner,thread);
+    try {
+      if(!Object.keys(sessionStorage).some(key=>key.startsWith(prefix))) return null;
+    } catch { return null; }
+    return (async()=>{
+      const {workspace}=await req("/api/health");
+      const key=modeDraftKey(workspace,owner,thread), value=sessionStorage.getItem(key);
+      if(!value) return null;
+      const {ids,resource}=JSON.parse(value);
+      if(!Array.isArray(ids) || ids.length>12 || ids.some(id=>typeof id!=="string" || !/^[a-f0-9]{32}$/.test(id))) return null;
+      const materials=ids.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:ids.map(id=>({id}))}) : [];
+      return {materials,resource:handoff.retainExcerpt(resource,owner),consume(){
+        if(sessionStorage.getItem(key)===value) sessionStorage.removeItem(key);
+      }};
+    })();
+  }
+  async function retainModeDraft(workspace,owner,thread,materials) {
+    if(!materials) {
+      const selected=await runs.prepareHandoff(owner);
+      materials=selected.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:selected}) : [];
+    }
+    if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
+    const key=modeDraftKey(workspace,owner,thread), resource=handoff.retainExcerpt(source,owner);
+    if(materials.length || resource) sessionStorage.setItem(key,JSON.stringify({ids:materials.map(item=>item.id),resource}));
+    else sessionStorage.removeItem(key);
+    return true;
+  }
   async function showPendingTransfer() {
     const ticket=++transferSequence;
     pendingTransfer=null;$("lab-transfer-notice").hidden=true;
@@ -203,8 +236,8 @@
     const query=transferQuery(id);query.set(queryKey,room);
     return path+"?"+query;
   }
-  function showTransfer(direction,input,limit="") {
-    transferReview={direction,input};
+  function showTransfer(direction,input,limit="",pendingIds) {
+    transferReview={direction,input,originThread:runs.activeThread(),pendingIds};
     const incoming=direction==="in";
     $("lab-transfer-heading").textContent=incoming ? text("复核圆桌上下文","Review Roundtable context") : text("转到圆桌","Switch to Roundtable");
     $("lab-transfer-apply").textContent=incoming ? text("加入新对话草稿","Add to new chat draft") : text("在圆桌中复核","Review in Roundtable");
@@ -229,7 +262,7 @@
   action("lab-transfer-dismiss",finishPendingTransfer);
   action("lab-transfer-apply",async()=>{
     if(!transferReview) return;
-    const {direction,input}=transferReview;
+    const {direction,input,originThread,pendingIds}=transferReview;
     if(!scopeAvailable() || input.projectId!==projectId()) throw Error(text("当前范围已改变。","The active scope changed."));
     const context=$("lab-transfer-context").value.trim();
     if(!context) throw Error(text("请填写要带入的内容。","Enter the context to carry over."));
@@ -244,7 +277,9 @@
     if(!canLeave()) return;
     await runs.saveDraft();
     const materials=input.sourceSessionId || input.materials.length ? await checkedMaterials(input) : input.materials;
-    if(!scopeAvailable() || input.projectId!==projectId()) return;
+    if(!scopeAvailable() || input.projectId!==projectId() || originThread!==runs.activeThread()) return;
+    const pending=pendingIds && materials.filter(material=>pendingIds.has(material.id));
+    if(!await retainModeDraft(input.workspace,input.projectId,originThread,pending)) return;
     handoff.writeModeTransfer("roundtable",{...input,context,materials});
     const query=transferQuery(input.projectId);query.set("fromLab","1");
     handingOff=true;location.assign("/studio?"+query);
@@ -275,7 +310,7 @@
         const input={workspace,projectId:owner,sourceSessionId:room?.id || "",context,materials:materials.slice(0,12)};
         if(input.sourceSessionId || input.materials.length) input.materials=await checkedMaterials(input);
         if(!scopeAvailable() || owner!==projectId() || room?.id!==runs.activeRoom()?.id) return;
-        showTransfer("out",input,limit);
+        showTransfer("out",input,limit,new Set(pending.map(item=>item.id)));
       } catch(error) {tell(error.message);}
     })();
   });

@@ -185,14 +185,14 @@
       unsaved:() => [...saved.values()].some(record => record.text !== record.confirmed)};
   }
 
-  function mount({req,tell,form,scopeAvailable,skillForRun,currentResource,consumeResource,setResource}) {
+  function mount({req,tell,form,scopeAvailable,restoreModeDraft,skillForRun,currentResource,consumeResource,setResource}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
     let enabledModules=null;
     const recentRooms=new Map();
     let visibleRoom=null, searchState=null, renameTarget=null, painted="", scrollOnOpen=false;
     let history = [], active = "", pollTimer = 0, models = [], modelFlight=null, previewSequence = 0;
-    let importedMaterials=[];
+    let importedMaterials=[], restoringDraft=null;
     const chatAttachments=new Map();
     const audit = window.SciLabRunAudit.mount({req, scopeQuery});
     const questionDraft = createDraft({req,input:$("question"),status:message=>{$("lab-question-draft-state").textContent=message;}});
@@ -206,7 +206,8 @@
       });
     }
     function lookAt(id) {
-      if(active!==id) {
+      const changed=active!==id;
+      if(changed) {
         chatAttachments.set(active,{selected,importedMaterials,resource:currentResource()});
         const saved=chatAttachments.get(id);
         selected=saved?.selected || []; importedMaterials=saved?.importedMaterials || [];
@@ -219,11 +220,30 @@
         void replyDraft.select(null);
       }
       active=id;
+      if(changed) restoreAttachments();
       updateComposer();
       const url = new URL(location.href);
       if((url.searchParams.get("run") || "")===id) return;
       if(id) url.searchParams.set("run",id); else url.searchParams.delete("run");
       window.SciStationNav.commitURL(url,"replace");
+    }
+    function restoreAttachments() {
+      const owner=project, thread=active, token=generation;
+      const pending=owner ? restoreModeDraft(owner.id,thread) : null;
+      restoringDraft=pending;
+      if(!pending) return;
+      const current=()=>generation===token && active===thread && restoringDraft===pending;
+      void pending.then(draft=>{
+        if(!draft || !current() || !scopeAvailable()) return;
+        importedMaterials=[...new Map(importedMaterials.concat(draft.materials).map(item=>[item.id,item])).values()];
+        if(draft.resource && !currentResource()) setResource(draft.resource);
+        displaySelected();
+        draft.consume();
+      }).catch(error=>{
+        if(current()) tell(error.message);
+      }).finally(()=>{
+        if(current()){restoringDraft=null;updateComposer();}
+      });
     }
     function updateComposer() {
       const archived=Boolean(visibleRoom?.lab_thread?.archived_at);
@@ -242,8 +262,8 @@
       $("lab-start").hidden=Boolean(active) || !writable;
       $("lab-resume").hidden=!active || !writable;
       $("lab-stop").hidden=!running || visibleRoom.cancel_requested;
-      $("lab-start").disabled=!enabled || Boolean($("lab-start").dataset.labBusy);
-      $("lab-resume").disabled=!enabled || Boolean($("lab-resume").dataset.labBusy);
+      $("lab-start").disabled=!enabled || Boolean(restoringDraft || $("lab-start").dataset.labBusy);
+      $("lab-resume").disabled=!enabled || Boolean(restoringDraft || $("lab-resume").dataset.labBusy);
       $("lab-attach").disabled=!writable || !enabled || !project || project.global;
       $("lab-tools").disabled=!writable || !enabled;
       $("lab-draft-trigger").disabled=!writable || !project || !scopeReady;
@@ -298,7 +318,8 @@
     async function selectProject(next, sessions) {
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
       window.SciStationReadReview?.update($("lab-read-review"), null);
-      project=next; records=[];existingTasks=[]; selected=[];importedMaterials=[]; clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
+      project=next; records=[];existingTasks=[]; selected=[];importedMaterials=[]; restoringDraft=null;
+      clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
       chatAttachments.clear();
       painted="";$("lab-thread-actions").open=false;
       audit.show(null, null);
@@ -314,7 +335,7 @@
         $("lab-show-archived").checked=Boolean(linked.lab_thread?.archived_at);
         displayHistory();
         void openRun(requested);
-      } else lookAt("");
+      } else {lookAt("");restoreAttachments();}
       const prefix="/api/research/projects/"+encodeURIComponent(project.id)+"/";
       const config=await window.SciStationModules.load(project.id);
       if(generation!==token) return;
@@ -788,6 +809,7 @@
       }
       const owner=project;
       await questionDraft.select(owner);
+      if(restoringDraft) await restoringDraft;
       if(project!==owner || active || $("question").disabled) throw Error(text("尚不能写入当前草稿。","The current draft is unavailable."));
       const prior=$("question").value;
       const next=[prior,message].filter(Boolean).join("\n\n");
@@ -798,10 +820,13 @@
       $("question").dispatchEvent(new Event("input",{bubbles:true}));
       importedMaterials=materials;displaySelected();
     }
-    return {selectProject,updateComposer,importTransfer,activeRoom:()=>visibleRoom,
+    return {selectProject,updateComposer,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
       saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
-      prepareHandoff:pid=>selected.length || importedMaterials.length ? prepare("",pid) : Promise.resolve([]),
-      hasDraft:()=>Boolean(selected.length || importedMaterials.length || questionDraft.unsaved() || replyDraft.unsaved())};
+      prepareHandoff:async pid=>{
+        if(restoringDraft) await restoringDraft;
+        return selected.length || importedMaterials.length ? prepare("",pid) : [];
+      },
+      hasDraft:()=>Boolean(restoringDraft || selected.length || importedMaterials.length || questionDraft.unsaved() || replyDraft.unsaved())};
   }
   const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft, prepareQuestionSources, recordedSource, paperFromRun, messageText};
   if(typeof module==="object" && module.exports) module.exports=api;

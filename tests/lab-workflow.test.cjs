@@ -154,6 +154,7 @@ test("formal workflows identify structured scientific artifacts with turn-visibl
 });
 
 test("a selected MCP excerpt carries the exact one-time consent into its project run",()=>{
+  const {retainExcerpt}=require("../web/static/lab-handoff.js");
   const receipt={projectId:setup.projectId,connection:"papers",operation:"tools/call",id:"1".repeat(64),
     configHash:"2".repeat(64),argumentsHash:"3".repeat(64),time:"2026-10-25T08:30:00Z"};
   const resource={kind:"mcp-resource",projectId:setup.projectId,server:"MCP · papers",uri:"mcp-tool:papers/find",
@@ -161,4 +162,7 @@ test("a selected MCP excerpt carries the exact one-time consent into its project
   const topic=compose({...setup,resource});
   for(const value of [receipt.id,receipt.configHash,receipt.argumentsHash,receipt.operation,resource.excerpt])assert.ok(topic.includes(value));
   assert.throws(()=>compose({...setup,resource:{...resource,receipt:{...receipt,projectId:"another"}}}),/同意记录/);
+  const retained=retainExcerpt({...resource,token:"connector fixture token",receipt:{...receipt,arguments:{private:true}}},setup.projectId);
+  assert.deepEqual(retained,resource);
+  assert.throws(()=>retainExcerpt(resource,"another"));
 });

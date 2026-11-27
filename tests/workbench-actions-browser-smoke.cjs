@@ -25,6 +25,7 @@ async function main(binary) {
     const preset = await app.request("/api/research/lab/presets", "POST", {
       title: "Personal Roundtable fixture", prompt: "Check the original research assumptions.", mode: "forum", seats: 3,
     }, 201);
+    const missingFromCatalog = await app.request("/api/research/projects", "POST", {name: "Catalog race fixture"}, 201);
     const notesPath = "/api/research/projects/" + project.id + "/notes";
     await app.request(notesPath, "POST", {title: "Capture", body: "# Capture", aliases: ["Solar capture"]}, 201);
     await app.request(notesPath, "POST", {title: "Evaporation", body: "# Evaporation"}, 201);
@@ -132,7 +133,7 @@ async function main(binary) {
     await page.locator("#modal-close").click();
 
     const archivedReply = await fetch(app.origin + "/api/research/projects/" + archived.id + "?revision=" + archived.revision, {
-      method: "DELETE", headers: {Origin: app.origin, "X-Sci-Station": "1", "Content-Type": "application/json"}, body: "{}",
+      method: "DELETE", headers: {Origin: app.origin, "X-Sci-Station": "1", "X-Roundtable": "1", "Content-Type": "application/json"}, body: "{}",
     });
     assert.ok(archivedReply.ok, await archivedReply.text());
     for (const invalid of ["unknown-fixture", archived.id]) {
@@ -143,13 +144,22 @@ async function main(binary) {
       };
       page.on("request", observe);
       await page.goto(app.origin + "/lab?project=" + invalid);
-      await page.locator('#project[aria-invalid="true"]').waitFor();
-      assert.equal(await page.locator("#project").inputValue(), invalid);
-      assert.equal(await page.locator("#question").isDisabled(), true);
-      assert.equal(await page.locator("#lab-start").isDisabled(), true);
+      assert.equal(new URL(page.url()).searchParams.get("view"), "projects");
       assert.deepEqual(writes, []);
       page.off("request", observe);
     }
+    const catalogURL = app.origin + "/api/research/projects";
+    await page.route(catalogURL, async route => {
+      const response = await route.fetch();
+      const projects = await response.json();
+      await route.fulfill({response, json: projects.filter(item => item.id !== missingFromCatalog.id)});
+    });
+    await page.goto(app.origin + "/lab?project=" + missingFromCatalog.id);
+    await page.locator('#project[aria-invalid="true"]').waitFor();
+    assert.equal(await page.locator("#project").inputValue(), missingFromCatalog.id);
+    assert.equal(await page.locator("#question").isDisabled(), true);
+    assert.equal(await page.locator("#lab-start").isDisabled(), true);
+    await page.unroute(catalogURL);
 
     await page.goto(app.origin + "/lab?project=" + encodeURIComponent(project.id));
     const start = page.locator("#lab-start");
@@ -161,9 +171,21 @@ async function main(binary) {
     assert.ok(await page.locator("#presets").isHidden());
     const box = await start.boundingBox();
     assert.ok(box.y + box.height <= 620, "Send remains above the bottom of a short window");
-    await page.locator("#lab-attach").click();
-    await page.locator("#local-record").waitFor();
-    await page.locator("#lab-materials-dialog footer [data-lab-close]").click();
+    async function attachExcerpt(title) {
+      await page.locator("#lab-attach").click();
+      const record = page.locator("#local-record");
+      const label = "笔记 · " + title;
+      await record.locator("option").filter({hasText: new RegExp(label + "$")}).waitFor({state: "attached"});
+      await record.selectOption({label});
+      await page.locator("#local-preview").click();
+      const excerpt = page.locator("#local-text");
+      await excerpt.waitFor();
+      await excerpt.evaluate(input => input.select());
+      await page.locator("#local-add").click();
+      await page.locator("#lab-materials-dialog footer [data-lab-close]").click();
+      await page.locator("#local-list").getByText(title, {exact: true}).waitFor();
+    }
+    await attachExcerpt("Capture");
     await page.locator("#lab-tools").click();
     await page.locator("#lab-template-settings > summary").click();
     await page.locator('#presets [data-id="research-question"]').waitFor();
@@ -202,10 +224,47 @@ async function main(binary) {
     assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
     await page.locator("#workspace-nav-toggle").click();
     await page.locator("#lab-history button").filter({hasText:original}).waitFor();
+    await page.locator("#workspace-nav-toggle").click();
     assert.deepEqual(gateway.calls.filter(call => call.kind === "statement").length, 1);
+
+    await attachExcerpt("Evaporation");
+    const sourceChatURL = page.url();
+    await page.locator('[data-ai-mode="roundtable"]').click();
+    const transfer = page.locator("#lab-transfer-dialog");
+    await transfer.waitFor();
+    for (const name of ["Capture.txt", "Evaporation.txt"]) await transfer.locator("#lab-transfer-materials").getByText(name, {exact: true}).waitFor();
+    assert.match(await transfer.locator("#lab-transfer-context").inputValue(), /Preserve this unsent follow-up/);
+    await transfer.locator("#lab-transfer-apply").click();
+    const imported = page.locator("#studio-mode-import");
+    await imported.waitFor();
+    assert.equal(await page.locator("#create-project").inputValue(), project.id);
+    await imported.locator("#studio-mode-dismiss").click();
+    await page.goto(app.origin + "/lab?scope=global");
+    await page.locator("#question:enabled").waitFor();
+    assert.equal(await page.locator("#local-list").getByText("Evaporation.txt").count(), 0);
+    await page.goto(sourceChatURL);
+    await page.locator("#local-list").getByText("Evaporation.txt", {exact: true}).waitFor();
+    assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
+    assert.equal(await page.locator("#local-list").getByText("Capture.txt").count(), 0);
+
+    await page.locator('[data-ai-mode="roundtable"]').click();
+    await transfer.waitFor();
+    await transfer.locator("#lab-transfer-apply").click();
+    await imported.waitFor();
+    await imported.locator("#studio-mode-apply").click();
+    await page.waitForFunction(() => document.getElementById("new-topic").value.includes("Preserve this unsent follow-up"));
+    for (const name of ["Capture.txt", "Evaporation.txt"]) await page.locator("#create-materials").getByText(name, {exact: true}).waitFor();
+    await page.locator('[data-ai-mode="single"]').click();
+    await page.locator("#lab-transfer-preview").click();
+    assert.equal(await page.locator("#project").inputValue(), project.id);
+    for (const name of ["Capture.txt", "Evaporation.txt"]) await transfer.locator("#lab-transfer-materials").getByText(name, {exact: true}).waitFor();
+    await transfer.locator("#lab-transfer-apply").click();
+    await page.waitForFunction(() => document.getElementById("question").value.includes("Preserve this unsent follow-up"));
+    for (const name of ["Capture.txt", "Evaporation.txt"]) await page.locator("#local-list").getByText(name, {exact: true}).waitFor();
+    assert.equal(gateway.calls.filter(call => call.kind === "statement").length, 1);
     assert.deepEqual(errors, []);
     assert.deepEqual(gateway.errors, []);
-    console.log("Workbench toolbar, scoped PDF conversion, Wiki search and properties, and AI Lab conversation, materials, and draft recovery passed.");
+    console.log("Workbench actions, unavailable Lab scopes, saved templates, draft recovery, and verified transfer of saved and unsent attachments passed.");
   } finally {
     await browser?.close();
     await app?.close();
