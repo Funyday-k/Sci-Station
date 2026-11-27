@@ -50,35 +50,72 @@
         typeof change.diff === "string" && change.diff.trim().length);
   }
 
-  function parseDiffLines(diffText) {
-    const raw = typeof diffText === "string" && diffText.length ? diffText : "CLI 未提供此文件的差异。";
-    return raw.split(/\r?\n/).map(line => {
-      if (/^(?:diff --git |index |--- |\+\+\+ |@@ |\\ )/.test(line)) {
+  // Share the highlighting budget across all files in a single proposal.
+  const maxHighlightedLines = 300;
+
+  function parseDiffLines(source, limit = maxHighlightedLines) {
+    const lines = source.split(/\r?\n/, limit + 1);
+    if (lines.length > limit) return null;
+    let oldRemaining = 0, newRemaining = 0;
+    return lines.map(line => {
+      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+      if (hunk) {
+        oldRemaining = Number(hunk[1] ?? 1);
+        newRemaining = Number(hunk[2] ?? 1);
+        return {kind: "header", gutter: "", text: line};
+      }
+      if (/^(?:diff --git |index |@@ |\\ )/.test(line) ||
+          (!oldRemaining && !newRemaining && /^(?:--- |\+\+\+ )/.test(line))) {
         return {kind: "header", gutter: "", text: line};
       }
       if (line.startsWith("+")) {
+        if (newRemaining) newRemaining--;
         return {kind: "add", gutter: "+", text: line.slice(1)};
       }
       if (line.startsWith("-")) {
+        if (oldRemaining) oldRemaining--;
         return {kind: "remove", gutter: "−", text: line.slice(1)};
       }
       if (line.startsWith(" ")) {
+        if (oldRemaining) oldRemaining--;
+        if (newRemaining) newRemaining--;
         return {kind: "context", gutter: " ", text: line.slice(1)};
       }
       return {kind: "context", gutter: " ", text: line};
     });
   }
 
-  function renderDiffView(diffText, doc) {
+  function diffLabel(zh, en) {
+    return globalThis.window?.SciStationI18n?.text(zh, en) ?? zh;
+  }
+
+  function renderDiffView(diffText, doc, budget = {remaining: maxHighlightedLines}) {
     const pre = doc.createElement("pre");
     pre.className = "diff-view";
-    const lines = parseDiffLines(diffText);
+    const raw = typeof diffText === "string" && diffText.length ? diffText : "CLI 未提供此文件的差异。";
+    const lines = parseDiffLines(raw, budget.remaining);
+    if (!lines) {
+      pre.textContent = raw;
+      pre.tabIndex = 0;
+      pre.setAttribute("aria-description", diffLabel(
+        "统一差异。加号表示新增行，减号表示删除行。",
+        "Unified diff. A leading plus marks an addition and a leading minus marks a removal."
+      ));
+      return pre;
+    }
+    budget.remaining -= lines.length;
     for (const entry of lines) {
       const row = doc.createElement("span");
       row.className = "diff-line diff-" + entry.kind;
       const gutter = doc.createElement("span");
       gutter.className = "diff-gutter";
-      gutter.setAttribute?.("aria-hidden", "true");
+      if (entry.kind === "add" || entry.kind === "remove") {
+        const label = entry.kind === "add" ? diffLabel("新增行", "Added line") : diffLabel("删除行", "Removed line");
+        gutter.setAttribute("role", "img");
+        gutter.setAttribute("aria-label", label);
+      } else {
+        gutter.setAttribute("aria-hidden", "true");
+      }
       gutter.textContent = entry.gutter;
       const body = doc.createElement("span");
       body.className = "diff-text";
@@ -168,12 +205,13 @@
         proposalSignature = signature;
         el("reason").textContent = item?.reason || "";
         const files = Array.isArray(item?.changes) ? item.changes : [];
+        const lineBudget = {remaining: maxHighlightedLines};
         el("changes").replaceChildren(...files.map(change => {
           const section = document.createElement("section");
           const name = document.createElement("h4");
           const kind = {add:"新增", update:"修改", delete:"删除", create:"新增", remove:"删除"}[change.kind];
           name.textContent = [change.path, kind || change.kind].filter(Boolean).join(" · ");
-          const diff = renderDiffView(change.diff, document);
+          const diff = renderDiffView(change.diff, document, lineBudget);
           section.append(name, diff);
           return section;
         }));

@@ -496,7 +496,7 @@
 
   function sectionFromURL(url) {
     const section = url.searchParams.get("section");
-    if (section && document.querySelector(`[data-settings-page="${section}"]`)) return section;
+    if (section && $("settings-tab-" + section)?.dataset.settingsPage === section) return section;
     if (url.searchParams.get("view") === "plugins") return "plugins";
     return "models";
   }

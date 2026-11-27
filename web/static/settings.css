@@ -384,8 +384,16 @@ body[data-workspace-surface="settings"] {
 #prompt-editor input:not([type="checkbox"]) {
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
   font-size: var(--text-sm);
+}
+
+#prompt-editor input:not([type="checkbox"]) {
+  padding: 6px 8px;
+}
+
+#prompt-editor textarea {
+  padding: 9px 11px;
+  line-height: 1.75;
 }
 
 .prompt-actions {

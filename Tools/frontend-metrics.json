@@ -25,7 +25,7 @@
     "session-transcript.html": {"stylesheets": 1, "scripts": 0},
     "settings.html": {"stylesheets": 5, "scripts": 6},
     "studio.html": {"stylesheets": 23, "scripts": 31},
-    "workspace-shell.html": {"stylesheets": 6, "scripts": 11},
+    "workspace-shell.html": {"stylesheets": 5, "scripts": 11},
     "workspace-welcome.html": {"stylesheets": 1, "scripts": 1}
   }
 }

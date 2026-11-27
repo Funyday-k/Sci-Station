@@ -277,9 +277,12 @@ async function launch(binary, port, dataDir, env, mode, quit, inherited = proces
       if (child.exitCode === null && child.signalCode === null) {
         if (!quit || !await quit().then(() => true, () => false)) child.kill("SIGTERM");
       }
-      const [exitCode, signal] = await Promise.race([exited, delay(18000, null, {ref: false})]) || [];
-      if (exitCode === undefined && signal === undefined) child.kill("SIGKILL");
-      assert.equal(exitCode, 0, "fixture workstation did not exit cleanly");
+      let result = await Promise.race([exited, delay(18000, null, {ref: false})]);
+      if (!result) {
+        child.kill("SIGKILL");
+        result = await exited;
+      }
+      assert.equal(result[0], 0, "fixture workstation did not exit cleanly");
     }
   };
   try {
@@ -350,6 +353,37 @@ async function enterAndRun(app, ui, fixture, gateway) {
     layer.dispatchEvent(new KeyboardEvent("keyup", {bubbles: true, key: "Shift"}));
   }, locator);
   assert.equal((await ui.visible("#selectedText", quote)).text, quote);
+  const controlStyles = await ui.evaluate(() => {
+    const handoff = document.getElementById("handoff");
+    const footerButton = document.getElementById("addHighlight");
+    const comment = document.getElementById("comment");
+    const sample = document.createElement("span");
+    sample.style.cssText = "color:var(--accent-ink);background-color:var(--accent);border:1px solid var(--border-button)";
+    document.body.append(sample);
+    try {
+      return ["light", "dark"].map(theme => {
+        window.RoundtableAppearance.setMode(theme);
+        const primary = getComputedStyle(handoff), expected = getComputedStyle(sample);
+        const footer = getComputedStyle(footerButton);
+        return {
+          theme,
+          enabled: !handoff.disabled,
+          primaryInk: primary.color === expected.color,
+          primaryFill: primary.backgroundColor === expected.backgroundColor,
+          footerBorder: footer.borderTopStyle === "solid" && footer.borderTopColor === expected.borderTopColor,
+          inspectorFieldFits: Math.abs(comment.getBoundingClientRect().width - comment.parentElement.clientWidth) <= 1,
+        };
+      });
+    } finally {
+      sample.remove();
+      window.RoundtableAppearance.restore();
+    }
+  });
+  for (const {theme, ...styles} of controlStyles) {
+    assert.deepEqual(styles, {
+      enabled: true, primaryInk: true, primaryFill: true, footerBorder: true, inspectorFieldFits: true,
+    }, `Reader controls after selecting text in ${theme} mode`);
+  }
   await ui.click("#handoff");
   assert.equal((await ui.visible("#handoffQuote", quote)).text, quote);
   assert.equal((await ui.visible("#projectSelect")).value, project.id);
@@ -375,6 +409,17 @@ async function enterAndRun(app, ui, fixture, gateway) {
   assert.deepEqual(turns.map(turn => turn.text).sort(), [...statements].sort());
   assert.ok(turns.every(turn => turn.status === "done"));
   for (const text of statements) await ui.visible("#rounds .message-body", text);
+  await ui.click("#room-tab-opinions");
+  await ui.visible("#meeting-opinions");
+  const sourceID = "round-1-" + turns[0].seat;
+  await ui.evaluate(id => { location.hash = id; }, sourceID);
+  await ui.visible('#room-tab-chat[aria-selected="true"]');
+  await ui.visible("#" + sourceID + " .message-body", turns[0].text);
+  await eventually(() => ui.evaluate(id => {
+    const source = document.getElementById(id).getBoundingClientRect();
+    const transcript = document.getElementById("table-scroll").getBoundingClientRect();
+    return source.bottom > transcript.top && source.top < transcript.bottom;
+  }, sourceID), "linked message is in view");
   assert.equal(complete.materials.length, 1, "reader handoff attached more than one source");
   const calls = gateway.calls.filter(call => call.kind === "statement");
   assert.deepEqual(calls.map(call => call.model).sort(), [...models].sort());
@@ -557,6 +602,46 @@ async function reopenProjectSources(app, ui, evidence) {
   }
 }
 
+async function reviewDocumentDiff(app, ui, {meetingPath, meeting, project}) {
+  const file = {path: "synthetic-review.md"};
+  const first = await app.request(meetingPath + "/file", "POST", {...file, version:"missing", text:"Original fixture line.\n"});
+  const longLine = "Updated fixture text. ".repeat(100);
+  await app.request(meetingPath + "/file", "POST", {...file, version:first.after, text:longLine + "\n"});
+  const session = await app.request(meetingPath);
+  await app.request(meetingPath + "/report", "POST", {
+    action:"finish", expected_round:session.rounds.length, agenda_version:session.agenda_version || 0
+  }, 202);
+  await ui.navigate(app.origin + "/studio?" + new URLSearchParams({project:project.id, session:meeting.id, view:"files"}));
+  await ui.visible("#diff-content.document-diff > .diff-add", "Updated fixture text.");
+  const rows = await ui.evaluate(() => {
+    const pre = document.querySelector("#diff-content");
+    const probe = document.createElement("span");
+    pre.append(probe);
+    const token = name => {
+      probe.style.color = "var(--" + name + ")";
+      return getComputedStyle(probe).color;
+    };
+    const rows = ["add", "remove", "header"].map(kind => {
+      const row = pre.querySelector(".diff-" + kind);
+      const style = getComputedStyle(row);
+      return {
+        kind, display:style.display, fillsRow:Math.abs(row.getBoundingClientRect().width - pre.clientWidth) <= 1,
+        ink:style.color, expectedInk:token(kind === "header" ? "ink-muted" : "diff-" + kind + "-ink"),
+        background:style.backgroundColor, expectedBackground:token(kind === "header" ? "bg-subtle" : "diff-" + kind + "-bg"),
+        wraps:style.whiteSpace === "pre-wrap" && pre.scrollWidth <= pre.clientWidth + 1
+      };
+    });
+    probe.remove();
+    return rows;
+  });
+  for (const row of rows) {
+    assert.equal(row.display, "block", row.kind);
+    assert.ok(row.fillsRow && row.wraps, row.kind + " should fill the line and wrap within the document");
+    assert.equal(row.ink, row.expectedInk, row.kind);
+    assert.equal(row.background, row.expectedBackground, row.kind);
+  }
+}
+
 async function main() {
   assert.ok(process.platform === "darwin", "This smoke uses the macOS PDFKit adapter");
   const native = process.argv[2] === "--native";
@@ -614,6 +699,8 @@ async function main() {
     await reopenProjectSources(workstation, browser.ui, projectReviewed);
     if (browser.errors) assert.deepEqual(browser.errors, []);
     console.log("PASS restart and Wiki/material links highlight the original selected ranges");
+    await reviewDocumentDiff(workstation, browser.ui, fixture);
+    console.log("PASS Studio document diffs wrap and highlight full rows");
   } catch (error) {
     failure = error;
     if (browser) {

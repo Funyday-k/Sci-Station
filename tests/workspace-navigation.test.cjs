@@ -106,6 +106,30 @@ test("settings navigation preserves sci.settings.entry for back-navigation from 
   assert.equal(backLink.href, startHref);
 });
 
+test("Settings boots the requested section and falls back for unrecognized section values", () => {
+  const form = Object.assign(new EventTarget(), {elements: {namedItem: () => null}});
+  const elements = new Map([["settings-form", form]]);
+  for (const match of read("settings.html").matchAll(/id="(settings-tab-[^"]+)"[^>]*data-settings-page="([^"]+)"/g)) {
+    elements.set(match[1], {dataset: {settingsPage: match[2]}});
+  }
+  for (const [route, expected] of [
+    ["/settings?section=appearance", "appearance"],
+    ["/settings?section=unknown", "models"],
+    ["/settings?section=notes%22", "models"],
+    ["/studio?view=plugins&section=notes%22", "plugins"],
+  ]) {
+    const selected = [], requested = [];
+    const window = Object.assign(new EventTarget(), {RoundtableSettingsNav: {select: key => selected.push(key)}});
+    const document = Object.assign(new EventTarget(), {getElementById: id => elements.get(id)});
+    vm.runInNewContext(read("settings.js"), {
+      window, document, URL, location: new URL(route, origin),
+      fetch: path => { requested.push(path); return new Promise(() => {}); },
+    });
+    assert.deepEqual(selected, [expected], route);
+    assert.deepEqual(requested, ["/api/studio/settings"], route);
+  }
+});
+
 test("AI commands stay unavailable until the active workspace confirms its module", async () => {
   let complete;
   const config = new Promise(resolve => { complete = resolve; });

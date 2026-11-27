@@ -121,9 +121,12 @@ async function decide(ui, fixture, allow) {
   await ui.visible("#cli-edit-run-title", "Codex");
   await ui.visible("#cli-edit-run-title", "等待审核");
   await ui.visible("#cli-edit-changes h4", file);
-  const diff = await ui.visible("#cli-edit-changes pre", "+reviewed");
-  const lines = diff.text.split(/\r?\n/).filter(line => /^[+-]/.test(line) && !/^(?:---|\+\+\+)/.test(line));
-  assert.deepEqual(lines, ["-original", "+reviewed"]);
+  await ui.visible("#cli-edit-changes pre", "+reviewed");
+  const changes = await ui.evaluate(() => Array.from(
+    document.querySelectorAll("#cli-edit-changes .diff-add, #cli-edit-changes .diff-remove"),
+    row => [row.querySelector(".diff-gutter").textContent, row.querySelector(".diff-text").textContent]
+  ));
+  assert.deepEqual(changes, [["−", "original"], ["+", "reviewed"]]);
   assert.equal(await ui.evaluate(() => document.querySelectorAll("#cli-edit-changes pre").length), 1);
   await assertBytes(fixture, initial);
 

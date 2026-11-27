@@ -50,7 +50,7 @@ func (a *apiServer) desktopCredentialSessionScript(address string) string {
 			window.dispatchEvent(new Event("scistation:connector-session"));
 			return;
 		}
-		if (!["/tools", "/static/science-tools.html", "/studio", "/static/studio.html"].includes(location.pathname)) return;
+		if (!["/tools", "/static/science-tools.html", "/studio", "/static/studio.html", "/settings"].includes(location.pathname)) return;
 		window.sciStationCredentialSession = ` + string(proof) + `;
 		window.dispatchEvent(new Event("scistation:credential-session"));
 	})()`

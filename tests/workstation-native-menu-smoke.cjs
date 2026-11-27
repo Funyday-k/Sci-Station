@@ -53,6 +53,28 @@ async function main() {
     assert.deepEqual(await proofs(), {cli: false, credential: false});
     console.log("PASS native Command-1 reached Research. Both capabilities were present in Studio and absent on Home.");
 
+    await ui.navigate(app.origin + "/settings");
+    await ui.visible("#provider-profiles");
+    await eventually(() => ui.evaluate(() => document.querySelector("#provider-choice").options.length > 0), "native provider list");
+    assert.deepEqual(await proofs(), {cli: false, credential: true});
+    assert.equal(await ui.evaluate(() => typeof window.sciStationConnectorReview === "undefined" &&
+      typeof window.sciStationConnectorSession === "undefined"), true);
+    await ui.set("#provider-name", "Menu smoke provider");
+    await ui.set("#provider-url", `http://127.0.0.1:${gateway.port}/v1`);
+    await ui.set("#provider-model", "fixture-model");
+    await ui.set("#provider-max-tokens", "1024");
+    await ui.click("#provider-save");
+    await eventually(() => ui.evaluate(() => Boolean(document.querySelector("#provider-choice").value) &&
+      !document.querySelector("#provider-save-key").disabled), "saved provider and enabled Keychain control");
+
+    await ui.navigate(app.origin + "/studio?view=settings");
+    await eventually(() => ui.evaluate(() => location.pathname === "/studio" &&
+      new URLSearchParams(location.search).get("view") === "settings"), "legacy Settings navigation");
+    await ui.visible("#provider-profiles");
+    await eventually(() => ui.evaluate(() => document.querySelector("#provider-name").value === "Menu smoke provider" &&
+      !document.querySelector("#provider-save-key").disabled), "saved provider in legacy Settings");
+    console.log("PASS canonical Settings saved a direct provider and legacy Settings loaded it with API key controls enabled.");
+
     assert.ok(await browser.native({openSecondRoot: true}));
     const next = await eventually(async () => {
       const current = await ui.evaluate(() => location.origin);

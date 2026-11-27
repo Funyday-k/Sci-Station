@@ -63,3 +63,23 @@ test("visual baseline output directory defaults to .tmp/visual-baselines and hon
     path.resolve("/tmp/explicit")
   );
 });
+
+test("Reader geometry rejects a reverted layout and requires a full measured row of visible PDF height", () => {
+  const configuration = {window: [1380, 900], inspectorOpen: false, contextRailOpen: false};
+  const before = {configuration, visibleViewportHeight: 610, headerRowHeight: 54.5};
+  const after = {...before, visibleViewportHeight: 664.5};
+  assert.doesNotThrow(() => baselines.assertReaderHeightGain(before, after));
+  assert.throws(() => baselines.assertReaderHeightGain(before, before), /Reader gained 0px/);
+  assert.throws(() => baselines.assertReaderHeightGain(before, {...after, visibleViewportHeight: 664}), /expected at least/);
+  assert.throws(() => baselines.assertReaderHeightGain(before, {...after, configuration: {...configuration, inspectorOpen: true}}), /settings changed/);
+});
+
+test("only current capture plans exercise the post-redesign workspace containers", () => {
+  const plan = baselines.buildCapturePlan();
+  const reader = plan.find(step => step.screen === "reader" && step.viewport === "1380x900" &&
+    step.locale === "zh" && step.theme === "light" && step.colorTheme === "iris");
+  assert.equal(baselines.checksWorkspaceLayout(reader, "historical"), false);
+  assert.equal(baselines.checksWorkspaceLayout(reader, "current"), true);
+  assert.equal(baselines.checksWorkspaceLayout(reader), true);
+  assert.equal(plan.filter(step => baselines.checksWorkspaceLayout(step, "current")).length, 8);
+});

@@ -1,5 +1,5 @@
 /* The home document and its conversation scroll independently. */
-#table-view { flex-direction: row; isolation: isolate; }
+#table-view { --room-compact-layout: 0; flex-direction: row; isolation: isolate; }
 #setup-scroll { width: 100%; }
 .board-workspace {
   display: grid;
@@ -62,6 +62,7 @@
 }
 #table-view > .files-page { width: min(640px,100%); }
 @container workspace (max-width: 900px) {
+  #table-view { --room-compact-layout: 1; }
   #table-view[data-chat="on"] .board-workspace {
     grid-template: "context" auto "chat" minmax(0, 1fr) / minmax(0, 1fr);
   }

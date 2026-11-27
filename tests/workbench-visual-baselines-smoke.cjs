@@ -3,7 +3,7 @@
 // Capture visual baseline screenshots for key Sci-Station workbench screens.
 //
 // Usage:
-//   node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir]
+//   node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir] [pre-redesign-binary]
 //
 // Output defaults to .tmp/visual-baselines (or SCI_STATION_VISUAL_BASELINES_SCREENSHOTS /
 // SCI_STATION_SMOKE_SCREENSHOTS / SCI_STATION_SHELL_SCREENSHOTS / SCI_STATION_LAB_SCREENSHOTS).
@@ -11,6 +11,7 @@
 // built-in WebSocket with Chrome/Chromium (override path via SCI_STATION_SMOKE_CHROME).
 const assert = require("node:assert/strict");
 const {spawn} = require("node:child_process");
+const {once} = require("node:events");
 const {existsSync} = require("node:fs");
 const {mkdir, mkdtemp, realpath, rm, writeFile} = require("node:fs/promises");
 const http = require("node:http");
@@ -180,6 +181,35 @@ async function openCdpSession(baseDir) {
     ],
     {stdio: ["ignore", "pipe", "pipe"]}
   );
+  const closed = once(child, "close");
+  closed.catch(() => {});
+  async function stopChrome(requestClose) {
+    const terminate = setTimeout(() => child.kill("SIGTERM"), 2000).unref();
+    const force = setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+    try {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          if (requestClose) requestClose();
+          else child.kill("SIGTERM");
+        } catch {
+          child.kill("SIGTERM");
+        }
+      }
+      await closed;
+    } finally {
+      clearTimeout(terminate);
+      clearTimeout(force);
+    }
+  }
+  try {
+    return await connectCdpSession(child, stopChrome);
+  } catch (error) {
+    await stopChrome().catch(() => {});
+    throw error;
+  }
+}
+
+async function connectCdpSession(child, stopChrome) {
   let stderr = "";
   let debugPort = null;
   child.stderr.on("data", chunk => {
@@ -285,14 +315,16 @@ async function openCdpSession(baseDir) {
       await writeFile(filePath, Buffer.from(data, "base64"));
     },
     async close() {
-      try { ws.close(); } catch (_) {}
-      if (child.exitCode === null) {
-        child.kill("SIGTERM");
-        await Promise.race([
-          new Promise(resolve => child.once("exit", resolve)),
-          delay(3000),
-        ]);
-        if (child.exitCode === null) child.kill("SIGKILL");
+      try {
+        await stopChrome(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({id:nextId++, method:"Browser.close"}));
+          } else {
+            child.kill("SIGTERM");
+          }
+        });
+      } finally {
+        ws.close();
       }
     },
   };
@@ -403,7 +435,7 @@ function screenRoute(screenId, fixtures) {
     case "single-chat":
       return "/lab";
     case "roundtable-room":
-      return `/studio?session=${encodeURIComponent(fixtures.meeting.id)}`;
+      return `/studio?session=${encodeURIComponent(fixtures.meeting.id)}&project=${encodeURIComponent(fixtures.project.id)}`;
     case "reader":
       return `/reader?paper=${encodeURIComponent(fixtures.paper.id)}&project=${encodeURIComponent(fixtures.project.id)}`;
     case "settings-storage":
@@ -411,6 +443,23 @@ function screenRoute(screenId, fixtures) {
     default:
       throw new Error(`Unknown screen id: ${screenId}`);
   }
+}
+
+async function expectMeetingPanes(session, mode) {
+  await eventually(() => session.evaluate(mode => {
+    const workspace = document.querySelector(".workspace-region").getBoundingClientRect();
+    const grid = document.getElementById("board-workspace").getBoundingClientRect();
+    const board = document.getElementById("meeting-board").getBoundingClientRect();
+    const chat = document.getElementById("room-chat").getBoundingClientRect();
+    if (window.innerWidth !== 1380 || grid.height <= 0) return false;
+    if (mode === "split") {
+      return workspace.width > 900 && board.width > 0 && board.height > 0 &&
+        chat.width > 0 && chat.height > 0 && Math.abs(board.right - chat.left) <= 1;
+    }
+    const [visible, hidden] = mode === "board" ? [board, chat] : [chat, board];
+    return workspace.width <= 900 && hidden.width === 0 && visible.height > 0 &&
+      Math.abs(visible.left - grid.left) <= 1 && Math.abs(visible.right - grid.right) <= 1;
+  }, mode), `meeting panes in ${mode} layout with a fixed 1380px viewport`, 5000);
 }
 
 async function waitForScreenReady(session, step, fixtures) {
@@ -470,11 +519,60 @@ async function waitForScreenReady(session, step, fixtures) {
   );
 }
 
-async function runVisualBaselines(binary, outputArg) {
-  if (!binary) {
-    throw new Error("Usage: node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir]");
-  }
-  const outputDir = resolveOutputDir(outputArg);
+function isReaderComparisonView(step) {
+  return step.screen === "reader" && step.width === 1380 && step.height === 900 &&
+    step.locale === "zh" && step.theme === "light" && step.colorTheme === "iris";
+}
+
+function checksWorkspaceLayout(step, readerComparison) {
+  return readerComparison !== "historical" &&
+    step.locale === "zh" && step.theme === "light" && step.colorTheme === DEFAULT_COLOR_THEME &&
+    ["home", "project-overview", "roundtable-room", "reader"].includes(step.screen);
+}
+
+async function measureReader(session) {
+  await eventually(() => session.evaluate(() => {
+    const image = document.querySelector("#pageImage");
+    return !document.querySelector("#pageSurface").hidden && image.complete && image.naturalWidth > 0;
+  }), "first synthetic PDF page rendered", 15000);
+
+  return session.evaluate(async () => {
+    await document.fonts.ready;
+    const viewport = document.querySelector("#viewport").getBoundingClientRect();
+    return {
+      configuration: {
+        window: [innerWidth, innerHeight],
+        paper: document.querySelector("#title").textContent.trim(),
+        page: document.querySelector("#pageNo").value,
+        locale: document.documentElement.lang,
+        theme: document.documentElement.dataset.theme,
+        colorTheme: document.documentElement.dataset.colorTheme,
+        textSize: document.documentElement.dataset.textSize,
+        navigationExpanded: document.querySelector("#workspace-nav-toggle").getAttribute("aria-expanded"),
+        inspectorOpen: !document.querySelector("#reader-inspector").hidden,
+        contextRailOpen: !document.querySelector("#context-rail").hidden,
+      },
+      viewportTop: viewport.top,
+      viewportBottom: viewport.bottom,
+      visibleViewportHeight: Math.min(innerHeight, viewport.bottom) - Math.max(0, viewport.top),
+      headerRowHeight: document.querySelector(".reader-header")?.getBoundingClientRect().height || 0,
+    };
+  });
+}
+
+function assertReaderHeightGain(before, after) {
+  assert.deepEqual(after.configuration, before.configuration, "Reader comparison settings changed");
+  assert.deepEqual(before.configuration.window, [1380, 900]);
+  assert.equal(before.configuration.inspectorOpen, false);
+  assert.equal(before.configuration.contextRailOpen, false);
+  assert.ok(before.headerRowHeight > 0 && before.visibleViewportHeight > 0,
+    "Historical Reader must show its header row and PDF viewport");
+  const gain = after.visibleViewportHeight - before.visibleViewportHeight;
+  assert.ok(gain >= before.headerRowHeight,
+    `Reader gained ${gain}px (${before.visibleViewportHeight} → ${after.visibleViewportHeight}px); expected at least one historical header row (${before.headerRowHeight}px)`);
+}
+
+async function captureVisualBaselines(binary, outputDir, plan, readerComparison) {
   await mkdir(outputDir, {recursive: true});
 
   const base = await mkdtemp(path.join(await realpath(tmpdir()), "sci-visual-baselines-"));
@@ -500,7 +598,7 @@ async function runVisualBaselines(binary, outputArg) {
     // Bootstrap origin so localStorage can be configured before navigating through the matrix.
     await session.goto(host.origin + "/research");
 
-    const plan = buildCapturePlan();
+    let readerGeometry;
     let currentViewport = "";
     let currentLocale = "";
     let currentTheme = "";
@@ -588,6 +686,8 @@ async function runVisualBaselines(binary, outputArg) {
             ["danger on surface", ratio(danger, surfaceBg), 4.5],
             ["warning on surface", ratio(warning, surfaceBg), 4.5],
             ["success on surface", ratio(success, surfaceBg), 4.5],
+            ["diff addition gutter", ratio(token("--diff-add-gutter"), token("--diff-add-bg")), 4.5],
+            ["diff removal gutter", ratio(token("--diff-remove-gutter"), token("--diff-remove-bg")), 4.5],
           ];
           if (actionLink) {
             checks.push(["rendered .action-link", ratio(getComputedStyle(actionLink).color, surfaceBg), 4.5]);
@@ -601,6 +701,7 @@ async function runVisualBaselines(binary, outputArg) {
           `WCAG AA contrast failed for ${step.locale}/${step.theme}/${step.colorTheme}: ${JSON.stringify(failed)}`
         );
       }
+      if (readerComparison && isReaderComparisonView(step)) readerGeometry = await measureReader(session);
 
       const dest = path.join(outputDir, step.file);
       await session.screenshot(dest);
@@ -613,12 +714,7 @@ async function runVisualBaselines(binary, outputArg) {
         colorTheme: step.colorTheme,
       });
 
-      if (
-        step.locale === "zh" &&
-        step.theme === "light" &&
-        step.colorTheme === DEFAULT_COLOR_THEME &&
-        ["home", "project-overview", "roundtable-room", "reader"].includes(step.screen)
-      ) {
+      if (checksWorkspaceLayout(step, readerComparison)) {
         const checkLayout = () =>
           session.evaluate(() => {
             const region = document.querySelector(".workspace-region");
@@ -688,9 +784,16 @@ async function runVisualBaselines(binary, outputArg) {
         assert.ok(closedState.overflowX <= 1, `${step.screen}@${step.viewport} rail-closed horizontal overflow: ${closedState.overflowX}px`);
         assert.deepEqual(closedState.issues, [], `${step.screen}@${step.viewport} rail-closed control overlap/clipping`);
 
+        const wideMeeting = step.screen === "roundtable-room" && step.viewport === "1380x900";
+        if (wideMeeting) {
+          await expectMeetingPanes(session, "split");
+          await eventually(() => session.evaluate(() => !document.getElementById("shell-assist").disabled),
+            "meeting context rail available");
+        }
         const canToggle = await session.evaluate(() => {
           const btn = document.getElementById("shell-assist");
           if (!btn || btn.disabled) return false;
+          btn.focus();
           btn.click();
           return true;
         });
@@ -708,6 +811,32 @@ async function runVisualBaselines(binary, outputArg) {
           assert.equal(openState.railVisible, true, `${step.screen}@${step.viewport} context rail should be open`);
           assert.ok(openState.overflowX <= 1, `${step.screen}@${step.viewport} rail-open horizontal overflow: ${openState.overflowX}px`);
           assert.deepEqual(openState.issues, [], `${step.screen}@${step.viewport} rail-open control overlap/clipping`);
+          if (wideMeeting) {
+            await expectMeetingPanes(session, "board");
+            await session.evaluate(() => document.getElementById("room-chat-toggle").click());
+            await expectMeetingPanes(session, "chat");
+            await session.evaluate(() => document.getElementById("rail-to-board").click());
+            await expectMeetingPanes(session, "board");
+            await session.evaluate(() => document.getElementById("workspace-nav-toggle").click());
+            await expectMeetingPanes(session, "split");
+            await session.evaluate(() => {
+              const note = document.getElementById("run-note");
+              note.value = "Synthetic meeting draft";
+              note.dispatchEvent(new Event("input", {bubbles: true}));
+              document.getElementById("workspace-nav-toggle").click();
+            });
+            await expectMeetingPanes(session, "chat");
+            const retainedDraft = await session.evaluate(() => {
+              const note = document.getElementById("run-note");
+              const draft = note.value;
+              note.value = "";
+              note.dispatchEvent(new Event("input", {bubbles: true}));
+              document.getElementById("rail-to-board").click();
+              return draft;
+            });
+            assert.equal(retainedDraft, "Synthetic meeting draft");
+            await expectMeetingPanes(session, "board");
+          }
           await session.screenshot(path.join(outputDir, `${step.screen}__${step.viewport}__rail-open.png`));
           await session.evaluate(() => {
             const btn = document.getElementById("shell-assist");
@@ -721,6 +850,7 @@ async function runVisualBaselines(binary, outputArg) {
             `context rail closed on ${step.screen}@${step.viewport}`,
             5000
           );
+          if (wideMeeting) await expectMeetingPanes(session, "split");
         }
       }
     }
@@ -736,13 +866,14 @@ async function runVisualBaselines(binary, outputArg) {
           viewports: VIEWPORTS,
           screens: SCREENS,
           entries: manifestEntries,
+          readerGeometry,
         },
         null,
         2
       ) + "\n"
     );
 
-    if (process.env.SCI_STATION_SMOKE_SCREENSHOT) {
+    if (process.env.SCI_STATION_SMOKE_SCREENSHOT && plan.some(step => step.screen === "home")) {
       const homeDefault = path.join(outputDir, "home__1380x900__zh__light__iris.png");
       const target = path.resolve(process.env.SCI_STATION_SMOKE_SCREENSHOT);
       if (target !== homeDefault) {
@@ -755,16 +886,43 @@ async function runVisualBaselines(binary, outputArg) {
     console.log(
       `Captured ${manifestEntries.length} visual baseline screenshots in ${outputDir} (0 page errors).`
     );
-    return {outputDir, manifestPath, count: manifestEntries.length};
+    return {outputDir, manifestPath, count: manifestEntries.length, readerGeometry};
   } finally {
-    await session?.close();
-    await host?.close();
-    await closeServer(gateway.server);
-    await rm(base, {recursive: true, force: true, maxRetries: 5, retryDelay: 200}).catch(() => {});
+    const stopped = await Promise.allSettled([session?.close(), host?.close()]);
+    try {
+      await closeServer(gateway.server);
+    } finally {
+      await rm(base, {recursive: true, force: true, maxRetries: 5, retryDelay: 200});
+    }
+    for (const result of stopped) {
+      if (result.status === "rejected") throw result.reason;
+    }
   }
 }
 
+async function runVisualBaselines(binary, outputArg, referenceBinary) {
+  if (!binary) throw new Error(
+    "Usage: node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir] [pre-redesign-binary]"
+  );
+  const outputDir = resolveOutputDir(outputArg);
+  const plan = buildCapturePlan();
+  if (!referenceBinary) return captureVisualBaselines(binary, outputDir, plan);
+
+  const reference = await captureVisualBaselines(referenceBinary, path.join(outputDir, "reader-before"),
+    plan.filter(isReaderComparisonView), "historical");
+  const candidate = await captureVisualBaselines(binary, outputDir, plan, "current");
+  const before = reference.readerGeometry;
+  const after = candidate.readerGeometry;
+  const comparison = {before, after, gain: after.visibleViewportHeight - before.visibleViewportHeight};
+  await writeFile(path.join(outputDir, "reader-geometry.json"), JSON.stringify(comparison, null, 2) + "\n");
+  console.log("Reader geometry (CSS pixels)", JSON.stringify(comparison));
+  assertReaderHeightGain(before, after);
+  return candidate;
+}
+
 module.exports = {
+  assertReaderHeightGain,
+  checksWorkspaceLayout,
   VIEWPORTS,
   LOCALES,
   THEMES,
@@ -777,7 +935,7 @@ module.exports = {
 };
 
 if (require.main === module) {
-  runVisualBaselines(process.argv[2], process.argv[3]).catch(error => {
+  runVisualBaselines(process.argv[2], process.argv[3], process.argv[4]).catch(error => {
     console.error(error);
     process.exitCode = 1;
   });
