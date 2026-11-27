@@ -11,6 +11,7 @@
 // built-in WebSocket with Chrome/Chromium (override path via SCI_STATION_SMOKE_CHROME).
 const assert = require("node:assert/strict");
 const {spawn} = require("node:child_process");
+const {once} = require("node:events");
 const {existsSync} = require("node:fs");
 const {mkdir, mkdtemp, realpath, rm, writeFile} = require("node:fs/promises");
 const http = require("node:http");
@@ -180,6 +181,35 @@ async function openCdpSession(baseDir) {
     ],
     {stdio: ["ignore", "pipe", "pipe"]}
   );
+  const closed = once(child, "close");
+  closed.catch(() => {});
+  async function stopChrome(requestClose) {
+    const terminate = setTimeout(() => child.kill("SIGTERM"), 2000).unref();
+    const force = setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+    try {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          if (requestClose) requestClose();
+          else child.kill("SIGTERM");
+        } catch {
+          child.kill("SIGTERM");
+        }
+      }
+      await closed;
+    } finally {
+      clearTimeout(terminate);
+      clearTimeout(force);
+    }
+  }
+  try {
+    return await connectCdpSession(child, stopChrome);
+  } catch (error) {
+    await stopChrome().catch(() => {});
+    throw error;
+  }
+}
+
+async function connectCdpSession(child, stopChrome) {
   let stderr = "";
   let debugPort = null;
   child.stderr.on("data", chunk => {
@@ -285,14 +315,16 @@ async function openCdpSession(baseDir) {
       await writeFile(filePath, Buffer.from(data, "base64"));
     },
     async close() {
-      try { ws.close(); } catch (_) {}
-      if (child.exitCode === null) {
-        child.kill("SIGTERM");
-        await Promise.race([
-          new Promise(resolve => child.once("exit", resolve)),
-          delay(3000),
-        ]);
-        if (child.exitCode === null) child.kill("SIGKILL");
+      try {
+        await stopChrome(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({id:nextId++, method:"Browser.close"}));
+          } else {
+            child.kill("SIGTERM");
+          }
+        });
+      } finally {
+        ws.close();
       }
     },
   };
@@ -583,10 +615,15 @@ async function runVisualBaselines(binary, outputArg) {
     );
     return {outputDir, manifestPath, count: manifestEntries.length};
   } finally {
-    await session?.close();
-    await host?.close();
-    await closeServer(gateway.server);
-    await rm(base, {recursive: true, force: true});
+    const stopped = await Promise.allSettled([session?.close(), host?.close()]);
+    try {
+      await closeServer(gateway.server);
+    } finally {
+      await rm(base, {recursive: true, force: true, maxRetries: 5, retryDelay: 200});
+    }
+    for (const result of stopped) {
+      if (result.status === "rejected") throw result.reason;
+    }
   }
 }
 
