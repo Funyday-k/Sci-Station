@@ -236,14 +236,14 @@
       const {workspace}=await req("/api/health");
       const key=modeDraftKey(workspace,owner,thread), value=sessionStorage.getItem(key);
       if(!value) return null;
-      const {ids,resource,citations=[],templateId="",templateRevision}=JSON.parse(value);
+      const {ids,resource,citations=[],templateId="",templateRevision,modelChoice}=JSON.parse(value);
       if(!Array.isArray(ids) || ids.length>12 || ids.some(id=>typeof id!=="string" || !/^[a-f0-9]{32}$/.test(id))) return null;
       if(!Array.isArray(citations) || citations.length>4) return null;
       const [materials,selected]=await Promise.all([
         ids.length ? checkedMaterials({sourceSessionId:thread,projectId:owner,materials:ids.map(id=>({id}))}) : [],
         Promise.all(citations.map(citation=>verifyDraftCitation(owner,citation)))
       ]);
-      return {materials,selected,templateId,templateRevision,resource:handoff.retainExcerpt(resource,owner),consume(){
+      return {materials,selected,templateId,templateRevision,modelChoice,resource:handoff.retainExcerpt(resource,owner),consume(){
         if(sessionStorage.getItem(key)===value) sessionStorage.removeItem(key);
       }};
     })();
@@ -257,8 +257,9 @@
     const key=modeDraftKey(workspace,owner,thread), resource=handoff.retainExcerpt(source,owner);
     const ids=materials.filter(item=>importedIds.includes(item.id)).map(item=>item.id);
     const template=presets.find(item=>item.id===selectedTemplate && item.seats===1);
-    if(ids.length || citations.length || resource || template) {
-      sessionStorage.setItem(key,JSON.stringify({ids,citations,resource,templateId:template?.id,templateRevision:template?.revision}));
+    const modelChoice=thread ? undefined : runs.draftModelChoice();
+    if(ids.length || citations.length || resource || template || modelChoice) {
+      sessionStorage.setItem(key,JSON.stringify({ids,citations,resource,templateId:template?.id,templateRevision:template?.revision,modelChoice}));
     }
     else sessionStorage.removeItem(key);
     return true;

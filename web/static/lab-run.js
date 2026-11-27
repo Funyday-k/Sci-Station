@@ -262,6 +262,7 @@
         selected=[...new Map(draft.selected.concat(selected).map(item=>[key(item),item])).values()].slice(0,4);
         importedMaterials=[...new Map(importedMaterials.concat(draft.materials).map(item=>[item.id,item])).values()];
         restoreTemplate(draft.templateId,draft.templateRevision);
+        if(!thread) restoreDraftModel(draft.modelChoice);
         if(draft.resource && !currentResource()) setResource(draft.resource);
         displaySelected();
         draft.consume();
@@ -300,8 +301,8 @@
       $("lab-tools").disabled=!writable || !enabled || Boolean(restoringDraft || fileBatch);
       $("lab-draft-trigger").disabled=!writable || !project || !scopeReady;
       $("lab-model-controls").hidden=Boolean(active);
-      $("lab-model-trigger").disabled=!enabled || sending;
-      reasoning.setDisabled(!enabled || sending);
+      $("lab-model-trigger").disabled=!enabled || sending || Boolean(restoringDraft);
+      reasoning.setDisabled(!enabled || sending || Boolean(restoringDraft));
       const member=effectiveMember(visibleRoom), locked=memberLock(visibleRoom);
       $("lab-existing-model").hidden=!visibleRoom;
       $("lab-edit-model").disabled=!enabled || sending || Boolean(locked);
@@ -649,6 +650,29 @@
     function ensureModels() {
       if(!models.length) void loadModels().catch(()=>{});
     }
+    function draftModelChoice() {
+      const model=$("lab-model").value, effort=reasoning.value;
+      return model && effort ? {model,effort} : undefined;
+    }
+    function restoreDraftModel(choice) {
+      if(!choice?.model || !choice?.effort) return;
+      const owner=draftOwner();
+      const restore=()=>{
+        if(!ownsDraft(owner)) return;
+        const available=models.find(model=>model.id===choice.model);
+        if(!available) {
+          tell(text("草稿原来选用的模型已不可用，请重新选择。","The model selected for this draft is unavailable. Choose a model again."));
+          return;
+        }
+        $("lab-model").value=available.id;
+        effortChoices.set(available.id,choice.effort);
+        effortOptions();
+        if(reasoning.value!==choice.effort) tell(text("原思考档位已不可用，已选用该模型的可用档位。",
+          "The draft’s reasoning level is unavailable. The model now uses one of its supported levels."));
+      };
+      if(models.length) restore();
+      else void loadModels().then(restore).catch(error=>{if(ownsDraft(owner)) tell(error.message);});
+    }
     function loadModels() {
       if(modelFlight) return modelFlight;
       $("lab-model-state").textContent = text("正在读取模型目录…","Loading models…");
@@ -959,7 +983,7 @@
       $("question").dispatchEvent(new Event("input",{bubbles:true}));
       importedMaterials=materials;displaySelected();
     }
-    return {selectProject,updateComposer,ensureModels,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
+    return {selectProject,updateComposer,ensureModels,draftModelChoice,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
       restoringDraft:()=>Boolean(restoringDraft),
       modeDraftSelections:()=>({citations:selected.slice(),importedIds:importedMaterials.map(item=>item.id)}),
       handoffDraftStamp:()=>JSON.stringify([active,selected.map(item=>item.citation),importedMaterials.map(item=>item.id),currentResource()]),
