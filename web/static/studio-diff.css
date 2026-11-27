@@ -501,26 +501,6 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.main,
-.page,
-.table-page,
-.conversation-pane,
-.files-page,
-.editor-pane,
-.file-sidebar,
-.sidebar,
-.children-panel {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-.sidebar > .new-button,
-.sidebar > .history-label,
-.composer,
-.review-heading,
-.editor-toolbar {
-  flex-shrink: 0;
-}
 .file-workspace {
   min-width: 0;
   min-height: 0;

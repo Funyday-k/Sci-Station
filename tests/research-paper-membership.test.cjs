@@ -1,21 +1,35 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const {createTestDocument} = require("./lib/research-dom-fixture.cjs");
+const {runStaticScriptInContext} = require("./lib/esm-vm-loader.cjs");
+
+function descendants(node) {
+  return [node, ...Array.from(node.children || []).flatMap(descendants)];
+}
 
 function loadLibrary(ui, globals = {}) {
   ui.state.organization ||= {revision: 0, collections: {}, tags: {}};
   ui.start = () => {};
   ui.statusLabel = {unread: "Unread", reading: "Reading", read: "Read"};
-  const ctx = vm.createContext({
-    window: {SciResearch: ui, addEventListener() {}},
-    document: {addEventListener() {}, createElement: () => ({})},
-    ...globals
-  });
-  const { runStaticScriptInContext } = require("./lib/esm-vm-loader.cjs");
+  const elements = new Map();
+  const document = Object.assign(createTestDocument(), {
+    addEventListener() {},
+    querySelectorAll() { return []; },
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, this.createElement("div"));
+      return elements.get(id);
+    },
+  }, globals.document);
+  const window = {addEventListener() {}, SciStationNav: {projectNames: {}, setHistoryGuard() {}}, ...globals.window};
+  const ctx = vm.createContext({...globals, document, window});
+  runStaticScriptInContext("ui-icons.js", ctx);
+  runStaticScriptInContext("research.js", ctx);
+  const rendering = window.SciResearch;
+  for (const key of ["el", "fragment", "button", "link", "detailButton", "empty"]) ui[key] ??= rendering[key];
+  window.SciResearch = ui;
   for (const file of ["modules/research/entry.js", "research-library.js"]) {
     runStaticScriptInContext(file, ctx);
   }
@@ -127,7 +141,7 @@ test("paper editor preserves invisible project and core memberships while updati
   for (const name of libraryFields) controls[name] = {value: ""};
   const elements = Object.entries(controls).map(([name, element]) => Object.assign(element, {name}));
   elements.namedItem = name => controls[name];
-  let rendered = "";
+  let rendered;
   let submit;
   let saved;
   const form = {
@@ -147,7 +161,7 @@ test("paper editor preserves invisible project and core memberships while updati
     esc: String,
     enc: encodeURIComponent,
     button: () => "",
-    dialog(title, html) { rendered = html; },
+    dialog(title, content) { rendered = content; },
     close() {},
     toast() {},
     refresh: async () => {},
@@ -155,9 +169,11 @@ test("paper editor preserves invisible project and core memberships while updati
   };
   loadLibrary(ui);
   await ui.formAction("edit-paper", paper.id);
-  assert.match(rendered, /name="order-active-add"/);
-  assert.match(rendered, /name="folder-active-core" value="Background"/);
-  assert.match(rendered, /<textarea name="references"/);
+  const namedControl = name => descendants(rendered).find(node => node.getAttribute?.("name") === name);
+  assert.ok(namedControl("order-active-add"));
+  const folder = namedControl("folder-active-core");
+  assert.equal(folder.value ?? folder.getAttribute("value"), "Background");
+  assert.equal(namedControl("references").localName, "textarea");
   controls.title.value = "Revised";
   controls.references.value = "Exact title, with a comma\n10.1000/method\n10.1000/method";
   controls.tags.value = "nuclear, solar\nreading";
@@ -345,4 +361,31 @@ test("identifier import previews the first target and retries only failed target
     ["papers", "https://doi.org/10.1000/abc"],
   ]);
   assert.equal(getElement("[data-status]").textContent, "已入库 2 / 2");
+});
+
+test("library rows preserve literal titles, tag labels and action identities", () => {
+  const title = 'A <sample> & "quoted" paper';
+  const tag = 'phase <A> & B';
+  const id = "paper-42";
+  const paper = {id, title, tags: [tag], authors: ["A & B"], has_pdf: true};
+  const ui = {
+    state: {papers: [paper], organization: {collections: {}, tags: {}, library: {visible_columns: ["title", "authors", "tags"]}}},
+    reader: id => "/reader?paper=" + encodeURIComponent(id),
+    detailButton: () => null,
+  };
+  loadLibrary(ui);
+  const table = ui.library.renderPaperTable([paper], "");
+  const nodes = descendants(table);
+  assert.equal(nodes.some(node => node.localName === "sample"), false);
+  const paperLink = nodes.find(node => node.getAttribute?.("class") === "library-paper-title");
+  assert.equal(paperLink.textContent, title);
+  assert.equal(paperLink.getAttribute("href"), "/reader?paper=paper-42");
+  const tagButton = nodes.find(node => node.getAttribute?.("data-action") === "filter-paper-tag");
+  assert.equal(tagButton.getAttribute("data-id"), tag);
+  assert.equal(tagButton.textContent, tag);
+  const edit = nodes.find(node => node.getAttribute?.("data-action") === "edit-paper");
+  assert.equal(edit.getAttribute("data-id"), id);
+  assert.ok(edit.getAttribute("aria-label").includes(title));
+  const checkbox = nodes.find(node => node.getAttribute?.("data-library-selection") === id);
+  assert.ok(checkbox.getAttribute("aria-label").includes(title));
 });

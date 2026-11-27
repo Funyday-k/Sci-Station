@@ -1,19 +1,12 @@
 "use strict";
 (() => {
   const $ = id => document.getElementById(id);
-  const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  } [ch]));
   const enc = encodeURIComponent;
   const navigation = window.SciStationNav;
   const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
   const local = (key, zh, en) => window.SciStationI18n?.message?.(key) ?? text(zh, en);
   const names = navigation.projectNames;
-  const icon = key => window.RoundtableIcons.icon(key);
+  const icon = key => window.RoundtableIcons.iconNode(key);
   const statusLabel = {
     get unread() { return text("未读", "Unread"); },
     get reading() { return text("阅读中", "Reading"); },
@@ -24,7 +17,7 @@
     get cancelled() { return text("已取消", "Cancelled"); },
     get done() { return text("已完成", "Completed"); },
   };
-  const projectBadge = navigation.projectBadge;
+  const projectBadge = navigation.projectBadgeNode;
   const state = {
     projects: [],
     project: null,
@@ -136,7 +129,28 @@
     toastTimer = setTimeout(() => el.hidden = true, 3300);
   }
 
-  function dialog(title, html, {
+  // Children are nodes or literal text, including arrays of rows and controls.
+  function appendContent(parent, children) {
+    for (const child of children) {
+      if (Array.isArray(child)) appendContent(parent, child);
+      else if (child != null && child !== false && child !== "") parent.append(child);
+    }
+    return parent;
+  }
+
+  function el(tag, attrs, ...children) {
+    const node = document.createElement(tag);
+    for (const [name, value] of Object.entries(attrs || {})) {
+      if (value != null && value !== false) node.setAttribute(name, value === true ? "" : String(value));
+    }
+    return appendContent(node, children);
+  }
+
+  function fragment(...children) {
+    return appendContent(document.createDocumentFragment(), children);
+  }
+
+  function dialog(title, content, {
     wide = false,
     cleanup = null,
     canDismiss = null
@@ -145,8 +159,7 @@
     modalCleanup = cleanup;
     modalCanDismiss = canDismiss;
     $("dialog-title").textContent = title;
-    /* html-sink: callers construct dialog markup using internal esc()/button()/field() builders. */
-    $("dialog-content").innerHTML = html;
+    $("dialog-content").replaceChildren(fragment(content));
     $("modal").classList.toggle("wide", wide);
     if (!$("modal").open) $("modal").showModal();
   }
@@ -170,59 +183,53 @@
   });
 
   function button(label, action, options = {}) {
-    const {
-      id = "", kind = "button", glyph = "", title = "", pressed, iconOnly = false
-    } = options;
-    return '<button type="button" class="' + kind + '" data-action="' + action + '" data-id="' + esc(id) +
-      '"' + (title || iconOnly ? ' title="' + esc(title || label) + '"' : '') +
-      (iconOnly ? ' aria-label="' + esc(title || label) + '"' : '') +
-      (pressed === undefined ? '' : ' aria-pressed="' + pressed + '"') + '>' + (glyph ?
-      icon(glyph) : "") + (iconOnly ? '' : esc(label)) + '</button>';
+    const {id = "", kind = "button", glyph, title, pressed, iconOnly} = options;
+    return el("button", {
+      type: "button", class: kind, "data-action": action, "data-id": id,
+      title: title || (iconOnly ? label : null),
+      "aria-label": iconOnly ? title || label : null,
+      "aria-pressed": pressed == null ? null : String(pressed)
+    }, glyph && icon(glyph), !iconOnly && label);
   }
 
   function link(label, href, kind = "button", glyph = "") {
-    return '<a class="' + kind + '" href="' + esc(href) + '">' + (glyph ? icon(glyph) : "") + esc(label) + '</a>';
+    return el("a", {class: kind, href}, glyph && icon(glyph), label);
   }
 
-  function navLink(view, label, kind = "bare") {
-    return '<a class="' + kind + '" data-view="' + view + '" href="' + esc(viewURL(view)) + '">' + esc(label) + '</a>';
+  function empty(title, description = "", action = null) {
+    return el("div", {class: "empty"}, el("h3", {}, title),
+      description && el("p", {}, description), action && el("div", {class: "actions"}, action));
   }
 
-  function empty(title, description = "", action = "") {
-    return '<div class="empty"><h3>' + esc(title) + '</h3>' + (description ? '<p>' + esc(description) + '</p>' : '') + (
-      action ? '<div class="actions">' + action + '</div>' : '') + '</div>';
-  }
-
-  function panel(title, body, action = "") {
-    return '<section class="panel"><div class="panel-header"><h2>' + esc(title) + '</h2>' + action + '</div>' + body +
-      '</section>';
+  function panel(title, body, action = null) {
+    return el("section", {class: "panel"}, el("div", {class: "panel-header"}, el("h2", {}, title), action), body);
   }
 
   function list(rows) {
-    return '<div class="list">' + rows.join("") + '</div>';
+    return el("div", {class: "list"}, rows);
   }
 
-  function heading(title, sub = "", actions = "", project = null) {
-    const badge = project ? projectBadge(project) : "";
-    return '<div class="page-head workspace-page-heading"><div><h1>' + badge + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') +
-      '</div><div class="head-actions">' + actions + '</div></div>';
+  function heading(title, sub = "", actions = null, project = null) {
+    return el("div", {class: "page-head workspace-page-heading"},
+      el("div", {}, el("h1", {}, project && projectBadge(project), title), sub && el("p", {}, sub)),
+      el("div", {class: "head-actions"}, actions));
   }
 
   function moreActions(actions) {
-    const title=local("toolbarMoreActions", "更多操作", "More actions");
-    return '<details class="more-actions"><summary class="icon" aria-label="'+esc(title)+'" title="'+esc(title)+'">' + icon("more") +
-      '</summary><div class="more-action-items">' + actions + '</div></details>';
+    const title = local("toolbarMoreActions", "更多操作", "More actions");
+    return el("details", {class: "more-actions"}, el("summary", {class: "icon", title, "aria-label": title}, icon("more")),
+      el("div", {class: "more-action-items"}, actions));
   }
 
-  function row(glyph, title, meta, control, tag = "", more = "", project = null) {
-    return '<div class="row"><div class="glyph">' + (project ? projectBadge(project) : icon(glyph)) + '</div><' + control +
-      ' class="row-main"><span class="title">' + esc(title) + '</span>' + (meta ? '<span class="meta">' + esc(meta) +
-        '</span>' : '') + '</' + (control.startsWith("a ") ? 'a' : 'button') + '>' + (tag ? '<span class="tag status-tag">' + esc(
-        tag) + '</span>' : '') + more + '</div>';
+  function row(glyph, title, meta, control, tag = "", more = null, project = null) {
+    control.className = "row-main";
+    appendContent(control, [el("span", {class: "title"}, title), meta && el("span", {class: "meta"}, meta)]);
+    return el("div", {class: "row"}, el("div", {class: "glyph"}, project ? projectBadge(project) : icon(glyph)), control,
+      tag && el("span", {class: "tag status-tag"}, tag), more);
   }
 
   function rowAction(action, id) {
-    return 'button type="button" data-action="' + action + '" data-id="' + esc(id) + '"';
+    return el("button", {type: "button", "data-action": action, "data-id": id});
   }
 
   function fmtDate(raw) {
@@ -254,9 +261,11 @@
         if (p.core_project_ids?.includes(projectID)) meta.push(text("核心文献", "Core paper"));
         if (link?.is_pinned) meta.push(text("已置顶", "Pinned"));
       }
-      return row("book", p.title, meta.filter(Boolean).join(" · "), 'a href="' + esc(reader(p.id)) + '"',
-        statusLabel[p.status] || statusLabel.unread, (projectID ? button(text("论文 Wiki", "Paper Wiki"), "open-paper-wiki", {id:p.id,kind:"bare"}) : "") +
-        button(local("settingsEdit", "编辑", "Edit"), "edit-paper", {id:p.id,kind:"bare"}));
+      return row("book", p.title, meta.filter(Boolean).join(" · "), el("a", {href: reader(p.id)}),
+        statusLabel[p.status] || statusLabel.unread, [
+          projectID && button(text("论文 Wiki", "Paper Wiki"), "open-paper-wiki", {id:p.id,kind:"bare"}),
+          button(local("settingsEdit", "编辑", "Edit"), "edit-paper", {id:p.id,kind:"bare"})
+        ]);
     }));
   }
 
@@ -295,13 +304,16 @@
 
   function taskTagChip(name, definition) {
     const {color, textColor} = taskTagColors(name, definition);
-    return '<span class="task-label" style="--task-label-bg:' + color + ';--task-label-fg:' + textColor + '">' + esc(name) + '</span>';
+    const chip = el("span", {class: "task-label"}, name);
+    chip.style.setProperty("--task-label-bg", color);
+    chip.style.setProperty("--task-label-fg", textColor);
+    return chip;
   }
 
   function detailButton(kind, object) {
     const label = text("查看详情", "View details") + " · " + object.title;
-    return '<button type="button" class="icon" data-inspect-object="' + kind + '" data-id="' + esc(object.id) +
-      '" aria-label="' + esc(label) + '" title="' + esc(label) + '" aria-pressed="false">' + icon("sidebar") + '</button>';
+    return el("button", {type: "button", class: "icon", "data-inspect-object": kind, "data-id": object.id,
+      "aria-label": label, title: label, "aria-pressed": "false"}, icon("sidebar"));
   }
 
   function taskRows(tasks) {
@@ -315,15 +327,15 @@
         taskPriorityLabels[t.priority] && taskPriorityLabels[t.priority] + "优先级",
         t.kind === "reading" && "论文阅读"
       ].filter(Boolean).join(" · ");
-      const labels = (t.tags || []).map(name => taskTagChip(name, tags.get(name))).join("");
-      return '<div class="row ' + (closed ? "completed" : "") + '"><button type="button" class="task-check ' +
-        (closed ? "done" : "") + '" aria-label="' + esc((closed ? "重新打开" : "完成") + "：" + t.title) +
-        '" data-action="toggle-task" data-id="' + esc(t.id) + '">' + (closed ? "✓" : "") +
-        '</button><button class="row-main" data-action="edit-task" data-id="' + esc(t.id) + '"><span class="title">' +
-        esc(t.title) + '</span>' + (facts ? '<span class="row-facts">' + esc(facts) + '</span>' : "") +
-        (t.description ? '<span class="meta">' + esc(t.description.slice(0, 140)) + '</span>' : "") +
-        (labels ? '<span class="task-labels">' + labels + '</span>' : "") +
-        '</button><span class="tag status-tag">' + esc(statusLabel[t.status] || "待办") + '</span>' + detailButton("task", t) + '</div>';
+      const labels = (t.tags || []).map(name => taskTagChip(name, tags.get(name)));
+      return el("div", {class: closed ? "row completed" : "row"},
+        el("button", {type: "button", class: closed ? "task-check done" : "task-check",
+          "aria-label": (closed ? "重新打开" : "完成") + "：" + t.title, "data-action": "toggle-task", "data-id": t.id}, closed && "✓"),
+        el("button", {class: "row-main", "data-action": "edit-task", "data-id": t.id},
+          el("span", {class: "title"}, t.title), facts && el("span", {class: "row-facts"}, facts),
+          t.description && el("span", {class: "meta"}, t.description.slice(0, 140)),
+          labels.length > 0 && el("span", {class: "task-labels"}, labels)),
+        el("span", {class: "tag status-tag"}, statusLabel[t.status] || "待办"), detailButton("task", t));
     }));
   }
   const byRecent = (a, b) => String(b.updatedAt || b.updated_at || b.createdAt || "").localeCompare(String(a.updatedAt || a
@@ -357,22 +369,22 @@
 
   function projectDirectory() {
     const create = button(local("toolbarNewProject", "新建项目", "New Project"), "new-project", {kind: "button primary", glyph: "plus"});
-    return heading(names.projects, "", button(local("projectsArchivedTitle", "已归档项目", "Archived Projects"), "archived-projects") + create) +
-      panel("我的项目 · " + state.projects.length, state.projects.length ? projectRows(state.projects) : empty(local("sidebarNoProjects", "暂无项目", "No projects")));
+    return fragment(heading(names.projects, "", [button(local("projectsArchivedTitle", "已归档项目", "Archived Projects"), "archived-projects"), create]),
+      panel("我的项目 · " + state.projects.length, state.projects.length ? projectRows(state.projects) : empty(local("sidebarNoProjects", "暂无项目", "No projects"))));
   }
 
   function projectRows(projects) {
-    return list(projects.map(p => row("folder", p.name, p.description, 'a href="' + esc(viewURL("overview", p.id)) + '"', "", "", p)));
+    return list(projects.map(p => row("folder", p.name, p.description, el("a", {href: viewURL("overview", p.id)}), "", "", p)));
   }
 
   const dashboard = window.SciStationDashboard;
   const dashboardUI = {
-    esc, heading, button, link, panel, paperRows, taskRows, meetingRows, viewURL, studio, fmtDate, row, rowAction, list, empty, reader, toolsPage
+    el, fragment, heading, button, link, panel, paperRows, taskRows, meetingRows, viewURL, studio, fmtDate, row, rowAction, list, empty, reader, toolsPage
   };
 
   function meetingRows(items) {
     return list(items.map(m => row("chat", m.title || m.topic || "未命名圆桌", fmtDate(m.updated_at || m.created_at),
-      'a href="' + esc(studio(m.id)) + '"', m.status === "closed" ? "已结束" : "会议")));
+      el("a", {href: studio(m.id)}), m.status === "closed" ? "已结束" : "会议")));
   }
 
   function noteRows(notes) {
@@ -390,18 +402,19 @@
   }
 
   function wikiPage() {
-    const actions = moreActions(button(text("从论文创建", "Create from Paper"), "new-paper-wiki") +
-      button(text("新建目录", "New Folder"), "new-wiki-folder", {glyph: "folder"}) +
-      button(text("Markdown 片段", "Markdown Snippets"), "wiki-snippet-settings") +
-      button(text("已归档页面", "Archived Pages"), "archived-notes")) +
-      button(local("toolbarWikiNewPage", "新建页面", "New Page"), "new-note", {glyph: "plus", kind: "button primary"});
-    const folders = state.wikiFolders.length ? panel(text("目录", "Folders"), list(state.wikiFolders.map(path =>
-      row("folder", path, "", rowAction("read-wiki-folder", path))))) : "";
+    const actions = [moreActions([
+      button(text("从论文创建", "Create from Paper"), "new-paper-wiki"),
+      button(text("新建目录", "New Folder"), "new-wiki-folder", {glyph: "folder"}),
+      button(text("Markdown 片段", "Markdown Snippets"), "wiki-snippet-settings"),
+      button(text("已归档页面", "Archived Pages"), "archived-notes")
+    ]), button(local("toolbarWikiNewPage", "新建页面", "New Page"), "new-note", {glyph: "plus", kind: "button primary"})];
+    const folders = state.wikiFolders.length > 0 && panel(text("目录", "Folders"), list(state.wikiFolders.map(path =>
+      row("folder", path, "", rowAction("read-wiki-folder", path)))));
     const search = text("搜索 Wiki 页面", "Search wiki pages");
-    return heading(text("项目 Wiki", "Project Wiki"), state.project.name, actions) +
-      '<div class="toolbar"><input type="search" class="query" id="wiki-query" value="' + esc(state.wikiQuery) +
-      '" placeholder="' + esc(search) + '" aria-label="' + esc(search) + '"></div>' +
-      folders + '<div id="wiki-results" aria-live="polite">' + wikiResults() + '</div>';
+    return fragment(heading(text("项目 Wiki", "Project Wiki"), state.project.name, actions),
+      el("div", {class: "toolbar"}, el("input", {type: "search", class: "query", id: "wiki-query",
+        value: state.wikiQuery, placeholder: search, "aria-label": search})),
+      folders, el("div", {id: "wiki-results", "aria-live": "polite"}, wikiResults()));
   }
 
   function orderedLibraryPapers(projectID) {
@@ -422,43 +435,40 @@
 
   function libraryResults(papers, projectID) {
     const filtered = Boolean(state.query.trim() || state.libraryCollection || state.libraryTag);
-    return '<div id="library-selection-actions">' + E.library.renderSelectionActions(papers) + '</div>' +
+    return fragment(el("div", {id: "library-selection-actions"}, E.library.renderSelectionActions(papers)),
       panel((projectID ? state.project.name : local("routePapers", "论文", "Papers")) + " · " + papers.length,
-        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(filtered ? text("没有匹配的文献", "No matching papers") : text("还没有收录文献", "The library is empty"),
-          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier.")));
+        papers.length ? E.library.renderPaperTable(papers, projectID) : empty(
+          filtered ? text("没有匹配的文献", "No matching papers") : text("还没有收录文献", "The library is empty"),
+          filtered ? "" : text("添加本地 PDF 或线上文献记录。", "Import a local PDF or add a paper by identifier."))));
   }
 
   function publicLibrary() {
-    const limited = Boolean(state.project);
     const projectID = state.project?.id || "";
     const all = orderedLibraryPapers(projectID);
     const papers = E.library.filterPapers(all, projectID);
-    const actions = moreActions(link(text("文献发现", "Discover papers"), toolsPage("discover")) +
-      '<span id="library-export-action"' + (papers.length ? '' : ' hidden') + '>' +
-      (papers.length ? E.library.exportButton(papers) : "") + '</span>' +
-      button(text("管理集合和标签", "Manage collections and tags"), "manage-library")) +
-      button(text("导入文献", "Import papers"), "new-paper", {glyph: "import", kind: "button primary"});
-    return heading(limited ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", actions) +
-      '<div class="toolbar library-toolbar"><input type="search" class="query" id="paper-query" value="' + esc(state.query) +
-      '" placeholder="' + esc(text("搜索标题、作者、DOI 或链接…", "Search title, author, DOI or link…")) +
-      '" aria-label="' + esc(text("筛选文献", "Filter papers")) + '">' + E.library.renderFilters(all) +
-      button(local("toolbarLibraryColumns", "表格列", "Table columns"), "library-columns") + '</div>' +
-      '<div id="paper-results">' + libraryResults(papers, projectID) + '</div>';
+    const actions = [moreActions([
+      link(text("文献发现", "Discover papers"), toolsPage("discover")),
+      el("span", {id: "library-export-action", hidden: !papers.length}, papers.length > 0 && E.library.exportButton(papers)),
+      button(text("管理集合和标签", "Manage collections and tags"), "manage-library")
+    ]), button(text("导入文献", "Import papers"), "new-paper", {glyph: "import", kind: "button primary"})];
+    return fragment(heading(state.project ? text("项目文献", "Project Papers") : local("routeLibrary", "文献库", "Library"), "", actions),
+      el("div", {class: "toolbar library-toolbar"}, el("input", {type: "search", class: "query", id: "paper-query", value: state.query,
+        placeholder: text("搜索标题、作者、DOI 或链接…", "Search title, author, DOI or link…"), "aria-label": text("筛选文献", "Filter papers")}),
+        E.library.renderFilters(all), button(local("toolbarLibraryColumns", "表格列", "Table columns"), "library-columns")),
+      el("div", {id: "paper-results"}, libraryResults(papers, projectID)));
   }
 
   function projectNeeded() {
-    return heading(names[state.view]) + panel(text("科研项目", "Research projects"), empty(text("请选择科研项目", "Select a research project"), "", link(text("项目列表", "Projects"), viewURL("projects", null)) + button(local("toolbarNewProject", "新建项目", "New Project"),
-    "new-project", {
-      kind: "button primary",
-      glyph: "plus"
-    })));
+    return fragment(heading(names[state.view]), panel(text("科研项目", "Research projects"),
+      empty(text("请选择科研项目", "Select a research project"), "", [
+        link(text("项目列表", "Projects"), viewURL("projects", null)),
+        button(local("toolbarNewProject", "新建项目", "New Project"), "new-project", {kind: "button primary", glyph: "plus"})
+      ])));
   }
 
   function taskFilterSelect(id, label, all, selected, values) {
-    const options = [["", all], ...values];
-    return '<select id="' + id + '" aria-label="' + esc(label) + '">' + options.map(([value, text]) =>
-      '<option value="' + esc(value) + '"' + (selected === value ? " selected" : "") + '>' + esc(text) + '</option>'
-    ).join("") + '</select>';
+    return el("select", {id, "aria-label": label}, [["", all], ...values].map(([value, title]) =>
+      el("option", {value, selected: selected === value}, title)));
   }
 
   function calendarView(tasks) {
@@ -468,25 +478,19 @@
       start = (new Date(year, month, 1).getDay() + 6) % 7,
       end = new Date(year, month + 1, 0).getDate(),
       today = localDate(new Date());
-    const cells = Array.from({
-      length: start
-    }, () => '<div class="day" aria-hidden="true"></div>');
+    const cells = Array.from({length: start}, () => el("div", {class: "day", "aria-hidden": "true"}));
     for (let i = 1; i <= end; i++) {
       const date = localDate(new Date(year, month, i));
       const scheduled = tasks.filter(t => taskOnDate(t, date));
-      cells.push('<div class="day ' + (today === date ? "today" : "") + '"><b>' + i + '</b>' +
+      cells.push(el("div", {class: today === date ? "day today" : "day"}, el("b", {}, i),
         scheduled.map(t => button((date === t.dueDate && t.dueTime ? t.dueTime + " " : "") + t.title, "edit-task", {
-          id: t.id,
-          kind: "day-task" + (closedTask(t) ? " completed" : ""),
+          id: t.id, kind: "day-task" + (closedTask(t) ? " completed" : ""),
           title: [t.title, statusLabel[t.status], taskDateLabel(t)].filter(Boolean).join(" · ")
-        })).join("") + '</div>');
+        }))));
     }
-    return '<section class="panel"><div class="calendar-head">' + button("上一月", "month-prev", {
-      kind: "bare"
-    }) + '<strong>' + year + " 年 " + (month + 1) + ' 月</strong>' + button("下一月", "month-next", {
-      kind: "bare"
-    }) + '</div><div class="cal-grid">' + ["一", "二", "三", "四", "五", "六", "日"].map(s => '<span class="weekday">周' + s +
-      '</span>').join("") + cells.join("") + '</div></section>';
+    return el("section", {class: "panel"}, el("div", {class: "calendar-head"}, button("上一月", "month-prev", {kind: "bare"}),
+      el("strong", {}, year + " 年 " + (month + 1) + " 月"), button("下一月", "month-next", {kind: "bare"})),
+      el("div", {class: "cal-grid"}, ["一", "二", "三", "四", "五", "六", "日"].map(d => el("span", {class: "weekday"}, "周" + d)), cells));
   }
 
   function syncLoadPresentation() {
@@ -496,71 +500,76 @@
     $("research-loading").hidden = !state.loading;
   }
 
+  function taskPage() {
+    const tags = taskTagNames();
+    const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
+    const filter = state.taskFilter || (state.calendar ? "all" : "open");
+    const tasks = state.tasks.filter(t =>
+      (filter === "all" || (filter === "open" ? !closedTask(t) : t.status === filter)) &&
+      (!state.taskKind || t.kind === state.taskKind) && (!chosenTag || t.tags?.includes(chosenTag)));
+    const actions = [moreActions([
+      link(text("系统日历", "System Calendar"), toolsPage("calendar")),
+      button(text("管理任务标签", "Manage Task Tags"), "manage-task-tags")
+    ]), button(local("toolbarNewTask", "新建任务", "New Task"), "new-task", {glyph: "plus", kind: "button primary"})];
+    const statuses = [
+      ["open", text("未完成", "Open")], ["done", text("已完成", "Completed")],
+      ["cancelled", text("已取消", "Cancelled")], ["all", text("全部", "All")]
+    ];
+    return fragment(
+      heading(text("日历与任务", "Calendar and Tasks"), state.project?.name || text("工作区", "Workspace"), actions),
+      el("div", {class: "toolbar task-filters"},
+        taskFilterSelect("task-project", text("项目", "Project"), text("全部项目", "All projects"),
+          state.project?.id || "", state.projects.map(p => [p.id, p.name])),
+        el("div", {class: "filters"}, statuses.map(([key, title]) => button(title, "task-filter", {
+          id: key, kind: "chip " + (filter === key ? "active" : ""), pressed: filter === key
+        }))),
+        taskFilterSelect("task-kind", text("任务类型", "Task type"), text("全部类型", "All types"), state.taskKind,
+          [["general", text("普通任务", "General")], ["reading", text("论文阅读", "Paper reading")]]),
+        tags.length > 0 && taskFilterSelect("task-tag", text("任务标签", "Task tags"), text("全部标签", "All tags"),
+          chosenTag, tags.map(tag => [tag, tag])),
+        button(state.calendar ? text("切换到列表", "Switch to list") : text("切换到月历", "Switch to month"), "switch-calendar", {glyph: "agenda"})),
+      state.calendar ? calendarView(tasks) : panel(
+        (state.project ? text("项目任务", "Project Tasks") : text("全部任务", "All Tasks")) + " · " + tasks.length,
+        tasks.length ? taskRows(tasks) : empty(text("当前列表没有任务", "No tasks in this list"),
+          text("可以创建带截止日期的任务。", "You can create a task with a due date."))));
+  }
+
   function render() {
     if (state.loading) return;
     updateNav();
-    let out = "";
+    let out;
     if (state.loadError) {
-      /* html-sink: error view is assembled exclusively via internal esc()/heading()/panel()/empty() builders. */
-      $("main").innerHTML = heading(text("页面加载失败", "Could not load view"), failedLoad?.label) +
-        panel(text("本机服务", "Local service"), '<div role="alert">' +
-          empty(state.loadError, "", button(local("homeRetry", "重试", "Retry"), "reload") +
-            link(text("项目列表", "Projects"), viewURL("projects", null))) + '</div>');
+      out = fragment(heading(text("页面加载失败", "Could not load view"), failedLoad?.label),
+        panel(text("本机服务", "Local service"), el("div", {role: "alert"},
+          empty(state.loadError, "", [button(local("homeRetry", "重试", "Retry"), "reload"),
+            link(text("项目列表", "Projects"), viewURL("projects", null))]))));
+      $("main").replaceChildren(out);
       syncLoadPresentation();
       return;
     }
     if (state.view === "overview") out = dashboard.markup(state, dashboardUI);
     else if (["code","data","experiments","writing","theory"].includes(state.view)) {
-      out = heading(names[state.view], state.project?.name) + panel(names[state.view], empty(text("此模块尚未提供编辑器", "This module has no editor yet"), "", state.project ? link(text("查看研究材料", "Open Materials"),viewURL("materials")) : ""));
-    }
-    else if (state.view === "projects") out = projectDirectory();
+      out = fragment(heading(names[state.view], state.project?.name), panel(names[state.view],
+        empty(text("此模块尚未提供编辑器", "This module has no editor yet"), "",
+          state.project && link(text("查看研究材料", "Open Materials"), viewURL("materials")))));
+    } else if (state.view === "projects") out = projectDirectory();
     else if (state.view === "papers") out = publicLibrary();
-    else if (state.view === "meetings") out = heading("工作圆桌", state.project?.name || "模型讨论与研究报告", link("进入圆桌", studio(),
-      "button primary", "chat")) + panel("项目会议", state.meetings.length ? meetingRows(state.meetings) : empty("暂无项目会议",
-      "进入圆桌后可以创建讨论。"));
-    else if (!state.project && state.view !== "tasks") out = projectNeeded();
+    else if (state.view === "meetings") {
+      out = fragment(heading("工作圆桌", state.project?.name || "模型讨论与研究报告",
+        link("进入圆桌", studio(), "button primary", "chat")), panel("项目会议",
+        state.meetings.length ? meetingRows(state.meetings) : empty("暂无项目会议", "进入圆桌后可以创建讨论。")));
+    } else if (!state.project && state.view !== "tasks") out = projectNeeded();
     else if (state.view === "notes") out = wikiPage();
-    else if (state.view === "tasks") {
-      const tags = taskTagNames();
-      const chosenTag = tags.includes(state.taskTag) ? state.taskTag : "";
-      const filter = state.taskFilter || (state.calendar ? "all" : "open");
-      const t = state.tasks.filter(t =>
-        (filter === "all" || (filter === "open" ? !closedTask(t) : t.status === filter)) &&
-        (!state.taskKind || t.kind === state.taskKind) &&
-        (!chosenTag || t.tags?.includes(chosenTag))
-      );
-      const actions = moreActions(link(text("系统日历", "System Calendar"), toolsPage("calendar")) +
-        button(text("管理任务标签", "Manage Task Tags"), "manage-task-tags")) +
-        button(local("toolbarNewTask", "新建任务", "New Task"), "new-task", {glyph: "plus", kind: "button primary"});
-      out = heading(text("日历与任务", "Calendar and Tasks"), state.project?.name || text("工作区", "Workspace"), actions);
-      out += '<div class="toolbar task-filters">' + taskFilterSelect("task-project", text("项目", "Project"), text("全部项目", "All projects"),
-        state.project?.id || "", state.projects.map(p => [p.id, p.name])) + '<div class="filters">' + [
-        ["open", text("未完成", "Open")],
-        ["done", text("已完成", "Completed")],
-        ["cancelled", text("已取消", "Cancelled")],
-        ["all", text("全部", "All")]
-      ].map(([key, title]) => button(title, "task-filter", {
-        id: key,
-        kind: "chip " + (filter === key ? "active" : ""),
-        pressed: filter === key
-      })).join("") + '</div>' + taskFilterSelect("task-kind", text("任务类型", "Task type"), text("全部类型", "All types"), state.taskKind,
-        [["general", text("普通任务", "General")], ["reading", text("论文阅读", "Paper reading")]]) +
-        (tags.length ? taskFilterSelect("task-tag", text("任务标签", "Task tags"), text("全部标签", "All tags"), chosenTag, tags.map(tag => [tag, tag])) : "") +
-        button(state.calendar ? text("切换到列表", "Switch to list") : text("切换到月历", "Switch to month"), "switch-calendar", {glyph: "agenda"}) +
-        '</div>' + (state.calendar ? calendarView(t) : panel((state.project ? text("项目任务", "Project Tasks") : text("全部任务", "All Tasks")) + " · " + t.length,
-          t.length ? taskRows(t) : empty(text("当前列表没有任务", "No tasks in this list"), text("可以创建带截止日期的任务。", "You can create a task with a due date."))));
-    } else if (state.view === "materials") {
-      out = heading("研究材料", state.project.name, button("浏览项目目录", "linked-materials", {
-        glyph: "folder"
-      }) + button("添加文件", "new-material", {
-        glyph: "import",
-        kind: "button primary"
-      })) + panel("已添加的文件 · " + state.materials.length, state.materials.length ? list(state.materials.slice().sort(byRecent)
-          .map(m => row("file", m.name, bytes(m.size) + " · " + fmtDate(m.updatedAt), rowAction("read-material", m.id)))
-          ) : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。"));
+    else if (state.view === "tasks") out = taskPage();
+    else if (state.view === "materials") {
+      out = fragment(heading("研究材料", state.project.name, [
+        button("浏览项目目录", "linked-materials", {glyph: "folder"}),
+        button("添加文件", "new-material", {glyph: "import", kind: "button primary"})
+      ]), panel("已添加的文件 · " + state.materials.length, state.materials.length ? list(state.materials.slice().sort(byRecent)
+        .map(m => row("file", m.name, bytes(m.size) + " · " + fmtDate(m.updatedAt), rowAction("read-material", m.id))))
+        : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。")));
     } else if (state.view === "graph") out = graphView();
-    /* html-sink: all view templates escape untrusted workspace data through esc() before injection. */
-    $("main").innerHTML = out;
+    $("main").replaceChildren(fragment(out));
     window.SciContextRail?.update();
     const dashboardRoot = $("dashboard-view");
     if (dashboardRoot) dashboard.mount(dashboardRoot, state, render, toast);
@@ -577,8 +586,8 @@
       error: state.graphError,
       pending: state.graphPending,
       workflow: state.graphWorkflow,
-      citationPanel: window.SciInspireGraph?.renderPanel({...state.inspire, papers: scopedPapers()}, {esc, button, panel})
-    }, {esc, button, heading, panel, empty, link, route: navigation.route});
+      citationPanel: window.SciInspireGraph?.renderPanel({...state.inspire, papers: scopedPapers()}, {el, fragment, button, panel})
+    }, {el, fragment, button, heading, panel, empty, link, route: navigation.route});
   }
 
   let citationRequest;
@@ -845,9 +854,10 @@
 
   function search() {
     if (state.loading || state.loadError) return;
-    dialog("搜索工作区",
-      '<input id="search-query" class="query-input" type="search" placeholder="输入标题、作者、标签或笔记内容" aria-label="搜索"><div id="search-results" class="search-results"></div>'
-      );
+    dialog("搜索工作区", [
+      el("input", {id: "search-query", class: "query-input", type: "search", placeholder: "输入标题、作者、标签或笔记内容", "aria-label": "搜索"}),
+      el("div", {id: "search-results", class: "search-results"})
+    ]);
     const input = $("search-query");
 
     function update() {
@@ -906,12 +916,11 @@
     input.focus();
   }
   const E = {
-    projectBadge,
+    el, fragment, projectBadge,
     state,
     text,
     local,
     $,
-    esc,
     enc,
     request,
     projectPath,
@@ -1094,19 +1103,16 @@
     if (event.isComposing || state.loading || state.loadError) return;
     if (input.id === "wiki-query" && state.wikiQuery !== input.value) {
       state.wikiQuery = input.value;
-      /* html-sink: wikiResults() escapes all page titles/paths through esc(). */
-      $("wiki-results").innerHTML = wikiResults();
+      $("wiki-results").replaceChildren(wikiResults());
       return;
     }
     if (input.id !== "paper-query" || input.value === state.query) return;
     state.query = input.value;
     const projectID = state.project?.id || "";
     const papers = E.library.filterPapers(orderedLibraryPapers(projectID), projectID);
-    /* html-sink: libraryResults() escapes all paper titles/metadata through esc(). */
-    $("paper-results").innerHTML = libraryResults(papers, projectID);
+    $("paper-results").replaceChildren(libraryResults(papers, projectID));
     $("library-export-action").hidden = papers.length === 0;
-    /* html-sink: exportButton() renders static localized action buttons via button(). */
-    $("library-export-action").innerHTML = papers.length ? E.library.exportButton(papers) : "";
+    $("library-export-action").replaceChildren(fragment(papers.length > 0 && E.library.exportButton(papers)));
     window.SciContextRail?.update();
   }
   document.addEventListener("input", filterResults);

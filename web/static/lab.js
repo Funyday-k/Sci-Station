@@ -28,6 +28,7 @@
     const x=await res.json().catch(()=>null);
     if(!res.ok){
       const error=Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
+      error.status=res.status;
       error.session=x?.session;
       throw error;
     }

@@ -184,7 +184,7 @@
     if (advanced) {
       const budget = settings.tool_budget || toolBudgetDefaults;
       const hasNonDefaultBudget =
-        (settings.max_children !== undefined && Number(settings.max_children) !== 2) ||
+        (settings.max_children !== undefined && Number(settings.max_children) !== 1) ||
         Object.keys(toolBudgetControls).some((key) => Number(budget[key]) !== toolBudgetDefaults[key]);
       advanced.open = hasNonDefaultBudget;
     }

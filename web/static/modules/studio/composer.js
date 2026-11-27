@@ -7,7 +7,7 @@ export function mountComposerCommands({
   mention,
   mentionsAvailable,
   otherCommands,
-  meetingActions,
+  openMeetingSettings,
   $,
 }) {
   const continuousToggle = $(prefix + "-continuous-enabled");
@@ -41,7 +41,7 @@ export function mountComposerCommands({
         run() {
           $(prefix + "-continuous-options").querySelector("details").open = true;
           const input = $(prefix + "-continuous-goal");
-          if (runComposer) meetingActions.openSettings(input);
+          if (runComposer) openMeetingSettings(input);
           else input.focus();
         },
       },

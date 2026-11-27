@@ -14,7 +14,8 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   const {
     state,
     $,
-    esc,
+    el,
+    fragment,
     enc,
     request,
     projectPath,
@@ -34,26 +35,23 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   } = E;
   const copy = (zh, en) => E.text?.(zh, en) ?? zh;
   const local = (key, zh, en) => E.local?.(key, zh, en) ?? copy(zh, en);
-  const attr = (v) => esc(v ?? "");
-  const field = (label, content) => '<label class="field"><span>' + esc(label) + '</span>' + content + '</label>';
+  const field = (label, content) => el("label", {class: "field"}, el("span", {}, label), content);
 
-  function input(name, value = "", options = "") {
-    return '<input name="' + name + '" value="' + attr(value) + '" ' + options + '>';
+  function input(name, value = "", options = {}) {
+    return el("input", {name, value: value ?? "", ...options});
   }
 
-  function area(name, value = "", opts = "") {
-    return '<textarea name="' + name + '" ' + opts + '>' + esc(value) + '</textarea>';
+  function area(name, value = "", options = {}) {
+    return el("textarea", {name, ...options}, value ?? "");
   }
 
   function option(value, label, current) {
-    return '<option value="' + esc(value) + '" ' + (String(value) === String(current) ? "selected" : "") + '>' + esc(
-      label) + '</option>';
+    return el("option", {value, selected: String(value) === String(current)}, label);
   }
 
   function select(name, items, current, label = "", disabled = false) {
-    const accessibleName = label ? ' aria-label="' + esc(label) + '"' : "";
-    return '<select name="' + name + '"' + accessibleName + (disabled ? " disabled" : "") + '>' +
-      items.map(([v, l]) => option(v, l, current)).join("") + '</select>';
+    return el("select", {name, "aria-label": label || null, disabled},
+      items.map(([value, title]) => option(value, title, current)));
   }
 
   function split(s) {
@@ -61,15 +59,20 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   }
   const value = (f, name) => String(f.elements.namedItem(name)?.value || "").trim();
   const chosen = (f, name) => [...f.querySelectorAll('input[name="' + name + '"]:checked')].map(i => i.value);
-  const formStatus = () => '<p class="error" data-error role="alert"></p><p class="status" data-status role="status"></p>';
-  const formFooter = (label, del = "") => formStatus() + '<div class="form-foot">' + (del ? button(del.startsWith("project:") ?
-    local("projectArchiveAction", "归档项目", "Archive Project") : del.startsWith("paper:") ?
-      copy("从共享文献库删除", "Delete from Shared Library") : copy("删除", "Delete"), "confirm-delete", {
-      id: del,
-      kind: "bare danger"
-    }) : "") +
-    '<button type="button" class="button" data-action="close-dialog">' + esc(local("appCancel", "取消", "Cancel")) + '</button><button type="submit" class="button primary">' +
-    esc(label) + '</button></div>';
+  const formStatus = () => fragment(el("p", {class: "error", "data-error": true, role: "alert"}),
+    el("p", {class: "status", "data-status": true, role: "status"}));
+  function formFooter(label, deletion = "") {
+    let removeButton = null;
+    if (deletion) {
+      let title = copy("删除", "Delete");
+      if (deletion.startsWith("project:")) title = local("projectArchiveAction", "归档项目", "Archive Project");
+      if (deletion.startsWith("paper:")) title = copy("从共享文献库删除", "Delete from Shared Library");
+      removeButton = button(title, "confirm-delete", {id: deletion, kind: "bare danger"});
+    }
+    return fragment(formStatus(), el("div", {class: "form-foot"}, removeButton,
+      el("button", {type: "button", class: "button", "data-action": "close-dialog"}, local("appCancel", "取消", "Cancel")),
+      el("button", {type: "submit", class: "button primary"}, label)));
+  }
   let formEpoch = 0;
 
   function bindForm(onSubmit) {
@@ -108,21 +111,36 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       core = paper?.core_project_ids || [];
     const choices = state.projects.map(project => {
       const id = enc(project.id), link = paper?.project_links?.[project.id] || {};
-      return '<div data-paper-project><div class="project-choice"><label class="check"><input type="checkbox" name="project_ids" value="' +
-        esc(project.id) + '" ' + (selected.includes(project.id) ? "checked" : "") + '>' + esc(project.name) +
-        '</label><label class="check"><input type="checkbox" name="core_project_ids" value="' + esc(project.id) + '" ' +
-        (core.includes(project.id) ? "checked" : "") + '>' + esc(copy("核心文献", "Core paper")) + '</label></div>' +
-        '<details><summary>' + esc(copy(`${project.name}的阅读安排`, `Reading plan for ${project.name}`)) + '</summary><fieldset ' +
-        (selected.includes(project.id) || core.includes(project.id) ? "" : "disabled") + '>' +
-        '<label class="check"><input type="checkbox" name="pinned-' + id + '" ' +
-        (link.is_pinned ? "checked" : "") + '>' + esc(local("sidebarPin", "置顶", "Pin")) + '</label><div class="split">' +
-        field(copy("排序序号", "Sort order"), input("order-" + id, link.sort_order, 'type="number" step="1" min="-9007199254740991" max="9007199254740991" placeholder="可留空，较小值优先"')) +
-        field(copy("文献文件夹", "Paper folder"), input("folder-" + id, link.folder_path, 'maxlength="512" placeholder="例如：理论/散射"')) +
-        '</div>' + field(copy("研究用途", "Research use"), input("purpose-" + id, link.use_for?.join(", "), 'placeholder="例如：比较方法，核对推导"')) +
-        '</fieldset></details></div>';
+      return el("div", {"data-paper-project": true},
+        el("div", {class: "project-choice"},
+          el("label", {class: "check"},
+            el("input",
+              {type: "checkbox", name: "project_ids", value: project.id, checked: selected.includes(project.id)}),
+            project.name),
+          el("label", {class: "check"},
+            el("input",
+              {type: "checkbox", name: "core_project_ids", value: project.id, checked: core.includes(project.id)}),
+            copy("核心文献", "Core paper"))),
+        el("details", {}, el("summary", {}, copy(`${project.name}的阅读安排`, `Reading plan for ${project.name}`)),
+          el("fieldset", {disabled: !(selected.includes(project.id) || core.includes(project.id))},
+            el("label", {class: "check"},
+              el("input", {type: "checkbox", name: "pinned-" + id, checked: link.is_pinned}),
+              local("sidebarPin", "置顶", "Pin")),
+            el(
+              "div", {class: "split"}, field(copy("排序序号", "Sort order"), input("order-" + id, link.sort_order, {
+                type: "number",
+                step: "1",
+                min: "-9007199254740991",
+                max: "9007199254740991",
+                placeholder: "可留空，较小值优先"
+              })),
+              field(copy("文献文件夹", "Paper folder"),
+                input("folder-" + id, link.folder_path, {maxlength: "512", placeholder: "例如：理论/散射"}))),
+            field(copy("研究用途", "Research use"),
+              input("purpose-" + id, link.use_for?.join(", "), {placeholder: "例如：比较方法，核对推导"})))));
     });
-    return '<fieldset class="file-drop"><legend>' + esc(copy("收录到项目", "Add to projects")) + '</legend><div class="project-choices">' +
-      choices.join("") + '</div></fieldset>';
+    return el("fieldset", {class: "file-drop"}, el("legend", {}, copy("收录到项目", "Add to projects")),
+      el("div", {class: "project-choices"}, choices));
   }
 
   function paperImportError(error) {
@@ -134,19 +152,27 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   }
 
   function paperImportSources() {
-    return '<div class="paper-import-sources">' +
+    return el("div", {class: "paper-import-sources"},
       field(local("paperImportLink", "文献链接或标识符", "Paper link or identifier"),
-        area("identifiers", "", 'rows="2" aria-describedby="paper-link-help" placeholder="https://… / DOI / arXiv"')) +
-      '<p class="form-help" id="paper-link-help">' + esc(copy(
-        "可粘贴文章网址、PDF 链接、DOI、arXiv 编号或 INSPIRE 链接。批量导入时每行一个。",
-        "Paste an article URL, PDF link, DOI, arXiv ID or INSPIRE link. For a batch, use one per line.")) + '</p>' +
-      '<div class="paper-import-or" aria-hidden="true">' + esc(copy("或", "or")) + '</div>' +
-      '<div class="file-drop paper-file-source">' +
-      field(local("paperImportFile", "本地 PDF", "Local PDF"),
-        '<input type="file" name="pdf" accept=".pdf,application/pdf" multiple aria-describedby="paper-file-help">') +
-      '<p class="form-help" id="paper-file-help">' + esc(copy("选择或拖入一份或多份 PDF。", "Choose or drop one or more PDFs.")) + '</p>' +
-      '<button type="button" class="bare" data-clear-pdf hidden>' + esc(copy("清除文件选择", "Clear file selection")) + '</button></div>' +
-      '<p class="form-help" data-paper-source-status role="status"></p></div>';
+        area("identifiers", "",
+          {rows: "2", "aria-describedby": "paper-link-help", placeholder: "https://… / DOI / arXiv"})),
+      el("p", {class: "form-help", id: "paper-link-help"},
+        copy("可粘贴文章网址、PDF 链接、DOI、arXiv 编号或 INSPIRE 链接。批量导入时每行一个。",
+          "Paste an article URL, PDF link, DOI, arXiv ID or INSPIRE link. For a batch, use one per line.")),
+      el("div", {class: "paper-import-or", "aria-hidden": "true"}, copy("或", "or")),
+      el("div", {class: "file-drop paper-file-source"},
+        field(local("paperImportFile", "本地 PDF", "Local PDF"), el("input", {
+          type: "file",
+          name: "pdf",
+          accept: ".pdf,application/pdf",
+          multiple: true,
+          "aria-describedby": "paper-file-help"
+        })),
+        el("p", {class: "form-help", id: "paper-file-help"},
+          copy("选择或拖入一份或多份 PDF。", "Choose or drop one or more PDFs.")),
+        el("button", {type: "button", class: "bare", "data-clear-pdf": true, hidden: true},
+          copy("清除文件选择", "Clear file selection"))),
+      el("p", {class: "form-help", "data-paper-source-status": true, role: "status"}));
   }
 
   function setPaperFiles(form, files) {
@@ -159,48 +185,70 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const edit = Boolean(p);
     const base = edit ? "papers/" + enc(p.id) : "papers";
     const originalValues = new Map();
-    const bibliographicFields = field(copy("题名", "Title"), input("title", p?.title, (edit ? "required " : "") +
-      'maxlength="1000" placeholder="' + esc(copy("可从文件名或在线元数据获取", "Can be filled from the file or online metadata")) + '"')) +
-      '<div class="split">' + field("DOI", input("doi", p?.doi, 'placeholder="10.…"')) + field(copy("arXiv 编号", "arXiv ID"), input("arxiv",
-        p?.arxiv, 'placeholder="2404.10066"')) + '</div>' +
-      field(copy("原文链接", "Source URL"), input("url", p?.url, 'type="url" placeholder="https://…"'));
-    const readingFields = field(copy("作者", "Authors"), edit ?
-      area("authors", p.authors?.join("\n"), 'placeholder="' + esc(copy("每行一位作者", "One author per line")) + '"') :
-      input("authors", "", 'placeholder="' + esc(copy("多位作者用逗号分隔", "Separate authors with commas")) + '"')) +
-      '<div class="split">' + field(copy("年份", "Year"), input("year", p?.year || "", 'type="number" min="1" max="9999"')) +
-      field(copy("阅读状态", "Reading status"), select("status", Object.entries({
-        unread: statusLabel.unread, reading: statusLabel.reading, read: statusLabel.read
-      }), p?.status || "unread")) + '</div>' +
-      field(copy("标签", "Tags"), edit ? area("tags", p.tags?.join("\n"), 'placeholder="' + esc(copy("每行一个标签", "One tag per line")) + '"') :
-        input("tags", "", 'placeholder="' + esc(copy("用逗号分隔", "Separate tags with commas")) + '"')) +
-      E.library.collectionField(p) + field(copy("摘要", "Abstract"), area("abstract", p?.abstract));
-    const editDetails = () => '<details open><summary>' + esc(copy("元数据与阅读状态", "Metadata and reading status")) + '</summary>' +
-      readingFields + '<div class="split">' + field(copy("评分（0–5）", "Rating (0–5)"), input("rating", p.rating || 0, 'type="number" min="0" max="5"')) +
-      field(copy("优先级（0–5）", "Priority (0–5)"), input("priority", p.priority || 0, 'type="number" min="0" max="5"')) + '</div>' +
-      field(copy("BibTeX 引用键", "BibTeX citation key"), input("citekey", p.citekey)) +
-      field(copy("参考文献", "References"), area("references", p.references?.join("\n"),
-        'placeholder="每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"')) + '</details>' +
-      E.library.metadataFields(p) + attachProjectBoxes(p, false) +
-      button(copy("引用文献", "Cite paper"), "show-citation", {id: p.id, kind: "bare"}) +
-      button(local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-paper-bibtex", {id: p.id, kind: "bare"}) +
-      (p.project_ids?.includes(state.project?.id) ? button(copy("从当前项目移除", "Remove from Current Project"),
-        "confirm-paper-unlink", {id: p.id, kind: "bare danger"}) : "");
-    const importDetails = () => '<details class="paper-import-settings"><summary>' +
-      esc(local("paperImportOptions", "导入选项", "Import options") + (state.project ? " · " + state.project.name : "")) + '</summary>' +
-      '<label class="check"><input type="checkbox" name="lookup_metadata" checked>' +
-      esc(copy("查询在线元数据", "Look up online metadata")) + '</label>' +
-      '<label class="check"><input type="checkbox" name="fetch_pdf">' +
-      esc(copy("同时下载在线 PDF", "Also download the online PDF")) + '</label>' +
-      '<label class="check" hidden data-link-fallback><input type="checkbox" name="allow_link_only">' +
-      esc(copy("PDF 无法下载或阅读时仅保存链接", "Save the link if the PDF cannot be downloaded or read")) + '</label>' +
-      bibliographicFields + readingFields + attachProjectBoxes(null, true) + '</details>' +
-      '<button type="button" class="button" data-import-preview-button>' + esc(copy("预览文献", "Preview paper")) + '</button>' +
-      '<p data-import-preview role="status"></p><ul data-import-results aria-live="polite"></ul>';
+    const bibliographicFields = fragment(field(copy("题名", "Title"), input("title", p?.title, {
+      required: edit,
+      maxlength: 1000,
+      placeholder: copy("可从文件名或在线元数据获取", "Can be filled from the file or online metadata")
+    })),
+      el("div", {class: "split"}, field("DOI", input("doi", p?.doi, {placeholder: "10.…"})),
+        field(copy("arXiv 编号", "arXiv ID"), input("arxiv", p?.arxiv, {placeholder: "2404.10066"}))),
+      field(copy("原文链接", "Source URL"), input("url", p?.url, {type: "url", placeholder: "https://…"})));
+    const readingFields = fragment(
+      field(copy("作者", "Authors"),
+        edit ? area("authors", p.authors?.join("\n"), {placeholder: copy("每行一位作者", "One author per line")}) :
+               input("authors", "", {placeholder: copy("多位作者用逗号分隔", "Separate authors with commas")})),
+      el("div", {class: "split"},
+        field(copy("年份", "Year"), input("year", p?.year || "", {type: "number", min: "1", max: "9999"})),
+        field(copy("阅读状态", "Reading status"),
+          select("status",
+            Object.entries({unread: statusLabel.unread, reading: statusLabel.reading, read: statusLabel.read}),
+            p?.status || "unread"))),
+      field(copy("标签", "Tags"),
+        edit ? area("tags", p.tags?.join("\n"), {placeholder: copy("每行一个标签", "One tag per line")}) :
+               input("tags", "", {placeholder: copy("用逗号分隔", "Separate tags with commas")})),
+      E.library.collectionField(p), field(copy("摘要", "Abstract"), area("abstract", p?.abstract)));
+    const editDetails = () =>
+      fragment(el("details", {open: true},
+                 el("summary", {}, copy("元数据与阅读状态", "Metadata and reading status")), readingFields,
+                 el("div", {class: "split"},
+                   field(copy("评分（0–5）", "Rating (0–5)"),
+                     input("rating", p.rating || 0, {type: "number", min: "0", max: "5"})),
+                   field(copy("优先级（0–5）", "Priority (0–5)"),
+                     input("priority", p.priority || 0, {type: "number", min: "0", max: "5"}))),
+                 field(copy("BibTeX 引用键", "BibTeX citation key"), input("citekey", p.citekey)),
+                 field(copy("参考文献", "References"),
+                   area("references", p.references?.join("\n"),
+                     {placeholder: "每行一条，可填写引用文本、DOI、arXiv 编号或 BibTeX 引用键"}))),
+        E.library.metadataFields(p), attachProjectBoxes(p, false),
+        button(copy("引用文献", "Cite paper"), "show-citation", {id: p.id, kind: "bare"}),
+        button(local("menuExportBibTeX", "导出 BibTeX", "Export BibTeX"), "export-paper-bibtex",
+          {id: p.id, kind: "bare"}),
+        p.project_ids?.includes(state.project?.id) ? button(copy("从当前项目移除", "Remove from Current Project"),
+                                                       "confirm-paper-unlink", {id: p.id, kind: "bare danger"}) :
+                                                     "");
+    const importDetails = () => fragment(
+      el("details", {class: "paper-import-settings"},
+        el("summary", {},
+          local("paperImportOptions", "导入选项", "Import options") +
+            (state.project ? " · " + state.project.name : "")),
+        el("label", {class: "check"}, el("input", {type: "checkbox", name: "lookup_metadata", checked: true}),
+          copy("查询在线元数据", "Look up online metadata")),
+        el("label", {class: "check"}, el("input", {type: "checkbox", name: "fetch_pdf"}),
+          copy("同时下载在线 PDF", "Also download the online PDF")),
+        el("label", {class: "check", hidden: true, "data-link-fallback": true},
+          el("input", {type: "checkbox", name: "allow_link_only"}),
+          copy("PDF 无法下载或阅读时仅保存链接", "Save the link if the PDF cannot be downloaded or read")),
+        bibliographicFields, readingFields, attachProjectBoxes(null, true)),
+      el("button", {type: "button", class: "button", "data-import-preview-button": true},
+        copy("预览文献", "Preview paper")),
+      el("p", {"data-import-preview": true, role: "status"}),
+      el("ul", {"data-import-results": true, "aria-live": "polite"}));
     const title = local("paperImportTitle", "导入文献", "Import papers");
     dialog(edit ? copy("编辑文献", "Edit paper") : title,
-      '<form' + (edit ? ' data-library-paper="' + esc(p.id) + '"' : ' data-paper-intake') + '>' +
-      (edit ? bibliographicFields + editDetails() : paperImportSources() + importDetails()) +
-      formFooter(edit ? copy("保存更改", "Save changes") : title, edit ? "paper:" + p.id : "") + '</form>', {wide: true});
+      el("form", edit ? {"data-library-paper": p.id} : {"data-paper-intake": true},
+        edit ? fragment(bibliographicFields, editDetails()) : fragment(paperImportSources(), importDetails()),
+        formFooter(edit ? copy("保存更改", "Save changes") : title, edit ? "paper:" + p.id : "")),
+      {wide: true});
     const completed = new Set();
     const outcomes = new Map();
     function changed(f, name) {
@@ -541,20 +589,28 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
 
   function wikiPaperNotice(note) {
     const status = wikiPaperStatus(note);
-    if (status === "missing") return '<p data-wiki-paper-status="missing"><strong>' +
-      esc(copy("共享文献库中已找不到来源论文。", "The source paper is missing from the shared library.")) + '</strong> ' +
-      esc(copy("Wiki 仍可编辑，原论文 ID 已保留。", "This Wiki page remains editable and retains the original paper ID.")) +
-      ' <code>' + esc(note.paperId) + '</code></p>';
-    if (status === "outside_project") return '<p data-wiki-paper-status="outside_project">' +
-      esc(copy("来源论文仍在共享文献库，当前项目未关联此论文。", "The source paper remains in the shared library and is outside this project.")) + '</p>';
+    if (status === "missing")
+      return el("p", {"data-wiki-paper-status": "missing"},
+        el("strong", {},
+          copy("共享文献库中已找不到来源论文。", "The source paper is missing from the shared library.")),
+        " ",
+        copy("Wiki 仍可编辑，原论文 ID 已保留。",
+          "This Wiki page remains editable and retains the original paper ID."),
+        " ", el("code", {}, note.paperId));
+    if (status === "outside_project")
+      return el("p", {"data-wiki-paper-status": "outside_project"},
+        copy("来源论文仍在共享文献库，当前项目未关联此论文。",
+          "The source paper remains in the shared library and is outside this project."));
     return "";
   }
 
   function noteForm(n = null, moving = false, folder = "") {
     const base = projectPath("notes" + (n ? "/" + enc(n.id) : ""), n?.projectId);
-    const namespace = field("目录", input("namespace", n?.namespace ?? folder,
-      'list="wiki-folder-suggestions" maxlength="500" placeholder="例如：concept 或 methods/statistics"')) +
-      '<datalist id="wiki-folder-suggestions">' + state.wikiFolders.map(path => '<option value="' + esc(path) + '"></option>').join("") + '</datalist>';
+    const namespace = fragment(
+      field("目录",
+        input("namespace", n?.namespace ?? folder,
+          {list: "wiki-folder-suggestions", maxlength: "500", placeholder: "例如：concept 或 methods/statistics"})),
+      el("datalist", {id: "wiki-folder-suggestions"}, state.wikiFolders.map(path => el("option", {value: path}))));
     let f, current = n, saved = false, original;
     const snapshot = () => JSON.stringify([...new FormData(f).entries()]);
     const dirty = () => f && !saved && !f.dataset.pending && snapshot() !== original;
@@ -568,19 +624,34 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       event.preventDefault();
       f.requestSubmit();
     };
-    dialog(moving ? "移动 Wiki 页面" : n ? "编辑 Wiki 页面" : "新建 Wiki 页面",
-      '<form class="note-edit"><fieldset class="wiki-fields">' +
-      (moving ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' + namespace :
-        '<div class="split">' + field("标题", input("title", n?.title, 'required maxlength="240" autofocus')) + namespace + '</div>' +
-        '<details class="wiki-page-properties"><summary>' + esc(E.local?.("wikiPageProperties", "页面属性", "Page properties") ?? "页面属性") + '</summary>' +
-        field("别名", area("aliases", n?.aliases?.join("\n"), 'aria-label="别名" rows="2" placeholder="每行一个。可用目录/名称指定完整路径。"')) +
-        '<div class="split">' + field("关联论文", wikiPaperSelect(n)) +
-        field("标签", input("tags", n?.tags?.join(", "), 'placeholder="用逗号分隔"')) + '</div></details>' + wikiPaperNotice(n) +
-        '<div class="note-tools"><strong>Markdown 正文</strong><button type="button" class="bare" id="preview-toggle">预览</button></div>' +
-        wikiFormatTools() +
-        field("内容", area("body", n?.body, 'aria-label="内容" id="note-body" placeholder="支持 Markdown、数学公式和 [[concept:页面|显示文字]]"')) +
-        '<div id="draft-preview" class="note-preview" hidden></div>') +
-      '</fieldset><div data-wiki-conflict hidden></div>' + formFooter(moving ? "移动页面" : "保存页面") + '</form>', {
+    dialog(moving ? "移动 Wiki 页面" :
+        n         ? "编辑 Wiki 页面" :
+                    "新建 Wiki 页面",
+      el("form", {class: "note-edit"},
+        el("fieldset", {class: "wiki-fields"},
+          moving ?
+            fragment(el("p", {class: "form-help"}, wikiPath(n)), namespace) :
+            fragment(el("div", {class: "split"},
+                       field("标题", input("title", n?.title, {required: true, maxlength: "240", autofocus: true})),
+                       namespace),
+              el("details", {class: "wiki-page-properties"},
+                el("summary", {}, E.local?.("wikiPageProperties", "页面属性", "Page properties") ?? "页面属性"),
+                field("别名",
+                  area("aliases", n?.aliases?.join("\n"),
+                    {"aria-label": "别名", rows: "2", placeholder: "每行一个。可用目录/名称指定完整路径。"})),
+                el("div", {class: "split"}, field("关联论文", wikiPaperSelect(n)),
+                  field("标签", input("tags", n?.tags?.join(", "), {placeholder: "用逗号分隔"})))),
+              wikiPaperNotice(n),
+              el("div", {class: "note-tools"}, el("strong", {}, "Markdown 正文"),
+                el("button", {type: "button", class: "bare", id: "preview-toggle"}, "预览")),
+              wikiFormatTools(), field("内容", area("body", n?.body, {
+                "aria-label": "内容",
+                id: "note-body",
+                placeholder: "支持 Markdown、数学公式和 [[concept:页面|显示文字]]"
+              })),
+              el("div", {id: "draft-preview", class: "note-preview", hidden: true}))),
+        el("div", {"data-wiki-conflict": true, hidden: true}), formFooter(moving ? "移动页面" : "保存页面")),
+      {
         wide: !moving,
         canDismiss: () => !f?.dataset.pending && (!dirty() || window.confirm("放弃当前尚未保存的 Wiki 草稿？")),
         cleanup: () => {
@@ -644,12 +715,14 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   }
 
   function wikiFormatTools() {
-    return '<div class="actions wiki-format-tools" id="wiki-format-tools" role="group" aria-label="Markdown 格式">' +
-      Object.entries(wikiEditor.formats).map(([key, [label]]) => '<button type="button" class="button" data-format="' +
-        esc(key) + '">' + esc(label) + '</button>').join("") +
-      '<button type="button" class="button" id="wiki-add-frontmatter">添加 YAML 元数据</button>' +
-      '<select id="wiki-snippets" aria-label="插入 Markdown 片段" disabled><option value="">Markdown 片段</option></select>' +
-      '<span id="wiki-snippet-status" role="status"></span></div>';
+    return el("div",
+      {class: "actions wiki-format-tools", id: "wiki-format-tools", role: "group", "aria-label": "Markdown 格式"},
+      Object.entries(wikiEditor.formats).map(([key,
+        [label]]) => el("button", {type: "button", class: "button", "data-format": key}, label)),
+      el("button", {type: "button", class: "button", id: "wiki-add-frontmatter"}, "添加 YAML 元数据"),
+      el("select", {id: "wiki-snippets", "aria-label": "插入 Markdown 片段", disabled: true},
+        el("option", {value: ""}, "Markdown 片段")),
+      el("span", {id: "wiki-snippet-status", role: "status"}));
   }
 
   async function bindWikiFormatTools(form) {
@@ -705,39 +778,40 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
 
   function reviewedEvidence(entries, owner) {
     if (!entries?.length) return "";
-    return '<section class="task-evidence"><h3>原文证据</h3>' + entries.map(e => {
+    return el("section", {class: "task-evidence"}, el("h3", {}, "原文证据"), entries.map(e => {
       const href = window.SciEvidence.href(owner, e);
       const citation = href ? link(window.SciEvidence.label(e), href, "bare") : "";
       const meeting = e.meetingId ? link("来源会议", "/studio?project=" + enc(e.source?.projectId ?? owner) +
         "&session=" + enc(e.meetingId), "bare") : "";
-      return '<blockquote>' + esc(e.quote) + '</blockquote><div class="actions">' + citation + meeting + '</div>';
-    }).join("") + '</section>';
+      return fragment(el("blockquote", {}, e.quote), el("div", {class: "actions"}, citation, meeting));
+    }));
   }
 
   function projectSourceExcerpt(owner, kind, id, locator) {
     return request(projectPath("source-excerpts/" + kind + "/" + enc(id), owner) + "?" + window.SciEvidence.query(locator));
   }
 
-  function sourceExcerptMarkup(excerpt) {
-    return '<section class="wiki-occurrence" aria-label="引用所在原文"><p class="form-help">第 ' + esc(excerpt.line) +
-      ' 行 · 第 ' + esc(excerpt.column) + ' 列</p><pre>' + esc(excerpt.before) + '<mark>' + esc(excerpt.quote) +
-      '</mark>' + esc(excerpt.after) + '</pre></section>';
+  function sourceExcerptView(excerpt) {
+    return el("section", {class: "wiki-occurrence", "aria-label": "引用所在原文"},
+      el("p", {class: "form-help"}, "第 ", excerpt.line, " 行 · 第 ", excerpt.column, " 列"),
+      el("pre", {}, excerpt.before, el("mark", {}, excerpt.quote), excerpt.after));
   }
 
   function noteOccurrence(n, locator) {
     if (!locator?.line) return "";
     if (locator.revision && locator.revision !== n.revision) {
-      return '<p class="form-help" role="status">页面已在图谱读取后更新。刷新图谱后可重新定位原文。</p>';
+      return el("p", {class: "form-help", role: "status"}, "页面已在图谱读取后更新。刷新图谱后可重新定位原文。");
     }
     const excerpt = n.body.split(/\r\n|\r|\n/)[locator.line - 1];
     if (excerpt === undefined) return "";
     const glyphs = Array.from(excerpt), start = Math.max(0, locator.column - 1 || 0);
     const count = Array.from(locator.text || "").length;
     const at = glyphs.slice(start, start + count).join("");
-    const source = count && at === locator.text ? esc(glyphs.slice(0, start).join("")) + '<mark>' + esc(at) + '</mark>' +
-      esc(glyphs.slice(start + count).join("")) : esc(excerpt);
-    return '<section class="wiki-occurrence" aria-label="引用所在原文"><p class="form-help">第 ' + esc(locator.line) +
-      ' 行 · 第 ' + esc(start + 1) + ' 列</p><pre>' + source + '</pre></section>';
+    const source = count && at === locator.text ?
+      fragment(glyphs.slice(0, start).join(""), el("mark", {}, at), glyphs.slice(start + count).join("")) :
+      excerpt;
+    return el("section", {class: "wiki-occurrence", "aria-label": "引用所在原文"},
+      el("p", {class: "form-help"}, "第 ", locator.line, " 行 · 第 ", start + 1, " 列"), el("pre", {}, source));
   }
 
   let wikiRequest = 0, selectedWikiNote = null;
@@ -758,20 +832,28 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const paperStatus = wikiPaperStatus(n);
     const paperLink = n.paperId && paperStatus !== "missing" ? link("关联论文",
       reader(n.paperId, paperStatus === "outside_project" ? null : owner), "button", "book") : "";
-    dialog(n.title, (n.namespace ? '<p class="form-help">' + esc(wikiPath(n)) + '</p>' : "") + '<div class="actions">' +
-      button("编辑页面", "edit-note", {id: n.id, kind: "button primary", glyph: "file"}) +
-      button("移动页面", "move-note", {id: n.id}) +
-      button("归档页面", "confirm-delete", {id: "note:" + n.id, kind: "button"}) +
-      link("页面链接", noteURL, "button") +
-      link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import") +
-      (n.sourceMeetingId ? link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button", "chat") : "") +
-      paperLink + '</div>' + wikiPaperNotice(n) +
-      (excerpt ? sourceExcerptMarkup(excerpt) : noteOccurrence(n, locator)) +
-      (frontmatter ? '<details class="wiki-frontmatter"><summary>Markdown 元数据</summary>' +
-        '<div id="wiki-metadata" aria-live="polite"></div><details><summary>原始 YAML</summary><pre>' +
-        esc(frontmatter) + '</pre></details></details>' : "") +
-      '<article class="note-preview" id="note-preview"></article><p class="form-help" id="wiki-link-status" role="status"></p>' +
-      reviewedEvidence(n.evidence, owner) + '<div id="backlinks"></div>', {wide: true});
+    dialog(n.title,
+      fragment(n.namespace ? el("p", {class: "form-help"}, wikiPath(n)) : "",
+        el("div", {class: "actions"},
+          button("编辑页面", "edit-note", {id: n.id, kind: "button primary", glyph: "file"}),
+          button("移动页面", "move-note", {id: n.id}),
+          button("归档页面", "confirm-delete", {id: "note:" + n.id, kind: "button"}),
+          link("页面链接", noteURL, "button"),
+          link("导出 Markdown", "/api/research/" + base + "/markdown", "button", "import"),
+          n.sourceMeetingId ?
+            link("来源会议", "/studio?project=" + enc(owner) + "&session=" + enc(n.sourceMeetingId), "button",
+              "chat") :
+            "",
+          paperLink),
+        wikiPaperNotice(n), excerpt ? sourceExcerptView(excerpt) : noteOccurrence(n, locator),
+        frontmatter ? el("details", {class: "wiki-frontmatter"}, el("summary", {}, "Markdown 元数据"),
+                        el("div", {id: "wiki-metadata", "aria-live": "polite"}),
+                        el("details", {}, el("summary", {}, "原始 YAML"), el("pre", {}, frontmatter))) :
+                      "",
+        el("article", {class: "note-preview", id: "note-preview"}),
+        el("p", {class: "form-help", id: "wiki-link-status", role: "status"}), reviewedEvidence(n.evidence, owner),
+        el("div", {id: "backlinks"})),
+      {wide: true});
     const preview = $("note-preview"), backlinks = $("backlinks"), status = $("wiki-link-status");
     renderWikiMarkdown(preview, body);
     const revision = "?revision=" + enc(n.revision);
@@ -801,10 +883,14 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const owner = state.project.id;
     const notes = await request(projectPath("notes", owner) + "?archived=1");
     if (state.project?.id !== owner) return;
-    dialog("已归档 Wiki 页面", notes.length ? notes.map(n => '<div class="row"><span class="row-main">' +
-      esc(wikiPath(n)) + '</span>' + link("导出 Markdown", "/api/research/" + projectPath("notes/" + enc(n.id) + "/markdown", owner) +
-        "?archived=1", "button") + button("恢复", "restore-note", {id: n.id + ":" + n.revision}) + '</div>').join("") :
-      empty("暂无已归档页面"));
+    dialog("已归档 Wiki 页面",
+      notes.length ?
+        notes.map(
+          n => el("div", {class: "row"}, el("span", {class: "row-main"}, wikiPath(n)),
+            link("导出 Markdown",
+              "/api/research/" + projectPath("notes/" + enc(n.id) + "/markdown", owner) + "?archived=1", "button"),
+            button("恢复", "restore-note", {id: n.id + ":" + n.revision}))) :
+        empty("暂无已归档页面"));
   }
 
   function taskEvidence(t) {
@@ -813,8 +899,12 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
 
   function wikiFolderForm() {
     const owner = state.project.id;
-    dialog("新建 Wiki 目录", '<form>' + field("目录路径", input("path", "",
-      'required autofocus maxlength="500" placeholder="例如：methods/statistics"')) + formFooter("创建目录") + '</form>');
+    dialog("新建 Wiki 目录",
+      el("form", {},
+        field("目录路径",
+          input("path", "",
+            {required: true, autofocus: true, maxlength: "500", placeholder: "例如：methods/statistics"})),
+        formFooter("创建目录")));
     bindForm(async (f, token) => {
       await request(projectPath("wiki/folders", owner), {
         method: "POST", body: {path: value(f, "path")}
@@ -829,11 +919,18 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const records = state.notes.filter(n => n.namespace?.toLowerCase() === path.toLowerCase());
     const children = state.wikiFolders.filter(folder => folder.toLowerCase().startsWith(path.toLowerCase() + "/") &&
       !folder.slice(path.length + 1).includes("/"));
-    dialog(path, '<div class="actions">' + button("在此目录新建页面", "new-note", {id: path, glyph: "plus"}) + '</div>' +
-      (children.length ? '<div class="subheading">子目录</div><div class="list">' + children.map(folder =>
-        button(folder, "read-wiki-folder", {id: folder, kind: "search-result", glyph: "folder"})).join("") + '</div>' : "") +
-      (records.length ? '<div class="subheading">页面</div><div class="list">' + records.map(n =>
-        button(n.title, "read-note", {id: n.id, kind: "search-result", glyph: "file"})).join("") + '</div>' : empty("此目录没有页面")));
+    dialog(path,
+      fragment(el("div", {class: "actions"}, button("在此目录新建页面", "new-note", {id: path, glyph: "plus"})),
+        children.length ? fragment(el("div", {class: "subheading"}, "子目录"),
+                            el("div", {class: "list"},
+                              children.map(folder => button(folder, "read-wiki-folder",
+                                             {id: folder, kind: "search-result", glyph: "folder"})))) :
+                          "",
+        records.length ?
+          fragment(el("div", {class: "subheading"}, "页面"),
+            el("div", {class: "list"},
+              records.map(n => button(n.title, "read-note", {id: n.id, kind: "search-result", glyph: "file"})))) :
+          empty("此目录没有页面")));
   }
 
   function paperWikiForm(selected = "") {
@@ -843,9 +940,13 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       return;
     }
     let form;
-    dialog("从论文创建 Wiki 页面", '<form>' + field("论文", '<select name="sourcePaper" aria-label="论文" required>' +
-      '<option value="">选择论文</option>' + papers.map(p => option(p.id, p.title, selected)).join("") + '</select>') +
-      formFooter("创建论文页面") + '</form>', {canDismiss: () => !form?.dataset.pending});
+    dialog("从论文创建 Wiki 页面",
+      el("form", {},
+        field("论文",
+          el("select", {name: "sourcePaper", "aria-label": "论文", required: true},
+            el("option", {value: ""}, "选择论文"), papers.map(p => option(p.id, p.title, selected)))),
+        formFooter("创建论文页面")),
+      {canDismiss: () => !form?.dataset.pending});
     form = bindForm(async (f, token) => {
       const p = papers.find(p => p.id === value(f, "sourcePaper"));
       if (!p) throw Error("请选择要关联的论文");
@@ -874,10 +975,13 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       event.preventDefault();
       f.requestSubmit();
     };
-    dialog("Markdown 片段", '<form class="note-edit"><p class="form-help">片段在此科研工作区的项目中通用。YAML 条目包含 trigger、title 和 body。</p>' +
-      (initial.parseError ? '<p role="alert" class="error">' + esc(initial.parseError) + '</p>' : "") +
-      field("片段 YAML", area("snippetYAML", initial.content, 'aria-label="片段 YAML" spellcheck="false"')) +
-      '<div data-wiki-conflict hidden></div>' + formFooter("保存片段") + '</form>', {
+    dialog("Markdown 片段",
+      el("form", {class: "note-edit"},
+        el("p", {class: "form-help"}, "片段在此科研工作区的项目中通用。YAML 条目包含 trigger、title 和 body。"),
+        initial.parseError ? el("p", {role: "alert", class: "error"}, initial.parseError) : "",
+        field("片段 YAML", area("snippetYAML", initial.content, {"aria-label": "片段 YAML", spellcheck: "false"})),
+        el("div", {"data-wiki-conflict": true, hidden: true}), formFooter("保存片段")),
+      {
         wide: true,
         canDismiss: () => !f?.dataset.pending && (!dirty() || window.confirm("放弃尚未保存的 Markdown 片段更改？")),
         cleanup: () => {
@@ -942,23 +1046,40 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const choices = catalog.tags.slice().sort((a, b) => a.name.localeCompare(b.name));
     let form;
     dialog(copy("管理任务标签", "Manage Task Tags"),
-      '<form class="task-tag-manager"><div class="task-tag-layout"><div class="task-tag-library">' +
-      '<button type="button" class="button" data-new-task-tag>' + esc(copy("新建标签", "New tag")) + '</button>' +
-      (choices.length ? '<ul class="task-tag-directory">' + choices.map(item =>
-        '<li><button type="button" class="button" data-task-tag-name="' + esc(item.name) +
-        '" aria-pressed="' + (item.name === name) + '">' + E.taskTagChip(item.name, item.definition) + '</button></li>').join("") + '</ul>' :
-        '<p class="form-help">' + esc(copy("还没有任务标签。", "No task tags yet.")) + '</p>') +
-      '</div><div>' +
-      field(copy("标签名称", "Tag name"), input("tagName", name, 'required maxlength="80"' + (tag ? ' readonly' : ' autofocus'))) +
-      '<div class="split">' + field(copy("背景色", "Background color"), input("color", colors.color, 'type="color"')) +
-      field(copy("文字色", "Text color"), input("textColor", colors.textColor, 'type="color"')) + '</div>' +
-      '<div class="task-tag-preview" data-task-tag-preview></div>' +
-      (tag?.inUse && tag.definition ? '<p class="form-help">' +
-        esc(copy("删除自定义标签后，已关联的任务仍保留此标签，并恢复默认颜色。", "Tasks keep this tag in its default colors when you delete its custom definition.")) + '</p>' : "") +
-      '</div></div>' + formStatus() + '<div class="form-foot">' +
-      '<button type="submit" value="set" class="button primary">' + esc(copy("保存标签", "Save tag")) + '</button>' +
-      (tag?.definition ? '<button type="submit" value="delete" class="bare danger">' + esc(copy("删除自定义标签", "Delete custom tag")) + '</button>' : "") +
-      '</div></form>',
+      el("form", {class: "task-tag-manager"},
+        el("div", {class: "task-tag-layout"},
+          el("div", {class: "task-tag-library"},
+            el("button", {type: "button", class: "button", "data-new-task-tag": true}, copy("新建标签", "New tag")),
+            choices.length ? el("ul", {class: "task-tag-directory"},
+                               choices.map(item =>
+                                             el("li", {},
+                                               el(
+                                                 "button", {
+                                                   type: "button",
+                                                   class: "button",
+                                                   "data-task-tag-name": item.name,
+                                                   "aria-pressed": String(item.name === name)
+                                                 },
+                                                 E.taskTagChip(item.name, item.definition))))) :
+                             el("p", {class: "form-help"}, copy("还没有任务标签。", "No task tags yet."))),
+          el("div", {},
+            field(copy("标签名称", "Tag name"),
+              input("tagName", name, {required: true, maxlength: 80, readonly: Boolean(tag), autofocus: !tag})),
+            el("div", {class: "split"},
+              field(copy("背景色", "Background color"), input("color", colors.color, {type: "color"})),
+              field(copy("文字色", "Text color"), input("textColor", colors.textColor, {type: "color"}))),
+            el("div", {class: "task-tag-preview", "data-task-tag-preview": true}),
+            tag?.inUse && tag.definition ?
+              el("p", {class: "form-help"},
+                copy("删除自定义标签后，已关联的任务仍保留此标签，并恢复默认颜色。",
+                  "Tasks keep this tag in its default colors when you delete its custom definition.")) :
+              "")),
+        formStatus(),
+        el("div", {class: "form-foot"},
+          el("button", {type: "submit", value: "set", class: "button primary"}, copy("保存标签", "Save tag")),
+          tag?.definition ? el("button", {type: "submit", value: "delete", class: "bare danger"},
+                              copy("删除自定义标签", "Delete custom tag")) :
+                            "")),
       {wide: true, canDismiss: () => !form?.dataset.pending});
     form = bindForm(async (f, _, submit) => {
       const operation = submit.value === "delete" ? "delete" : "set";
@@ -997,30 +1118,44 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const members = t?.projectIds || (member ? [member] : []);
     const hiddenMembers = members.filter(id => !state.projects.some(project => project.id === id));
     const paperIds = t?.relatedPaperIds || (t?.paperId ? [t.paperId] : []);
-    const multi = (label, name, choices, selected) => '<fieldset class="task-picker"><legend>' + esc(label) +
-      '</legend><div class="task-options">' + choices.map(([id, title]) => '<label><input type="checkbox" name="' + name +
-        '" value="' + esc(id) + '"' + (selected.includes(id) ? " checked" : "") + '> ' + esc(title) + '</label>').join("") +
-      '</div></fieldset>';
+    const multi = (label, name, choices, selected) =>
+      el("fieldset", {class: "task-picker"}, el("legend", {}, label),
+        el("div", {class: "task-options"},
+          choices.map(
+            ([id, title]) => el("label", {},
+              el("input", {type: "checkbox", name, value: id, checked: selected.includes(id)}), " ", title))));
     const papers = state.papers.map(p => [p.id, p.title]);
     const assignedTags = t?.tags || [];
     const definitions = new Map(state.taskCatalog?.tags.map(tag => [tag.name, tag.definition]));
-    const tagChoices = E.taskTagNames(assignedTags).map(name =>
-      '<label><input type="checkbox" name="taskTagNames" value="' + esc(name) + '"' +
-      (assignedTags.includes(name) ? " checked" : "") + '> ' + E.taskTagChip(name, definitions.get(name)) + '</label>');
-    dialog(t ? "编辑任务" : "添加任务", '<form>' +
-      field("任务", input("title", t?.title, 'required autofocus maxlength="240"')) +
-      '<div class="split">' + field("类型", select("kind", [["general", "普通任务"], ["reading", "论文阅读"]], t?.kind || "general")) +
-      field("优先级", select("priority", Object.entries(E.taskPriorityLabels), t?.priority || "medium")) + '</div>' +
-      field("状态", select("status", ["open", "inProgress", "done", "cancelled"].map(id => [id, statusLabel[id]]), t?.status || "open")) +
-      '<div class="split">' + field("开始日期", input("startDate", t?.startDate, 'type="date"')) +
-      field("截止日期", input("dueDate", t?.dueDate, 'type="date"')) + '</div>' +
-      field("截止时间", input("dueTime", t?.dueTime, 'type="time"')) +
-      (state.projects.length ? multi("关联项目（可选）", "projectIds", state.projects.map(p => [p.id, p.name]), members) : "") +
-      (papers.length ? multi("关联论文", "relatedPaperIds", papers, paperIds) : "") +
-      (tagChoices.length ? '<fieldset class="task-picker"><legend>' + esc(copy("任务标签", "Task tags")) +
-        '</legend><div class="task-options">' + tagChoices.join("") + '</div></fieldset>' : "") +
-      field(copy("添加标签", "Add tags"), input("tags", "", 'placeholder="' + esc(copy("用逗号分隔", "Separate with commas")) + '"')) +
-      field("说明", area("description", t?.description)) + taskEvidence(t) + formFooter("保存任务", t ? "task:" + t.id : "") + '</form>', {wide: true});
+    const tagChoices =
+      E.taskTagNames(assignedTags)
+        .map(name => el("label", {},
+               el("input",
+                 {type: "checkbox", name: "taskTagNames", value: name, checked: assignedTags.includes(name)}),
+               " ", E.taskTagChip(name, definitions.get(name))));
+    dialog(t ? "编辑任务" : "添加任务",
+      el("form", {}, field("任务", input("title", t?.title, {required: true, autofocus: true, maxlength: "240"})),
+        el("div", {class: "split"},
+          field("类型", select("kind", [["general", "普通任务"], ["reading", "论文阅读"]], t?.kind || "general")),
+          field("优先级", select("priority", Object.entries(E.taskPriorityLabels), t?.priority || "medium"))),
+        field("状态",
+          select("status", ["open", "inProgress", "done", "cancelled"].map(id => [id, statusLabel[id]]),
+            t?.status || "open")),
+        el("div", {class: "split"}, field("开始日期", input("startDate", t?.startDate, {type: "date"})),
+          field("截止日期", input("dueDate", t?.dueDate, {type: "date"}))),
+        field("截止时间", input("dueTime", t?.dueTime, {type: "time"})),
+        state.projects.length ?
+          multi("关联项目（可选）", "projectIds", state.projects.map(p => [p.id, p.name]), members) :
+          "",
+        papers.length ? multi("关联论文", "relatedPaperIds", papers, paperIds) : "",
+        tagChoices.length ? el("fieldset", {class: "task-picker"}, el("legend", {}, copy("任务标签", "Task tags")),
+                              el("div", {class: "task-options"}, tagChoices)) :
+                            "",
+        field(copy("添加标签", "Add tags"),
+          input("tags", "", {placeholder: copy("用逗号分隔", "Separate with commas")})),
+        field("说明", area("description", t?.description)), taskEvidence(t),
+        formFooter("保存任务", t ? "task:" + t.id : "")),
+      {wide: true});
     bindForm(async (f, token) => {
       const body = {};
       for (const key of ["title", "kind", "priority", "status", "startDate", "dueDate", "dueTime", "description"]) {
@@ -1054,9 +1189,11 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
 
   function materialForm(m = null) {
     const base = projectPath("materials" + (m ? "/" + enc(m.id) : ""));
-    dialog(m ? "重命名材料" : "添加项目材料", '<form>' + (m ? field("文件名", input("name", m.name, 'required autofocus')) : field("选择文件",
-        '<input type="file" name="file" required>')) + formFooter(m ? "保存名称" : "添加文件", m ? "material:" + m.id : "") +
-      '</form>');
+    dialog(m ? "重命名材料" : "添加项目材料",
+      el("form", {},
+        m ? field("文件名", input("name", m.name, {required: true, autofocus: true})) :
+            field("选择文件", el("input", {type: "file", name: "file", required: true})),
+        formFooter(m ? "保存名称" : "添加文件", m ? "material:" + m.id : "")));
     bindForm(async (f, token) => {
       let body;
       if (m) body = {
@@ -1095,19 +1232,20 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const pdf = /^application\/pdf(?:;|$)/i.test(m.mediaType || "");
     const isText = /^text\/|json|yaml|xml|javascript/i.test(m.mediaType || "") ||
       /\.(txt|md|csv|py|tex|yml|yaml|json|tsv)$/i.test(m.name);
-    dialog(m.name, '<div class="actions">' + button("重命名或删除", "edit-material", {
-        id: m.id
-      }) + (excerpt ? button("查看完整材料", "read-material", {id:m.id}) : "") + '<a class="button" href="' + esc(url) + '" download="' + esc(m.name) +
-      '">下载文件</a></div><p class="subheading">' + esc(bytes(m.size)) + ' · ' + esc(m.mediaType) +
-      '</p>' + (excerpt ? sourceExcerptMarkup(excerpt) : '<div id="file-display"></div>'), {
-        wide: true
-      });
+    dialog(m.name,
+      fragment(el("div", {class: "actions"}, button("重命名或删除", "edit-material", {id: m.id}),
+                 excerpt ? button("查看完整材料", "read-material", {id: m.id}) : "",
+                 el("a", {class: "button", href: url, download: m.name}, "下载文件")),
+        el("p", {class: "subheading"}, bytes(m.size), " · ", m.mediaType),
+        excerpt ? sourceExcerptView(excerpt) : el("div", {id: "file-display"})),
+      {wide: true});
     if (excerpt) return;
-    const el = $("file-display");
-    if (renderFilePreview(el, { img, pdf, url, name: m.name })) return;
+    const display = $("file-display");
+    if (renderFilePreview(display, {img, pdf, url, name: m.name}))
+      return;
     else if (isText) {
       if (m.size > 2 * 1024 * 1024) {
-        el.textContent = "文件较大，可下载后查看。";
+        display.textContent = "文件较大，可下载后查看。";
         return;
       }
       const res = await fetch(url);
@@ -1115,16 +1253,26 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       const pre = document.createElement("pre");
       pre.className = "file-text";
       pre.textContent = await res.text();
-      if (el.isConnected) el.append(pre);
-    } else el.textContent = "可下载原文件并在对应应用中查看。";
+      if (display.isConnected) display.append(pre);
+    } else
+      display.textContent = "可下载原文件并在对应应用中查看。";
   }
   async function archivedProjects(trashed = false) {
     const all = await request(trashed ? "projects?trashed=1" : "projects?archived=1");
-    const rows = all.map(p => '<div class="row"><span class="row-main">' + esc(p.name) + '</span>' +
-      button(local("projectsRestore", "恢复", "Restore"), "restore-project", {id:p.id+":"+p.revision}) +
-      (trashed ? "" : button(local("projectTrashAction", "移至回收站", "Move to Trash"), "trash-project",{id:p.id+":"+p.revision})) + '</div>').join("");
-    dialog(trashed ? copy("项目回收站", "Project trash") : local("projectsArchivedTitle", "已归档项目", "Archived Projects"), (rows || empty(trashed ? copy("回收站为空", "Project trash is empty") : copy("暂无已归档项目", "No archived projects"))) +
-      button(trashed ? local("projectsArchivedTitle", "已归档项目", "Archived Projects") : copy("查看回收站", "View trash"),trashed ? "archived-projects" : "trashed-projects"));
+    const rows = all.map(
+      p => el("div", {class: "row"}, el("span", {class: "row-main"}, p.name),
+        button(local("projectsRestore", "恢复", "Restore"), "restore-project", {id: p.id + ":" + p.revision}),
+        trashed ? "" :
+                  button(local("projectTrashAction", "移至回收站", "Move to Trash"), "trash-project",
+                    {id: p.id + ":" + p.revision})));
+    dialog(trashed ? copy("项目回收站", "Project trash") :
+                     local("projectsArchivedTitle", "已归档项目", "Archived Projects"),
+      fragment(rows.length ? rows :
+                             empty(trashed ? copy("回收站为空", "Project trash is empty") :
+                                             copy("暂无已归档项目", "No archived projects")),
+        button(trashed ? local("projectsArchivedTitle", "已归档项目", "Archived Projects") :
+                         copy("查看回收站", "View trash"),
+          trashed ? "archived-projects" : "trashed-projects")));
   }
 
   function relationForm() {
@@ -1133,13 +1281,16 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       dialog("新增知识关系", empty("需要两个项目条目", "请先添加论文、笔记或任务。"));
       return;
     }
-    dialog("新增知识关系", '<form>' + field("来源条目", select("source", choices, choices[0][0])) + field("关系", select("kind", [
-      ["related", "相关"],
-      ["supports", "支持"],
-      ["contradicts", "矛盾"],
-      ["extends", "扩展"],
-      ["uses", "使用方法"]
-    ], "related")) + field("目标条目", select("target", choices, choices[1][0])) + formFooter("添加关系") + '</form>');
+    dialog("新增知识关系",
+      el("form", {}, field("来源条目", select("source", choices, choices[0][0])),
+        field("关系",
+          select("kind",
+            [
+              ["related", "相关"], ["supports", "支持"], ["contradicts", "矛盾"], ["extends", "扩展"],
+              ["uses", "使用方法"]
+            ],
+            "related")),
+        field("目标条目", select("target", choices, choices[1][0])), formFooter("添加关系")));
     bindForm(async (f, token) => {
       const source = value(f, "source"),
         target = value(f, "target");
@@ -1161,7 +1312,8 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   function removeRelation(id) {
     const edge = state.graph.edges.find(e => e.id === id);
     if (!edge) return;
-    dialog("移除知识关系", '<form><p>移除这条手工添加的关系？两个来源条目会保留。</p>' + formFooter("移除关系") + '</form>');
+    dialog("移除知识关系",
+      el("form", {}, el("p", {}, "移除这条手工添加的关系？两个来源条目会保留。"), formFooter("移除关系")));
     bindForm(async (_, token) => {
       await request(projectPath("graph/relations/" + enc(id)) + "?revision=" + enc(edge.revision), {
         method: "DELETE"
@@ -1173,9 +1325,7 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
   }
   async function browseFiles() {
     const base = projectPath("files");
-    dialog("项目目录", '<p class="status">正在读取…</p>', {
-      wide: true
-    });
+    dialog("项目目录", el("p", {class: "status"}, "正在读取…"), {wide: true});
     const box = $("dialog-content").firstElementChild;
     try {
       const files = await request(base);
@@ -1192,11 +1342,12 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       text: "",
       version: "missing"
     };
-    dialog(path ? "编辑项目文件" : "新建项目文件", '<form class="note-edit">' + field("相对路径", input("path", source.path, path ?
-        "readonly" : "required placeholder=notes.md")) + field("文本", area("text", source.text)) + formFooter(
-      "保存到项目目录") + '</form>', {
-        wide: true
-      });
+    dialog(path ? "编辑项目文件" : "新建项目文件",
+      el("form", {class: "note-edit"},
+        field("相对路径",
+          input("path", source.path, path ? {readonly: true} : {required: true, placeholder: "notes.md"})),
+        field("文本", area("text", source.text)), formFooter("保存到项目目录")),
+      {wide: true});
     bindForm(async (f, token) => {
       await request(base, {
         method: "PATCH",
@@ -1218,10 +1369,10 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
       const membership = project.member ? copy("项目文献关联将移除", "Project membership will be removed") : "";
       const pages = project.wikiPages ? copy(`${project.wikiPages} 个 Wiki 页面`, `${project.wikiPages} Wiki page(s)`) : "";
       const archived = project.archivedWikiPages ? copy(`${project.archivedWikiPages} 个归档 Wiki 页面`, `${project.archivedWikiPages} archived Wiki page(s)`) : "";
-      return '<li><strong>' + esc(project.name || project.id) + '</strong> · ' +
-        esc([state, membership, pages, archived].filter(Boolean).join(" · ")) + '</li>';
+      return el("li", {}, el("strong", {}, project.name || project.id), " · ",
+        [state, membership, pages, archived].filter(Boolean).join(" · "));
     });
-    return '<ul>' + rows.join("") + '</ul>';
+    return el("ul", {}, rows);
   }
 
   async function confirmPaperRemoval(id, project = "") {
@@ -1230,8 +1381,10 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     const preview = path + "/removal";
     const title = project ? copy("从当前项目移除", "Remove from Current Project") :
       copy("从共享文献库删除", "Delete from Shared Library");
-    dialog(title, '<p role="status" data-paper-removal-loading>' + esc(copy("正在读取影响…", "Checking impact…")) +
-      '</p><div class="form-foot">' + button(local("appCancel", "取消", "Cancel"), "close-dialog") + '</div>');
+    dialog(title,
+      fragment(
+        el("p", {role: "status", "data-paper-removal-loading": true}, copy("正在读取影响…", "Checking impact…")),
+        el("div", {class: "form-foot"}, button(local("appCancel", "取消", "Cancel"), "close-dialog"))));
     const loading = $("dialog-content").querySelector("[data-paper-removal-loading]");
     let impact;
     try {
@@ -1251,26 +1404,42 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     let details;
     if (membership) {
       const label = membership.name || membership.id;
-      details = '<p>' + esc(copy(`从项目「${label}」移除「${impact.title}」？`, `Remove “${impact.title}” from “${label}”?`)) + '</p><p>' +
-        esc(copy("此项目的核心标记、置顶和阅读安排也会移除。共享文献、附件、其他项目和 Wiki 来源引用均保留。",
-          "This project’s core status, pin and reading plan will be removed. The shared paper, attachments, other projects and Wiki source references are retained.")) + '</p>';
+      details = fragment(
+        el("p", {},
+          copy(`从项目「${label}」移除「${impact.title}」？`, `Remove “${impact.title}” from “${label}”?`)),
+        el("p", {},
+          copy("此项目的核心标记、置顶和阅读安排也会移除。共享文献、附件、其他项目和 Wiki 来源引用均保留。",
+            "This project’s core status, pin and reading plan will be removed. The shared paper, attachments, other projects and Wiki source references are retained.")));
     } else {
       const removed = [copy("文献记录", "Paper record"), impact.hasPDF && copy("本地 PDF", "Local PDF"),
         impact.hasMarkdown && copy("已保存的 Markdown 正文及其附件", "Saved Markdown and its attachments"),
         impact.annotations > 0 && copy(`${impact.annotations} 条 PDF 批注`, `${impact.annotations} PDF annotation(s)`)].filter(Boolean);
-      const tasks = impact.relatedTasks ? '<p>' + esc(copy(`${impact.relatedTasks} 项任务保留来源引用。`, `${impact.relatedTasks} task(s) will retain their source references.`)) + '</p>' : "";
-      const wiki = impact.projects.some(item => item.wikiPages || item.archivedWikiPages) ? '<p>' +
-        esc(copy("相关 Wiki 页面保留正文和原来源引用，仍可编辑。",
-          "Linked Wiki pages remain editable and retain their text and original references.")) + '</p>' : "";
-      details = '<p>' + esc(copy(`从共享文献库删除「${impact.title}」？`, `Delete “${impact.title}” from the shared library?`)) +
-        '</p><p>' + esc(copy(`将永久删除${removed.join("、")}。`, `Permanently removes the following. ${removed.join(", ")}.`)) + '</p>' +
-        paperRemovalProjects(impact.projects) + wiki + tasks + '<p>' +
-        esc(copy("历史会议和其他记录中指向该论文的链接将无法打开原文。",
-          "Links to this paper in past meetings and other records will no longer open the original source.")) + '</p>';
+      const tasks = impact.relatedTasks ?
+        el("p", {},
+          copy(`${impact.relatedTasks} 项任务保留来源引用。`,
+            `${impact.relatedTasks} task(s) will retain their source references.`)) :
+        "";
+      const wiki = impact.projects.some(item => item.wikiPages || item.archivedWikiPages) ?
+        el("p", {},
+          copy("相关 Wiki 页面保留正文和原来源引用，仍可编辑。",
+            "Linked Wiki pages remain editable and retain their text and original references.")) :
+        "";
+      details = fragment(
+        el("p", {},
+          copy(`从共享文献库删除「${impact.title}」？`, `Delete “${impact.title}” from the shared library?`)),
+        el("p", {},
+          copy(`将永久删除${removed.join("、")}。`, `Permanently removes the following. ${removed.join(", ")}.`)),
+        paperRemovalProjects(impact.projects), wiki, tasks,
+        el("p", {},
+          copy("历史会议和其他记录中指向该论文的链接将无法打开原文。",
+            "Links to this paper in past meetings and other records will no longer open the original source.")));
     }
     let form;
-    dialog(title, '<form>' + details + formFooter(project ? copy("确认移除", "Remove from Project") :
-      copy("确认从文献库删除", "Delete from Shared Library")) + '</form>', {canDismiss: () => !form?.dataset.pending});
+    dialog(title,
+      el("form", {}, details,
+        formFooter(project ? copy("确认移除", "Remove from Project") :
+                             copy("确认从文献库删除", "Delete from Shared Library"))),
+      {canDismiss: () => !form?.dataset.pending});
     form = bindForm(async (f, token) => {
       if (state.project?.id !== owner) throw Error(copy("项目已切换，请重新打开确认。", "The current project changed. Reopen the confirmation."));
       if (project) {
@@ -1308,8 +1477,13 @@ import { renderFilePreview, renderProjectFilesList } from "./files.js";
     })[kind] + "/" + enc(key), obj.projectId);
     const verb = (kind === "project" || kind === "note") ? "归档" : "删除";
     const sharedTaskNotice = kind === "task" && obj.projectIds?.length > 1 ? "这会从所有关联项目中删除同一条任务。" : "";
-    dialog(verb + label, '<form><p>确认' + verb + '“' + esc(obj.title || obj.name) + '”？' + (kind === "project" ?
-      "项目将从工作台隐藏；保留本地文件夹。" : kind === "note" ? "可从已归档页面恢复。" : sharedTaskNotice) + '</p>' + formFooter("确认" + verb) + '</form>');
+    dialog(verb + label,
+      el("form", {},
+        el("p", {}, "确认", verb, "“", obj.title || obj.name, "”？",
+          kind === "project" ? "项目将从工作台隐藏；保留本地文件夹。" :
+            kind === "note"  ? "可从已归档页面恢复。" :
+                               sharedTaskNotice),
+        formFooter("确认" + verb)));
     bindForm(async (_, token) => {
       await request(path + "?revision=" + enc(obj.revision), {
         method: "DELETE"

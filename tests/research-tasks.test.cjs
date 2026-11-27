@@ -5,35 +5,25 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const navigation = require("../web/static/workspace-nav.js");
+const {createTestDocument} = require("./lib/research-dom-fixture.cjs");
 
 function researchUI() {
+  const document = createTestDocument();
   const nodes = new Map();
   const element = id => {
-    if (!nodes.has(id)) nodes.set(id, {
-      addEventListener() {},
-      setAttribute() {},
-      replaceChildren() {},
-      classList: {
-        toggle() {},
-        add() {},
-        remove() {}
-      },
-      dataset: {}
-    });
+    if (!nodes.has(id)) nodes.set(id, document.createElement("div"));
     return nodes.get(id);
   };
+  Object.assign(document, {
+    getElementById: id => id === "dashboard-view" ? null : element(id),
+    querySelectorAll: () => [],
+    addEventListener() {}
+  });
   const context = {
-    document: {
-      getElementById: id => id === "dashboard-view" ? null : element(id),
-      querySelectorAll: () => [],
-      addEventListener() {},
-      createElement: tag => ({tagName: tag.toUpperCase(), dataset: {}, setAttribute() {}, append() {}})
-    },
+    document,
     window: {
       SciStationNav: {...navigation, update() {}},
-      RoundtableIcons: {
-        icon: () => ""
-      },
+      RoundtableIcons: {iconNode: () => null},
       addEventListener() {}
     },
     location: new URL("http://localhost/research"),
@@ -94,7 +84,8 @@ test("task editor preserves archived project membership, multiple papers and rev
     id: "task",
     projectId: "visible",
     projectIds: ["visible", "archived"],
-    title: "Original",
+    title: 'Compare "water" <samples>',
+    description: "Use <angle brackets> literally.",
     revision: 7,
     status: "open",
     tags: ["comma, kept"],
@@ -115,7 +106,7 @@ test("task editor preserves archived project membership, multiple papers and rev
     dueDate: "2026-12-02",
     dueTime: "14:30"
   };
-  let submit, saved, dialogHTML;
+  let submit, saved, dialogForm;
   const form = {
     dataset: {},
     querySelector: () => ({}),
@@ -150,7 +141,7 @@ test("task editor preserves archived project membership, multiple papers and rev
     $: () => ({
       querySelector: () => form
     }),
-    dialog(_, html) { dialogHTML = html; },
+    dialog(_, content) { dialogForm = content; },
     close() {},
     toast() {},
     refresh: async () => {},
@@ -165,10 +156,27 @@ test("task editor preserves archived project membership, multiple papers and rev
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../web/static/research-evidence.js"), "utf8"), context);
   loadESMInContext("modules/research/entry.js", context);
   await ui.formAction("edit-task", "task");
-  assert.match(dialogHTML, /<blockquote>&lt;excerpt&gt;<\/blockquote>/);
-  assert.match(dialogHTML, /name="taskTagNames" value="comma, kept" checked/);
-  assert.match(dialogHTML, /name="taskTagNames" value="review"[^]*--task-label-bg:#AABBCC;--task-label-fg:#123456/);
-  const readerLink = dialogHTML.match(/href="(\/reader\?[^"]+)"/)[1].replaceAll("&amp;", "&");
+  const descendants = node => [node, ...node.children.flatMap(descendants)];
+  const nodes = descendants(dialogForm);
+  assert.equal(dialogForm.localName, "form");
+  const control = name => nodes.find(node => node.getAttribute("name") === name);
+  assert.equal(control("title").getAttribute("value"), task.title);
+  assert.equal(control("title").hasAttribute("required"), true);
+  assert.equal(control("description").textContent, task.description);
+  assert.equal(control("description").children.length, 0);
+  assert.equal(control("dueTime").getAttribute("type"), "time");
+  assert.deepEqual(control("status").children.filter(node => node.hasAttribute("selected"))
+    .map(node => node.getAttribute("value")), ["open"]);
+  const quote = nodes.find(node => node.localName === "blockquote");
+  assert.equal(quote.textContent, "<excerpt>");
+  assert.equal(quote.children.length, 0);
+  const inputs = nodes.filter(node => node.getAttribute("name") === "taskTagNames");
+  assert.deepEqual(inputs.map(node => [node.getAttribute("value"), node.hasAttribute("checked")]),
+    [["comma, kept", true], ["review", false]]);
+  const chip = inputs[1].parentNode.children.find(node => node.classList.contains("task-label"));
+  assert.equal(chip.style.getPropertyValue("--task-label-bg"), "#AABBCC");
+  assert.equal(chip.style.getPropertyValue("--task-label-fg"), "#123456");
+  const readerLink = nodes.find(node => node.getAttribute("href")?.startsWith("/reader?")).getAttribute("href");
   const params = new URL(readerLink, "http://localhost").searchParams;
   for (const [key, value] of Object.entries({paper: "p1", project: "visible", page: "2", fingerprint: "hash", start: "0", end: "9"})) {
     assert.equal(params.get(key), value);

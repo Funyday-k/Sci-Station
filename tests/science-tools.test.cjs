@@ -67,9 +67,9 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
     append(...nodes){ this.children.push(...nodes); }
   }
   for (const match of html.matchAll(/id="([^"]+)"/g)) controls[match[1]] = new Control();
-  const papers = ["A", "B"].map(id => ({id, title: "Paper "+id, has_pdf: true}));
+  const papers = ["A", "B", "no-pdf"].map(id => ({id, title: "Paper "+id, has_pdf: id !== "no-pdf"}));
   const changes = [];
-  let finishA;
+  let finishA, rejectStatus;
   async function fetch(url, opt) {
     const route = url.replace("/api/research/", "");
     if (route === "projects") return Response.json([{id:"project", name:"Research"}]);
@@ -77,6 +77,9 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
     if (route === "projects/project/tasks") return Response.json([]);
     const preview = markdown => Response.json({
       markdown, quality:{engine:"pdfkit",hasAbstract:false,hasDisplayMath:false,missingFigures:0}
+    });
+    if (route === "tools/mineru/status") return new Promise(resolve => {
+      rejectStatus = () => resolve(Response.json({error:"Only paper A failed"}, {status:400}));
     });
     if (route === "papers/A/markdown?format=preview") return new Promise(resolve => { finishA=()=>resolve(preview("old A")); });
     if (route === "papers/B/markdown?format=preview") return preview("text B");
@@ -98,6 +101,30 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   vm.runInContext(script, ctx);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(controls.paper.value, "A");
+  const failed = controls.checkBatch.onclick();
+  rejectStatus();
+  await failed;
+  assert.equal(controls["mineru-error"].textContent, "Only paper A failed");
+  const delayed = controls.checkBatch.onclick();
+  controls.paper.value = "no-pdf"; controls.paper.onchange();
+  assert.equal(controls.checkBatch.disabled, true);
+  controls["mineru-advanced"].open = false;
+  rejectStatus();
+  await delayed;
+  assert.equal(controls.checkBatch.disabled, true);
+  assert.equal(controls["mineru-advanced"].open, false);
+  assert.equal(controls["mineru-error"].textContent, "");
+  assert.equal(controls.status.textContent, "");
+  controls.paper.value = "A"; controls.paper.onchange();
+  const pendingA = controls.checkBatch.onclick();
+  const rejectA = rejectStatus;
+  controls.paper.value = "B"; controls.paper.onchange();
+  const pendingB = controls.checkBatch.onclick();
+  rejectA(); await pendingA;
+  assert.equal(controls.checkBatch.disabled, true);
+  rejectStatus(); await pendingB;
+  assert.equal(controls.checkBatch.disabled, false);
+  controls.paper.value = "A"; controls.paper.onchange();
   const first = controls.local.onclick();
   controls.paper.value = "B"; controls.paper.onchange(); finishA(); await first;
   assert.equal(controls.result.hidden,true);

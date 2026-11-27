@@ -6,6 +6,7 @@
   const req=layout.request;
   async function loadRun() {
     await Promise.all([
+      window.SciMarkdown || layout.loadViewAssets?.("markdown"),
       window.SciLabRun || layout.loadAsset("/static/lab-run.js"),
       window.SciStationReadReview || layout.loadAsset("/static/model-read-review.js")
     ]);

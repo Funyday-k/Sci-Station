@@ -14,45 +14,47 @@
     return base + "?" + params;
   }
 
-  function renderPanel({papers, seeds, rows, pending, error}, {esc, button, panel}) {
+  function renderPanel({papers, seeds, rows, pending, error}, {el, fragment, button, panel}) {
     const label = seed => papers.find(paper => paper.id === seed)?.title || "INSPIRE " + seed.replace(/^inspire:/, "");
-    const chips = seeds.length ? '<ul class="inspire-seeds">' + seeds.map(seed =>
-      '<li><span>' + esc(label(seed)) + '</span>' + button("移除 " + label(seed), "inspire-seed-remove", {id:seed, kind:"bare"}) + "</li>"
-    ).join("") + "</ul>" : "";
+    const chips = seeds.length ? el("ul", {class:"inspire-seeds"}, seeds.map(seed =>
+      el("li", {}, el("span", {}, label(seed)), button("移除 " + label(seed), "inspire-seed-remove", {id:seed, kind:"bare"})))) : null;
     const choices = papers.filter(paper => !seeds.includes(paper.id));
-    const disabled = pending || seeds.length >= 6 ? " disabled" : "";
-    const add = '<div class="inspire-picker"><label>添加项目论文 <select id="inspire-paper"' + disabled + '><option value="">选择论文</option>' +
-      choices.map(paper => '<option value="' + esc(paper.id) + '">' + esc(paper.title) + "</option>").join("") +
-      '</select></label><label>INSPIRE 记录 <input id="inspire-record" inputmode="url" placeholder="记录编号或论文链接"' + disabled +
-      '></label>' + button("添加种子", "inspire-seed-add") + "</div>";
-    const actions = seeds.length ? '<div class="inspire-actions">' + button("查看本地与缓存", "inspire-local") +
-      button("查询 INSPIRE", "inspire-online", {kind:"button primary"}) + "</div>" : "";
+    const disabled = pending || seeds.length >= 6;
+    const add = el("div", {class:"inspire-picker"},
+      el("label", {}, "添加项目论文 ", el("select", {id:"inspire-paper", disabled},
+        el("option", {value:""}, "选择论文"), choices.map(paper => el("option", {value:paper.id}, paper.title)))),
+      el("label", {}, "INSPIRE 记录 ", el("input", {id:"inspire-record", inputmode:"url", placeholder:"记录编号或论文链接", disabled})),
+      button("添加种子", "inspire-seed-add"));
+    const actions = seeds.length ? el("div", {class:"inspire-actions"}, button("查看本地与缓存", "inspire-local"),
+      button("查询 INSPIRE", "inspire-online", {kind:"button primary"})) : null;
     const result = (rows || []).map(row => {
       const localNodes = new Map(row.local.nodes.map(node => [node.id, node]));
       const externalPaper = entry => {
         const p = entry.paper, href = "https://inspirehep.net/literature/" + encodeURIComponent(p.id);
         const detail = [p.year, p.citations ? p.citations + " 次被引" : ""].filter(Boolean).join(" · ");
-        return '<li><a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(p.title) + "</a>" +
-          (detail ? ' <small>' + esc(detail) + '</small>' : "") +
-          button("设为种子", "inspire-seed-add", {id:"inspire:" + p.id, kind:"bare"}) + "</li>";
+        return el("li", {}, el("a", {href, target:"_blank", rel:"noopener"}, p.title),
+          detail ? fragment(" ", el("small", {}, detail)) : null,
+          button("设为种子", "inspire-seed-add", {id:"inspire:" + p.id, kind:"bare"}));
       };
       const localEntry = edge => {
         const id = edge.source === row.seed ? edge.target : edge.source;
-        return '<li>' + button(localNodes.get(id)?.label || id, "graph-open", {id, kind:"bare"}) + "</li>";
+        return el("li", {}, button(localNodes.get(id)?.label || id, "graph-open", {id, kind:"bare"}));
       };
-      const column = (title, remote, local) => '<div><h4>' + title + '</h4>' +
-        (remote?.length ? "<ol>" + remote.map(externalPaper).join("") + "</ol>" : "") +
-        (local.length ? '<p>本地记录</p><ul>' + local.map(localEntry).join("") + "</ul>" : "") +
-        (!remote?.length && !local.length ? '<p class="form-help">暂无记录</p>' : "") + '</div>';
-      const source = {inspire: "INSPIRE 在线", cache: "INSPIRE 缓存", local: "本地图谱"}[row.source];
+      const column = (title, remote, local) => el("div", {}, el("h4", {}, title),
+        remote?.length ? el("ol", {}, remote.map(externalPaper)) : null,
+        local.length ? fragment(el("p", {}, "本地记录"), el("ul", {}, local.map(localEntry))) : null,
+        !remote?.length && !local.length ? el("p", {class:"form-help"}, "暂无记录") : null);
+      const source = {inspire:"INSPIRE 在线", cache:"INSPIRE 缓存", local:"本地图谱"}[row.source];
       const time = row.fetchedAt ? new Date(row.fetchedAt).toLocaleString() : "";
       const title = row.localLabel || row.inspire?.paper?.title || label(row.seed);
-      return '<section class="inspire-result"><h3>' + esc(title) + '</h3><p class="form-help">' + esc([source, time, row.warning].filter(Boolean).join(" · ")) +
-        '</p><div class="inspire-columns">' + column("参考文献", row.inspire?.references, row.local.edges.filter(edge => edge.source === row.seed)) +
-        column("引用该论文", row.inspire?.citedBy, row.local.edges.filter(edge => edge.target === row.seed)) + "</div></section>";
-    }).join("");
-    const status = pending ? '<p class="status" role="status">正在读取引用图谱…</p>' : error ? '<p class="status" role="alert">' + esc(error) + '</p>' : "";
-    return panel("INSPIRE 引用图谱", add + chips + actions + status + result);
+      return el("section", {class:"inspire-result"}, el("h3", {}, title),
+        el("p", {class:"form-help"}, [source, time, row.warning].filter(Boolean).join(" · ")),
+        el("div", {class:"inspire-columns"}, column("参考文献", row.inspire?.references, row.local.edges.filter(edge => edge.source === row.seed)),
+          column("引用该论文", row.inspire?.citedBy, row.local.edges.filter(edge => edge.target === row.seed))));
+    });
+    const status = pending ? el("p", {class:"status", role:"status"}, "正在读取引用图谱…") :
+      error ? el("p", {class:"status", role:"alert"}, error) : null;
+    return panel("INSPIRE 引用图谱", fragment(add, chips, actions, status, result));
   }
 
   const api = Object.freeze({lookupPath, publicSeed, renderPanel});

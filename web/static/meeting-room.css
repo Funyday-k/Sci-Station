@@ -167,7 +167,6 @@
 }
 .seat.active .seat-indicator {
   background: var(--success);
-  animation: breathe 1.3s infinite;
 }
 .seat.error .seat-indicator {
   background: var(--danger);
@@ -252,7 +251,10 @@
 .message-time {
   font-size: var(--text-xs);
   opacity: 0;
-  transition: opacity 0.12s;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .seat.active .seat-indicator { animation: breathe 1.3s infinite; }
+  .message-time { transition: opacity 0.12s; }
 }
 .message:hover .message-time,
 .message:focus-within .message-time {
@@ -405,13 +407,6 @@
   font-size: var(--text-md);
   padding: 11px 14px;
   resize: vertical;
-}
-.composer-bottom {
-  max-width: 960px;
-  margin: 10px auto 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 .target-control {
   display: flex;
@@ -858,19 +853,6 @@
   max-height: 300px;
   overflow: auto;
 }
-.page,
-.conversation-pane {
-  flex-shrink: 1;
-}
-.page-scroll,
-#table-scroll {
-  flex: 1 1 0%;
-  min-width: 0;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-}
 .chat-header {
   display: flex;
   flex-direction: column;
@@ -1053,18 +1035,6 @@
   font-size: var(--text-sm);
   border-radius: var(--radius-sm);
   background-color: var(--bg-surface);
-}
-.discussion-access,
-.input-limit {
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
-  white-space: nowrap;
-}
-.input-limit.over-limit {
-  color: var(--danger);
-}
-.composer-actions .input-limit {
-  align-self: center;
 }
 .round-discussion-context {
   margin: 6px 0 14px;

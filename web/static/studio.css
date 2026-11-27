@@ -224,7 +224,9 @@ a {
   overflow: auto;
   padding: 24px 30px 32px;
   scrollbar-width: thin;
-  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .page-scroll { scroll-behavior: smooth; }
 }
 .page-heading {
   display: flex;
@@ -361,13 +363,6 @@ a {
   .page-scroll {
     padding-left: 13px;
     padding-right: 13px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none;
-    animation: none;
-    scroll-behavior: auto;
   }
 }
 @container (max-width: 760px) {
@@ -667,4 +662,70 @@ body {
 
 .session-recovery li > * {
   display: block;
+}
+
+/* The draft and live room share the pane and composer controls. */
+.main,
+.page,
+.table-page,
+.conversation-pane,
+.files-page,
+.editor-pane,
+.file-sidebar,
+.sidebar,
+.children-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.sidebar > .new-button,
+.sidebar > .history-label,
+.composer,
+.review-heading,
+.editor-toolbar {
+  flex-shrink: 0;
+}
+.page,
+.conversation-pane {
+  flex-shrink: 1;
+}
+.page-scroll,
+#table-scroll {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.composer-bottom {
+  max-width: 960px;
+  margin: 10px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.discussion-access,
+.input-limit {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.input-limit.over-limit {
+  color: var(--danger);
+}
+.composer-actions .input-limit {
+  align-self: center;
+}
+.continuous-panel { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 7px 9px; background: var(--bg-surface); }
+.continuous-toggle { display: flex; align-items: center; gap: 7px; margin: 0; cursor: pointer; font-size: var(--text-sm); font-weight: 550; }
+.continuous-toggle input { margin: 0; accent-color: var(--accent); }
+.continuous-options { margin-top: 5px; }
+.continuous-options > details > summary, .continuous-checkpoint > summary { cursor: pointer; color: var(--ink-muted); font-size: var(--text-xs); }
+.continuous-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px; padding: 7px 0 2px; }
+.continuous-fields label { display: grid; gap: 3px; margin: 0; font-size: var(--text-xs); font-weight: 450; }
+.continuous-fields input, .continuous-fields textarea { width: 100%; min-width: 0; padding: 5px 7px; font-size: var(--text-sm); }
+.continuous-fields textarea { min-height: 42px; max-height: 100px; }
+@container (max-width: 700px) {
+  .continuous-fields { grid-template-columns: 1fr; }
 }

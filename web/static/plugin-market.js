@@ -668,7 +668,7 @@
     }
 
     return {
-      openMarket, closeTools, updateSession,
+      openMarket, openTools, closeTools, updateSession,
       isOpen: () => Boolean(toolsDialog?.open || confirmDialog?.open),
     };
   }
