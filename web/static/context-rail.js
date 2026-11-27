@@ -4,6 +4,13 @@
   const node=id=>document.getElementById(id);
   const text=(zh,en)=>window.SciStationI18n?.text(zh,en) ?? zh;
   const req=layout.request;
+  async function loadRun() {
+    await Promise.all([
+      window.SciLabRun || layout.loadAsset("/static/lab-run.js"),
+      window.SciStationReadReview || layout.loadAsset("/static/model-read-review.js")
+    ]);
+    return window.SciLabRun;
+  }
   const reader=()=>document.body.dataset.workspaceSurface==="reader";
   const narrow=matchMedia("(max-width:999px)");
   let selectedObject=null, requestedMode=null, requestedRoute="", returnFocus=null;
@@ -244,7 +251,9 @@
     try{snapshot=await req("/api/studio/sessions/"+encodeURIComponent(id));}
     catch(error){if(error.status===404 && ticket===generation){roomPointer(context.project,"");room=null;drawAI();return;}throw error;}
     if(ticket!==generation || runLookup!==id)return;
-    if(!window.SciLabRun.ownsRun(snapshot,projectOf(context))){
+    const runs=await loadRun();
+    if(ticket!==generation || runLookup!==id)return;
+    if(!runs.ownsRun(snapshot,projectOf(context))){
       roomPointer(context.project,"");runLookup="";room=null;
       status(text("已清除不属于当前项目的会话位置。","Cleared a conversation pointer belonging to another project."));drawAI();return;
     }
@@ -259,6 +268,8 @@
     if(!room && (!model || !effort))return;
     busy=true;status("");drawAI();
     try {
+      const runs=await loadRun();
+      if(ticket!==generation)return;
       const project=projectOf(c);
       let citation=c.citation;
       if(c.note && c.quote && c.project) {
@@ -269,8 +280,8 @@
       }
       if(c.project && c.paper && c.quote && !citation)throw Error(text("无法核对选段位置，请在阅读器中重新选择。","Select the passage again to verify its location."));
       const citations=c.project && citation ? [citation]:[];
-      const prepared=await window.SciLabRun.prepareQuestionSources(req,project,"",prompt,citations,{
-        currentPaper:c.paper || window.SciLabRun.paperFromRun(room,c.project),
+      const prepared=await runs.prepareQuestionSources(req,project,"",prompt,citations,{
+        currentPaper:c.paper || runs.paperFromRun(room,c.project),
         visiblePaperIds:c.visiblePaperIds
       });
       if(!prepared || ticket!==generation)return;
@@ -278,12 +289,12 @@
       let run=room;
       const followUp=Boolean(run);
       if(!run){
-        run=await window.SciLabRun.createSingle(req,project,message,{model,effort},"review",prepared || []);
+        run=await runs.createSingle(req,project,message,{model,effort},"review",prepared || []);
         roomPointer(c.project,run.id);
         if(ticket!==generation)return;
         room=run;
       }
-      const started=await window.SciLabRun.advance(req,run,followUp?message:"",followUp?prepared || []:[]);
+      const started=await runs.advance(req,run,followUp?message:"",followUp?prepared || []:[]);
       if(ticket!==generation)return;
       room=started;
       if(key===submittedKey && node("rail-prompt").value.trim()===prompt){node("rail-prompt").value="";draftContext=null;rememberDraft();}

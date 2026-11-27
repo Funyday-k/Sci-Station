@@ -4,6 +4,25 @@
   const url="/api/research/interface/layout";
   let state=null, writes=Promise.resolve();
   const narrow=matchMedia("(max-width:999px)");
+  const assets=new Map();
+  function loadAsset(path) {
+    if(assets.has(path))return assets.get(path);
+    const stylesheet=path.endsWith(".css");
+    const element=document.createElement(stylesheet ? "link" : "script");
+    if(stylesheet){element.rel="stylesheet";element.href=path;}
+    else element.src=path;
+    const ready=new Promise((resolve,reject)=>{
+      element.onload=resolve;
+      element.onerror=()=>{
+        assets.delete(path);
+        element.remove();
+        reject(Error(text("无法加载界面资源，请重试。","Could not load an interface resource. Please try again.")));
+      };
+      document.head.append(element);
+    });
+    assets.set(path,ready);
+    return ready;
+  }
   async function request(path,method="GET",body) {
     const options={method,cache:"no-store",headers:{Accept:"application/json"}};
     if(body!==undefined){options.headers["Content-Type"]="application/json";options.headers["X-Roundtable"]="1";options.body=JSON.stringify(body);}
@@ -192,6 +211,6 @@
   });
   updateNavigation();
   function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
-  window.SciShellLayout={request,ready,save,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
+  window.SciShellLayout={request,ready,save,loadAsset,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();
