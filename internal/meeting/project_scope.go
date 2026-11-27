@@ -18,6 +18,32 @@ func (s *Session) isGlobal() bool {
 	return s.ProjectID == "" && s.Project == ""
 }
 
+// SetAIAvailability binds new work to the supplying workspace's module
+// settings. Standalone engines can run independently of the research host.
+func (e *Engine) SetAIAvailability(enabled func(string) (bool, error)) {
+	e.aiEnabled = enabled
+}
+
+var ErrAIDisabled = fmt.Errorf("%w: 当前范围的 AI 模块已停用", ErrConflict)
+
+// CheckAI checks admission for new work in an already resolved scope.
+func (e *Engine) CheckAI(scope ProjectScope) error {
+	if e.aiEnabled == nil {
+		return nil
+	}
+	if scope.ID == "" && !scope.Global {
+		return fmt.Errorf("%w: 此圆桌未关联有效的科研项目", os.ErrPermission)
+	}
+	enabled, err := e.aiEnabled(scope.ID)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrAIDisabled
+	}
+	return nil
+}
+
 // SetProjectAccess installs the project authorization service before serving
 // requests. Its callback holds the grant while performing local file I/O.
 func (e *Engine) SetProjectAccess(access func(string, func(string) error) error) {

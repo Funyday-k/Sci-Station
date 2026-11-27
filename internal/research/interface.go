@@ -50,12 +50,12 @@ func (s *Service) InterfaceLanguage() (string, error) {
 	return language, err
 }
 
-// OnInterfaceLanguageChanged registers the desktop host's notification.
+// OnWorkspaceMenuChanged registers the desktop host's notification.
 // It runs after a successful write and outside the research service lock.
-func (s *Service) OnInterfaceLanguageChanged(listener func()) {
+func (s *Service) OnWorkspaceMenuChanged(listener func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.onInterfaceLanguageChanged = listener
+	s.onWorkspaceMenuChanged = listener
 }
 
 func (s *Service) registerInterface() {
@@ -104,6 +104,6 @@ func (s *Service) changeInterface(w http.ResponseWriter, r *http.Request) {
 		jsonFail(w, 500, "无法保存界面偏好")
 		return
 	}
-	listener = s.onInterfaceLanguageChanged
+	listener = s.onWorkspaceMenuChanged
 	jsonReply(w, 200, map[string]string{"language": in.Language})
 }

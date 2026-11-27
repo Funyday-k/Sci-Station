@@ -98,6 +98,10 @@ func (a *apiServer) resolveWorkspaceRoute(link *url.URL) (string, error) {
 	q := link.Query()
 	project := q.Get("project")
 	service, _ := a.research.(*research.Service)
+	module := routeModule(link.Path, q.Get("view"), q.Get("tab"))
+	if module == "ai-lab" && service == nil {
+		return "", errors.New("AI module settings unavailable")
+	}
 	if service != nil {
 		if project != "" && !service.HasActiveProject(project) {
 			return "/research?view=projects", nil
@@ -105,9 +109,35 @@ func (a *apiServer) resolveWorkspaceRoute(link *url.URL) (string, error) {
 		if id := q.Get("paper"); link.Path == "/reader" && id != "" && !service.HasWorkspacePaper(id, project) {
 			return libraryRoute(project), nil
 		}
-		// Workspace configurations can disable an entire module or a project
-		// override can hide it. Module state is owned by the research service.
-		module := routeModule(link.Path, q.Get("view"), q.Get("tab"))
+		sessionID := ""
+		if link.Path == "/studio" && module == "ai-lab" {
+			sessionID = q.Get("session")
+		} else if link.Path == "/lab" {
+			sessionID = q.Get("run")
+		}
+		canonical := *link
+		if sessionID != "" {
+			if a.meetings == nil {
+				return "", errors.New("AI session archive unavailable")
+			}
+			session, err := a.meetings.Get(sessionID)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return "", err
+			}
+			if err != nil || session.ProjectID == "" && session.Project != "" ||
+				project != "" && session.ProjectID != project || q.Get("scope") == "global" && session.ProjectID != "" ||
+				link.Path == "/lab" && len(session.Seats) != 1 {
+				return researchFallback(project), nil
+			}
+			if project == "" && session.ProjectID != "" {
+				project = session.ProjectID
+				if !service.HasActiveProject(project) {
+					return "/research?view=projects", nil
+				}
+				q.Set("project", project)
+				canonical.RawQuery = q.Encode()
+			}
+		}
 		if link.Path == "/research" && q.Get("view") == "" && project != "" {
 			module = "projects"
 		}
@@ -117,33 +147,22 @@ func (a *apiServer) resolveWorkspaceRoute(link *url.URL) (string, error) {
 				return "", err
 			}
 			if !enabled {
-				if project != "" && module != "projects" {
-					return "/research?project=" + url.QueryEscape(project), nil
+				if module == "projects" {
+					return "/research", nil
 				}
-				return "/research", nil
+				return researchFallback(project), nil
 			}
 		}
-		if sessionID := q.Get("session"); link.Path == "/studio" && sessionID != "" && a.meetings != nil {
-			session, err := a.meetings.Get(sessionID)
-			if errors.Is(err, os.ErrNotExist) || (err == nil && project != "" && session.ProjectID != project) {
-				fallback := url.Values{"view": {"meetings"}}
-				if project != "" {
-					fallback.Set("project", project)
-				}
-				return "/research?" + fallback.Encode(), nil
-			}
-			if err == nil && project == "" && session.ProjectID != "" {
-				if !service.HasActiveProject(session.ProjectID) {
-					return "/research?view=projects", nil
-				}
-				q.Set("project", session.ProjectID)
-				canonical := *link
-				canonical.RawQuery = q.Encode()
-				return canonical.RequestURI(), nil
-			}
-		}
+		return canonical.RequestURI(), nil
 	}
 	return link.RequestURI(), nil
+}
+
+func researchFallback(project string) string {
+	if project != "" {
+		return "/research?project=" + url.QueryEscape(project)
+	}
+	return "/research"
 }
 
 func libraryRoute(project string) string {
@@ -157,6 +176,11 @@ func routeModule(path, view, tab string) string {
 	switch path {
 	case "/reader":
 		return "pdf-reader"
+	case "/studio":
+		if view == "settings" || view == "plugins" {
+			return ""
+		}
+		return "ai-lab"
 	case "/lab":
 		return "ai-lab"
 	case "/tools":
@@ -168,6 +192,9 @@ func routeModule(path, view, tab string) string {
 		}
 		return "recommendation"
 	case "/research":
+		if view == "meetings" {
+			return "ai-lab"
+		}
 		if view == "tasks" && tab == "calendar" {
 			return "calendar"
 		}

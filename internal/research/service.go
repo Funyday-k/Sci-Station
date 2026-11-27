@@ -137,7 +137,7 @@ type Service struct {
 	newTaskReminder func(Task) (string, error)
 	retrievalWorker chan struct{}
 
-	onInterfaceLanguageChanged func()
+	onWorkspaceMenuChanged func()
 }
 
 func New(dir string) (*Service, error) {

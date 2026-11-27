@@ -85,8 +85,8 @@
   function mode(){
     const state=layout.state;
     if(!state || window.SciStationNav.isSettings?.(new URL(location.href)))return "hidden";
-    if(requestedMode)return requestedMode;
-    return state.panelPinned ? state.mode : "hidden";
+    const active = requestedMode || (state.panelPinned ? state.mode : "hidden");
+    return active === "ai" && !window.SciStationNav.aiAvailable(context?.project) ? "hidden" : active;
   }
   function update() {
     const next=contextOf(), nextKey=draftKey(next);
@@ -115,7 +115,8 @@
     body.style.setProperty("--shell-panel-width",width+"px");
     divider.setAttribute("aria-valuemin",String(lower));divider.setAttribute("aria-valuemax",String(upper));divider.setAttribute("aria-valuenow",String(width));
     node("shell-assist").setAttribute("aria-pressed",String(active==="ai"));
-    node("shell-assist").disabled=!layout.state;
+    node("shell-assist").hidden = !window.SciStationNav.aiAvailable(next.project);
+    node("shell-assist").disabled = !layout.state || node("shell-assist").hidden;
     const pinned=Boolean(layout.state?.panelPinned);
     for(const id of ["shell-pin","reader-pin"]){
       const pin=node(id);if(!pin)continue;
@@ -160,7 +161,7 @@
     } else if(c.task) {
       items.push(button(text("打开任务","Open task"),()=>window.SciResearch.formAction("edit-task",c.task)));
     }
-    items.push(button(text("询问当前视图","Ask about this view"),()=>showMode("ai")));
+    if(window.SciStationNav.aiAvailable(c.project))items.push(button(text("询问当前视图","Ask about this view"),()=>showMode("ai")));
     if(!c.paper && !c.note && !c.task){
       items.push(button(text("刷新当前视图","Refresh view"),()=>window.SciResearch?.refresh?.() ?? location.reload()));
       if(c.project)items.push(anchor(text("项目概览","Project overview"),routeLink(c,"overview")));
@@ -263,7 +264,7 @@
   }
   async function send() {
     const c=draftContext || context, prompt=node("rail-prompt").value.trim(), ticket=generation, submittedKey=key;
-    if(!prompt || busy || !moduleEnabled || c.project!==context.project || room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at))return;
+    if(!prompt || busy || !moduleEnabled || !window.SciStationNav.aiAvailable(c.project) || c.project!==context.project || room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at))return;
     const model=node("rail-model").value, effort=node("rail-effort").value;
     if(!room && (!model || !effort))return;
     busy=true;status("");drawAI();
@@ -305,6 +306,7 @@
   }
   function showMode(next,trigger=document.activeElement){
     if(!layout.state || window.SciStationNav.isSettings?.(new URL(location.href)))return;
+    if(next === "ai" && !window.SciStationNav.aiAvailable(context?.project))return;
     const previous=mode();
     if(next!=="hidden" && trigger && !trigger.closest?.("#context-rail,#reader-inspector"))returnFocus=trigger;
     requestedRoute=panelRoute();

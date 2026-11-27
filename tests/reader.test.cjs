@@ -49,6 +49,7 @@ async function mount(suffix = "", options = {}) {
   const browser = new EventTarget();
   browser.getSelection = () => null;
   browser.SciStationNav = {update() {}};
+  browser.SciStationModules = {load:async()=>({}),isEnabled:()=>true};
   const railActions = [];
   get("reader-inspector").hidden = true;
   get("notesPanel").hidden = true;
@@ -129,6 +130,7 @@ async function mount(suffix = "", options = {}) {
     };
     browser.SciStationModules = {load:async()=>({}),isEnabled:()=>false};
     browser.SciStationNav = {
+      aiAvailable: () => true,
       update() { browser.SciContextRail?.update(); },
       route(path, params) { return path + "?" + new URLSearchParams(params); },
       commitURL(url) {

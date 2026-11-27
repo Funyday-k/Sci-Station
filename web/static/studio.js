@@ -447,6 +447,15 @@
     }
   }
   function switchView(view) {
+    if (!restoringRoute && view === "table" && ["settings", "plugins"].includes(state.view)) {
+      const url = new URL(location.href);
+      if (!window.SciStationNav.aiAvailable(url.searchParams.get("project"))) return;
+      if (!state.draftOpen && !state.session) {
+        url.searchParams.delete("view");
+        location.assign(url.href);
+        return;
+      }
+    }
     closeHistoryMenu(false);
     if ($("project-dialog").open) $("project-dialog").close();
     if (view === "files") {
@@ -514,7 +523,7 @@
       : state.sessions.find((item) => item.id === state.selected);
   }
   function renderHeading() {
-    $("back-to-table").hidden = state.view !== "plugins";
+    $("back-to-table").hidden = state.view !== "plugins" || !window.SciStationNav.aiAvailable(new URL(location.href).searchParams.get("project"));
     const projectName = state.draftOpen
       ? projects.available().find(project => project.id === state.activeProject)?.name
       : "";
@@ -3063,7 +3072,9 @@
     const session=url.searchParams.get("session") || null;
     const requestedView=url.searchParams.get("view") || "table";
     const draftProject=state.activeProject==="@global" ? "" : state.activeProject;
-    if (session!==state.selected || (!session && (url.searchParams.get("project") || "")!==draftProject)) {
+    if (requestedView === "table" && (!window.SciStationNav.aiAvailable(url.searchParams.get("project")) || !state.selected && !state.draftOpen)) {
+      location.reload();
+    } else if (session!==state.selected || (!session && (url.searchParams.get("project") || "")!==draftProject)) {
       location.reload();
     } else if (state.view!==requestedView) {
       restoringRoute=true;
@@ -3263,7 +3274,8 @@
     clearError();
     state.projectListStatus = "loading";
     paintDraftProject();
-    const results = await Promise.allSettled([api("/settings"), loadHistory(), projects.load()]);
+    const settingsPage = ["settings", "plugins"].includes(requestedView);
+    const results = await Promise.allSettled(settingsPage ? [api("/settings")] : [api("/settings"), loadHistory(), projects.load()]);
     state.projectListStatus = results.slice(1).every(result => result.status === "fulfilled")
       ? "ready" : "failed";
     if (results[0].status === "fulfilled") {
@@ -3274,6 +3286,12 @@
     } else {
       $("connection-status").classList.add("offline");
       $("connection-status").textContent = "连接中断";
+    }
+    if (settingsPage) {
+      switchView(requestedView);
+      restoringRoute = false;
+      if (results[0].status === "rejected") showError(results[0].reason);
+      return;
     }
     const entry = new URL(location.href);
     const linked = entry.searchParams.get("session");

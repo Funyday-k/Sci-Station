@@ -150,7 +150,7 @@ async function main(binary) {
     await projectLink(b.id).press("ArrowRight");await modulesFor(b.id).waitFor();
     await modulesFor(a.id).locator('[data-tab-key="lab"][aria-current="page"]').waitFor();
     assert.equal(await modulesFor(a.id).locator('[data-tab-key="meetings"]').count(),0);
-    assert.equal(await modulesFor(b.id).locator('[data-tab-key="lab"]').getAttribute("href"),"/studio?project="+b.id);
+    assert.equal(await modulesFor(b.id).locator('[data-tab-key="lab"]').count(),0);
     await page.setViewportSize({width:900,height:620});
     await page.locator("#workspace-nav-toggle").click();await projectLink(b.id).waitFor();
     await projectRow(b.id).locator(".project-more").click();
@@ -331,9 +331,11 @@ async function main(binary) {
     await page.locator("#shell-pin").click();
     await page.waitForFunction(()=>window.SciShellLayout.state.panelPinned);
     await page.goto(host.origin+"/research?project="+b.id);
-    await page.waitForFunction(()=>document.body.dataset.railMode==="ai" && !!document.querySelector("#project-modules a"));
-    assert.equal(await page.locator("#rail-transcript").innerText(),"");
-    assert.equal(new URL(await page.locator("#rail-lab").getAttribute("href"),host.origin).searchParams.get("run"),null);
+    await page.waitForFunction(()=>document.body.dataset.railMode==="hidden" && !!document.querySelector("#project-modules a"));
+    assert.equal(await page.locator("#shell-assist").isVisible(), false);
+    assert.equal(await page.locator("#context-rail").isVisible(), false);
+    await page.goto(host.origin+"/research?project="+a.id);
+    await mode("ai");
     await page.setViewportSize({width:900,height:700});
     await page.locator("#context-rail").waitFor();
     await page.locator("#projectnav").waitFor({state:"hidden"});
@@ -366,13 +368,13 @@ async function main(binary) {
       await page.goto(host.origin+"/studio?project="+id);
       await response;
       const chat = page.locator("#workspace-ai-modes [data-ai-mode=single]");
-      await chat.waitFor();
       if (available) {
+        await chat.waitFor();
         await page.waitForFunction(id => document.querySelector("[data-ai-mode=single]")?.getAttribute("href") === "/lab?project="+id, id);
       } else {
-        assert.equal(await chat.getAttribute("aria-disabled"), "true");
-        assert.equal(await chat.getAttribute("href"), null);
-        assert.equal(await page.locator("[data-ai-mode=roundtable]").getAttribute("aria-current"), "page");
+        assert.equal(new URL(page.url()).pathname, "/research");
+        assert.equal(new URL(page.url()).searchParams.get("project"), id);
+        assert.equal(await chat.count(), 0);
       }
     }
     assert.deepEqual(errors,[]);assert.deepEqual(gateway.errors,[]);

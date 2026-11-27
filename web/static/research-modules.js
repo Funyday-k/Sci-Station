@@ -191,6 +191,7 @@
       snapshot = undefined;
       status.textContent = text(`无法读取模块设置。${error.message}`, `Could not load module settings. ${error.message}`);
     } finally {
+      window.dispatchEvent(new CustomEvent("sci:modules", {detail:{project:project.value, state:snapshot}}));
       loading = false;
       render();
     }
@@ -206,7 +207,6 @@
     try {
       snapshot = await change(id, snapshot.revision, patch);
       status.textContent = text("已保存", "Saved");
-      window.dispatchEvent(new CustomEvent("sci:modules", {detail: {project: id, state: snapshot}}));
     } catch (error) {
       if (error.status === 409) {
         try {
@@ -216,9 +216,11 @@
         }
         status.textContent = text("模块设置已改变。请检查当前状态后重试。", "Module settings changed. Review current values and retry.");
       } else {
+        snapshot = undefined;
         status.textContent = text(`无法保存模块设置。${error.message}`, `Could not save module settings. ${error.message}`);
       }
     } finally {
+      window.dispatchEvent(new CustomEvent("sci:modules", {detail:{project:id, state:snapshot}}));
       loading = false;
       render();
       if (focused) [...list.querySelectorAll("[data-module-control]")].find(node => node.dataset.moduleControl === focused)?.focus();

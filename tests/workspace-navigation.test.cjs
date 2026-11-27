@@ -55,6 +55,38 @@ test("AI has one global entry and explicit chat and discussion modes with option
   assert.equal(navigation.aiMode(new URL("/studio?view=settings", origin)), "");
 });
 
+test("AI commands stay unavailable until the active workspace confirms its module", async () => {
+  let complete;
+  const config = new Promise(resolve => { complete = resolve; });
+  const window = Object.assign(new EventTarget(), {SciStationModules:{load: () => config}});
+  const links = {dataset:{},replaceChildren(...items){this.items = items;}};
+  const document = {
+    getElementById:()=>null,
+    querySelector:selector => selector === "[data-workspace-nav]" ? links : null,
+    createElement:()=>({dataset:{},setAttribute(){},append(){}}),addEventListener(){}
+  };
+  const location = new URL("/research", origin);
+  const destinations = [];
+  location.assign = value => destinations.push(value);
+  const history = {state:null,replaceState(state){this.state=state;}};
+  vm.runInNewContext(read("workspace-nav.js"),{window,document,history,location,URL,URLSearchParams,CustomEvent,Event,performance,fetch:async()=>({ok:true})});
+  const nav = window.SciStationNav;
+  const visible = () => links.items.some(link=>link.dataset.section === "lab");
+  assert.equal(visible(),false);
+  nav.command("lab");
+  nav.command("roundtable");
+  assert.deepEqual(destinations,[]);
+  const moduleState = effective => ({modules:[{id:"ai-lab", effective}]});
+  window.dispatchEvent(new CustomEvent("sci:modules",{detail:{project:"",state:moduleState(false)}}));
+  complete(moduleState(true));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(visible(), false);
+  window.dispatchEvent(new CustomEvent("sci:modules",{detail:{project:"",state:moduleState(true)}}));
+  assert.equal(visible(),true);
+  nav.command("lab");
+  assert.deepEqual(destinations,["/lab?scope=global"]);
+});
+
 function mountResearch(start, sessions=[], intercept) {
   const projects = [{id:"A",name:"Solar",path:"/one"}, {id:"B",name:"Lensing",path:"/two"}];
   const papers = [{id:"p1",title:"Solar paper",project_ids:["A"]},{id:"p2",title:"Lensing paper",project_ids:["B"]}];
@@ -78,6 +110,9 @@ function mountResearch(start, sessions=[], intercept) {
   const document = {getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
   const location = {href:new URL(start, origin).href,origin};
   const window = Object.assign(new EventTarget(), {RoundtableIcons:{icon:()=>""}});
+  window.SciStationModules = {
+    load: async () => ({modules:Object.values(navigation.viewModules).map(id=>({id,effective:true}))})
+  };
   const entries = [{state:null,href:location.href}];
   let index = 0;
   const history = {

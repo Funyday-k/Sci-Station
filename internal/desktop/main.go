@@ -262,6 +262,7 @@ func startBoundWorkspace(dir string, desktop, create bool, expected rootBinding,
 			engine.SetResearchReads(api)
 		}
 	}
+	engine.SetAIAvailability(func(project string) (bool, error) { return lab.ModuleEnabled(project, "ai-lab") })
 	engine.SetManagedRootHistory(dir, binding.Paths)
 	lab.SetPathValidator(api.approvedResearchPath)
 	if marketErr == nil {

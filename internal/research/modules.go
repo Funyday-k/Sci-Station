@@ -395,8 +395,14 @@ func (s *Service) changeModules(w http.ResponseWriter, r *http.Request) {
 	if !payload(w, r, &in) {
 		return
 	}
+	var menuChanged func()
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		s.mu.Unlock()
+		if menuChanged != nil {
+			menuChanged()
+		}
+	}()
 	project := r.URL.Query().Get("project")
 	if project != "" && !found(w, s.activeModuleProject(project)) {
 		return
@@ -437,6 +443,9 @@ func (s *Service) changeModules(w http.ResponseWriter, r *http.Request) {
 			jsonFail(w, 500, "无法读取工作区模块设置")
 			return
 		}
+	}
+	if project == "" {
+		menuChanged = s.onWorkspaceMenuChanged
 	}
 	jsonReply(w, 200, s.moduleSnapshot(config, project))
 }

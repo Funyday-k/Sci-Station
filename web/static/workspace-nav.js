@@ -63,6 +63,27 @@
   let checkedProject;
   let projectAllowsChat = false;
   let modeGeneration = 0;
+  let globalGeneration = 0;
+  let globalChecked = false, projectChecked = false;
+  function aiAvailable(project = "") {
+    return project ? checkedProject === project && projectAllowsChat : enabled(globalModules, "ai-lab");
+  }
+  function checkScope(project) {
+    if (project === checkedProject) return;
+    const generation = ++modeGeneration;
+    checkedProject = project;
+    projectChecked = false;
+    projectAllowsChat = false;
+    if (!project || !window.SciStationModules) return;
+    window.SciStationModules.load(project).then(config => {
+      if (generation !== modeGeneration) return;
+      projectChecked = true;
+      projectAllowsChat = enabled(config, "ai-lab");
+      update();
+    }).catch(() => {
+      if (generation === modeGeneration) { projectChecked = true; update(); }
+    });
+  }
   function updateModes(url) {
     const modes = document.getElementById("workspace-ai-modes");
     if (!modes) return;
@@ -70,25 +91,13 @@
     modes.hidden = !current;
     if (!current) return;
     const project = url.searchParams.get("project") || "";
-    if (project && project !== checkedProject) {
-      const generation = ++modeGeneration;
-      checkedProject = project;
-      projectAllowsChat = false;
-      window.SciStationModules.load(project).then(config => {
-        if (generation !== modeGeneration) return;
-        projectAllowsChat = enabled(config, "ai-lab");
-        updateModes(currentURL());
-      }).catch(() => {
-        if (generation === modeGeneration) checkedProject = undefined;
-      });
-    }
-    const chatAvailable = project ? projectAllowsChat : globalModules && enabled(globalModules, "ai-lab");
+    const available = aiAvailable(project);
     for (const item of modes.querySelectorAll("[data-ai-mode]")) {
       const mode = item.dataset.aiMode;
-      if (mode === "single" && !chatAvailable) {
+      if (!available) {
         item.removeAttribute("href");
         item.setAttribute("aria-disabled", "true");
-        item.title = label("当前范围未启用单人对话", "Chat is unavailable in this scope");
+        item.title = label("当前范围未启用 AI", "AI is unavailable in this scope");
       } else {
         item.removeAttribute("aria-disabled");
         item.removeAttribute("title");
@@ -114,14 +123,14 @@
       ["projects", local("routeProjects","项目","Projects"), research("projects")],
       ["library", local("routeLibrary","文献库","Library"), research("papers")],
       ["calendar", local("routeCalendar","日历与任务","Calendar"), research("calendar")],
-      ["lab", "AI", modeURL(enabled(globalModules, "ai-lab") ? "single" : "roundtable")],
+      ["lab", "AI", modeURL("single")],
       ["settings", local("routeSettings","设置","Settings"), route("/studio",{view:"settings",project})]
     ].map(([key,name,href]) => ({key,name,href,active:active===key}));
   }
-  const globalSections={projects:"projects",library:"paper-library",calendar:"calendar"};
-  const viewModules={overview:"projects",papers:"paper-library",notes:"wiki",tasks:"tasks",calendar:"calendar",materials:"materials",graph:"citation-graph",recommendations:"recommendation",lab:"ai-lab",code:"code",data:"datasets",experiments:"experiments",writing:"writing",theory:"theory-notes"};
+  const globalSections={projects:"projects",library:"paper-library",calendar:"calendar",lab:"ai-lab"};
+  const viewModules={overview:"projects",papers:"paper-library",notes:"wiki",tasks:"tasks",calendar:"calendar",materials:"materials",graph:"citation-graph",recommendations:"recommendation",lab:"ai-lab",meetings:"ai-lab",code:"code",data:"datasets",experiments:"experiments",writing:"writing",theory:"theory-notes"};
   function enabled(config, id) {
-    return !config || !id || config.modules.some(module=>module.id===id && module.effective);
+    return !id || (!config && id !== "ai-lab") || config?.modules?.some(module=>module.id===id && module.effective === true) === true;
   }
   let globalModules;
   function currentURL() {
@@ -162,10 +171,19 @@
     const back = document.getElementById("workspace-settings-back");
     if (back && isSettings(url)) back.href = settingsReturnRoute();
     window.SciShellLayout?.updateNavigation();
-    updateModes(url);
-    const visible = destinations(url).filter(item=>!globalModules || enabled(globalModules,globalSections[item.key]));
-    const links=window.SciShellLayout?.top(visible) || visible;
     const project = url.searchParams.get("project");
+    checkScope(project || "");
+    const surface = document.querySelector(".workspace-region");
+    if (surface) surface.inert = Boolean(aiMode(url) && !aiAvailable(project));
+    if (aiMode(url) && (project ? projectChecked : globalChecked) && !aiAvailable(project)) {
+      location.replace(research("overview", project));
+      return;
+    }
+    updateModes(url);
+    const returnToTable = document.getElementById("back-to-table");
+    if (returnToTable) returnToTable.hidden = url.searchParams.get("view") !== "plugins" || !aiAvailable(url.searchParams.get("project"));
+    const visible = destinations(url).filter(item=>enabled(globalModules,globalSections[item.key]));
+    const links=window.SciShellLayout?.top(visible) || visible;
     const signature = JSON.stringify([links,project]);
     if (nav.dataset.signature !== signature) {
       nav.dataset.signature = signature;
@@ -217,6 +235,7 @@
     } catch (error) { window.alert(error.message); }
   }
   function command(key) {
+    if ((key === "lab" || key === "roundtable") && !aiAvailable()) return true;
     if (!window.dispatchEvent(new CustomEvent("scistation:command",{detail:key,cancelable:true}))) return true;
     if (key === "back" || key === "forward") {history[key]();return true;}
     if (key === "openWorkspace" || key === "createWorkspace" || key === "revealWorkspace" || key==="renameWorkspace" || key==="forgetWorkspace") {
@@ -254,7 +273,7 @@
     if (event.shiftKey) return "";
     return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
   }
-  const nav=Object.freeze({projectNames,projectBadge,route,research,isSettings,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
+  const nav=Object.freeze({projectNames,projectBadge,route,research,isSettings,aiAvailable,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;
@@ -309,7 +328,14 @@
       if (key && command(key)) event.preventDefault();
     });
     update();
-    if(window.SciStationModules) window.SciStationModules.load("").then(config=>{globalModules=config;update();}).catch(()=>{});
+    if (window.SciStationModules) {
+      const generation = ++globalGeneration;
+      window.SciStationModules.load("").then(config => {
+        if (generation === globalGeneration) { globalChecked = true; globalModules = config; update(); }
+      }).catch(() => {
+        if (generation === globalGeneration) { globalChecked = true; update(); }
+      });
+    }
     window.addEventListener("pageshow",event=>{
       if (event.persisted) { location.reload();return; }
       update();
@@ -337,11 +363,14 @@
     window.addEventListener("sci:language",update);
     window.addEventListener("sci:modules",event=>{
       if (!event.detail.project) {
+        globalChecked = true;
+        globalGeneration++;
         globalModules=event.detail.state;
         checkedProject=undefined;
         modeGeneration++;
       } else if (event.detail.project === checkedProject) {
         modeGeneration++;
+        projectChecked = true;
         projectAllowsChat=enabled(event.detail.state, "ai-lab");
       }
       update();

@@ -217,6 +217,56 @@ func TestWorkspaceResolutionFallsBackBeforeDomainLoads(t *testing.T) {
 
 }
 
+func TestWorkspaceAIScopesFollowModuleSettings(t *testing.T) {
+	instance, err := startWorkspace(t.TempDir(), 0, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.close()
+	api := instance.api
+	p := scienceWorkflowDecode[research.Project](t, navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Module fixture"}`, 201).Body.Bytes())
+	room := scienceWorkflowDecode[struct{ ID string }](t, navigationRequest(t, api, "POST", "/api/studio/sessions",
+		`{"topic":"Synthetic project discussion","seats":["codex"],"project_id":"`+p.ID+`"}`, 201).Body.Bytes())
+	global := scienceWorkflowDecode[struct{ ID string }](t, navigationRequest(t, api, "POST", "/api/studio/sessions",
+		`{"topic":"Synthetic global discussion","seats":["codex"],"scope":"global"}`, 201).Body.Bytes())
+	set := func(project string, enabled bool) {
+		t.Helper()
+		path := "/api/research/modules"
+		if project != "" {
+			path += "?project=" + project
+		}
+		config := scienceWorkflowDecode[struct{ Revision string }](t, navigationRequest(t, api, "GET", path, "", 200).Body.Bytes())
+		navigationRequest(t, api, "PATCH", path, `{"action":"set","id":"ai-lab","enabled":`+strconv.FormatBool(enabled)+`,"revision":"`+config.Revision+`"}`, 200)
+	}
+	check := func(path, expected string) {
+		t.Helper()
+		target, err := url.Parse(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := api.resolveWorkspaceRoute(target)
+		if err != nil || result != expected {
+			t.Fatalf("%s: got %q, %v; want %q", path, result, err, expected)
+		}
+	}
+	set(p.ID, false)
+	for _, path := range []string{"/studio?project=" + p.ID, "/lab?project=" + p.ID, "/lab?run=" + room.ID, "/studio?session=" + room.ID} {
+		check(path, "/research?project="+p.ID)
+	}
+	check("/studio?session="+global.ID, "/studio?session="+global.ID)
+	check("/studio?view=settings&project="+p.ID, "/studio?view=settings&project="+p.ID)
+	check("/studio?view=plugins", "/studio?view=plugins")
+	navigationRequest(t, api, "POST", "/api/studio/sessions/"+room.ID+"/run", `{"expected_round":0}`, 409)
+	navigationRequest(t, api, "POST", "/api/studio/sessions", `{"topic":"Synthetic project discussion","project_id":"`+p.ID+`","seats":["codex"]}`, 409)
+	set("", false)
+	for _, path := range []string{"/studio", "/lab", "/studio?scope=global", "/lab?run=" + global.ID} {
+		check(path, "/research")
+	}
+	set(p.ID, true)
+	check("/studio?session="+room.ID, "/studio?project="+p.ID+"&session="+room.ID)
+	check("/lab?run="+room.ID, "/lab?project="+p.ID+"&run="+room.ID)
+}
+
 func TestNavigationRestoresEvidenceLocatorsWithoutReplayingCommands(t *testing.T) {
 	api := openNavigationFixture(t, t.TempDir())
 	record := navigationRequest(t, api, "POST", "/api/research/projects", `{"name":"Evidence navigation fixture"}`, 201)

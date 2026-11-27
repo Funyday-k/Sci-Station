@@ -255,6 +255,7 @@ type Summary struct {
 }
 
 type Engine struct {
+	aiEnabled           func(string) (bool, error)
 	researchReads       ResearchReads
 	managedRoot         string
 	previousRoots       []string
@@ -543,6 +544,9 @@ func (e *Engine) create(topic string, scope ProjectScope, seats []string, member
 	}
 	addEvent(s, "created", "", "Created without sending a model request.")
 	err := e.locked(func() error {
+		if err := e.CheckAI(scope); err != nil {
+			return err
+		}
 		if _, err := e.bindMaterials(s, materialIDs); err != nil {
 			return err
 		}
@@ -624,6 +628,9 @@ func (e *Engine) visitSessions(visit func(*Session, *sessionstore.Unreadable)) e
 	})
 }
 func (e *Engine) snapshotSettings(session *Session) (Settings, error) {
+	if err := e.CheckAI(ProjectScope{ID: session.ProjectID, Global: session.isGlobal()}); err != nil {
+		return Settings{}, err
+	}
 	// Copy maps so configuration updates cannot mutate an active round.
 	configured := e.settings()
 	encoded, err := json.Marshal(configured)

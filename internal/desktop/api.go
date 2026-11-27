@@ -409,6 +409,10 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				fail(w, e)
 				return
 			}
+			if err := a.meetings.CheckAI(scope); err != nil {
+				fail(w, err)
+				return
+			}
 			var s *meeting.Session
 			if b.Members != nil {
 				members, err := a.validateMembers(r.Context(), b.Members)
@@ -514,6 +518,8 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case errors.Is(err, os.ErrNotExist):
 				reject(w, http.StatusNotFound, "未找到圆桌")
+			case errors.Is(err, meeting.ErrAIDisabled):
+				fail(w, err)
 			case errors.Is(err, meeting.ErrConflict):
 				reject(w, http.StatusConflict, "圆桌正在关闭，请稍后重试")
 			default:

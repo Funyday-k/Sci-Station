@@ -85,6 +85,11 @@ test("overview extracts research questions only from corresponding brief section
 test("Home and Overview render durable draft counts and keep widget order, size and visibility scoped to each root", async () => {
   const storage = new Map();
   const window = {SciStationNav: {route: (path, params) => path + "?" + new URLSearchParams(params)}};
+  const moduleIDs = ["projects","tasks","calendar","wiki","materials","paper-library","ai-lab"];
+  window.SciStationModules = {
+    load: async () => ({modules: moduleIDs.map(id => ({id,effective:true}))}),
+    isEnabled: require("../web/static/research-modules.js").isEnabled
+  };
   const js = fs.readFileSync(require.resolve("../web/static/research-dashboard.js"), "utf8");
   const browser = () => {
     vm.runInNewContext(js, {window, localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)}});
@@ -145,7 +150,7 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   assert.deepEqual(widgets(saved).slice(0, 3), [["today", "medium"], ["ai_review", "wide"], ["active_projects", "medium"]]);
   assert.doesNotMatch(saved, /data-dashboard-widget="calendar"/);
 
-  state.dashboardData = {...state.dashboardData, workspace: {id: "root-two"}, modules: {modules: [{id: "paper-library", effective: false}]}};
+  state.dashboardData = {...state.dashboardData, workspace: {id: "root-two"}, modules: {modules: moduleIDs.map(id=>({id,effective:id !== "paper-library"}))}};
   const second = app.markup(state, ui, now);
   assert.match(second, /data-dashboard-widget="calendar"/);
   assert.deepEqual(widgets(second).slice(0, 3), widgets(first).slice(0, 3));

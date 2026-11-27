@@ -126,13 +126,14 @@
     }
     document.body.classList.toggle("settings-mode", settings);
     const treeOpen = narrow.matches ? compactPanel === primary : settings ? settingsExpanded : state?.treeExpanded !== false;
-    const chatsOpen = Boolean(sessions && !settings && (narrow.matches ? compactPanel === sessions : sessionsExpanded));
+    const sessionsAvailable = sessions && !settings && window.SciStationNav.aiAvailable(url.searchParams.get("project"));
+    const chatsOpen = Boolean(sessionsAvailable && (narrow.matches ? compactPanel === sessions : sessionsExpanded));
     document.body.classList.toggle("workspace-nav-collapsed", !narrow.matches && !treeOpen);
     document.body.classList.toggle("workspace-nav-open", narrow.matches && treeOpen);
     document.body.classList.toggle("workspace-session-expanded", chatsOpen);
     setExpanded(primary, primaryToggle, treeOpen);
     if (sessions) {
-      sessionToggle.hidden = settings;
+      sessionToggle.hidden = !sessionsAvailable;
       setExpanded(sessions, sessionToggle, chatsOpen);
     }
     document.getElementById("workspace-nav-scrim").hidden = !narrow.matches || !compactPanel;

@@ -74,17 +74,17 @@
     </div>
     <div id="workspace-breadcrumb">{{block "breadcrumb" .}}<span data-workspace-location>{{.Title}}</span>{{end}}</div>
     {{if .AI}}<nav id="workspace-ai-modes" aria-label="AI 模式" data-en-aria-label="AI mode" hidden>
-      <a data-ai-mode="single" href="/lab" data-en="Chat">单人对话</a>
-      <a data-ai-mode="roundtable" href="/studio" data-en="Roundtable">圆桌讨论</a>
+      <a data-ai-mode="single" aria-disabled="true" data-en="Chat">单人对话</a>
+      <a data-ai-mode="roundtable" aria-disabled="true" data-en="Roundtable">圆桌讨论</a>
     </nav>{{end}}
     <div class="workspace-bar-end">
       <div id="workspace-tools">{{block "tools" .}}{{end}}</div>
       <div class="shell-rail-controls">
-        <button id="shell-assist" class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
+        <button id="shell-assist" disabled class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
       </div>
     </div>
   </header>
-  <div class="workspace-region">{{template "content" .}}</div>
+  <div class="workspace-region"{{if and .AI (not .Settings)}} inert{{end}}>{{template "content" .}}</div>
   <div id="project-row-menu" class="project-row-menu" role="menu" popover="manual"></div>
   <dialog id="project-editor" aria-labelledby="project-editor-title">
     <form>

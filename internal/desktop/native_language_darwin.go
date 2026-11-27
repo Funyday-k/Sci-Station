@@ -21,6 +21,7 @@ import "C"
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"time"
 	"unsafe"
 
@@ -68,18 +69,37 @@ func (instance *workspaceInstance) interfaceChoice() string {
 	return "system"
 }
 
+func (instance *workspaceInstance) globalAIEnabled() bool {
+	if instance == nil || instance.dir == "" {
+		return false
+	}
+	if instance.api != nil {
+		route, err := instance.api.resolveWorkspaceRoute(&url.URL{Path: "/lab"})
+		return err == nil && route == "/lab"
+	}
+	// A window attached to an existing service uses its ordinary route
+	// decision, with redirects disabled on this bounded local client.
+	response, err := desktopLanguageClient.Head(instance.address + "/lab")
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
 func (h *desktopHost) refreshMenu() {
 	ticket := h.languageUpdate.Add(1)
 	h.session.mu.Lock()
 	current := h.session.active
 	h.session.mu.Unlock()
 	language := resolveInterfaceLanguage(current.interfaceChoice(), preferredSystemLanguage())
+	aiEnabled := current.globalAIEnabled()
 	application.InvokeAsync(func() {
 		h.session.mu.Lock()
 		active := h.session.active == current
 		h.session.mu.Unlock()
 		if !h.closing.Load() && active && h.languageUpdate.Load() == ticket {
-			h.menu(language)
+			h.menu(language, aiEnabled)
 		}
 	})
 }
