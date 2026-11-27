@@ -391,6 +391,7 @@ async function review(app, ui, fixture, outputs) {
   const projectPath = "/api/research/projects/" + project.id;
   const reviews = () => app.request(projectPath + "/reviews?meeting=" + meeting.id);
   const notes = () => app.request(projectPath + "/notes");
+  await ui.click("#meeting-actions-toggle");
   await ui.click(".science-meeting-open", "科研记录");
   await eventually(async () => ui.evaluate(([selector, values]) => {
     const control = document.querySelector(selector);
@@ -526,6 +527,7 @@ async function reviewProjectSources(app, ui, fixture) {
       action:"create-note", title:"Reviewed project sources", body:"Review of the Wiki and material."}}, 201);
   assert.equal(pending.evidence.length, 2);
   await ui.navigate(app.origin + "/studio?project=" + project.id + "&session=" + room.id);
+  await ui.click("#meeting-actions-toggle");
   await ui.click(".science-meeting-open", "科研记录");
   await ui.visible(dialog + " a", "打开 Wiki 原文");
   await ui.visible(dialog + " a", "打开项目材料原文");

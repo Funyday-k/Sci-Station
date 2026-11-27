@@ -12,6 +12,7 @@ Development, validation, versioning, and release conventions are maintained in `
 - Highlight added, removed and context lines with `+`/`−` gutters in the CLI file-edit approval dialog using a shared `diff-view` component and unified dialog footer.
 - Navigate directly from route-only AI Lab plugin catalog entries (such as Literature recommendations) to the in-app tool with an arrow affordance, preserving project and draft context on return.
 - Consolidate the PDF Reader into two header rows (global bar with title/back/byline plus one reader toolbar with primary *Discuss selection* and a keyboard-accessible **More** menu) and adopt semantic light/dark warning tokens for reader notices.
+- Consolidate the Roundtable room to two header bars (global bar plus a single page bar holding title, status, seats, agenda, stance summary, and CLI file editing), move Research Records into the meeting overflow menu, combine conversation and viewpoints into tabs of one in-room side panel, and scope global Ask AI to the active meeting.
 - Align Home and project widgets to shared grid rows. Browse conversations in a separate sidebar and switch between single chat and Roundtable in one toolbar. The new-chat composer groups the project, files, plugins, model and supported reasoning levels. Research tools have individual views with a back action.
 - Manage the shared data and paper location in Settings. A fresh desktop installation starts with a per-user Application Support folder, while existing installations reopen their selected data directory.
 

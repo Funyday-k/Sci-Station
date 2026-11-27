@@ -552,7 +552,23 @@
     $("session-status").hidden =
       !state.session || state.session.status === "ready";
     document.title = `${title} · ${text("工作圆桌", "Roundtable")}`;
+    window.SciContextRail?.update?.();
   }
+  window.SciShellMeeting = () => {
+    const active = state.view === "table" && state.session && state.session.id === state.selected ? state.session : null;
+    if (!active) return null;
+    const seats = sessionMembers(active).map((member) => seatName(member)).filter(Boolean);
+    return {
+      id: active.id,
+      project: active.project_id || "",
+      title: sessionTitle(active),
+      topic: active.topic || "",
+      mode: $("meeting-mode-label")?.textContent?.trim() || "",
+      access: $("meeting-mode-access")?.textContent?.trim() || "",
+      status: statusText(active.status),
+      seats,
+    };
+  };
   function requestTitle(id, { force = false } = {}) {
     if (!id || !state.enteredSessions.has(id)) return Promise.resolve(null);
     const active = state.session?.id === id ? state.session : null;
@@ -1749,6 +1765,44 @@
   let chatVisible = !narrowWorkspace.matches;
   let pairedChat = false;
   let boardSourceOpener = null;
+  let roomTab = "chat";
+  const roomTabs = () => [$("room-tab-chat"), $("room-tab-opinions")].filter(Boolean);
+  function setRoomTab(next, { focus = false } = {}) {
+    roomTab = next === "opinions" ? "opinions" : "chat";
+    const chatTab = $("room-tab-chat"), opinionsTab = $("room-tab-opinions");
+    const chatPanel = $("room-panel-chat"), opinionsPanel = $("meeting-opinions");
+    const isOpinions = roomTab === "opinions";
+    if (chatTab) {
+      chatTab.setAttribute("aria-selected", String(!isOpinions));
+      chatTab.tabIndex = isOpinions ? -1 : 0;
+    }
+    if (opinionsTab) {
+      opinionsTab.setAttribute("aria-selected", String(isOpinions));
+      opinionsTab.tabIndex = isOpinions ? 0 : -1;
+    }
+    if (chatPanel) chatPanel.hidden = isOpinions;
+    if (opinionsPanel) opinionsPanel.hidden = !isOpinions;
+    if (isOpinions) {
+      const list = $("meeting-opinions-list");
+      if (list && list.children.length === 1) list.firstElementChild.open = true;
+    }
+    if (focus) (isOpinions ? opinionsTab : chatTab)?.focus({ preventScroll: true });
+  }
+  $("room-tab-chat")?.addEventListener("click", () => setRoomTab("chat"));
+  $("room-tab-opinions")?.addEventListener("click", () => setRoomTab("opinions"));
+  document.querySelector(".room-panel-tabs")?.addEventListener("keydown", (event) => {
+    const tabs = roomTabs();
+    const index = tabs.indexOf(document.activeElement);
+    if (index < 0 || !tabs.length) return;
+    let next = -1;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    if (next < 0) return;
+    event.preventDefault();
+    setRoomTab(tabs[next].id === "room-tab-opinions" ? "opinions" : "chat", { focus: true });
+  });
   function conversationInUse() {
     const focus = document.activeElement;
     return Boolean($("run-form").contains(focus) ||
@@ -1774,7 +1828,7 @@
     $("rail-to-board").hidden = !published;
     $("room-chat-toggle").hidden = !published;
     $("room-chat-toggle").setAttribute("aria-expanded", String(showChat));
-    $("room-chat-toggle").title = showChat ? "收起会议对话" : "展开会议对话";
+    $("room-chat-toggle").title = showChat ? "收起会议对话与观点" : "展开会议对话与观点";
     if (!showChat) runCommands.close();
   }
   function setChatVisible(visible, {paired = false} = {}) {
@@ -1782,13 +1836,26 @@
     pairedChat = paired;
     paintChatLayout();
   }
+  window.RoundtableRoomPanel = Object.freeze({
+    openTab(tab, { focus = false } = {}) {
+      closeChanges(false);
+      window.RoundtableChildren?.close({ restoreFocus: false });
+      setRoomTab(tab, { focus: false });
+      setChatVisible(true);
+      if (focus) (tab === "opinions" ? $("room-tab-opinions") : $("run-form").hidden ? $("room-tab-chat") : $("run-note"))?.focus({ preventScroll: true });
+    },
+    setTab: setRoomTab,
+    activeTab: () => roomTab,
+  });
   function clearBoard() {
     boardPresence.stop();
     board.clear();
     boardSourceOpener = null;
     $("board-workspace").hidden = true;
     $("setup-scroll").hidden = !state.draftOpen;
+    setRoomTab("chat");
     setChatVisible(!narrowWorkspace.matches);
+    window.SciContextRail?.update?.();
   }
   narrowWorkspace.addEventListener("change", () => {
     const keepChat = conversationInUse();
@@ -1801,10 +1868,12 @@
   }
   $("room-chat-toggle").addEventListener("click", () => {
     closeChanges(false);
-    window.RoundtableOpinions?.close({restoreFocus:false});
     window.RoundtableChildren?.close({restoreFocus:false});
     setChatVisible(!chatVisible);
-    if (chatVisible) ($("run-form").hidden ? $("rail-to-board") : $("run-note")).focus();
+    if (chatVisible) {
+      if (roomTab === "opinions") $("room-tab-opinions")?.focus();
+      else ($("run-form").hidden ? $("rail-to-board") : $("run-note")).focus();
+    }
   });
   $("rail-to-board").addEventListener("click", returnToBoard);
   function updateSession(session, {animateInitial = false} = {}) {
@@ -1816,7 +1885,10 @@
       pairedChat = narrowWorkspace.matches && conversationInUse();
       chatVisible = !narrowWorkspace.matches || pairedChat;
     }
-    if (state.session?.id !== session.id) resetRoomDisclosures();
+    if (state.session?.id !== session.id) {
+      resetRoomDisclosures();
+      setRoomTab("chat");
+    }
     state.session = session;
     window.SciStationReadReview?.update($("studio-read-review"), session);
     state.selected = session.id;
@@ -3422,15 +3494,14 @@
       if (row) { row.tabIndex = -1; row.focus(); }
       else $("agenda-toggle").focus();
     },
-    onOpinions() { if ($("meeting-opinions").hidden) $("opinions-toggle").click(); },
+    onOpinions() { window.RoundtableRoomPanel.openTab("opinions", { focus: true }); },
     onSource(source, opener) {
       boardSourceOpener = opener;
       window.RoundtableReferences.jump(source.round,source.seat,source.model || undefined);
     },
     onChat(opener) {
       boardSourceOpener = opener;
-      setChatVisible(true);
-      ($("run-form").hidden ? $("rail-to-board") : $("run-note")).focus();
+      window.RoundtableRoomPanel.openTab("chat", { focus: true });
     },
     onRetry() { window.MeetingAgenda.retry(); },
   });

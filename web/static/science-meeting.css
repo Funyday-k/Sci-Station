@@ -1,8 +1,13 @@
 .science-meeting-open {
-  font: inherit; font-size: 12px; font-weight: 550; background: transparent; color: var(--accent, #64558b);
+  font: inherit; font-size: 12px; font-weight: 550; background: transparent; color: var(--accent);
   border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 7px;
   padding: 5px 9px; white-space: nowrap; cursor: pointer;
 }
+.meeting-menu-commands .science-meeting-open {
+  width: 100%; border: 0; border-radius: 6px; padding: 7px 9px;
+  color: var(--ink); font-weight: 400; text-align: left;
+}
+.meeting-menu-commands .science-meeting-open:hover { background: var(--editor); }
 .science-meeting-dialog { box-sizing: border-box; color: CanvasText; background: Canvas; width: min(580px, 92vw); max-height: 86dvh; padding: 24px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 16px; box-shadow: 0 16px 72px #15132833; overflow-y:auto; }
 .science-meeting-dialog::backdrop {background: #16142566;}
 .science-meeting-dialog header,.science-meeting-dialog footer {display:flex;align-items:center;justify-content:space-between;gap:16px;}
