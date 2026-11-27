@@ -1,0 +1,172 @@
+{{define "studioDialogs"}}
+        <dialog id="studio-mode-overflow" aria-labelledby="studio-mode-overflow-title" aria-describedby="studio-mode-overflow-summary">
+          <form method="dialog">
+            <h2 id="studio-mode-overflow-title" data-en="Switch to single chat">切换到单人对话</h2>
+            <p id="studio-mode-overflow-summary"></p>
+            <div class="dialog-actions">
+              <button type="submit" value="cancel" class="button secondary" autofocus data-en="Cancel">取消</button>
+              <button type="submit" value="text-only" class="button primary" data-en="Continue with text only">仅带入文本</button>
+            </div>
+          </form>
+        </dialog>
+    <div
+      id="history-menu"
+      class="history-menu"
+      role="menu"
+      aria-label="会话操作"
+      tabindex="-1"
+      hidden
+    >
+      <div class="menu-project-context" role="note">
+        <span>项目路径</span>
+        <div id="menu-project-path" class="menu-project-path"></div>
+      </div>
+      <button id="menu-view-project" type="button" role="menuitem">
+        查看完整路径…</button
+      ><button id="menu-copy-project" type="button" role="menuitem">
+        复制项目路径
+      </button>
+      <div
+        id="title-menu-separator"
+        role="separator"
+        class="menu-separator"
+      ></div>
+      <button id="menu-regenerate-title" type="button" role="menuitem">
+        重试命名
+      </button>
+    </div>
+    <dialog
+      id="project-dialog"
+      class="project-dialog"
+      aria-labelledby="project-dialog-title"
+    >
+      <div class="project-dialog-heading">
+        <h2 id="project-dialog-title">项目路径</h2>
+        <button
+          id="close-project-dialog"
+          type="button"
+          class="icon-button"
+          aria-label="关闭项目路径"
+        >
+          <svg class="ui-icon" data-ui-icon="close" width="16" height="16" aria-hidden="true"></svg>
+        </button>
+      </div>
+      <label for="project-dialog-path" class="sr-only"
+        >项目文件夹的完整路径</label
+      ><textarea
+        id="project-dialog-path"
+        rows="3"
+        readonly
+        spellcheck="false"
+      ></textarea>
+      <p id="project-copy-status" role="status"></p>
+      <div class="project-dialog-actions">
+        <button id="copy-project-dialog" type="button" class="button primary">
+          复制路径</button
+        ><button
+          id="done-project-dialog"
+          type="button"
+          class="button secondary"
+        >
+          完成
+        </button>
+      </div>
+    </dialog>
+    <dialog id="meeting-report-dialog" class="meeting-report-dialog" aria-labelledby="meeting-report-title">
+      <div class="meeting-report-frame">
+        <header class="meeting-report-header">
+          <h2 id="meeting-report-title">会议报告</h2>
+          <button id="meeting-report-close" class="button secondary small" type="button">关闭</button>
+        </header>
+        <div id="meeting-report-scroll" class="meeting-report-scroll">
+          <div id="meeting-report-confirmation">
+            <p>完成会议后，会话进入只读状态。参会席将根据已公开的讨论生成和复核报告。</p>
+            <p id="meeting-report-unsent" class="quiet" hidden>输入框还有未发送的消息或材料。</p>
+          </div>
+          <p id="meeting-report-status" class="meeting-report-status" role="status" hidden></p>
+          <p id="meeting-report-meta" class="meeting-report-meta" hidden></p>
+          <p id="meeting-report-error" class="meeting-report-error" role="alert" hidden></p>
+          <article id="meeting-report-content" class="meeting-report-content" aria-label="报告正文" hidden></article>
+          <details id="meeting-report-review" class="meeting-report-review" hidden>
+            <summary>复核说明</summary>
+            <p id="meeting-report-review-notes"></p>
+          </details>
+        </div>
+        <footer class="meeting-report-footer">
+          <button id="meeting-report-confirm" class="button primary" type="button">完成会议并生成报告</button>
+          <button id="meeting-report-retry" class="button primary" type="button" hidden>重新生成</button>
+          <button id="meeting-report-copy" class="button secondary" type="button" hidden>复制原文</button>
+          <a id="meeting-report-download" class="button secondary" download hidden>下载 Markdown</a>
+        </footer>
+      </div>
+    </dialog>
+    <dialog id="plugin-tools-dialog" class="plugin-dialog plugin-tools-dialog" aria-labelledby="plugin-tools-title">
+      <form id="plugin-tools-form" class="plugin-dialog-frame">
+        <header class="plugin-dialog-header">
+          <h2 id="plugin-tools-title">插件工具</h2>
+          <button id="plugin-tools-close" class="button secondary small" type="button">关闭</button>
+        </header>
+        <div class="plugin-dialog-body">
+          <label id="plugin-tools-action-label" for="plugin-tools-action" hidden>选择工具</label>
+          <select id="plugin-tools-action" aria-describedby="plugin-tools-input" hidden></select>
+          <p id="plugin-tools-input" hidden></p>
+          <fieldset id="plugin-tools-range" class="plugin-tools-range" hidden>
+            <legend>公开轮次范围（可选）</legend>
+            <label for="plugin-tools-from">起始轮次<input id="plugin-tools-from" type="number" min="1" step="1" placeholder="第一轮" /></label>
+            <label for="plugin-tools-to">结束轮次<input id="plugin-tools-to" type="number" min="1" step="1" placeholder="最新公开轮次" /></label>
+          </fieldset>
+          <p id="plugin-tools-status" role="status"></p>
+          <button id="plugin-tools-retry" class="button secondary small" type="button" hidden>重新读取工具</button>
+          <pre id="plugin-tools-result" class="plugin-tools-result" tabindex="0" aria-label="插件输出预览" hidden></pre>
+        </div>
+        <footer class="plugin-dialog-footer">
+          <button id="plugin-tools-run" class="button primary" type="submit" hidden>运行工具</button>
+          <a id="plugin-tools-download" class="button secondary" download hidden>下载结果</a>
+        </footer>
+      </form>
+    </dialog>
+    <div
+      id="history-action-status"
+      class="history-action-status"
+      role="status"
+      hidden
+    ></div>
+  <dialog id="cli-edit-dialog" aria-labelledby="cli-edit-title">
+    <header>
+      <h2 id="cli-edit-title">CLI 文件编辑</h2>
+      <button id="cli-edit-close" type="button" class="button secondary small">关闭</button>
+    </header>
+    <p id="cli-edit-scope"></p>
+    <form id="cli-edit-start">
+      <label for="cli-edit-provider">编辑 CLI</label>
+      <select id="cli-edit-provider" required></select>
+      <ul id="cli-edit-capabilities" hidden></ul>
+      <label for="cli-edit-prompt">编辑要求</label>
+      <textarea id="cli-edit-prompt" rows="3" required></textarea>
+      <label for="cli-edit-paths">允许提议编辑的文件</label>
+      <textarea id="cli-edit-paths" rows="2" aria-describedby="cli-edit-paths-help" required></textarea>
+      <small id="cli-edit-paths-help">每行填写一个相对于项目目录的文件路径。</small>
+      <button id="cli-edit-submit" type="submit" class="button primary">向 CLI 发起编辑请求</button>
+    </form>
+    <section id="cli-edit-run" hidden aria-labelledby="cli-edit-run-title">
+      <h3 id="cli-edit-run-title"></h3>
+      <p id="cli-edit-run-detail"></p>
+      <section id="cli-edit-proposal" aria-labelledby="cli-edit-proposal-title" hidden>
+        <h3 id="cli-edit-proposal-title">CLI 请求本次修改</h3>
+        <p id="cli-edit-reason"></p>
+        <div id="cli-edit-changes"></div>
+      </section>
+    </section>
+    <p id="cli-edit-status" role="status" aria-live="polite"></p>
+    <footer class="dialog-footer">
+      <div class="dialog-footer-leading">
+        <button id="cli-edit-refresh" type="button" class="button secondary small cli-edit-tertiary">刷新状态</button>
+        <button id="cli-edit-cancel" type="button" class="button secondary small cli-edit-tertiary" hidden>取消 CLI 任务</button>
+      </div>
+      <div id="cli-edit-decision-actions" class="dialog-footer-trailing" hidden>
+        <button id="cli-edit-decline" type="button" class="button secondary">拒绝本次修改</button>
+        <button id="cli-edit-accept" type="button" class="button primary">仅允许本次修改</button>
+      </div>
+    </footer>
+  </dialog>
+{{end}}

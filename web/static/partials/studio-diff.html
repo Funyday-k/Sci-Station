@@ -1,0 +1,158 @@
+{{define "studioDiff"}}
+          <section
+            id="files-view"
+            class="files-page"
+            role="region"
+            aria-label="文件改动面板"
+            hidden
+          >
+            <div class="review-heading">
+              <h2>文件改动</h2>
+              <div>
+                <button id="refresh-files" class="button secondary small">
+                  刷新</button
+                ><button
+                  id="close-changes"
+                  class="icon-button"
+                  aria-label="关闭改动面板"
+                >
+                  <svg class="ui-icon" data-ui-icon="close" width="16" height="16" aria-hidden="true"></svg>
+                </button>
+              </div>
+            </div>
+            <div id="files-empty" class="empty-page">
+              先选择或建立一场圆桌，再查看项目文件与改动。
+            </div>
+            <div id="file-workspace" class="file-workspace" hidden>
+              <aside class="file-sidebar">
+                <div class="file-sidebar-title">改动的文件</div>
+                <div id="changes-list" class="changes-list"></div>
+                <details class="project-files-disclosure">
+                  <summary>项目文件</summary>
+                  <input
+                    id="file-filter"
+                    class="file-filter"
+                    type="search"
+                    placeholder="筛选文件…"
+                    aria-label="筛选项目文件"
+                  />
+                  <form id="new-file-form" class="new-file-form">
+                    <label for="new-file-path">新建文本文件</label>
+                    <div>
+                      <input
+                        id="new-file-path"
+                        placeholder="notes/task.md"
+                        aria-label="新文件相对路径"
+                        autocomplete="off"
+                        spellcheck="false"
+                        required
+                      /><button class="button secondary small" type="submit">
+                        新建
+                      </button>
+                    </div>
+                  </form>
+                  <nav
+                    id="file-list"
+                    class="file-list"
+                    aria-label="项目文件"
+                  ></nav>
+                </details>
+              </aside>
+              <div class="editor-pane">
+                <div class="editor-toolbar">
+                  <div>
+                    <strong id="file-path">选择一个文件</strong
+                    ><span id="file-dirty" hidden>有未保存修改</span>
+                  </div>
+                  <div class="editor-actions">
+                    <button
+                      id="edit-diff"
+                      class="button secondary small"
+                      hidden
+                    >
+                      编辑此文件
+                    </button>
+                    <button
+                      id="copy-file"
+                      class="button secondary small"
+                      disabled
+                    >
+                      复制草稿</button
+                    ><button
+                      id="reload-file"
+                      class="button secondary small"
+                      disabled
+                    >
+                      重新载入</button
+                    ><button
+                      id="save-file"
+                      class="button primary small"
+                      disabled
+                    >
+                      保存文件
+                    </button>
+                  </div>
+                </div>
+                <div
+                  id="file-change-notice"
+                  class="file-change-notice"
+                  role="status"
+                  hidden
+                >
+                  <span id="file-change-text"></span>
+                </div>
+                <p id="editor-empty" class="editor-empty">
+                  从左侧选择文件查看内容，或查看本场记录的改动。
+                </p>
+                <textarea
+                  id="file-editor"
+                  class="file-editor"
+                  aria-label="文件内容"
+                  spellcheck="false"
+                  hidden
+                ></textarea>
+                <div id="diff-pane" class="diff-pane" hidden>
+                  <div class="diff-heading">
+                    <h2 id="diff-title">文件改动</h2>
+                    <button id="close-diff" class="text-button">
+                      返回文件
+                    </button>
+                  </div>
+                  <div class="review-controls">
+                    <label class="sr-only" for="review-revision"
+                      >选择文件修订</label
+                    ><select id="review-revision"></select
+                    ><label class="sr-only" for="review-unit">统计单位</label
+                    ><select
+                      id="review-unit"
+                      aria-label="增删统计单位（按文档源文件）"
+                      title="按文档源文件统计增删"
+                      hidden
+                    >
+                      <option value="lines">行</option>
+                      <option
+                        value="characters"
+                        title="排除空白的可见字符，按文档源文件"
+                      >
+                        字
+                      </option>
+                      <option value="words" title="按中英文分词，按文档源文件">
+                        词
+                      </option></select
+                    ><span id="review-stats" role="status">核对中…</span
+                    ><button
+                      id="retry-review"
+                      type="button"
+                      class="button secondary small"
+                      hidden
+                    >
+                      重试
+                    </button>
+                  </div>
+                  <p id="review-note" class="review-note" hidden></p>
+                  <pre id="diff-content"></pre>
+                </div>
+              </div>
+            </div>
+          </section>
+{{end}}

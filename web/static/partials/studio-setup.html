@@ -1,0 +1,86 @@
+{{define "studioSetup"}}
+                <form id="create-form" class="setup-panel" hidden>
+                  <section id="studio-mode-import" class="setup-section" aria-labelledby="studio-mode-import-title" hidden>
+                    <h2 id="studio-mode-import-title" data-en="From single chat">从单人对话转来</h2>
+                    <a id="studio-mode-source" data-en="Open original chat" hidden>查看原会话</a>
+                    <p id="studio-mode-preset" hidden></p>
+                    <details>
+                      <summary data-en="Review context and attachments">查看上下文和附件</summary>
+                      <pre id="studio-mode-context"></pre>
+                      <ul id="studio-mode-attachments"></ul>
+                    </details>
+                    <button id="studio-mode-apply" class="button secondary" type="button" data-en="Add to draft">加入草稿</button>
+                    <button id="studio-mode-dismiss" class="text-button" type="button" data-en="Dismiss">忽略</button>
+                  </section>
+                  <section id="create-composer" class="setup-section">
+                    <label for="new-topic" data-en="Discussion topic">会议议题</label>
+                    <div class="composer-surface">
+                      <div id="create-materials"></div>
+                      <div class="mention-field">
+                        <textarea id="new-topic" data-enter-submit="create-submit" rows="3" data-l10n-placeholder="roundtableTopicPlaceholder" aria-describedby="new-topic-limit new-topic-mention-status" placeholder="这次圆桌要解决什么问题？输入 @ 可指定首席起草议程。" required></textarea>
+                        <div id="new-topic-mention-list" hidden></div>
+                      </div>
+                      <span id="new-topic-mention-status" class="composer-recipient" role="status"></span>
+                      <small id="new-topic-limit" class="input-limit" hidden></small>
+                      <div class="composer-bottom">
+                        <div class="setup-project">
+                          <label for="create-project" data-en="Project">项目</label>
+                          <select id="create-project" aria-describedby="create-project-access"></select>
+                        </div>
+                        <button id="create-attach" class="create-composer-tool" type="button"><svg class="ui-icon" data-ui-icon="file" width="16" height="16" aria-hidden="true"></svg><span data-en="Attach file">添加文件</span></button>
+                        <button id="create-plugins" class="create-composer-tool" type="button"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 5v8l-8 5-8-5V8zM4 8l8 5 8-5m-8 5v8"/></svg><span data-en="Plugins">插件</span></button>
+                        <button id="create-commands" type="button" aria-label="议题工具" data-en-aria-label="Topic tools" title="议题工具"></button>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="setup-section" aria-labelledby="member-title">
+                    <div class="setup-section-heading">
+                      <h2 id="member-title" data-en="Seats">席位配置</h2>
+                      <div class="member-actions">
+                        <button type="button" class="button secondary small" id="member-picker" aria-controls="member-directory" aria-expanded="false"><svg class="ui-icon" data-ui-icon="plus" width="14" height="14" aria-hidden="true"></svg><span data-en="Add model">添加模型</span></button>
+                      </div>
+                    </div>
+                    <div id="member-directory" hidden>
+                      <div class="directory-tools">
+                        <input type="search" id="member-search" placeholder="搜索型号或来源" aria-label="搜索型号或来源" autocomplete="off" spellcheck="false"/>
+                        <select id="member-source" aria-label="筛选来源"><option value="">所有来源</option></select>
+                      </div>
+                      <div id="member-options" aria-label="可用型号"></div>
+                    </div>
+                    <div class="seating-workspace" id="seating-workspace">
+                      <div id="seating-plan" class="seating-plan">
+                        <div class="seating-scroll" id="seating-scroll">
+                          <svg id="seating-room" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="圆桌席位图"></svg>
+                        </div>
+                        <div id="seating-pan" class="seating-pan" hidden>
+                          <button id="seating-left" type="button" aria-label="查看左侧席位" title="查看左侧席位"><svg class="ui-icon" data-ui-icon="chevronLeft" width="14" height="14" aria-hidden="true"></svg></button>
+                          <button id="seating-right" type="button" aria-label="查看右侧席位" title="查看右侧席位"><svg class="ui-icon" data-ui-icon="chevronRight" width="14" height="14" aria-hidden="true"></svg></button>
+                        </div>
+                      </div>
+                      <div id="chosen-members"></div>
+                    </div>
+                    <div class="catalog-status"><span id="member-status" role="status"></span><button type="button" class="text-button" id="retry-members" hidden>重新读取</button></div>
+                  </section>
+                  <fieldset class="setup-section preset-section" aria-describedby="create-project-access">
+                    <legend>讨论预设</legend>
+                    <div id="preset-options"></div>
+                    <div class="setup-access" aria-live="polite">
+                      <strong>项目文件权限</strong>
+                      <small id="create-project-access" class="discussion-access" role="status"></small>
+                    </div>
+                    <div id="create-continuous" class="continuous-panel" data-continuous-prefix="create">
+                      <label class="continuous-toggle" for="create-continuous-enabled"><input id="create-continuous-enabled" type="checkbox" aria-controls="create-continuous-options" />配置持续推进</label>
+                      <p class="continuous-setup-hint">创建后请先核对议程，再点击「开始持续推进」。</p>
+                      <div id="create-continuous-options" class="continuous-options" hidden>
+                        <details><summary>参数</summary><div class="continuous-fields">
+                          <label>推进目标<input id="create-continuous-goal" type="text" placeholder="默认使用会议议题" /></label>
+                          <label>验收条件（可选）<textarea id="create-continuous-criteria" rows="2" placeholder="达到什么结果后停止"></textarea></label>
+                          <label>最多轮数<input id="create-continuous-max-rounds" type="number" min="1" max="60" step="1" value="12" required /></label>
+                          <label>每几轮摘要<input id="create-continuous-summary-every" type="number" min="2" max="12" step="1" value="4" required /></label>
+                        </div></details>
+                      </div>
+                    </div>
+                  </fieldset>
+                  <div class="setup-footer"><button id="create-submit" class="button primary" type="submit" disabled>创建圆桌</button></div>
+                </form>
+{{end}}

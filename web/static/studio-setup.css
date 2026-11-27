@@ -1,3 +1,77 @@
+/* New Roundtable setup panel (#44). */
+
+.project-disclosure {
+  font-size: var(--text-xs);
+  margin-top: 7px;
+}
+.project-disclosure summary {
+  cursor: pointer;
+  width: max-content;
+}
+.project-disclosure code {
+  font:
+    11px/1.8 ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+  overflow-wrap: anywhere;
+  display: block;
+  max-width: 600px;
+  margin-top: 5px;
+}
+.stage-layout {
+  max-width: 960px;
+  margin: 0 auto 20px;
+}
+.setup-panel {
+  max-width: 650px;
+  margin: 36px auto 26px;
+}
+.setup-panel label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+.setup-panel textarea {
+  margin: 0 0 25px;
+  min-height: 150px;
+  max-height: 350px;
+  font-size: var(--text-md);
+}
+@container (max-width: 760px) {
+  .project-disclosure {
+    font-size: var(--text-xs);
+  }
+  .setup-panel {
+    margin-top: 27px;
+  }
+  .setup-panel textarea {
+    font-size: var(--text-md);
+  }
+}
+.chat-header .project-disclosure {
+  margin-top: 4px;
+}
+.stage-layout:not(.is-new) {
+  margin: 0;
+}
+@media (max-height: 650px) {
+  .chat-header .project-disclosure {
+    display: none;
+  }
+}
+.project-disclosure code {
+  max-height: 90px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.setup-section .discussion-access,
+.setup-section .input-limit {
+  display: block;
+  margin-top: 6px;
+}
+
 /* The setup workspace and participant identities share the desktop palette. */
 .setup-panel {
   width: min(100%, 770px);

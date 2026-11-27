@@ -456,7 +456,7 @@ test("setup shows read-only discussion in every preset and no project directorie
   }
   setup.open({id: "@global", path: "", global: true});
   assert.equal($("create-project-access").textContent, "此会话无项目文件权限");
-  const html = read("studio.html");
+  const html = read("studio.html") + "\n" + read("partials/studio-setup.html");
   assert.match(html, /配置持续推进/);
   assert.match(html, /创建后请先核对议程，再点击「开始持续推进」/);
   assert.ok(html.indexOf("id=\"create-project-access\"") < html.indexOf("id=\"create-continuous\""));

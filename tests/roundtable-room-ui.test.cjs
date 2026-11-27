@@ -9,7 +9,10 @@ const vm = require("node:vm");
 const root = path.join(__dirname, "..");
 
 test("Roundtable markup uses one page bar, removes separate opinions toggle, and tabs conversation with viewpoints", () => {
-  const html = fs.readFileSync(path.join(root, "web/static/studio.html"), "utf8");
+  const html =
+    fs.readFileSync(path.join(root, "web/static/studio.html"), "utf8") +
+    "\n" +
+    fs.readFileSync(path.join(root, "web/static/partials/studio-room.html"), "utf8");
   const toolsBlock = html.slice(html.indexOf('{{define "tools"}}'), html.indexOf('{{define "content"}}'));
   assert.match(toolsBlock, /id="room-chat-toggle"/);
   assert.match(toolsBlock, /id="meeting-actions-toggle"/);

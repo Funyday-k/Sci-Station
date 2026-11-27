@@ -2675,8 +2675,6 @@
 
   $("file-filter").addEventListener("input", renderFiles);
   $("refresh-files").addEventListener("click", refreshWorkspace);
-  for (const button of document.querySelectorAll(".view-tab"))
-    button.addEventListener("click", () => switchView(button.dataset.view));
   $("menu-view-project").addEventListener("click", () =>
     showProjectPath(menuSummary()),
   );

@@ -41,7 +41,8 @@ function mount(handler, proof="fixture-proof") {
     showModal(){this.open=true;}
     close(){const wasOpen = this.open; this.open=false; if (wasOpen) this.dispatchEvent("close");}
   }
-  for (const match of staticFile("studio.html").matchAll(/id="(cli-edit-[^"]+)"/g)) elements.set(match[1],new Element(match[1]));
+  const studioMarkup = staticFile("partials/studio-room.html") + "\n" + staticFile("partials/studio-dialogs.html");
+  for (const match of studioMarkup.matchAll(/id="(cli-edit-[^"]+)"/g)) elements.set(match[1],new Element(match[1]));
   const get = id => elements.get("cli-edit-"+id);
   const document = {
     hidden:false,
@@ -164,7 +165,7 @@ test("large and multi-file proposals keep the complete diff with bounded highlig
 });
 
 test("unified dialog footer places tertiary actions leading and primary Approve trailing", () => {
-  const html = staticFile("studio.html");
+  const html = staticFile("partials/studio-dialogs.html");
   const dialogHtml = html.slice(html.indexOf('<dialog id="cli-edit-dialog"'));
   const footer = dialogHtml.slice(dialogHtml.indexOf('<footer class="dialog-footer">'));
   const idxRefresh = footer.indexOf('id="cli-edit-refresh"');
