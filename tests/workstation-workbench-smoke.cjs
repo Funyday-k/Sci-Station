@@ -283,7 +283,7 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
   async function checkToolsRoundTrip() {
     const draft = "Keep this unsent question when opening a research tool.";
     await ui.set("#question",draft);
-    const tools = "#lab-tools-dialog", discovery = '[data-lab-tool="discovery"]';
+    const tools = "#lab-tools-dialog", discovery = '[data-lab-tool="discovery"]', graph = '[data-lab-tool="graph"]';
     const clickTarget = await reachable("#lab-tools");
     await ui.click("#lab-tools");
     await ui.visible(`${tools}[open] #lab-tools-directory ${discovery}`);
@@ -292,24 +292,23 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
     check("Plugins opens a browsable research tools list", clickTarget && entries.includes("discovery") && entries.includes("graph") &&
       new Set(entries).size === entries.length, entries);
     await snapshot("10i-lab-tool-directory-wide");
-    await ui.click(discovery);
-    await ui.visible("#lab-tool-page-discovery");
-    await snapshot("10i2-lab-tool-discovery-wide");
+    await ui.click(graph);
+    await ui.visible("#lab-tool-page-graph");
+    await snapshot("10i2-lab-tool-graph-wide");
     const backReachable = await reachable("#lab-tool-back");
     await ui.click("#lab-tool-back");
-    await ui.visible(`#lab-tools-directory ${discovery}`);
+    await ui.visible(`#lab-tools-directory ${graph}`);
     check("Tool detail has a reachable in-dialog return to the list", backReachable && await ui.evaluate(selector =>
-      document.activeElement === document.querySelector(selector),discovery));
+      document.activeElement === document.querySelector(selector), graph));
     await ui.click(discovery);
-    await ui.click("#discovery-link");
-    await wait(() => ui.evaluate(() => location.pathname === "/tools"), "open the Research Tools page");
+    await wait(() => ui.evaluate(() => location.pathname === "/tools"), "open the Research Tools page directly");
     await ui.visible("#discovery-return-lab");
     await ui.click("#discovery-return-lab");
     await wait(() => ui.evaluate(() => location.pathname === "/lab"), "return to Lab from Research Tools");
-    await ui.visible(`${tools}[open] #lab-tool-page-discovery`);
+    await ui.visible(`${tools}[open] #lab-tools-directory`);
     const restored = await ui.evaluate(() => ({project:new URL(location.href).searchParams.get("project"),
       draft:document.getElementById("question").value}));
-    check("Returning from Research Tools restores the project, unsent question and open tool", restored.project === project.id &&
+    check("Returning from Research Tools restores the project, unsent question and tool catalog", restored.project === project.id &&
       restored.draft === draft, restored);
     await ui.click(`${tools} > header [data-lab-close]`);
     await ui.set("#question", "");
