@@ -16,6 +16,7 @@
     minerSession = "",
     minerConfigured = false,
     minerCredentialBusy = false;
+  const pendingConversions = new Map();
   const views = {
     discover: "文献发现",
     convert: "PDF 转换",
@@ -217,7 +218,9 @@
       (p?.has_pdf?"已有 PDF，尚无 Markdown 正文。":"尚无 PDF 或 Markdown 正文。");
     $("existingBody").hidden=!body;
 
-    for(const id of ["local","remote","checkBatch","getZip"]) $(id).disabled=!p?.has_pdf;
+    for (const id of ["local", "remote", "checkBatch", "getZip"]) {
+      $(id).disabled = !p?.has_pdf || pendingConversions.has(id);
+    }
     $("importBody").disabled=!p;
   }
 
@@ -283,19 +286,13 @@
     };
     $("paper").onchange = () => {
       conversionSequence++;
+      pendingConversions.clear();
       result = null;
       $("result").hidden = true;
       setMinerError("");
       tell("");
       $("batch").value = ""; $("bodyFile").value="";$("bodyFull").hidden=true;$("bodyLocator").hidden=true; paperBodyStatus();
     };
-    $("local").onclick = () => busy($("local"), async () => {
-      const p = selectedPaper(),
-        seq = ++conversionSequence;
-      tell("正在从原文提取…");
-      const output = await req("papers/" + p.id + "/markdown?format=preview");
-      renderResult(output.markdown, p, seq, {kind:"pdfkit"}, output.quality);
-    });
     const setMinerError = msg => {
       const node = $("mineru-error");
       if (node) {
@@ -304,19 +301,37 @@
       }
       if (msg && $("mineru-advanced")) $("mineru-advanced").open = true;
     };
-    function bindMinerAction(id, action) {
-      $(id).onclick = () => busy($(id), async () => {
+    function bindConversion(id, action, miner = false) {
+      const control = $(id);
+      control.onclick = async () => {
+        if (control.disabled) return;
         const sequence = ++conversionSequence;
-        setMinerError("");
+        pendingConversions.set(id, sequence);
+        control.disabled = true;
+        if (miner) setMinerError("");
         try {
           const paper = selectedPaper();
-          await action(remoteData(paper), sequence, paper);
+          await action(paper, sequence);
         } catch (error) {
-          if (sequence !== conversionSequence) return;
-          setMinerError(error.message);
-          throw error;
+          if (sequence === conversionSequence) {
+            if (miner) setMinerError(error.message);
+            tell(error.message);
+          }
+        } finally {
+          if (pendingConversions.get(id) === sequence) {
+            pendingConversions.delete(id);
+            control.disabled = !papers.find(paper => paper.id === $("paper").value)?.has_pdf;
+          }
         }
-      });
+      };
+    }
+    bindConversion("local", async (paper, sequence) => {
+      tell("正在从原文提取…");
+      const output = await req("papers/" + paper.id + "/markdown?format=preview");
+      renderResult(output.markdown, paper, sequence, {kind:"pdfkit"}, output.quality);
+    });
+    function bindMinerAction(id, action) {
+      bindConversion(id, (paper, sequence) => action(remoteData(paper), sequence, paper), true);
     }
     bindMinerAction("remote", async (data, sequence) => {
       if (!data.token.trim() && !minerSession) throw Error("请输入 MinerU API Token");

@@ -87,6 +87,7 @@ test("MCP connectors structured array rows sync with raw JSON, auto-open Advance
   const get = id => nodes.get(id) || null;
   const messages = [];
   const sent = [];
+  let rejectSave;
 
   const context = {
     document: {
@@ -118,7 +119,10 @@ test("MCP connectors structured array rows sync with raw JSON, auto-open Advance
       }
       if (url.endsWith("/status")) return {trusted: true, configured: true};
       if (url.endsWith("/set-token")) return {ok: true};
-      if (url.endsWith("/save")) return {revision: 2, connections: [body.connection]};
+      if (url.endsWith("/save")) {
+        if (body.connection.tools.includes("tool/invalid")) return new Promise((_, reject) => { rejectSave = reject; });
+        return {revision: 2, connections: [body.connection]};
+      }
       return {};
     },
     tell: msg => messages.push(msg),
@@ -161,6 +165,27 @@ test("MCP connectors structured array rows sync with raw JSON, auto-open Advance
   assert.equal(get("connector-advanced").open, true);
   assert.equal(get("connector-argv-error").hidden, false);
   assert.match(get("connector-argv-error").textContent, /JSON 字符串数组/);
+
+  // The server validates the tool allow-list after the user confirms Save.
+  get("connector-select").value = "simple";
+  get("connector-select").dispatch("change");
+  get("connector-tools").value = "tool/invalid";
+  get("connector-advanced").open = false;
+  const clickSave = get("connector-save").listeners.get("click")[0];
+  const rejectedSave = clickSave();
+  rejectSave(Object.assign(Error("Invalid tool name"), {status: 422}));
+  await rejectedSave;
+  assert.equal(get("connector-advanced").open, true);
+  assert.equal(get("connector-form-error").hidden, false);
+  assert.equal(get("connector-form-error").textContent, "Invalid tool name");
+
+  const supersededSave = clickSave();
+  await api.select("proj-2", "Project Two");
+  rejectSave(Object.assign(Error("Previous project validation"), {status: 422}));
+  await supersededSave;
+  assert.equal(get("connector-advanced").open, false);
+  assert.equal(get("connector-form-error").hidden, true);
+  assert.ok(!messages.includes("Previous project validation"));
 
   // Keychain token input is cleared after saving and never echoed back.
   get("connector-select").value = "authed";

@@ -67,7 +67,7 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
     append(...nodes){ this.children.push(...nodes); }
   }
   for (const match of html.matchAll(/id="([^"]+)"/g)) controls[match[1]] = new Control();
-  const papers = ["A", "B"].map(id => ({id, title: "Paper "+id, has_pdf: true}));
+  const papers = ["A", "B", "no-pdf"].map(id => ({id, title: "Paper "+id, has_pdf: id !== "no-pdf"}));
   const changes = [];
   let finishA, rejectStatus;
   async function fetch(url, opt) {
@@ -106,13 +106,24 @@ test("switching papers discards stale conversion; a reviewed edit updates the or
   await failed;
   assert.equal(controls["mineru-error"].textContent, "Only paper A failed");
   const delayed = controls.checkBatch.onclick();
-  controls.paper.value = "B"; controls.paper.onchange();
+  controls.paper.value = "no-pdf"; controls.paper.onchange();
+  assert.equal(controls.checkBatch.disabled, true);
   controls["mineru-advanced"].open = false;
   rejectStatus();
   await delayed;
+  assert.equal(controls.checkBatch.disabled, true);
   assert.equal(controls["mineru-advanced"].open, false);
   assert.equal(controls["mineru-error"].textContent, "");
   assert.equal(controls.status.textContent, "");
+  controls.paper.value = "A"; controls.paper.onchange();
+  const pendingA = controls.checkBatch.onclick();
+  const rejectA = rejectStatus;
+  controls.paper.value = "B"; controls.paper.onchange();
+  const pendingB = controls.checkBatch.onclick();
+  rejectA(); await pendingA;
+  assert.equal(controls.checkBatch.disabled, true);
+  rejectStatus(); await pendingB;
+  assert.equal(controls.checkBatch.disabled, false);
   controls.paper.value = "A"; controls.paper.onchange();
   const first = controls.local.onclick();
   controls.paper.value = "B"; controls.paper.onchange(); finishA(); await first;

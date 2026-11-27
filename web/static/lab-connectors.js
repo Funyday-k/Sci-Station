@@ -200,7 +200,18 @@
     async function save() {
       const c=readForm(), token=generation;
       if(!confirm("保存科研连接？\n项目 "+title+"\n"+configurationSummary(c)))return;
-      const config=await post("save",{id:c.id,connection:c,confirmed:true});
+      let config;
+      try {
+        config=await post("save",{id:c.id,connection:c,confirmed:true});
+      } catch (error) {
+        if (token !== generation) return;
+        if (error.status === 400 || error.status === 422) {
+          setFieldError("form-error", error.message);
+          if (hasAdvancedValues(c)) openAdvanced();
+          return;
+        }
+        throw error;
+      }
       if(token===generation){render(config,c.id);settingsChanged?.(project,config);tell("项目连接已保存。");}
     }
     async function edit(action,label){
