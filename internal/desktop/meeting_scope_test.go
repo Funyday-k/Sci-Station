@@ -159,11 +159,13 @@ func TestScopedRoundtablePersistsPublicDiscussionAndReport(t *testing.T) {
 			"sha256": item.SHA256, "grants": item.Capabilities,
 		}, 200)
 	}
-	request("POST", "/sessions", map[string]any{"topic": "Unknown project", "project_id": "missing"}, 404)
+	request("POST", "/sessions", map[string]any{"topic": "Unknown project", "projectId": "missing"}, 404)
 	request("POST", "/sessions", map[string]any{"topic": "Wrong directory", "project_id": projectID, "project": other}, 403)
+	request("POST", "/sessions", map[string]any{"topic": "Conflicting IDs", "projectId": projectID, "project_id": "other"}, 400)
+	request("POST", "/sessions", map[string]any{"topic": "Conflicting empty ID", "projectId": "", "project_id": projectID}, 400)
 	request("POST", "/sessions", map[string]any{"topic": "Unselected directory", "project": mkdir()}, 403)
 	session := scienceWorkflowDecode[meeting.Session](t, request("POST", "/sessions",
-		map[string]any{"topic": "Review the measurement", "project_id": projectID, "seats": []string{"codex", "cursor"}}, 201))
+		map[string]any{"topic": "Review the measurement", "projectId": projectID, "project_id": projectID, "seats": []string{"codex", "cursor"}}, 201))
 	if session.ProjectID != projectID || session.Project != dir {
 		t.Fatalf("wrong session scope: %q %q", session.ProjectID, session.Project)
 	}

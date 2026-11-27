@@ -5,20 +5,45 @@
 {{define "content"}}
 <main class="workspace-page api-guide">
     <div class="intro">
-      <h1>Sci-Station 本机接口</h1><p>科研工作区通过 <code>/api/research/projects</code> 访问项目、笔记、任务、材料和图谱。共享文献与 PDF 使用 <code>/api/research/papers</code>。科研工具和 AI 模板分别位于 <code>/api/research/tools/</code>、<code>/api/research/lab/</code>。</p>
-      <p class="lead">macOS 桌面应用通过本机接口建立项目圆桌、读取 Magpie 模型和管理议程。以下契约供开发与本机验证使用。</p>
-      <a class="button" href="/openapi.json" download="roundtable-openapi.json">下载 OpenAPI 3.1 <span aria-hidden="true">↓</span></a>
+      <h1>Sci-Station 本机接口</h1>
+      <p class="lead">下载契约可查询科研项目、工作区模块、共享文献、AI 实验室和圆桌的请求字段、响应结构和状态码。</p>
+      <a class="button" href="/openapi.json" download="sci-station-openapi.json">下载 OpenAPI 3.1 <span aria-hidden="true">↓</span></a>
       <p class="caption">接口默认地址 <code>http://127.0.0.1:18765</code>；若更换启动端口，请同步修改导入工具的 server 变量。</p>
     </div>
 
     <section aria-labelledby="requests">
       <h2 id="requests">请求约定</h2>
       <div class="note">
-        <p><strong>所有 POST：</strong><code>Content-Type: application/json</code> 与 <code>X-Roundtable: 1</code>。通常传单个 JSON 对象；无参数操作建议传 <code>{}</code>。</p>
+        <p>写入请求须带 <code>X-Roundtable: 1</code>。JSON 请求使用 <code>Content-Type: application/json</code>，通常传单个对象。文件上传使用 <code>multipart/form-data</code>。科研接口允许无请求体的 DELETE 省略 Content-Type；删除 AI 实验室个人模板须用 JSON 传 <code>revision</code>。</p>
         <p><code>Host</code> 必须是当前服务端口的 <code>127.0.0.1</code> 或 <code>localhost</code>。若有 <code>Origin</code>，须精确匹配 <code>http://</code> 加当前 Host；<code>Sec-Fetch-Site: cross-site</code> 会被拒绝。无 Origin 的本机程序客户端可调用。</p>
-        <p><code>X-Roundtable</code> 是防跨站标记，并非账户密码。服务没有远程登录、远程 CORS 或面向互联网的使用方式。早期设置中的 <code>magpie_port</code> 为本机 Magpie 默认端口及兼容诊断端口。已注册 Agent 使用 Magpie 写入的连接配置。</p>
+        <p><code>X-Roundtable</code> 用于防跨站请求。本接口供本机客户端使用。早期设置中的 <code>magpie_port</code> 为本机 Magpie 默认端口及兼容诊断端口。已注册 Agent 使用 Magpie 写入的连接配置。</p>
       </div>
       <p>Studio 解析单个 JSON，常规请求上限 4 MiB；诊断请求上限 64 KiB。常规对象拒绝未知字段，设置补丁按已知键校验。Studio 新会话的 <code>topic</code> 与补充指令 <code>note</code> 最多 12,000 个 Unicode codepoints。JSON 错误形如 <code>{"error":"说明"}</code>。响应不缓存。</p>
+    </section>
+
+    <section aria-labelledby="research-api">
+      <h2 id="research-api">科研工作区</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>路径</th><th>下载契约中的操作</th></tr></thead>
+          <tbody>
+            <tr><td><code>/api/research/projects</code><br><code>/api/research/dashboard/projects</code></td><td>列出、创建、编辑、归档、恢复或丢弃项目，更新外部目录授权，读取项目概况。可列出、创建和读取项目 Wiki 页面。</td></tr>
+            <tr><td><code>/api/research/modules</code></td><td>读取或更新工作区／项目模块设置。提交同一范围读到的 <code>revision</code>。</td></tr>
+            <tr><td><code>/api/research/papers</code></td><td>筛选、读取、预览导入或导入共享文献，编辑元数据及项目关联，导出引文和 BibTeX，读取或添加 PDF，预览并确认共享删除。</td></tr>
+            <tr><td><code>/api/research/lab</code></td><td>读取内置与个人模板，管理个人模板，读取或修改项目实验室配置，打开来源正文预览并准备已选原文材料。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>项目资源路径使用 <code>{project}</code>；共享文献筛选、模块范围和部分只读接口使用查询参数 <code>project</code>。需要单个项目 ID 的新科研 JSON 请求采用 <code>projectId</code>。圆桌创建接受 <code>projectId</code> 和旧字段 <code>project_id</code>；同时提交不同值时返回 400。圆桌响应和原有读取审批仍使用 <code>project_id</code>。共享文献元数据中的 <code>project_ids</code>、<code>core_project_ids</code> 和 <code>project_links</code> 沿用既有契约；删除预览用 <code>projectIds</code> 和 <code>coreProjectIds</code> 返回影响范围。</p>
+      <details>
+        <summary>下载契约未覆盖的科研接口</summary>
+        <ul>
+          <li>项目任务、材料和文件操作，图谱及来源摘录，Wiki 编辑、恢复、链接、模板、目录和片段，项目及全局审阅记录，界面与布局设置。</li>
+          <li>文献组织、文献库书目配置、推荐与图谱，阅读进度、标注、证据校验、正文与图件转换或导出，原生文件窗口和保存对话框。旧版直接删除及 PUT 更新仍可供现有调用方使用；新调用可使用删除预览与确认或 PATCH 更新。</li>
+          <li>AI 实验室的会话草稿与线程，运行检查与重试、复盘和证据、来源检索和问题选段、技能预览与正文、连接器与资源调用。</li>
+          <li><code>/api/research/tools/</code> 下的文献发现、日历、提醒与 MinerU 转换工具。</li>
+        </ul>
+      </details>
     </section>
 
     <section aria-labelledby="workflow">

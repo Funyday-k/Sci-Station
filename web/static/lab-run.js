@@ -31,7 +31,8 @@
   }
 
   function createSingle(req, project, topic, member, preset, materials) {
-    return req(studio+"sessions","POST",{project_id:project.id,scope:project.global?"global":"",topic,
+    const scope = project.global ? {scope:"global"} : {projectId:project.id};
+    return req(studio+"sessions","POST",{...scope,topic,
       members:[member],preset,material_ids:materials.map(m=>m.id),start_agenda_draft:false});
   }
   function advance(req, room, note, materials=[]) {

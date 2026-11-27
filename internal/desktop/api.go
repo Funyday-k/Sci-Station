@@ -371,19 +371,30 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "POST" {
 			var b struct {
-				Topic, Project string
-				ProjectID      string `json:"project_id"`
-				Scope          string `json:"scope"`
-				Seats          []string
-				Members        []meeting.Member
-				Preset         string
-				Agenda         []json.RawMessage
-				Continuous     *meeting.ContinuousConfig `json:"continuous"`
-				MaterialIDs    []string                  `json:"material_ids"`
-				StartAgenda    *bool                     `json:"start_agenda_draft"`
+				Topic, Project  string
+				ProjectID       *string `json:"projectId"`
+				LegacyProjectID *string `json:"project_id"`
+				Scope           string  `json:"scope"`
+				Seats           []string
+				Members         []meeting.Member
+				Preset          string
+				Agenda          []json.RawMessage
+				Continuous      *meeting.ContinuousConfig `json:"continuous"`
+				MaterialIDs     []string                  `json:"material_ids"`
+				StartAgenda     *bool                     `json:"start_agenda_draft"`
 			}
 			if !jsonBody(w, r, &b) {
 				return
+			}
+			if b.ProjectID != nil && b.LegacyProjectID != nil && *b.ProjectID != *b.LegacyProjectID {
+				reject(w, 400, "projectId 与 project_id 必须一致")
+				return
+			}
+			projectID := ""
+			if b.ProjectID != nil {
+				projectID = *b.ProjectID
+			} else if b.LegacyProjectID != nil {
+				projectID = *b.LegacyProjectID
 			}
 			if err := meeting.ValidateTopic(b.Topic); err != nil {
 				fail(w, err)
@@ -393,7 +404,7 @@ func (a *apiServer) studio(w http.ResponseWriter, r *http.Request) {
 				reject(w, 400, "请仅使用本场圆桌的模型席位")
 				return
 			}
-			scope, e := a.meetingScope(b.ProjectID, b.Project, b.Scope)
+			scope, e := a.meetingScope(projectID, b.Project, b.Scope)
 			if e != nil {
 				fail(w, e)
 				return
