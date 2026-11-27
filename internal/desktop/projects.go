@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -32,10 +33,8 @@ type projectRuleRef = research.RoundtableRuleVersion
 type projectRule = research.RoundtableRule
 
 type projectRecord struct {
-	selectedGrant research.DirectoryGrant
-	projectID     string
-	Path          string        `json:"path"`
-	Rules         []projectRule `json:"rules"`
+	Path  string        `json:"path"`
+	Rules []projectRule `json:"rules"`
 }
 
 type projectSummary = research.RoundtableProjectSummary
@@ -364,11 +363,17 @@ func previewProjects(lab *research.Service, paths []string) ([]projectPreview, e
 	return previews, nil
 }
 
-func collectProjectImports(lab *research.Service, selections []projectImportSelection) ([]projectRecord, error) {
+type projectImport struct {
+	path, id            string
+	grant               research.DirectoryGrant
+	existing, additions []projectRule
+}
+
+func collectProjectImports(lab *research.Service, selections []projectImportSelection) ([]projectImport, error) {
 	if len(selections) == 0 || len(selections) > maxProjectSelections {
 		return nil, errors.New("每次可导入 1–12 个项目")
 	}
-	records := make([]projectRecord, 0, len(selections))
+	entries := make([]projectImport, 0, len(selections))
 	for _, selection := range selections {
 		path, err := cleanProjectPath(selection.Path)
 		if err != nil {
@@ -377,10 +382,17 @@ func collectProjectImports(lab *research.Service, selections []projectImportSele
 		if len(selection.Rules) > maxProjectRules {
 			return nil, errors.New("每个项目最多选择 24 个规则文件")
 		}
-		record := projectRecord{Path: path, Rules: []projectRule{}}
-		err = lab.WithRuleImportDirectory(path, selection.ID, func(root *os.Root, id string, grant research.DirectoryGrant, _ []projectRule) error {
-			record.selectedGrant = grant
-			record.projectID = id
+		err = lab.WithRuleImportDirectory(path, selection.ID, func(root *os.Root, id string, grant research.DirectoryGrant, existing []projectRule) error {
+			i := slices.IndexFunc(entries, func(entry projectImport) bool { return entry.path == path && entry.id == id })
+			if i < 0 {
+				i = len(entries)
+				entries = append(entries, projectImport{path: path, id: id, grant: grant})
+			}
+			entry := &entries[i]
+			if entry.grant != grant {
+				return os.ErrPermission
+			}
+			entry.existing = existing
 			for _, ref := range selection.Rules {
 				if research.RoundtableRuleSource(ref.Path) == "" {
 					return errors.New("只能导入项目下支持的规则文件")
@@ -389,16 +401,20 @@ func collectProjectImports(lab *research.Service, selections []projectImportSele
 				if err != nil || rule.Digest != ref.Digest {
 					return errProjectRuleChanged
 				}
-				record.Rules = append(record.Rules, rule)
+				entry.additions = append(entry.additions, rule)
 			}
-			records = append(records, record)
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
-	return records, nil
+	for _, entry := range entries {
+		if _, err := research.MergeRoundtableRules(entry.existing, entry.additions); err != nil {
+			return nil, fmt.Errorf("%s：%w", entry.path, err)
+		}
+	}
+	return entries, nil
 }
 
 func (a *apiServer) applyProjectSelections(selections []projectImportSelection) ([]projectSummary, error) {
@@ -410,11 +426,20 @@ func (a *apiServer) applyProjectSelections(selections []projectImportSelection) 
 	if err != nil {
 		return nil, err
 	}
+	return a.registerProjectImports(entries)
+}
+
+func (a *apiServer) registerProjectImports(entries []projectImport) ([]projectSummary, error) {
+	completed := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if _, err := lab.RegisterDirectoryProject(entry.Path, entry.projectID, entry.selectedGrant, entry.Rules...); err != nil {
+		if _, err := a.research.RegisterDirectoryProject(entry.path, entry.id, entry.grant, entry.additions...); err != nil {
+			if len(completed) > 0 {
+				return nil, fmt.Errorf("已完成导入的项目：%s。导入 %s 失败：%w", strings.Join(completed, "、"), entry.path, err)
+			}
 			return nil, err
 		}
-		a.selectedPaths.CompareAndDelete(entry.Path, entry.selectedGrant)
+		completed = append(completed, entry.path)
+		a.selectedPaths.CompareAndDelete(entry.path, entry.grant)
 	}
 	return a.activeProjectSummaries()
 }

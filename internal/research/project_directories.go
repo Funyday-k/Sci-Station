@@ -214,7 +214,7 @@ func (s *Service) RegisterDirectoryProject(path, id string, selected DirectoryGr
 	if grant != selected {
 		return Project{}, os.ErrPermission
 	}
-	combined, err := combineRoundtableRules(d.RoundtableRules, rules)
+	combined, err := MergeRoundtableRules(d.RoundtableRules, rules)
 	if err != nil {
 		return Project{}, err
 	}

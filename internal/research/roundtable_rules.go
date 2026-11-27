@@ -121,7 +121,8 @@ func ValidRoundtableRules(rules []RoundtableRule) bool {
 	return len(RoundtableRuleText(rules)) <= 64<<10
 }
 
-func combineRoundtableRules(old, additions []RoundtableRule) ([]RoundtableRule, error) {
+// MergeRoundtableRules replaces snapshots by relative path and validates the complete project rule set.
+func MergeRoundtableRules(old, additions []RoundtableRule) ([]RoundtableRule, error) {
 	combined := slices.Clone(old)
 	for _, addition := range additions {
 		index := slices.IndexFunc(combined, func(rule RoundtableRule) bool { return rule.Path == addition.Path })

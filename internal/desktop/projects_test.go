@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -195,6 +196,99 @@ func TestProjectRejectsOutOfScopePaths(t *testing.T) {
 	records, err := server.projectRecords()
 	if err != nil || len(records) != 0 {
 		t.Fatalf("malformed batch wrote to project registry: %+v %v", records, err)
+	}
+}
+
+func importRuleForTest(t *testing.T, dir, path, text string) projectRuleRef {
+	t.Helper()
+	writeProjectTestFile(t, dir, path, text)
+	return projectRuleRef{Path: path, Digest: research.RoundtableRuleDigest(text)}
+}
+
+func TestProjectImportValidatesWholeBatchBeforeWriting(t *testing.T) {
+	for _, tc := range []struct {
+		name                                        string
+		existingCount, existingBytes, additionBytes int
+	}{
+		{"file limit", maxProjectRules - 1, 1, 1},
+		{"text limit", 1, maxRuleBytes, 16 << 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, first, second := projectTestDir(t), projectTestDir(t), projectTestDir(t)
+			api := openNavigationFixture(t, root)
+			handler := api.serve(8765)
+			var existing []projectRuleRef
+			for i := 0; i < tc.existingCount; i++ {
+				existing = append(existing, importRuleForTest(t, second, fmt.Sprintf(".claude/rules/%d.md", i), strings.Repeat("x", tc.existingBytes)))
+			}
+			if _, err := api.applyProjectSelections([]projectImportSelection{{Path: second, Rules: existing}}); err != nil {
+				t.Fatal(err)
+			}
+			owner, ok := api.research.ProjectForDirectory(second)
+			if !ok {
+				t.Fatal("missing registered project")
+			}
+			one := importRuleForTest(t, second, "AGENTS.md", strings.Repeat("a", tc.additionBytes))
+			two := importRuleForTest(t, second, "CLAUDE.md", strings.Repeat("b", tc.additionBytes))
+			input := projectImportRequest{Action: "apply", Selections: []projectImportSelection{
+				{Path: first},
+				{Path: second, Rules: []projectRuleRef{one}},
+				{ID: owner.ID, Path: second + "/.", Rules: []projectRuleRef{two}},
+			}}
+			var failure struct{ Error string }
+			projectTestRequest(t, handler, http.MethodPost, "/import", input, 400, &failure)
+			if !strings.Contains(failure.Error, second) || !strings.Contains(failure.Error, "64 KiB") {
+				t.Fatal(failure)
+			}
+			reopened := openNavigationFixture(t, root)
+			if _, found := reopened.research.ProjectForDirectory(first); found {
+				t.Fatal("the invalid batch registered its first directory")
+			}
+			stored, ok := reopened.research.ProjectForDirectory(second)
+			if !ok || stored.Revision != owner.Revision {
+				t.Fatal("the invalid batch changed the existing project")
+			}
+
+			// Both selections now refer to the same snapshot; the batch adds it only once.
+			input.Selections[2].Rules = []projectRuleRef{one}
+			projectTestRequest(t, handler, http.MethodPost, "/import", input, 200, nil)
+			rules, err := api.research.RoundtableRules(owner.ID, second)
+			if err != nil || len(rules) != tc.existingCount+1 {
+				t.Fatalf("overlapping selections changed the wrong rules: %d, %v", len(rules), err)
+			}
+		})
+	}
+}
+
+func TestProjectImportRechecksConcurrentChangesAndReportsCompletedProjects(t *testing.T) {
+	api := openNavigationFixture(t, projectTestDir(t))
+	first, second, last := projectTestDir(t), projectTestDir(t), projectTestDir(t)
+	testMeetingProject(t, api, second)
+	firstRule := importRuleForTest(t, first, "AGENTS.md", "first rule")
+	secondRule := importRuleForTest(t, second, "AGENTS.md", "selected")
+	prepared, err := collectProjectImports(api.research, []projectImportSelection{
+		{Path: first, Rules: []projectRuleRef{firstRule}}, {Path: second, Rules: []projectRuleRef{secondRule}}, {Path: last},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A separate successful import reaches this project's limit between validation and commit.
+	concurrent := projectImportSelection{Path: second}
+	for i := 0; i < maxProjectRules; i++ {
+		concurrent.Rules = append(concurrent.Rules, importRuleForTest(t, second, fmt.Sprintf(".claude/rules/%d.md", i), "other"))
+	}
+	if _, err := api.applyProjectSelections([]projectImportSelection{concurrent}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = api.registerProjectImports(prepared)
+	if err == nil || !strings.Contains(err.Error(), "已完成导入的项目："+first) || !strings.Contains(err.Error(), "导入 "+second+" 失败") {
+		t.Fatalf("missing partial import result: %v", err)
+	}
+	if !strings.Contains(projectContextForTest(t, api, first), "first rule") || strings.Contains(projectContextForTest(t, api, second), "selected") {
+		t.Fatal("saved project rules disagree with the reported result")
+	}
+	if _, ok := api.research.ProjectForDirectory(last); ok {
+		t.Fatal("import proceeded past the failed project")
 	}
 }
 
