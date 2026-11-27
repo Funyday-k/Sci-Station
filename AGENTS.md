@@ -49,9 +49,9 @@ Start with the narrowest relevant test. See the [developer guide](docs/DEVELOPER
 | Change | Minimum local checks |
 | --- | --- |
 | Any change | `Tools/scripts/check-repository-hygiene.sh` |
-| Markdown, governance, CI or versions | `python3 Tools/scripts/check-docs-hygiene.py`, `python3 Tools/scripts/check-version-consistency.py`, `python3 -m unittest discover -s Tools/tests -v` |
+| Markdown, governance, CI or versions | `python3 Tools/scripts/check-docs-hygiene.py`, `python3 Tools/scripts/check-version-consistency.py`, `python3 Tools/scripts/check-frontend-metrics.py`, `python3 -m unittest discover -s Tools/tests -v` |
 | Go application or domain code | Focused Go test, race suite with coverage, coverage gate and Go vet |
-| Frontend, navigation or native bridges | Node tests; build and exercise the affected screen; run the relevant native smoke scenario |
+| Frontend, navigation or native bridges | `python3 Tools/scripts/check-frontend-metrics.py`; Node tests; build and exercise the affected screen; run the relevant native smoke scenario |
 | Packaging or release scripts | Shell syntax check, app bundle verification and relevant packaged smoke for distribution changes |
 
 Report the commands and results, any check that could not be run, and the behavioral or environment limits of the evidence. Keep remaining acceptance items in the Issue.
