@@ -293,10 +293,22 @@
       const output = await req("papers/" + p.id + "/markdown?format=preview");
       renderResult(output.markdown, p, seq, {kind:"pdfkit"}, output.quality);
     });
+    const setMinerError = msg => {
+      const node = $("mineru-error");
+      if (node) {
+        node.textContent = msg || "";
+        node.hidden = !msg;
+      }
+      if (msg && $("mineru-advanced")) $("mineru-advanced").open = true;
+    };
     $("remote").onclick = () => busy($("remote"), async () => {
+      setMinerError("");
       const v = remoteData(),
         seq = ++conversionSequence;
-      if (!v.token.trim() && !minerSession) throw Error("请输入 MinerU API Token");
+      if (!v.token.trim() && !minerSession) {
+        setMinerError("请输入 MinerU API Token");
+        throw Error("请输入 MinerU API Token");
+      }
       if (!confirm("继续此 PDF 的 MinerU 转换？首次提交会上传原始 PDF。")) return;
       tell("正在上传…");
       let s;
@@ -304,19 +316,33 @@
         s = await minerReq("start", v);
       } catch (e) {
         if (seq !== conversionSequence || v.paper !== $("paper").value) return;
-        if (e.batch) $("batch").value = e.batch;
-        if (!e.recovery || !confirm(e.message + "\n若已核对，并确定需要创建新任务，请确认。")) throw e;
+        if (e.batch) {
+          $("batch").value = e.batch;
+          if ($("mineru-advanced")) $("mineru-advanced").open = true;
+        }
+        if (!e.recovery || !confirm(e.message + "\n若已核对，并确定需要创建新任务，请确认。")) {
+          setMinerError(e.message);
+          throw e;
+        }
         s = await minerReq("start", {...v, batch:e.batch || "", recovery:e.recovery});
       }
       if (seq !== conversionSequence || v.paper !== $("paper").value) return;
       $("batch").value = s.batch;
+      if (s.batch && $("mineru-advanced")) $("mineru-advanced").open = true;
       tell(s.message || "已提交转换。任务编号可用于稍后查看进度。");
     });
     $("checkBatch").onclick = () => busy($("checkBatch"), async () => {
+      setMinerError("");
       const p = selectedPaper(),
         d = remoteData(),
-        seq = ++conversionSequence,
+        seq = ++conversionSequence;
+      let s;
+      try {
         s = await minerReq("status", d);
+      } catch (e) {
+        setMinerError(e.message);
+        throw e;
+      }
       if (seq !== conversionSequence) return;
       if (s.state === "done") {
         const output=await minerReq("result",d);
@@ -327,9 +353,13 @@
       } else tell("MinerU 任务状态：" + s.state + (s.notice ? "。" + s.notice : ""));
     });
     $("getZip").onclick = () => busy($("getZip"), async () => {
+      setMinerError("");
       const d = remoteData(),
       s = await minerReq("status", d);
-      if (s.state !== "done") throw Error("结果尚未完成：" + s.state);
+      if (s.state !== "done") {
+        setMinerError("结果尚未完成：" + s.state);
+        throw Error("结果尚未完成：" + s.state);
+      }
       saveBlob(await minerReq("result?format=zip", d, "blob"), "MinerU-" + d.paper + ".zip");
     });
     $("minerSave").onclick = () => updateMinerCredential({action: "save", token: $("token").value});

@@ -68,6 +68,21 @@
       $("dailyFeedField").hidden = source !== "daily";
     }
 
+    function hasNonDefaultDiscovery(defaults = {}) {
+      return (Array.isArray(defaults.categories) && defaults.categories.length > 0) ||
+        defaults.cross_list === false ||
+        (defaults.top_k !== undefined && Number(defaults.top_k) !== 24) ||
+        (defaults.max_daily_candidates !== undefined && Number(defaults.max_daily_candidates) !== 100) ||
+        (defaults.library_recent_days !== undefined && Number(defaults.library_recent_days) !== 60) ||
+        (Array.isArray(defaults.reference_ids) && defaults.reference_ids.length > 0) ||
+        Boolean($("aiModel")?.value);
+    }
+
+    function syncDiscoveryDisclosure(defaults = {}) {
+      const details = $("discovery-advanced");
+      if (details) details.open = hasNonDefaultDiscovery(defaults);
+    }
+
     function applyDefaults(defaults = {}) {
       $("source").value = defaults.source || "arxiv";
       $("categories").value = (defaults.categories || []).join(", ");
@@ -76,6 +91,7 @@
       $("maxCandidates").value = defaults.max_daily_candidates || 100;
       $("libraryDays").value = defaults.library_recent_days || 60;
       showSourceFields();
+      syncDiscoveryDisclosure(defaults);
     }
 
     function categories() {
@@ -85,7 +101,8 @@
     function applyRun(result, resetFilter) {
       feed = result;
       $("expr").value = feed.query || "";
-      applyDefaults({...feed.defaults, ...feed});
+      const merged = {...feed.defaults, ...feed};
+      applyDefaults(merged);
       $("graphSource").disabled = !project;
       if (resetFilter) $("filter").value = "all";
       options($("history"), [["", "选择检索记录"], ...(feed.history || []).map(run => [
@@ -93,6 +110,7 @@
       ])], [feed.id || ""]);
       $("archiveRun").disabled = !feed.id;
       options($("references"), papers.map(p => [p.id, p.title]), feed.reference_ids || []);
+      syncDiscoveryDisclosure(merged);
       const queries = (feed.atom_queries || []).map(q => "arXiv 检索式 " + q);
       const source = feed.id ? [feed.trigger === "lab" ? "AI Lab" : "", sourceLabels[feed.source], feed.daily_feed_source?.name,
         feed.updated ? new Date(feed.updated).toLocaleString() : "", ...queries]
@@ -337,14 +355,33 @@
       const catalog = await response.json();
       options($("aiModel"), [["", "关闭"], ...catalog.models.map(model => [model.id, model.label || model.id])], [$("aiModel").value]);
     });
+    const setDiscoveryError = msg => {
+      const node = $("discovery-error");
+      if (node) {
+        node.textContent = msg || "";
+        node.hidden = !msg;
+      }
+      if (msg && $("discovery-advanced")) $("discovery-advanced").open = true;
+    };
+    $("search").addEventListener?.("invalid", () => {
+      if ($("discovery-advanced")) $("discovery-advanced").open = true;
+    }, true);
     $("search").onsubmit = event => {
       event.preventDefault();
+      setDiscoveryError("");
       if (!ready) return;
+      const topK = Number($("topK").value);
+      if (!Number.isFinite(topK) || topK < 1 || topK > 100) {
+        const msg = "推荐篇数须在 1 到 100 之间。";
+        setDiscoveryError(msg);
+        tell(msg);
+        return;
+      }
       const operation = context();
       const payload = {
         source: $("source").value, query: $("expr").value,
         categories: categories(),
-        cross_list: $("crossList").checked, top_k: Number($("topK").value),
+        cross_list: $("crossList").checked, top_k: topK,
         reference_ids: Array.from($("references").selectedOptions || [], option => option.value)
       };
       if (trigger) payload.trigger = trigger;

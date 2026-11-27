@@ -182,25 +182,45 @@
 <div id="lab-mcp-settings"><label><input type="checkbox" id="lab-mcp-enabled"><span data-en="Enable in this project">在当前项目启用</span></label><button type="button" id="lab-mcp-save" data-en="Save project service settings">保存项目服务设置</button></div>
 <div class="actions"><button type="button" id="list" data-en="List resources">列出资源</button></div><div id="resource-panel" hidden><label><span data-en="Available resources">可读资源</span><select id="resources"></select></label><button type="button" id="read" data-en="Preview source">预览原文</button></div>
 <fieldset id="lab-connections" hidden><legend data-en="Project research connectors">项目科研连接</legend>
-<label><span data-en="Saved connector">已保存的连接</span><select id="connector-select"></select></label>
-<label><span data-en="Connector name">连接名称</span><input id="connector-id" maxlength="64" placeholder="paper-index" autocomplete="off"></label>
-<label><span data-en="Transport">传输方式</span><select id="connector-transport"><option value="https">HTTPS</option><option value="stdio" data-en="Local stdio">本机 stdio</option></select></label>
-<div id="connector-https"><label><span data-en="Remote HTTPS endpoint">远程 HTTPS 服务地址</span><input id="connector-endpoint" type="url" autocomplete="off"></label>
-<label><input id="connector-bearer" type="checkbox"><span data-en="Bearer token required">此连接需要 Bearer 令牌</span></label></div>
-<div id="connector-stdio" hidden><label><span data-en="Absolute path to local MCP program">本机 MCP 程序绝对路径</span><input id="connector-program" autocomplete="off"></label>
-<label><span data-en="Arguments (JSON array)">启动参数（JSON 字符串数组）</span><input id="connector-argv" placeholder='["/path/to/mcp_server.py"]' autocomplete="off"></label>
-<p class="hint">仅选择你已核对的本机科研服务。它以你的系统账户启动。独立服务可无参数启动或使用 --stdio。Python 或 Node 可指定本机脚本和参数。</p></div>
-<label><span data-en="Allowed read-only tools (one name per line)">允许的只读工具（逐行填写服务中的工具名）</span><textarea id="connector-tools" rows="2"></textarea></label>
-<label><input id="connector-enabled" type="checkbox"><span data-en="Enable in this project">在当前项目启用</span></label>
+<label for="connector-select"><span data-en="Saved connector">已保存的连接</span><select id="connector-select"></select></label>
+<label for="connector-id"><span data-en="Connector name">连接名称</span><input id="connector-id" maxlength="64" placeholder="paper-index" autocomplete="off" aria-describedby="connector-id-help"><small id="connector-id-help" class="hint" data-en="Short unique identifier within this project.">项目内唯一的简短标识。</small></label>
+<label for="connector-transport"><span data-en="Transport">传输方式</span><select id="connector-transport" aria-describedby="connector-transport-help"><option value="https">HTTPS</option><option value="stdio" data-en="Local stdio">本机 stdio</option></select><small id="connector-transport-help" class="hint" data-en="Use HTTPS for remote endpoints or local stdio for vetted local MCP programs.">远程服务使用 HTTPS；已核对的本机 MCP 程序选择本机 stdio。</small></label>
+<div id="connector-https"><label for="connector-endpoint"><span data-en="Remote HTTPS endpoint">远程 HTTPS 服务地址</span><input id="connector-endpoint" type="url" autocomplete="off" aria-describedby="connector-endpoint-help"><small id="connector-endpoint-help" class="hint" data-en="Full https:// URL of the project MCP endpoint.">填写完整的 https:// 项目 MCP 服务地址。</small></label></div>
+<label for="connector-enabled"><input id="connector-enabled" type="checkbox"><span data-en="Enable in this project">在当前项目启用</span></label>
+<details id="connector-advanced" class="disclosure">
+  <summary data-en="Advanced">高级选项</summary>
+  <div class="disclosure-body">
+    <div id="connector-https-advanced">
+      <label for="connector-bearer"><input id="connector-bearer" type="checkbox" aria-describedby="connector-bearer-help"><span data-en="Bearer token required">此连接需要 Bearer 令牌</span></label>
+      <small id="connector-bearer-help" class="hint" data-en="Tokens are stored as macOS Keychain references and are never shown in plain text.">令牌以 macOS 钥匙串引用保存，绝不回显明文。</small>
+    </div>
+    <div id="connector-stdio" hidden>
+      <label for="connector-program"><span data-en="Absolute path to local MCP program">本机 MCP 程序绝对路径</span><input id="connector-program" autocomplete="off" aria-describedby="connector-stdio-help"></label>
+      <div class="structured-array-field" id="connector-argv-editor">
+        <span class="structured-array-label" data-en="Arguments">启动参数</span>
+        <div id="connector-argv-rows" class="structured-array-rows" role="group" aria-label="启动参数列表" data-en-aria-label="Argument rows"></div>
+        <div class="actions"><button type="button" id="connector-argv-add" class="button secondary small" data-en="Add argument">添加参数</button></div>
+        <p id="connector-argv-error" class="field-error" role="alert" aria-live="polite" hidden></p>
+      </div>
+      <label for="connector-argv"><span data-en="Arguments (raw JSON array)">启动参数（原始 JSON 数组）</span><input id="connector-argv" placeholder='["/path/to/mcp_server.py"]' autocomplete="off" aria-describedby="connector-argv-help"><small id="connector-argv-help" class="hint" data-en="Synced with the argument rows above; must be a JSON array of strings.">与上方参数行同步，须为 JSON 字符串数组。</small></label>
+      <p id="connector-stdio-help" class="hint">仅选择你已核对的本机科研服务。它以你的系统账户启动。独立服务可无参数启动或使用 --stdio。Python 或 Node 可指定本机脚本和参数。</p>
+    </div>
+    <label for="connector-tools"><span data-en="Allowed read-only tools (one name per line)">允许的只读工具（逐行填写服务中的工具名）</span><textarea id="connector-tools" rows="2" aria-describedby="connector-tools-help"></textarea><small id="connector-tools-help" class="hint" data-en="Leave empty to allow resource reads only. Listed tools still require per-call confirmation.">留空则仅允许读取资料；列出的工具每次调用仍需逐次确认。</small></label>
+    <div id="connector-token-panel" hidden>
+      <label for="connector-token"><span data-en="Bearer token (saved to Keychain)">Bearer 令牌（存入钥匙串）</span><input id="connector-token" type="password" autocomplete="new-password" aria-describedby="connector-token-help"><small id="connector-token-help" class="hint" data-en="Write-only input. Saved tokens stay in macOS Keychain and are never echoed back.">只写输入框；保存后仅保留在 macOS 钥匙串中，不回显明文。</small></label>
+      <div class="actions"><button id="connector-set-token" type="button">存入钥匙串</button><button id="connector-clear-token" type="button" data-en="Remove token">清除令牌</button></div>
+    </div>
+  </div>
+</details>
+<p id="connector-form-error" class="field-error" role="alert" aria-live="polite" hidden></p>
 <button id="connector-save" type="button" data-en="Save configuration">保存配置</button>
-<div id="connector-stored" hidden><p id="connector-status" role="status"></p>
+<div id="connector-stored" hidden><p id="connector-status" role="status" aria-live="polite"></p>
 <div class="actions"><button id="connector-trust" type="button">信任此版本</button><button id="connector-untrust" type="button" data-en="Revoke trust">撤销信任</button><button id="connector-remove" type="button">移除连接</button></div>
-<div id="connector-token-panel" hidden><label>Bearer 令牌<input id="connector-token" type="password" autocomplete="new-password"></label>
-<div class="actions"><button id="connector-set-token" type="button">存入钥匙串</button><button id="connector-clear-token" type="button" data-en="Remove token">清除令牌</button></div></div>
 <div class="actions"><button type="button" id="connector-list">列出项目连接资料</button><button type="button" id="connector-tool-list">列出允许的只读工具</button></div>
-<div id="connector-resources-panel" hidden><label>资料<select id="connector-resources"></select></label><button type="button" id="connector-read">预览资料</button></div>
-<div id="connector-tools-panel" hidden><label>只读工具<select id="connector-tool"></select></label><pre id="connector-schema"></pre>
-<label>本次参数（JSON 对象）<textarea id="connector-args" rows="3">{}</textarea></label>
+<div id="connector-resources-panel" hidden><label for="connector-resources">资料<select id="connector-resources"></select></label><button type="button" id="connector-read">预览资料</button></div>
+<div id="connector-tools-panel" hidden><label for="connector-tool">只读工具<select id="connector-tool"></select></label><pre id="connector-schema"></pre>
+<label for="connector-args"><span data-en="Call arguments (JSON object)">本次参数（JSON 对象）</span><textarea id="connector-args" rows="3" aria-describedby="connector-args-help">{}</textarea><small id="connector-args-help" class="hint" data-en="Provide a JSON object matching the selected tool schema above.">填写符合上方工具参数的 JSON 对象。</small></label>
+<p id="connector-call-error" class="field-error" role="alert" aria-live="polite" hidden></p>
 <button type="button" id="connector-call" data-en="Review and run once">复核并调用一次</button></div></div></fieldset>
 <div id="preview-panel" hidden><label><span data-en="Source preview">原文预览</span><textarea id="resource-text" rows="5" readonly></textarea></label><p>在上框选中至多 2,000 字，再加入当前消息。</p><button type="button" id="select-excerpt" data-en="Attach excerpt">加入选段</button></div></div></section>
 

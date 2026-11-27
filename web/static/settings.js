@@ -180,6 +180,14 @@
       $(id).value = settings[key] ?? "";
     }
     showToolBudget(settings.tool_budget || toolBudgetDefaults);
+    const advanced = $("collaboration-advanced");
+    if (advanced) {
+      const budget = settings.tool_budget || toolBudgetDefaults;
+      const hasNonDefaultBudget =
+        (settings.max_children !== undefined && Number(settings.max_children) !== 2) ||
+        Object.keys(toolBudgetControls).some((key) => Number(budget[key]) !== toolBudgetDefaults[key]);
+      advanced.open = hasNonDefaultBudget;
+    }
     updateSettingsNavigation();
     updateSaveButtons();
   }
@@ -435,12 +443,23 @@
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const collabError = $("collaboration-error");
+    if (collabError) {
+      collabError.textContent = "";
+      collabError.hidden = true;
+    }
     if (state.writing || !changedSettings()) return;
     const invalid = [...form.elements].find((control) => control.willValidate && !control.checkValidity());
     if (invalid) {
       const panel = invalid.closest(".settings-panel");
       const tab = panel && document.getElementById(panel.getAttribute("aria-labelledby"));
       if (tab) window.RoundtableSettingsNav?.select(tab.dataset.settingsPage);
+      const disclosure = invalid.closest("details");
+      if (disclosure) disclosure.open = true;
+      if (collabError && panel?.id === "settings-panel-collaboration") {
+        collabError.textContent = invalid.validationMessage || text("请核对输入范围。", "Please check the entered value.");
+        collabError.hidden = false;
+      }
       invalid.reportValidity();
       return;
     }
