@@ -13,6 +13,7 @@ import (
 
 	"scistation.local/desktop/internal/meeting"
 	"scistation.local/desktop/internal/research"
+	"scistation.local/desktop/web"
 )
 
 func rootFixtureRequest(t *testing.T, api *apiServer, method, path string, input any, code int, out any) {
@@ -30,6 +31,34 @@ func rootFixtureRequest(t *testing.T, api *apiServer, method, path string, input
 		if err := json.Unmarshal(w.Body.Bytes(), out); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestWorkspaceWelcomeServesSharedAppearanceAndSetupAssets(t *testing.T) {
+	api := &apiServer{desktop: true}
+	for _, asset := range []struct {
+		url, mime, theme, setup string
+	}{
+		{"/static/workspace-welcome.css", "text/css", "static/tokens.css", "static/workspace-setup.css"},
+		{"/static/workspace-welcome.js", "text/javascript", "static/appearance.js", "static/workspace-setup.js"},
+	} {
+		t.Run(asset.url, func(t *testing.T) {
+			response := navigationRequest(t, api, "GET", asset.url, "", 200)
+			if !strings.HasPrefix(response.Header().Get("Content-Type"), asset.mime) {
+				t.Fatalf("unexpected content type %q", response.Header().Get("Content-Type"))
+			}
+			var parts [][]byte
+			for _, name := range []string{asset.theme, asset.setup} {
+				part, err := web.Assets.ReadFile(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parts = append(parts, part)
+			}
+			if !bytes.Equal(response.Body.Bytes(), bytes.Join(parts, []byte("\n"))) {
+				t.Fatal("standalone chooser must serve the current shared theme before the chooser styles or script")
+			}
+		})
 	}
 }
 

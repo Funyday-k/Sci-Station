@@ -247,24 +247,24 @@ dialog::backdrop {
   overflow: hidden;
 }
 
-.card--primary {
+.card.card--primary {
   background: var(--bg-surface);
   border: 1px solid var(--border-button);
   box-shadow: var(--shadow-md);
 }
 
-.card--secondary {
+.card.card--secondary {
   background: var(--bg-surface);
   border: 1px solid var(--line);
 }
 
-.card--compact {
+.card.card--compact {
   background: var(--bg-subtle);
   border: 1px solid var(--line);
   padding: var(--space-3) var(--space-4);
 }
 
-.card--empty {
+.card.card--empty {
   background: var(--bg-subtle);
   border: 1px dashed var(--line);
 }
@@ -530,7 +530,10 @@ dialog::backdrop {
   border-inline-start-color: var(--diff-add-border);
 }
 
-.diff-add .diff-gutter,
+.diff-add .diff-gutter {
+  color: var(--diff-add-gutter);
+}
+
 .diff-add .diff-code,
 .diff-add .diff-text {
   color: var(--diff-add-ink);
@@ -541,7 +544,10 @@ dialog::backdrop {
   border-inline-start-color: var(--diff-remove-border);
 }
 
-.diff-remove .diff-gutter,
+.diff-remove .diff-gutter {
+  color: var(--diff-remove-gutter);
+}
+
 .diff-remove .diff-code,
 .diff-remove .diff-text {
   color: var(--diff-remove-ink);

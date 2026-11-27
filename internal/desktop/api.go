@@ -220,7 +220,7 @@ func (a *apiServer) serve(port int) http.Handler {
 				return
 			}
 			name := strings.TrimPrefix(path, "/")
-			body, err := web.Assets.ReadFile(name)
+			body, err := web.ReadAsset(name)
 			if err != nil {
 				http.NotFound(w, r)
 				return

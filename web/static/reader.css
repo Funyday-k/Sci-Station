@@ -34,21 +34,21 @@ a:hover {
   text-decoration:underline;
 }
 
-:is(.toolbar, .reader-footer, .inspector-pane, #handoffDialog) :is(button, select, input, textarea) {
+:where(.toolbar, .foot, #reader-inspector, #handoffDialog) :is(button, select, input, textarea) {
   color:var(--fg);
   background:var(--bg-surface);
   border:1px solid var(--border-control);
   border-radius: var(--radius-sm);
 }
 
-:is(.toolbar, .reader-footer, .inspector-pane, #handoffDialog) button {
+:where(.toolbar, .foot, #reader-inspector, #handoffDialog) button {
   min-height:32px;
   padding:5px 10px;
   border-color:var(--border-button);
   font-weight:400;
 }
 
-:is(.toolbar, .reader-footer, .inspector-pane, #handoffDialog) button:hover:enabled {
+:where(.toolbar, .foot, #reader-inspector, #handoffDialog) button:hover:enabled {
   background:var(--desk);
   border-color:var(--border-control);
 }
@@ -422,7 +422,7 @@ h3 {
   margin-top:9px;
 }
 
-:is(.inspector-pane, #handoffDialog) textarea {
+:where(#reader-inspector, #handoffDialog) textarea {
   display:block;
   width:100%;
   padding:9px;

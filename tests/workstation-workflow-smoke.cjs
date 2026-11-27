@@ -350,6 +350,37 @@ async function enterAndRun(app, ui, fixture, gateway) {
     layer.dispatchEvent(new KeyboardEvent("keyup", {bubbles: true, key: "Shift"}));
   }, locator);
   assert.equal((await ui.visible("#selectedText", quote)).text, quote);
+  const controlStyles = await ui.evaluate(() => {
+    const handoff = document.getElementById("handoff");
+    const footerButton = document.getElementById("addHighlight");
+    const comment = document.getElementById("comment");
+    const sample = document.createElement("span");
+    sample.style.cssText = "color:var(--accent-ink);background-color:var(--accent);border:1px solid var(--border-button)";
+    document.body.append(sample);
+    try {
+      return ["light", "dark"].map(theme => {
+        window.RoundtableAppearance.setMode(theme);
+        const primary = getComputedStyle(handoff), expected = getComputedStyle(sample);
+        const footer = getComputedStyle(footerButton);
+        return {
+          theme,
+          enabled: !handoff.disabled,
+          primaryInk: primary.color === expected.color,
+          primaryFill: primary.backgroundColor === expected.backgroundColor,
+          footerBorder: footer.borderTopStyle === "solid" && footer.borderTopColor === expected.borderTopColor,
+          inspectorFieldFits: Math.abs(comment.getBoundingClientRect().width - comment.parentElement.clientWidth) <= 1,
+        };
+      });
+    } finally {
+      sample.remove();
+      window.RoundtableAppearance.restore();
+    }
+  });
+  for (const {theme, ...styles} of controlStyles) {
+    assert.deepEqual(styles, {
+      enabled: true, primaryInk: true, primaryFill: true, footerBorder: true, inspectorFieldFits: true,
+    }, `Reader controls after selecting text in ${theme} mode`);
+  }
   await ui.click("#handoff");
   assert.equal((await ui.visible("#handoffQuote", quote)).text, quote);
   assert.equal((await ui.visible("#projectSelect")).value, project.id);
@@ -375,6 +406,17 @@ async function enterAndRun(app, ui, fixture, gateway) {
   assert.deepEqual(turns.map(turn => turn.text).sort(), [...statements].sort());
   assert.ok(turns.every(turn => turn.status === "done"));
   for (const text of statements) await ui.visible("#rounds .message-body", text);
+  await ui.click("#room-tab-opinions");
+  await ui.visible("#meeting-opinions");
+  const sourceID = "round-1-" + turns[0].seat;
+  await ui.evaluate(id => { location.hash = id; }, sourceID);
+  await ui.visible('#room-tab-chat[aria-selected="true"]');
+  await ui.visible("#" + sourceID + " .message-body", turns[0].text);
+  await eventually(() => ui.evaluate(id => {
+    const source = document.getElementById(id).getBoundingClientRect();
+    const transcript = document.getElementById("table-scroll").getBoundingClientRect();
+    return source.bottom > transcript.top && source.top < transcript.bottom;
+  }, sourceID), "linked message is in view");
   assert.equal(complete.materials.length, 1, "reader handoff attached more than one source");
   const calls = gateway.calls.filter(call => call.kind === "statement");
   assert.deepEqual(calls.map(call => call.model).sort(), [...models].sort());
