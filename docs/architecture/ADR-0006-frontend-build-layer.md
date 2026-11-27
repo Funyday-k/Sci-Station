@@ -2,44 +2,36 @@
 
 ## Status
 
-Proposed — awaiting maintainer review for [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46) (part of [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29)), based on [RFC-0004](../rfcs/RFC-0004-frontend-build-layer.md).
+Proposed. The maintainer’s decision is pending, and Issue #46 remains open. [Design review in PR #63](https://github.com/Funyday-k/Sci-Station/pull/63) · [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46) · [RFC-0004](../rfcs/RFC-0004-frontend-build-layer.md)
 
 ## Context
 
-Sci-Station embeds its web frontend into the single Go/Wails desktop binary via `//go:embed static/*` in [web/assets.go](../../web/assets.go) and renders pages inside macOS WKWebView. A pre-remediation review suggested adopting Vite with Preact, Vue, or React. Per [AGENTS.md](../../AGENTS.md), introducing a new runtime or build layer requires an accepted RFC and ADR, and generated bundles must stay out of Git.
-
-Issues #39 through #45 resolved the core maintainability and security defects in the unbundled frontend: three-tier semantic tokens (`tokens.css`, 0 hex colors outside palette), shared components (`components.css`, 0 stray bare control rules), container-query layouts (3 viewport breakpoints), an isolated `/settings` surface, decomposed `studio.html` partials and stylesheets (`important_lines` reduced to 2), and feature-split native ES modules under `web/static/modules/` (`html_sinks` ratcheted from 48 down to 11 justified sinks).
+Sci-Station’s Go/Wails desktop host serves embedded assets to WKWebView. At the revision evaluated by RFC-0004, Studio and Research each load a native ES module entry alongside classic scripts. The frontend review asked whether a bundler or component framework would improve startup or make the code easier to maintain. [Embedded assets](../../web/assets.go) · [Native ESM implementation](https://github.com/Funyday-k/Sci-Station/pull/62)
 
 ## Decision
 
-Keep Sci-Station on **zero-build native ES modules** (`<script type="module">`) served directly from `web/static/` via `//go:embed static/*`, and permit **opt-in static type checking via JSDoc + `tsc --noEmit`** as an offline lint step rather than introducing a frontend bundler or component framework runtime.
-
-- Do not add Vite, esbuild, Webpack, Preact, Vue, or React to the desktop build or runtime.
-- Continue migrating classic scripts incrementally into feature-split ES modules under `web/static/modules/` with one module entry per HTML surface and pure DOM APIs for untrusted data.
-- Revisit this decision through a superseding RFC/ADR only if the measurable revisit triggers in [RFC-0004](../rfcs/RFC-0004-frontend-build-layer.md) are met.
+RFC-0004 recommends retaining native ES modules and permitting opt-in static checking of selected JavaScript modules with JSDoc and `tsc --noEmit`. A follow-up issue could define the checker configuration and pinned toolchain after the maintainer accepts the proposal.
 
 ## Alternatives
 
-1. **Option 1 — Native ESM only (#45):** Identical runtime and `go:embed` simplicity, but leaves no sanctioned path for optional static type checking of Go-to-frontend JSON contracts.
-2. **Option 3 — Bundler only (Vite / esbuild):** Adds a mandatory Node pre-build step before `go build` / `go test` and creates tension with keeping generated bundles out of Git for marginal localhost WKWebView latency savings.
-3. **Option 4 — Bundler + component framework (Preact / Vue / React):** Adds runtime overhead, dual-stack migration cost across Go templates and 159 existing `node --test` suites, and ongoing npm/framework maintenance across macOS CI runners.
+1. **Native ESM alone** keeps the existing workflow and relies on runtime tests and review for interface changes.
+2. **A bundler alone** could reduce requests and minify assets. The release pipeline would have to generate reproducible assets before they are embedded. The WKWebView performance effect remains to be measured.
+3. **A bundler with a component framework** also provides declarative components. Each migrated surface would incur runtime initialization and require tests around its rendered markup, focus management and localized content.
 
 ## Consequences
 
-- **Positive:** `go test ./...`, `make headless`, and macOS `.app`/`.dmg` packaging remain deterministic, Node-free at build time, and compliant with keeping generated bundles out of Git. WKWebView incurs zero framework runtime startup cost. Existing `node --test` suites (`tests/lib/esm-vm-loader.cjs`), Go shell tests (`internal/desktop/workspace_shell_test.go`), localization hooks (`data-en` / `data-l10n-text`), and visual baselines (`tests/workbench-visual-baselines-smoke.cjs`) continue working unchanged.
-- **Negative / Tradeoffs:** Complex interactive views still rely on disciplined imperative DOM helpers rather than a declarative component reconciler. Static type coverage is opt-in and requires JSDoc discipline until a follow-up lint gate is added.
-- **Guardrails:** `Tools/scripts/check-frontend-metrics.py` (scanning `web/static/**/*.js` excluding `research-vendor/`) and `tests/esm-modules-and-sinks.test.cjs` enforce design-system tokens, HTML sink discipline, and single-entry module structure on every PR.
+Under the proposed option, contributors would rebuild and relaunch the Go host to exercise asset changes. Type checking could catch errors in annotated interfaces, while native and browser tests would continue exercising behavior. Go services would retain responsibility for persistent state and permissions. [Developer guide](../DEVELOPER.md)
+
+The existing metrics check tracks design tokens and counts HTML sink patterns in first-party JavaScript. The ESM tests check Studio and Research entry points, exercise selected DOM builders, and require adjacent comments for tracked sinks. [Metrics script](../../Tools/scripts/check-frontend-metrics.py) · [ESM and DOM tests](../../tests/esm-modules-and-sinks.test.cjs)
 
 ## Validation
 
-- No implementation code is changed by Issue #46.
-- Documentation and tooling checks: `Tools/scripts/check-repository-hygiene.sh`, `python3 Tools/scripts/check-docs-hygiene.py`, `python3 Tools/scripts/check-version-consistency.py`, `python3 Tools/scripts/check-frontend-metrics.py`, and `python3 -m unittest discover -s Tools/tests -v`.
-- Baseline evidence referenced from [Issue #45](https://github.com/Funyday-k/Sci-Station/issues/45): `node --test tests/*.test.cjs` (159 passing) and `tests/workbench-visual-baselines-smoke.cjs` (72 captures, 0 page errors).
+PR #62 reports Linux Node validation with three macOS-only cases skipped and 72 Chromium visual captures without page errors at `04a3c29`. RFC-0004 specifies a separate cold and warm startup comparison in native WKWebView to evaluate the performance hypotheses. [PR #62](https://github.com/Funyday-k/Sci-Station/pull/62) · [Startup comparison protocol](../rfcs/RFC-0004-frontend-build-layer.md#measuring-startup-before-changing-the-build)
+
+Review the documentation with `python3 Tools/scripts/check-docs-hygiene.py` and `python3 -m unittest discover -s Tools/tests -v`. On acceptance, record the decision PR and update both indexes before closing Issue #46.
 
 ## References
 
-- [RFC-0004: Evaluate a frontend build layer or component framework](../rfcs/RFC-0004-frontend-build-layer.md)
-- [ADR-0004: Roundtable workstation](ADR-0004-roundtable-workstation.md)
-- [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46) and [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29)
-- [Issue #45](https://github.com/Funyday-k/Sci-Station/issues/45) (Native ES modules and HTML sink closure)
-- [Developer guide](../DEVELOPER.md), [web/assets.go](../../web/assets.go), [Tools/scripts/check-frontend-metrics.py](../../Tools/scripts/check-frontend-metrics.py), and [tests/lib/esm-vm-loader.cjs](../../tests/lib/esm-vm-loader.cjs)
+- [RFC-0004](../rfcs/RFC-0004-frontend-build-layer.md) and [its design review](https://github.com/Funyday-k/Sci-Station/pull/63)
+- [ADR-0004 on the Go/Wails host](ADR-0004-roundtable-workstation.md)
+- [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29) and [Issue #45 on native ES modules](https://github.com/Funyday-k/Sci-Station/issues/45)
