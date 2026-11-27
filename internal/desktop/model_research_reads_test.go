@@ -429,7 +429,7 @@ func TestModelResearchChecksCooldownAgainAfterApproval(t *testing.T) {
 	op := f.configure(research.LabConnector{ID: "papers", Transport: "https", Endpoint: "https://fixture.invalid/mcp", Enabled: true})
 	op.Confirmed = true
 	f.post("trust", op, 200)
-	service := f.api.research.(*research.Service)
+	service := f.api.research
 	dir, err := service.ProjectDirectory(f.project)
 	if err != nil {
 		t.Fatal(err)
