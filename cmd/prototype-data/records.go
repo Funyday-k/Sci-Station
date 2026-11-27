@@ -195,14 +195,20 @@ func restorePaths(stage *os.Root, m manifest, destination string) error {
 		if err := json.Unmarshal(document["project"], &project); err != nil || project == nil {
 			return fmt.Errorf("cannot restore project %q", record.file)
 		}
-		delete(project, "directoryGrant")
 		newPath := ""
 		if record.path == managedPath(m.Source, record.id) {
 			newPath = managedPath(destination, record.id)
 			project["managedDirectory"] = json.RawMessage("true")
 		} else {
+			// Compare against the saved identity if the project is rebound.
+			// The old path may already refer to a different directory.
+			var grant research.DirectoryGrant
+			if json.Unmarshal(project["directoryGrant"], &grant) == nil && grant.Inode != 0 {
+				document["previousDirectoryIdentity"], _ = json.Marshal(grant)
+			}
 			delete(project, "managedDirectory")
 		}
+		delete(project, "directoryGrant")
 		project["path"], _ = json.Marshal(newPath)
 		document["project"], err = json.Marshal(project)
 		if err != nil {
