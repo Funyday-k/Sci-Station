@@ -76,6 +76,7 @@ For a new check, test the narrowest owning package first. Use isolated roots and
 Tools/scripts/check-repository-hygiene.sh
 python3 Tools/scripts/check-docs-hygiene.py
 python3 Tools/scripts/check-version-consistency.py
+python3 Tools/scripts/check-frontend-metrics.py
 python3 -m unittest discover -s Tools/tests -v
 go test -race -tags nogui -coverprofile=coverage.out ./...
 Tools/scripts/check-go-coverage.sh coverage.out
@@ -83,7 +84,7 @@ go vet -tags nogui ./...
 node --test tests/*.test.cjs
 ```
 
-The coverage check enforces a 74.0% statement coverage floor. On a Mac with a logged-in graphical session, exercise startup, window gestures, trusted callbacks and persistent writes against a freshly built bundle.
+The coverage check enforces a 74.0% statement coverage floor. The frontend metrics ratchet checks `web/static/*.css`, `*.js` and `*.html` against [Tools/frontend-metrics.json](../Tools/frontend-metrics.json); run `python3 Tools/scripts/check-frontend-metrics.py --print-baseline` to print updated counts when lowering a baseline. On a Mac with a logged-in graphical session, exercise startup, window gestures, trusted callbacks and persistent writes against a freshly built bundle.
 
 ```sh
 make app verify
