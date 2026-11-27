@@ -27,6 +27,8 @@
   --workspace-accent-soft: var(--palette-soft, light-dark(#eeedfd, #30324e));
   --workspace-accent-ink: light-dark(#fff, #1b1d21);
   --workspace-danger: light-dark(#a52f42, #ff9cae);
+  --workspace-warning-bg: light-dark(#fef3c7, #3b2d12);
+  --workspace-warning-ink: light-dark(#5c3a00, #fde68a);
   --workspace-shadow: 0 4px 20px light-dark(#20242b0d, #00000033);
   --workspace-page-top: 24px;
   --workspace-page-inset: clamp(16px, 3vw, 32px);

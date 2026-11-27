@@ -3,14 +3,8 @@
 <link rel="stylesheet" href="/static/citation-panel.css">
 <script defer src="/static/citation-panel.js"></script>
 {{end}}
-{{define "breadcrumb"}}<span data-l10n-text="routePDFReader">文献阅读</span>{{end}}
+{{define "breadcrumb"}}<div class="reader-bar-title"><a id="home" class="reader-back" href="/research?view=papers" data-l10n-text="openLibrary">返回文献库</a><span class="reader-bar-sep" aria-hidden="true">/</span><h1 id="title" class="reader-title">论文阅读</h1><span id="byline" class="reader-byline" hidden></span></div>{{end}}
 {{define "content"}}
-<header class="reader-header">
-  <a id="home" href="/research?view=papers" data-l10n-text="openLibrary">返回文献库</a>
-
-  <span class="spacer"></span><button id="citation" type="button" data-citation-paper data-en="Cite paper">引用文献</button><a id="bib" hidden>BibTeX</a><a id="exportMarkdown" hidden data-l10n-text="readerExportMarkdown">导出正文 Markdown</a><a id="original" hidden target="_blank" rel="noopener" data-l10n-text="readerOpenExternal">打开 PDF 原件 ↗</a>
-</header>
-<section class="titlebar"><div><h1 id="title">论文阅读</h1><p id="byline"></p></div><span class="spacer"></span><button id="handoff" class="primary" disabled data-l10n-text="readerSendSelection">选段入会</button></section>
 <div id="message" role="status" aria-live="polite"></div>
 <div id="sourceNotice" role="status" hidden></div>
 <div id="graphCitation" role="status" hidden></div>
@@ -19,7 +13,7 @@
    <div class="toolbar" aria-label="阅读工具" data-l10n-aria-label="readerToolbar">
      <button id="prev" title="上一页" aria-label="上一页" data-l10n-title="readerPrevPage" data-l10n-aria-label="readerPrevPage">‹</button><label class="page-input" for="pageNo"><span data-l10n-text="readerPagePrefix">第</span> <input id="pageNo" type="number" min="1" value="1"> <span data-l10n-text="readerPageSuffix">页</span></label><span id="count"></span><button id="next" title="下一页" aria-label="下一页" data-l10n-title="readerNextPage" data-l10n-aria-label="readerNextPage">›</button>
      <span class="divider"></span><button id="smaller" title="缩小" aria-label="缩小" data-l10n-title="readerZoomOut" data-l10n-aria-label="readerZoomOut">−</button><button id="fit" title="适合宽度" data-l10n-title="readerFitWidth">适宽</button><button id="larger" title="放大" aria-label="放大" data-l10n-title="readerZoomIn" data-l10n-aria-label="readerZoomIn">＋</button>
-     <span class="spacer"></span><button id="regionButton" aria-pressed="false" title="框选图表或公式并附上便签" data-l10n-title="readerRegionHelp" data-l10n-text="readerRegionAnnotation">区域批注</button><button id="findButton" aria-expanded="false" data-l10n-text="find">查找</button><button id="reader-inspect" type="button" aria-controls="reader-inspector" aria-expanded="false" data-en="Annotations and notes">批注与笔记</button>
+     <span class="spacer"></span><button id="regionButton" aria-pressed="false" title="框选图表或公式并附上便签" data-l10n-title="readerRegionHelp" data-l10n-text="readerRegionAnnotation">区域批注</button><button id="findButton" aria-expanded="false" data-l10n-text="find">查找</button><button id="reader-inspect" type="button" aria-controls="reader-inspector" aria-expanded="false" data-en="Annotations and notes">批注与笔记</button><button id="handoff" class="primary" disabled data-l10n-text="readerSendSelection">选段入会</button><div class="reader-more-wrap"><button id="readerMoreButton" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="readerMoreMenu" title="更多操作" aria-label="更多操作" data-l10n-title="toolbarMoreActions" data-l10n-aria-label="toolbarMoreActions"><span data-l10n-text="readerMore">更多</span><span aria-hidden="true"> ▾</span></button><div id="readerMoreMenu" class="reader-more-menu" role="menu" hidden><button id="citation" type="button" role="menuitem" data-citation-paper data-en="Cite paper">引用文献</button><a id="exportMarkdown" role="menuitem" hidden data-l10n-text="readerExportMarkdown">导出正文 Markdown</a><a id="bib" role="menuitem" data-command="bibtex" hidden data-l10n-text="menuExportBibTeX">导出 BibTeX</a><a id="original" role="menuitem" data-command="externalPDF" hidden target="_blank" rel="noopener" data-l10n-text="readerOpenExternal">打开 PDF 原件 ↗</a></div></div>
    </div>
    <div id="findBar" hidden><form id="searchForm"><input id="findTerm" type="search" placeholder="查找全文" maxlength="240" aria-label="查找全文" data-l10n-placeholder="readerFindText" data-l10n-aria-label="readerFindText"><button type="submit" data-l10n-text="find">查找</button><button type="button" id="closeFind" aria-label="关闭查找" data-l10n-aria-label="readerCloseFind" data-l10n-text="close">关闭</button></form><div id="findResults"></div></div>
    <div class="viewport" id="viewport"><div id="pageSurface" class="page-surface" hidden><img id="pageImage" alt=""><div id="highlights" class="overlay"></div><div id="textLayer" class="text-layer" aria-label="本页可选取文字" data-l10n-aria-label="readerSelectableText"></div></div><div id="empty" class="empty" role="status">正在打开论文…</div></div>

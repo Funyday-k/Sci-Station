@@ -159,7 +159,7 @@ async function smoke(binary) {
       await expect(page.locator("#workspace-sidebar")).toHaveCSS("background-color", theme.inset);
       await expect(page.locator("#workspace-sidebar")).toHaveCSS("padding-left", "0px");
       await expect(page.locator("#workspace-sidebar")).toHaveCSS("padding-right", "0px");
-      await expect(page.locator(".titlebar")).toHaveCSS("background-color", theme.surface);
+      await expect(page.locator(".toolbar")).toHaveCSS("background-color", theme.surface);
       await expect(page.locator("#viewport")).toHaveCSS("background-color", theme.inset);
       await expect(page.locator("#pageSurface")).toHaveCSS("background-color", "rgb(255, 255, 255)");
       await assertReadable(page.locator("#byline"), theme.small);
