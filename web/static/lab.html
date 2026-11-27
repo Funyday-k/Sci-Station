@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="/static/lab.css">
 <link rel="stylesheet" href="/static/lab-tools.css">
   <script defer src="/static/lab-tools.js"></script>
+<link rel="stylesheet" href="/static/member-editor.css">
+<script defer src="/static/member-editor.js"></script>
   <script defer src="/static/lab-evidence.js"></script>
   <script defer src="/static/lab-run-audit.js"></script>
   <script defer src="/static/lab-handoff.js"></script><script defer src="/static/lab-context.js"></script><script defer src="/static/lab-connectors.js"></script><script defer src="/static/lab-artifacts.js"></script><script defer src="/static/lab.js"></script>
@@ -27,39 +29,12 @@
 </section>
 {{end}}
 {{define "content"}}
-<main class="shell workspace-pane lab-workspace" id="lab-workspace">
-  <header class="workspace-page-heading lab-conversation-heading">
-    <div class="lab-heading-line">
-      <h1 data-en="Chat">单人对话</h1>
-      <span id="lab-run-state" class="hint" role="status"></span>
-    </div>
-    <div class="lab-heading-actions">
-      <label class="lab-scope-label"><span data-en="Scope">范围</span><select id="project"></select></label>
-      <details id="lab-thread-actions" class="lab-menu" hidden>
-        <summary class="workspace-icon" aria-label="对话操作" data-en-aria-label="Chat actions"><svg class="ui-icon" data-ui-icon="more" aria-hidden="true"></svg></summary>
-        <div>
-          <button type="button" id="lab-rename-thread" data-en="Rename">重命名</button>
-          <button type="button" id="lab-archive-thread" data-en="Archive">归档</button>
-          <button type="button" id="lab-restore-thread" data-en="Restore" hidden>取消归档</button>
-          <button type="button" id="lab-export" data-en="Export redacted diagnostics">导出脱敏诊断包</button>
-          <a id="lab-open" data-en="Review outcomes or CLI edits in Roundtable">在圆桌中审核成果或 CLI 编辑</a>
-        </div>
-      </details>
-    </div>
-  </header>
+<main class="shell workspace-pane lab-workspace" id="lab-workspace" data-lab-state="new">
   <section class="lab-timeline" id="lab-timeline" tabindex="0" aria-label="对话记录" data-en-aria-label="Conversation">
     <div class="lab-transcript-width">
-      <div id="lab-transfer-notice" class="lab-transfer-notice" hidden>
-        <p data-en="Context from Roundtable is ready to review.">可复核从圆桌带来的上下文。</p>
-        <button type="button" id="lab-transfer-preview" data-en="Review import">复核转入内容</button>
-        <button type="button" id="lab-transfer-dismiss" data-en="Dismiss">忽略</button>
-      </div>
-      <div id="lab-empty">
-        <h2 data-en="What are you working on?">你想研究什么？</h2>
-        <p class="hint" data-en="Ask about a paper, add project sources, or describe what you want to check.">询问论文、附上项目原文，或写下你想核对的问题。</p>
-      </div>
       <p id="lab-opening-chat" class="hint" role="status" hidden data-en="Opening chat…">正在打开对话…</p>
       <div id="lab-result" hidden>
+        <h1 id="lab-run-state" class="lab-thread-heading"></h1>
         <div id="lab-turns"></div>
         <p id="lab-no-turns" class="hint" hidden data-en="This chat was saved before an answer was available.">此对话已保存，尚无回答。</p>
         <button type="button" id="lab-retry" hidden>重试本轮</button>
@@ -73,6 +48,12 @@
   </section>
   <section class="lab-composer-dock" aria-label="写消息" data-en-aria-label="Message composer">
     <div class="lab-transcript-width">
+      <div id="lab-transfer-notice" class="lab-transfer-notice" hidden>
+        <p data-en="Context from Roundtable is ready to review.">可复核从圆桌带来的上下文。</p>
+        <button type="button" id="lab-transfer-preview" data-en="Review import">复核转入内容</button>
+        <button type="button" id="lab-transfer-dismiss" data-en="Dismiss">忽略</button>
+      </div>
+      <div id="lab-empty"><h1 data-en="What are you working on?">你想研究什么？</h1></div>
       <section class="model-read-review" id="lab-read-review" aria-live="polite" hidden></section>
       <div id="lab-composer" class="lab-composer">
         <div id="lab-attachments" class="lab-attachments" hidden>
@@ -84,18 +65,40 @@
         </div>
         <label id="lab-initial"><span class="lab-visually-hidden" data-en="Research question">研究问题</span><textarea id="question" rows="2" maxlength="2500" disabled></textarea></label>
         <div id="lab-followup" hidden><label><span class="lab-visually-hidden" data-en="Follow-up message">追问</span><textarea id="lab-reply" rows="2" maxlength="2500" disabled></textarea></label></div>
-        <div class="lab-composer-tools">
-          <div class="lab-composer-options">
-            <button type="button" id="lab-attach" class="lab-tool-button" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="plus" aria-hidden="true"></svg><span data-en="Sources">原文</span></button>
-            <button type="button" id="lab-tools" class="lab-tool-button" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="tools" aria-hidden="true"></svg><span data-en="Tools">工具</span></button>
-            <button type="button" id="lab-model-trigger" class="lab-tool-button" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="model" aria-hidden="true"></svg><span id="lab-model-trigger-text">模型</span></button>
-            <button type="button" id="lab-draft-trigger" class="workspace-icon lab-draft-trigger" aria-label="草稿操作" data-en-aria-label="Draft actions" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="more" aria-hidden="true"></svg></button>
+        <div class="lab-send-actions">
+          <button type="button" id="lab-start" class="primary" data-en="Send">发送</button>
+          <button type="button" id="lab-resume" class="primary" hidden data-en="Send">发送</button>
+          <button type="button" id="lab-stop" hidden data-en="Stop">停止</button>
+        </div>
+      </div>
+      <div class="lab-composer-tools">
+        <div class="lab-composer-options">
+          <label class="lab-scope-label"><span class="lab-visually-hidden" data-en="Project (optional)">项目（可选）</span><svg class="ui-icon" data-ui-icon="folder" aria-hidden="true"></svg><select id="project"></select></label>
+          <button type="button" id="lab-attach" class="lab-tool-button" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="file" aria-hidden="true"></svg><span data-en="Files">文件</span></button>
+          <button type="button" id="lab-tools" class="lab-tool-button" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="tools" aria-hidden="true"></svg><span data-en="Plugins">插件</span></button>
+          <button type="button" id="lab-draft-trigger" class="workspace-icon lab-draft-trigger" aria-label="草稿操作" data-en-aria-label="Draft actions" aria-haspopup="dialog"><svg class="ui-icon" data-ui-icon="more" aria-hidden="true"></svg></button>
+          <details id="lab-thread-actions" class="lab-menu" hidden>
+            <summary class="workspace-icon" aria-label="对话操作" data-en-aria-label="Chat actions"><svg class="ui-icon" data-ui-icon="settings" aria-hidden="true"></svg></summary>
+            <div>
+              <button type="button" id="lab-rename-thread" data-en="Rename">重命名</button>
+              <button type="button" id="lab-archive-thread" data-en="Archive">归档</button>
+              <button type="button" id="lab-restore-thread" data-en="Restore" hidden>取消归档</button>
+              <button type="button" id="lab-export" data-en="Export redacted diagnostics">导出脱敏诊断包</button>
+              <a id="lab-open" data-en="Review outcomes or CLI edits in Roundtable">在圆桌中审核成果或 CLI 编辑</a>
+            </div>
+          </details>
+        </div>
+        <div id="lab-model-controls" class="lab-model-controls">
+          <button type="button" id="lab-model-trigger" class="lab-tool-button" aria-haspopup="dialog" aria-controls="lab-model-dialog"><svg class="ui-icon" data-ui-icon="model" aria-hidden="true"></svg><span id="lab-model-trigger-text">模型</span></button>
+          <div class="lab-effort-control">
+            <label for="lab-effort" class="lab-visually-hidden" data-en="Reasoning effort">思考程度</label>
+            <input id="lab-effort" type="range" min="0" max="0" step="1" value="0" disabled>
+            <output id="lab-effort-value" for="lab-effort"></output>
           </div>
-          <div class="lab-send-actions">
-            <button type="button" id="lab-start" class="primary" data-en="Send">发送</button>
-            <button type="button" id="lab-resume" class="primary" hidden data-en="Send">发送</button>
-            <button type="button" id="lab-stop" hidden data-en="Stop">停止</button>
-          </div>
+        </div>
+        <div id="lab-existing-model" class="lab-model-controls" hidden>
+          <button type="button" id="lab-edit-model" class="lab-tool-button" aria-haspopup="dialog" aria-describedby="lab-model-lock"><svg class="ui-icon" data-ui-icon="model" aria-hidden="true"></svg><span id="lab-existing-model-label"></span></button>
+          <p id="lab-model-lock" class="hint" hidden></p>
         </div>
       </div>
       <p id="lab-readonly" class="hint" hidden></p>
@@ -105,9 +108,13 @@
 </main>
 
 <dialog id="lab-materials-dialog" class="lab-dialog" aria-labelledby="lab-materials-title">
-  <header><h2 id="lab-materials-title" data-en="Project sources">项目原文</h2><button type="button" class="workspace-icon" data-lab-close aria-label="关闭" data-en-aria-label="Close"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button></header>
+  <header><h2 id="lab-materials-title" data-en="Attach files or sources">添加文件或原文</h2><button type="button" class="workspace-icon" data-lab-close aria-label="关闭" data-en-aria-label="Close"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button></header>
   <div class="lab-dialog-content">
-  <fieldset id="local-sources"><legend data-en="Project sources">项目原文</legend>
+  <div class="lab-local-file-actions">
+    <button type="button" id="lab-file-picker" data-en="Choose local files">选择本地文件</button>
+    <input id="lab-file-input" type="file" multiple hidden>
+  </div>
+  <fieldset id="local-sources" hidden><legend data-en="Project sources">项目原文</legend>
 <label><span data-en="Source">来源</span><select id="local-record"></select></label>
 <details id="local-search"><summary data-en="Search project sources">检索项目原文</summary><label><span data-en="Search scope">检索范围</span><select id="local-search-scope"><option value="project" data-en="Project text · papers, notes, and materials">项目文本 · 论文 Markdown、笔记和文本材料</option><option value="exact-project" data-en="Search each source · including PDFs">逐份查找 · 包括 PDF</option><option value="record" data-en="Current source">当前来源</option></select></label>
 <label id="local-rank-label"><span data-en="Local ranking">本地排序</span><select id="local-rank"><option value="lexical" data-en="Keywords">关键词</option><option value="hybrid" data-en="Keyword and local vector ranking">关键词与确定性词项向量</option></select></label>
@@ -217,8 +224,7 @@
 <dialog id="lab-model-dialog" class="lab-dialog lab-short-dialog" aria-labelledby="lab-model-heading">
   <header><h2 id="lab-model-heading" data-en="Model">模型</h2><button type="button" class="workspace-icon" data-lab-close aria-label="关闭" data-en-aria-label="Close"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button></header>
   <div class="lab-dialog-content">
-    <div class="run-controls"><label><span data-en="Model">模型</span><select id="lab-model" aria-describedby="lab-model-state"></select></label>
-    <label><span data-en="Reasoning effort">思考程度</span><select id="lab-effort"></select></label></div>
+    <label><span data-en="Model">模型</span><select id="lab-model" aria-describedby="lab-model-state" disabled></select></label>
     <div class="actions"><button type="button" id="lab-models" data-en="Refresh model list">读取模型目录</button><span id="lab-model-state" class="hint" role="status"></span></div>
   </div>
   <footer><p data-lab-status role="status"></p><button type="button" data-lab-close data-en="Done">完成</button></footer>

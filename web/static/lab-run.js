@@ -192,15 +192,36 @@
     const recentRooms=new Map();
     let visibleRoom=null, searchState=null, renameTarget=null, painted="", scrollOnOpen=false;
     let history = [], active = "", pollTimer = 0, models = [], modelFlight=null, previewSequence = 0;
-    let importedMaterials=[], restoringDraft=null;
+    let importedMaterials=[], restoringDraft=null, legacyMember=null;
+    let filePickerOwner=null, fileBatch=null;
     const chatAttachments=new Map();
+    const effortChoices=new Map();
+    const reasoning=window.SciModelEffort.bind($("lab-effort"),$("lab-effort-value"),effort=>{
+      effortChoices.set($("lab-model").value,effort);
+    });
+    const memberEditor=window.RoundtableMemberEditor.mount({
+      loadModels:()=>req(studio+"models"),
+      write:(id,change)=>{
+        if(!scopeAvailable() || active!==id || memberLock(visibleRoom)) throw Error(text("当前对话无法更改模型。","The model cannot be changed in this chat right now."));
+        return req(sessionURL(id)+"/members","POST",change);
+      },
+      acceptSession(room){
+        if(!ownsRun(room,project) || active!==room.id) return;
+        recentRooms.set(room.id,room);
+        history=history.map(item=>item.id===room.id ? room : item);
+        renderRun(room);displayHistory();
+        if(room.status==="running") schedule(room.id);
+      },
+      membersOf:room=>[effectiveMember(room)].filter(Boolean),
+      displayName:(_id,room)=>threadTitle(room)
+    });
     const audit = window.SciLabRunAudit.mount({req, scopeQuery});
     const questionDraft = createDraft({req,input:$("question"),status:message=>{$("lab-question-draft-state").textContent=message;}});
     const replyDraft = createDraft({req,input:$("lab-reply"),status:message=>{$("lab-reply-draft-state").textContent=message;}});
     function bind(id, fn) {
       $(id).addEventListener("click", async () => {
         const button=$(id), started=generation;
-        button.dataset.labBusy="1";button.disabled=true; tell("");
+        button.dataset.labBusy="1";button.disabled=true; tell("");updateComposer();
         try { await fn(); } catch(error) { if(started===generation) tell(error.message); }
         finally { delete button.dataset.labBusy;button.disabled=false;updateComposer(); }
       });
@@ -208,6 +229,8 @@
     function lookAt(id) {
       const changed=active!==id;
       if(changed) {
+        stopFileUpload();
+        legacyMember=null;
         chatAttachments.set(active,{selected,importedMaterials,resource:currentResource()});
         const saved=chatAttachments.get(id);
         selected=saved?.selected || []; importedMaterials=saved?.importedMaterials || [];
@@ -254,6 +277,9 @@
       const writable=Boolean(!active || (visibleRoom && !archived && ["ready","partial"].includes(visibleRoom.status)));
       const scopeReady=scopeAvailable();
       const enabled=scopeReady && window.SciStationModules.isEnabled(enabledModules,"ai-lab");
+      const sending=Boolean($("lab-start").dataset.labBusy || $("lab-resume").dataset.labBusy);
+      const canAttach=writable && enabled && !restoringDraft && !sending;
+      $("lab-workspace").dataset.labState=active ? "conversation" : "new";
       $("lab-empty").hidden=Boolean(active);
       $("lab-opening-chat").hidden=!active || Boolean(visibleRoom);
       $("lab-thread-actions").hidden=!visibleRoom;
@@ -265,16 +291,36 @@
       $("lab-start").hidden=Boolean(active) || !writable;
       $("lab-resume").hidden=!active || !writable;
       $("lab-stop").hidden=!running || visibleRoom.cancel_requested;
-      $("lab-start").disabled=!enabled || Boolean(restoringDraft || $("lab-start").dataset.labBusy);
-      $("lab-resume").disabled=!enabled || Boolean(restoringDraft || $("lab-resume").dataset.labBusy);
-      $("lab-attach").disabled=!writable || !enabled || !project || project.global || Boolean(restoringDraft);
-      $("lab-tools").disabled=!writable || !enabled || Boolean(restoringDraft);
+      $("lab-start").disabled=!enabled || Boolean(restoringDraft || fileBatch || sending);
+      $("lab-resume").disabled=!enabled || Boolean(restoringDraft || fileBatch || sending);
+      $("lab-attach").disabled=!canAttach;
+      $("lab-file-picker").disabled=!canAttach || Boolean(fileBatch);
+      $("local-sources").hidden=!scopeReady || !project?.id;
+      $("local-sources").disabled=!canAttach || Boolean(fileBatch);
+      $("lab-tools").disabled=!writable || !enabled || Boolean(restoringDraft || fileBatch);
       $("lab-draft-trigger").disabled=!writable || !project || !scopeReady;
-      $("lab-model-trigger").hidden=Boolean(active);
+      $("lab-model-controls").hidden=Boolean(active);
+      $("lab-model-trigger").disabled=!enabled || sending;
+      reasoning.setDisabled(!enabled || sending);
+      const member=effectiveMember(visibleRoom), locked=memberLock(visibleRoom);
+      $("lab-existing-model").hidden=!visibleRoom;
+      $("lab-edit-model").disabled=!enabled || sending || Boolean(locked);
+      const memberLabel=member?.model ? [member.label || member.model,
+        window.SciModelEffort.label(member.effort)].filter(Boolean).join(" · ") : text("模型","Model");
+      $("lab-existing-model-label").textContent=memberLabel;
+      $("lab-edit-model").setAttribute("aria-label",text("更改对话模型","Change chat model")+" · "+memberLabel);
+      $("lab-model-lock").hidden=!locked;
+      $("lab-model-lock").textContent=locked;
+      memberEditor.update(visibleRoom,sending || Boolean(locked));
       $("lab-readonly").hidden=Boolean(!active || !visibleRoom || writable || running);
       $("lab-readonly").textContent=archived ? text("此对话已归档。","This chat is archived.") : text("此对话已结束。","This conversation is closed.");
       $("lab-run-state").textContent=visibleRoom ? [threadTitle(visibleRoom),archived ? text("已归档","Archived") : "",statusText(visibleRoom.status)].filter(Boolean).join(" · ") : "";
       $("lab-run-state").title=$("lab-run-state").textContent;
+    }
+    function dismissThreadNavigation() {
+      const layout=window.SciShellLayout;
+      if(layout?.dismissSessionNav) layout.dismissSessionNav(true);
+      else layout?.dismissProjectNav();
     }
     function displayHistory() {
       const rows=matchingThreads(history,$("lab-thread-search").value,$("lab-show-archived").checked);
@@ -285,7 +331,7 @@
         title.className="lab-thread-title";title.textContent=threadTitle(room);button.title=title.textContent;
         detail.className="lab-thread-meta";detail.textContent=(room.lab_thread?.archived_at ? text("已归档 · ","Archived · ") : "")+threadDetails(room);
         button.append(title,detail);item.append(button);
-        button.onclick=()=>{window.SciShellLayout?.dismissProjectNav();void openRun(room.id);};
+        button.onclick=()=>{dismissThreadNavigation();void openRun(room.id);};
         return item;
       }));
       if(focused) $("lab-history").querySelector(`[data-lab-thread="${CSS.escape(focused)}"]`)?.focus();
@@ -312,6 +358,7 @@
       for(const material of importedMaterials){
         const li=document.createElement("li"), label=document.createElement("span"), remove=document.createElement("button");
         label.textContent=material.name;remove.type="button";remove.textContent=text("移除","Remove");
+        remove.setAttribute("aria-label",remove.textContent+" "+material.name);
         remove.onclick=()=>{importedMaterials=importedMaterials.filter(m=>m.id!==material.id);displaySelected();};
         li.append(label,remove);rows.push(li);
       }
@@ -320,8 +367,9 @@
     }
     async function selectProject(next, sessions) {
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
+      stopFileUpload();
       window.SciStationReadReview?.update($("lab-read-review"), null);
-      project=next; records=[];existingTasks=[]; selected=[];importedMaterials=[]; restoringDraft=null;
+      project=next; records=[];existingTasks=[]; selected=[];importedMaterials=[]; restoringDraft=null; legacyMember=null;
       clearTimeout(pollTimer); active=""; visibleRoom=null; enabledModules=null;
       chatAttachments.clear();
       painted="";$("lab-thread-actions").open=false;
@@ -330,7 +378,7 @@
       void replyDraft.select(null);
       $("lab-thread-search").value=""; $("lab-show-archived").checked=false;
       $("local-record").replaceChildren(); chooseRecord(); displaySelected();
-      $("local-sources").disabled=!project; $("lab-result").hidden=true;
+      $("lab-result").hidden=true;
       history=[...recentRooms.values(),...sessions.filter(s=>!recentRooms.has(s.id))].filter(s=>ownsRun(s,project)); displayHistory();
       if(!project) {lookAt("");return;}
       const linked=history.find(s=>s.id===requested);
@@ -345,8 +393,8 @@
       enabledModules=config;
       updateComposer();
       const enabled = id=>window.SciStationModules.isEnabled(config,id);
-      if(project.global){ $("local-sources").disabled=true; return; }
-      $("local-sources").disabled=!enabled("ai-lab");
+      if(!active && enabled("ai-lab")) ensureModels();
+      if(project.global) return;
       const [papers,notes,materials,tasks]=await Promise.all([
         (enabled("paper-library")||enabled("pdf-reader"))?req("/api/research/papers?project="+encodeURIComponent(project.id)):[],
         enabled("wiki")?req(prefix+"notes"):[], enabled("materials")?req(prefix+"materials"):[],enabled("tasks")?req(prefix+"tasks"):[]
@@ -510,6 +558,7 @@
     }
     function addSelection() {
       if(!preview || selected.length>=4) throw Error("每次最多选择四段原文。");
+      if(selected.length+importedMaterials.length>=12) throw Error(text("每次最多加入 12 份附件。","Attach no more than 12 files or excerpts at a time."));
       const area=$("local-text"), citation=selectedCitation(preview,area.selectionStart,area.selectionEnd);
       if(selected.some(x=>x.citation.kind===citation.kind && x.citation.id===citation.id && x.citation.page===citation.page && x.citation.offset===citation.offset))
         throw Error("此选段已加入。");
@@ -521,6 +570,59 @@
       importedMaterials=importedMaterials.filter(item=>!imported.includes(item));
       displaySelected();
     }
+    function stopFileUpload() {
+      filePickerOwner=null;
+      fileBatch?.abort();
+      fileBatch=null;
+    }
+    function draftOwner() {return {project,thread:active,generation};}
+    function ownsDraft(owner) {
+      return owner.project===project && owner.thread===active && owner.generation===generation && scopeAvailable();
+    }
+    $("lab-file-picker").addEventListener("click",()=>{
+      filePickerOwner=draftOwner();
+      $("lab-file-input").click();
+    });
+    $("lab-file-input").addEventListener("change",async event=>{
+      const owner=filePickerOwner || draftOwner();
+      filePickerOwner=null;
+      const files=Array.from(event.target.files || []);
+      event.target.value="";
+      if(!files.length || !owner.project || !ownsDraft(owner) || $("lab-file-picker").disabled) return;
+      const available=12-selected.length-importedMaterials.length;
+      if(files.length>available) {
+        tell(text("每次最多加入 12 份附件。请减少选中的文件。","Attach no more than 12 files or excerpts at a time. Select fewer files."));
+        return;
+      }
+      const batch=new AbortController();fileBatch=batch;
+      updateComposer();
+      tell(text("正在添加本地文件…","Adding local files…"));
+      const errors=[];
+      let added=0;
+      try {
+        for(const file of files) {
+          if(!ownsDraft(owner) || fileBatch!==batch) return;
+          if(file.size>12*1024*1024) {
+            errors.push(file.name+text("：文件超过 12 MiB。",": File exceeds 12 MiB."));
+            continue;
+          }
+          const data=new FormData();data.append("file",file,file.name);
+          try {
+            const {id,name}=await req(studio+"materials","POST",data,batch.signal);
+            if(!ownsDraft(owner) || fileBatch!==batch) return;
+            importedMaterials.push({id,name});
+            added++;displaySelected();
+          } catch(error) {
+            if(batch.signal.aborted || !ownsDraft(owner) || fileBatch!==batch) return;
+            errors.push(file.name+": "+error.message);
+          }
+        }
+        if(added) errors.unshift(text(`已加入 ${added} 个文件。`,`${added} file(s) attached.`));
+        if(errors.length) tell(errors.join("\n"));
+      } finally {
+        if(fileBatch===batch){fileBatch=null;updateComposer();}
+      }
+    });
     async function prepare(workflow,projectId,question="",room=null) {
       if(!project || project.id!==projectId) throw Error("请先选择科研项目。");
       const token=generation, conversation=active, inherited=importedMaterials.slice();
@@ -535,13 +637,17 @@
     }
     function effortOptions() {
       const model=models.find(m=>m.id===$("lab-model").value);
-      $("lab-effort").replaceChildren(...(model?.efforts || []).map(e=>new Option(e,e)));
-      if(model?.efforts.includes("auto")) $("lab-effort").value="auto";
+      const effort=reasoning.setOptions(model?.efforts,effortChoices.get(model?.id));
+      if(model && effort) effortChoices.set(model.id,effort);
       showModelLabel();
     }
     function showModelLabel() {
       const model=models.find(m=>m.id===$("lab-model").value);
       $("lab-model-trigger-text").textContent=model?.label || model?.id || text("模型","Model");
+      $("lab-model-trigger").setAttribute("aria-label",[text("选择模型","Choose model"),model?.label || model?.id].filter(Boolean).join(" · "));
+    }
+    function ensureModels() {
+      if(!models.length) void loadModels().catch(()=>{});
     }
     function loadModels() {
       if(modelFlight) return modelFlight;
@@ -553,6 +659,7 @@
         $("lab-model").replaceChildren(...models.map(m => new Option(m.label || m.id, m.id)));
         if (models.some(m=>m.id===previous)) $("lab-model").value=previous;
         else if (models.some(m => m.id === catalog.default_model)) $("lab-model").value = catalog.default_model;
+        $("lab-model").disabled=!models.length;
         effortOptions();
         if (!models.length) throw Error(text("模型目录为空，请检查 AI 设置。","No models available. Check AI settings."));
         $("lab-model-state").textContent = text("可用模型 · ","Available models · ") + models.length;
@@ -563,6 +670,30 @@
       return modelFlight;
     }
     function sessionURL(id) {return studio+"sessions/"+encodeURIComponent(id);}
+    function effectiveMember(room) {
+      if(!room) return null;
+      return room.members?.[0] || room.seat_overrides?.[room.seats[0]] || (legacyMember?.id===room.id ? legacyMember.member : null);
+    }
+    function memberLock(room) {
+      if(!room) return "";
+      if (room.lab_thread?.archived_at) return text("恢复归档后可更改。","Restore this chat to change its model.");
+      if (room.status==="closed" || room.report) return text("对话已结束。","This chat has ended.");
+      if (room.status==="running" || room.agenda_draft_status==="drafting") return text("本轮结束后可更改。","Change the model after this turn.");
+      if (!effectiveMember(room)) return legacyMember?.failed ? text("模型信息暂时不可用。","Model details are unavailable.") : text("正在读取模型…","Loading model…");
+      return "";
+    }
+    function loadLegacyMember(room) {
+      if(room.members?.length || room.seat_overrides?.[room.seats[0]]) return;
+      const key=JSON.stringify([room.id,room.status,room.rounds?.at(-1)?.number]);
+      if(legacyMember?.key===key) return;
+      const lookup={id:room.id,key,member:null,failed:false};legacyMember=lookup;
+      req(sessionURL(room.id)+"/members").then(result=>{
+        lookup.member=result.members.find(member=>member.id===room.seats[0]);
+        lookup.failed=!lookup.member;
+      }).catch(()=>{lookup.failed=true;}).finally(()=>{
+        if(legacyMember===lookup && active===room.id) updateComposer();
+      });
+    }
     async function start() {
       const data=form(), pid=project?.id, token=generation;
       const draft=questionDraft.capture(), expectedDraft=$("question").value;
@@ -572,7 +703,7 @@
       if(!window.SciStationModules.isEnabled(enabledModules,"ai-lab")) throw Error("AI 实验室模块未启用或仍在加载。");
       if(!$("lab-model").value) await loadModels();
       if(token!==generation || active || !scopeAvailable()) return;
-      const member={model:$("lab-model").value,effort:$("lab-effort").value};
+      const member={model:$("lab-model").value,effort:reasoning.value};
       if(!member.model || !member.effort) throw Error("请先读取模型目录并选择模型。");
       const scope=project.global?"global":"";
       const skill=await skillForRun(pid);
@@ -633,6 +764,7 @@
       if(!ownsRun(room,project) || active!==room.id) return;
       if ((room.lab_thread?.revision || 0) < (visibleRoom?.lab_thread?.revision || 0)) return;
       visibleRoom=room;
+      loadLegacyMember(room);
       if(recentRooms.has(room.id)) recentRooms.set(room.id,room);
       const rounds=room.rounds||[];
       const archived=Boolean(room.lab_thread?.archived_at);
@@ -757,7 +889,11 @@
     $("local-rank").onchange=updateSearchOptions;
     $("lab-thread-search").oninput=displayHistory;
     $("lab-show-archived").onchange=displayHistory;
-    bind("lab-new-thread",async()=>{window.SciShellLayout?.dismissProjectNav();await openRun(""); $("question").focus();});
+    bind("lab-new-thread",async()=>{dismissThreadNavigation();await openRun(""); $("question").focus();});
+    $("lab-edit-model").addEventListener("click",()=>{
+      const member=effectiveMember(visibleRoom);
+      if(member && !memberLock(visibleRoom)) memberEditor.open(visibleRoom,member.id,$("lab-edit-model"));
+    });
     bind("lab-rename-thread",async()=>{
       if(!visibleRoom) return;
       renameTarget={room:visibleRoom,owner:project};
@@ -823,16 +959,17 @@
       $("question").dispatchEvent(new Event("input",{bubbles:true}));
       importedMaterials=materials;displaySelected();
     }
-    return {selectProject,updateComposer,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
+    return {selectProject,updateComposer,ensureModels,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
       restoringDraft:()=>Boolean(restoringDraft),
       modeDraftSelections:()=>({citations:selected.slice(),importedIds:importedMaterials.map(item=>item.id)}),
       handoffDraftStamp:()=>JSON.stringify([active,selected.map(item=>item.citation),importedMaterials.map(item=>item.id),currentResource()]),
       saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
       prepareHandoff:async pid=>{
+        if(fileBatch) throw Error(text("请等文件添加完成后再切换模式。","Wait for files to finish attaching before switching modes."));
         if(restoringDraft) await restoringDraft;
         return selected.length || importedMaterials.length ? prepare("",pid) : [];
       },
-      hasDraft:()=>Boolean(restoringDraft || selected.length || importedMaterials.length || questionDraft.unsaved() || replyDraft.unsaved())};
+      hasDraft:()=>Boolean(fileBatch || restoringDraft || selected.length || importedMaterials.length || questionDraft.unsaved() || replyDraft.unsaved())};
   }
   const api={mount, selectedCitation, ownsRun, createSingle, advance, threadTitle, matchingThreads, draftURL, createDraft, prepareQuestionSources, recordedSource, paperFromRun, messageText};
   if(typeof module==="object" && module.exports) module.exports=api;

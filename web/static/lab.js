@@ -16,11 +16,16 @@
     const opt={method,signal,cache:"no-store",keepalive:method==="PUT" && path.startsWith(api+"draft?"),headers:{"X-Roundtable":"1"}};
     if(path.startsWith(api+"connectors/") && window.sciStationConnectorSession)
       opt.headers["X-Sci-Station-Connector-Session"]=window.sciStationConnectorSession;
-    if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
+    if(data instanceof FormData) opt.body=data;
+    else if(data!==undefined){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(data);}
     const res=await fetch(path,opt);
     if(res.status===204)return;
     const x=await res.json().catch(()=>null);
-    if(!res.ok)throw Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
+    if(!res.ok){
+      const error=Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
+      error.session=x?.session;
+      throw error;
+    }
     return x;
   }
   async function checkedMaterials({sourceSessionId,projectId,materials}) {
@@ -516,12 +521,15 @@
   $("project").onchange=()=>projectSelection(true);
   for (const [trigger,dialog] of [["lab-attach","lab-materials-dialog"],
     ["lab-model-trigger","lab-model-dialog"],["lab-draft-trigger","lab-draft-dialog"]]) {
-    $(trigger).addEventListener("click",()=>{$("status").textContent="";$(dialog).showModal();});
+    $(trigger).addEventListener("click",()=>{
+      $("status").textContent="";$(dialog).showModal();
+      if(trigger==="lab-model-trigger") runs.ensureModels();
+    });
   }
   for (const close of document.querySelectorAll("[data-lab-close]")) close.addEventListener("click",()=>close.closest("dialog").close());
   function scopeOptions(id=$("project").value || "@global") {
     const scope=$("project"), prior=scope.selectedOptions[0];
-    scope.replaceChildren(new Option(text("全局会话","Global"),"@global"),...projects.map(p=>new Option(p.name,p.id)));
+    scope.replaceChildren(new Option(text("不关联项目","No project"),"@global"),...projects.map(p=>new Option(p.name,p.id)));
     if(id!=="@global" && !projects.some(p=>p.id===id)) {
       const name=prior?.value===id ? prior.dataset.projectName || prior.textContent : id;
       const unavailable=new Option(text("项目不可用 · ","Project unavailable · ")+name,id);
