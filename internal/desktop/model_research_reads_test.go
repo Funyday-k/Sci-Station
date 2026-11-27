@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -286,11 +287,13 @@ func TestModelResearchBackoffAndRetry(t *testing.T) {
 	var steps atomic.Int32
 	f := startModelReadTest(t, conn, func(_ context.Context, _, _, prompt, _ string) (string, error) {
 		switch steps.Add(1) {
+		case 2:
+			clock.Add(1)
 		case 3:
-			if !strings.Contains(prompt, "retry_count=2") {
-				return "", errors.New("suppressed retry missing from feedback")
+			if !strings.Contains(prompt, "retry_count=1") || !strings.Contains(prompt, "next_retry=1970-01-01T00:00:03Z") {
+				return "", errors.New("cooldown probe did not retain the first failure's retry details")
 			}
-			clock.Add(3)
+			clock.Add(1)
 		case 4:
 			if !strings.Contains(prompt, "arxiv:fixture") {
 				return "", errors.New("approved retry missing result")
@@ -315,15 +318,50 @@ func TestModelResearchBackoffAndRetry(t *testing.T) {
 	for _, ev := range room.Events {
 		audit[ev.Type] = ev.Detail
 	}
-	if !strings.Contains(audit["mcp_read_error"], "HTTP 503") || !strings.Contains(audit["mcp_read_backoff"], "retry_count=2") || !strings.Contains(audit["mcp_read_backoff"], "next_retry=") || audit["mcp_read_success"] == "" {
+	if !strings.Contains(audit["mcp_read_error"], "HTTP 503") || !strings.Contains(audit["mcp_read_backoff"], "retry_count=1") || !strings.Contains(audit["mcp_read_backoff"], "next_retry=1970-01-01T00:00:03Z") || audit["mcp_read_success"] == "" {
 		t.Fatal(audit)
 	}
 }
+
+func TestResearchBackoffProbesDoNotChangeTheRetrySchedule(t *testing.T) {
+	var now atomic.Int64
+	now.Store(1)
+	state := &researchRetryState{clock: func() time.Time { return time.Unix(now.Load(), 0) }}
+	failure := errors.New("fixture transport unavailable")
+	first := state.failed("fixture", failure)
+	now.Store(2)
+	var probes sync.WaitGroup
+	for range 16 {
+		probes.Go(func() {
+			err := state.canAttempt("fixture")
+			if !errors.Is(err, meeting.ErrResearchBackoff) || !strings.HasSuffix(err.Error(), first.Error()) {
+				t.Errorf("suppressed probe altered the first failure: %v", err)
+			}
+		})
+	}
+	probes.Wait()
+	state.failed("fixture", errors.New("another request from before the cooldown failed"))
+	state.success("fixture")
+	if err := state.canAttempt("fixture"); !errors.Is(err, meeting.ErrResearchBackoff) || !strings.HasSuffix(err.Error(), first.Error()) {
+		t.Fatal("overlapping outcomes altered an active cooldown", err)
+	}
+	now.Store(3)
+	if err := state.canAttempt("fixture"); err != nil {
+		t.Fatal("first retry must be eligible at the recorded time", err)
+	}
+	if err := state.failed("fixture", failure); !strings.Contains(err.Error(), "retry_count=2 · next_retry=1970-01-01T00:00:07Z") {
+		t.Fatal("only real failures may grow the next delay", err)
+	}
+}
+
 func TestResearchReadBackoffRestartsAfterSuccess(t *testing.T) {
-	state := &researchRetryState{}
+	now := time.Unix(1, 0)
+	state := &researchRetryState{clock: func() time.Time { return now }}
 	failure := errors.New("service unavailable")
 	state.failed("catalog", failure)
+	now = now.Add(2 * time.Second)
 	state.failed("catalog", failure)
+	now = now.Add(4 * time.Second)
 	state.failed("second connector", failure)
 	state.success("catalog")
 	if err := state.canAttempt("catalog"); err != nil {
@@ -334,6 +372,135 @@ func TestResearchReadBackoffRestartsAfterSuccess(t *testing.T) {
 	}
 	if err := state.canAttempt("second connector"); err == nil {
 		t.Fatal("success on one connector cleared another connector's cooldown")
+	}
+}
+
+func TestResearchBackoffHonorsRetryAfter(t *testing.T) {
+	start := time.Date(2026, time.November, 27, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name   string
+		status int
+		header string
+		wait   time.Duration
+	}{
+		{"relative", http.StatusTooManyRequests, "90", 90 * time.Second},
+		{"date", http.StatusServiceUnavailable, start.Add(45 * time.Second).Format(http.TimeFormat), 45 * time.Second},
+		{"past date", http.StatusServiceUnavailable, start.Add(-time.Second).Format(http.TimeFormat), 2 * time.Second},
+		{"shorter than local delay", http.StatusTooManyRequests, "1", 2 * time.Second},
+		{"invalid", http.StatusTooManyRequests, "invalid", 2 * time.Second},
+		{"seconds overflow", http.StatusTooManyRequests, "9223372036854775807", 2 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := start
+			state := &researchRetryState{clock: func() time.Time { return now }}
+			rpc := labRPC{target: "https://fixture.invalid/mcp", client: &http.Client{Transport: labTestTransport(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", tc.header)
+				w.WriteHeader(tc.status)
+			})}}
+			var out labCapabilities
+			failure := rpc.call(context.Background(), "initialize", 1, nil, &out)
+			if failure == nil {
+				t.Fatal("fixture returned an unexpected success")
+			}
+			deadline := start.Add(tc.wait)
+			if got := state.failed("fixture", failure); !strings.HasSuffix(got.Error(), "next_retry="+deadline.Format(time.RFC3339Nano)) {
+				t.Fatal(got)
+			}
+			now = deadline.Add(-time.Nanosecond)
+			if err := state.canAttempt("fixture"); !errors.Is(err, meeting.ErrResearchBackoff) {
+				t.Fatal("connector became eligible before the deadline", err)
+			}
+			now = deadline
+			if err := state.canAttempt("fixture"); err != nil {
+				t.Fatal("connector unavailable at the deadline", err)
+			}
+		})
+	}
+	state := &researchRetryState{clock: func() time.Time { return start }}
+	state.failed("fixture", errors.New("transport unavailable"))
+	state.failed("fixture", labTransportFailure{cause: errors.New("HTTP 429"), retryAfter: "120"})
+	if got := state.canAttempt("fixture"); !strings.Contains(got.Error(), "HTTP 429 · retry_count=1 · next_retry="+start.Add(2*time.Minute).Format(time.RFC3339Nano)) {
+		t.Fatal("an overlapping response with an explicit longer wait should update the deadline without growing the failure streak", got)
+	}
+}
+
+func TestModelResearchChecksCooldownAgainAfterApproval(t *testing.T) {
+	f := setupConnector(t)
+	op := f.configure(research.LabConnector{ID: "papers", Transport: "https", Endpoint: "https://fixture.invalid/mcp", Enabled: true})
+	op.Confirmed = true
+	f.post("trust", op, 200)
+	service := f.api.research.(*research.Service)
+	dir, err := service.ProjectDirectory(f.project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := meeting.ProjectScope{ID: f.project, Directory: dir}
+	var now atomic.Int64
+	now.Store(1)
+	f.api.labConnect.modelAudit.clock = func() time.Time { return time.Unix(now.Load(), 0) }
+	var calls atomic.Int32
+	entered, release := make(chan struct{}), make(chan struct{})
+	f.api.labConnect.modelAudit.http = &http.Client{Transport: labTestTransport(func(w http.ResponseWriter, r *http.Request) {
+		var msg struct{ Method string }
+		_ = json.NewDecoder(r.Body).Decode(&msg)
+		switch msg.Method {
+		case "initialize":
+			switch calls.Add(1) {
+			case 1:
+				close(entered)
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
+			case 2, 4:
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"resources":{}}}}`)
+		case "notifications/initialized":
+			w.WriteHeader(202)
+		case "resources/list":
+			fmt.Fprint(w, `{"jsonrpc":"2.0","id":2,"result":{"resources":[]}}`)
+		default:
+			t.Errorf("unexpected fixture operation %s", msg.Method)
+		}
+	})}
+	prepare := func() meeting.ResearchProposal {
+		t.Helper()
+		plan, err := f.api.PrepareResearchRead(scope, meeting.ResearchRead{Connection: "papers", Operation: "resources/list"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan
+	}
+	slow, firstFailure, queued := prepare(), prepare(), prepare()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	completed := make(chan error, 1)
+	go func() { _, err := slow.Execute(ctx); completed <- err }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent request did not start")
+	}
+	if _, err := firstFailure.Execute(ctx); err == nil || !strings.Contains(err.Error(), "retry_count=1") {
+		t.Fatal("genuine failed request did not begin a cooldown", err)
+	}
+	now.Store(2)
+	close(release)
+	if err := <-completed; err != nil {
+		t.Fatal("already-started request could not complete", err)
+	}
+	if _, err := queued.Execute(ctx); !errors.Is(err, meeting.ErrResearchBackoff) || calls.Load() != 2 {
+		t.Fatal("still-active cooldown let a pending approval reach the service", err, calls.Load())
+	}
+	now.Store(3)
+	if _, err := prepare().Execute(ctx); err != nil {
+		t.Fatal("connector could not recover on schedule", err)
+	}
+	if _, err := prepare().Execute(ctx); err == nil || !strings.Contains(err.Error(), "retry_count=1 · next_retry=1970-01-01T00:00:05Z") {
+		t.Fatal("failure after a successful recovery must begin a new streak", err)
 	}
 }
 

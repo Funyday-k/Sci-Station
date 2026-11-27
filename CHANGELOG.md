@@ -58,6 +58,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Fixed
 
+- Keep the retry time for model-requested MCP reads stable during a cooldown, and honor a longer wait requested by the service.
 - Project paper imports and linked Wiki saves can complete concurrently. Project removal keeps the shared paper. Shared deletion previews affected records, and Wiki pages with a missing paper retain their source and remain editable.
 - Home opens the task calendar directly. Editing a library search term preserves the insertion point and input-method selection.
 

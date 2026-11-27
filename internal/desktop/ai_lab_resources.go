@@ -62,7 +62,7 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 		}
 		switch method {
 		case "initialize", "notifications/initialized", "resources/list", "tools/list":
-			callErr = labTransportFailure{callErr}
+			callErr = labTransportFailure{cause: callErr}
 		}
 	}()
 	msg := map[string]any{"jsonrpc": "2.0", "method": method}
@@ -96,7 +96,7 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 	}
 	res, e := m.client.Do(req)
 	if e != nil {
-		return labTransportFailure{errors.New("无法连接公共 MCP 服务")}
+		return labTransportFailure{cause: errors.New("无法连接公共 MCP 服务")}
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode > 299 {
@@ -104,8 +104,8 @@ func (m *labRPC) call(ctx context.Context, method string, id int, params any, ou
 		if res.StatusCode == 401 || res.StatusCode == 403 {
 			return labAuthFailure{err}
 		}
-		if res.StatusCode == 429 || res.StatusCode >= 500 {
-			return labTransportFailure{err}
+		if res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= http.StatusInternalServerError {
+			return labTransportFailure{cause: err, retryAfter: res.Header.Get("Retry-After")}
 		}
 		return err
 	}
