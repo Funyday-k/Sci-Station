@@ -225,7 +225,7 @@ test("Roundtable topics, attachments and continuous setup are scoped to the curr
   assert.equal($("new-topic").value,"Current folder topic");
 });
 
-test("the folder editor confirms only destructive rebinds and retires drafts only for that project", async () => {
+test("the folder editor confirms destructive rebinds and resumes interrupted cleanup without a new pick", async () => {
   const { $, document } = fakeDOM();
   const editor=$("project-editor"),confirm=$("project-directory-reset"),form=editor.querySelector("form");
   for(const dialog of [editor,confirm]) {
@@ -241,17 +241,24 @@ test("the folder editor confirms only destructive rebinds and retires drafts onl
 
   let project={id:"p",name:"Fixture",path:"/fixture/A",revision:1,directoryGrant:{}};
   let chosen=project.path;
+  let picks=0;
   const directoryCalls=[], events=[];
   const location=new URL("http://fixture.test/lab?project=p&run=old&fromRoundtable=1");
   location.replace=url=>{location.href=url;};
   const window={addEventListener() {},dispatchEvent:event=>events.push(event),SciProjectSidebar:{refresh:async()=>{}},
     SciStationNav:{projectBadge:()=>"",isSettings:()=>false},
     SciShellLayout:{request:async(route,method,body)=>{
-      if(route.endsWith("/pick-project"))return {path:chosen};
+      if(route.endsWith("/pick-project")) {picks++;return {path:chosen};}
       if(route.endsWith("/directory")) {
         directoryCalls.push(plain(body));
-        if(body.path!==project.path && !body.resetConversations)throw Object.assign(Error("Needs confirmation"),{status:409,code:"confirmation_required"});
-        project={...project,path:body.path,revision:project.revision+1,conversationGeneration:body.resetConversations ? 1 : 0};
+        if(project.conversationResetPending) {
+          assert.deepEqual(plain(body),{revision:project.revision,path:project.path,resetConversations:true});
+          project={...project,conversationResetPending:false};
+        } else if(body.path!==project.path) {
+          if(!body.resetConversations)throw Object.assign(Error("Needs confirmation"),{status:409,code:"confirmation_required"});
+          project={...project,path:body.path,revision:project.revision+1,conversationGeneration:1,conversationResetPending:true};
+          throw Object.assign(Error("Cleanup needs retry"),{status:503,code:"reset_pending"});
+        } else project={...project,revision:project.revision+1,conversationGeneration:0};
       } else if(method==="PATCH") project={...project,name:body.name,revision:project.revision+1};
       return project;
     }}};
@@ -298,6 +305,19 @@ test("the folder editor confirms only destructive rebinds and retires drafts onl
   await accepted;
   assert.equal(directoryCalls.filter(call=>call.resetConversations).length,1);
   assert.equal(project.path,chosen);
+  assert.equal(project.conversationResetPending,true);
+  assert.equal(location.search,"?project=p&run=old&fromRoundtable=1");
+  assert.equal(editor.querySelector("[data-retry-reset]").hidden,false);
+  assert.equal(editor.querySelector("[data-folder]").hidden,true);
+  assert.equal(sessionStorage.getItem(ownDraft),null);
+
+  const originalPicks=picks;
+  await editor.querySelector("[data-retry-reset]").onclick();
+  assert.equal(picks,originalPicks);
+  assert.equal(confirm.open,false);
+  assert.equal(directoryCalls.filter(call=>call.resetConversations).length,2);
+  assert.equal(project.conversationResetPending,false);
+  assert.equal(project.conversationGeneration,1);
   assert.equal(location.search,"?project=p");
   assert.equal(sessionStorage.getItem(ownDraft),null);
   assert.equal(sessionStorage.getItem(transfer),null);

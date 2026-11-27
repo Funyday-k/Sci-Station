@@ -30,14 +30,18 @@
   find("[data-symbols]").replaceChildren(...swatches(symbols,"symbol"));
   form.addEventListener("input",preview);
   function controls(){
-    const editing=Boolean(project);
+    const editing=Boolean(project), pending=Boolean(project?.conversationResetPending);
     find("#project-editor-title").textContent=editing?text("编辑项目信息","Edit project info"):text("新建项目","New project");
     find("[data-submit]").textContent=editing?text("保存更改","Save changes"):text("创建项目","Create project");
     find("[data-path]").textContent=folder || text("默认使用 Sci-Station 管理的本地目录。","Sci-Station manages the local folder by default.");
-    find("[data-folder]").hidden=Boolean(project?.managedDirectory);
+    find("[data-submit]").hidden=pending;
+    find("[data-reset-pending]").hidden=!pending;
+    find("[data-retry-reset]").hidden=!pending;
+    if(pending) find(".project-directory-settings").open=true;
+    find("[data-folder]").hidden=pending || Boolean(project?.managedDirectory);
     find("[data-folder]").textContent=editing?text("重新选取项目文件夹…","Choose project folder again…"):text("选择已有文件夹…","Choose an existing folder…");
-    find("[data-revoke]").hidden=!project?.directoryGrant || project.managedDirectory;
-    find("[data-archive]").hidden=!editing;
+    find("[data-revoke]").hidden=pending || !project?.directoryGrant || project.managedDirectory;
+    find("[data-archive]").hidden=pending || !editing;
   }
   function setBusy(value){
     busy=value;
@@ -67,7 +71,8 @@
         folder=project.path;
       }
       for(const [name,value] of Object.entries({name:project?.name || "",description:project?.description || "",colorHex:project?.colorHex || "#4F7CAC",iconName:project?.iconName || "folder"}))field(name).value=value;
-      controls();setBusy(false);preview();field("name").focus();
+      controls();setBusy(false);preview();
+      (project?.conversationResetPending ? find("[data-retry-reset]") : field("name")).focus();
     }catch(error){
       setBusy(false);
       // A missing target must never turn into a new-project form.
@@ -93,7 +98,7 @@
   }
   form.onsubmit=e=>{
     e.preventDefault();
-    if(!form.reportValidity())return;
+    if(project?.conversationResetPending || !form.reportValidity())return;
     perform(async()=>{
       const values={name:field("name").value.trim(),description:field("description").value.trim(),colorHex:field("colorHex").value,iconName:field("iconName").value.trim()};
       const creating=!project;
@@ -152,12 +157,14 @@
       }
     } catch {}
   }
-  function applyReset(id, next) {
-    seenResets.set(id,next);
+  function applyReset(id, next, navigate=true) {
     purgeDrafts(id,next);
-    window.dispatchEvent(new CustomEvent("sci:project-conversations-reset",{detail:{id,generation:next}}));
+    if(next>(seenResets.get(id) || 0)) {
+      seenResets.set(id,next);
+      window.dispatchEvent(new CustomEvent("sci:project-conversations-reset",{detail:{id,generation:next}}));
+    }
     const url=new URL(location.href);
-    if(url.searchParams.get("project")!==id || nav.isSettings(url)) return false;
+    if(!navigate || url.searchParams.get("project")!==id || nav.isSettings(url)) return false;
     for(const name of ["run","session","fromLab","fromRoundtable","tools"]) url.searchParams.delete(name);
     location.replace(url);
     return true;
@@ -179,22 +186,40 @@
   }
   observeResets(false);
   window.addEventListener("pageshow",event=>{if(event.persisted) observeResets(true);});
-  async function updateFolder(path){
-    const previous=project, endpoint="/api/research/projects/"+encodeURIComponent(previous.id)+"/directory";
+  const projectEndpoint=id=>"/api/research/projects/"+encodeURIComponent(id);
+  async function folderChanged(item,previous){
+    project=item;folder=item.path;controls();
+    const next=item.conversationGeneration || 0, advanced=next>(previous.conversationGeneration || 0);
+    if(item.conversationResetPending) {
+      if(advanced) applyReset(item.id,next,false);
+      return;
+    }
+    if(advanced || previous.conversationResetPending) {
+      try {localStorage.setItem(resetPrefix+item.id,String(next));} catch {}
+      if(applyReset(item.id,next))return;
+    }
+    await notifyChanged(item);
+  }
+  async function recoverFolderChange(previous,error){
+    if(error.status && error.code!=="reset_pending") throw error;
+    const latest=await request(projectEndpoint(previous.id)).catch(()=>{throw error;});
+    if(!latest.conversationResetPending && !previous.conversationResetPending &&
+       (latest.conversationGeneration || 0)<=(previous.conversationGeneration || 0)) throw error;
+    await folderChanged(latest,previous);
+  }
+  async function updateFolder(path,retry=false){
+    const previous=project, endpoint=projectEndpoint(previous.id)+"/directory";
     const input={revision:previous.revision,path};
-    try { project=await request(endpoint,"POST",input); }
+    if(retry) input.resetConversations=true;
+    let item;
+    try {item=await request(endpoint,"POST",input);}
     catch(error) {
-      if(error.status!==409 || error.code!=="confirmation_required") throw error;
+      if(retry || error.status!==409 || error.code!=="confirmation_required") return recoverFolderChange(previous,error);
       if(!await confirmReset(previous,path)) return;
-      project=await request(endpoint,"POST",{...input,resetConversations:true});
+      try {item=await request(endpoint,"POST",{...input,resetConversations:true});}
+      catch(error) {return recoverFolderChange(previous,error);}
     }
-    folder=project.path; controls();
-    const next=project.conversationGeneration || 0;
-    if(next>(previous.conversationGeneration || 0)) {
-      try {localStorage.setItem(resetPrefix+project.id,String(next));} catch {}
-      if(applyReset(project.id,next))return;
-    }
-    await notifyChanged(project);
+    await folderChanged(item,previous);
   }
   find("[data-folder]").onclick=async()=>{
     await perform(async()=>{
@@ -203,7 +228,12 @@
       if(project)await updateFolder(picked.path);
       else{folder=picked.path;controls();}
     });
-    if(dialog.open) find("[data-folder]").focus();
+    if(dialog.open) (project?.conversationResetPending ? find("[data-retry-reset]") : find("[data-folder]")).focus();
+  };
+  find("[data-retry-reset]").onclick=async()=>{
+    if(!project?.conversationResetPending)return;
+    await perform(()=>updateFolder(project.path,true));
+    if(dialog.open) (project?.conversationResetPending ? find("[data-retry-reset]") : find("[data-folder]")).focus();
   };
   find("[data-revoke]").onclick=()=>perform(()=>updateFolder(""));
   find("[data-archive]").onclick=()=>perform(async()=>{
