@@ -63,13 +63,9 @@
   height: 17px;
 }
 
-.dashboard-widget > .panel {
+:where(.dashboard-widget > .panel) {
   margin: 0;
   padding: var(--space-4);
-}
-
-.dashboard-widget > .panel.empty-row {
-  padding: var(--space-2) var(--space-4);
 }
 
 .dashboard-load-warning {

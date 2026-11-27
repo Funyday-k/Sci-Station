@@ -196,9 +196,27 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
     check(`${view} ${mode} shows one AI toolbar`, result.active === mode && !result.horizontalOverflow && !result.stacked &&
       withinBar(modes) && result.controls.every(withinBar) && Math.abs(workspace.y - bar.bottom) <= 1 &&
       Math.abs((modes.x + modes.right) / 2 - (bar.x + bar.right) / 2) <= 2, result);
-    check(`${view} ${mode} separates global and conversation navigation`, result.distinct && (compact ||
-      (global.right > global.x && history.right > history.x && Math.abs(global.right - history.x) <= 1 &&
-        Math.abs(history.right - workspace.x) <= 1)), result);
+    if (compact) {
+      check(`${view} ${mode} separates global and conversation navigation`, result.distinct, result);
+      return;
+    }
+    const defaultSidebarWidth = (global.right - global.x) + (history.right - history.x);
+    check(`${view} ${mode} shows one sidebar by default (<= 260px)`,
+      result.distinct && global.right > global.x && history.right === history.x &&
+      defaultSidebarWidth <= 260 && Math.abs(global.right - workspace.x) <= 1,
+      {defaultSidebarWidth, ...result});
+    await ui.click(historyToggle);
+    await wait(() => visible(historySidebar), `${view} ${mode} session sidebar opens`);
+    const opened = await ui.evaluate(() => {
+      const rect = s => { const b = document.querySelector(s)?.getBoundingClientRect(); return b && {x:b.x,right:b.right}; };
+      return {global:rect("#workspace-sidebar"), history:rect("#workspace-session-sidebar"), workspace:rect(".workspace-region")};
+    });
+    check(`${view} ${mode} separates global and conversation navigation when expanded`,
+      opened.global.right > opened.global.x && opened.history.right > opened.history.x &&
+      Math.abs(opened.global.right - opened.history.x) <= 1 &&
+      Math.abs(opened.history.right - opened.workspace.x) <= 1, opened);
+    await ui.click(historyToggle);
+    await wait(() => ui.evaluate(() => document.getElementById("workspace-session-sidebar")?.hidden), `${view} ${mode} session sidebar collapses`);
   }
 
   async function checkNewChat(label) {
@@ -285,7 +303,7 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
   async function checkToolsRoundTrip() {
     const draft = "Keep this unsent question when opening a research tool.";
     await ui.set("#question",draft);
-    const tools = "#lab-tools-dialog", discovery = '[data-lab-tool="discovery"]';
+    const tools = "#lab-tools-dialog", discovery = '[data-lab-tool="discovery"]', graph = '[data-lab-tool="graph"]';
     const clickTarget = await reachable("#lab-tools");
     await ui.click("#lab-tools");
     await ui.visible(`${tools}[open] #lab-tools-directory ${discovery}`);
@@ -294,24 +312,23 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
     check("Plugins opens a browsable research tools list", clickTarget && entries.includes("discovery") && entries.includes("graph") &&
       new Set(entries).size === entries.length, entries);
     await snapshot("10i-lab-tool-directory-wide");
-    await ui.click(discovery);
-    await ui.visible("#lab-tool-page-discovery");
-    await snapshot("10i2-lab-tool-discovery-wide");
+    await ui.click(graph);
+    await ui.visible("#lab-tool-page-graph");
+    await snapshot("10i2-lab-tool-graph-wide");
     const backReachable = await reachable("#lab-tool-back");
     await ui.click("#lab-tool-back");
-    await ui.visible(`#lab-tools-directory ${discovery}`);
+    await ui.visible(`#lab-tools-directory ${graph}`);
     check("Tool detail has a reachable in-dialog return to the list", backReachable && await ui.evaluate(selector =>
-      document.activeElement === document.querySelector(selector),discovery));
+      document.activeElement === document.querySelector(selector), graph));
     await ui.click(discovery);
-    await ui.click("#discovery-link");
-    await wait(() => ui.evaluate(() => location.pathname === "/tools"), "open the Research Tools page");
+    await wait(() => ui.evaluate(() => location.pathname === "/tools"), "open the Research Tools page directly");
     await ui.visible("#discovery-return-lab");
     await ui.click("#discovery-return-lab");
     await wait(() => ui.evaluate(() => location.pathname === "/lab"), "return to Lab from Research Tools");
-    await ui.visible(`${tools}[open] #lab-tool-page-discovery`);
+    await ui.visible(`${tools}[open] #lab-tools-directory`);
     const restored = await ui.evaluate(() => ({project:new URL(location.href).searchParams.get("project"),
       draft:document.getElementById("question").value}));
-    check("Returning from Research Tools restores the project, unsent question and open tool", restored.project === project.id &&
+    check("Returning from Research Tools restores the project, unsent question and tool catalog", restored.project === project.id &&
       restored.draft === draft, restored);
     await ui.click(`${tools} > header [data-lab-close]`);
     await ui.set("#question", "");
@@ -363,6 +380,20 @@ async function run({app, browser, gateway, dataDir, defaultDir}, output, {baseli
       check("The ordinary workspace footer offers only Settings", footer.entries.length === 1 && footer.entries[0] === "settings" &&
         footer.inPrimaryFooter && footer.workspace === 0, footer);
       await checkDashboard("Wide Home", ["today","active_projects","ai_review"], true);
+      const variants = await ui.evaluate(() => {
+        const style = variant => getComputedStyle(document.querySelector(`.dashboard-widget > .card--${variant}`));
+        const primary = style("primary"), secondary = style("secondary"), compact = style("compact"), empty = style("empty");
+        return {
+          primaryBorder: primary.borderTopColor, secondaryBorder: secondary.borderTopColor,
+          primaryShadow: primary.boxShadow, surface: secondary.backgroundColor,
+          inset: compact.backgroundColor, emptyBackground: empty.backgroundColor, emptyBorder: empty.borderTopStyle,
+          compactPadding: parseFloat(compact.paddingTop), normalPadding: parseFloat(secondary.paddingTop)
+        };
+      });
+      check("Home cards show primary emphasis, inset compact cards and dashed empty states",
+        variants.primaryBorder !== variants.secondaryBorder && variants.primaryShadow !== "none" &&
+        variants.inset !== variants.surface && variants.emptyBackground === variants.inset &&
+        variants.emptyBorder === "dashed" && variants.compactPadding < variants.normalPadding, variants);
       await checkDashboardPreferences();
     }
     const calendar = '#dashboard-view .dashboard-calendar-links a[href*="view=tasks"]';

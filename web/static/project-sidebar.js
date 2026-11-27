@@ -1,5 +1,13 @@
 "use strict";
 (() => {
+  function isProjectCollapsed(id, active, state) {
+    if (state?.collapsedProjects?.includes(id)) return true;
+    if (state?.expandedProjects?.includes(id)) return false;
+    return id !== active;
+  }
+  if (typeof module !== "undefined" && module.exports) module.exports = {isProjectCollapsed};
+  if (typeof window === "undefined") return;
+
   const nav = window.SciStationNav, layout = window.SciShellLayout;
   const tree = document.getElementById("projectnav"), menu = document.getElementById("project-row-menu");
   const text = (zh,en) => window.SciStationI18n?.text(zh,en) ?? zh;
@@ -82,14 +90,14 @@
     if(!state)return;
     const url=new URL(location.href), active=url.searchParams.get("project");
     const next=JSON.stringify([projects.map(p=>[p.id,p.revision,p.name,p.colorHex,p.iconName]),active,activeTab(url),
-      state.tabOrder,state.collapsedProjects,state.pinnedProjects,document.documentElement.lang]);
+      state.tabOrder,state.collapsedProjects,state.expandedProjects,state.pinnedProjects,document.documentElement.lang]);
     if(next===signature)return;
     signature=next;
     const focused=document.activeElement, focusedRow=focused?.closest("[data-row-project]")?.dataset.rowProject;
     observer.disconnect();
     const groups=[];
     tree.replaceChildren(...layout.ordered(projects,state.pinnedProjects,p=>p.id).map(project=>{
-      const id=project.id, current=id===active, collapsed=state.collapsedProjects.includes(id);
+      const id=project.id, current=id===active, collapsed=isProjectCollapsed(id,active,state);
       const row=document.createElement("div"),link=document.createElement("a"),label=document.createElement("span");
       row.className="shell-project-row";row.dataset.rowProject=id;
       const fold=button("chevronRight",text(collapsed?"展开项目模块":"折叠项目模块",collapsed?"Expand project sections":"Collapse project sections")+" · "+project.name);
@@ -139,7 +147,8 @@
     const id=project.id,part=opener.dataset.rowPart || "link";
     menuTarget={id,part};
     rowFor(id).querySelector(".project-more").setAttribute("aria-expanded","true");
-    const collapsed=layout.state.collapsedProjects.includes(id),pinned=layout.state.pinnedProjects.includes(id);
+    const active=new URL(location.href).searchParams.get("project");
+    const collapsed=isProjectCollapsed(id,active,layout.state),pinned=layout.state.pinnedProjects.includes(id);
     const actions=[
       [text("打开项目","Open project"),()=>rowFor(id)?.querySelector("[data-project]")?.click()],
       [text(collapsed?"展开项目模块":"折叠项目模块",collapsed?"Expand sections":"Collapse sections"),()=>changeFold(id,!collapsed,part)],

@@ -1,5 +1,19 @@
 /* Shared UI components (pilot slice seeded by #33; expanded in #40). */
 
+.model-effort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.model-effort-control input[type="range"] {
+  flex: 1 1 80px;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--workspace-accent);
+}
+.model-effort-control output { color: var(--workspace-ink); white-space: nowrap; }
+
 /* 1. Card variants: primary, secondary, compact, empty */
 .card {
   border-radius: var(--radius-md);
@@ -8,24 +22,24 @@
   overflow: hidden;
 }
 
-.card--primary {
+.card.card--primary {
   background: var(--bg-surface);
   border: 1px solid var(--border-control);
   box-shadow: var(--shadow-card);
 }
 
-.card--secondary {
+.card.card--secondary {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
 }
 
-.card--compact {
+.card.card--compact {
   background: var(--bg-subtle);
   border: 1px solid var(--border-subtle);
   padding: var(--space-3) var(--space-4);
 }
 
-.card--empty {
+.card.card--empty {
   background: var(--bg-subtle);
   border: 1px dashed var(--border-subtle);
 }

@@ -303,10 +303,12 @@
       const handle = board.editing ? '<span aria-hidden="true" class="dashboard-drag" draggable="true" title="' +
         esc(text("拖动排序", "Drag to reorder")) + '">⠿</span>' : "";
       const variant = project ? projectCardVariant(item.id) : homeCardVariant(item.id);
-      const compactAIReview = !project && item.id === "ai_review" && !board.editing && reviews && !pending.length && !totalUnsupported;
-      if (compactAIReview) {
+      if (!board.editing && variant === "empty" && (item.id === "ai_review" || item.id === "recent_activity")) {
+        const status = item.id === "ai_review"
+          ? local("homeAIReviewClear", "暂无待审核草稿", "No drafts pending review")
+          : local("overviewNoActivity", "暂无近期活动", "No recent activity");
         const statusBody = '<span class="empty-row__title">' + esc(label) + '</span>' +
-          '<span class="empty-row__meta">' + esc(local("homeAIReviewClear", "暂无待审核草稿", "No drafts pending review")) + '</span>';
+          '<span class="empty-row__meta">' + esc(status) + '</span>';
         return '<article class="dashboard-widget dashboard-' + item.size + ' dashboard-widget--compact-row" data-dashboard-widget="' +
           item.id + '" data-card-variant="empty" data-compact-empty="true"><section class="panel card card--empty empty-row" aria-label="' +
           esc(label) + '">' + statusBody + '</section></article>';
@@ -338,11 +340,14 @@
     } else if (project) {
       const statusItem = visible.find(item => item.id === "project_status");
       const summaryStrip = statusItem ? '<div class="dashboard-overview-summary">' + widget(statusItem) + '</div>' : "";
-      const rest = visible.filter(item => item.id !== "project_status");
-      const collapsed = board.editing ? [] : rest.filter(item => projectMeta.emptyModules.has(item.id));
-      const active = board.editing ? rest : rest.filter(item => !projectMeta.emptyModules.has(item.id));
+      const active = [], quickAddItems = [];
+      for (const item of visible) {
+        if (item === statusItem) continue;
+        const action = !board.editing && projectMeta.emptyModules.has(item.id) && projectQuickAdd(item.id);
+        if (action) quickAddItems.push(action);
+        else active.push(item);
+      }
       const primaryGrid = active.length ? '<div class="dashboard-grid dashboard-overview-grid">' + active.map(widget).join("") + '</div>' : "";
-      const quickAddItems = collapsed.map(item => projectQuickAdd(item.id)).filter(Boolean);
       const quickAdd = quickAddItems.length
         ? '<section class="dashboard-quick-add quick-add-row" aria-label="' + esc(local("overviewQuickAdd", "快速添加", "Quick add")) + '">' +
           '<span class="quick-add-row__label">' + esc(local("overviewQuickAdd", "快速添加", "Quick add")) + '</span>' +
@@ -357,14 +362,14 @@
 
     function projectQuickAdd(id) {
       const destinations = {
-        research_questions: ["notes", text("添加研究问题", "Add research questions")],
-        project_brief: ["notes", text("编写项目简报", "Write project brief")],
-        core_papers: ["papers", text("添加核心论文", "Add core papers")],
-        current_tasks: ["tasks", text("新建任务", "Add task")],
-        materials: ["materials", text("添加材料", "Add material")],
-        knowledge_gaps: ["notes", text("记录知识缺口", "Log knowledge gap")],
-        project_documents: ["notes", text("新建项目文档", "Add project document")],
-        workflow: ["meetings", text("开始工作流", "Start workflow")]
+        research_questions: ["notes", local("overviewAddQuestions", "添加研究问题", "Add research questions")],
+        project_brief: ["notes", local("overviewWriteBrief", "编写项目简报", "Write project brief")],
+        core_papers: ["papers", local("overviewAddCorePapers", "添加核心论文", "Add core papers")],
+        current_tasks: ["tasks", local("overviewAddTask", "新建任务", "Add task")],
+        materials: ["materials", local("overviewAddMaterial", "添加材料", "Add material")],
+        knowledge_gaps: ["notes", local("overviewLogGap", "记录知识缺口", "Log knowledge gap")],
+        project_documents: ["notes", local("overviewAddDocument", "新建项目文档", "Add project document")],
+        workflow: ["meetings", local("overviewStartWorkflow", "开始工作流", "Start workflow")]
       };
       const entry = destinations[id];
       if (!entry) return "";
@@ -495,12 +500,12 @@
         core_papers: limit => callout(core.slice(0, limit), items => paperRows(items, project.id), text("暂无核心论文", "No core papers yet")) + dashboardNav(text("项目论文", "Project papers"), "papers"),
         current_tasks: limit => callout(info.activeTasks.slice(0, limit), taskRows, text("暂无未完成任务", "No open tasks")) + dashboardNav(text("查看任务", "View tasks"), "tasks"),
         materials: limit => callout(materials.slice(0, limit), items => list(items.map(m => row("file", m.name, fmtDate(m.updatedAt),
-          rowAction("read-material", m.id)))), text("暂无材料", "No materials")) + dashboardNav(text("全部材料", "All materials"), "materials"),
-        knowledge_gaps: limit => callout(gaps.slice(0, limit), noteRows, text("没有登记的研究缺口", "No research gaps recorded")) + dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes"),
+          rowAction("read-material", m.id)))), text("暂无材料", "No materials")) + dashboardNav(local("overviewAllMaterials", "全部材料", "All materials"), "materials"),
+        knowledge_gaps: limit => callout(gaps.slice(0, limit), noteRows, local("overviewNoGaps", "没有登记的研究缺口", "No research gaps recorded")) + dashboardNav(local("homeQuickActionOpenWiki", "打开 Wiki", "Open Wiki"), "notes"),
         recent_activity: limit => callout(activity.slice(0, limit), items => list(items.map(a => a.html)),
-          failures.reviews ? text("无法读取审核活动", "Could not load review activity") : text("暂无近期活动", "No recent activity")),
-        project_documents: limit => callout(notes.slice(0, limit), noteRows, text("暂无项目文档", "No project documents")) + dashboardNav(text("全部文档", "All documents"), "notes"),
-        workflow: limit => callout(meetings.slice(0, limit), meetingRows, text("暂无项目圆桌", "No project Roundtables")) +
+          failures.reviews ? text("无法读取审核活动", "Could not load review activity") : local("overviewNoActivity", "暂无近期活动", "No recent activity")),
+        project_documents: limit => callout(notes.slice(0, limit), noteRows, local("overviewNoDocuments", "暂无项目文档", "No project documents")) + dashboardNav(local("overviewAllDocuments", "全部文档", "All documents"), "notes"),
+        workflow: limit => callout(meetings.slice(0, limit), meetingRows, local("overviewNoRoundtables", "暂无项目圆桌", "No project Roundtables")) +
           dashboardNav(text("查看项目会话", "View project sessions"), "meetings")
       };
     }

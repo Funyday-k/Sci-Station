@@ -14,14 +14,48 @@ type shellLayout struct {
 	PanelPinned       bool     `json:"panelPinned"`
 	Width             int      `json:"width"`
 	TreeExpanded      bool     `json:"treeExpanded"`
+	SessionSidebar    bool     `json:"sessionSidebar"`
 	TopOrder          []string `json:"topOrder"`
 	TabOrder          []string `json:"tabOrder"`
 	PinnedProjects    []string `json:"pinnedProjects"`
 	CollapsedProjects []string `json:"collapsedProjects"`
+	ExpandedProjects  []string `json:"expandedProjects"`
+}
+
+func defaultShellLayout() shellLayout {
+	return shellLayout{
+		Mode:              "hidden",
+		Width:             360,
+		TreeExpanded:      true,
+		SessionSidebar:    false,
+		TopOrder:          []string{},
+		TabOrder:          []string{},
+		PinnedProjects:    []string{},
+		CollapsedProjects: []string{},
+		ExpandedProjects:  []string{},
+	}
+}
+
+func normalizeShellSlices(state *shellLayout) {
+	if state.TopOrder == nil {
+		state.TopOrder = []string{}
+	}
+	if state.TabOrder == nil {
+		state.TabOrder = []string{}
+	}
+	if state.PinnedProjects == nil {
+		state.PinnedProjects = []string{}
+	}
+	if state.CollapsedProjects == nil {
+		state.CollapsedProjects = []string{}
+	}
+	if state.ExpandedProjects == nil {
+		state.ExpandedProjects = []string{}
+	}
 }
 
 func readShellLayout(fields map[string]json.RawMessage) (shellLayout, error) {
-	state := shellLayout{Mode: "hidden", Width: 360, TreeExpanded: true, TopOrder: []string{}, TabOrder: []string{}, PinnedProjects: []string{}, CollapsedProjects: []string{}}
+	state := defaultShellLayout()
 	if raw, ok := fields["shellLayout"]; ok {
 		// Previous releases opened the inspector by default. Only a saved AI
 		// mode is unambiguously a deliberate choice in those layouts.
@@ -30,26 +64,28 @@ func readShellLayout(fields map[string]json.RawMessage) (shellLayout, error) {
 			PinPreference *bool `json:"panelPinned"`
 		}{shellLayout: &state}
 		if json.Unmarshal(raw, &stored) != nil || !slices.Contains([]string{"inspector", "ai", "hidden"}, state.Mode) || state.Width < 200 || state.Width > 640 {
-			return state, errors.New("invalid shell layout")
+			return defaultShellLayout(), errors.New("invalid shell layout")
 		}
 		state.PanelPinned = state.Mode == "ai"
 		if stored.PinPreference != nil {
 			state.PanelPinned = *stored.PinPreference
 		}
+		normalizeShellSlices(&state)
 	}
 	return state, nil
 }
 
 type shellLayoutChange struct {
-	Mode         *string   `json:"mode"`
-	PanelPinned  *bool     `json:"panelPinned"`
-	Width        *int      `json:"width"`
-	TreeExpanded *bool     `json:"treeExpanded"`
-	TopOrder     *[]string `json:"topOrder"`
-	TabOrder     *[]string `json:"tabOrder"`
-	ProjectID    string    `json:"projectId"`
-	Pinned       *bool     `json:"pinned"`
-	Collapsed    *bool     `json:"collapsed"`
+	Mode           *string   `json:"mode"`
+	PanelPinned    *bool     `json:"panelPinned"`
+	Width          *int      `json:"width"`
+	TreeExpanded   *bool     `json:"treeExpanded"`
+	SessionSidebar *bool     `json:"sessionSidebar"`
+	TopOrder       *[]string `json:"topOrder"`
+	TabOrder       *[]string `json:"tabOrder"`
+	ProjectID      string    `json:"projectId"`
+	Pinned         *bool     `json:"pinned"`
+	Collapsed      *bool     `json:"collapsed"`
 }
 
 var shellSectionID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
@@ -87,12 +123,16 @@ func (s *Service) shellLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, err := readShellLayout(fields)
-	if err != nil {
-		jsonFail(w, 500, "无法读取工作区布局")
+	if r.Method == http.MethodGet {
+		if err != nil {
+			jsonReply(w, 200, defaultShellLayout())
+			return
+		}
+		jsonReply(w, 200, state)
 		return
 	}
-	if r.Method == http.MethodGet {
-		jsonReply(w, 200, state)
+	if err != nil {
+		jsonFail(w, 500, "无法读取工作区布局")
 		return
 	}
 	var in shellLayoutChange
@@ -126,6 +166,9 @@ func (s *Service) shellLayout(w http.ResponseWriter, r *http.Request) {
 	if in.TreeExpanded != nil {
 		state.TreeExpanded = *in.TreeExpanded
 	}
+	if in.SessionSidebar != nil {
+		state.SessionSidebar = *in.SessionSidebar
+	}
 	if in.TopOrder != nil {
 		state.TopOrder = *in.TopOrder
 	}
@@ -137,6 +180,7 @@ func (s *Service) shellLayout(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Collapsed != nil {
 		state.CollapsedProjects = setShellID(state.CollapsedProjects, in.ProjectID, *in.Collapsed)
+		state.ExpandedProjects = setShellID(state.ExpandedProjects, in.ProjectID, !*in.Collapsed)
 	}
 	// Preserve unknown settings on this root, including future layout fields.
 	stored := map[string]json.RawMessage{}

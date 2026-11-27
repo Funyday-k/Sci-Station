@@ -107,8 +107,7 @@
   const sessions = document.getElementById("workspace-session-sidebar");
   const sessionToggle = document.getElementById("workspace-session-toggle");
   let compactPanel = null, settingsMode = document.body.classList.contains("settings-mode");
-  let settingsExpanded = true, sessionsExpanded = true;
-  try { sessionsExpanded = sessionStorage.getItem("sci.sidebar.sessions") !== "closed"; } catch {}
+  let settingsExpanded = true, sessionsExpanded = false;
 
   function setExpanded(panel, toggle, expanded) {
     panel.hidden = !expanded;
@@ -127,7 +126,8 @@
     document.body.classList.toggle("settings-mode", settings);
     const treeOpen = narrow.matches ? compactPanel === primary : settings ? settingsExpanded : state?.treeExpanded !== false;
     const sessionsAvailable = sessions && !settings && window.SciStationNav.aiAvailable(url.searchParams.get("project"));
-    const chatsOpen = Boolean(sessionsAvailable && (narrow.matches ? compactPanel === sessions : sessionsExpanded));
+    const sessionPersisted = state ? state.sessionSidebar === true : sessionsExpanded;
+    const chatsOpen = Boolean(sessionsAvailable && (narrow.matches ? compactPanel === sessions : sessionPersisted));
     document.body.classList.toggle("workspace-nav-collapsed", !narrow.matches && !treeOpen);
     document.body.classList.toggle("workspace-nav-open", narrow.matches && treeOpen);
     document.body.classList.toggle("workspace-session-expanded", chatsOpen);
@@ -163,20 +163,39 @@
       return;
     }
     if (panel === sessions) {
-      sessionsExpanded = !sessionsExpanded;
-      try { sessionStorage.setItem("sci.sidebar.sessions", sessionsExpanded ? "open" : "closed"); } catch {}
+      const next = !(state ? state.sessionSidebar === true : sessionsExpanded);
+      sessionsExpanded = next;
+      if (state) {
+        save({sessionSidebar: next}).then(() => {
+          if (!next) sessionToggle.focus();
+        }).catch(() => {});
+        return;
+      }
+      updateNavigation();
+      if (!next) sessionToggle.focus();
+      return;
     } else if (settingsMode) {
       settingsExpanded = !settingsExpanded;
+      updateNavigation();
+      if (!settingsExpanded) primaryToggle.focus();
+      return;
     } else {
-      if (state) save({treeExpanded: !state.treeExpanded}).catch(() => {});
+      if (state) {
+        const next = !state.treeExpanded;
+        save({treeExpanded: next}).then(() => {
+          if (!next) primaryToggle.focus();
+        }).catch(() => {});
+      }
       return;
     }
-    updateNavigation();
   }
   primaryToggle.onclick = () => togglePanel(primary);
   if (sessions) {
     sessionToggle.onclick = () => togglePanel(sessions);
-    document.getElementById("workspace-session-close").onclick = () => dismissSessionNav(true);
+    document.getElementById("workspace-session-close").onclick = () => {
+      if (narrow.matches) dismissSessionNav(true);
+      else togglePanel(sessions);
+    };
   }
   document.getElementById("workspace-nav-close").onclick = () => dismissProjectNav(true);
   document.getElementById("workspace-nav-scrim").onclick = () => dismissPanel(compactPanel, true);
@@ -211,7 +230,11 @@
     if (sessions?.hidden && sessions.contains(focused) && !sessionToggle.hidden) sessionToggle.focus();
   });
   updateNavigation();
+  function navigate(destination, {from} = {}) {
+    if (from && window.SciStationNav?.commitURL) window.SciStationNav.commitURL(from, "replace");
+    location.assign(destination);
+  }
   function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
-  window.SciShellLayout={request,ready,save,loadAsset,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
+  window.SciShellLayout={request,ready,save,loadAsset,navigate,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();
