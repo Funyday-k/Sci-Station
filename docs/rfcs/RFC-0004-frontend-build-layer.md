@@ -1,8 +1,9 @@
 # RFC-0004: Evaluate a frontend build layer or component framework
 
-- Status: Proposed
+- Status: Accepted
 - Requirement: [Issue #46](https://github.com/Funyday-k/Sci-Station/issues/46), part of [Epic #29](https://github.com/Funyday-k/Sci-Station/issues/29)
-- Design review: [PR #63](https://github.com/Funyday-k/Sci-Station/pull/63). Issue #46 remains open pending the maintainer’s decision.
+- Design review: [PR #63](https://github.com/Funyday-k/Sci-Station/pull/63)
+- Decision PR: Recorded in [ADR-0006](../architecture/ADR-0006-frontend-build-layer.md) upon maintainer merge.
 
 ## Problem and acceptance criteria
 
@@ -12,7 +13,7 @@ The comparison starts from the frontend delivered by PR #62. Studio and Research
 
 ## Proposed design and boundaries
 
-**Recommend Option 2, native ES modules with opt-in JSDoc type checking.** Go would continue embedding authored assets from `web/static/`. A contributor could check annotated module interfaces using a pinned TypeScript compiler with `allowJs`, `checkJs` and `noEmit`. If accepted, a separate issue would define the files to check and the toolchain setup. The compiler would run only for that check. [Embedded assets](../../web/assets.go) · [Developer guide](../DEVELOPER.md)
+**Accepted decision: Option 2, native ES modules with opt-in JSDoc type checking.** Go continues embedding authored assets from `web/static/`. Contributors may check annotated module interfaces using a pinned TypeScript compiler with `allowJs`, `checkJs` and `noEmit`. Any type-checker configuration and toolchain setup belongs in a separate follow-up issue, starting as a local contributor task rather than a mandatory build step. The compiler runs only for that check and emits no browser code. [Embedded assets](../../web/assets.go) · [Developer guide](../DEVELOPER.md)
 
 Go services continue to own workspace identity, file grants and persisted data. Frontend modules use DOM builders for user-provided text. The metrics script counts tracked sink patterns in first-party JavaScript. Tests check the three allowed assignments and their justification comments, exercise selected DOM helpers with untrusted text, and verify the Studio and Research module entries. [Frontend metrics](../../Tools/scripts/check-frontend-metrics.py) · [ES module and DOM tests](../../tests/esm-modules-and-sinks.test.cjs)
 
@@ -32,7 +33,7 @@ Go services continue to own workspace identity, file grants and persisted data. 
 | Localization and accessibility | Templates use native controls, ARIA and the bilingual interface catalog through `interface-language.js`. | Typed message keys and options could catch some mistakes while editing. Keyboard and assistive-technology checks still exercise the rendered UI. | The same catalog and semantic HTML can be used in bundled modules. | Components can share localized labels and focus behavior. Each migrated view must preserve catalog lookup, keyboard navigation and accessible names. |
 | Contributor onboarding | Edit the asset, rebuild and relaunch the host. For the desktop app, quit the previous instance and run `make run`. | The same edit cycle applies. Contributors opting into the checker also need its pinned toolchain. | Contributors must generate the asset bundle before rebuilding the embedding host. | Contributors also learn the framework and the boundary between components and Go templates during migration. |
 
-Option 2 addresses module and JSON payload mistakes while preserving the current packaging path. The runtime tradeoff is still open. At the earlier revision `04a3c29`, the PR author reported running the Node suite on Linux with three macOS-only cases skipped and capturing 72 Chromium screenshots with zero page errors. These historical results describe rendering before the final view-based loading changes. The workbench smoke exercises those changes by navigating between Roundtable views and inspecting the resources actually requested. A comparison of startup time or framework bundle sizes in WKWebView is still needed. [PR #62 validation](https://github.com/Funyday-k/Sci-Station/pull/62) · [Visual capture plan](../../tests/workbench-visual-baselines-smoke.cjs) · [Localization tests](../../tests/localization.test.cjs) · [Interface language implementation](../../web/static/interface-language.js)
+Option 2 addresses module and JSON payload mistakes while preserving the current packaging path. The runtime tradeoff is still open. At the earlier revision `04a3c29`, the PR author reported running the Node suite on Linux with three macOS-only cases skipped and capturing 72 Chromium screenshots with zero page errors. These historical results describe rendering before the final view-based loading changes. The workbench smoke exercises those changes by navigating between Roundtable views and inspecting the resources actually requested. A comparison of startup time or framework bundle sizes in WKWebView is still needed before revisiting a bundler or framework. [PR #62 validation](https://github.com/Funyday-k/Sci-Station/pull/62) · [Visual capture plan](../../tests/workbench-visual-baselines-smoke.cjs) · [Localization tests](../../tests/localization.test.cjs) · [Interface language implementation](../../web/static/interface-language.js)
 
 ### Measuring startup before changing the build
 
@@ -51,13 +52,13 @@ Reopen the comparison if two or more of the following arise:
 
 ## Compatibility, migration and recovery
 
-All four options concern presentation assets. Option 2 would keep workspace formats, API payloads and user data compatible. Removing a future checker or its annotations would require no workspace migration. A later proposal to bundle assets would need to specify clean-checkout generation, release validation and rollback to the previous embedded assets.
+All four options concern presentation assets. Option 2 keeps workspace formats, API payloads and user data compatible. Removing a future checker or its annotations requires no workspace migration. A later proposal to bundle assets would need to specify clean-checkout generation, release validation and rollback to the previous embedded assets.
 
 ## Validation and rollout
 
-Run `python3 Tools/scripts/check-docs-hygiene.py` and `python3 -m unittest discover -s Tools/tests -v` on the proposal. The maintainer can record their disposition in the design review. On acceptance, update this RFC, its companion ADR and both indexes with the decision and its PR link, then close #46. Any implementation belongs in a separate issue. [Design review](https://github.com/Funyday-k/Sci-Station/pull/63) · [Proposed ADR-0006](../architecture/ADR-0006-frontend-build-layer.md) · [RFC process](README.md)
+Run `python3 Tools/scripts/check-docs-hygiene.py` and `python3 -m unittest discover -s Tools/tests -v` on the decision record. The maintainer accepted Option 2 on 2026-11-27 and recorded the decision in [ADR-0006](../architecture/ADR-0006-frontend-build-layer.md). No production code is changed in Issue #46; any future JSDoc type-checking setup belongs in a separate follow-up issue. [Design review](https://github.com/Funyday-k/Sci-Station/pull/63) · [ADR-0006](../architecture/ADR-0006-frontend-build-layer.md) · [RFC process](README.md)
 
-## Open questions
+## Open questions (disposition)
 
-1. If Option 2 is accepted, should type checking start as a local contributor task or an opt-in CI job?
-2. If Studio and Research begin sharing browser modules, would an import map improve on relative imports for those entry points?
+1. **Local task vs. opt-in CI job for type checking:** Deferred to a separate follow-up issue; start as an opt-in local contributor task before evaluating CI wiring.
+2. **Import map for shared browser modules:** Deferred to a separate follow-up issue; keep relative imports until Studio and Research begin sharing browser modules.
