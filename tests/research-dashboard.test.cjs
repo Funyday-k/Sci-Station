@@ -114,7 +114,8 @@ test("Home and Overview render durable draft counts and keep widget order, size 
     empty: String, reader: String, toolsPage: String
   };
   let app = browser();
-  state.dashboardData = await app.load(request);
+  const config = await window.SciStationModules.load();
+  state.dashboardData = await app.load(request, null, config);
   const now = new Date(2026, 10, 25);
   const first = app.markup(state, ui, now);
   const widgets = html => Array.from(html.matchAll(/class="dashboard-widget dashboard-(\w+)" data-dashboard-widget="(\w+)"/g),
@@ -157,7 +158,7 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   assert.doesNotMatch(second, /data-dashboard-widget="recent_papers"/);
 
   state.project = alpha;
-  state.dashboardData = await app.load(request, alpha.id);
+  state.dashboardData = await app.load(request, alpha.id, config);
   const overview = app.markup(state, ui, now);
   assert.match(overview, /class="dashboard-grid"/);
   assert.deepEqual(widgets(overview).slice(0, 3), [["project_status", "small"], ["research_questions", "small"], ["project_brief", "medium"]]);
@@ -169,20 +170,20 @@ test("Home and Overview render durable draft counts and keep widget order, size 
     if (path.startsWith("dashboard/projects") || path.endsWith("reviews")) throw new Error("Unavailable fixture");
     return request(path);
   };
-  state.dashboardData = await app.load(failure, alpha.id);
+  state.dashboardData = await app.load(failure, alpha.id, config);
   const unavailableOverview = app.markup(state, ui, now);
   assert.match(unavailableOverview, /部分数据加载失败.*项目统计、审核队列/s);
   assert.match(unavailableOverview, /无法读取审核活动/);
   assert.doesNotMatch(unavailableOverview, /暂无近期活动/);
 
   state.project = undefined;
-  state.dashboardData = await app.load(failure);
+  state.dashboardData = await app.load(failure, null, config);
   const unavailableHome = app.markup(state, ui, now);
   assert.match(unavailableHome, /部分数据加载失败.*项目统计、审核队列/s);
   assert.match(unavailableHome, /暂时无法读取审核队列/);
   assert.doesNotMatch(unavailableHome, /暂无待审核草稿/);
 
-  state.dashboardData = await app.load(path => path === "reviews" ? Promise.resolve([]) : request(path));
+  state.dashboardData = await app.load(path => path === "reviews" ? Promise.resolve([]) : request(path), null, config);
   assert.match(app.markup(state, ui, now), /暂无待审核草稿/);
   await assert.rejects(app.load(async path => {
     if (path === "/api/workspace") throw new Error("Workspace fixture unavailable");

@@ -140,9 +140,13 @@ func TestProjectRecordSchemaAllowsLegacyDirectoryRebind(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := newResearch(t, t.TempDir())
-	allowed := func(path string) bool { return path == first || path == second }
+	allowed := func(path string, _ DirectoryGrant) bool { return path == first || path == second }
 	s.SetPathValidator(allowed)
-	project, err := s.EnsureDirectoryProject(first)
+	grant, err := IdentifyDirectory(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.RegisterDirectoryProject(first, "", grant)
 	if err != nil {
 		t.Fatal(err)
 	}
