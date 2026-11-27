@@ -241,7 +241,7 @@ func (s *PaperLibrary) PDFPath(id string) (string, error) {
 }
 func decodePaperRecord(id string, data []byte) (Paper, error) {
 	var p Paper
-	if err := decodeResearchRecord(data, &p); err != nil {
+	if err := DecodeRecordJSON(data, &p); err != nil {
 		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json: %w", id, err)
 	}
 	if p.ID != id || p.Revision < 1 ||

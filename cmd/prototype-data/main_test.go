@@ -214,6 +214,91 @@ func TestRecoveryReopensIsolatedData(t *testing.T) {
 	}
 }
 
+func TestRecoveryRetainsSupportedResearchRecordVersions(t *testing.T) {
+	for _, version := range []string{"legacy", "v1"} {
+		t.Run(version, func(t *testing.T) {
+			parent := testParent(t)
+			prototype := fixture(t, parent)
+			archive := filepath.Join(parent, "archive")
+			destination := filepath.Join(parent, "restored")
+			originals := make(map[string]string)
+			for _, path := range []string{projectPath, paperPath} {
+				raw := getFile(t, prototype, path)
+				if version == "v1" {
+					raw = strings.Replace(raw, "{", "{\n  \"schema_version\": 1,\n  ", 1)
+					putFile(t, prototype, path, raw)
+				}
+				originals[path] = raw
+			}
+			for _, args := range [][]string{
+				{"backup", "-source", prototype, "-destination", archive},
+				{"verify", "-source", archive},
+				{"restore", "-source", archive, "-destination", destination},
+			} {
+				if err := run(args, &bytes.Buffer{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := research.New(filepath.Join(destination, "research")); err != nil {
+				t.Fatalf("restored records did not open: %v", err)
+			}
+			for path, original := range originals {
+				if getFile(t, prototype, path) != original || getFile(t, archive, payloadName+"/"+path) != original {
+					t.Fatalf("original or backup record changed: %s", path)
+				}
+				var record map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(getFile(t, destination, path)), &record); err != nil {
+					t.Fatal(err)
+				}
+				want := ""
+				if version == "v1" {
+					want = "1"
+				}
+				if got := string(record["schema_version"]); got != want {
+					t.Fatalf("%s has version %q, want %q", path, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyAndRestoreRejectUnsupportedResearchRecordVersions(t *testing.T) {
+	for _, record := range []struct{ name, path string }{{"project", projectPath}, {"paper", paperPath}} {
+		for _, version := range []struct{ name, field string }{
+			{"future", `"schema_version":2`},
+			{"malformed", `"schema_version":null`},
+			{"duplicate", `"schema_version":1,"schema\u005fversion":1`},
+		} {
+			t.Run(record.name+"/"+version.name, func(t *testing.T) {
+				parent := testParent(t)
+				prototype := fixture(t, parent)
+				archive := filepath.Join(parent, "archive")
+				destination := filepath.Join(parent, "restored")
+				body := strings.Replace(getFile(t, prototype, record.path), "{", "{"+version.field+",", 1)
+				putFile(t, prototype, record.path, body)
+				if err := backup(prototype, archive); err != nil {
+					t.Fatalf("byte-preserving backup failed: %v", err)
+				}
+				savedManifest := getFile(t, archive, manifestName)
+				for _, args := range [][]string{
+					{"verify", "-source", archive},
+					{"restore", "-source", archive, "-destination", destination},
+				} {
+					err := run(args, &bytes.Buffer{})
+					if err == nil || !strings.Contains(err.Error(), "schema_version") || !strings.Contains(err.Error(), record.path) {
+						t.Fatalf("expected a schema error for %s, got %v", record.path, err)
+					}
+				}
+				absent(t, destination)
+				if getFile(t, prototype, record.path) != body || getFile(t, archive, payloadName+"/"+record.path) != body ||
+					getFile(t, archive, manifestName) != savedManifest {
+					t.Fatal("verification or restoration changed the original or the backup")
+				}
+			})
+		}
+	}
+}
+
 func TestBackupRefusesInUseLinkedAndNestedData(t *testing.T) {
 	t.Run("lock", func(t *testing.T) {
 		parent := testParent(t)

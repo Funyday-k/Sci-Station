@@ -20,7 +20,9 @@ type paperRecord struct {
 	Paper
 }
 
-func decodeResearchRecord(data []byte, out any) error {
+// DecodeRecordJSON decodes a project or paper storage record. Legacy records
+// may omit schema_version.
+func DecodeRecordJSON(data []byte, out any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	start, err := decoder.Token()
 	if err != nil || start != json.Delim('{') {

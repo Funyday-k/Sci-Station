@@ -292,6 +292,17 @@ func writeJSON(root *os.Root, path string, value any) error {
 	return writePrivate(root, path, append(body, '\n'))
 }
 
+func readResearchRecord(root *os.Root, path string, out any) error {
+	var data json.RawMessage
+	if err := readJSON(root, path, &data); err != nil {
+		return err
+	}
+	if err := research.DecodeRecordJSON(data, out); err != nil {
+		return fmt.Errorf("invalid research record %q: %w", path, err)
+	}
+	return nil
+}
+
 // Validate references to records and bytes owned by the prototype. Historical
 // note/task evidence can point to deliberately removed papers or meetings.
 func validateRecords(root *os.Root, m manifest) error {
@@ -299,7 +310,7 @@ func validateRecords(root *os.Root, m manifest) error {
 	for path := range m.Entries {
 		if id, ok := directJSON(projectDirectory, path); ok {
 			var d projectRecord
-			if err := readJSON(root, path, &d); err != nil {
+			if err := readResearchRecord(root, path, &d); err != nil {
 				return err
 			}
 			if !validID(id) || d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil ||
@@ -359,7 +370,7 @@ func validateRecords(root *os.Root, m manifest) error {
 func validatePaper(root *os.Root, entries map[string]treeEntry, path string, projects map[string]bool) error {
 	id, _ := directJSON(paperDirectory, path)
 	var p research.Paper
-	if err := readJSON(root, path, &p); err != nil {
+	if err := readResearchRecord(root, path, &p); err != nil {
 		return err
 	}
 	if !validID(id) || p.ID != id || p.Revision < 1 {
