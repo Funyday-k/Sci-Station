@@ -159,4 +159,28 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   assert.match(overview, /data-stage="drafting"/);
   assert.match(overview, /<b>1<\/b> 项待审核/);
   assert.doesNotMatch(overview, /Pending beta/);
+
+  const failure = async path => {
+    if (path.startsWith("dashboard/projects") || path.endsWith("reviews")) throw new Error("Unavailable fixture");
+    return request(path);
+  };
+  state.dashboardData = await app.load(failure, alpha.id);
+  const unavailableOverview = app.markup(state, ui, now);
+  assert.match(unavailableOverview, /部分数据加载失败.*项目统计、审核队列/s);
+  assert.match(unavailableOverview, /无法读取审核活动/);
+  assert.doesNotMatch(unavailableOverview, /暂无近期活动/);
+
+  state.project = undefined;
+  state.dashboardData = await app.load(failure);
+  const unavailableHome = app.markup(state, ui, now);
+  assert.match(unavailableHome, /部分数据加载失败.*项目统计、审核队列/s);
+  assert.match(unavailableHome, /暂时无法读取审核队列/);
+  assert.doesNotMatch(unavailableHome, /暂无待审核草稿/);
+
+  state.dashboardData = await app.load(path => path === "reviews" ? Promise.resolve([]) : request(path));
+  assert.match(app.markup(state, ui, now), /暂无待审核草稿/);
+  await assert.rejects(app.load(async path => {
+    if (path === "/api/workspace") throw new Error("Workspace fixture unavailable");
+    return request(path);
+  }), /Workspace fixture unavailable/);
 });

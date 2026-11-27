@@ -417,6 +417,7 @@
   }
 
   async function paperCommand(command) {
+    if (state.loading || state.loadError) return;
     const editing = document.querySelector("dialog[open] [data-library-paper]")?.dataset.libraryPaper;
     const active = editing ? state.papers.filter(p => p.id === editing) : state.view === "papers" ? selection(visiblePapers) : [];
     if (!active.length) throw Error("请先在文献库中选择文献");

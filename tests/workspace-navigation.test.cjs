@@ -55,7 +55,7 @@ test("AI has one global entry and explicit chat and discussion modes with option
   assert.equal(navigation.aiMode(new URL("/studio?view=settings", origin)), "");
 });
 
-function mountResearch(start, sessions=[]) {
+function mountResearch(start, sessions=[], intercept) {
   const projects = [{id:"A",name:"Solar",path:"/one"}, {id:"B",name:"Lensing",path:"/two"}];
   const papers = [{id:"p1",title:"Solar paper",project_ids:["A"]},{id:"p2",title:"Lensing paper",project_ids:["B"]}];
   const tasks = projects.map(p => ({id:"task" + p.id, projectId:p.id, title:p.name + " task", revision:3,status:"open"}));
@@ -101,6 +101,8 @@ function mountResearch(start, sessions=[]) {
   };
   const fetch = async (url, init) => {
     calls.push({url,init});
+    const intercepted = intercept?.(url, init);
+    if (intercepted) return intercepted;
     if(init.method==="PATCH" && url==="/api/research/projects/B/tasks/taskB")return Response.json({});
     assert.ok(responses.has(url),url);
     return Response.json(responses.get(url));
@@ -113,6 +115,49 @@ function mountResearch(start, sessions=[]) {
   }
   return {ui:window.SciResearch,elements,calls,listeners,window,history,location};
 }
+
+test("research keeps stale content inert and retries the failed project and calendar view", async () => {
+  const hold = Promise.withResolvers();
+  let fail = false;
+  let delayed = true;
+  const area = "/api/research/projects/B/tasks";
+  const {ui, elements, listeners, location} = mountResearch("/research?view=tasks&project=A", [], url => {
+    if (url !== area) return;
+    if (delayed) {
+      delayed = false;
+      return hold.promise;
+    }
+    if (fail) return Response.json({error: "Task fixture unavailable"}, {status: 503});
+  });
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  await tick();
+  const firstSwitch = ui.load("B", "tasks", {historyMode: "push", calendar: true});
+  await tick();
+  assert.equal(elements.main.inert, true);
+  assert.equal(elements["research-loading"].hidden, false);
+  assert.match(elements["research-loading-message"].textContent, /Lensing/);
+  assert.match(elements.main.innerHTML, /Solar task/);
+  assert.equal(elements["search-open"].disabled, true);
+  await ui.load("A", "tasks", {historyMode: "push"});
+  hold.resolve(Response.json([{title: "Late Lensing task", status: "open"}]));
+  await firstSwitch;
+  assert.equal(elements.main.inert, false);
+  assert.equal(elements["research-loading"].hidden, true);
+  assert.doesNotMatch(elements.main.innerHTML, /Late Lensing task/);
+  assert.equal(ui.state.project.id, "A");
+
+  fail = true;
+  await ui.load("B", "tasks", {historyMode: "push", calendar: true});
+  assert.match(elements.main.innerHTML, /role="alert".*Task fixture unavailable/s);
+  assert.match(elements.main.innerHTML, /data-action="reload"/);
+  assert.doesNotMatch(elements.main.innerHTML, /当前列表没有任务/);
+  assert.equal(new URL(location.href).searchParams.get("project"), "A");
+  fail = false;
+  await listeners.click({target: {closest: () => ({dataset: {action: "reload"}, hasAttribute: () => false})}});
+  assert.equal(ui.state.project.id, "B");
+  assert.equal(new URL(location.href).searchParams.get("tab"), "calendar");
+  assert.match(elements.main.innerHTML, /class="calendar-head"/);
+});
 
 test("global library deep links stay global; project drilldown restricts the same papers", async () => {
   const {ui,elements,calls} = mountResearch("/research?view=papers");

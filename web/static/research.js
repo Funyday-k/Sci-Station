@@ -61,7 +61,7 @@
     loadError: ""
   };
   let navEpoch = 0,
-    toastTimer, modalCleanup = null, modalCanDismiss = null;
+    failedLoad, toastTimer, modalCleanup = null, modalCanDismiss = null;
   const apiRoot = "/api/research/";
   async function request(path, options = {}) {
     const init = {
@@ -471,12 +471,23 @@
       '</span>').join("") + cells.join("") + '</div></section>';
   }
 
+  function syncLoadPresentation() {
+    $("main").setAttribute("aria-busy", String(state.loading));
+    $("main").inert = state.loading;
+    $("search-open").disabled = state.loading || Boolean(state.loadError);
+    $("research-loading").hidden = !state.loading;
+  }
+
   function render() {
+    if (state.loading) return;
     updateNav();
     let out = "";
     if (state.loadError) {
-      $("main").setAttribute("aria-busy", "false");
-      $("main").innerHTML = heading(text("读取工作区时遇到问题", "Could not load workspace")) + panel(text("本机服务", "Local service"), empty(state.loadError, "", button(local("homeRetry", "重试", "Retry"), "reload") + link(text("项目列表", "Projects"), viewURL("projects", null))));
+      $("main").innerHTML = heading(text("页面加载失败", "Could not load view"), failedLoad?.label) +
+        panel(text("本机服务", "Local service"), '<div role="alert">' +
+          empty(state.loadError, "", button(local("homeRetry", "重试", "Retry"), "reload") +
+            link(text("项目列表", "Projects"), viewURL("projects", null))) + '</div>');
+      syncLoadPresentation();
       return;
     }
     if (state.view === "overview") out = dashboard.markup(state, dashboardUI);
@@ -533,7 +544,7 @@
     window.SciContextRail?.update();
     const dashboardRoot = $("dashboard-view");
     if (dashboardRoot) dashboard.mount(dashboardRoot, state, render, toast);
-    $("main").setAttribute("aria-busy", "false");
+    syncLoadPresentation();
   }
 
   function graphView() {
@@ -646,16 +657,31 @@
     }
   }
 
-  async function load(projectId, view, {
-    historyMode = "replace", calendar: requestedCalendar
-  } = {}) {
+  function currentView() {
+    const token = navEpoch;
+    return () => token === navEpoch && !state.loading && !state.loadError;
+  }
+
+  async function load(projectId, view, options = {}) {
+    const {historyMode = "replace", calendar: requestedCalendar, afterLoad} = options;
     const token = ++navEpoch;
     let targetView = Object.hasOwn(names, view) ? view : "overview";
+    const scope = state.projects.find(project => project.id === projectId)?.name;
+    const title = targetView === "overview" && !projectId ? local("routeHome", "首页", "Home") : names[targetView];
+    const label = scope ? scope + " · " + title : title;
+    const params = new URL(location.href).searchParams;
+    const tab = params.get("tab");
+    const savedCalendar = tab === "calendar" || (tab === null && params.get("calendar") === "1");
+    const calendarRequested = requestedCalendar ?? (historyMode !== "push" && savedCalendar);
     citationRequest?.abort();
     citationRequest = null;
     state.inspire.pending = false;
+    failedLoad = null;
     state.loadError = "";
-    $("main").setAttribute("aria-busy", "true");
+    state.loading = true;
+    syncLoadPresentation();
+    $("research-loading-message").textContent = text(`正在加载 ${label}…`, `Loading ${label}…`);
+    window.SciContextRail?.update();
     try {
       const [projects, papers, sessions, organization] = await Promise.all([
         request("projects"), request("papers"), request("/api/studio/sessions"), request("papers/organization")
@@ -666,10 +692,8 @@
       let fallback = Boolean(projectId && !nextProject);
       if (fallback) targetView = "projects";
       const config = await window.SciStationModules?.load(nextProject?.id || "");
-      const params = new URL(location.href).searchParams;
-      const tab = params.get("tab");
-      const savedCalendar = tab === "calendar" || (tab === null && params.get("calendar") === "1");
-      const calendar = targetView === "tasks" && (requestedCalendar ?? (historyMode !== "push" && savedCalendar));
+      if (token !== navEpoch) return;
+      const calendar = targetView === "tasks" && calendarRequested;
       const module = targetView==="overview" && !nextProject ? null : navigation.viewModules[calendar?"calendar":targetView] || (targetView==="projects"?"projects":null);
       if (!navigation.enabled(config,module)) {
         fallback = true;
@@ -687,14 +711,13 @@
       const [values,dashboardData,paperWikiStatus,taskCatalog] = await Promise.all([nextProject ?
         Promise.all([...suffixes.map(k => request("projects/" + enc(nextProject.id) + "/" + k)), graphLoad, targetView === "notes" ? request("projects/" + enc(nextProject.id) + "/wiki/folders") : []]) :
         Promise.all([[], ["overview", "tasks"].includes(targetView) ? request("tasks") : [], [], {nodes: [], edges: []}]),
-        targetView === "overview" ? dashboard.load(request, nextProject?.id) : null,
+        targetView === "overview" ? dashboard.load(request, nextProject?.id, config) : null,
         targetView === "papers" && !nextProject && organization.library?.visible_columns.includes("wiki") ?
           request("paper-wiki-status") : {},
         targetView === "tasks" ? request("task-tags") : null
       ]);
       if (token !== navEpoch) return;
-      // Publish the complete snapshot together. Until this point the visible
-      // controls and their actions both belong to the previous project.
+      // Publish the snapshot together before unlocking the new view.
       state.modules = config;
       state.view = targetView;
       state.calendar = calendar && !fallback;
@@ -727,13 +750,18 @@
       if(fallback && projectId && !nextProject) toast("这个项目已归档或不存在，请从项目列表重新选择。");
     } catch (err) {
       if (token !== navEpoch) return;
-      state.loadError = err.message;
+      state.loadError = err.message || text("本机服务暂时无法完成此请求。", "The local service could not complete this request.");
+      failedLoad = {label, retry: () => load(projectId, view, {...options, calendar: calendarRequested})};
     }
+    state.loading = false;
     render();
+    if (state.loadError) return;
+    await afterLoad?.(currentView());
+    return token === navEpoch;
   }
 
   function go(view) {
-    if (!Object.hasOwn(names, view)) return;
+    if (!Object.hasOwn(names, view) || !close()) return;
     state.query = "";
     state.libraryCollection = "";
     state.libraryTag = "";
@@ -744,6 +772,8 @@
   }
 
   function refresh() {
+    if (state.loading) return;
+    if (failedLoad) return failedLoad.retry();
     return load(state.project?.id, state.view, {
       historyMode: "replace"
     });
@@ -794,6 +824,7 @@
   }
 
   function search() {
+    if (state.loading || state.loadError) return;
     dialog("搜索工作区",
       '<input id="search-query" class="query-input" type="search" placeholder="输入标题、作者、标签或笔记内容" aria-label="搜索"><div id="search-results" class="search-results"></div>'
       );
@@ -866,10 +897,13 @@
     bytes,
     search,
     updateNav,
+    currentView,
     start: route
   };
   window.SciResearch = E;
   function handleWorkspaceCommand(key) {
+    if ((state.loading || state.loadError) &&
+        ["archivedProjects", "find", "newProject", "importIdentifier", "importPDF"].includes(key)) return true;
     if(key==="archivedProjects"){E.formAction("archived-projects");return true;}
     if(key==="find") {search();return true;}
     if(!["newProject","importIdentifier","importPDF"].includes(key) || !E.formAction) return false;
@@ -893,6 +927,10 @@
     }
     const target = ev.target.closest?.("button,a");
     if (!target || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    if (state.loading && target.closest("#main")) {
+      ev.preventDefault();
+      return;
+    }
     if (target.dataset.inspectObject) {
       window.SciContextRail?.selectObject(target.dataset.inspectObject, target.dataset.id, true);
       return;
@@ -914,6 +952,7 @@
     const action = target.dataset.action,
       id = target.dataset.id;
     if (!action) return;
+    const isCurrent = currentView();
     try {
       if (action === "task-filter") {
         state.taskFilter = id;
@@ -930,14 +969,14 @@
         state.month = new Date(state.month.getFullYear(), state.month.getMonth() + (action === "month-prev" ? -1 : 1),
           1);
         render();
-      } else if (action === "reload") await route();
+      } else if (action === "reload") await refresh();
       else if (action === "inspire-online" || action === "inspire-local") await applyInspire(action === "inspire-online");
       else if (action === "inspire-seed-add" || action === "inspire-seed-remove") await changeCitationSeeds(action, id);
       else if (action === "graph-rebuild") {
         const query = state.graphQuery;
         const workflow = state.graphWorkflow?.query;
         const project = state.project?.id;
-        await refresh();
+        if (!await refresh()) return;
         if (query && !state.graphError && state.project?.id === project && state.view === "graph") {
           const ids = new Set(state.graph.nodes.map(node => node.id));
           if ((!query.focus || ids.has(query.focus)) && (!query.target || ids.has(query.target))) await applyGraphQuery(query);
@@ -975,10 +1014,11 @@
       } else await E.formAction(action, id);
     } catch (err) {
       target.disabled = false;
-      toast(err.message);
+      if (isCurrent()) toast(err.message);
     }
   });
   document.addEventListener("change", async ev => {
+    if (state.loading || state.loadError) return;
     if (ev.target.id === "task-project") {
       if (!close()) {
         ev.target.value = state.project?.id || "";
@@ -1001,6 +1041,7 @@
   document.addEventListener("submit", ev => {
     if (ev.target.id !== "graph-query" && ev.target.id !== "graph-workflow-query") return;
     ev.preventDefault();
+    if (state.loading || state.loadError) return;
     const data = new FormData(ev.target);
     const query = Object.fromEntries(data);
     if (ev.target.id === "graph-workflow-query") void applyGraphWorkflow(query);
@@ -1008,7 +1049,7 @@
   });
   function filterResults(event) {
     const input = event.target;
-    if (event.isComposing) return;
+    if (event.isComposing || state.loading || state.loadError) return;
     if (input.id === "wiki-query" && state.wikiQuery !== input.value) {
       state.wikiQuery = input.value;
       $("wiki-results").innerHTML = wikiResults();
@@ -1053,25 +1094,25 @@
       navigation.commitURL(u, "replace");
     }
     await window.SciStationI18n?.ready;
-    await load(project, view, {historyMode: "none"});
-    if (command && !state.loadError && location.href === u.href) handleWorkspaceCommand(command);
-    if (task && view === "tasks" && !state.loadError && location.href === u.href &&
-        (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
-      await E.formAction?.("edit-task", task);
-    }
-    if (state.loadError || location.href !== u.href || state.project?.id !== project) return;
-    const note = u.searchParams.get("note"), material = u.searchParams.get("material");
-    const citation = window.SciEvidence?.locator(u.searchParams);
-    if (note && state.view === "notes") {
-      try { await E.openWikiNote(note, {citation}); }
-      catch (error) {
+    if (location.href !== u.href) return;
+    await load(project, view, {historyMode: "none", afterLoad: async isCurrent => {
+      if (!isCurrent() || location.href !== u.href) return;
+      if (command) handleWorkspaceCommand(command);
+      if (task && view === "tasks" && (state.project?.id || null) === project && state.tasks.some(t => t.id === task)) {
+        await E.formAction?.("edit-task", task);
+      }
+      if (state.project?.id !== project) return;
+      const note = u.searchParams.get("note"), material = u.searchParams.get("material");
+      const citation = window.SciEvidence?.locator(u.searchParams);
+      try {
+        if (note && state.view === "notes") await E.openWikiNote(note, {citation});
+        else if (material && citation && state.view === "materials") await E.openMaterialEvidence(material, citation);
+      } catch (error) {
+        if (!isCurrent()) return;
         if (citation) dialog("引用原文不可用", empty(error.message));
         else toast(error.message);
       }
-    } else if (material && citation && state.view === "materials") {
-      try { await E.openMaterialEvidence(material, citation); }
-      catch (error) { dialog("引用原文不可用", empty(error.message)); }
-    }
+    }});
   }
   navigation.setHistoryGuard(close);
   window.addEventListener("popstate", route);

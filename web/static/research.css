@@ -217,6 +217,27 @@ p {
   min-width: 0
 }
 
+.workspace-region .research-load-status {
+  position: sticky;
+  top: var(--workspace-bar-height);
+  z-index: 1;
+  padding-bottom: 0;
+}
+
+.research-load-status p {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--rad);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+#main[aria-busy="true"] {
+  opacity: .45;
+}
+
 .topbar {
   min-height: 58px;
   border-bottom: 1px solid var(--line);

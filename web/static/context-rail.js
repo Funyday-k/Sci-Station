@@ -24,7 +24,9 @@
   }
   function contextOf() {
     const url=new URL(location.href), params=url.searchParams, project=params.get("project") || "";
-    const research=window.SciResearch?.state, data=research?.project?.id===project || !project && !research?.project ? research:null;
+    const research=window.SciResearch?.state;
+    const matchesProject=(research?.project?.id || "")===project;
+    const data=matchesProject && !research?.loading && !research?.loadError ? research:null;
     const view=params.get("view") || "overview";
     if(selectedObject?.route!==url.href)selectedObject=null;
     const selection=view==="papers" && data?.view==="papers" ? paperSelection() : [];
